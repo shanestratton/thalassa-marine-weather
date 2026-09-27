@@ -207,6 +207,9 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                 onClick={onSelect}
                 aria-label={`Use the ${label} forecast model`}
                 aria-current={isActive ? 'true' : undefined}
+                // The pressed state the pin sheet's rows carry: 'Active' was the
+                // model in use's only mark, and only to the eye (UX scorecard run 8).
+                aria-pressed={isActive}
                 className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
                     isActive ? 'bg-sky-500/15 border-sky-400/40' : 'bg-white/3 border-white/6 hover:bg-white/6'
                 }`}

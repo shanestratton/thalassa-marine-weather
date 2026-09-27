@@ -7,7 +7,7 @@ import { OverlayPortal } from '../ui/OverlayPortal';
 import { Button } from '../ui/Button';
 import { XIcon } from '../Icons';
 import { ChevronRightIcon } from '../icons/GlassGlyphs';
-import { analyzeRain, getIntensityLabel, type RainAnalysis } from './rainAnalysis';
+import { analyzeRain, getIntensityLabel, RAIN_THRESHOLD, type RainAnalysis } from './rainAnalysis';
 
 interface MinutelyRain {
     time: string;
@@ -50,6 +50,14 @@ const MAX_CHART_BARS = 60;
  *  larger of this and the peak, so a 0.4 mm/hr drizzle is a low bar rather
  *  than a full-height wall. 2.5 is where 'Moderate' starts. */
 const CHART_AXIS_FLOOR = 2.5;
+/** The strip's mini chart draws any real rain at least this tall (per cent
+ *  of its 22 px), so a light hour is a bar and not a dotted rule. */
+const MINI_BAR_MIN_PCT = 30;
+/** The detail's rain-on-glass layer: whole at the window's side edges,
+ *  easing to 30 % across the 20 px gutters and held there wherever it lies
+ *  under the dialog's text and chart. */
+const DROP_LAYER_MASK =
+    'linear-gradient(90deg, #000 0, rgba(0,0,0,0.3) 20px, rgba(0,0,0,0.3) calc(100% - 20px), #000 100%)';
 
 /**
  * How far ahead the remaining frames reach, in the words rainAnalysis uses
@@ -70,6 +78,16 @@ function liveWindowLabel(frames: MinutelyRain[], now: number): string {
         return `${h}${halves ? '\u00bd' : ''} hour${h === 1 && !halves ? '' : 's'}`;
     }
     return `${spanMin} min`;
+}
+
+/** 'in 1 h 44 min', 'in 25 min', 'Now': when the peak comes, in the time
+ *  axis's own units. */
+function peakWhenLabel(minutes: number): string {
+    if (minutes <= 1) return 'Now';
+    if (minutes < 60) return `in ${minutes} min`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes - h * 60;
+    return m === 0 ? `in ${h} h` : `in ${h} h ${m} min`;
 }
 
 /**
@@ -126,7 +144,8 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     coordinates,
 }) => {
     const headlineId = useId();
-    // Label text for the provenance tag in the bottom-right corner.
+    const sourceTagId = useId();
+    // Label text for the provenance tag.
     //
     // The vendor names are gone (Shane 2026-08-28: "get rid of the Rainbow.AI
     // wording in the bottom right of the rain card"). Which API answered is a
@@ -138,6 +157,11 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     // observed, and a rain forecast that hides that is the one thing this card
     // must never be. Provenance for the curious lives in the modal.
     const sourceLabel = source === 'synthetic' ? 'Estimated' : '';
+    // "Nowcast" is not a vendor either: it says what kind of number this is.
+    // The grid's RAIN cell right above reads the forecast model's total for
+    // the day, so '0 mm' over 'Rain in 88 min' read as the app contradicting
+    // itself (UX scorecard run 8). Off the live card 'Right now:' says it.
+    const nowcastLabel = !sourceLabel && isLive && (source === 'rainbow' || source === 'weatherkit') ? 'Nowcast' : '';
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // 60-second tick — forces re-evaluation of "Rain in X min" countdown
@@ -182,26 +206,46 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     const isActive = analysis.hasRain;
     const hasDetail = analysis.frames.length > 0;
     const axisMax = Math.max(analysis.maxIntensity, CHART_AXIS_FLOOR);
+    // The mini chart earns the strip's 76 pt only for moderate or heavier
+    // rain. Below that its bars sat on the 2.5 mm/hr floor as a faint dotted
+    // rule a third of the way across an otherwise empty card, nearly lost by
+    // day (UX scorecard run 8), so the strip is the one 44 pt line it already
+    // is on short portrait: headline, badge, any tag, and a chevron.
+    const showChart = hasDetail && analysis.hasRain && analysis.maxIntensity >= CHART_AXIS_FLOOR;
+    const oneLine = !showChart;
+    const tag = hasDetail ? sourceLabel || nowcastLabel : '';
+    // In the one-line row 'Nowcast' rides beside a short verdict only
+    // ('Rain in 88 min' and its badge): beside 'No rain expected next 3½
+    // hours' it would break the line on a 375 pt phone. The chart's own row
+    // carries it whenever the chart is shown. 'Estimated' always shows.
+    const inlineNowcast = hasDetail && !!nowcastLabel && analysis.headline.length <= 18;
+    // The far tick names the feed's reach in the time axis's words: '4 h', '3½ h'.
+    const horizonTick = showChart ? liveWindowLabel(analysis.frames, analysedAt).replace(/ hours?$/, ' h') : '';
+    const inlineTagClass = `${oneLine ? '' : 'hidden in-data-[glass-rhythm=short]:inline-block'} shrink-0 text-[11px] font-semibold uppercase tracking-wider text-white/50 pointer-events-none select-none`;
 
     return (
         <>
             <button
                 aria-label="Open rain forecast detail"
-                // The label names the action; the verdict is read as its
-                // description, so a screen reader hears both.
-                aria-describedby={headlineId}
+                // The label names the action; the verdict (and what kind of
+                // number it is) is read as its description, so a screen reader
+                // hears both.
+                aria-describedby={tag ? `${headlineId} ${sourceTagId}` : headlineId}
                 aria-disabled={hasDetail ? undefined : true}
                 onClick={openModal}
                 // By day the card takes the metric grid's white card surface and
                 // border: the translucent slate was about 1.1:1 against the
                 // daylight page (UX scorecard run 6). Important, because the
                 // daylight remap of bg-slate-800/40 is unlayered and would win.
-                // On short portrait (Dashboard root data-glass-rhythm="short")
-                // the strip is one 44 pt line so the tide card keeps its room:
-                // headline, badge and any Estimated tag in a single centred row,
-                // with a chevron standing in for 'Tap for detail' (UX scorecard
-                // run 7: at 34 pt it was under the touch floor and had no cue).
-                className={`w-full min-h-[76px] rounded-xl overflow-hidden relative text-left transition-all duration-500 in-data-[glass-rhythm=short]:min-h-[44px] in-data-[glass-rhythm=short]:flex in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:px-6 [.display-light_&]:bg-white! ${className} ${
+                // One line (oneLine, or short portrait's data-glass-rhythm="short"
+                // on the Dashboard root): a single 44 pt centred row, with a
+                // chevron standing in for 'Tap for detail' (UX scorecard run 7:
+                // at 34 pt it was under the touch floor and had no cue).
+                className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${
+                    oneLine
+                        ? 'min-h-[44px] flex items-center justify-center gap-1.5 px-6'
+                        : 'min-h-[76px] in-data-[glass-rhythm=short]:min-h-[44px] in-data-[glass-rhythm=short]:flex in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:gap-1.5 in-data-[glass-rhythm=short]:px-6'
+                } [.display-light_&]:bg-white! ${className} ${
                     isActive
                         ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10 [.display-light_&]:border-sky-600/50!'
                         : 'bg-slate-800/40 border border-blue-400/10 [.display-light_&]:border-slate-900/20!'
@@ -215,11 +259,18 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     </div>
                 )}
 
-                {/* On short portrait the button pads both sides equally, so the
+                {/* On one line the button pads both sides equally, so the
                     centred row stays clear of the chevron at the right edge. */}
-                <div className="relative z-10 px-3 py-1.5 h-full flex flex-col justify-between in-data-[glass-rhythm=short]:flex-row in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:py-0 in-data-[glass-rhythm=short]:px-1">
-                    {/* Header Row */}
-                    <div className="flex items-center justify-center">
+                <div
+                    className={
+                        oneLine
+                            ? 'relative z-10 min-w-0 px-1 flex flex-row items-center justify-center'
+                            : 'relative z-10 px-3 py-1.5 h-full flex flex-col justify-between in-data-[glass-rhythm=short]:flex-row in-data-[glass-rhythm=short]:items-center in-data-[glass-rhythm=short]:justify-center in-data-[glass-rhythm=short]:py-0 in-data-[glass-rhythm=short]:px-1'
+                    }
+                >
+                    {/* Header Row — gap-1.5, so the badge no longer butts
+                        against the headline (UX scorecard run 8). */}
+                    <div className="flex items-center justify-center gap-1.5">
                         <div className="flex items-center gap-1.5">
                             <svg
                                 width="12"
@@ -248,28 +299,34 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
 
                         {isActive && (
                             <div
-                                className={`px-1.5 py-0 rounded-full text-[11px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}
+                                className={`shrink-0 px-1.5 py-0 rounded-full text-[11px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}
                             >
                                 {analysis.category.label}
                             </div>
                         )}
                     </div>
 
-                    {/* Mini Bar Chart (compact preview) — only show when there is meaningful rain.
-                        Dropped on short portrait: the one-line strip has no room. */}
-                    {hasDetail && analysis.hasRain && (
+                    {/* Mini Bar Chart (compact preview) — moderate or heavier rain
+                        only. Real rain draws at least MINI_BAR_MIN_PCT tall, and
+                        by day the bars take one solid sky ink: the pale night
+                        blues vanished on the white card. Dropped on short
+                        portrait: the one-line strip has no room. */}
+                    {showChart && (
                         <div
                             aria-hidden="true"
                             className="flex items-end gap-px w-full mt-1 h-[22px] overflow-hidden in-data-[glass-rhythm=short]:hidden"
                         >
                             {chartBars(analysis.frames).bars.map((intensity, i) => {
-                                const normalizedHeight = Math.max((intensity / axisMax) * 100, intensity > 0 ? 10 : 0);
+                                const normalizedHeight = Math.max(
+                                    (intensity / axisMax) * 100,
+                                    intensity >= RAIN_THRESHOLD ? MINI_BAR_MIN_PCT : 0,
+                                );
                                 const barColor = getBarColor(intensity, axisMax, isActive);
 
                                 return (
                                     <div key={i} className="flex-1 min-w-0 relative" style={{ height: '100%' }}>
                                         <div
-                                            className="absolute bottom-0 left-0 right-0 rounded-t-[1px]"
+                                            className="absolute bottom-0 left-0 right-0 rounded-t-[1px] [.display-light_&]:bg-sky-600/80!"
                                             style={{
                                                 height: `${normalizedHeight}%`,
                                                 background: barColor,
@@ -282,29 +339,43 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                         </div>
                     )}
 
-                    {/* Tap hint — on short portrait the chevron says it. */}
-                    {hasDetail && (
+                    {/* Time ends under the chart, and the tap hint between them
+                        with what kind of numbers these are. On short portrait
+                        the chevron says it. */}
+                    {showChart && (
                         <div
                             aria-hidden="true"
-                            className="flex items-center justify-center mt-0.5 in-data-[glass-rhythm=short]:hidden"
+                            className="flex items-center justify-between gap-2 mt-0.5 in-data-[glass-rhythm=short]:hidden"
                         >
-                            <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
-                                Tap for detail
+                            <span className="shrink-0 text-[11px] font-bold text-white/60 tracking-wide">Now</span>
+                            <span className="min-w-0 truncate text-[11px] font-bold text-white/60 uppercase tracking-widest">
+                                {tag ? `${tag} · ` : ''}Tap for detail
+                            </span>
+                            <span className="shrink-0 text-[11px] font-bold text-white/60 tracking-wide">
+                                {horizonTick}
                             </span>
                         </div>
                     )}
                 </div>
 
                 {hasDetail && (
-                    <ChevronRightIcon className="hidden in-data-[glass-rhythm=short]:block absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60 pointer-events-none" />
+                    <ChevronRightIcon
+                        className={`${oneLine ? 'block' : 'hidden in-data-[glass-rhythm=short]:block'} absolute right-1.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/60 pointer-events-none`}
+                    />
                 )}
 
-                {/* Honesty tag — bottom-right, and only when the numbers are
-                    estimated rather than measured. On short portrait it joins
-                    the one-line row instead, so it can't sit on the headline. */}
-                {sourceLabel && (
-                    <span className="absolute bottom-1 right-2 in-data-[glass-rhythm=short]:static in-data-[glass-rhythm=short]:shrink-0 text-[11px] font-semibold uppercase tracking-wider text-white/50 pointer-events-none select-none">
-                        {sourceLabel}
+                {/* Honesty tag, in the one-line row: 'Estimated' whenever the
+                    numbers are modelled rather than measured, 'Nowcast' beside
+                    a short verdict. The full strip carries it in the row under
+                    its chart instead. */}
+                {sourceLabel ? (
+                    <span className={inlineTagClass}>{sourceLabel}</span>
+                ) : inlineNowcast ? (
+                    <span className={inlineTagClass}>{nowcastLabel}</span>
+                ) : null}
+                {tag && (
+                    <span id={sourceTagId} className="sr-only">
+                        {tag === 'Estimated' ? 'Estimated from the hourly forecast' : 'Nowcast'}
                     </span>
                 )}
             </button>
@@ -373,6 +444,12 @@ const RainModal: React.FC<ModalProps> = ({
     const axisMax = Math.max(analysis.maxIntensity, CHART_AXIS_FLOOR);
     const peakBar = Math.floor(analysis.peakIdx / bucket);
     const peakPct = (peakBar + 0.5) / Math.max(bars.length, 1);
+    // The peak bar's own height, as each bar draws it: the marker stands on
+    // its bar rather than at the top of the 120 pt box, where over a 15 pt
+    // drizzle bar it floated under the headline and read as 'RAIN IN 87 MIN
+    // PEAK' (UX scorecard run 8).
+    const barHeightPct = (intensity: number) => Math.max((intensity / axisMax) * 100, intensity > 0 ? 4 : 0);
+    const peakBarPct = barHeightPct(bars[peakBar] ?? 0);
     const peakInMin = data[analysis.peakIdx]
         ? Math.max(0, Math.round((new Date(data[analysis.peakIdx].time).getTime() - now) / 60_000))
         : 0;
@@ -654,12 +731,20 @@ const RainModal: React.FC<ModalProps> = ({
                             */}
                             {/* By day the dark beads sit on the light day surface,
                                 under navy text: drawn fainter so they stay a
-                                mood, not a pattern the numbers must fight. */}
+                                mood, not a pattern the numbers must fight.
+                                By night too, the beads and trails ran through
+                                the text: one sat behind 'mm/hr' in the stats,
+                                a trail cut the Z of DRIZZLE, and others sat
+                                behind the '3 h' tick and Close (UX scorecard
+                                run 8). The mask keeps them whole only in the
+                                side gutters, the window's edge, and at 30 %
+                                under the content column. */}
                             <svg
                                 className="absolute inset-0 w-full h-full [.display-light_&]:opacity-25"
                                 viewBox="0 0 200 400"
                                 preserveAspectRatio="xMidYMid slice"
                                 aria-hidden="true"
+                                style={{ maskImage: DROP_LAYER_MASK, WebkitMaskImage: DROP_LAYER_MASK }}
                             >
                                 <defs>
                                     {/* Lens gradient — dark crescent up top
@@ -885,64 +970,68 @@ const RainModal: React.FC<ModalProps> = ({
                     {/* Rain chart — one image with a spoken summary; the bars
                         and axis ticks are not read one by one. */}
                     <div role="img" aria-label={chartSummary} className="relative">
-                        {/* Peak intensity marker, held inside the chart's width
-                            at either end. */}
-                        {analysis.hasRain && (
+                        {/* Chart frame: the box's own height, so the peak marker
+                            can stand a bar's height up it. */}
+                        <div className="relative">
+                            {/* Peak intensity marker, 4 px above its bar and held
+                                inside the chart's width at either end. At full
+                                height it rises 16 px, into the headline's margin. */}
+                            {analysis.hasRain && (
+                                <div
+                                    className="absolute text-[11px] leading-none text-sky-400 font-bold uppercase tracking-wider whitespace-nowrap"
+                                    style={{
+                                        left: `${peakPct * 100}%`,
+                                        bottom: `calc(${peakBarPct.toFixed(1)}% + 4px)`,
+                                        transform:
+                                            peakPct < 0.1
+                                                ? 'translateX(0)'
+                                                : peakPct > 0.9
+                                                  ? 'translateX(-100%)'
+                                                  : 'translateX(-50%)',
+                                    }}
+                                >
+                                    Peak
+                                </div>
+                            )}
+
+                            {/* Dry window: the chart is only a 32 pt baseline over
+                                the time axis, with no bars — trace below the rain
+                                threshold, scaled to its own 0.1 mm/hr peak, drew a
+                                full chart under 'No rain expected' (UX scorecard
+                                run 7). With rain, bars are buckets of the feed (at
+                                most MAX_CHART_BARS) against a fixed floor, clipped
+                                to the padded box so they share one width with the
+                                axis. */}
                             <div
-                                className="absolute -top-4 text-[11px] text-sky-400 font-bold uppercase tracking-wider whitespace-nowrap"
-                                style={{
-                                    left: `${peakPct * 100}%`,
-                                    transform:
-                                        peakPct < 0.1
-                                            ? 'translateX(0)'
-                                            : peakPct > 0.9
-                                              ? 'translateX(-100%)'
-                                              : 'translateX(-50%)',
-                                }}
+                                className={`relative flex items-end gap-px w-full overflow-hidden ${analysis.hasRain ? 'h-[120px]' : 'h-8'}`}
                             >
-                                Peak
+                                <div
+                                    className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
+                                    style={{ background: 'var(--day-ui-border, rgba(255,255,255,0.25))' }}
+                                />
+                                {analysis.hasRain &&
+                                    bars.map((intensity, i) => {
+                                        const normalizedHeight = barHeightPct(intensity);
+                                        const barColor = getBarColor(intensity, axisMax, true);
+                                        const isPeak = i === peakBar;
+
+                                        return (
+                                            <div key={i} className="flex-1 min-w-0 relative" style={{ height: '100%' }}>
+                                                <div
+                                                    className={`absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-300 ${isPeak ? 'ring-1 ring-cyan-400/50' : ''}`}
+                                                    style={{
+                                                        height: `${normalizedHeight}%`,
+                                                        background: barColor,
+                                                        boxShadow:
+                                                            intensity > 0
+                                                                ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
+                                                                : 'none',
+                                                    }}
+                                                />
+                                            </div>
+                                        );
+                                    })}
                             </div>
-                        )}
-
-                        {/* Dry window: the chart is only a 32 pt baseline over the
-                            time axis, with no bars — trace below the rain
-                            threshold, scaled to its own 0.1 mm/hr peak, drew a
-                            full chart under 'No rain expected' (UX scorecard
-                            run 7). With rain, bars are buckets of the feed (at
-                            most MAX_CHART_BARS) against a fixed floor, clipped to
-                            the padded box so they share one width with the axis. */}
-                        <div
-                            className={`relative flex items-end gap-px w-full overflow-hidden ${analysis.hasRain ? 'h-[120px]' : 'h-8'}`}
-                        >
-                            <div
-                                className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
-                                style={{ background: 'var(--day-ui-border, rgba(255,255,255,0.25))' }}
-                            />
-                            {analysis.hasRain &&
-                                bars.map((intensity, i) => {
-                                    const normalizedHeight = Math.max(
-                                        (intensity / axisMax) * 100,
-                                        intensity > 0 ? 4 : 0,
-                                    );
-                                    const barColor = getBarColor(intensity, axisMax, true);
-                                    const isPeak = i === peakBar;
-
-                                    return (
-                                        <div key={i} className="flex-1 min-w-0 relative" style={{ height: '100%' }}>
-                                            <div
-                                                className={`absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-300 ${isPeak ? 'ring-1 ring-cyan-400/50' : ''}`}
-                                                style={{
-                                                    height: `${normalizedHeight}%`,
-                                                    background: barColor,
-                                                    boxShadow:
-                                                        intensity > 0
-                                                            ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
-                                                            : 'none',
-                                                }}
-                                            />
-                                        </div>
-                                    );
-                                })}
                         </div>
 
                         {/* Time Axis — labels positioned by true pct across the
@@ -974,8 +1063,11 @@ const RainModal: React.FC<ModalProps> = ({
                         </div>
                     </div>
 
-                    {/* Stats Row — the gauge's one decimal, so a 0.6 mm/hr peak
-                        is not '1 mm/hr' beside '0.6'. */}
+                    {/* Stats Row. The peak's size is the gauge's job ('0.3 mm/hr
+                        peak'); here it said it a second time, so the middle
+                        stat says when the peak comes instead (UX scorecard
+                        run 8), in the time axis's hours and minutes. Labelled
+                        'Peak', so it reads 'Peak in 25 min' or 'Peak now'. */}
                     {analysis.hasRain && (
                         <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/10">
                             <div className="text-center">
@@ -990,7 +1082,7 @@ const RainModal: React.FC<ModalProps> = ({
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Peak</div>
                                 <div className="text-sm font-bold text-sky-400 tabular-nums">
-                                    {analysis.maxIntensity.toFixed(1)} mm/hr
+                                    {peakWhenLabel(peakInMin)}
                                 </div>
                             </div>
                             <div className="text-center">

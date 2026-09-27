@@ -20,6 +20,13 @@ const h = vi.hoisted(() => ({
     updateSettings: vi.fn(),
     selectLocation: vi.fn<() => Promise<void>>(async () => undefined),
     weatherData: { locationName: 'Newport', coordinates: { lat: -27.2, lon: 153.1 } as { lat: number; lon: number } },
+    positionSource: null as null | {
+        kind: null;
+        timestamp: number;
+        target?: 'phone' | 'boat';
+        status?: 'live' | 'last-known' | 'unavailable' | 'resolving';
+        retainedWeather?: boolean;
+    },
     boatOrHeldFix: vi.fn<() => Promise<unknown>>(async () => null),
     requestCurrentForegroundPosition: vi.fn(async () => ({ latitude: -27.47, longitude: 153.02, timestamp: 1 })),
 }));
@@ -28,7 +35,11 @@ vi.mock('../context/SettingsContext', () => ({
     useSettings: () => ({ settings: h.settings, updateSettings: h.updateSettings }),
 }));
 vi.mock('../context/WeatherContext', () => ({
-    useWeather: () => ({ weatherData: h.weatherData, selectLocation: h.selectLocation }),
+    useWeather: () => ({
+        weatherData: h.weatherData,
+        selectLocation: h.selectLocation,
+        positionSource: h.positionSource,
+    }),
 }));
 vi.mock('../services/GpsService', () => ({
     GpsService: { requestCurrentForegroundPosition: h.requestCurrentForegroundPosition },
@@ -54,6 +65,7 @@ beforeEach(() => {
     h.settings.savedLocationCoords = {};
     h.selectLocation.mockResolvedValue(undefined);
     h.boatOrHeldFix.mockResolvedValue(null);
+    h.positionSource = null;
 });
 
 describe('★ menu — the vessel as a special saved location', () => {
@@ -104,6 +116,22 @@ describe('★ menu — the vessel as a special saved location', () => {
             }),
         );
         expect(getWeatherFollowTarget()).toBe('phone');
+    });
+
+    it('a ticked receiver with no fix says so in its name, and its tick turns amber (UX scorecard run 8)', () => {
+        h.positionSource = { kind: null, timestamp: 1, target: 'phone', status: 'unavailable', retainedWeather: true };
+        render(<LocationStarMenu />);
+        openMenu();
+        const current = screen.getByRole('menuitem', {
+            name: /^Current Location\s*, GPS unavailable, showing last location/,
+        });
+        expect(current).toHaveAttribute('aria-current', 'location');
+        expect(current.querySelector('svg.text-amber-400')).not.toBeNull();
+        // No GPS sentence on the page: the words live only in the name.
+        expect(screen.getByText(/GPS unavailable/)).toHaveClass('sr-only');
+        const boat = screen.getByTestId('location-star-vessel');
+        expect(boat).not.toHaveAttribute('aria-current');
+        expect(boat).not.toHaveTextContent(/GPS unavailable/);
     });
 
     it('offers Vessel location when the boat has no configured name', () => {
@@ -225,9 +253,10 @@ describe('★ menu — the place on screen is matched by position', () => {
         h.settings.savedLocationCoords = { Mackay: { lat: -21.1, lon: 149.2 } };
         render(<LocationStarMenu />);
         openMenu();
-        const home = screen.getByRole('menuitem', { name: 'Home: set Mackay as home port' });
+        // 'Set home', not a bare 'Home' that read as the place's status (UX scorecard run 8).
+        const home = screen.getByRole('menuitem', { name: 'Set home port to Mackay' });
         const remove = screen.getByRole('menuitem', { name: 'Remove Mackay' });
-        expect(home).toHaveTextContent('Home');
+        expect(home).toHaveTextContent('Set home');
         expect(remove).toHaveTextContent('Remove');
         fireEvent.click(remove);
         fireEvent.scroll(window);

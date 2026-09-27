@@ -55,9 +55,16 @@ const BarometerModal = lazyRetry(
  *  Fires with the cell's metric id on a tap. Null = taps do nothing. */
 const MetricTapContext = React.createContext<((id: string) => void) | null>(null);
 
-const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
+const DraggableMetricCell: React.FC<{
+    id: string;
+    children: React.ReactNode;
+    /** What the metric means, read after the cell's name as its description:
+     *  in the name, swiping the grid read ten definitions (UX scorecard run 8). */
+    description?: string;
+}> = ({ id, children, description }) => {
     const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({ id });
     const onMetricTap = React.useContext(MetricTapContext);
+    const descriptionId = React.useId();
     const style: React.CSSProperties = {
         opacity: isDragging ? 0.35 : 1,
         touchAction: 'none',
@@ -72,6 +79,11 @@ const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> =
             style={style}
             {...attributes}
             {...listeners}
+            // dnd-kit's own drag instructions stay, after the glossary.
+            aria-describedby={
+                [description ? descriptionId : null, attributes['aria-describedby']].filter(Boolean).join(' ') ||
+                undefined
+            }
             // stopPropagation is load-bearing. The grid itself carries an
             // onClick that opens the model-comparison matrix when offshore,
             // and a metric tap used to bubble straight into it — so ONE tap
@@ -93,6 +105,11 @@ const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> =
             <div key={id} className="metric-swap-enter w-full h-full">
                 {children}
             </div>
+            {description && (
+                <span id={descriptionId} hidden>
+                    {description}
+                </span>
+            )}
         </div>
     );
 };
@@ -165,6 +182,30 @@ const spokenReading = (value: string | number, unit?: string): string => {
 
 const spokenTrend = (value: string | number, trend?: 'up' | 'down' | 'stable'): string =>
     value === '--' || !trend ? '' : trend === 'up' ? ', rising' : trend === 'down' ? ', falling' : ', steady';
+
+/** Any dash-only value ('---', '—') is the one placeholder, '--': while
+ *  loading DIR drew a bright '---' that VoiceOver read as 'dash dash dash'
+ *  (UX scorecard run 8). */
+const asReading = (value: string | number): string | number =>
+    typeof value === 'string' && /^[\s\-\u2012-\u2015]+$/.test(value) ? '--' : value;
+
+/* What each metric means. Read as the cell's description, after its name
+   (value and trend), and shown as the hover title. */
+const GLOSSARY = {
+    pinnedTemp: 'Shown here while another metric is pinned to the top',
+    wind: 'Sustained wind speed — average over 10 minutes',
+    gust: 'Peak gust speed — sudden short bursts above sustained wind',
+    swell: 'Open-ocean swell height — long-period waves from distant storms',
+    wave: 'Significant wave height — average of tallest third of waves',
+    uv: 'UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme',
+    vis: 'Visibility — horizontal distance at which objects can be clearly seen',
+    baro: 'Opens the barometer',
+    humidity: 'Relative humidity — 60%+ feels muggy on a boat, <30% is very dry',
+    // The day's total from the forecast model, not the minute-by-minute
+    // nowcast in the rain strip below it (UX scorecard run 8).
+    rainToday: 'Total rain for today, from the hourly forecast',
+    chance: 'Chance of rain during this hour',
+};
 
 // --- Trend Arrow Component ---
 // Stroke arrows, not filled triangles: a ▲/▼ beside a label read as a
@@ -273,13 +314,16 @@ const InstrumentCell: React.FC<{
     spokenValue,
     spokenExtra,
 }) => {
+    value = asReading(value);
     const reading = value === '--' ? ', no reading' : ` ${spokenValue ?? spokenReading(value, unit)}`;
     return (
         <div
             className={`flex flex-col items-center justify-between h-full py-2 px-1 relative ${onClick ? 'cursor-pointer active:bg-white/5 transition-colors' : ''}`}
             onClick={onClick}
             title={tooltip}
-            aria-label={`${spokenLabel}${reading}${spokenTrend(value, trend)}${value !== '--' && spokenExtra ? `, ${spokenExtra}` : ''}${tooltip ? `. ${tooltip}` : ''}`}
+            // Value and trend only: the glossary is the description
+            // (DraggableMetricCell), not ten definitions in the names.
+            aria-label={`${spokenLabel}${reading}${spokenTrend(value, trend)}${value !== '--' && spokenExtra ? `, ${spokenExtra}` : ''}`}
         >
             {/* Header: icon + label + trend — locked to a single 12px line */}
             <div
@@ -326,7 +370,8 @@ const InstrumentCell: React.FC<{
 const BarometerCell: React.FC<{
     pressure: string | number;
     trend?: 'up' | 'down' | 'stable';
-}> = ({ pressure, trend }) => {
+}> = ({ pressure: rawPressure, trend }) => {
+    const pressure = asReading(rawPressure);
     // Semantic coloring: rising pressure = improving (green), falling = worsening (red)
     const isRising = trend === 'up';
     const trendWord =
@@ -335,7 +380,7 @@ const BarometerCell: React.FC<{
     return (
         <div
             className="flex flex-col items-center justify-between h-full py-2 px-1 relative"
-            aria-label={`Barometer${pressure === '--' ? ', no reading' : ` ${spokenReading(pressure, 'hPa')}`}${trendWord}. Tap for the barometer`}
+            aria-label={`Barometer${pressure === '--' ? ', no reading' : ` ${spokenReading(pressure, 'hPa')}`}${trendWord}`}
         >
             {/* Header: icon + label + trend — locked to 12px line */}
             <div className="glass-metric-heading-row flex items-center gap-1 opacity-90 h-3">
@@ -353,8 +398,12 @@ const BarometerCell: React.FC<{
 
             {/* Value */}
             <div className="flex items-baseline mt-auto mb-1 gap-0.5">
+                {/* The muted placeholder InstrumentCell uses: BARO's '--' was
+                    the one bright ivory dash on the grid (UX scorecard run 8). */}
                 <span
-                    className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md"
+                    className={`text-[26px] font-mono font-medium tracking-tight drop-shadow-md ${
+                        pressure === '--' ? 'text-slate-500' : 'text-ivory'
+                    }`}
                     style={{ fontFeatureSettings: '"tnum"' }}
                 >
                     {pressure}
@@ -406,7 +455,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         topRowData.swellPeriod !== null && topRowData.swellPeriod !== undefined
             ? Math.round(topRowData.swellPeriod)
             : '--';
-    const windDir = topRowData.windDirection || '--';
+    const windDir = asReading(topRowData.windDirection || '--');
     const windDirSpoken = windDir === '--' ? undefined : expandCompassDirection(String(windDir)).toLowerCase();
     const swellDirDeg = cardinalToDegrees(topRowData.swellDirection) ?? null;
     const swellFromSpoken =
@@ -606,7 +655,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 ANIMATIONS" for the full keyframe details. */}
                 <div className="w-full grid grid-cols-5 divide-x divide-white/12 h-[80px]">
                     {/* Wind Speed — or TEMP if wind is pinned to hero */}
-                    <DraggableMetricCell id={heroMetric === 'wind' ? 'temp' : 'wind'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'wind' ? 'temp' : 'wind'}
+                        description={heroMetric === 'wind' ? GLOSSARY.pinnedTemp : GLOSSARY.wind}
+                    >
                         {heroMetric === 'wind' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -614,7 +666,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 icon={<ThermometerIcon className="w-3 h-3" />}
                                 value={tempValue}
                                 unit={tempUnit}
-                                tooltip="Shown here while another metric is pinned to the top"
+                                tooltip={GLOSSARY.pinnedTemp}
                             />
                         ) : (
                             <InstrumentCell
@@ -625,7 +677,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 unit={speedUnit}
                                 trend={trends?.windSpeed}
                                 improving={isWindImproving}
-                                tooltip="Sustained wind speed — average over 10 minutes"
+                                tooltip={GLOSSARY.wind}
                             />
                         )}
                     </DraggableMetricCell>
@@ -652,7 +704,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     </DraggableMetricCell>
 
                     {/* Gusts — or TEMP if pinned */}
-                    <DraggableMetricCell id={heroMetric === 'gust' ? 'temp' : 'gust'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'gust' ? 'temp' : 'gust'}
+                        description={heroMetric === 'gust' ? undefined : GLOSSARY.gust}
+                    >
                         {heroMetric === 'gust' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -670,13 +725,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 unit={speedUnit}
                                 trend={trends?.windGust}
                                 improving={isGustImproving}
-                                tooltip="Peak gust speed — sudden short bursts above sustained wind"
+                                tooltip={GLOSSARY.gust}
                             />
                         )}
                     </DraggableMetricCell>
 
                     {/* Wave/Swell Height — or TEMP if pinned */}
-                    <DraggableMetricCell id={heroMetric === 'wave' ? 'temp' : 'wave'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'wave' ? 'temp' : 'wave'}
+                        description={heroMetric === 'wave' ? undefined : isOffshore ? GLOSSARY.swell : GLOSSARY.wave}
+                    >
                         {heroMetric === 'wave' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -696,11 +754,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 trend={trends?.waveHeight}
                                 improving={isWaveImproving}
                                 dirDeg={swellDirDeg}
-                                tooltip={
-                                    isOffshore
-                                        ? 'Open-ocean swell height — long-period waves from distant storms'
-                                        : 'Significant wave height — average of tallest third of waves'
-                                }
+                                tooltip={isOffshore ? GLOSSARY.swell : GLOSSARY.wave}
                             />
                         )}
                     </DraggableMetricCell>
@@ -737,7 +791,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* BOTTOM ROW: UV, Vis, Baro, Hum, Rain */}
                 <div className="w-full grid grid-cols-5 divide-x divide-white/12 h-[80px]">
                     {/* UV — or TEMP if pinned */}
-                    <DraggableMetricCell id={heroMetric === 'uv' ? 'temp' : 'uv'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'uv' ? 'temp' : 'uv'}
+                        description={heroMetric === 'uv' ? undefined : GLOSSARY.uv}
+                    >
                         {heroMetric === 'uv' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -752,13 +809,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 spokenLabel="UV index"
                                 icon={<SunIcon className="w-3 h-3 metric-anim-sun" />}
                                 value={uvVal}
-                                tooltip="UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme"
+                                tooltip={GLOSSARY.uv}
                             />
                         )}
                     </DraggableMetricCell>
 
                     {/* Visibility — or TEMP if pinned */}
-                    <DraggableMetricCell id={heroMetric === 'vis' ? 'temp' : 'vis'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'vis' ? 'temp' : 'vis'}
+                        description={heroMetric === 'vis' ? undefined : GLOSSARY.vis}
+                    >
                         {heroMetric === 'vis' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -776,13 +836,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 unit={distUnit}
                                 trend={trends?.visibility}
                                 improving={isVisImproving}
-                                tooltip="Visibility — horizontal distance at which objects can be clearly seen"
+                                tooltip={GLOSSARY.vis}
                             />
                         )}
                     </DraggableMetricCell>
 
                     {/* Pressure — or TEMP if pinned */}
-                    <DraggableMetricCell id={heroMetric === 'pressure' ? 'temp' : 'pressure'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'pressure' ? 'temp' : 'pressure'}
+                        description={heroMetric === 'pressure' ? undefined : GLOSSARY.baro}
+                    >
                         {heroMetric === 'pressure' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -797,7 +860,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     </DraggableMetricCell>
 
                     {/* Humidity — or TEMP if pinned */}
-                    <DraggableMetricCell id={heroMetric === 'humidity' ? 'temp' : 'humidity'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'humidity' ? 'temp' : 'humidity'}
+                        description={heroMetric === 'humidity' ? undefined : GLOSSARY.humidity}
+                    >
                         {heroMetric === 'humidity' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -815,13 +881,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 unit="%"
                                 trend={trends?.humidity}
                                 improving={isHumidityImproving}
-                                tooltip="Relative humidity — 60%+ feels muggy on a boat, <30% is very dry"
+                                tooltip={GLOSSARY.humidity}
                             />
                         )}
                     </DraggableMetricCell>
 
                     {/* Rain — or TEMP if pinned */}
-                    <DraggableMetricCell id={heroMetric === 'rain' ? 'temp' : 'rain'}>
+                    <DraggableMetricCell
+                        id={heroMetric === 'rain' ? 'temp' : 'rain'}
+                        description={heroMetric === 'rain' ? undefined : isLive ? GLOSSARY.rainToday : GLOSSARY.chance}
+                    >
                         {heroMetric === 'rain' ? (
                             <InstrumentCell
                                 label="TEMP"
@@ -838,7 +907,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                                 value={rainValue}
                                 unit={rainUnit}
-                                tooltip={isLive ? 'Total rain for today' : 'Chance of rain during this hour'}
+                                tooltip={isLive ? GLOSSARY.rainToday : GLOSSARY.chance}
                             />
                         )}
                     </DraggableMetricCell>

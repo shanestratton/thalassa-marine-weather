@@ -75,7 +75,7 @@ const baseName = (name: string) => name.split(',')[0].trim().toLowerCase();
 export const LocationStarMenu: React.FC = () => {
     const portalTarget = usePanePortalTarget();
     const { settings, updateSettings } = useSettings();
-    const { weatherData, selectLocation } = useWeather();
+    const { weatherData, selectLocation, positionSource } = useWeather();
 
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
@@ -103,6 +103,19 @@ export const LocationStarMenu: React.FC = () => {
         setFollowTargetState(getWeatherFollowTarget());
     }, [open]);
     const vesselName = settings.vessel?.name?.trim() || 'Vessel location';
+    // The ticked receiver has no fix and the Glass shows the forecast it
+    // kept for her last location (App's 'Last · …' title). The tick still
+    // marks the pick, but it no longer implies a live follow (UX scorecard
+    // run 8): it turns amber, the held colour of the header's retry glyph,
+    // and the row's name says why. Words only in the name: no GPS sentence
+    // on a page (Shane, 2026-09-08 — the ℹ panel is the one place).
+    const showingLastLocation = Boolean(
+        positionSource?.status === 'unavailable' && positionSource.retainedWeather && weatherData,
+    );
+    const phoneTicked = inGpsMode && followTarget === 'phone';
+    const boatTicked = inGpsMode && followTarget === 'boat';
+    const lastLocationFor = showingLastLocation ? (positionSource?.target ?? followTarget) : null;
+    const lastLocationNote = <span className="sr-only">, GPS unavailable, showing last location</span>;
     const currentName = weatherData?.locationName ?? '';
     const isRealCurrent = currentName.length > 0 && currentName !== 'Current Location';
     // The saved entry for the place on screen. Matched by position (within
@@ -342,6 +355,8 @@ export const LocationStarMenu: React.FC = () => {
                                         role="menuitem"
                                         onClick={goToBoat}
                                         data-testid="location-star-vessel"
+                                        // The tick, for a screen reader too (UX scorecard run 8).
+                                        aria-current={boatTicked ? 'location' : undefined}
                                         className={`${rowBase} w-full`}
                                     >
                                         <BoatIcon className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -351,8 +366,11 @@ export const LocationStarMenu: React.FC = () => {
                                         <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">
                                             Boat
                                         </span>
-                                        {inGpsMode && followTarget === 'boat' && (
-                                            <CheckIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+                                        {boatTicked && lastLocationFor === 'boat' && lastLocationNote}
+                                        {boatTicked && (
+                                            <CheckIcon
+                                                className={`w-4 h-4 shrink-0 ${lastLocationFor === 'boat' ? 'text-amber-400' : 'text-emerald-400'}`}
+                                            />
                                         )}
                                     </button>
                                 )}
@@ -361,12 +379,16 @@ export const LocationStarMenu: React.FC = () => {
                                     type="button"
                                     role="menuitem"
                                     onClick={() => goTo('current')}
+                                    aria-current={phoneTicked ? 'location' : undefined}
                                     className={`${rowBase} w-full`}
                                 >
                                     <CrosshairIcon className="w-4 h-4 text-sky-400 shrink-0" />
                                     <span className="flex-1 font-medium text-white truncate">Current Location</span>
-                                    {inGpsMode && followTarget === 'phone' && (
-                                        <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />
+                                    {phoneTicked && lastLocationFor === 'phone' && lastLocationNote}
+                                    {phoneTicked && (
+                                        <CheckIcon
+                                            className={`w-4 h-4 shrink-0 ${lastLocationFor === 'phone' ? 'text-amber-400' : 'text-sky-400'}`}
+                                        />
                                     )}
                                 </button>
 
@@ -383,7 +405,8 @@ export const LocationStarMenu: React.FC = () => {
                                     <div
                                         key={loc.name}
                                         role="none"
-                                        className={`flex items-center ${isShownRow(loc.name) ? 'bg-sky-500/10' : ''}`}
+                                        // pr-2: 'Remove' ended 2 pt from the flyout's edge (UX scorecard run 8).
+                                        className={`flex items-center pr-2 ${isShownRow(loc.name) ? 'bg-sky-500/10' : ''}`}
                                     >
                                         <button
                                             type="button"
@@ -402,14 +425,19 @@ export const LocationStarMenu: React.FC = () => {
                                             type="button"
                                             role="menuitem"
                                             onClick={() => setHome(loc.name)}
-                                            // The name starts with the visible caption, 'Home'.
-                                            aria-label={`Home: set ${loc.name} as home port`}
+                                            // The name starts with the visible caption, 'Set home'.
+                                            // A bare 'Home' beside a place that is not home read
+                                            // as its status, not the action (UX scorecard run 8).
+                                            aria-label={`Set home port to ${loc.name}`}
                                             title="Set as home port"
                                             className="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-amber-400 transition-colors shrink-0"
                                         >
                                             <HomeIcon className="w-4 h-4" />
-                                            <span aria-hidden="true" className="text-[12px] leading-none">
-                                                Home
+                                            <span
+                                                aria-hidden="true"
+                                                className="text-[12px] leading-none whitespace-nowrap"
+                                            >
+                                                Set home
                                             </span>
                                         </button>
                                         <button

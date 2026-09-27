@@ -109,6 +109,13 @@ describe('warnings pill and sun chip', () => {
         expect(screen.getByText('🌕')).toHaveAttribute('aria-hidden', 'true');
     });
 
+    it('holds the sun times’ places with muted placeholders while they load (UX scorecard run 8)', () => {
+        render(<CompactHeaderRow alerts={[]} moonPhase="🌕" moonPhaseName="Full" />);
+        const chip = screen.getByRole('group', { name: 'Sun and moon' });
+        expect(chip.textContent).toMatch(/^--:--Sunrise and sunset not yet known--:--.*, full moon$/);
+        expect(chip.textContent).not.toMatch(/^,/);
+    });
+
     it('keeps the live region on the warnings, not on the sunrise times', () => {
         render(<CompactHeaderRow alerts={[]} sunrise="05:42" sunset="17:53" moonPhase="🌕" />);
         const pill = screen.getByRole('button', { name: 'No active weather warnings' });
@@ -182,15 +189,19 @@ describe('hero header', () => {
         expect(screen.queryByRole('button', { name: /^Today\b/ })).toBeNull();
     });
 
-    it('never places the first-run coach mark over the digits', () => {
+    it('never places the first-run coach mark over the digits or the grid', () => {
         const src = readFileSync('components/dashboard/HeroHeader.tsx', 'utf8');
         const coach = src.slice(src.indexOf('<CoachMark'), src.indexOf('/>', src.indexOf('<CoachMark')));
-        // Below the card by default, beside the digits where the partition is wide.
-        expect(coach).toContain('top-full');
-        expect(coach).toContain('@min-[9rem]/pin:left-full');
+        // Inside the card beside the digits, pointing back at them — never
+        // hung below the card over the WIND label (UX scorecard run 8).
+        expect(coach).toContain('left-full');
+        expect(coach).toContain('arrow="left"');
+        expect(coach).not.toContain('top-full');
         expect(coach).not.toContain('bottom-0.5');
-        expect(src).toContain('@container/pin');
-        // The card no longer clips it, and Dashboard lifts the header layer over the grid.
+        // The condition steps aside while the coach stands in its place.
+        expect(src).toContain('group/hero');
+        expect(src).toContain('group-has-[[role=status]]/hero:invisible');
+        // The card does not clip it, and Dashboard lifts the header layer over the grid.
         expect(src).not.toMatch(/rounded-2xl overflow-hidden border bg-white\/8/);
         expect(readFileSync('components/Dashboard.tsx', 'utf8')).toContain('left-0 right-0 z-115 px-4');
     });
@@ -214,7 +225,15 @@ describe('instrument grid names', () => {
         expect(screen.getByLabelText(/^Visibility 13 nautical miles/)).toBeInTheDocument();
         expect(screen.getByLabelText(/^Barometer 1026 hectopascals/)).toBeInTheDocument();
         expect(screen.getByLabelText(/^Humidity 66 percent/)).toBeInTheDocument();
-        expect(screen.getByLabelText(/^Rain today 1 millimetre\. Total rain for today$/)).toBeInTheDocument();
+        // Value only in the name; what the metric is comes as the description
+        // (UX scorecard run 8: swiping the grid read ten definitions).
+        expect(screen.getByLabelText(/^Rain today 1 millimetre$/)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Rain today 1 millimetre$/ })).toHaveAccessibleDescription(
+            /^Total rain for today, from the hourly forecast/,
+        );
+        expect(screen.getByRole('button', { name: /^Humidity 66 percent$/ })).toHaveAccessibleDescription(
+            /^Relative humidity/,
+        );
         expect(screen.getByLabelText(/^Period of the waves, no reading/)).toBeInTheDocument();
         expect(screen.queryByLabelText(/^(WIND|DIR|VIS|HUM):/)).toBeNull();
     });
@@ -241,6 +260,18 @@ describe('instrument grid names', () => {
                 name: 'Weather metrics dashboard. Beyond ICON’s range (ends Sat 3 Oct) — try another model',
             }),
         ).toBeInTheDocument();
+    });
+
+    it('shows every missing reading as one muted placeholder, spoken as no reading (UX scorecard run 8)', () => {
+        const { container } = renderGrid({
+            data: { ...baseMetrics, windDirection: '---', pressure: null } as unknown as WeatherMetrics,
+        });
+        const dir = screen.getByLabelText('Direction of the wind, no reading');
+        expect(dir).toHaveTextContent(/^DIR--$/);
+        expect(screen.getByLabelText(/^Barometer, no reading$/)).toBeInTheDocument();
+        const dashes = Array.from(container.querySelectorAll('span')).filter((el) => el.textContent === '--');
+        expect(dashes.length).toBeGreaterThanOrEqual(3);
+        for (const dash of dashes) expect(dash.className).toContain('text-slate-500');
     });
 
     it('keeps the plain region name on an ordinary day', () => {
