@@ -35,6 +35,8 @@ ordering within a screen.
 | Run 5: radar size, honest forecast days, named controls, confirm on remove | 77809ab2 | **78.4** | 8.39   | 8.34   | 7.50\* | 7.46 | 7.61   | 8.24 | 7.50\* | 7.46 |
 | Run 6: tap-to-add, coach marks, opaque chrome, PageHeader status row       | ad941278 | **79.9** | 7.50\* | 8.79   | 7.50\* | 7.84 | 7.50\* | 8.78 | 8.29   | 8.19 |
 | Run 7: radar text, alert honesty, batch 8 (13 area fix sets)               | f2573826 | **83.3** | 8.80   | 8.69   | 8.19   | 8.13 | 7.50\* | 8.63 | 8.60   | 8.27 |
+| Run 8: batch 9 (13 area fix sets), harness GPS fix at Gladstone Marina     | 5055a3de | **85.4** | 9.10   | 8.76   | 8.53   | 8.34 | 7.50\* | 8.91 | 8.81   | 8.58 |
+| Run 9: one GPS fix-state source, batch 10 (67 items in 5 groups)           | 351205f9 | **87.9** | 9.21   | 8.90   | 8.55   | 8.56 | 8.61   | 9.12 | 8.86   | 8.40 |
 
 \* capped at 7.5 by a HIGH defect. Baseline and run 2: the anchor watch arming
 bar (touch). Run 4: the anchor radar readouts at 7–9 px on a tall phone
@@ -46,7 +48,10 @@ uncapped 78.7). Run 6: the anchor radar text fell to 8.6 px on a 375×667 phone
 (feedback, raw 8.13) and every Settings page opened at the last page's scroll
 offset (layout, raw 7.94); uncapped 83.3. Run 7: a forecast card could show rain
 millimetres under 'CHANCE %' when a model had no probability (feedback, raw
-8.31; a code-path finding, fixed da42ecc1); uncapped 84.6. No cap bites in run 3.
+8.31; a code-path finding, fixed da42ecc1); uncapped 84.6. Run 8: System status
+gave three accounts of one GPS fix, 'fix just now', 'Last position 46 s ago' and
+'No position yet' (feedback, raw 8.62; fixed 5d946179 by one fix-state source);
+uncapped 87.0. No cap bites in run 3 or run 9.
 
 Automated scan, all capture sets, baseline → run 3: text under 12 px 1,191 →
 41 (the Vessel hub safety words at 9.5 px — kept on Shane's 2026-09-05 call so
