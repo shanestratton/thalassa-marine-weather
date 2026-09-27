@@ -50,7 +50,7 @@ import {
 } from './Icons';
 import { useAuthStore } from '../stores/authStore';
 import { SignInScreen } from './SignInScreen';
-import { SignInButton } from './ui/SignInButton';
+import { Button } from './ui/Button';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -139,14 +139,33 @@ const SAFETY_CONTROL_GROUP = {
     boxShadow: '0 0 0 1px rgba(16, 185, 129, 0.06), 0 10px 26px rgba(5, 150, 105, 0.10)',
 } as React.CSSProperties;
 
+// Daylight takes the hub's plain white card, not the mint --vessel-safety-card-bg
+// (UX scorecard run 9, C-vessel-light-mint): a mint fill whatever the state put
+// Guardian OFF on the same "all good" green a watching Guardian would wear,
+// where dark mode gives the tiles a neutral fill. The green outline stays, and
+// the state word and chip carry the colour in both themes. --vessel-card-bg is
+// set only in daylight, so dark and night keep this gradient.
 const SAFETY_CONTROL_CARD = {
     ...GLASS.card,
     background:
-        'var(--vessel-safety-card-bg, linear-gradient(145deg, rgba(16, 185, 129, 0.15) 0%, rgba(20, 25, 35, 0.82) 72%))',
+        'var(--vessel-card-bg, linear-gradient(145deg, rgba(16, 185, 129, 0.15) 0%, rgba(20, 25, 35, 0.82) 72%))',
     border: '1px solid var(--vessel-safety-card-border, rgba(74, 222, 128, 0.42))',
     boxShadow:
         'inset 0 1px 0 rgba(167, 243, 208, 0.22), 0 0 0 1px rgba(16, 185, 129, 0.10), 0 8px 22px rgba(16, 185, 129, 0.12)',
 } as React.CSSProperties;
+
+/** The Guardian shield without its tick: the tile's glyph while Guardian is
+ *  off. The outline is vesselHub/icons ShieldIcon's own, so the two states
+ *  differ only by the tick. */
+const PlainShieldGlyph: React.FC<{ color: string }> = ({ color }) => (
+    <svg aria-hidden="true" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 2.714A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
+        />
+    </svg>
+);
 
 /** Scroll room (pt) before a closed page gets a resting point at its end: twice
  *  the 24 pt a return gesture can leave the first row under the deck, so the
@@ -1019,7 +1038,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('mob');
                                 }}
                                 style={ALERT_SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -1045,7 +1064,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('radio');
                                 }}
                                 style={SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
                                     className="flex h-8 w-8 items-center justify-center rounded-lg"
@@ -1078,13 +1097,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         onNavigate('guardian');
                                     }}
                                     style={SAFETY_CONTROL_CARD}
-                                    className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                    className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                                 >
                                     <div
                                         className="flex h-8 w-8 items-center justify-center rounded-lg"
                                         style={{ background: 'rgba(245, 158, 11, 0.12)' }}
                                     >
-                                        <ShieldIcon color="var(--day-ui-amber, #f59e0b)" />
+                                        {/* The tick only while Guardian watches (UX
+                                            scorecard run 9): a shield-with-tick
+                                            beside OFF said "protected". */}
+                                        {guardianArmed ? (
+                                            <ShieldIcon color="var(--day-ui-amber, #f59e0b)" />
+                                        ) : (
+                                            <PlainShieldGlyph color="var(--day-ui-amber, #f59e0b)" />
+                                        )}
                                     </div>
                                     <span className="text-[11px] font-black leading-none tracking-wide text-white">
                                         Guardian
@@ -1115,7 +1141,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('compass');
                                 }}
                                 style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 {/* THE SAME GLYPH IN EVERY STATE. The live
                                     swing arc used to take this slot while the
@@ -1491,7 +1517,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 // not "instruments": the gateway row above is the
                                 // instruments one, and two rows promising the same
                                 // thing left a skipper guessing (UX scorecard run 7).
-                                status="The Pi, charts & boat devices"
+                                // "Boat computer", not "The Pi" (UX scorecard run 9):
+                                // a first-level menu should not assume the skipper
+                                // knows the box is a Raspberry Pi. The page itself
+                                // still says Pi.
+                                status="Boat computer, charts & devices"
                                 statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
@@ -1575,9 +1605,9 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
 
     const statusDescription = claim
         ? claimHeld
-            ? 'This device publishes the boat’s position to your public page.'
+            ? 'This device publishes the boat’s position to your public voyage page.'
             : `${claim.deviceName} is publishing — last claimed ${claimAgeLabel(claim)}.`
-        : 'No phone is primary yet — any signed-in phone can post the boat’s position to your public page.';
+        : 'No phone is primary yet — any signed-in phone can post the boat’s position to your public voyage page.';
 
     // The claim rides in user_settings, which is pulled from the cloud ONCE per
     // sign-in — so without this, a claim made on the other device is invisible
@@ -1600,10 +1630,14 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
     // W-vessel-settings-copy): the status beside it already says "Primary:
     // this phone", and "the primary device" read as system jargon. "Primary"
     // is Shane's word and stays.
+    // Signed out, the nudge says what signing in lets this phone do, not
+    // "make this phone primary" (UX scorecard run 9, W-vessel-card-copy): a
+    // skipper could not tell what "primary" did. Signed in, the claim keeps
+    // Shane's word.
     const actionLabel = claimHeld
         ? 'Release — stop being primary'
         : needsSignIn
-          ? 'Sign in to make this phone primary'
+          ? 'Sign in to share position from this phone'
           : 'Make this phone primary';
     const [takeoverRequest, setTakeoverRequest] = useState<{
         scope: AuthIdentityScope;
@@ -1800,9 +1834,11 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                                   // in the words of "Primary: this phone" instead.
                                   // Post WHAT is said (UX scorecard run 8), in the
                                   // width left beside "GPS: this phone" at 375 pt.
+                                  // "Share", not the system word "post" (UX
+                                  // scorecard run 9).
                                   vesselGpsLive
                                   ? 'No primary phone yet'
-                                  : 'Signed-in phones post position'}
+                                  : 'Signed-in phones share position'}
                         </span>
                     )}
                     {!piPrimary && <p className="sr-only">{statusDescription}</p>}
@@ -1815,16 +1851,26 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         The Pi is the Primary Device
                     </p>
                 ) : needsSignIn ? (
-                    // The one sign-in control (ui/SignInButton), like Account &
-                    // Cloud and Voyage Log. h-11 and text-sm (about 13 px on the
-                    // fluid root at 375 pt) keep it on one line inside the
-                    // fixed-height card.
-                    <SignInButton
-                        fullWidth
-                        label={actionLabel}
+                    // The house secondary button in the hub's accent, not the
+                    // filled primary (UX scorecard run 9, C-sign-in-cta-weight):
+                    // a filled full-width bar made this nudge the loudest thing
+                    // on the page, louder than MOB. The accent outline and text
+                    // on the card's own fill still read as the way forward; the
+                    // filled style is kept for real actions. h-11 and text-sm
+                    // (about 13 px on the fluid root at 375 pt) keep it on one
+                    // line inside the fixed-height card.
+                    <Button
+                        variant="secondary"
                         onClick={handleAction}
-                        className="h-11 whitespace-nowrap text-sm!"
-                    />
+                        className="h-11 w-full whitespace-nowrap text-sm!"
+                        style={{
+                            color: HUB_ACCENT,
+                            borderColor: `color-mix(in srgb, ${HUB_ACCENT} 60%, transparent)`,
+                            background: 'transparent',
+                        }}
+                    >
+                        {actionLabel}
+                    </Button>
                 ) : (
                     <button
                         type="button"
@@ -1860,7 +1906,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 <SignInScreen
                     isOpen={signInOpen}
                     onClose={() => setSignInOpen(false)}
-                    prompt="Sign in to make this phone the one that posts your boat’s position."
+                    prompt="Sign in to share your boat’s position from this phone."
                 />
             )}
         </>

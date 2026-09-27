@@ -102,6 +102,10 @@ const InstrumentPanelButton: React.FC<{ quiet: boolean; onOpen: () => void }> = 
  * Now: once, ever, recorded by a flag; and only the old default PAIR, because
  * a value is only a stale default if the value beside it is too.
  */
+/** The host the field starts on before anything is saved. A default, not a
+ *  detection: the field says so while it still holds it (UX scorecard run 9). */
+const DEFAULT_GATEWAY_HOST = '192.168.1.151';
+
 const LEGACY_DEFAULT_HOST = '192.168.1.1';
 const LEGACY_DEFAULT_PORT = '10110';
 const LEGACY_DEFAULTS_CLEARED_KEY = 'nmea_legacy_defaults_cleared';
@@ -201,7 +205,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
        scroller is the surface that moves when the host or port field takes
        focus. */
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
-    const [host, setHost] = useState(localStorage.getItem('nmea_host') || '192.168.1.151');
+    const [host, setHost] = useState(localStorage.getItem('nmea_host') || DEFAULT_GATEWAY_HOST);
     const [port, setPort] = useState(localStorage.getItem('nmea_port') || '1456');
     const [device, setDevice] = useState(localStorage.getItem('nmea_device') || 'ydwg02');
 
@@ -291,6 +295,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // the same neutral 'No gateway' the Instrument Panel pill shows, so one
     // state has one word on both pages (UX scorecard run 7).
     const gatewaySaved = NmeaListenerService.getSavedConfig() !== null;
+    const hostIsDefault = !gatewaySaved && host === DEFAULT_GATEWAY_HOST;
 
     // The connection state, said ONCE — in the header's status pill. The card
     // used to repeat it as an h2 beside a second dot, under a pill that said
@@ -513,10 +518,13 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                   : 'bg-white/3 border-white/6'
                         }`}
                     >
-                        {/* No state heading here: the header pill says it (UX
-                            scorecard run 6). What stays is what only this card
-                            knows — where the socket points, what it hears, and
-                            that the panel is reading her through the Pi. */}
+                        {/* The card's eyebrow, as POSITION SOURCE has one (UX
+                            scorecard run 9). It names the section, not the
+                            state: the header pill says that (run 6). What
+                            stays is what only this card knows — where the
+                            socket points, what it hears, and that the panel is
+                            reading her through the Pi. */}
+                        <h2 className="mb-2 text-xs font-black uppercase tracking-widest text-gray-400">Gateway</h2>
                         {((readingViaCloud && !isConnected && !isConnecting && !piMode) ||
                             ((isConnected || isConnecting || hasFailed) && !rolledUp)) && (
                             <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -542,12 +550,12 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         )}
 
                         {/* The next step, for the plain disconnected card. One line
-                            at 375 pt: "check the gateway IP" wrapped "Connect."
-                            onto a second (UX scorecard run 8); the field below is
-                            the Host IP. */}
+                            at 375 pt: "check the IP below" still wrapped "Connect."
+                            onto a second (UX scorecard runs 8 and 9); the field
+                            below is the Host IP. */}
                         {!isConnected && !isConnecting && !hasFailed && !rolledUp && (
                             <p className="mb-3 text-xs leading-snug text-gray-300 [@media(max-height:700px)]:mb-2">
-                                Join the boat&apos;s Wi-Fi, check the IP below, then Connect.
+                                Join the boat&apos;s Wi-Fi, check the IP, then Connect.
                             </p>
                         )}
 
@@ -655,11 +663,14 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     this page anyone actually types into. */}
                                 <div className="thalassa-keyboard-safe-field flex gap-2">
                                     <div className="flex-1">
+                                        {/* Pre-filled on a fresh install, which read as
+                                            detected (UX scorecard run 9): the label says
+                                            it is the default until it is changed or saved. */}
                                         <FormField
-                                            label="Host IP"
+                                            label={hostIsDefault ? 'Host IP (default)' : 'Host IP'}
                                             value={host}
                                             onChange={setHost}
-                                            placeholder="192.168.1.151"
+                                            placeholder={DEFAULT_GATEWAY_HOST}
                                             mono
                                         />
                                     </div>

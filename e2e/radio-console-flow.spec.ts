@@ -199,15 +199,15 @@ async function expectStableSelectors(
 ) {
     const readback = (await surface.getAttribute('aria-label')) === 'Voice transcript';
     if (readback) {
-        await expect(page.getByRole('group', { name: 'Call type', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('radiogroup', { name: 'Call type', exact: true })).toHaveCount(0);
         await expect(surface.getByRole('button', { name: 'Change call', exact: true })).toBeInViewport();
         await surface.getByRole('button', { name: 'Change call', exact: true }).click();
     }
     // Only the current screen's selector is exposed to assistive technology.
-    await expect(page.getByRole('group', { name: 'Call type', exact: true })).toHaveCount(1);
-    const selector = surface.getByRole('group', { name: 'Call type', exact: true });
+    await expect(page.getByRole('radiogroup', { name: 'Call type', exact: true })).toHaveCount(1);
+    const selector = surface.getByRole('radiogroup', { name: 'Call type', exact: true });
     await expect(selector).toBeInViewport();
-    await expect(selector.getByRole('button')).toHaveCount(3);
+    await expect(selector.getByRole('radio')).toHaveCount(3);
     if ((await surface.getAttribute('data-testid')) === 'radio-console-page')
         await expect
             .poll(async () => {
@@ -222,7 +222,7 @@ async function expectStableSelectors(
                 );
             })
             .toBe(true);
-    for (const button of await selector.getByRole('button').all()) {
+    for (const button of await selector.getByRole('radio').all()) {
         await expect(button).toBeInViewport();
         expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
         expect(await button.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
@@ -241,7 +241,7 @@ test('Very long radio identities remain readable through the final Over with Clo
     const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
     const selectorBaseline = await selectorGeometry(page.getByTestId('radio-console-page'));
     await expectStableSelectors(page, instructions, selectorBaseline);
-    await instructions.getByRole('button', { name: /^Distress/ }).click();
+    await instructions.getByRole('radio', { name: /^Distress/ }).click();
     await instructions.getByRole('combobox').selectOption('fire');
     await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
     await instructions
@@ -303,7 +303,7 @@ test('Unconfirmed phone GPS never becomes vessel coordinates and does not block 
 }, testInfo) => {
     await openRadio(page, baseURL!, { width: 390, height: 844, split: false, displayMode: 'dark' });
     const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
-    await instructions.getByRole('button', { name: /^Distress/ }).click();
+    await instructions.getByRole('radio', { name: /^Distress/ }).click();
     await instructions.getByRole('combobox').selectOption('fire');
     await expect(instructions.getByTestId('radio-position-status')).toContainText('27°30.000′S');
     await expect(
@@ -430,7 +430,7 @@ test('Radio opens on its clear console first on a compact phone', async ({ page,
         prepareCall: false,
     });
     const consolePage = page.getByTestId('radio-console-page');
-    await expect(consolePage.getByRole('group', { name: 'Call type', exact: true })).toBeInViewport();
+    await expect(consolePage.getByRole('radiogroup', { name: 'Call type', exact: true })).toBeInViewport();
     await expect(consolePage.getByRole('button', { name: /^Prepare voice call/ })).toBeInViewport();
     expect(await consolePage.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
     await page.screenshot({
@@ -438,7 +438,7 @@ test('Radio opens on its clear console first on a compact phone', async ({ page,
         fullPage: true,
         animations: 'disabled',
     });
-    await consolePage.getByRole('button', { name: /^Distress/ }).click();
+    await consolePage.getByRole('radio', { name: /^Distress/ }).click();
     await expect(page.getByRole('dialog', { name: 'VHF instructions', exact: true })).toBeVisible();
 });
 
@@ -447,7 +447,7 @@ test('No GPS leaves a readable Mayday script available on a compact phone', asyn
         gpsUnavailable: true,
     });
     const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
-    await instructions.getByRole('button', { name: /^Distress/ }).click();
+    await instructions.getByRole('radio', { name: /^Distress/ }).click();
     await instructions.getByRole('combobox').selectOption('fire');
     const proceed = instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true });
     await expect(proceed).toBeInViewport();
@@ -467,7 +467,7 @@ test('Enlarged radio text keeps an honest scroll fallback without resizing loops
     page.on('pageerror', (error) => errors.push(error.message));
     await openRadio(page, baseURL!, { width: 375, height: 667, split: false, displayMode: 'dark' });
     const instructions = page.getByRole('dialog', { name: 'VHF instructions', exact: true });
-    await instructions.getByRole('button', { name: /^Distress/ }).click();
+    await instructions.getByRole('radio', { name: /^Distress/ }).click();
     await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
     await page.evaluate(() => document.documentElement.style.setProperty('font-size', '24px', 'important'));
     const dialog = page.getByRole('dialog', { name: 'Voice transcript', exact: true });
@@ -546,13 +546,13 @@ for (const viewport of viewports) {
                 fullPage: true,
                 animations: 'disabled',
             });
-            await consolePage.getByRole('button', { name: new RegExp(`^${mode}`, 'i') }).click();
+            await consolePage.getByRole('radio', { name: new RegExp(`^${mode}`, 'i') }).click();
 
             await test.step(mode, async () => {
                 await expect(instructions).toBeVisible();
                 await expect(transcriptDialog).toHaveCount(0);
                 await expectDialogFrame(page, instructions, viewport.split);
-                await instructions.getByRole('button', { name: new RegExp(`^${mode}`, 'i') }).click();
+                await instructions.getByRole('radio', { name: new RegExp(`^${mode}`, 'i') }).click();
                 await expectStableSelectors(page, instructions, selectorBaseline);
                 if (mode !== 'routine') {
                     await instructions.getByRole('combobox').selectOption('fire');
@@ -673,8 +673,8 @@ for (const viewport of viewports) {
                     await expect(instructions).toBeVisible();
                     await expect(transcriptDialog).toHaveCount(0);
                     await expectStableSelectors(page, instructions, selectorBaseline);
-                    await expect(instructions.getByRole('button', { name: /^Urgency/ })).toHaveAttribute(
-                        'aria-pressed',
+                    await expect(instructions.getByRole('radio', { name: /^Urgency/ })).toHaveAttribute(
+                        'aria-checked',
                         'true',
                     );
                     await proceed.click();
@@ -683,11 +683,11 @@ for (const viewport of viewports) {
                 if (mode === 'routine') {
                     // A mode switch must not silently rewrite an active readback.
                     await transcriptDialog.getByRole('button', { name: 'Change call', exact: true }).click();
-                    await transcriptDialog.getByRole('button', { name: /^Urgency/ }).click();
+                    await transcriptDialog.getByRole('radio', { name: /^Urgency/ }).click();
                     await expect(instructions).toBeVisible();
                     await expect(transcriptDialog).toHaveCount(0);
-                    await expect(instructions.getByRole('button', { name: /^Urgency/ })).toHaveAttribute(
-                        'aria-pressed',
+                    await expect(instructions.getByRole('radio', { name: /^Urgency/ })).toHaveAttribute(
+                        'aria-checked',
                         'true',
                     );
                     await expectStableSelectors(page, instructions, selectorBaseline);
@@ -719,8 +719,8 @@ for (const viewport of viewports) {
                 // readback; reopening must preserve that explicit choice.
                 const reopenedMode = mode === 'routine' ? 'urgency' : mode;
                 await expect(
-                    instructions.getByRole('button', { name: new RegExp(`^${reopenedMode}`, 'i') }),
-                ).toHaveAttribute('aria-pressed', 'true');
+                    instructions.getByRole('radio', { name: new RegExp(`^${reopenedMode}`, 'i') }),
+                ).toHaveAttribute('aria-checked', 'true');
                 await instructions.getByRole('button', { name: 'Close vhf instructions', exact: true }).click();
                 await expect(instructions).toHaveCount(0);
                 await expectStableSelectors(page, consolePage, selectorBaseline);
@@ -742,7 +742,7 @@ for (const viewport of viewports) {
                     );
                 });
                 const resizedBaseline = await selectorGeometry(consolePage);
-                await consolePage.getByRole('button', { name: /^Distress/ }).click();
+                await consolePage.getByRole('radio', { name: /^Distress/ }).click();
                 await expectStableSelectors(page, instructions, resizedBaseline);
                 await instructions.getByRole('button', { name: 'Continue to voice transcript', exact: true }).click();
                 await expectStableSelectors(page, transcriptDialog, resizedBaseline);

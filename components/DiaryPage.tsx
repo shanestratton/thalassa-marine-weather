@@ -1620,7 +1620,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                             // sat ~85 pt higher (UX scorecard run 7).
                             icon={<PenIcon color="currentColor" />}
                             title="Your story starts here"
-                            description="Tap Write entry below to add one. An entry can hold photos, a short video and your position."
+                            // The voice note is named too (UX scorecard run 9): an
+                            // entry can carry one, and the invitation left it out.
+                            description="Tap Write entry below to add one. An entry can hold photos, a voice note, a short video and your position."
                             className="py-16"
                         />
                     ) : (

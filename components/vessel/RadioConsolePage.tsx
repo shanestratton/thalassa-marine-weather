@@ -597,10 +597,15 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
             </div>
 
             {/* ── Middle: entry point and readouts. Scrolls only
-                   on a screen too short to hold it; call type above never does. ── */}
+                   on a screen too short to hold it; call type above never does.
+                   At 375×667 the SOG/COG/UTC card ran under the pinned
+                   'Prepare voice call' dock cut through its border; the app's
+                   scroll fade now fades it out above the dock instead, and the
+                   16 px foot lets the last card scroll clear of the fade (UX
+                   scorecard run 9). ── */}
             <div
                 data-testid="radio-console-body"
-                className="mx-auto w-full max-w-3xl flex-1 min-h-0 space-y-3 px-4 pb-3 overflow-y-auto overscroll-contain"
+                className="thalassa-scroll-fade mx-auto w-full max-w-3xl flex-1 min-h-0 space-y-3 px-4 pb-4 overflow-y-auto overscroll-contain"
             >
                 {/* Vessel identity strip */}
                 {vesselIdentity}
@@ -810,7 +815,11 @@ const DscSelector: React.FC<{
                         ? activeClasses
                         : (restClasses ?? 'bg-white/3 border-white/8 text-slate-400 hover:bg-white/6')
                 }`}
-                aria-pressed={isActive}
+                // One of three, so a radio: VoiceOver said "toggle button,
+                // selected" for each, never that the three are one choice (UX
+                // scorecard run 9).
+                role="radio"
+                aria-checked={isActive}
             >
                 <div className="text-xs font-extrabold tracking-wide uppercase">{label}</div>
                 <div className="text-xs font-bold uppercase mt-0.5">{hint}</div>
@@ -818,7 +827,7 @@ const DscSelector: React.FC<{
         );
     };
     return (
-        <div role="group" aria-label="Call type" data-testid="radio-call-selector" className="shrink-0">
+        <div role="radiogroup" aria-label="Call type" data-testid="radio-call-selector" className="shrink-0">
             <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-xs font-bold tracking-wider uppercase text-slate-400">Call type</div>
                 {mobActive && (

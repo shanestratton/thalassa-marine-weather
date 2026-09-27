@@ -58,11 +58,11 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
         <div className="p-6 space-y-5">
             {/* Byline parts — shown only once the crew member has
                         accepted (boat_members row exists). Drives the
-                        "by Emma" chip on the public voyage log. */}
+                        "by Emma" chip on the public voyage page. */}
             {editBoatMemberLoaded ? (
                 <div>
                     <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
-                        Byline on the Voyage Log
+                        Byline on the public voyage page
                     </label>
                     <div className="grid grid-cols-5 gap-2">
                         <input

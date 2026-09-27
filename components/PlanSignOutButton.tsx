@@ -17,6 +17,28 @@ import React, { useState } from 'react';
 import { isBuilderDeepLink } from '../services/deepLink';
 import { useAuthStore } from '../stores/authStore';
 import { triggerHaptic } from '../utils/system';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('PlanSignOutButton');
+
+/**
+ * What a failed sign-out says. The safety interlock's own sentences stay word
+ * for word: they name what to clear first (Man Overboard, Anchor Watch). Any
+ * other failure is logged and said plainly; raw error text (an auth or push
+ * library's message) never reaches the screen (UX scorecard run 9).
+ */
+function describeSignOutError(caught: unknown): string {
+    const raw = caught instanceof Error ? caught.message : String(caught);
+    if (
+        (caught instanceof Error && caught.name === 'ActiveSafetyInterlockError') ||
+        /\b(Man Overboard|Anchor Watch)\b/.test(raw)
+    )
+        return raw;
+    log.warn('Sign out failed:', raw);
+    if (caught instanceof TypeError || /load failed|failed to fetch|network|offline/i.test(raw))
+        return "Couldn't reach the server to sign out. Check your connection and try again.";
+    return 'Sign out failed. Please try again.';
+}
 
 export const PlanSignOutButton: React.FC = () => {
     // location.pathname is fixed for the life of the SPA — read once.
@@ -42,7 +64,7 @@ export const PlanSignOutButton: React.FC = () => {
             // authStore.logout restores the previous session when the
             // server release or native unregister fails. Safety interlocks
             // are also intentionally actionable here rather than swallowed.
-            setError(logoutError instanceof Error ? logoutError.message : 'Sign out failed. Please try again.');
+            setError(describeSignOutError(logoutError));
         } finally {
             setBusy(false);
         }

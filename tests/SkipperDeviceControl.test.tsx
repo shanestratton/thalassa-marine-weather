@@ -116,15 +116,15 @@ describe('SkipperDeviceControl takeover confirmation', () => {
 
         expect(
             screen.getByText(
-                'No phone is primary yet — any signed-in phone can post the boat’s position to your public page.',
+                'No phone is primary yet — any signed-in phone can post the boat’s position to your public voyage page.',
             ),
         ).toBeInTheDocument();
         // A sighted skipper reads the state too, not just a screen reader — and
         // no "Primary device" label stands in for a claim that does not exist.
         // Plain phone words, not "No primary device yet" (UX scorecard run 7).
         // No boat GPS here, so the row has room for the rule in full.
-        // Post WHAT, since UX scorecard run 8.
-        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^Signed-in phones post position$/);
+        // Post WHAT, since UX scorecard run 8; "share", not "post", since run 9.
+        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^Signed-in phones share position$/);
         expect(screen.queryByText(/Claim one to make it the single source/i)).not.toBeInTheDocument();
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
         expect(screen.getByRole('button', { name: 'Make this phone primary' })).toHaveClass(
@@ -159,7 +159,7 @@ describe('SkipperDeviceControl takeover confirmation', () => {
             expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^No primary phone yet$/);
             expect(screen.getByTestId('skipper-device-status')).toHaveAttribute(
                 'title',
-                'No phone is primary yet — any signed-in phone can post the boat’s position to your public page.',
+                'No phone is primary yet — any signed-in phone can post the boat’s position to your public voyage page.',
             );
         } finally {
             feed.mockRestore();
@@ -174,8 +174,11 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         render(<SkipperDeviceControl claim={null} authenticatedUserId={null} updateSettings={updateSettings} />);
 
         expect(screen.queryByRole('button', { name: 'Make this phone primary' })).not.toBeInTheDocument();
-        const signIn = screen.getByRole('button', { name: 'Sign in to make this phone primary' });
+        // Says what signing in lets this phone do, in the secondary style: the
+        // filled primary made this nudge louder than MOB (UX scorecard run 9).
+        const signIn = screen.getByRole('button', { name: 'Sign in to share position from this phone' });
         expect(signIn).toHaveClass('h-11', 'whitespace-nowrap');
+        expect(signIn).not.toHaveClass('ui-primary-action');
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');
 
         fireEvent.click(signIn);

@@ -452,9 +452,11 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {/* One term for one thing (UX scorecard run 6): a heading IS a
                                 checklist — pre-departure, anchoring — and its rows are items.
-                                One count while there are none (run 7). */}
-                            {headings.length} checklist{headings.length !== 1 ? 's' : ''}
-                            {headings.length > 0 && ` · ${totalDetails} item${totalDetails !== 1 ? 's' : ''}`}
+                                While there are none, what the page is for rather than
+                                '0 checklists' under CHECKLISTS, the word twice (run 9). */}
+                            {headings.length === 0
+                                ? 'Pre‑departure & passage lists'
+                                : `${headings.length} checklist${headings.length !== 1 ? 's' : ''} · ${totalDetails} item${totalDetails !== 1 ? 's' : ''}`}
                         </p>
                     }
                     // The menu's one action, Run checklist, needs an item to check,
@@ -558,11 +560,14 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             title={searchQuery ? 'No matches' : 'No checklists yet'}
                             // Non-breaking hyphens (U+2011) in 'pre-departure' and
                             // 'heavy-weather': the latter split at its hyphen across two
-                            // lines at 393 and 375 (UX scorecard run 8).
+                            // lines at 393 and 375 (UX scorecard run 8). Says the lists
+                            // are the skipper's own to write: 'Start with a pre-departure…
+                            // checklist' read as an offer of ready-made ones that the
+                            // page does not have (UX scorecard run 9).
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Start with a pre‑departure, anchoring or heavy‑weather checklist. Tap New checklist below.'
+                                    : 'Write your own, such as a pre‑departure, anchoring or heavy‑weather list. Tap New checklist below.'
                             }
                             className="py-16"
                         />

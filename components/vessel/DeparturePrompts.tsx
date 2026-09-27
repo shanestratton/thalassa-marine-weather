@@ -5,6 +5,8 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useToast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { ModalSheet } from '../ui/ModalSheet';
+import { Button } from '../ui/Button';
 
 /**
  * DeparturePrompts — the "at departure" nudge:
@@ -100,44 +102,43 @@ export const DeparturePrompts: React.FC = () => {
 
     if (!isTracking) return null;
 
+    const keepPrivate = () => {
+        triggerHaptic('light');
+        setSharePrompt(null);
+    };
+
+    // "Share this voyage live?" — surfaced at departure so the deep-menu
+    // toggle isn't the only way to opt in. A centred ModalSheet, like every
+    // other choice in the app: it slid up from the bottom, the one choice
+    // surface that did (UX scorecard run 9). Closing it (X, backdrop, Escape)
+    // is Keep private, as dismissing the old card was.
     return (
-        <>
-            {/* "Share this voyage live?" — surfaced at departure so the
-                deep-menu toggle isn't the only way to opt in. */}
-            {sharePrompt && sharePrompt === voyageId && (
-                <div
-                    className="fixed left-4 right-4 z-9991 animate-slide-up"
-                    style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
+        <ModalSheet
+            isOpen={sharePrompt !== null && sharePrompt === voyageId}
+            onClose={keepPrivate}
+            title="Share this voyage live?"
+            maxWidth="max-w-sm"
+            zIndex="z-9991"
+        >
+            <p className="text-sm leading-relaxed text-gray-300">
+                Your track will build on your public page as you sail, so friends and family can follow along. You can
+                turn it off any time.
+            </p>
+            <div className="mt-5 flex gap-2">
+                <Button variant="secondary" onClick={keepPrivate} className="flex-1 text-gray-200">
+                    Keep private
+                </Button>
+                <Button
+                    variant="primary"
+                    onClick={() => {
+                        triggerHaptic('medium');
+                        void enableLiveShare();
+                    }}
+                    className="flex-1"
                 >
-                    <div className="bg-slate-800 border border-emerald-500/30 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
-                        <div className="text-sm font-bold text-white">Share this voyage live?</div>
-                        <div className="text-xs text-gray-400 mt-1">
-                            Your track will build on your public page as you sail, so friends and family can follow
-                            along. You can turn it off any time.
-                        </div>
-                        <div className="flex gap-2 mt-3">
-                            <button
-                                onClick={() => {
-                                    triggerHaptic('medium');
-                                    void enableLiveShare();
-                                }}
-                                className="flex-1 py-2 bg-emerald-500/20 text-emerald-300 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
-                            >
-                                Share live
-                            </button>
-                            <button
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    setSharePrompt(null);
-                                }}
-                                className="flex-1 py-2 bg-white/5 text-gray-400 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
-                            >
-                                Keep private
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </>
+                    Share live
+                </Button>
+            </div>
+        </ModalSheet>
     );
 };

@@ -1,6 +1,8 @@
 /**
- * UX scorecard run 7 — the Crew & Float Plan sign-in wall: centred action,
- * crew-first copy, and a preview of what signing in unlocks.
+ * UX scorecard run 7 — the Crew & Float Plan sign-in wall: crew-first copy and
+ * a preview of what signing in unlocks. Run 9 — the one sign-in card recipe
+ * (as on Galley, Account & Cloud and Voyage Log) and a heading that states
+ * the benefit.
  */
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -15,16 +17,16 @@ import { CREW_PAGE_SUBTITLE, CrewSignInPrompt } from '../components/crewManageme
 afterEach(cleanup);
 
 describe('CrewSignInPrompt', () => {
-    it('leads with crew readiness, lists what signing in unlocks, and opens sign-in', () => {
+    it('leads with the crew benefit, lists what signing in unlocks, and opens sign-in', () => {
         const setShowAuth = vi.fn();
         render(<CrewSignInPrompt onBack={vi.fn()} showAuth={false} setShowAuth={setShowAuth} />);
 
         expect(screen.getByRole('heading', { name: 'Crew & Float Plan' })).toBeInTheDocument();
         expect(screen.getByText(CREW_PAGE_SUBTITLE)).toBeInTheDocument();
-        expect(screen.getByRole('heading', { name: 'Sign in required' })).toBeInTheDocument();
-        expect(
-            screen.getByText('Sign in to check readiness with your crew and share a private float plan.'),
-        ).toBeInTheDocument();
+        // The benefit, not the barrier (UX scorecard run 9).
+        expect(screen.getByRole('heading', { name: 'Sign in to plan with your crew' })).toBeInTheDocument();
+        expect(screen.queryByRole('heading', { name: 'Sign in required' })).not.toBeInTheDocument();
+        expect(screen.getByText('An account unlocks:')).toBeInTheDocument();
         expect(screen.queryByText(/save routes/i)).not.toBeInTheDocument();
 
         const unlocks = screen.getAllByRole('listitem').map((item) => item.textContent);
@@ -34,10 +36,11 @@ describe('CrewSignInPrompt', () => {
             'A private float plan to share ashore',
         ]);
 
-        // The action sits in the notice's centred action row, not left-aligned
-        // under centred copy.
+        // The one sign-in card: the full-width SignInButton under a
+        // left-aligned heading, as on Galley (UX scorecard run 9).
         const signIn = screen.getByRole('button', { name: 'Sign in' });
-        expect(signIn.parentElement?.className).toContain('justify-center');
+        expect(signIn).toHaveClass('w-full');
+        expect(screen.getByRole('region', { name: 'Sign in to plan with your crew' })).toContainElement(signIn);
         fireEvent.click(signIn);
         expect(setShowAuth).toHaveBeenCalledWith(true);
     });

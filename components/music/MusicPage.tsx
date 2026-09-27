@@ -58,7 +58,13 @@ import { PlaylistTile } from './musicPage/PlaylistTile';
 import { LibraryIcon, MusicIcon, PlayIcon, PlusIcon, RefreshIcon } from './musicPage/icons';
 import { MAX_CONCURRENT_PLAYLIST_PREVIEWS, type MusicPageProps, type PlaylistPreviewJob } from './musicPage/types';
 
-export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
+/** viewRegistry names Back after the page that opened Music ('Back to The
+ *  Glass', ['The Glass', 'Apple Music']), as on its siblings (UX scorecard run 9). */
+export const MusicPage: React.FC<MusicPageProps & { backLabel?: string; breadcrumbs?: string[] }> = ({
+    onBack,
+    backLabel,
+    breadcrumbs,
+}) => {
     // Flag the session as "music engaged" the moment this page
     // mounts. GlobalNowPlayingBar gates ALL its polling on this
     // flag, so before the user has shown intent to use music, the
@@ -860,7 +866,13 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 {/* One subtitle in both states: off the iPhone app it said
                     "iPhone app only" over a card that said so twice more (UX
                     scorecard run 7). */}
-                <PageHeader title="Apple Music" subtitle="Soundtrack for the watch" onBack={onBack} />
+                <PageHeader
+                    title="Apple Music"
+                    subtitle="Soundtrack for the watch"
+                    onBack={onBack}
+                    backLabel={backLabel}
+                    breadcrumbs={breadcrumbs}
+                />
 
                 <div
                     ref={musicScrollRef}
@@ -885,9 +897,12 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 </Button>
                             }
                         >
+                            {/* Its own subject, not "There it plays…" leaning on the
+                                heading: read alone, "There" named nothing (UX
+                                scorecard run 9). */}
                             <p>
-                                There it plays your library and playlists hands-free while you sail, on the phone or an
-                                AirPlay or Bluetooth speaker aboard.
+                                In the iPhone app, Thalassa plays your library and playlists hands-free while you sail,
+                                on the phone or an AirPlay or Bluetooth speaker aboard.
                             </p>
                         </NeedsIPhoneAppNotice>
                     )}
