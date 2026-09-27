@@ -118,10 +118,15 @@ export function RadioInstructionsDialog({
             <div
                 // On short phones the instructions must fit unscrolled (e2e radio-console-flow);
                 // spacing tightens there so the 12 px text and 44 pt controls keep their size.
-                className="mx-auto w-full max-w-3xl flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 [@media(max-height:700px)]:py-1 [@media(max-height:700px)]:space-y-1"
+                // A size container too: a split pane squeezes this body to ~380 px on
+                // a 768 pt screen, so the same tightening keys on its own height
+                // (index.css .radio-prep-body) rather than the viewport's.
+                className="radio-prep-body mx-auto w-full max-w-3xl flex-1 min-h-0 overflow-y-auto overscroll-contain"
                 data-testid="radio-instructions-body"
             >
-                {children}
+                <div className="radio-prep-stack px-3 py-2 space-y-2 [@media(max-height:700px)]:py-1 [@media(max-height:700px)]:space-y-1">
+                    {children}
+                </div>
             </div>
         </RadioDialog>
     );
