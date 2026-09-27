@@ -67,7 +67,8 @@ describe('the weather is for the boat', () => {
         // 2026-09-08 later: "lets move the phone or vessel gps icon into the i
         // section, rather than sticking yet another fab on the already jam
         // packed screen." The row lives in System Status; the header has no chip.
-        expect(status).toContain('positionSource={<GpsSourceRow compact />}');
+        // The row reads the cards' one fix timestamp (UX referee run 8, gps-one-truth).
+        expect(status).toContain('positionSource={<GpsSourceRow compact fixes={box.fixes} />}');
         expect(status.match(/<GpsSourceRow\b/g)).toHaveLength(1);
         expect(read('components/GpsDiagnosticsCards.tsx')).toContain('{positionSource}');
         expect(app).not.toContain('<GpsSourceGlyph />');

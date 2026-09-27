@@ -34,9 +34,11 @@ import { AnchorWatchSyncService } from '../services/AnchorWatchSyncService';
 import { presentShoreWatchStatus, type ShoreWatchStatusPresentation } from './anchor-watch/shoreWatchStatus';
 import {
     boatGpsDiagnosticSource,
-    presentGpsDiagnostics,
-    type GpsDiagnosticsPresentation,
+    presentWeatherPositionBox,
+    type WeatherPositionBox,
 } from './gpsDiagnosticsPresentation';
+import { PHONE_LIVE_FIX_MAX_AGE_MS } from './gpsFixState';
+import { useWeatherOptional } from '../context/WeatherContext';
 import { CORNER_STATUS_DOT_CLASS } from './map/cornerStatusDot';
 import { Button } from './ui/Button';
 
@@ -105,7 +107,11 @@ const GpsQualityPanel: React.FC<{
     phoneFixRef: React.MutableRefObject<GpsPosition | null>;
     receiver: GpsReceiverStatus;
 }> = ({ phoneFixRef, receiver }) => {
-    const read = useCallback((): GpsDiagnosticsPresentation[] => {
+    // The weather's copy of the followed receiver's fix joins that receiver's
+    // card, so the header row and the card read one timestamp (UX referee
+    // run 8, gps-one-truth: 'fix just now' over 'Last position 46 s ago').
+    const weatherFix = useWeatherOptional()?.positionSource ?? null;
+    const read = useCallback((): WeatherPositionBox => {
         const now = Date.now();
         const boat =
             boatGpsDiagnosticSource(NmeaStore.getState()) ??
@@ -117,24 +123,23 @@ const GpsQualityPanel: React.FC<{
                   }
                 : null);
         const phone = phoneFixRef.current;
-        return [
-            ...(boat ? [presentGpsDiagnostics(boat, now)] : []),
-            presentGpsDiagnostics(
-                {
-                    label: 'Phone location',
-                    phone: true,
-                    maxAgeMs: 30_000,
-                    positionAt: phone?.timestamp ?? null,
-                    accuracyM: phone ? { value: phone.accuracy, timestamp: phone.timestamp } : null,
-                },
-                now,
-            ),
-        ];
-    }, [phoneFixRef, receiver]);
-    const [sources, setSources] = useState(read);
+        return presentWeatherPositionBox({
+            now,
+            boat,
+            phone: {
+                label: 'Phone location',
+                phone: true,
+                maxAgeMs: PHONE_LIVE_FIX_MAX_AGE_MS,
+                positionAt: phone?.timestamp ?? null,
+                accuracyM: phone ? { value: phone.accuracy, timestamp: phone.timestamp } : null,
+            },
+            weather: weatherFix,
+        });
+    }, [phoneFixRef, receiver, weatherFix]);
+    const [box, setBox] = useState(read);
     useEffect(() => {
         const refresh = () => {
-            if (!document.hidden) setSources(read());
+            if (!document.hidden) setBox(read());
         };
         const unsubscribe = NmeaStore.subscribe(refresh);
         const timer = setInterval(refresh, 1000);
@@ -146,7 +151,13 @@ const GpsQualityPanel: React.FC<{
             document.removeEventListener('visibilitychange', refresh);
         };
     }, [read]);
-    return <GpsDiagnosticsCards sources={sources} receiver={receiver} positionSource={<GpsSourceRow compact />} />;
+    return (
+        <GpsDiagnosticsCards
+            sources={box.sources}
+            receiver={receiver}
+            positionSource={<GpsSourceRow compact fixes={box.fixes} />}
+        />
+    );
 };
 
 // ── SystemStatusModal ──

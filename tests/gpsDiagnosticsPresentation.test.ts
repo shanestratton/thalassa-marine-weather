@@ -42,19 +42,21 @@ describe('GPS diagnostics presentation', () => {
         });
         expect(presentGpsDiagnostics(source!, NOW)).toMatchObject({
             label: 'Boat GPS · cloud',
-            position: 'Last position 2 min ago',
+            position: 'No live fix · last position 2 min ago',
             quality: { text: 'Not reported' },
         });
     });
 
     it('keeps untimed GPS numbers out of the receiver identity row', () => {
+        // The row keeps the link; 'Live' was a second clock that could sit
+        // beside a card with no position (UX referee run 8, gps-one-truth).
         expect(
             gpsReceiverConnectionDetail({
                 kind: 'vessel-nmea',
                 detail: 'Live via the Pi · DGPS · 32 sats · HDOP 0.5',
                 qualityLabel: 'DGPS',
             }),
-        ).toBe('Live via the Pi');
+        ).toBe('Connected via the Pi');
         expect(
             gpsReceiverConnectionDetail({
                 kind: 'precision-location',
@@ -86,7 +88,7 @@ describe('GPS diagnostics presentation', () => {
                 gpsFixQualityUpdatedAt: NOW,
                 gpsAccuracyM: { value: null, lastUpdated: 0, freshness: 'dead' },
             });
-            expect(presentGpsDiagnostics(source!, NOW).position).toBe('Position time unavailable');
+            expect(presentGpsDiagnostics(source!, NOW).position).toBe('No position yet');
         },
     );
 

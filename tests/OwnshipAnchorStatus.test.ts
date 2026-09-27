@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ownshipStatusLabel } from '../components/map/ownshipStatus';
+import { gpsFixState, PHONE_LIVE_FIX_MAX_AGE_MS } from '../components/gpsFixState';
 import type { AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import type { PositionBroadcast, SyncState } from '../services/AnchorWatchSyncService';
 import type { ShoreAlarmSnapshot } from '../services/ShoreWatchAlarmService';
@@ -74,5 +75,47 @@ describe('own-vessel anchor status is explicit, not inferred from speed', () => 
     });
     it('keeps numeric speed for a moving vessel without a watch', () => {
         expect(ownshipStatusLabel({ ...position, speed: 3 }, true, local, sync, noShore, now)).toBe('5.8 kts');
+    });
+});
+
+// UX referee run 8 (gps-one-truth): 'Stopped' off a 46 s old fix read as
+// live while MOB, Radio and Anchor Watch said NO FIX.
+describe('own-vessel status is fix-age aware', () => {
+    const fixAged = (ageMs: number) => gpsFixState(now - ageMs, PHONE_LIVE_FIX_MAX_AGE_MS, now);
+
+    it("says 'Last fix 46 s' instead of 'Stopped' or a speed once the fix is not live", () => {
+        expect(ownshipStatusLabel(position, false, local, sync, noShore, now, fixAged(46_000))).toBe('Last fix 46 s');
+        expect(ownshipStatusLabel({ ...position, speed: 3 }, false, local, sync, noShore, now, fixAged(46_000))).toBe(
+            'Last fix 46 s',
+        );
+        expect(
+            ownshipStatusLabel({ ...position, speed: null }, false, local, sync, noShore, now, fixAged(46_000)),
+        ).toBe('Last fix 46 s');
+        expect(ownshipStatusLabel(position, false, local, sync, noShore, now, fixAged(7 * 60_000))).toBe(
+            'Last fix 7 min',
+        );
+    });
+
+    it('keeps Stopped and speed for a live fix, exactly as without a fix state', () => {
+        expect(ownshipStatusLabel(position, false, local, sync, noShore, now, fixAged(5_000))).toBe('Stopped');
+        expect(ownshipStatusLabel({ ...position, speed: 3 }, false, local, sync, noShore, now, fixAged(0))).toBe(
+            '5.8 kts',
+        );
+        expect(ownshipStatusLabel(position, false, local, sync, noShore, now, fixAged(PHONE_LIVE_FIX_MAX_AGE_MS))).toBe(
+            'Stopped',
+        );
+    });
+
+    it('never hides an anchor alarm or the armed watch behind a fix age', () => {
+        const stale = fixAged(46_000);
+        expect(ownshipStatusLabel(position, true, { ...local, state: 'alarm' }, sync, noShore, now, stale)).toBe(
+            'Anchor alarm',
+        );
+        expect(ownshipStatusLabel(position, true, { ...local, state: 'watching' }, sync, noShore, now, stale)).toBe(
+            'Anchored',
+        );
+        expect(ownshipStatusLabel(position, true, local, sync, { ...shore, cause: 'drag' }, now, stale)).toBe(
+            'Anchor alarm',
+        );
     });
 });
