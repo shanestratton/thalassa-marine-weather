@@ -20,8 +20,11 @@ jobs:
         # also performs a clean install/audit, full lint + migration audit,
         # TypeScript, Deno, production build, Lighthouse, and two-browser E2E.
         # Keep one bounded job, but give a healthy candidate enough headroom to
-        # finish on a contended GitHub runner.
-        timeout-minutes: 60
+        # finish on a contended GitHub runner. 90 since 2026-09-28: with every
+        # step green the two-browser E2E (~35 min) and the browser regressions
+        # (~17 min) no longer fit 60 — run 36345173825 was cancelled mid-way
+        # through the regressions after a clean E2E.
+        timeout-minutes: 90
         env:
             NODE_OPTIONS: --max-old-space-size=4096
             VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
