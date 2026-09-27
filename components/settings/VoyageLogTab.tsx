@@ -392,7 +392,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                 if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
                 if (!error) {
                     triggerHaptic('medium');
-                    toast.success('Personal Voyage Log created privately. Turn it on when you are ready to publish.');
+                    toast.success('Personal voyage page created privately. Turn it on when you are ready to publish.');
                     const nextCrewBoats = await loadCrewBoats(scope);
                     if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch || nextCrewBoats === null) {
                         return;
@@ -535,7 +535,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                                     <button
                                         onClick={() => void handleCreateCrewLog(boat)}
                                         disabled={isBusy}
-                                        aria-label={`Create personal voyage log on ${boat.boatName}`}
+                                        aria-label={`Create personal voyage page on ${boat.boatName}`}
                                         className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider disabled:opacity-50"
                                     >
                                         {isBusy ? 'Creating…' : 'Create page'}
@@ -588,7 +588,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                                 setSignInOpen(false);
                                 onSignInClosed?.();
                             }}
-                            prompt="Sign in to set up your Voyage Log. You'll come straight back here."
+                            prompt="Sign in to set up your public voyage page. You'll come straight back here."
                         />
                     </React.Suspense>
                 )}
@@ -601,9 +601,8 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                         scorecard run 8). */}
                     <Row>
                         <p className="text-sm text-gray-300">
-                            Your Voyage Log is a public page where the folks at home can follow your passage — your
-                            published diary entries, your track on a map, and your latest position and barometer
-                            reading.
+                            Your public voyage page is where the folks at home can follow your passage — your published
+                            diary entries, your track on a map, and your latest position and barometer reading.
                         </p>
                     </Row>
                     {signedOut ? (
@@ -615,8 +614,8 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                         // line of its own (UX scorecard run 8).
                         <div className="p-4 border-b border-white/5 last:border-0">
                             <SignInCard
-                                title="Sign in to set up your Voyage Log"
-                                reason="Your Voyage Log belongs to your Thalassa account."
+                                title="Sign in to set up your public voyage page"
+                                reason="Your public voyage page belongs to your Thalassa account."
                                 onSignIn={() => {
                                     setSignInOpen(true);
                                     onSignInOpened?.();
@@ -628,7 +627,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                         // share one layout.
                         <div className="p-4 border-b border-white/5 last:border-0 space-y-4">
                             <div>
-                                <h3 className="text-sm text-white font-bold">Set up your own Voyage Log</h3>
+                                <h3 className="text-sm text-white font-bold">Set up your own public voyage page</h3>
                                 <p className="text-xs text-gray-400 mt-1">
                                     Reserves your public handle with the page switched off. Nothing is published until
                                     you turn the page on or explicitly publish a diary entry.
@@ -638,7 +637,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                                 variant="primary"
                                 onClick={() => void handleSetUp()}
                                 disabled={busy}
-                                aria-label="Set up your voyage log"
+                                aria-label="Set up your public voyage page"
                                 className="w-full"
                             >
                                 {busy ? 'Setting up…' : 'Set up'}
@@ -648,7 +647,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                 </Section>
                 {setupError && (
                     <div role="alert" className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
-                        <p className="text-sm font-bold text-red-200">Couldn&apos;t set up your Voyage Log</p>
+                        <p className="text-sm font-bold text-red-200">Couldn&apos;t set up your public voyage page</p>
                         <p className="mt-1 text-sm leading-relaxed text-red-100">{plainSetupError(setupError)}</p>
                         <details className="mt-1 text-xs text-red-200/70">
                             <summary className="cursor-pointer py-3.5 leading-4">Details for support</summary>
@@ -672,7 +671,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                 <div className="flex items-center gap-2 mb-3 text-sky-300">
                     {config.enabled ? <EyeIcon className="w-4 h-4" /> : <LockIcon className="w-4 h-4" />}
                     <span className="text-xs font-black text-sky-300/80 uppercase tracking-[0.2em]">
-                        {config.enabled ? 'Your Voyage Log is live' : 'Your Voyage Log is switched off'}
+                        {config.enabled ? 'Your public voyage page is live' : 'Your public voyage page is switched off'}
                     </span>
                 </div>
                 <div
@@ -686,14 +685,14 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                     <div className="flex gap-2 mt-3">
                         <button
                             onClick={() => openPrivateUrl(publicUrl)}
-                            aria-label="Open your voyage log in browser"
+                            aria-label="Open your public voyage page in the browser"
                             className="flex-1 min-h-[44px] text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
                         >
                             Open
                         </button>
                         <button
                             onClick={() => void copy('url', publicUrl)}
-                            aria-label="Copy your voyage log share link"
+                            aria-label="Copy your public voyage page link"
                             className="flex-1 min-h-[44px] text-xs font-bold text-sky-300 border border-sky-400/40 hover:bg-sky-500/10 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
                         >
                             {copiedField === 'url' ? 'Copied!' : 'Copy link'}
@@ -701,7 +700,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                     </div>
                 ) : (
                     <p className="mt-3 text-xs text-gray-400">
-                        This handle is reserved, but the page and API return no voyage data. Turn on Public Voyage Log
+                        This handle is reserved, but the page and API return no voyage data. Turn on Public voyage page
                         below when you are ready to share.
                     </p>
                 )}
@@ -729,9 +728,8 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                         </span>
                         <span>
                             <strong className="text-white">Write a diary entry</strong> and tap{' '}
-                            <strong className="text-sky-300">Publish to Voyage Log</strong> in the prompt that appears
-                            after you save. Entries default to private — only the ones you publish appear on the public
-                            page.
+                            <strong className="text-sky-300">Publish</strong> in the prompt that appears after you save.
+                            Entries default to private — only the ones you publish appear on the public page.
                         </span>
                     </li>
                     <li className="flex gap-3">
@@ -748,20 +746,22 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
             </div>
 
             <fieldset disabled={busy} aria-busy={busy}>
-                <Section title="Voyage Log">
+                {/* One name for the public follow page everywhere: 'Voyage
+                    Log' collided with the LOG tab (UX scorecard run 9). */}
+                <Section title="Sharing">
                     <Row>
                         <div className="flex-1">
-                            <div className="text-sm text-white font-bold">Public Voyage Log</div>
+                            <div className="text-sm text-white font-bold">Public voyage page</div>
                             <div className="text-xs text-gray-400 mt-1">
                                 {config.enabled
-                                    ? 'Your log is public. Anyone with the link can follow your shared voyages and published diary entries. Switch off to make the page private; instrument sharing stays separate below.'
-                                    : 'Your log is switched off. The public page and API return nothing until you turn it back on.'}
+                                    ? 'Your page is public. Anyone with the link can follow your shared voyages and published diary entries. Switch off to make the page private; instrument sharing stays separate below.'
+                                    : 'Your page is switched off. It shows nothing until you turn it back on.'}
                             </div>
                         </div>
                         <Toggle
                             checked={config.enabled}
                             onChange={(v) => void handleToggle(v)}
-                            label="Public voyage log"
+                            label="Public voyage page"
                         />
                     </Row>
                     {config.enabled && (
@@ -836,9 +836,9 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                 <Row>
                     <div className="flex-1">
                         <div className="text-xs text-gray-400">
-                            Building your own front-end? The voyage-log API serves the enabled page as public JSON. It
+                            Building your own front-end? The API serves the enabled page as public JSON. It
                             intentionally uses the public handle, not a secret key; anyone who has or guesses the handle
-                            can read the published feed. Switch off Public Voyage Log above to revoke access.
+                            can read the published feed. Switch off Public voyage page above to revoke access.
                         </div>
                     </div>
                 </Row>
@@ -863,7 +863,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                     </div>
                     <button
                         onClick={() => void Browser.open({ url: 'https://thalassawx.app/voyage-log-api' })}
-                        aria-label="Open the Voyage Log API documentation"
+                        aria-label="Open the API documentation"
                         className="hit-target-44 shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded-sm border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
                     >
                         API docs

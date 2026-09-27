@@ -308,7 +308,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         );
         renderTab();
 
-        expect(await screen.findByRole('switch', { name: 'Public voyage log' })).toHaveAttribute(
+        expect(await screen.findByRole('switch', { name: 'Public voyage page' })).toHaveAttribute(
             'aria-checked',
             'true',
         );
@@ -330,7 +330,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         mocks.setEnabled.mockReturnValueOnce(disable.promise).mockReturnValueOnce(enable.promise);
         const onSave = vi.fn();
         renderTab(onSave);
-        const toggle = await screen.findByRole('switch', { name: 'Public voyage log' });
+        const toggle = await screen.findByRole('switch', { name: 'Public voyage page' });
 
         fireEvent.click(toggle);
         expect(mocks.setEnabled).toHaveBeenLastCalledWith(false);
@@ -358,7 +358,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         mocks.getConfig.mockResolvedValue(config('account-a', 'boat-a', enabled));
         mocks.setEnabled.mockResolvedValueOnce(null);
         renderTab();
-        const toggle = await screen.findByRole('switch', { name: 'Public voyage log' });
+        const toggle = await screen.findByRole('switch', { name: 'Public voyage page' });
 
         fireEvent.click(toggle);
         await waitFor(() => expect(toggle).not.toBeDisabled());
@@ -464,7 +464,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         expect(screen.queryByText('Copied')).not.toBeInTheDocument();
 
         await act(async () => accountBConfig.resolve(null));
-        expect(await screen.findByRole('button', { name: 'Set up your voyage log' })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: 'Set up your public voyage page' })).toBeInTheDocument();
         expectNoPerVoyageAccess();
     });
 
@@ -473,7 +473,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         mocks.getConfig.mockResolvedValue(null);
         mocks.ensureConfigured.mockReturnValueOnce(accountASetup.promise);
         renderTab();
-        fireEvent.click(await screen.findByRole('button', { name: 'Set up your voyage log' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Set up your public voyage page' }));
 
         act(() => {
             mocks.authUserId = 'account-b';
@@ -481,7 +481,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         });
         await act(async () => accountASetup.resolve(config('account-a', 'boat-a')));
 
-        expect(await screen.findByRole('button', { name: 'Set up your voyage log' })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: 'Set up your public voyage page' })).toBeInTheDocument();
         expect(screen.queryByText(/account-a-private-handle/)).not.toBeInTheDocument();
         expect(mocks.haptic).not.toHaveBeenCalledWith('medium');
     });
@@ -516,7 +516,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         });
 
         renderTab();
-        fireEvent.click(await screen.findByRole('button', { name: 'Create personal voyage log on Crew Boat A' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Create personal voyage page on Crew Boat A' }));
         await vi.waitFor(() =>
             expect(
                 mocks.queries.some((query) => query.table === 'voyage_log_configs' && query.action === 'insert'),
@@ -560,7 +560,7 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         });
         await act(async () => accountAMutation.resolve(null));
 
-        expect(await screen.findByRole('button', { name: 'Set up your voyage log' })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: 'Set up your public voyage page' })).toBeInTheDocument();
         expect(mocks.toastError).not.toHaveBeenCalled();
         expect(mocks.haptic).toHaveBeenCalledTimes(hapticsAtSwitch);
         expect(screen.queryByRole('switch', { name: 'Share my instruments' })).not.toBeInTheDocument();
@@ -585,9 +585,9 @@ describe('VoyageLogTab sharing and identity transitions', () => {
 
         // The one sign-in control (ui/SignInButton); the row title beside it
         // says what the sign-in is for.
-        await screen.findByText('Sign in to set up your Voyage Log');
+        await screen.findByText('Sign in to set up your public voyage page');
         const signIn = screen.getByRole('button', { name: 'Sign in' });
-        expect(screen.queryByRole('button', { name: 'Set up your voyage log' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Set up your public voyage page' })).not.toBeInTheDocument();
         expect(screen.queryByRole('dialog', { name: 'Sign in to Thalassa' })).not.toBeInTheDocument();
         fireEvent.click(signIn);
         expect(await screen.findByRole('dialog', { name: 'Sign in to Thalassa' })).toBeInTheDocument();
@@ -603,10 +603,10 @@ describe('VoyageLogTab sharing and identity transitions', () => {
         mocks.getConfig.mockResolvedValue(null);
         mocks.ensureConfigured.mockResolvedValueOnce(null);
         renderTab();
-        fireEvent.click(await screen.findByRole('button', { name: 'Set up your voyage log' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Set up your public voyage page' }));
 
         const alert = await screen.findByRole('alert');
-        expect(alert).toHaveTextContent("Couldn't set up your Voyage Log");
+        expect(alert).toHaveTextContent("Couldn't set up your public voyage page");
         expect(alert).toHaveTextContent("The server didn't accept the request.");
         expect(screen.getByText('Details for support')).toBeInTheDocument();
     });

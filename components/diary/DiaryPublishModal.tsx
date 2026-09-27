@@ -109,7 +109,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
         triggerHaptic('medium');
         const unpublished = await unpublishDiaryEntryFromVoyageLog(entry.id);
         if (!unpublished) {
-            setActionError('This entry could not be unpublished. It is still on your Voyage Log.');
+            setActionError('This entry could not be unpublished. It is still on your public voyage page.');
             setPhase('choose');
             return;
         }
@@ -137,22 +137,22 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
 
     // ── Screen copy ───────────────────────────────────────────────
     let icon = '⚓';
-    let heading = 'Share to your Voyage Log?';
+    let heading = 'Share to your public voyage page?';
     let blurb =
         'Publish this entry on the public web. Anyone who has or guesses your public handle can read it; your other diary entries stay private.';
     if (phase === 'done' && result === 'published') {
         icon = '🌍';
-        heading = 'Published to your Voyage Log';
+        heading = 'Published to your public voyage page';
         blurb = deferred
-            ? 'This entry is still syncing (a video takes a moment) — it will appear on your public page automatically as soon as it lands. Keep the app open.'
+            ? 'This entry is still syncing (a video takes a moment) — it will appear on your public voyage page automatically as soon as it lands. Keep the app open.'
             : 'This entry is public to anyone who has or guesses your handle. It may take up to a minute to appear for a fresh visitor.';
     } else if (phase === 'done' && result === 'unpublished') {
         icon = '🔒';
-        heading = 'Removed from your Voyage Log';
-        blurb = 'This entry is private again — it no longer appears on your public page.';
+        heading = 'Removed from your public voyage page';
+        blurb = 'This entry is private again — it no longer appears on your public voyage page.';
     } else if (startsPublic) {
         icon = '🌍';
-        heading = 'On your Voyage Log';
+        heading = 'On your public voyage page';
         blurb = 'This entry is live on the public web. Unpublish it below to make it private again.';
     }
 
@@ -223,7 +223,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                         {publicUrl ? (
                             <button
                                 onClick={handleCopy}
-                                aria-label="Copy your voyage log link"
+                                aria-label="Copy your public voyage page link"
                                 className="w-full flex items-center gap-2 p-3 rounded-xl bg-sky-500/10 border border-sky-500/20 text-left transition-colors hover:bg-sky-500/15"
                             >
                                 <svg
@@ -271,7 +271,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                             <button
                                 onClick={handleUnpublish}
                                 disabled={working}
-                                aria-label="Remove this entry from your voyage log"
+                                aria-label="Remove this entry from your public voyage page"
                                 className="flex-1 py-3 rounded-xl bg-white/5 border border-white/8 text-amber-300 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
                             >
                                 {working ? (
@@ -307,7 +307,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onC
                             <button
                                 onClick={handlePublish}
                                 disabled={working}
-                                aria-label="Publish this entry to your voyage log"
+                                aria-label="Publish this entry to your public voyage page"
                                 className="flex-[1.4] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
                             >
                                 {working ? (

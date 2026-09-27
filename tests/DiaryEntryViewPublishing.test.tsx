@@ -102,7 +102,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         const { onPublishedChange } = renderEntry({ location_name: 'Whitsundays' });
 
         expect(screen.getByText('No map location — this entry won’t appear on the map.')).toBeVisible();
-        const publish = screen.getByRole('switch', { name: 'Publish this entry to your voyage log' });
+        const publish = screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' });
         expect(publish).toBeEnabled();
         fireEvent.click(publish);
 
@@ -147,7 +147,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         );
         const { onPublishedChange } = renderEntry();
 
-        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' }));
 
         await waitFor(() => expect(mocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true));
         expect(mocks.ensureEnabled).not.toHaveBeenCalled();
@@ -173,7 +173,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         mocks.setEntryPublished.mockResolvedValueOnce('deferred');
         const { onPublishedChange } = renderEntry();
 
-        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' }));
 
         await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true));
         expect(mocks.toastSuccess).toHaveBeenCalledWith(
@@ -187,7 +187,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         const { onPublishedChange } = renderEntry({ id: 'offline-entry-1' });
 
         expect(screen.getByText(/still syncing/i)).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' }));
 
         await waitFor(() =>
             expect(mocks.toastError).toHaveBeenCalledWith(
@@ -196,7 +196,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         );
         expect(mocks.setEntryPublished).toHaveBeenCalledWith('offline-entry-1', true);
         expect(onPublishedChange).not.toHaveBeenCalled();
-        expect(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' })).toHaveAttribute(
+        expect(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' })).toHaveAttribute(
             'aria-checked',
             'false',
         );
@@ -209,7 +209,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         mocks.ensureEnabled.mockResolvedValueOnce(null);
         const { onPublishedChange } = renderEntry();
 
-        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' }));
 
         await waitFor(() => expect(onPublishedChange).toHaveBeenCalledWith('entry-1', true), { timeout: 5000 });
         expect(mocks.ensureEnabled).toHaveBeenCalledTimes(2);
@@ -222,18 +222,18 @@ describe('DiaryEntryView Voyage Log publishing', () => {
         mocks.ensureEnabled.mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
         const { onPublishedChange } = renderEntry();
 
-        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' }));
 
         await waitFor(
             () =>
                 expect(mocks.toastError).toHaveBeenCalledWith(
-                    expect.stringContaining("couldn't prepare your Voyage Log"),
+                    expect.stringContaining("couldn't prepare your public voyage page"),
                 ),
             { timeout: 8000 },
         );
         expect(mocks.setEntryPublished).toHaveBeenCalledWith('entry-1', true);
         expect(onPublishedChange).not.toHaveBeenCalled();
-        expect(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' })).toHaveAttribute(
+        expect(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' })).toHaveAttribute(
             'aria-checked',
             'false',
         );
@@ -242,7 +242,7 @@ describe('DiaryEntryView Voyage Log publishing', () => {
     it('confirms an unpublish directly without provisioning a new Voyage Log', async () => {
         const { onPublishedChange } = renderEntry({ is_public: true });
 
-        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your voyage log' }));
+        fireEvent.click(screen.getByRole('switch', { name: 'Publish this entry to your public voyage page' }));
 
         await waitFor(() => expect(mocks.setEntryPublished).toHaveBeenCalledWith('entry-1', false));
         expect(mocks.ensureEnabled).not.toHaveBeenCalled();
