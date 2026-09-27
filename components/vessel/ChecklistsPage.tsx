@@ -457,56 +457,61 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             {headings.length > 0 && ` · ${totalDetails} item${totalDetails !== 1 ? 's' : ''}`}
                         </p>
                     }
+                    // The menu's one action, Run checklist, needs an item to check,
+                    // so the ⋮ waits for one instead of opening onto a disabled row
+                    // (UX scorecard run 8), as the Diary's does.
                     action={
-                        <div className="relative">
-                            <button
-                                type="button"
-                                ref={pageActionsButtonRef}
-                                onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
-                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                                aria-label="Page actions"
-                            >
-                                <svg
-                                    aria-hidden="true"
-                                    className="w-5 h-5 text-gray-400"
-                                    viewBox="0 0 24 24"
-                                    fill="currentColor"
+                        totalDetails > 0 ? (
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    ref={pageActionsButtonRef}
+                                    onClick={() => setHeaderMenuOpen(!headerMenuOpen)}
+                                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                                    aria-label="Page actions"
                                 >
-                                    <circle cx="12" cy="5" r="1.5" />
-                                    <circle cx="12" cy="12" r="1.5" />
-                                    <circle cx="12" cy="19" r="1.5" />
-                                </svg>
-                            </button>
-                            {headerMenuOpen && (
-                                <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                        <button
-                                            type="button"
-                                            aria-label="Run checklist inspection"
-                                            onClick={startRun}
-                                            disabled={totalDetails === 0}
-                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
-                                        >
-                                            <svg
-                                                className="w-4 h-4 text-emerald-400"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={2}
+                                    <svg
+                                        aria-hidden="true"
+                                        className="w-5 h-5 text-gray-400"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                    >
+                                        <circle cx="12" cy="5" r="1.5" />
+                                        <circle cx="12" cy="12" r="1.5" />
+                                        <circle cx="12" cy="19" r="1.5" />
+                                    </svg>
+                                </button>
+                                {headerMenuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
+                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                            <button
+                                                type="button"
+                                                aria-label="Run checklist inspection"
+                                                onClick={startRun}
+                                                className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors"
                                             >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                                />
-                                            </svg>
-                                            Run checklist
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </div>
+                                                <svg
+                                                    aria-hidden="true"
+                                                    className="w-4 h-4 text-emerald-400"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2}
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                    />
+                                                </svg>
+                                                Run checklist
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : undefined
                     }
                 />
 
@@ -551,10 +556,13 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </svg>
                             }
                             title={searchQuery ? 'No matches' : 'No checklists yet'}
+                            // Non-breaking hyphens (U+2011) in 'pre-departure' and
+                            // 'heavy-weather': the latter split at its hyphen across two
+                            // lines at 393 and 375 (UX scorecard run 8).
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Start with a pre-departure, anchoring or heavy-weather checklist. Tap New checklist below.'
+                                    : 'Start with a pre‑departure, anchoring or heavy‑weather checklist. Tap New checklist below.'
                             }
                             className="py-16"
                         />

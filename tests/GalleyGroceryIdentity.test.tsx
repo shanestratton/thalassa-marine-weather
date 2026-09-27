@@ -193,7 +193,9 @@ describe('Galley and Grocery account boundaries', () => {
         act(() => switchAccount(accountB));
 
         expect(screen.queryByText('Account A private curry')).not.toBeInTheDocument();
-        expect(screen.getByRole('tab', { name: /Saved recipes \(0\)/i })).toBeInTheDocument();
+        // The recipe count lives in the header now, not in the tab label
+        // (UX scorecard run 8: '(0)' twice).
+        expect(screen.getByText(/^0 recipes/)).toBeInTheDocument();
     });
 
     it('drops an account A purchase completion after B becomes active', async () => {

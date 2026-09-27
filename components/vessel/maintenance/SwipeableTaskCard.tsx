@@ -92,9 +92,17 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                 </div>
             </div>
 
-            {/* Main card (slides on swipe) */}
+            {/* Main card (slides on swipe). A tap anywhere on it opens the
+                same options sheet as its ⋮ — the ⋮ was the only target on a
+                ~340×75 pt card (UX scorecard run 8), as the Equipment cards
+                already do. The ⋮ stays the named control for VoiceOver and
+                the keyboard; a tap on a swiped-open card does nothing, so
+                it cannot open the sheet from under the Delete button. */}
             <div
-                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg p-3 border border-white/5 border-l-2 ${
+                onClick={() => {
+                    if (swipeOffset === 0) onTap();
+                }}
+                className={`relative cursor-pointer transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg p-3 border border-white/5 border-l-2 ${
                     task.status === 'red'
                         ? 'border-l-red-500'
                         : task.status === 'yellow'
@@ -112,6 +120,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                 <div className="flex items-start justify-between gap-2">
                     <h3 className="text-sm font-bold text-white truncate flex-1 min-w-0">{task.title}</h3>
                     <button
+                        type="button"
                         onClick={(e) => {
                             e.stopPropagation();
                             onTap();
@@ -119,7 +128,12 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                         className="hit-target-44 p-1.5 -mr-1 -mt-0.5 rounded-lg hover:bg-white/10 transition-colors shrink-0"
                         aria-label={`Options for ${task.title}`}
                     >
-                        <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                        <svg
+                            aria-hidden="true"
+                            className="w-4 h-4 text-slate-400"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                        >
                             <circle cx="12" cy="5" r="1.5" />
                             <circle cx="12" cy="12" r="1.5" />
                             <circle cx="12" cy="19" r="1.5" />

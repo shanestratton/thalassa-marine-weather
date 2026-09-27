@@ -60,6 +60,14 @@ export const ARCHIVE_DIDNT_LOAD = 'Archive didn’t load';
  *  Retry, instead of two failure cards with a Retry each (UX scorecard run 7). */
 export const HISTORY_PHONE_ONLY = 'Your full voyage history didn’t load — showing this phone only.';
 
+/** Under that page-level line the failure is already said once, so the cards
+ *  below it only say what they hold: the Voyage stats and Archived voyages
+ *  status lines shrink to these (UX scorecard run 8: one failure was said
+ *  three times). Without the line, the cards keep LIFETIME_PHONE_ONLY and
+ *  ARCHIVE_DIDNT_LOAD, which carry the cause themselves. */
+export const LIFETIME_PHONE_ONLY_UNDER_LINE = 'This phone only';
+export const ARCHIVE_NOT_LOADED_UNDER_LINE = 'Not loaded';
+
 /** One card recipe for the Log's sibling disclosure cards (Voyage stats,
  *  Archived voyages): Plan's Departure material, radius and title ink, so the
  *  two no longer differ in corner, surface, title colour and icon. */
@@ -72,12 +80,24 @@ export const LOG_CARD_TITLE = 'block text-xs font-black uppercase tracking-wides
  * names a cause only when the app already knows it (the probe-verified
  * offline state), and never says "incomplete" over tiles that show '--'
  * because this phone has nothing of its own to count.
+ *
+ * `underHistoryLine`: the page-level HistoryStatusLine is showing and has
+ * already said the history didn't load (and that the phone is offline), so
+ * the notice drops that lead sentence rather than repeat it word for word
+ * directly under it (UX scorecard run 8).
  */
-export function lifetimeUnavailableNotice(localVoyageCount: number, offline: boolean): string {
+export function lifetimeUnavailableNotice(
+    localVoyageCount: number,
+    offline: boolean,
+    underHistoryLine = false,
+): string {
+    const detail =
+        localVoyageCount === 0
+            ? 'There are no voyages on this phone to count yet.'
+            : 'These totals count only the voyages on this phone.';
+    if (underHistoryLine) return detail;
     const lead = offline
         ? 'Your full voyage history didn’t load — you’re offline.'
         : 'Your full voyage history didn’t load.';
-    return localVoyageCount === 0
-        ? `${lead} There are no voyages on this phone to count yet.`
-        : `${lead} These totals count only the voyages on this phone.`;
+    return `${lead} ${detail}`;
 }

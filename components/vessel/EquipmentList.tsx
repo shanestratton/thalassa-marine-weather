@@ -480,76 +480,91 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 <PageHeader
                     title="Equipment"
                     // One count, worded like the sibling pages; 'registered' repeated
-                    // the empty state's heading (UX scorecard run 7).
-                    subtitle={`${visibleItems.length} ${visibleItems.length === 1 ? 'item' : 'items'}`}
+                    // the empty state's heading (UX scorecard run 7). The bold
+                    // tracked count Stores, Documents and Checklists wear; the
+                    // plain caption read lighter than its siblings (run 8).
+                    subtitle={
+                        <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
+                            {visibleItems.length} {visibleItems.length === 1 ? 'item' : 'items'}
+                        </p>
+                    }
                     onBack={onBack}
                     breadcrumbs={['Boat Binder', 'Equipment']}
                     status={<OfflineBadge />}
+                    // The menu's one action, Export to PDF, has nothing to export
+                    // while the register is empty, so the ⋮ waits for the first
+                    // item instead of opening onto a disabled row (UX scorecard
+                    // run 8), as the Diary's does.
                     action={
-                        <div className="relative">
-                            <button
-                                onClick={() => setMenuOpen(!menuOpen)}
-                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                                aria-label="Page actions"
-                            >
-                                <svg
-                                    aria-hidden="true"
-                                    className="w-5 h-5 text-gray-400"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
+                        visibleItems.length > 0 ? (
+                            <div className="relative">
+                                <button
+                                    onClick={() => setMenuOpen(!menuOpen)}
+                                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                                    aria-label="Page actions"
                                 >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
-                                    />
-                                </svg>
-                            </button>
-                            {menuOpen && (
-                                <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                        <button
-                                            aria-label="Export equipment register as PDF"
-                                            disabled={visibleItems.length === 0}
-                                            onClick={async () => {
-                                                const scope = getAuthIdentityScope();
-                                                const exportItems = visibleItems.map((item) => ({ ...item }));
-                                                setMenuOpen(false);
-                                                try {
-                                                    await exportEquipmentPdf(exportItems);
-                                                } catch (e) {
-                                                    if (!currentOperation(scope)) return;
-                                                    // AbortError = user dismissed the share
-                                                    // sheet; anything else is a real failure.
-                                                    if (e instanceof Error && e.name === 'AbortError') return;
-                                                    log.warn('Equipment PDF export failed:', e);
-                                                    toast.error('Could not export the PDF — try again.');
-                                                }
-                                            }}
-                                            className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3 disabled:opacity-30"
-                                        >
-                                            <svg
-                                                className="w-4 h-4 text-gray-400"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={1.5}
+                                    <svg
+                                        aria-hidden="true"
+                                        className="w-5 h-5 text-gray-400"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"
+                                        />
+                                    </svg>
+                                </button>
+                                {menuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                            {/* Named by its visible words (WCAG 2.5.3): the old
+                                            'Export equipment register as PDF' did not
+                                            contain 'Export to PDF' (UX scorecard run 8). */}
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    const scope = getAuthIdentityScope();
+                                                    const exportItems = visibleItems.map((item) => ({ ...item }));
+                                                    setMenuOpen(false);
+                                                    try {
+                                                        await exportEquipmentPdf(exportItems);
+                                                    } catch (e) {
+                                                        if (!currentOperation(scope)) return;
+                                                        // AbortError = user dismissed the share
+                                                        // sheet; anything else is a real failure.
+                                                        if (e instanceof Error && e.name === 'AbortError') return;
+                                                        log.warn('Equipment PDF export failed:', e);
+                                                        toast.error('Could not export the PDF — try again.');
+                                                    }
+                                                }}
+                                                className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
                                             >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75"
-                                                />
-                                            </svg>
-                                            Export to PDF
-                                        </button>
-                                    </div>
-                                </>
-                            )}
-                        </div>
+                                                <svg
+                                                    aria-hidden="true"
+                                                    className="w-4 h-4 text-gray-400"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                    strokeWidth={1.5}
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18.25 7.034H5.75"
+                                                    />
+                                                </svg>
+                                                Export to PDF
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : undefined
                     }
                 />
 

@@ -23,19 +23,32 @@ export const VoyageListSkeleton: React.FC = () => (
 );
 
 export const VoyageListEmptyState: React.FC<{
-    /** A status card or line heads the page (a failed history read): the
+    /** A history read failed, so a status card or line heads the page: the
      *  watermark shrinks, and goes on short phones, so it is not cut in half
-     *  by the slide bar under the words. */
+     *  by the slide bar under the words. The words change too — see below. */
     compact?: boolean;
 }> = ({ compact = false }) => (
     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 pt-6 pb-8">
         {/* The words come first: under the two status cards the heading sat
             below the fold at 393 and 375, behind a watermark (UX scorecard
-            run 7). */}
-        <h2 className="text-base font-bold text-white mb-1.5">Begin your log</h2>
-        <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
-            Every great voyage starts with a single position. Slide below to begin GPS tracking.
-        </p>
+            run 7). Under a failed history read, "Begin your log" read as
+            "your log is empty" to a skipper whose voyages simply had not
+            loaded, so it says what is actually known (run 8). */}
+        {compact ? (
+            <>
+                <h2 className="text-base font-bold text-white mb-1.5">No voyages on this phone yet</h2>
+                <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
+                    Your account’s voyages appear here once they load. Slide below to begin GPS tracking.
+                </p>
+            </>
+        ) : (
+            <>
+                <h2 className="text-base font-bold text-white mb-1.5">Begin your log</h2>
+                <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
+                    Every great voyage starts with a single position. Slide below to begin GPS tracking.
+                </p>
+            </>
+        )}
         {/* Watermark — the Thalassa mark, big and faint, where the little
             compass used to be (Shane 2026-09-06: "the thalassa icon in a
             watermark look. do it big"). The PNG is opaque on near-black:
@@ -44,9 +57,13 @@ export const VoyageListEmptyState: React.FC<{
             It is sized to the room left above the slide bar (clamp on dvh) and
             smaller while a status card heads the page; on a short phone it
             stays, at 110 px (Shane asked for it big, so it never disappears on
-            the plain empty page). */}
+            the plain empty page). While a history card above is open (Voyage
+            stats or Archived voyages — a section whose disclosure button is
+            aria-expanded), the page below it is pushed down and only the
+            mark's tip peeked over the slide bar as a stray glyph, so it steps
+            out until the card closes (UX scorecard run 8). */}
         <div
-            className={`relative mt-4 w-full max-w-[380px] ${
+            className={`relative mt-4 w-full max-w-[380px] in-[:has(>section>button[aria-expanded=true])]:hidden ${
                 compact
                     ? 'h-[clamp(120px,calc(100dvh-650px),240px)] [@media(max-height:760px)]:hidden'
                     : 'h-[clamp(110px,calc(100dvh-565px),380px)]'

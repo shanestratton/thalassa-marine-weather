@@ -217,6 +217,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
     const pageActionsTriggerRef = useRef<HTMLButtonElement>(null);
     const pageActionsMenuId = useId();
+    // The GPS-conflict question is named by its own title and described by its
+    // body, so VoiceOver announces more than 'dialog' (UX scorecard run 8).
+    const gpsConflictTitleId = useId();
+    const gpsConflictBodyId = useId();
     const closePageActions = useCallback(() => setMenuOpen(false), [setMenuOpen]);
     const pageActionsMenuRef = useMenuNavigation<HTMLDivElement>(menuOpen, {
         triggerRef: pageActionsTriggerRef,
@@ -1320,16 +1324,23 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     <div
                         // Centred, not a bottom sheet: anchored low it slid its second
                         // option under the tab bar, and a question with one visible answer
-                        // is not a question (Shane, 2026-08-31).
-                        className="fixed inset-0 z-1200 flex items-center justify-center bg-black/80 p-6"
+                        // is not a question (Shane, 2026-08-31). The bottom padding keeps
+                        // it clear of the tab bar and the card scrolls inside itself, as
+                        // the video trimmer beside it does.
+                        className="fixed inset-0 z-1200 flex items-center justify-center bg-black/80 p-6 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1.5rem,env(safe-area-inset-top))]"
                         role="dialog"
                         aria-modal="true"
+                        aria-labelledby={gpsConflictTitleId}
+                        aria-describedby={gpsConflictBodyId}
                     >
-                        <div className="w-full max-w-sm rounded-3xl border border-sky-500/25 bg-slate-950 p-5 shadow-[0_0_40px_rgba(56,189,248,0.15)]">
-                            <p className="text-sm font-black uppercase tracking-[0.14em] text-sky-300">
+                        <div className="w-full max-w-sm max-h-full overflow-y-auto rounded-3xl border border-sky-500/25 bg-slate-950 p-5 shadow-[0_0_40px_rgba(56,189,248,0.15)]">
+                            <h2
+                                id={gpsConflictTitleId}
+                                className="text-sm font-black uppercase tracking-[0.14em] text-sky-300"
+                            >
                                 Two positions, skipper
-                            </p>
-                            <p className="mt-1 text-xs leading-relaxed text-gray-400">
+                            </h2>
+                            <p id={gpsConflictBodyId} className="mt-1 text-xs leading-relaxed text-gray-400">
                                 The boat and this phone are{' '}
                                 {gpsConflict.distanceM >= 1852
                                     ? `${(gpsConflict.distanceM / 1852).toFixed(1)} NM`

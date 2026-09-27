@@ -155,7 +155,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     const seeded = await MaintenanceService.getTasks();
                     if (!isCurrentRequest()) return;
                     setTaskData({ identity, tasks: seeded });
-                    toast.success('40 suggested tasks added — customise to suit your vessel');
+                    // One line: the two-line toast covered a task row at 393 and a
+                    // whole card at 375 (UX scorecard run 8). The note above the
+                    // list already says the schedule is a suggestion to adjust.
+                    toast.success(`${seeded.length} suggested task${seeded.length === 1 ? '' : 's'} added`);
                     return;
                 } catch (seedErr) {
                     log.warn(' seed failed:', seedErr);
@@ -605,7 +608,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-label font-black"
                                     title="Due soon"
                                 >
-                                    {counts.yellow} due
+                                    {/* 'due soon', as the rows and the spoken summary
+                                        say it; a bare '3 due' read as overdue (UX
+                                        scorecard run 8). */}
+                                    {counts.yellow} due soon
                                 </span>
                             )}
                             {tasksWithStatus.length > 0 && (
@@ -853,7 +859,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                             {showSuggestedNote && (
                                 <p className="text-xs text-gray-400 px-1">
                                     Suggested schedule — due dates count from the day it was added, not from your last
-                                    service. Tap ⋮ on a task to adjust it or log a service.
+                                    service. Tap a task to adjust it or log a service.
                                 </p>
                             )}
                             {groupedTasks.map((group) => {
