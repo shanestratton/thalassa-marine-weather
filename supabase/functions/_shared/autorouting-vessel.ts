@@ -45,20 +45,28 @@ export function validateAutoroutingVesselProfile(value: unknown): AutoroutingVes
 }
 
 export function autoroutingVesselWarnings(profile?: AutoroutingVesselProfile): string[] {
-    if (!profile) return [
-        'Draft measurement status is unknown. Air draft, beam and vessel dimensions are unknown and have not been checked for this yacht.',
-    ];
+    if (!profile) {
+        return [
+            'Draft measurement status is unknown. Air draft, beam and vessel dimensions are unknown and have not been checked for this yacht.',
+        ];
+    }
     const warnings: string[] = [];
-    if (profile.draftStatus !== 'measured') warnings.push(
-        profile.draftStatus === 'estimated'
-            ? 'Vessel draft is estimated. Depth review is incomplete until the draft is measured and confirmed in Vessel settings.'
-            : 'Vessel draft measurement status is missing. Depth clearance has not been established.',
-    );
+    if (profile.draftStatus !== 'measured') {
+        warnings.push(
+            profile.draftStatus === 'estimated'
+                ? 'Vessel draft is estimated. Depth review is incomplete until the draft is measured and confirmed in Vessel settings.'
+                : 'Vessel draft measurement status is missing. Depth clearance has not been established.',
+        );
+    }
     for (const [key, label] of [['length', 'Length'], ['beam', 'Beam'], ['airDraft', 'Air draft']] as const) {
         const value = profile[key];
         if (value.status === 'missing') warnings.push(`${label} is missing and was not supplied to SevenCs.`);
-        if (value.status === 'estimated') warnings.push(`${label} is estimated; the supplied value is not a confirmed measurement.`);
+        if (value.status === 'estimated') {
+            warnings.push(`${label} is estimated; the supplied value is not a confirmed measurement.`);
+        }
     }
-    warnings.push('Supplying vessel dimensions does not establish bridge or overhead clearance. No vertical safety margin or tide credit has been added.');
+    warnings.push(
+        'Supplying vessel dimensions does not establish bridge or overhead clearance. No vertical safety margin or tide credit has been added.',
+    );
     return warnings;
 }

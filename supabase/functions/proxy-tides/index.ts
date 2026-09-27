@@ -129,7 +129,12 @@ function isValidHeight(value: unknown): boolean {
         Math.abs(Date.parse(value.date) - timestamp * 1000) <= 1000;
 }
 
-function isValidWorldTidesResponse(value: Record<string, unknown>, stations: boolean, days: number, heights: boolean): boolean {
+function isValidWorldTidesResponse(
+    value: Record<string, unknown>,
+    stations: boolean,
+    days: number,
+    heights: boolean,
+): boolean {
     if (value.status !== 200 || value.error != null || !hasBoundedJsonShape(value, { remaining: 25_000 })) {
         return false;
     }
@@ -145,7 +150,9 @@ function isValidWorldTidesResponse(value: Record<string, unknown>, stations: boo
     const maxExtremes = days * 8 + 16;
     return (
         Array.isArray(value.extremes) && value.extremes.length <= maxExtremes && value.extremes.every(isValidExtreme) &&
-        (!heights || (Array.isArray(value.heights) && value.heights.length <= days * 48 + 2 && value.heights.every(isValidHeight)))
+        (!heights ||
+            (Array.isArray(value.heights) && value.heights.length <= days * 48 + 2 &&
+                value.heights.every(isValidHeight)))
     );
 }
 
@@ -257,7 +264,9 @@ Deno.serve(async (req: Request) => {
 
         // Dense predictions are requested per user; do not encourage a shared
         // intermediary to reuse that licensed response for other users.
-        return corsResponse(JSON.stringify(data), 200, { 'Cache-Control': heights ? 'private, max-age=900' : 'public, max-age=900' });
+        return corsResponse(JSON.stringify(data), 200, {
+            'Cache-Control': heights ? 'private, max-age=900' : 'public, max-age=900',
+        });
     } catch {
         console.error('[proxy-tides] request failed');
         return corsResponse(JSON.stringify({ error: 'Tide request failed' }), 502);
