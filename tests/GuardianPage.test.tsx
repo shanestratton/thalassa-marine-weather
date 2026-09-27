@@ -214,8 +214,9 @@ describe('GuardianPage', () => {
         expect(await screen.findByRole('heading', { name: 'Sign in to use Guardian' })).toBeInTheDocument();
         // A static gate, not a live region (UX scorecard run 6).
         expect(screen.queryByRole('status')).not.toBeInTheDocument();
-        expect(screen.getByText('Guardian')).toBeInTheDocument();
-        const back = screen.getByRole('button', { name: /back/i });
+        // The page title; the trail's own 'Guardian' crumb is screen-reader only.
+        expect(screen.getByRole('heading', { level: 1, name: 'Guardian' })).toBeInTheDocument();
+        const back = screen.getByRole('button', { name: 'Back to Vessel' });
         fireEvent.click(back);
         expect(onBack).toHaveBeenCalledOnce();
         expect(screen.queryByText('Loading Guardian…')).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, onTestFinished } from 'vitest';
 
 // Mock heavy sub-components to isolate HeroSlide logic
 vi.mock('./TideAndVessel', () => ({
@@ -319,6 +319,13 @@ describe('HeroSlide', () => {
     });
 
     it('takes off-screen hours out of the reading order and names the day', () => {
+        // Midday in Brisbane: near midnight 'Today' has no later hours to page
+        // through, and this test failed on the clock rather than the code.
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-27T02:00:00Z'));
+        onTestFinished(() => {
+            vi.useRealTimers();
+        });
         const now = Date.now();
         const hours = [1, 2, 3].map((h) => ({
             time: new Date(now + h * 60 * 60_000).toISOString(),

@@ -265,9 +265,9 @@ export const GpsSourceRow: React.FC<{
                 <GlyphArt glyph={state.glyph} tone={state.tone} />
             </span>
             <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">
                     {compact ? 'Weather position' : 'Position'}
-                </p>
+                </h3>
                 <p className={`${compact ? 'text-xs' : 'text-sm'} font-semibold text-white`}>{detail}</p>
             </div>
         </div>

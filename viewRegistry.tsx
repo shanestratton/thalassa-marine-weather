@@ -183,6 +183,7 @@ const GuardianBetaHoldPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
     <UnavailablePage
         pageTitle="Guardian"
         onBack={onBack}
+        breadcrumbs={['Vessel', 'Guardian']}
         tone="amber"
         icon={<LockIcon className="h-5 w-5" />}
         title="Guardian is held for public beta"

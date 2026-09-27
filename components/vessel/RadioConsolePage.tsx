@@ -570,6 +570,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                 title="Radio Console"
                 subtitle="Choose your call"
                 onBack={onBack}
+                breadcrumbs={['Vessel', 'Radio Console']}
                 // The GPS pill is a status, not a control, so it rides on
                 // PageHeader's status row under the title instead of squeezing
                 // RADIO CONSOLE in the action slot. 12 px now it has the room.

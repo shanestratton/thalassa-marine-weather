@@ -37,6 +37,19 @@ const INTERNET_FETCH_INTERVAL_MS = 30_000;
  *  (Local targets need no cutoff — AisStore expires them at 10 minutes.) */
 const INTERNET_STALE_CUTOFF_MS = 30 * 60_000;
 
+/** A finite number, or null for a missing, blank or garbled field — never an invented 0. */
+const finiteOrNull = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+};
+
+/** A course in [0, 360), or null. COG 360 is AIS's own 'not available'. */
+const courseOrNull = (v: unknown): number | null => {
+    const c = finiteOrNull(v);
+    return c !== null && c >= 0 && c < 360 ? c : null;
+};
+
 interface AnchorPoint {
     latitude: number;
     longitude: number;
@@ -65,8 +78,8 @@ export function mergeAnchorRadarTargets(
             name: target.name || `MMSI ${target.mmsi}`,
             lat: target.lat,
             lon: target.lon,
-            cog: Number.isFinite(target.cog) ? target.cog : 0,
-            sog: Number.isFinite(target.sog) ? target.sog : 0,
+            cog: courseOrNull(target.cog),
+            sog: finiteOrNull(target.sog),
             statusColor: navStatusColorSimple(target.navStatus ?? 15),
         });
     }
@@ -86,8 +99,8 @@ export function mergeAnchorRadarTargets(
             name: (typeof p.name === 'string' && p.name) || `MMSI ${mmsi}`,
             lat: coords[1],
             lon: coords[0],
-            cog: Number(p.cog ?? 0),
-            sog: Number(p.sog ?? 0),
+            cog: courseOrNull(p.cog),
+            sog: finiteOrNull(p.sog),
             statusColor: navStatusColorSimple(Number(p.navStatus ?? p.nav_status ?? 15)),
         });
     }
