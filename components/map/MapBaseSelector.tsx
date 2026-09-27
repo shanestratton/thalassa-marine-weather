@@ -57,8 +57,8 @@ export function MapBaseSelector({
     /* The ENC row is a menu item too, so the arrow keys have to know about it
        or the one control a skipper reaches for under memory pressure would be
        the one item they cannot reach without a mouse. */
-    const showEncRow = encCellCount > 0;
-    const itemCount = MAP_BASE_OPTIONS.length + (showEncRow ? 1 : 0);
+    const itemCount = MAP_BASE_OPTIONS.length + 1;
+    const noCharts = encCellCount === 0;
 
     useEffect(() => {
         if (!visible) setOpen(false);
@@ -189,49 +189,55 @@ export function MapBaseSelector({
                         it a menuitemradio would tell a screen reader that
                         turning charts on turns the base map off.
 
-                        Offered whenever there are cells to switch — and
-                        crucially ALSO when they are already off, or it would be
-                        a one-way door. */}
-                    {showEncRow && (
-                        <>
-                            <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
-                            <button
-                                ref={(element) => {
-                                    optionRefs.current[MAP_BASE_OPTIONS.length] = element;
-                                }}
-                                type="button"
-                                role="menuitemcheckbox"
-                                aria-checked={encVisible}
-                                aria-label={encVisible ? 'Turn ENC charts off' : 'Turn ENC charts on'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onToggleEnc();
-                                    setOpen(false);
-                                    triggerRef.current?.focus({ preventScroll: true });
-                                }}
-                                className={`flex min-h-[52px] w-full items-center justify-between rounded-xl px-3 text-left transition-colors active:scale-[0.98] ${
-                                    encVisible
-                                        ? 'border border-emerald-400/35 bg-emerald-500/15 text-emerald-200'
-                                        : 'border border-white/10 text-slate-400'
+                        Always offered, including with no charts installed:
+                        browse charts start off on every fresh OBS (Release
+                        119), and the no-charts notice (with its Library
+                        button, the one Add Charts route) only shows while
+                        charts are on. Gating this row on an installed cell
+                        left a fresh install no way to reach either
+                        (Shane 2026-09-27). */}
+                    <>
+                        <div role="separator" className="mx-2 my-1 h-px bg-white/10" />
+                        <button
+                            ref={(element) => {
+                                optionRefs.current[MAP_BASE_OPTIONS.length] = element;
+                            }}
+                            type="button"
+                            role="menuitemcheckbox"
+                            aria-checked={encVisible}
+                            aria-label={encVisible ? 'Turn ENC charts off' : 'Turn ENC charts on'}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onToggleEnc();
+                                setOpen(false);
+                                triggerRef.current?.focus({ preventScroll: true });
+                            }}
+                            className={`flex min-h-[52px] w-full items-center justify-between rounded-xl px-3 text-left transition-colors active:scale-[0.98] ${
+                                encVisible
+                                    ? 'border border-emerald-400/35 bg-emerald-500/15 text-emerald-200'
+                                    : 'border border-white/10 text-slate-400'
+                            }`}
+                        >
+                            <span>
+                                <span className="block text-xs font-black">ENC charts</span>
+                                <span className="block text-[10px] font-medium text-slate-400">
+                                    {noCharts
+                                        ? 'None installed yet'
+                                        : encVisible
+                                          ? 'Safety layers above the base'
+                                          : 'Hidden — base map only'}
+                                </span>
+                            </span>
+                            {/* The state, not just what tapping does. */}
+                            <span
+                                className={`text-[10px] font-black uppercase tracking-wider ${
+                                    encVisible ? 'text-emerald-300' : 'text-slate-500'
                                 }`}
                             >
-                                <span>
-                                    <span className="block text-xs font-black">ENC charts</span>
-                                    <span className="block text-[10px] font-medium text-slate-400">
-                                        {encVisible ? 'Safety layers above the base' : 'Hidden — base map only'}
-                                    </span>
-                                </span>
-                                {/* The state, not just what tapping does. */}
-                                <span
-                                    className={`text-[10px] font-black uppercase tracking-wider ${
-                                        encVisible ? 'text-emerald-300' : 'text-slate-500'
-                                    }`}
-                                >
-                                    {encVisible ? 'ON' : 'OFF'}
-                                </span>
-                            </button>
-                        </>
-                    )}
+                                {encVisible ? 'ON' : 'OFF'}
+                            </span>
+                        </button>
+                    </>
                 </div>
             )}
         </div>

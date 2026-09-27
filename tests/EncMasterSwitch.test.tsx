@@ -131,10 +131,14 @@ describe('the ENC master switch', () => {
         expect(document.activeElement).toHaveTextContent('Hybrid');
     });
 
-    it('stays out of the way when there are no charts to switch', () => {
-        render(<Harness encCellCount={0} />);
+    it('is offered with no charts installed, so the no-charts notice is reachable', () => {
+        // Browse charts start off (Release 119) and the no-charts notice only
+        // shows while they are on, so the switch must exist on an empty
+        // inventory too (Shane 2026-09-27).
+        render(<Harness encCellCount={0} startOn={false} />);
         openMenu();
-        expect(screen.queryByLabelText(/Turn ENC charts/)).toBeNull();
-        expect(screen.queryByRole('menuitemcheckbox')).toBeNull();
+        const row = screen.getByRole('menuitemcheckbox', { name: 'Turn ENC charts on' });
+        expect(row).toHaveAttribute('aria-checked', 'false');
+        expect(row).toHaveTextContent('None installed yet');
     });
 });

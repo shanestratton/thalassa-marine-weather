@@ -111,6 +111,14 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
     // fixed nav, not an empty bottom edge.
     await expect(page.getByRole('navigation', { name: 'Main', exact: true })).toBeVisible();
     await expect(charts).toHaveAttribute('aria-current', 'page');
+    // Browse charts start off on every fresh OBS (Release 119) and the
+    // no-charts notice only shows while they are on: switch them on the way a
+    // skipper does, from the map-base menu.
+    await page.getByRole('button', { name: /^Map base:/ }).click();
+    const encSwitch = page.getByRole('menuitemcheckbox', { name: 'Turn ENC charts on', exact: true });
+    await expect(encSwitch).toHaveAttribute('aria-checked', 'false');
+    await encSwitch.click();
+    await expect(page.getByRole('menu', { name: 'Map base' })).toHaveCount(0);
     try {
         await expect(page.getByText(EMPTY_ENC_NOTICE, { exact: true })).toBeVisible();
     } catch (error) {
@@ -301,7 +309,8 @@ for (const size of cases) {
                             warning: '[aria-label="ENC coverage"]',
                             chart: '[data-testid="map-hub"]',
                             nav: 'nav[aria-label="Main"]',
-                            back: 'button[aria-label="Back"]',
+                            zoomIn: 'button[aria-label="Zoom in"]',
+                            zoomOut: 'button[aria-label="Zoom out"]',
                             locate: 'button[aria-label="Locate me"]',
                             mob: 'button[aria-label="MOB, open Man Overboard emergency"]',
                             layers: 'button[aria-label="Open layer menu"]',
@@ -331,7 +340,10 @@ for (const size of cases) {
             if (size.split) await expect(page.locator('[data-split-pane="glass"]')).toBeVisible();
 
             const locate = page.getByRole('button', { name: 'Locate me', exact: true });
-            const back = page.getByRole('button', { name: 'Back', exact: true });
+            // The chart's Back chevron went in Release 118; the one-handed zoom
+            // buttons now share the lower rail with Locate (UX scorecard run 7).
+            const zoomIn = page.getByRole('button', { name: 'Zoom in', exact: true });
+            const zoomOut = page.getByRole('button', { name: 'Zoom out', exact: true });
             const mob = page.getByRole('button', { name: 'MOB, open Man Overboard emergency', exact: true });
             const layers = page.getByRole('button', { name: 'Open layer menu', exact: true });
             const attribution = page.locator('.thalassa-chart-map .mapboxgl-ctrl-attrib');
@@ -339,7 +351,8 @@ for (const size of cases) {
             const logo = page.locator('.thalassa-chart-map .mapboxgl-ctrl-logo');
             for (const [label, control] of [
                 ['Locate', locate],
-                ['Back', back],
+                ['Zoom in', zoomIn],
+                ['Zoom out', zoomOut],
                 ['MOB', mob],
                 ['Layers', layers],
                 ['Mapbox attribution', attribution],
@@ -366,7 +379,7 @@ for (const size of cases) {
                     await expect(tideScrubber).toHaveCount(0);
                 }
             }
-            for (const control of [library, locate, back, mob, layers, attribution, logo])
+            for (const control of [library, locate, zoomIn, zoomOut, mob, layers, attribution, logo])
                 await expectHitTarget(control);
             for (const tab of await nav.getByRole('button').all()) {
                 await visibleBox(tab, page);
