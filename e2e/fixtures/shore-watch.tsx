@@ -78,7 +78,9 @@ function Fixture() {
                             aria-label="Background notification readiness"
                             className="mx-4 mb-2 shrink-0 rounded-xl border border-amber-400/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-200"
                         >
-                            <div className="flex items-center justify-between gap-3">
+                            {/* Wraps: at large text sizes the Retry button ran past the
+                            card's right edge instead of taking its own line. */}
+                            <div className="flex flex-wrap items-center justify-between gap-x-3">
                                 <p role="status" aria-live="polite" className="font-bold">
                                     {checkingNotifications
                                         ? 'Checking background notifications…'

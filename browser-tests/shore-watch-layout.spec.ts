@@ -68,7 +68,8 @@ for (const size of [
             await expect(page.getByText(label, { exact: true })).toBeVisible();
             await assertInsideReadings(page.getByText(label, { exact: true }));
         }
-        for (const value of ['50m', '45m', '4.3m']) await assertInsideReadings(page.getByText(value, { exact: true }));
+        for (const value of ['50 m', '45 m', '4.3 m'])
+            await assertInsideReadings(page.getByText(value, { exact: true }));
         await expect(page.getByRole('status')).toHaveText('Holding');
         await expect(page.getByRole('button', { name: 'Leave Shore Watch' })).toBeInViewport();
         if (size.width === 430) {
