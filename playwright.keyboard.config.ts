@@ -30,8 +30,14 @@ export default defineConfig({
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
+    // One retry on CI, as the E2E config has two: early in a cold run the dev
+    // server can reload a page while it optimises newly seen dependencies
+    // ('Execution context was destroyed', run 36348970406, 3.5 s into the 7th
+    // test, green in WebKit and locally). A retried pass is reported as flaky.
+    retries: process.env.CI ? 1 : 0,
     reporter: 'list',
-    use: { baseURL: 'http://127.0.0.1:4199', screenshot: 'only-on-failure' },
+    // A retry records a trace, so a flaky pass leaves evidence of its first failure.
+    use: { baseURL: 'http://127.0.0.1:4199', screenshot: 'only-on-failure', trace: 'on-first-retry' },
     projects: [
         {
             name: 'chromium',

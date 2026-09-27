@@ -1332,7 +1332,7 @@ async function proposalFitsChart(page: Page) {
         .toBe(true);
 }
 
-test('Tall proposal endpoints remain visible below the floating controls', async ({ page }, info) => {
+async function openTallProposal(page: Page) {
     await openFixture(page, sizes[0], 'dark');
     await slideToChoice(page);
     await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
@@ -1353,7 +1353,10 @@ test('Tall proposal endpoints remain visible below the floating controls', async
         'false',
     );
     await settleGroupedMap(page);
-    await capture(page, info, 'tall-proposal-collapsed');
+}
+
+// Both ends of the proposal are hit-testable map, not covered by a card.
+async function expectProposalEndpointsClear(page: Page) {
     await expect
         .poll(() =>
             page.evaluate(() => {
@@ -1385,6 +1388,30 @@ test('Tall proposal endpoints remain visible below the floating controls', async
             }),
         )
         .toBe(true);
+}
+
+test('Tall proposal endpoints remain visible below the floating controls', async ({ page }, info) => {
+    await openTallProposal(page);
+    await capture(page, info, 'tall-proposal-collapsed');
+    await expectProposalEndpointsClear(page);
+});
+
+test('Tall proposal endpoints stay clear when the folded card grows after the fit', async ({ page }, info) => {
+    await openTallProposal(page);
+    await expectProposalEndpointsClear(page);
+    // Taller lines after the fold model a late wrap: the card gains height after
+    // the map was framed. On CI, Linux fonts wrapped 'Chart checks complete ·
+    // review required' onto a third line, which covered the route's top
+    // endpoint until the workspace re-fitted on the card's own resize. Line
+    // height, not a font face, so the card grows on every platform's fonts.
+    const before = await page.locator('.trial-tracer-shell[data-expanded="false"]').boundingBox();
+    await page.addStyleTag({ content: '.trial-tracer-shell * { line-height: 2 !important; }' });
+    await expect
+        .poll(async () => (await page.locator('.trial-tracer-shell[data-expanded="false"]').boundingBox())!.height)
+        .toBeGreaterThan(before!.height + 4);
+    await settleGroupedMap(page);
+    await capture(page, info, 'tall-proposal-late-wrap');
+    await expectProposalEndpointsClear(page);
 });
 
 for (const size of sizes)

@@ -559,6 +559,12 @@ export function AutoroutingTrialWorkspace({
         };
         map.on('dragstart', keepUserView);
         map.on('zoomstart', keepUserView);
+        // Keyboard pans move without a drag or zoom start, and box zoom's
+        // zoomstart carries no input event: both are still the skipper's view,
+        // which the folded-card re-fit must not throw away. The workspace's
+        // own camera calls pass no event, so they never count.
+        map.on('movestart', keepUserView);
+        map.on('boxzoomstart', keepUserView);
         map.on('error', () =>
             setMapError('Some chart detail could not load. Check your connection and ENC display status.'),
         );
@@ -899,6 +905,26 @@ export function AutoroutingTrialWorkspace({
         viewportPadding,
         fitRevision,
     ]);
+    // That fit measures the folded card once. The card can still change
+    // height afterwards, when its status line wraps differently once fonts
+    // settle or a late status lands: on Linux fonts 'Chart checks complete ·
+    // review required' took a third line and covered the route's top
+    // endpoint. Re-fit on the same terms whenever the folded card's own height
+    // changes; fitBounds does not resize the card, so this cannot loop.
+    useEffect(() => {
+        if (!mapReady || panelExpanded || typeof ResizeObserver === 'undefined') return;
+        const card = dialogRef.current?.querySelector('.trial-tracer-shell[data-expanded="false"]');
+        if (!card) return;
+        let lastHeight = card.getBoundingClientRect().height;
+        const observer = new ResizeObserver(() => {
+            const height = card.getBoundingClientRect().height;
+            if (Math.abs(height - lastHeight) < 1) return;
+            lastHeight = height;
+            setFitRevision((value) => value + 1);
+        });
+        observer.observe(card);
+        return () => observer.disconnect();
+    }, [mapReady, panelExpanded, dialogRef]);
 
     const calculate = async () => {
         if (!valid || !departureMode || !start || !end || !vesselReady || !status?.ready || busy || pending.current)
