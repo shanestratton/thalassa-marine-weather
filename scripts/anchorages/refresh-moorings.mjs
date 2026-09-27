@@ -1,3 +1,4 @@
+/* global AbortSignal -- a Node global (v15+) the lint env does not declare */
 /** Manual refresh; no scheduler or boat-location upload. Run before a release.
  * Reject partial/error responses so a bad refresh cannot erase the good copy. */
 import { mkdir, writeFile, rename } from 'node:fs/promises';

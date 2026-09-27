@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global AbortSignal -- a Node global (v15+) the lint env does not declare */
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
