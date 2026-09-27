@@ -671,7 +671,12 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle={GUARDIAN_SUBTITLE} onBack={onBack} />
+                <PageHeader
+                    title="Guardian"
+                    subtitle={GUARDIAN_SUBTITLE}
+                    onBack={onBack}
+                    breadcrumbs={['Vessel', 'Guardian']}
+                />
                 <div className="flex-1 flex items-start justify-center px-5 pt-2">
                     {/* A static gate, not a live region: it holds a heading and a
                         button, and nothing in it changes while it is shown. Drawn
@@ -715,7 +720,12 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle={GUARDIAN_SUBTITLE} onBack={onBack} />
+                <PageHeader
+                    title="Guardian"
+                    subtitle={GUARDIAN_SUBTITLE}
+                    onBack={onBack}
+                    breadcrumbs={['Vessel', 'Guardian']}
+                />
                 <div className="flex-1 flex items-center justify-center px-6">
                     <div role="status" aria-live="polite" className="text-center">
                         <div className="mx-auto w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
@@ -733,7 +743,12 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                 className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
             >
-                <PageHeader title="Guardian" subtitle={GUARDIAN_SUBTITLE} onBack={onBack} />
+                <PageHeader
+                    title="Guardian"
+                    subtitle={GUARDIAN_SUBTITLE}
+                    onBack={onBack}
+                    breadcrumbs={['Vessel', 'Guardian']}
+                />
                 <div className="flex-1 flex items-center justify-center px-6">
                     <div
                         role="alert"
@@ -763,6 +778,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
             <PageHeader
                 title="Guardian"
                 subtitle={GUARDIAN_SUBTITLE}
+                breadcrumbs={['Vessel', 'Guardian']}
                 onBack={() => {
                     triggerHaptic('light');
                     onBack();

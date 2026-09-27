@@ -1874,7 +1874,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     if (!authChecked) {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-                <PageHeader title="Crew & Float Plan" subtitle={CREW_PAGE_SUBTITLE} onBack={onBack} />
+                <PageHeader
+                    title="Crew & Float Plan"
+                    subtitle={CREW_PAGE_SUBTITLE}
+                    onBack={onBack}
+                    breadcrumbs={['Vessel', 'Crew & Float Plan']}
+                />
                 <div className="flex-1" />
             </div>
         );
@@ -1886,7 +1891,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     if (isAuthed && !privateIdentityMatches) {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-                <PageHeader title="Crew & Float Plan" subtitle={CREW_PAGE_SUBTITLE} onBack={onBack} />
+                <PageHeader
+                    title="Crew & Float Plan"
+                    subtitle={CREW_PAGE_SUBTITLE}
+                    onBack={onBack}
+                    breadcrumbs={['Vessel', 'Crew & Float Plan']}
+                />
                 <div className="flex-1" />
             </div>
         );
@@ -1899,7 +1909,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
-            <PageHeader title="Crew & Float Plan" subtitle={CREW_PAGE_SUBTITLE} onBack={onBack} />
+            <PageHeader
+                title="Crew & Float Plan"
+                subtitle={CREW_PAGE_SUBTITLE}
+                onBack={onBack}
+                breadcrumbs={['Vessel', 'Crew & Float Plan']}
+            />
             {/* The "+ Invite Crew" action lives inside the My Crew section
                 header below — it was crowding the page title in the
                 PageHeader's action slot. */}

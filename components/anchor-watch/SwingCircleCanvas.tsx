@@ -20,8 +20,10 @@ export interface AisTargetDot {
     name: string;
     lat: number;
     lon: number;
-    cog: number;
-    sog: number;
+    /** Course over ground (°), or null when the vessel has not sent one. */
+    cog: number | null;
+    /** Speed over ground (kn), or null when the vessel has not sent one. */
+    sog: number | null;
     statusColor: string;
 }
 
@@ -302,6 +304,18 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                     ctx.arc(tx, ty, 8, 0, Math.PI * 2);
                     ctx.fillStyle = tGlow;
                     ctx.fill();
+
+                    if (target.cog === null) {
+                        // Heading unknown: a plain dot, never a triangle pointing an invented way.
+                        ctx.beginPath();
+                        ctx.arc(tx, ty, 3.5, 0, Math.PI * 2);
+                        ctx.fillStyle = color;
+                        ctx.fill();
+                        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                        ctx.lineWidth = 0.5;
+                        ctx.stroke();
+                        continue;
+                    }
 
                     // Rotated triangle (boat shape)
                     const cogRad = ((target.cog - 90) * Math.PI) / 180;

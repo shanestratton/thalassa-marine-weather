@@ -71,4 +71,26 @@ describe('mergeAnchorRadarTargets', () => {
         const ownFromInternet = internetFeature({ mmsi: OWN });
         expect(mergeAnchorRadarTargets(ANCHOR, asMap(ownEcho), [ownFromInternet], NOW, OWN)).toEqual([]);
     });
+
+    it('carries a missing course and speed as null, never an invented 0', () => {
+        const localNoMotion = localTarget({ cog: Number.NaN, sog: Number.NaN });
+        const internetNoMotion = internetFeature({ cog: undefined, sog: undefined });
+        const dots = mergeAnchorRadarTargets(ANCHOR, asMap(localNoMotion), [internetNoMotion], NOW);
+        expect(dots).toHaveLength(2);
+        for (const dot of dots) {
+            expect(dot).toMatchObject({ cog: null, sog: null });
+        }
+    });
+
+    it("reads COG 360, AIS's 'not available', as no course", () => {
+        const local = localTarget({ cog: 360 });
+        const internet = internetFeature({ cog: 360 });
+        const dots = mergeAnchorRadarTargets(ANCHOR, asMap(local), [internet], NOW);
+        expect(dots.map((d) => d.cog)).toEqual([null, null]);
+    });
+
+    it('keeps a real course and speed of 0', () => {
+        const [dot] = mergeAnchorRadarTargets(ANCHOR, new Map(), [internetFeature({ cog: 0, sog: 0 })], NOW);
+        expect(dot).toMatchObject({ cog: 0, sog: 0 });
+    });
 });
