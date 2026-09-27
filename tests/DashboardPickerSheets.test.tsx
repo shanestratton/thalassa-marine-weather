@@ -119,8 +119,10 @@ describe('dashboard picker sheets', () => {
         expect(dialog).not.toHaveTextContent(/gust field|convection|physics model/);
         // No 'ECMWF — ECMWF…' under the ECMWF row, and the clause after an
         // added dash continues in lower case like the rest.
-        expect(screen.getByText('The main European model — a trusted all-rounder')).toBeInTheDocument();
-        expect(screen.getByText('UK Met Office — finest grid of the set (10 km)')).toBeInTheDocument();
+        expect(screen.getByText('The main European global model')).toBeInTheDocument();
+        expect(screen.getByText('UK Met Office — 10 km grid')).toBeInTheDocument();
+        // No claim the app cannot back (UX scorecard run 9).
+        expect(dialog).not.toHaveTextContent(/trusted|finest|best|professional/i);
         const helpers = dialog.querySelectorAll('button p + p');
         expect(helpers.length).toBeGreaterThan(3);
         for (const helper of helpers) {

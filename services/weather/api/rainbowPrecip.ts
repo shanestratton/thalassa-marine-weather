@@ -29,7 +29,7 @@ export interface RainbowPrecipResult {
     rain: RainbowMinutelyRain[];
     summary: string;
     source: 'rainbow.ai';
-    /** Number of forecast hours covered (up to 4) */
+    /** Forecast hours the reported minutes cover (up to 4) */
     forecastHours: number;
 }
 
@@ -89,7 +89,11 @@ function buildSummary(data: RainbowMinutelyRain[]): string {
     const firstRain = data.find((d) => d.intensity >= THRESHOLD);
     const isRaining = (data[0]?.intensity ?? 0) >= CURRENT_THRESHOLD;
 
-    if (!firstRain) return 'No precipitation expected next 4 hours';
+    if (!firstRain) {
+        // The window the reported minutes cover, never the nominal four hours.
+        const minutes = data.length;
+        return `No precipitation expected next ${minutes >= 120 ? `${Math.floor(minutes / 60)} hours` : `${minutes} min`}`;
+    }
 
     if (isRaining) {
         const dryEntry = data.find((d, i) => i > 0 && d.intensity < THRESHOLD);
@@ -150,7 +154,12 @@ async function fetchRainbowPrecipUncached(
         const nowcastUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=nowcast&lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`;
 
         let nowcastData: {
-            forecast?: { precipRate: number; precipType?: string; timestampBegin: number; timestampEnd: number }[];
+            forecast?: {
+                precipRate: number | string | null;
+                precipType?: string;
+                timestampBegin: number;
+                timestampEnd: number;
+            }[];
             summary?: { intensity: string };
         } | null = null;
 
@@ -230,18 +239,41 @@ async function fetchRainbowPrecipUncached(
             return null;
         }
 
-        // Map Rainbow's native minute-by-minute format
-        const rain: RainbowMinutelyRain[] = forecast.map((f) => ({
-            time: new Date(f.timestampBegin * 1000).toISOString(),
-            intensity: Math.round((f.precipRate ?? 0) * 100) / 100,
-            precipType: f.precipType || undefined,
-        }));
+        // Map Rainbow's native minute-by-minute format — up to the first minute
+        // with no reading. A missing precipRate used to become 0 mm/h, so a
+        // gap in the nowcast fed the card's dry verdict for the whole window
+        // (UX scorecard run 9). Frames stop where the readings stop, and the
+        // card's verdict states only the minutes that were actually reported.
+        const rain: RainbowMinutelyRain[] = [];
+        for (const f of forecast) {
+            // A numeric string still counts as a reading: proxy-rainbow's
+            // validator accepts one, and the old coercion read it.
+            const rate =
+                typeof f.precipRate === 'number'
+                    ? f.precipRate
+                    : typeof f.precipRate === 'string' && f.precipRate.trim()
+                      ? Number(f.precipRate)
+                      : NaN;
+            if (!Number.isFinite(rate)) break;
+            rain.push({
+                time: new Date(f.timestampBegin * 1000).toISOString(),
+                intensity: Math.round(rate * 100) / 100,
+                precipType: f.precipType || undefined,
+            });
+        }
+        if (rain.length < forecast.length) {
+            log.warn(
+                `Rainbow.ai nowcast: no reading from minute ${rain.length} of ${forecast.length} — horizon cut there`,
+            );
+        }
+        if (rain.length === 0) return null;
 
         const result: RainbowPrecipResult = {
             rain,
             summary: buildSummary(rain),
             source: 'rainbow.ai',
-            forecastHours: 4,
+            // The hours the reported minutes cover, not the feed's nominal four.
+            forecastHours: Math.round((rain.length / 60) * 10) / 10,
         };
 
         // Use Rainbow's intensity classification if available AND meaningful.

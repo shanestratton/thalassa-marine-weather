@@ -40,7 +40,7 @@ describe('source-pinned fixes', () => {
     });
     it('tide event times round to whole minutes before splitting', () => {
         expect(read('components/dashboard/tide/TideGraph.tsx')).toMatch(
-            /const total = Math\.round\(event!\.time \* 60\);/,
+            /const total = Math\.round\(eventHour \* 60\);/,
         );
     });
     it('maintenance due dates use the local calendar day', () => {

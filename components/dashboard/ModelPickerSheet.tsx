@@ -55,24 +55,6 @@ interface ModelPickerSheetProps {
     publishedModels?: string[];
 }
 
-/**
- * The picker's row words, in a skipper's terms rather than a meteorologist's
- * ('no gust field', 'strong on convection', 'classic European physics
- * model' — UX scorecard run 7). Keyed by model id; a model not listed here
- * falls back to its catalogue blurb.
- */
-const PLAIN_BLURBS: Readonly<Record<string, string>> = {
-    dwd_icon: 'German global model — good with thunderstorms and squalls',
-    ecmwf_ifs025: 'The main European model — a trusted all-rounder',
-    ecmwf_aifs025_single: 'ECMWF AI model — no gust forecast',
-    jma_gsm: 'Japan — western Pacific, no gust forecast',
-};
-
-/** Row words for a catalogue entry: the plain version where there is one. */
-function plainBlurb(id: string, blurb: string): string {
-    return PLAIN_BLURBS[id] ?? blurb;
-}
-
 /** Names the credit line uses where 'provider label' would read oddly. */
 const CREDIT_NAMES: Readonly<Record<string, string>> = {
     dwd_icon: 'DWD ICON',
@@ -118,6 +100,18 @@ function modelHelper(label: string, provider: string, blurb: string): string {
     if (blurb.includes('—') || blurb.startsWith(provider) || provider === label) return blurb;
     const clause = KEEPS_CAPITAL.test(blurb) ? blurb : blurb.charAt(0).toLowerCase() + blurb.slice(1);
     return `${provider} — ${clause}`;
+}
+
+/**
+ * The one description of each offshore source, for every list that offers
+ * them: this sheet's offshore rows and Settings → Preferences. The two used
+ * to describe the same sources in different words, one with claims ('best
+ * overall accuracy', 'professional-grade') nothing here backs (UX scorecard
+ * run 9).
+ */
+export function offshoreModelHelper(id: OffshoreModel): string {
+    const entry = getOffshoreModelInfo(id);
+    return modelHelper(entry.label, entry.provider, entry.blurb);
 }
 
 /**
@@ -302,13 +296,8 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         entry scored against real observations. */}
                     {offshore ? (
                         OFFSHORE_MODELS.map((m) =>
-                            row(
-                                m.id,
-                                m.label,
-                                modelHelper(m.label, m.provider, m.blurb),
-                                m.hex,
-                                offshore.currentModel === m.id,
-                                () => offshore.onPick(m.id),
+                            row(m.id, m.label, offshoreModelHelper(m.id), m.hex, offshore.currentModel === m.id, () =>
+                                offshore.onPick(m.id),
                             ),
                         )
                     ) : (
@@ -329,7 +318,11 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                                 atmosphericRow(
                                     m.id,
                                     m.label,
-                                    modelHelper(m.label, m.provider, plainBlurb(m.id, m.blurb)),
+                                    // The catalogue's own words: in a skipper's terms
+                                    // (UX scorecard run 7) and with no claim the app
+                                    // cannot back (run 9), so the passage modal and
+                                    // this sheet say the same thing.
+                                    modelHelper(m.label, m.provider, m.blurb),
                                     m.hex,
                                 ),
                             )}

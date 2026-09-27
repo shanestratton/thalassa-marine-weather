@@ -62,12 +62,21 @@ const DROP_LAYER_MASK =
 /**
  * How far ahead the remaining frames reach, in the words rainAnalysis uses
  * for the dry headline ('58 min', '3½ hours'): the end of the last one-minute
- * frame, floored to the half hour from 100 min. The provenance line and the
- * chart summary repeat it, so the dialog names one horizon rather than
- * '3½ hours' over '4 hours ahead' (UX scorecard run 7).
+ * frame, floored to the half hour from 100 min. The chart summary and the
+ * axis's far tick repeat it, so the dialog names one horizon rather than
+ * '3½ hours' over '4 hours ahead' (UX scorecard runs 7, 9).
  */
 function liveWindowLabel(frames: MinutelyRain[], now: number): string {
-    if (frames.length === 0) return '';
+    return liveWindow(frames, now)?.words ?? '';
+}
+
+/**
+ * The same horizon three ways: `minutes` it vouches for (floored to the half
+ * hour from 100 min, as the words are), the `words` ('3½ hours', '58 min')
+ * and the time axis's `tick` ('3½ h', '1 h', '58 min').
+ */
+function liveWindow(frames: MinutelyRain[], now: number): { minutes: number; words: string; tick: string } | null {
+    if (frames.length === 0) return null;
     const spanMin = Math.max(
         1,
         Math.round((new Date(frames[frames.length - 1].time).getTime() + 60_000 - now) / 60_000),
@@ -75,9 +84,27 @@ function liveWindowLabel(frames: MinutelyRain[], now: number): string {
     if (spanMin >= 100) {
         const h = Math.floor(spanMin / 60);
         const halves = spanMin - h * 60 >= 30;
-        return `${h}${halves ? '\u00bd' : ''} hour${h === 1 && !halves ? '' : 's'}`;
+        const amount = `${h}${halves ? '\u00bd' : ''}`;
+        return {
+            minutes: h * 60 + (halves ? 30 : 0),
+            words: `${amount} hour${h === 1 && !halves ? '' : 's'}`,
+            tick: `${amount} h`,
+        };
     }
-    return `${spanMin} min`;
+    return {
+        minutes: spanMin,
+        words: `${spanMin} min`,
+        tick: spanMin % 60 === 0 ? `${spanMin / 60} h` : `${spanMin} min`,
+    };
+}
+
+/**
+ * The analysis's verdicts in sentence case. Its fallbacks are title-cased
+ * ('Rain Data Out Of Date') for the tracked capitals the card once set every
+ * verdict in; a sentence reads as one (UX scorecard run 9).
+ */
+function sentenceCase(text: string): string {
+    return text.replace(/(\s)([A-Z])(?=[a-z])/g, (_m, space: string, letter: string) => space + letter.toLowerCase());
 }
 
 /** 'in 1 h 44 min', 'in 25 min', 'Now': when the peak comes, in the time
@@ -220,7 +247,17 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     // carries it whenever the chart is shown. 'Estimated' always shows.
     const inlineNowcast = hasDetail && !!nowcastLabel && analysis.headline.length <= 18;
     // The far tick names the feed's reach in the time axis's words: '4 h', '3½ h'.
-    const horizonTick = showChart ? liveWindowLabel(analysis.frames, analysedAt).replace(/ hours?$/, ' h') : '';
+    const horizonTick = showChart ? (liveWindow(analysis.frames, analysedAt)?.tick ?? '') : '';
+    // Off the live card the strip says 'Right now:' first, and a dry verdict
+    // takes the short form so the line no longer wraps and orphans 'hours'
+    // on a 375 pt phone (UX scorecard run 9). A screen reader hears it whole.
+    const reachNow = hasDetail ? liveWindow(analysis.frames, analysedAt) : null;
+    const headlineText = sentenceCase(analysis.headline);
+    const offLiveDry = !isLive && hasDetail && !analysis.hasRain && reachNow !== null;
+    const stripShown = offLiveDry
+        ? `Right now: dry for the next ${reachNow.tick}`
+        : `${!isLive && hasDetail ? 'Right now: ' : ''}${headlineText}`;
+    const stripSpoken = offLiveDry ? `Right now: dry for the next ${reachNow.words}` : stripShown;
     const inlineTagClass = `${oneLine ? '' : 'hidden in-data-[glass-rhythm=short]:inline-block'} shrink-0 text-[11px] font-semibold uppercase tracking-wider text-white/50 pointer-events-none select-none`;
 
     return (
@@ -288,12 +325,20 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                                     strokeWidth="1.5"
                                 />
                             </svg>
+                            {/* Sentence case: a sentence in tracked capitals shouted
+                                (UX scorecard run 9). */}
                             <span
                                 id={headlineId}
-                                className={`text-xs font-bold uppercase tracking-wider text-center ${isActive ? 'text-sky-300' : 'text-ivory'}`}
+                                className={`text-sm font-semibold text-center ${isActive ? 'text-sky-300' : 'text-ivory'}`}
                             >
-                                {!isLive && hasDetail && 'Right now: '}
-                                {analysis.headline}
+                                {stripShown === stripSpoken ? (
+                                    stripShown
+                                ) : (
+                                    <>
+                                        <span aria-hidden="true">{stripShown}</span>
+                                        <span className="sr-only">{stripSpoken}</span>
+                                    </>
+                                )}
                             </span>
                         </div>
 
@@ -348,7 +393,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                             className="flex items-center justify-between gap-2 mt-0.5 in-data-[glass-rhythm=short]:hidden"
                         >
                             <span className="shrink-0 text-[11px] font-bold text-white/60 tracking-wide">Now</span>
-                            <span className="min-w-0 truncate text-[11px] font-bold text-white/60 uppercase tracking-widest">
+                            <span className="min-w-0 truncate text-xs font-semibold text-white/60">
                                 {tag ? `${tag} · ` : ''}Tap for detail
                             </span>
                             <span className="shrink-0 text-[11px] font-bold text-white/60 tracking-wide">
@@ -429,11 +474,13 @@ const RainModal: React.FC<ModalProps> = ({
     const sunDown = isSunDown(now, coordinates ?? reportCoords, timeZone);
 
     // How far ahead the frames still reach, in the headline's own words: the
-    // provenance and the chart summary name the same horizon as the verdict.
+    // chart summary names the same horizon as the verdict.
     const horizon = liveWindowLabel(data, now);
+    // The horizon is the headline's and the axis's far tick's to say: the
+    // credit said it a third time (UX scorecard run 9).
     const feedProvenance = (() => {
-        if (source === 'rainbow') return `Rainbow.ai nowcast · 1 km, next ${horizon}`;
-        if (source === 'weatherkit') return `Apple WeatherKit · minute-by-minute, next ${horizon}`;
+        if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km';
+        if (source === 'weatherkit') return 'Apple WeatherKit · minute-by-minute';
         if (source === 'synthetic') return 'Estimated from the hourly forecast — not a live rain feed';
         return null;
     })();
@@ -482,9 +529,9 @@ const RainModal: React.FC<ModalProps> = ({
     // position across that range. The ticks sit on round times — whole
     // hours on a long feed ('1 h' … '4 h'), half or quarter hours on a
     // short one — never at even fractions of the span, which printed
-    // '1H59 / 2H59 / 3H58' (UX scorecard run 6). A tick within a few
-    // minutes past the feed's last frame is drawn at the end, so a feed
-    // reaching 3 h 58 ends at '4 h'.
+    // '1H59 / 2H59 / 3H58' (UX scorecard run 6). The far tick is the
+    // horizon the headline states, so a feed reaching 3 h 58 ends at '3½ h'
+    // where 3½ h falls, not at a '4 h' it cannot vouch for (run 9).
     const timeLabels = React.useMemo(() => {
         if (!data || data.length === 0) {
             return [{ pct: 0, label: 'Now' }];
@@ -496,16 +543,22 @@ const RainModal: React.FC<ModalProps> = ({
         );
         const span = lastMin - firstMin;
         const step = span >= 150 ? 60 : span > 75 ? 30 : 15;
-        const endSlack = 5;
         const formatMin = (m: number): string => (m % 60 === 0 ? `${m / 60} h` : `${m} min`);
+        // The far tick is the horizon the headline states, at its own place:
+        // an axis ending '4 h' under 'next 3½ hours' named a second horizon
+        // (UX scorecard run 9). A fresh 4-hour feed still ends at '4 h'.
+        const reach = liveWindow(data, now);
+        const reachPct = reach ? Math.min(1, Math.max(0, (reach.minutes - firstMin) / span)) : 1;
 
         const labels = [{ pct: 0, label: firstMin <= 2 ? 'Now' : formatMin(firstMin) }];
-        for (let m = Math.ceil((firstMin + 1) / step) * step; m <= lastMin + endSlack; m += step) {
-            const pct = Math.min(1, (m - firstMin) / span);
-            // Too close to the first label to be read beside it.
-            if (pct < 0.12) continue;
+        for (let m = Math.ceil((firstMin + 1) / step) * step; m < (reach?.minutes ?? lastMin); m += step) {
+            const pct = (m - firstMin) / span;
+            // Too close to the first label, or to the far tick, to be read
+            // beside it: '3 h' crowded a flush-right '3½ h' on a 375 pt phone.
+            if (pct < 0.12 || reachPct - pct < 0.2) continue;
             labels.push({ pct, label: formatMin(m) });
         }
+        if (reach && reachPct >= 0.12) labels.push({ pct: reachPct, label: reach.tick });
         return labels;
     }, [data, now]);
 
@@ -964,7 +1017,7 @@ const RainModal: React.FC<ModalProps> = ({
 
                     {/* Summary Text */}
                     <div className="text-center mb-4">
-                        <p className="text-sm font-bold text-white uppercase tracking-wide">{analysis.headline}</p>
+                        <p className="text-base font-semibold text-white">{sentenceCase(analysis.headline)}</p>
                     </div>
 
                     {/* Rain chart — one image with a spoken summary; the bars
@@ -1092,9 +1145,9 @@ const RainModal: React.FC<ModalProps> = ({
                         </div>
                     )}
 
-                    {/* Which feed answered, and how far ahead it can see — the
-                        same horizon as the headline. Off the card face and in
-                        here, where someone standing in rain the card called
+                    {/* Which feed answered; how far ahead it sees is the
+                        headline's and the axis's to say. Off the card face and
+                        in here, where someone standing in rain the card called
                         dry comes looking for it. */}
                     {feedProvenance && (
                         <p className="mt-3 text-[12px] text-white/60 text-center leading-relaxed">{feedProvenance}</p>

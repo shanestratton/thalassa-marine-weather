@@ -107,15 +107,27 @@ export const LocationStarMenu: React.FC = () => {
     // kept for her last location (App's 'Last · …' title). The tick still
     // marks the pick, but it no longer implies a live follow (UX scorecard
     // run 8): it turns amber, the held colour of the header's retry glyph,
-    // and the row's name says why. Words only in the name: no GPS sentence
-    // on a page (Shane, 2026-09-08 — the ℹ panel is the one place).
+    // and the row's name says why. Amber alone told a sighted skipper
+    // nothing (run 9), so the row also carries the fix state in the one
+    // truth's words (gpsFixState's 'No live fix · last position'). It names
+    // no GPS source: the ℹ panel stays the one place for that (Shane,
+    // 2026-09-08).
     const showingLastLocation = Boolean(
         positionSource?.status === 'unavailable' && positionSource.retainedWeather && weatherData,
     );
     const phoneTicked = inGpsMode && followTarget === 'phone';
     const boatTicked = inGpsMode && followTarget === 'boat';
     const lastLocationFor = showingLastLocation ? (positionSource?.target ?? followTarget) : null;
-    const lastLocationNote = <span className="sr-only">, GPS unavailable, showing last location</span>;
+    // Spoken as part of the row's name, set as a label: an sr-only span in the
+    // row is absolutely positioned, so it read as a separate block and the
+    // name came out 'Current Location , GPS unavailable…' (UX scorecard run 9).
+    const lastLocationSpoken = ', GPS unavailable, showing last location';
+    // Seen, not read twice: the name already speaks the note above.
+    const lastLocationCaption = (
+        <span aria-hidden="true" className="block text-xs leading-4 font-medium text-amber-400">
+            No live fix · last position
+        </span>
+    );
     const currentName = weatherData?.locationName ?? '';
     const isRealCurrent = currentName.length > 0 && currentName !== 'Current Location';
     // The saved entry for the place on screen. Matched by position (within
@@ -270,8 +282,9 @@ export const LocationStarMenu: React.FC = () => {
             ? panePopoverStyle(portalTarget, anchorRect, POPOVER_WIDTH, POPOVER_GAP)
             : { display: 'none' };
 
+    // min-h-[44px]: at 393 pt the one-line rows measured 43 pt (review, batch 11).
     const rowBase =
-        'flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-white/5 active:bg-white/10';
+        'flex min-h-[44px] items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-white/5 active:bg-white/10';
     // Star reads "active" when there's a home port or the current spot is saved.
     const starActive = !!homePort || currentSaved;
 
@@ -318,7 +331,10 @@ export const LocationStarMenu: React.FC = () => {
                             tabIndex={-1}
                             // Opaque (thalassa-popover-solid): at /95 + blur the Glass's
                             // forecast text ghosted under the rows (UX scorecard run 5).
-                            className="thalassa-popover-solid rounded-2xl bg-slate-900/95 border border-white/10 shadow-2xl overflow-hidden"
+                            // One step lighter than the cards under it, with a lit edge
+                            // and a deep drop shadow: on the cards' own navy its edge
+                            // dissolved into the chips beside it (UX scorecard run 9).
+                            className="thalassa-popover-solid rounded-2xl bg-slate-800 border border-white/15 shadow-[0_18px_48px_rgba(0,0,0,0.7),0_2px_8px_rgba(0,0,0,0.5)] [.display-light_&]:shadow-[0_12px_32px_rgba(15,23,42,0.22)] overflow-hidden"
                         >
                             <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-widest text-gray-400 border-b border-white/10">
                                 Locations
@@ -335,7 +351,9 @@ export const LocationStarMenu: React.FC = () => {
                                         className={`${rowBase} w-full`}
                                     >
                                         <HomeIcon className="w-4 h-4 text-amber-400 shrink-0" />
-                                        <span className="flex-1 font-semibold text-amber-100 truncate">{homePort}</span>
+                                        <span className="flex-1 min-w-0 font-semibold text-amber-100 line-clamp-2 wrap-break-word">
+                                            {homePort}
+                                        </span>
                                         <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">
                                             Home
                                         </span>
@@ -357,16 +375,23 @@ export const LocationStarMenu: React.FC = () => {
                                         data-testid="location-star-vessel"
                                         // The tick, for a screen reader too (UX scorecard run 8).
                                         aria-current={boatTicked ? 'location' : undefined}
+                                        aria-label={
+                                            boatTicked && lastLocationFor === 'boat'
+                                                ? `${vesselName} Boat${lastLocationSpoken}`
+                                                : undefined
+                                        }
                                         className={`${rowBase} w-full`}
                                     >
                                         <BoatIcon className="w-4 h-4 text-emerald-400 shrink-0" />
-                                        <span className="flex-1 font-semibold text-emerald-100 truncate">
-                                            {vesselName}
+                                        <span className="flex-1 min-w-0">
+                                            <span className="block font-semibold text-emerald-100 line-clamp-2 wrap-break-word">
+                                                {vesselName}
+                                            </span>
+                                            {boatTicked && lastLocationFor === 'boat' && lastLocationCaption}
                                         </span>
                                         <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">
                                             Boat
                                         </span>
-                                        {boatTicked && lastLocationFor === 'boat' && lastLocationNote}
                                         {boatTicked && (
                                             <CheckIcon
                                                 className={`w-4 h-4 shrink-0 ${lastLocationFor === 'boat' ? 'text-amber-400' : 'text-emerald-400'}`}
@@ -380,11 +405,18 @@ export const LocationStarMenu: React.FC = () => {
                                     role="menuitem"
                                     onClick={() => goTo('current')}
                                     aria-current={phoneTicked ? 'location' : undefined}
+                                    aria-label={
+                                        phoneTicked && lastLocationFor === 'phone'
+                                            ? `Current Location${lastLocationSpoken}`
+                                            : undefined
+                                    }
                                     className={`${rowBase} w-full`}
                                 >
                                     <CrosshairIcon className="w-4 h-4 text-sky-400 shrink-0" />
-                                    <span className="flex-1 font-medium text-white truncate">Current Location</span>
-                                    {phoneTicked && lastLocationFor === 'phone' && lastLocationNote}
+                                    <span className="flex-1 min-w-0">
+                                        <span className="block font-medium text-white truncate">Current Location</span>
+                                        {phoneTicked && lastLocationFor === 'phone' && lastLocationCaption}
+                                    </span>
                                     {phoneTicked && (
                                         <CheckIcon
                                             className={`w-4 h-4 shrink-0 ${lastLocationFor === 'phone' ? 'text-amber-400' : 'text-sky-400'}`}
@@ -416,7 +448,11 @@ export const LocationStarMenu: React.FC = () => {
                                             className={`${rowBase} flex-1 min-w-0`}
                                         >
                                             <MapPinIcon className="w-4 h-4 text-gray-400 shrink-0" />
-                                            <span className="flex-1 text-white truncate">{loc.name}</span>
+                                            {/* Two lines before an ellipsis: cut at one, 'Gladstone, QLD'
+                                                read 'Gladstone, …' beside the captioned actions (run 9). */}
+                                            <span className="flex-1 min-w-0 text-white leading-snug line-clamp-2 wrap-break-word">
+                                                {loc.name}
+                                            </span>
                                             {isShownRow(loc.name) && (
                                                 <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />
                                             )}
@@ -440,6 +476,12 @@ export const LocationStarMenu: React.FC = () => {
                                                 Set home
                                             </span>
                                         </button>
+                                        {/* 4 pt and a hairline each side: butted together, the two
+                                            captions read 'Set home Remove' (UX scorecard run 9). */}
+                                        <span
+                                            aria-hidden="true"
+                                            className="mx-1 h-6 w-px shrink-0 bg-white/15 [.display-light_&]:bg-slate-300!"
+                                        />
                                         <button
                                             type="button"
                                             role="menuitem"
