@@ -115,7 +115,7 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
     // no-charts notice only shows while they are on: switch them on the way a
     // skipper does, from the map-base menu.
     await page.getByRole('button', { name: /^Map base:/ }).click();
-    const encSwitch = page.getByRole('menuitemcheckbox', { name: 'Turn ENC charts on', exact: true });
+    const encSwitch = page.getByRole('menuitemcheckbox', { name: /^ENC charts, / });
     await expect(encSwitch).toHaveAttribute('aria-checked', 'false');
     await encSwitch.click();
     await expect(page.getByRole('menu', { name: 'Map base' })).toHaveCount(0);

@@ -121,4 +121,14 @@ describe('DateGroupedTimeline long voyages', () => {
         expect(mountedRows(container)).toBe(0);
         expect(screen.getByText('No Entries Match Filters')).toBeInTheDocument();
     });
+
+    it('shows a reported calm, and no stray 0 for an all-zero weather entry (UX scorecard run 9)', () => {
+        const [calm] = entries(1);
+        const point = { ...calm, windSpeed: 0, waveHeight: 0, pressure: 0 } as ShipLogEntry;
+        render(<DateGroupedTimeline groupedEntries={[group([point])]} />);
+        fireEvent.click(screen.getAllByRole('button', { name: /^Expand log entry / })[0]);
+        expect(screen.getByText('0.0 kts')).toBeInTheDocument();
+        expect(screen.getByText('0.0m')).toBeInTheDocument();
+        expect(screen.getByText('hPa', { exact: false })).toBeInTheDocument();
+    });
 });

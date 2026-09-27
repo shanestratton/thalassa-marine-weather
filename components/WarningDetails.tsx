@@ -3,6 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WarningDetails');
 import { AlertTriangleIcon, CheckCircleIcon, ExternalLinkIcon } from './Icons';
+import { Button } from './ui/Button';
 import { PageHeader } from './ui/PageHeader';
 import { formatAge } from './ui/DataFreshness';
 import { useUI } from '../context/UIContext';
@@ -97,10 +98,14 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                 sits under the title; once the list is clear there is no
                 triangle at all (a lone triangle sat where icon buttons sit). */}
             <div className="shrink-0 bg-slate-950">
+                {/* Back always goes to The Glass, so the page says so: a THE
+                    GLASS crumb and a 'Back to The Glass' chevron, like its
+                    siblings, instead of a bare 'Go back' (UX scorecard run 9). */}
                 <PageHeader
                     title="Forecast alerts"
                     subtitle={placeName || undefined}
                     onBack={() => setPage('dashboard')}
+                    breadcrumbs={['The Glass', 'Forecast alerts']}
                     status={
                         activeAlerts.length > 0 ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black">
@@ -111,19 +116,18 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                     }
                     action={
                         dismissableCount > 1 ? (
-                            <button
+                            // The house secondary button (ui/Button: 44 pt floor,
+                            // one shape; UX scorecard run 9). A "Dismiss all" on a
+                            // warnings page is exactly where you don't want
+                            // mis-taps, so the name says what it clears.
+                            <Button
+                                variant="secondary"
                                 aria-label="Dismiss all dismissable weather warnings"
                                 onClick={dismissAll}
-                                // 2026-05-17: bumped to min-h-[44px] to clear the
-                                // Apple HIG tap-target floor (was py-1.5 ≈ 28 px).
-                                // A "Dismiss All" button on a warnings page is
-                                // exactly where you don't want mis-taps — could
-                                // accidentally clear a critical alert in heavy
-                                // weather. Aria-label rewritten to be specific.
-                                className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-sm px-3 py-2.5 min-h-[44px] rounded-lg transition-colors"
+                                className="shrink-0 text-white"
                             >
                                 Dismiss all
-                            </button>
+                            </Button>
                         ) : undefined
                     }
                 />
@@ -155,13 +159,14 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                                         <p className="text-lg font-medium text-red-100 leading-relaxed">{alert}</p>
                                     </div>
                                     {!isCritical(alert) && (
-                                        <button
+                                        <Button
+                                            variant="secondary"
                                             aria-label={`Dismiss warning: ${alert}`}
                                             onClick={() => dismiss(alert)}
-                                            className="shrink-0 min-h-[44px] bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-sm px-3 py-2 rounded-xl transition-colors mt-1"
+                                            className="mt-1 shrink-0 text-white"
                                         >
                                             Dismiss
-                                        </button>
+                                        </Button>
                                     )}
                                 </div>
                             </div>
@@ -186,7 +191,10 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                             <p className="mt-1 text-sm text-slate-400">
                                 {checkedLabel ? `Forecast checked ${checkedLabel}` : 'Forecast not checked yet'}
                             </p>
-                            <p className="mt-4 max-w-xs text-center text-sm leading-relaxed text-slate-400 text-pretty">
+                            {/* Four lines read left-aligned in the centred column,
+                                as Guardian's gate does on the same card recipe; the
+                                heading and the link stay centred (UX scorecard run 9). */}
+                            <p className="mt-4 max-w-xs text-left text-sm leading-relaxed text-slate-400">
                                 Thalassa checks the forecast for gale, storm, fog and heat thresholds. It is not an
                                 official warning service, so check the Bureau of Meteorology&rsquo;s marine warnings
                                 too.

@@ -76,6 +76,48 @@ const LiveBosunConsolePage = lazyRetry(
     () => import('./components/voice/BosunConsole').then((m) => ({ default: m.BosunConsole })),
     'BosunConsole',
 );
+// ── Where Back goes, in words ────────────────────────────────────────────────
+
+/**
+ * The name each view goes by on screen: its tab label, or its page title.
+ * Pages whose Back returns to the view that opened them (MOB, Calypso, Music)
+ * name that view on the chevron and in the crumb, the way their
+ * fixed-parent siblings say 'Back to Vessel' (UX scorecard run 9: they were a
+ * bare 'Go back'). A view missing here keeps the plain 'Go back' rather than
+ * a guessed name.
+ */
+const VIEW_NAMES: Record<string, string> = {
+    dashboard: 'The Glass',
+    map: 'Obs',
+    voyage: 'Plan',
+    details: 'Log',
+    vessel: 'Vessel',
+    settings: 'Settings',
+    warnings: 'Forecast alerts',
+    voice: 'Calypso',
+    music: 'Apple Music',
+    compass: 'Anchor Watch',
+    radio: 'Radio Console',
+    nmea: 'NMEA Gateway',
+    mob: 'Man Overboard',
+    guardian: 'Guardian',
+};
+
+/** The name of the view Back returns to, or undefined when it has none worth saying. */
+function viewName(view: string | null | undefined): string | undefined {
+    return view ? VIEW_NAMES[view] : undefined;
+}
+
+/**
+ * The chevron's name and the crumb trail for a page whose Back goes to
+ * `destination`: 'Back to Vessel' over a VESSEL crumb. Both come from the one
+ * view Back really goes to, so the words cannot promise a different place.
+ */
+function backTo(destination: string | null | undefined, pageTitle: string) {
+    const name = viewName(destination);
+    return name ? { backLabel: `Back to ${name}`, breadcrumbs: [name, pageTitle] } : {};
+}
+
 /**
  * Calypso is parked (FEATURE_VISIBILITY.calypsoConsole, 2026-08-09). The mic
  * buttons are hidden, but a persisted `currentView` or a stale `previousView`
@@ -86,14 +128,18 @@ const LiveBosunConsolePage = lazyRetry(
  * Deliberately explicit about what is NOT affected. "Voice is off" would read
  * as MAYDAY read-out being off too, and it is not.
  */
-const CalypsoParkedPage: React.FC<{ onBack: () => void; onNavigate?: (page: string) => void }> = ({
-    onBack,
-    onNavigate,
-}) => (
+const CalypsoParkedPage: React.FC<{
+    onBack: () => void;
+    onNavigate?: (page: string) => void;
+    backLabel?: string;
+    breadcrumbs?: string[];
+}> = ({ onBack, onNavigate, backLabel, breadcrumbs }) => (
     <UnavailablePage
         pageTitle="Calypso"
         pageSubtitle="Voice assistant"
         onBack={onBack}
+        backLabel={backLabel}
+        breadcrumbs={breadcrumbs}
         icon={<MoonIcon className="h-5 w-5" />}
         // A plain heading; the whimsy lives in the body (UX scorecard run 7).
         title="Calypso is switched off"
@@ -112,10 +158,12 @@ const CalypsoParkedPage: React.FC<{ onBack: () => void; onNavigate?: (page: stri
             )
         }
     >
-        {/* Paragraphs longer than two lines read left-aligned, not centred. */}
+        {/* Paragraphs longer than two lines read left-aligned, not centred.
+            'right one.' is held together: with text-pretty gone from the
+            notice (run 9), 'one.' sat alone on the last line at 375 and 393. */}
         <p className="text-left">
             Calypso is having a lie down while we improve how it hears you. It misheard too often, and a wrong answer
-            sounded just as sure as a right one.
+            sounded just as sure as a right&nbsp;one.
         </p>
         {/* Only the MOB MAYDAY is still spoken; the Radio page stopped
             speaking on 2026-08-28 and sets its calls out to read on VHF. One
@@ -136,10 +184,16 @@ const LiveMusicPage = lazyRetry(
     () => import('./components/music/MusicPage').then((m) => ({ default: m.MusicPage })),
     'MusicPage',
 );
-const HeldMusicPage: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+const HeldMusicPage: React.FC<{ onBack: () => void; backLabel?: string; breadcrumbs?: string[] }> = ({
+    onBack,
+    backLabel,
+    breadcrumbs,
+}) => (
     <UnavailablePage
         pageTitle="Apple Music"
         onBack={onBack}
+        backLabel={backLabel}
+        breadcrumbs={breadcrumbs}
         tone="amber"
         icon={<MusicIcon className="h-5 w-5" />}
         title="Apple Music unavailable in public beta"
@@ -340,6 +394,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         group: 'standalone',
         getProps: (ctx) => ({
             onBack: () => ctx.setPage(ctx.previousView || 'dashboard'),
+            ...backTo(ctx.previousView || 'dashboard', 'Calypso'),
             // The parked page's Open Radio / Open MOB buttons.
             onNavigate: (page: string) => ctx.setPage(page),
         }),
@@ -351,7 +406,10 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         gatedFeature: FEATURE_VISIBILITY.appleMusic ? 'calypsoMusic' : undefined,
         // Music is a global surface (Calypso and the now-playing pod can open
         // it from any tab), so Back returns to the actual caller.
-        getProps: (ctx) => ({ onBack: () => ctx.setPage(ctx.previousView || 'dashboard') }),
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage(ctx.previousView || 'dashboard'),
+            ...backTo(ctx.previousView || 'dashboard', 'Apple Music'),
+        }),
     },
 
     // ── Vessel hub ───────────────────────────────────────────────────────
@@ -529,6 +587,9 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
             // working — exactly when you least want to go hunting for it.
             // Falls back to Vessel, which is where the feature lives.
             onBack: () => ctx.setPage(ctx.previousView || 'vessel'),
+            // The chevron and crumb say where that is ('Back to Obs' from the
+            // chart's red button, 'Back to Vessel' from the safety row).
+            ...backTo(ctx.previousView || 'vessel', 'Man Overboard'),
             onNavigate: (page: string) => ctx.setPage(page),
         }),
     },

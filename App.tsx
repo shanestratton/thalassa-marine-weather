@@ -623,12 +623,13 @@ const App: React.FC = () => {
         : undefined;
     // 'Last location · ' cost the name its tail: 'Gladstone Central, QLD, AU'
     // was cut at 'QL' with no ellipsis, and inputs are held at 16 px (iOS focus
-    // zoom), so the type cannot shrink (UX scorecard run 8). 'Last · ' beside
-    // the amber retry glyph says the same, the retry button's name still says
+    // zoom), so the type cannot shrink (UX scorecard run 8). 'Last fix · '
+    // beside the amber retry glyph says the same in two short words ('Last'
+    // alone did not say last what; run 9), the retry button's name still says
     // 'last location' in full, and the country code goes before the state does;
     // a name with no region keeps its country.
     if (retainedLocationWeather) displayTitle = displayTitle.replace(/^(.+,[^,]+),\s*[A-Z]{2}$/, '$1');
-    if (retainedLocationWeather) displayTitle = `Last · ${displayTitle}`;
+    if (retainedLocationWeather) displayTitle = `Last fix · ${displayTitle}`;
 
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     // Every page but the chart wears the THALASSA banner. Active Warnings used
@@ -705,10 +706,11 @@ const App: React.FC = () => {
                 // Apple Weather / Windy / Predict Wind / Yr.no
                 // all do — empty-state-with-intent beats fake
                 // data every time.
-                // The Glass's own black (the header above is bg-black), not the
-                // navy page colour, which met the header in a hard seam (UX
-                // scorecard run 7). Daylight remaps bg-black to the pale page.
-                <div className="flex-1 w-full h-full bg-black flex items-center justify-center px-6">
+                // The Glass's own background, the same as its header, so they
+                // meet with no seam (UX scorecard run 7). Since run 9 both are
+                // the navy page colour every other page wears, not pure black.
+                // Daylight remaps bg-slate-950 to the pale page.
+                <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6">
                     <div className="max-w-sm w-full">
                         <div className="text-center mb-8">
                             <div className="mb-3 flex justify-center text-sky-400" aria-hidden="true">
@@ -762,7 +764,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
             ) : !weatherData && !loading ? (
-                <div className="flex-1 w-full h-full bg-black flex items-center justify-center px-6 text-center">
+                <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6 text-center">
                     <div className="max-w-sm space-y-4" role="status">
                         <p className="text-sm text-slate-400">
                             {isOffline
@@ -1059,7 +1061,7 @@ const App: React.FC = () => {
                     <header
                         // The Glass in phone landscape keeps plain px-4: md applies at
                         // 852 wide and inset the location bar 8 pt from the card column.
-                        className={`${isDashboard && isMobileLandscape ? 'px-4' : 'px-4 md:px-6'} flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-105 ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${
+                        className={`${isDashboard && isMobileLandscape ? 'px-4' : 'px-4 md:px-6'} flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-105 ${isLight ? 'bg-slate-200' : 'bg-slate-950'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${
                             // Landscape pages collapse the brand block to one title row:
                             // at 393 px tall the full header left the Plan page ~160 px
                             // (UX scorecard run 5). The Glass keeps its own geometry.

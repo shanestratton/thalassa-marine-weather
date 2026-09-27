@@ -79,10 +79,13 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         <div data-page-header className="shrink-0 px-4 pt-4 pb-3">
             {/* Breadcrumb trail */}
             {breadcrumbs && breadcrumbs.length > 0 && (
+                // The gap under the trail is the crumb's reach below its line
+                // (see the parent crumb below), so the crumb's 44 px and the
+                // chevron's 44 px sit one above the other without touching.
                 <nav
                     aria-label="Breadcrumb"
                     aria-hidden={trailIsRedundant || undefined}
-                    className="flex items-center gap-1.5 mb-2"
+                    className="mb-[calc(28px_-_1rem)] flex items-center gap-1.5"
                 >
                     {breadcrumbs.map((crumb, i) => (
                         <React.Fragment key={i}>
@@ -104,17 +107,20 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                                 </span>
                             ) : i === lastCrumb - 1 && onBack ? (
                                 // The parent crumb goes where Back goes — it looked like a
-                                // link and did nothing. The ::before stretches the 16 px
-                                // line to a 44 px hit area (16 up into the header's top
-                                // padding, 12 down) without growing the row. The 4 px it
-                                // reaches past the gap lands on the back chevron (same
-                                // destination) or the title's empty leading.
+                                // link and did nothing. Its own box is the 44 px hit area:
+                                // a 16 px line, the header's whole top padding (1rem) above
+                                // it and the rest (28px - 1rem) below, down to where the
+                                // chevron row starts; negative margins take the padding back
+                                // so the trail keeps its place. It was a ::before, so the box
+                                // measured 54 x 15 and its reach overlapped the back chevron
+                                // by 4 px (UX scorecard run 9). Pixel sums, not rem steps:
+                                // the root font is fluid (4vw), and 44 must stay 44.
                                 <button
                                     type="button"
                                     onClick={onBack}
                                     aria-hidden="true"
                                     tabIndex={-1}
-                                    className="relative text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-gray-200 transition-colors before:absolute before:inset-x-0 before:-top-4 before:-bottom-3 before:content-['']"
+                                    className="-mt-4 -mb-[calc(28px_-_1rem)] pt-4 pb-[calc(28px_-_1rem)] text-xs leading-[16px] font-bold uppercase tracking-widest text-gray-400 hover:text-gray-200 transition-colors"
                                 >
                                     {crumb}
                                 </button>

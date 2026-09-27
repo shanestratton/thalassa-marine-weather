@@ -31,6 +31,12 @@ export const LogPageHeader: React.FC<{
     dispatch: (action: LogPageAction) => void;
     loggedVoyages: VoyageSummary[];
     hasLifetimeVoyages?: boolean;
+    /**
+     * The account's voyage history did not load (the banner above the page
+     * says so). The rows then wait on a voyage on this phone, and the reason
+     * must not tell a skipper with a full account to record their first.
+     */
+    historyUnavailable?: boolean;
     loggedEntries: ShipLogEntry[];
 }> = ({
     isTracking,
@@ -48,6 +54,7 @@ export const LogPageHeader: React.FC<{
     dispatch,
     loggedVoyages,
     hasLifetimeVoyages = false,
+    historyUnavailable = false,
     loggedEntries,
 }) => {
     // The overflow menu is portalled to the pane/body so it centres on the screen.
@@ -57,12 +64,19 @@ export const LogPageHeader: React.FC<{
     // Every row but Import waits on a recorded voyage. Say so once, above the
     // rows, rather than leaving dead rows to explain themselves. With only
     // archived voyages, Statistics works and the other three still wait, so
-    // the line names them (the rows no longer carry a clock; run 7).
+    // the line names them (the rows no longer carry a clock; run 7). When the
+    // history read failed, 'Record your first voyage' sat under a banner
+    // saying the full history didn't load (UX scorecard run 9): the rows then
+    // wait on a voyage on this phone, and the line says why that is all it has.
     const allRowsLocked = statsDisabled && !FEATURE_VISIBILITY.communityTrackSharing;
     const waitingText = allRowsLocked
-        ? 'Record your first voyage to use these.'
+        ? historyUnavailable
+            ? 'These need a voyage on this phone — your full history didn’t load.'
+            : 'Record your first voyage to use these.'
         : statsDisabled
-          ? 'Record your first voyage to use Statistics, Track map, Export and Share.'
+          ? historyUnavailable
+              ? 'Statistics, Track map, Export and Share need a voyage on this phone — your full history didn’t load.'
+              : 'Record your first voyage to use Statistics, Track map, Export and Share.'
           : noLoggedData
             ? 'Track map, Export and Share need a voyage in your current log.'
             : null;
@@ -105,7 +119,9 @@ export const LogPageHeader: React.FC<{
                 <div className="relative">
                     <button
                         ref={overflowTriggerRef}
-                        aria-label="Page actions"
+                        // Named for the dialog it opens, like Plan's 'Route Planner
+                        // actions' (UX scorecard run 9).
+                        aria-label="Log actions"
                         aria-haspopup="dialog"
                         aria-expanded={showMenu}
                         aria-controls={showMenu ? overflowMenuId : undefined}
@@ -142,11 +158,12 @@ export const LogPageHeader: React.FC<{
                                     className="w-full max-w-sm max-h-full overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-2 shadow-2xl"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    <div className="flex items-center justify-between pl-3 pr-1">
-                                        <h2
-                                            id={titleId}
-                                            className="text-xs font-black uppercase tracking-widest text-gray-400"
-                                        >
+                                    {/* One dialog header across the app: the sentence-case
+                                        .ui-dialog-title the Glass dialogs use, and a 44 pt X
+                                        (UX scorecard run 9). It was a grey tracked-caps
+                                        eyebrow, which read as a section label, not a title. */}
+                                    <div className="flex items-center justify-between pl-3 pr-1 pt-1">
+                                        <h2 id={titleId} className="ui-dialog-title text-lg font-extrabold text-white">
                                             Log actions
                                         </h2>
                                         <button

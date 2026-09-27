@@ -326,7 +326,7 @@ describe('SystemStatusButton', () => {
     it('goes amber while waiting, red for lost contact, and returns to normal after leaving', () => {
         shore.watch = { ...shore.watch, sessionCode: 'WATCHSESSION' };
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        const opener = screen.getByRole('button', { name: /Systems and GPS source/ });
+        const opener = screen.getByRole('button', { name: /^System status/ });
         expect(opener).toHaveClass('from-amber-400');
         expect(opener).toHaveAccessibleName(/Waiting for vessel data/);
         emitShoreWatch({ cause: 'contact-lost', muted: true });
@@ -346,7 +346,7 @@ describe('SystemStatusButton', () => {
     it('keeps notification safety details collapsed until requested in the info panel', () => {
         seedShoreWatch();
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /Systems and GPS source/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
         const panel = within(screen.getByRole('region', { name: 'Shore Watch status' }));
         const summary = panel.getByText('Notifications & safety');
         const registration = panel.getByText('Notification registration does not confirm delivery.');
@@ -374,7 +374,7 @@ describe('SystemStatusButton', () => {
         seedShoreWatch();
         shore.push = { status: 'unavailable', reason: 'Notifications denied', checkedAt: Date.now() };
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        const opener = screen.getByRole('button', { name: /Systems and GPS source/ });
+        const opener = screen.getByRole('button', { name: /^System status/ });
         expect(opener).toHaveAttribute('data-shore-status', 'blue');
         fireEvent.click(opener);
         expect(screen.getByText('Notifications denied')).toHaveClass('text-amber-300');
@@ -402,7 +402,7 @@ describe('SystemStatusButton', () => {
             reminderError: 'Phone reminders could not be stopped. Retry when connected.',
         };
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /Systems and GPS source/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
         expect(screen.getByRole('alert')).toHaveTextContent('Phone reminders could not be stopped');
         fireEvent.click(screen.getByRole('button', { name: 'Retry stopping phone reminders' }));
         expect(shore.retryReminderAcknowledgement).toHaveBeenCalledOnce();
@@ -435,7 +435,7 @@ describe('SystemStatusButton', () => {
                 timestamp: now,
             }),
         );
-        fireEvent.click(screen.getByRole('button', { name: /Systems and GPS source/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
         const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
         expect(boat.getByText('Position just now')).toBeInTheDocument();
         expect(boat.getByText('25')).toBeInTheDocument();
@@ -482,7 +482,7 @@ describe('SystemStatusButton', () => {
         setPassageSquallInfoVisible(true);
         render(<SystemStatusButton currentView="map" onNavigateAnchor={vi.fn()} />);
         expect(screen.queryByTestId('passage-hud-info')).toBeNull();
-        const opener = screen.getByRole('button', { name: /^Systems and GPS source/ });
+        const opener = screen.getByRole('button', { name: /^System status/ });
         fireEvent.click(opener);
         expect(screen.getByTestId('route-scrub-credit')).toHaveTextContent('Météo-France, Open-Meteo');
         expect(screen.getByTestId('route-scrub-note')).toHaveTextContent('Chart rain ends +3.4 h');
@@ -526,7 +526,7 @@ describe('SystemStatusButton', () => {
 
         // Since 2026-09-08 the button is always present: it is where the punter
         // finds which GPS the app is reading, and that is never nothing.
-        expect(screen.getByRole('button', { name: 'Systems and GPS source' })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'System status' })).toBeInTheDocument();
         // Nothing active: no count, so the look matches the spoken state.
         expect(screen.queryByTestId('system-status-count')).toBeNull();
     });
@@ -536,7 +536,7 @@ describe('SystemStatusButton', () => {
         followRouteState.voyagePlan = { origin: 'Brisbane, QLD', destination: 'Gladstone, QLD' };
 
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /^Systems and GPS source: 1 active/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^System status: 1 active/ }));
 
         expect(screen.getByText('Following route')).toBeInTheDocument();
         // Named for the row it belongs to. Every SystemRow action button used
@@ -552,7 +552,7 @@ describe('SystemStatusButton', () => {
         followRouteState.voyagePlan = { origin: 'Brisbane, QLD', destination: 'Gladstone, QLD' };
 
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        expect(screen.getByRole('button', { name: /^Systems and GPS source: 1 active/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^System status: 1 active/ })).toBeInTheDocument();
         expect(screen.getByTestId('system-status-count')).toBeEmptyDOMElement();
     });
 
@@ -561,7 +561,7 @@ describe('SystemStatusButton', () => {
         followRouteState.voyagePlan = { origin: 'Brisbane, QLD', destination: 'Gladstone, QLD' };
 
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /^Systems and GPS source: 1 active/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^System status: 1 active/ }));
 
         // The inactive NMEA row offers View (not an invented fault); the route row
         // offers Stop. Two buttons, two names — a screen reader can tell them
@@ -579,7 +579,7 @@ describe('SystemStatusButton', () => {
             isRapidMode: true,
         });
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        const opener = screen.getByRole('button', { name: /^Systems and GPS source/ });
+        const opener = screen.getByRole('button', { name: /^System status/ });
         opener.focus();
         fireEvent.click(opener);
 
@@ -674,7 +674,7 @@ describe('SystemStatusButton', () => {
     it('retains the shared cloud reader only while open and unsubscribes on unmount', () => {
         const { unmount } = render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
         expect(instruments.retain).not.toHaveBeenCalled();
-        fireEvent.click(screen.getByRole('button', { name: /Systems and GPS source/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
         expect(instruments.retain).toHaveBeenCalledOnce();
         fireEvent.click(screen.getByRole('button', { name: 'Close system status' }));
         expect(instruments.release).toHaveBeenCalledOnce();
@@ -685,7 +685,7 @@ describe('SystemStatusButton', () => {
 
     it('releases its cloud interest if the header unmounts with the modal still open', () => {
         const { unmount } = render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /Systems and GPS source/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
         unmount();
         expect(instruments.retain).toHaveBeenCalledOnce();
         expect(instruments.release).toHaveBeenCalledOnce();
@@ -713,7 +713,7 @@ describe('SystemStatusButton', () => {
     // UX scorecard run 7 (C-L-systems-button, system-status-nits, T-no-bottom-close).
     it('draws the healthy state as quiet slate glass, keeping full fills for attention', () => {
         render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-        const opener = screen.getByRole('button', { name: /^Systems and GPS source/ });
+        const opener = screen.getByRole('button', { name: /^System status/ });
         expect(opener).toHaveAttribute('data-tone', 'blue');
         expect(opener).toHaveClass('bg-slate-900/90', 'text-sky-300');
         expect(opener.className).not.toMatch(/from-sky-/);
@@ -740,7 +740,8 @@ describe('SystemStatusButton', () => {
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const pad = (n: number) => String(n).padStart(2, '0');
         expect(plainBuildLabel('1.2.0 (2026-09-26 08:55Z) · web')).toBe(
-            `Version 1.2.0 · ${when.getDate()} ${months[when.getMonth()]}, ${pad(when.getHours())}:${pad(when.getMinutes())}`,
+            // 'built', as Settings says it: the time is the bundle's (UX scorecard run 9).
+            `Version 1.2.0 · built ${when.getDate()} ${months[when.getMonth()]}, ${pad(when.getHours())}:${pad(when.getMinutes())}`,
         );
         expect(plainBuildLabel('1.2.0 (106) · ios')).toBe('Version 1.2.0 (106)');
         expect(plainBuildLabel('1.2.0 (unknown) · web')).toBe('Version 1.2.0');
@@ -805,7 +806,7 @@ function seedPi(via: 'lan' | 'cloud') {
 
 function openStatus() {
     render(<SystemStatusButton currentView="dashboard" onNavigateAnchor={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /Systems and GPS source/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
 }
 
 function seedShoreWatch() {

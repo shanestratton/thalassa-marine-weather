@@ -6,6 +6,9 @@
 :root {
     --ui-ink-primary: #f8fafc;
     --ui-ink-secondary: #cbd5e1;
+    /* A control that waits (a disabled menu row): visibly dimmer than the
+       secondary ink but still readable, 5.9:1 on slate-900. */
+    --ui-ink-disabled: #8b95a8;
     --ui-hover-danger: #fca5a5;
     --ui-hover-amber: #fcd34d;
     --ui-hover-accent: #7dd3fc;
@@ -14,10 +17,14 @@
 :root.theme-onshore {
     --ui-ink-primary: #fafaf9;
     --ui-ink-secondary: #d6d3d1;
+    /* 5.4:1 on stone-900. */
+    --ui-ink-disabled: #948f89;
 }
 :root.display-light {
     --ui-ink-primary: #0f172a;
     --ui-ink-secondary: #334155;
+    /* 5.0:1 on the daylight panel (slate-200), lighter than the enabled rows' slate-800. */
+    --ui-ink-disabled: #56627a;
     --ui-hover-danger: #991b1b;
     --ui-hover-amber: #92400e;
     --ui-hover-accent: #075985;
@@ -34,13 +41,28 @@
     font-size: 18px;
     font-weight: 800;
 }
+/* Two label tokens, and only two (UX scorecard run 9: four section-label
+   looks and eleven letter-spacings). A section heading names a group of rows;
+   a field label names one value. Both are short caps eyebrows, so the tokens
+   own the case and the tracking too, and a caller cannot drift to its own. */
 :root .ui-section-heading,
 :root:is(.display-light, :not(.display-light)) .ui-field-label {
     font-size: var(--text-label);
     font-weight: 700;
+    text-transform: uppercase;
+}
+:root .ui-section-heading {
+    letter-spacing: 0.15em;
 }
 :root:is(.display-light, :not(.display-light)) .ui-field-label {
     color: var(--ui-ink-secondary);
+    letter-spacing: 0.1em;
+}
+/* A waiting control's label. Not the caption remap below: that lifts
+   slate-400 to the secondary ink, which made a disabled row's words the same
+   colour as an enabled one's (UX scorecard run 9, Log actions). */
+:root:is(.display-light, :not(.display-light)) .ui-disabled-ink {
+    color: var(--ui-ink-disabled);
 }
 :root:is(.display-light, :not(.display-light)) .ui-caption {
     color: var(--ui-ink-secondary);

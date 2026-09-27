@@ -13,6 +13,44 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from './Button';
 import { OverlayPortal } from './OverlayPortal';
 
+/** '-ing' forms for the verbs confirm buttons start with ('Delete profile' → 'Deleting…'). */
+const PROGRESSIVE: Record<string, string> = {
+    archive: 'Archiving',
+    block: 'Blocking',
+    clear: 'Clearing',
+    delete: 'Deleting',
+    discard: 'Discarding',
+    leave: 'Leaving',
+    mark: 'Marking',
+    move: 'Moving',
+    promote: 'Promoting',
+    remove: 'Removing',
+    replace: 'Replacing',
+    reset: 'Resetting',
+    restore: 'Restoring',
+    save: 'Saving',
+    send: 'Sending',
+    sign: 'Signing',
+    stop: 'Stopping',
+    take: 'Taking',
+};
+const PARTICLES = new Set(['in', 'out', 'over', 'up', 'off']);
+
+/**
+ * The verb for the busy button, from its own label: 'Deleting…' for 'Delete
+ * profile', 'Taking over…' for 'Take over', 'Signing in…' for 'Sign in'. A
+ * label that opens with no known verb says 'Working…'.
+ */
+export function confirmProgressLabel(confirmLabel: string): string {
+    const label = confirmLabel.trim().replace(/(\.{3}|…)$/, '');
+    // A caller that already swaps its label for the busy one ('Deleting...').
+    if (/^\S+ing\b/i.test(label)) return `${label}…`;
+    const [verb = '', next = ''] = label.toLowerCase().split(/\s+/);
+    const ing = PROGRESSIVE[verb];
+    if (!ing) return 'Working…';
+    return PARTICLES.has(next) ? `${ing} ${next}…` : `${ing}…`;
+}
+
 interface ConfirmDialogProps {
     /** Whether the dialog is visible */
     isOpen: boolean;
@@ -24,6 +62,13 @@ interface ConfirmDialogProps {
     confirmLabel?: string;
     /** Label for cancel button (default: "Cancel") */
     cancelLabel?: string;
+    /**
+     * The confirm button's words while onConfirm runs ('Deleting…', 'Signing
+     * in…'). A verb stays beside the spinner, so a slow delete never looks
+     * like a blank, stuck button. Default: the label's own verb
+     * (confirmProgressLabel), else 'Working…'.
+     */
+    loadingLabel?: string;
     /** If true, confirm button is styled red for destructive actions */
     destructive?: boolean;
     /** Called when user confirms — can be async */
@@ -38,6 +83,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     message,
     confirmLabel = 'Confirm',
     cancelLabel = 'Cancel',
+    loadingLabel,
     destructive = false,
     onConfirm,
     onCancel,
@@ -126,16 +172,26 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                     </Button>
                     {/* No aria-label override: the accessible name IS the visible label
                         ("Delete profile", "Take over"), so voice control and screen readers
-                        match what the eye sees. Only while the spinner replaces the text
-                        does the label step in as the name. */}
+                        match what the eye sees. While onConfirm runs, the spinner sits
+                        beside a verb ('Deleting…'), never alone (UX scorecard run 9), and
+                        the button stays named for what it does. Sentence case in Cancel's
+                        weight: the house rule for every button (theme.ts), where it was
+                        the one tracked-caps action in a dialog. */}
                     <button
                         aria-label={loading ? confirmLabel : undefined}
+                        aria-busy={loading || undefined}
                         onClick={handleConfirm}
                         disabled={loading}
-                        className={`ui-confirm-action flex-1 py-3 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}
+                        className={`ui-confirm-action flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold text-white shadow-lg transition-all active:scale-[0.97] disabled:opacity-50 ${confirmBg}`}
                     >
                         {loading ? (
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+                            <>
+                                <span
+                                    aria-hidden="true"
+                                    className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white border-t-transparent"
+                                />
+                                <span aria-hidden="true">{loadingLabel ?? confirmProgressLabel(confirmLabel)}</span>
+                            </>
                         ) : (
                             confirmLabel
                         )}

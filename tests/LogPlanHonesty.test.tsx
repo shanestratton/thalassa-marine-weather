@@ -20,7 +20,10 @@ vi.mock('../utils/system', async (importOriginal) => ({
 afterEach(cleanup);
 
 /** LogPage's wiring for the kebab, reduced to what the header needs. */
-const LogHeaderHarness: React.FC<{ hasLifetimeVoyages?: boolean }> = ({ hasLifetimeVoyages }) => {
+const LogHeaderHarness: React.FC<{ hasLifetimeVoyages?: boolean; historyUnavailable?: boolean }> = ({
+    hasLifetimeVoyages,
+    historyUnavailable,
+}) => {
     const [showMenu, setShowMenu] = useState(false);
     const triggerRef = useRef<HTMLButtonElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
@@ -42,6 +45,7 @@ const LogHeaderHarness: React.FC<{ hasLifetimeVoyages?: boolean }> = ({ hasLifet
             dispatch={vi.fn()}
             loggedVoyages={[]}
             hasLifetimeVoyages={hasLifetimeVoyages}
+            historyUnavailable={historyUnavailable}
             loggedEntries={[]}
         />
     );
@@ -50,7 +54,7 @@ const LogHeaderHarness: React.FC<{ hasLifetimeVoyages?: boolean }> = ({ hasLifet
 describe('Log actions dialog', () => {
     it('matches the Route Planner actions chrome: title, Close, Escape, one reason for locked rows', () => {
         render(<LogHeaderHarness />);
-        const trigger = screen.getByRole('button', { name: 'Page actions' });
+        const trigger = screen.getByRole('button', { name: 'Log actions' });
         trigger.focus();
         fireEvent.click(trigger);
 
@@ -75,7 +79,7 @@ describe('Log actions dialog', () => {
 
     it('names the waiting rows when only archived voyages exist (no trailing clocks; UX scorecard run 7)', () => {
         render(<LogHeaderHarness hasLifetimeVoyages />);
-        fireEvent.click(screen.getByRole('button', { name: 'Page actions' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Log actions' }));
         const dialog = screen.getByRole('dialog', { name: 'Log actions' });
         const reason = 'Track map, Export and Share need a voyage in your current log.';
         expect(within(dialog).getByText(reason)).toBeVisible();
@@ -83,6 +87,23 @@ describe('Log actions dialog', () => {
         expect(stats).toBeEnabled();
         expect(stats).not.toHaveAccessibleDescription(reason);
         for (const label of ['Track map', 'Export', 'Share']) {
+            const row = within(dialog).getByRole('button', { name: label });
+            expect(row).toBeDisabled();
+            expect(row).toHaveAccessibleDescription(reason);
+        }
+    });
+});
+
+describe('Log actions when the account history did not load', () => {
+    it('does not tell the skipper to record a first voyage (UX scorecard run 9)', () => {
+        render(<LogHeaderHarness historyUnavailable />);
+        // Named for the dialog it opens, like Plan's kebab.
+        fireEvent.click(screen.getByRole('button', { name: 'Log actions' }));
+        const dialog = screen.getByRole('dialog', { name: 'Log actions' });
+        const reason = 'These need a voyage on this phone — your full history didn’t load.';
+        expect(within(dialog).getByText(reason)).toBeVisible();
+        expect(within(dialog).queryByText(/Record your first voyage/)).not.toBeInTheDocument();
+        for (const label of ['Statistics', 'Track map', 'Export', 'Share']) {
             const row = within(dialog).getByRole('button', { name: label });
             expect(row).toBeDisabled();
             expect(row).toHaveAccessibleDescription(reason);
