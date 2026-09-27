@@ -2,7 +2,7 @@
  * AnchorWatchPage — smoke tests (1087 LOC component)
  */
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../context/WeatherContext', () => ({
@@ -286,7 +286,7 @@ describe('AnchorWatchPage', () => {
         render(<AnchorWatchPage {...defaultProps} />);
 
         expect(screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' })).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Sign in to use Shore Watch' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Watch from ashore. Sign in to use Shore Watch' }));
 
         expect(screen.getByRole('dialog')).toHaveTextContent(
             'Sign in to share Anchor Watch between your vessel and shore devices',
@@ -298,16 +298,28 @@ describe('AnchorWatchPage', () => {
 
         // The advice sits with the dial's verdict, not in a strip the sticky
         // arming bar covered. No current wind in this mock: '--', never 0, and
-        // the light-air scope still offered as a one-tap set (5 m x 5:1).
+        // the light-air scope still offered as a one-tap set (5 m x 5:1). It
+        // says 'now': the advice reads this minute's wind (UX scorecard run 9).
         expect(screen.getByText('ADEQUATE')).toBeInTheDocument();
-        const advice = screen.getByRole('button', { name: /^Wind -- kts: 25 m for 5:1, set rode to 25 metres$/ });
+        const advice = screen.getByRole('button', { name: /^Wind now -- kts: 25 m for 5:1, set rode to 25 metres$/ });
         fireEvent.click(advice);
         expect(screen.getByText('25 m')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /^Wind -- kts: 5:1 set/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Wind now -- kts: 5:1 set/ })).toBeInTheDocument();
         // No fix in the test environment: the bar says so before the slide,
         // and the name the tests and Voice Control use is unchanged.
         const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
         expect(arm).toHaveAccessibleDescription(/GPS/);
+    });
+
+    it('names the rode-type row and speaks its choices in capitals (UX scorecard run 9)', () => {
+        render(<AnchorWatchPage {...defaultProps} />);
+        const group = screen.getByRole('group', { name: 'Rode type' });
+        expect(screen.getByText('Rode type')).toBeVisible();
+        expect(within(group).getByRole('button', { name: 'Chain' })).toHaveAttribute('aria-pressed', 'true');
+        expect(within(group).getByRole('button', { name: 'Rope' })).toHaveAttribute('aria-pressed', 'false');
+        expect(within(group).getByRole('button', { name: 'Mixed' })).toBeInTheDocument();
+        // One status for VoiceOver, however many copies of the pill are drawn.
+        expect(screen.getAllByRole('status')).toHaveLength(1);
     });
 
     it('arms from a VoiceOver double-tap through the Sound Check, never from a finger tap (UX scorecard run 8)', async () => {

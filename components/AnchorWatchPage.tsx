@@ -88,6 +88,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const armWaitHint = fixWord === 'Ready' ? null : fixWord === 'Finding GPS…' ? 'Finding GPS…' : 'Waits for GPS';
     const armWaitHintId = useId();
     const armTapHintId = useId();
+    const shoreHintId = useId();
+    const rodeTypeLabelId = useId();
     // The red pill by day: opaque red-50 with red-800 text, not red-700 on a
     // tint that measured 4.55:1 (UX scorecard run 7).
     const fixTone =
@@ -788,10 +790,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         // dial already prints the ratio and its word, so the strip's second
         // copy of them went with it.
         const adviceSet = rodeLength === wxRecommendation.rode;
-        const windWords = wxRecommendation.windKnown ? `Wind ${wxRecommendation.wind.toFixed(0)} kts` : 'Wind -- kts';
-        const adviceText = adviceSet
-            ? `${windWords}: ${wxRecommendation.scope}:1 set`
-            : `${windWords}: ${wxRecommendation.rode} m for ${wxRecommendation.scope}:1`;
+        // 'Wind now': the advice reads this minute's wind, not the night
+        // ahead, and says so (UX scorecard run 9).
+        const windWords = wxRecommendation.windKnown
+            ? `Wind now ${wxRecommendation.wind.toFixed(0)} kts`
+            : 'Wind now -- kts';
+        const adviceAction = adviceSet
+            ? `${wxRecommendation.scope}:1 set`
+            : `${wxRecommendation.rode} m for ${wxRecommendation.scope}:1`;
+        const adviceText = `${windWords}: ${adviceAction}`;
         const rodeAdvice = (
             <button
                 type="button"
@@ -804,10 +811,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 title={adviceSet ? undefined : `Set rode to ${wxRecommendation.rode} m (${wxRecommendation.scope}:1)`}
                 // 28 px drawn, 44 px to the finger: the ::before reaches 8 px
                 // above and below (px, not rem, so the fluid root cannot
-                // shrink it), over the dial's padding, never onto the tackle
-                // row. Tinted by the wind, as the strip's icon was: red for storm
+                // shrink it), over the dial's padding, never onto the rode-type
+                // row. In short landscape it folds to two lines and is drawn
+                // 44 px tall, and the ::before reaches UP only: below the chip
+                // is the floating nav toggle, 12 px or more away, and a thumb
+                // aiming for it must not set the rode (UX scorecard run 9).
+                // Tinted by the wind, as the strip's icon was: red for storm
                 // scope, amber for strong wind; green once the rode is set.
-                className={`relative inline-flex min-h-[28px] max-w-full items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-center text-[12px] font-bold leading-tight transition-colors before:absolute before:inset-x-0 before:-inset-y-[8px] before:content-[''] ${
+                className={`relative inline-flex min-h-[28px] max-w-full items-center justify-center gap-1 rounded-full border px-2.5 py-1 text-center text-[12px] font-bold leading-tight transition-colors before:absolute before:inset-x-0 before:-inset-y-[8px] before:content-[''] [@media(orientation:landscape)_and_(max-height:500px)]:min-h-[44px] [@media(orientation:landscape)_and_(max-height:500px)]:before:-top-[16px] [@media(orientation:landscape)_and_(max-height:500px)]:before:bottom-0 ${
                     adviceSet
                         ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-300'
                         : wxRecommendation.severity === 'red'
@@ -818,12 +829,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 }`}
             >
                 {adviceSet && <CheckIcon className="h-3 w-3 shrink-0" />}
-                <span className="min-w-0">{adviceText}</span>
-                {!adviceSet && (
-                    <span aria-hidden="true" className="shrink-0">
-                        ›
+                {/* Two unbreakable halves: where the line is too narrow (the
+                    200 px landscape column) it folds after the wind, never
+                    mid-phrase, and the › stays with the action. */}
+                <span className="min-w-0">
+                    <span className="whitespace-nowrap">{windWords}:</span>{' '}
+                    <span className="whitespace-nowrap">
+                        {adviceAction}
+                        {!adviceSet && <span aria-hidden="true"> ›</span>}
                     </span>
-                )}
+                </span>
             </button>
         );
 
@@ -841,29 +856,59 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     // squeezed ANCHOR WATCH to a clipped column at 393 pt. The
                     // status slot, as MOB, Radio and NMEA use: as a subtitle the
                     // pill stretched the width of the title column.
+                    // Short landscape: the pill is drawn on the title line
+                    // instead (the copy in `action`), which gives the setup
+                    // sliders back the pill's row (UX scorecard run 9). This
+                    // one stays in the tree there, visually hidden, so the
+                    // page always has exactly one status for VoiceOver.
                     status={
                         <span
                             role="status"
-                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${fixTone}`}
+                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${fixTone} [@media(orientation:landscape)_and_(max-height:500px)]:sr-only`}
                         >
                             <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
                             {fixWord}
                         </span>
                     }
                     action={
-                        // "Shore · Sign in" was cryptic (UX scorecard run 6). The
-                        // feature is named in full, stacked over its action so
-                        // the button stays narrow enough not to fold the title.
-                        <button
-                            aria-label={authedUser ? 'Open Shore Watch join' : 'Sign in to use Shore Watch'}
-                            onClick={() => (authedUser ? setShowShoreModal(true) : setShowShoreSignIn(true))}
-                            className="min-h-11 px-3 py-1 rounded-lg flex flex-col items-center justify-center text-xs font-bold leading-tight text-slate-300 bg-slate-800/60 border border-white/6 hover:text-white transition-colors"
-                        >
-                            <span className="whitespace-nowrap">Shore Watch</span>
-                            {!authedUser && (
-                                <span className="whitespace-nowrap font-semibold text-slate-400">Sign in</span>
-                            )}
-                        </button>
+                        <div className="flex shrink-0 items-center gap-3">
+                            <span
+                                aria-hidden="true"
+                                className={`hidden items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${fixTone} [@media(orientation:landscape)_and_(max-height:500px)]:flex`}
+                            >
+                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+                                {fixWord}
+                            </span>
+                            {/* Says what it does, not the feature's name alone
+                                ('Shore Watch' went unexplained, UX scorecard run
+                                9). Two short lines in portrait so the button is
+                                no wider than before and ANCHOR WATCH keeps one
+                                line; one line in landscape, where there is room.
+                                The spoken name starts with the words on the
+                                button, and signed out it still says 'Sign in to
+                                use Shore Watch', the account gate the beta check
+                                pins (scripts/check-beta-readiness.mjs). */}
+                            <button
+                                aria-label={
+                                    authedUser ? 'Watch from ashore' : 'Watch from ashore. Sign in to use Shore Watch'
+                                }
+                                aria-describedby={shoreHintId}
+                                onClick={() => (authedUser ? setShowShoreModal(true) : setShowShoreSignIn(true))}
+                                className="min-h-11 px-3 py-1 rounded-lg flex flex-col items-center justify-center text-center text-xs font-bold leading-tight text-slate-300 bg-slate-800/60 border border-white/6 hover:text-white transition-colors"
+                            >
+                                <span className="whitespace-nowrap">
+                                    Watch from
+                                    <br className="[@media(orientation:landscape)_and_(max-height:500px)]:hidden" />{' '}
+                                    ashore
+                                </span>
+                                {!authedUser && (
+                                    <span className="whitespace-nowrap font-semibold text-slate-400">Sign in</span>
+                                )}
+                                <span id={shoreHintId} className="sr-only">
+                                    Enter the code from the boat&apos;s phone to get its anchor alarm here.
+                                </span>
+                            </button>
+                        </div>
                     }
                 />
 
@@ -891,14 +936,21 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         slide-to-arm gesture. Hides permanently after
                         the user successfully arms once. */}
                     {!armedOnce && (
-                        <div className="anchor-setup-guidance shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5">
+                        <div className="anchor-setup-guidance shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/6 border border-sky-500/15 px-3 py-2.5 [@media(orientation:landscape)_and_(max-height:500px)]:my-0.5!">
                             {/* Two lines, so both sliders sit above the arming bar
                                 on an 852 pt phone (UX scorecard run 6: six lines
                                 pushed RODE under it). The permission caveat stays;
-                                the Sound Check that arming opens says the rest. */}
+                                the Sound Check that arming opens says the rest.
+                                On short phones and in landscape it is the caveat
+                                alone, one line, so RODE DEPLOYED clears the arming
+                                bar; the labelled controls and SLIDE TO DROP ANCHOR
+                                carry the instruction there (UX scorecard run 9).
+                                The instruction names the controls as they are
+                                labelled (rode length and type, not 'tackle'), in
+                                one line at 393 pt. */}
                             <p className="text-[12px] text-sky-200 leading-snug">
-                                <span className="block font-bold text-sky-300">
-                                    Set depth, rode and tackle, then slide to arm.
+                                <span className="block font-bold text-sky-300 [@media(orientation:portrait)_and_(max-height:700px)]:hidden [@media(orientation:landscape)_and_(max-height:500px)]:hidden">
+                                    Set depth, rode length and type, then slide to arm.
                                 </span>
                                 <span className="block">Background alerts need GPS and notification access.</span>
                             </p>
@@ -906,9 +958,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     )}
 
                     {/* ── Hero: Scope Radar, its verdict and the wind advice ──
-                        px-2 in the 200 px landscape column, so the advice
-                        fits on one line there. */}
-                    <div className="anchor-setup-radar flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative [@media(orientation:landscape)_and_(max-height:500px)]:px-2">
+                        px-2 in the 200 px landscape column, and there the box
+                        is its content's height, unpadded (not index.css's
+                        180 px floor, which centred the dial lower), so the
+                        advice ends 12 px or more clear of the floating nav
+                        toggle. On a
+                        667 pt phone the dial's box is 124 px, not 140, so
+                        RODE DEPLOYED ends above the arming bar (UX scorecard
+                        run 9); its letters still scale to 12 px (ScopeRadar).
+                        The sr-only h2s let heading navigation jump to the
+                        dial and to the rode controls (UX scorecard run 9). */}
+                    <h2 className="sr-only">Scope</h2>
+                    <div className="anchor-setup-radar flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative [@media(orientation:landscape)_and_(max-height:500px)]:px-2 [@media(orientation:landscape)_and_(max-height:500px)]:py-0 [@media(orientation:landscape)_and_(max-height:500px)]:min-h-0! [@media(orientation:portrait)_and_(max-height:700px)]:basis-[124px]! [@media(orientation:portrait)_and_(max-height:700px)]:min-h-[124px]!">
                         <ScopeRadar
                             rodeLength={rodeLength}
                             waterDepth={waterDepth}
@@ -919,34 +980,63 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </div>
 
                     {/* ── Controls Section ── */}
+                    <h2 className="sr-only">Depth and rode</h2>
                     <div className="anchor-setup-controls shrink-0 px-4 space-y-3">
-                        {/* Tackle Type — compact segmented row */}
-                        <div role="group" aria-label="Rode type" className="flex gap-1.5">
-                            {(['chain', 'rope', 'mixed'] as const).map((type) => (
-                                <button
-                                    type="button"
-                                    aria-pressed={rodeType === type}
-                                    key={type}
-                                    onClick={() => setRodeType(type)}
-                                    className={`flex-1 min-h-11 rounded-xl text-sm font-bold transition-all ${
-                                        rodeType === type
-                                            ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.1)]'
-                                            : 'bg-slate-800/40 border border-white/6 text-slate-400 hover:text-slate-400'
-                                    }`}
-                                >
-                                    <span className="capitalize">{type}</span>
-                                </button>
-                            ))}
+                        {/* Rode type — compact segmented row, named in the
+                            sliders' label style (UX scorecard run 9: the one
+                            setup control with no visible name). The name sits
+                            beside the row, not over it: a row of its own pushed
+                            RODE DEPLOYED under the arming bar on every phone.
+                            Words in their capitals in the DOM, so VoiceOver says
+                            'Chain', not 'chain'. */}
+                        <div className="flex items-center gap-3">
+                            {/* Hidden from VoiceOver as text: it is the group's
+                                name, so it is said once, with the group. */}
+                            <span
+                                id={rodeTypeLabelId}
+                                aria-hidden="true"
+                                className="shrink-0 whitespace-nowrap text-xs text-slate-400 uppercase tracking-wider font-bold"
+                            >
+                                Rode type
+                            </span>
+                            <div role="group" aria-labelledby={rodeTypeLabelId} className="flex min-w-0 flex-1 gap-1.5">
+                                {(
+                                    [
+                                        ['chain', 'Chain'],
+                                        ['rope', 'Rope'],
+                                        ['mixed', 'Mixed'],
+                                    ] as const
+                                ).map(([type, word]) => (
+                                    <button
+                                        type="button"
+                                        aria-pressed={rodeType === type}
+                                        key={type}
+                                        onClick={() => setRodeType(type)}
+                                        className={`flex-1 min-h-11 min-w-0 rounded-xl text-sm font-bold transition-all ${
+                                            rodeType === type
+                                                ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.1)]'
+                                                : 'bg-slate-800/40 border border-white/6 text-slate-400 hover:text-slate-400'
+                                        }`}
+                                    >
+                                        {word}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
-                        {/* Sliders */}
+                        {/* Sliders. Each range rides in its label ('1–30 m') at
+                            every size (it must match min/max below): the row of
+                            end values under each track put RODE DEPLOYED half
+                            under the arming bar at 375x667 (run 8), and at 852 pt
+                            the bar's fade cut '5 m / 100 m' mid-glyph (UX
+                            scorecard run 9). */}
                         <div className="space-y-2.5">
                             {/* Water Depth */}
                             <div>
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">
                                         Water depth
-                                        <span className="hidden [@media(orientation:portrait)_and_(max-height:700px)]:inline [@media(orientation:landscape)_and_(max-height:500px)]:inline font-mono font-semibold normal-case tracking-normal">
+                                        <span className="font-mono font-semibold normal-case tracking-normal">
                                             {' '}
                                             1–30 m
                                         </span>
@@ -968,19 +1058,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     className="w-full h-2 bg-slate-800/60 rounded-full accent-sky-500 appearance-none cursor-pointer"
                                     style={{ touchAction: 'none' }}
                                 />
-                                {/* The track's ends, so a skipper can see how far a slide goes.
-                                    Must match min/max above. On short phones and in
-                                    landscape the range rides in the label instead:
-                                    the row under each track put RODE DEPLOYED half
-                                    under the arming bar at 375x667, and the ends
-                                    never showed in landscape (UX scorecard run 8). */}
-                                <div
-                                    aria-hidden="true"
-                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums [@media(orientation:portrait)_and_(max-height:700px)]:hidden [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
-                                >
-                                    <span>1 m</span>
-                                    <span>30 m</span>
-                                </div>
                             </div>
 
                             {/* Rode Deployed */}
@@ -988,7 +1065,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="flex justify-between items-center mb-1">
                                     <label className="text-xs text-slate-400 uppercase tracking-wider font-bold">
                                         Rode deployed
-                                        <span className="hidden [@media(orientation:portrait)_and_(max-height:700px)]:inline [@media(orientation:landscape)_and_(max-height:500px)]:inline font-mono font-semibold normal-case tracking-normal">
+                                        <span className="font-mono font-semibold normal-case tracking-normal">
                                             {' '}
                                             5–100 m
                                         </span>
@@ -1008,13 +1085,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     className="w-full h-2 bg-slate-800/60 rounded-full accent-amber-500 appearance-none cursor-pointer"
                                     style={{ touchAction: 'none' }}
                                 />
-                                <div
-                                    aria-hidden="true"
-                                    className="mt-1 flex justify-between text-xs font-semibold leading-none text-slate-400 font-mono tabular-nums [@media(orientation:portrait)_and_(max-height:700px)]:hidden [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
-                                >
-                                    <span>5 m</span>
-                                    <span>100 m</span>
-                                </div>
                             </div>
                         </div>
 
@@ -1030,7 +1100,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             (measured 2026-09-25: a clearance here as well left
                             a 72 px dead band under the bar), so the offset is 0
                             and .anchor-setup-arm paints an opaque surface. */}
-                        <div className="anchor-setup-arm sticky bottom-0 z-10 -mx-4 px-4 pt-1">
+                        {/* mt-1 in short landscape, where the bar rests at its
+                            own place rather than pinned: the 12 px fade above it
+                            then lands in the gap, not on the slider tracks. */}
+                        <div className="anchor-setup-arm sticky bottom-0 z-10 -mx-4 px-4 pt-1 [@media(orientation:landscape)_and_(max-height:500px)]:mt-1">
                             {/* The VPN hairpin notice used to sit here. Removed
                                 2026-09-04 at Shane's call: "VPN's are for
                                 advanced users only, so they will not [need]
@@ -1134,7 +1207,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         }}
                                     >
                                         <span className="flex flex-col items-center leading-tight">
-                                            <span className="text-sm font-bold text-amber-300/70 tracking-wider uppercase">
+                                            {/* Sentence case at 16 px bold, the same label
+                                                as the Log's slide bar: one family, not
+                                                tracked capitals (UX scorecard run 9). */}
+                                            <span className="text-base font-bold text-amber-300/70">
                                                 Slide to drop anchor
                                             </span>
                                             {armWaitHint && (
@@ -1304,7 +1380,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         aria-label="Background notification readiness"
                         className="shrink-0 mx-4 mb-2 rounded-xl border border-amber-400/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-200"
                     >
-                        <div className="flex items-center justify-between gap-3">
+                        {/* Wraps: at large text sizes the Retry button ran past the
+                            card's right edge instead of taking its own line. */}
+                        <div className="flex flex-wrap items-center justify-between gap-x-3">
                             <p role="status" aria-live="polite" className="font-bold">
                                 {pushReadiness.status === 'checking'
                                     ? 'Checking background notifications…'

@@ -43,8 +43,8 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
             scopeQuality === 'excellent' ? 'EXCELLENT' : scopeQuality === 'adequate' ? 'ADEQUATE' : 'POOR';
         const qualityFill = `var(--day-ui-${scopeQuality === 'excellent' ? 'success' : scopeQuality === 'adequate' ? 'amber' : 'danger'}, ${scopeColor})`;
 
-        // The dial is a 200-unit viewBox that shrinks with its box (144 px on a
-        // 375×667 phone, ~160 px in landscape), so fixed SVG font sizes came out
+        // The dial is a 200-unit viewBox that shrinks with its box (120 px on a
+        // 375×667 phone, 96 px in landscape), so fixed SVG font sizes came out
         // at 8–10 px (UX scorecard run 6, the L cap). Measure the rendered size
         // and scale the letters inside the dial so they never drop below 12 px;
         // the quality word and swing radius live in HTML under the dial.
@@ -64,7 +64,6 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
             return () => observer.disconnect();
         }, []);
         const cardinalSize = Math.max(12, MIN_DIAL_TEXT_PX / pxPerUnit);
-        const ratioSize = Math.max(18, 16 / pxPerUnit);
 
         // Radar ring sizes — normalized to a 200-unit viewbox. The range leaves
         // room outside the tick ring for cardinal letters at their scaled size.
@@ -75,18 +74,28 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
         const dangerR = outerR * 1.15;
         const cardinalR = outerR + 9 + cardinalSize / 2 + 2;
 
+        // The ratio reads at 16 px, but on the 96 px landscape dial '10.0:1'
+        // came out as wide as the scope ring and was drawn across it. Where it
+        // would not fit inside the ring it scales down to fit (a monospace
+        // character is ~0.62 em), never under the 12 px floor.
+        const ratioText = `${scopeRatio.toFixed(1)}:1`;
+        const ratioFit = (outerR * 2 * 0.9) / (ratioText.length * 0.62);
+        const ratioSize = Math.max(18, Math.min(16 / pxPerUnit, Math.max(MIN_DIAL_TEXT_PX / pxPerUnit, ratioFit)));
+
         // Short portrait phones (667 pt) set the dial BESIDE its words: the
-        // radar box is a fixed 140 px there (index.css), and stacking the advice
-        // under the verdict would have shrunk the dial to ~85 px. Side by side
-        // the dial gets the whole height. Short landscape trims the dial by the
-        // advice line so both still end above the floating nav toggle.
+        // radar box is a fixed 124 px there (AnchorWatchPage), and stacking the
+        // advice under the verdict would have shrunk the dial to ~75 px. Side by
+        // side the dial gets the whole height. Short landscape trims the dial to
+        // 96 px: in the 200 px column the advice folds to two lines, and the
+        // advice must still end 12 px or more above the floating nav toggle
+        // (UX scorecard run 9).
         return (
             <div className="flex h-full w-full min-h-0 flex-col items-center justify-center gap-1 [@media(orientation:portrait)_and_(max-height:700px)]:flex-row [@media(orientation:portrait)_and_(max-height:700px)]:gap-3">
                 <svg
                     ref={svgRef}
                     viewBox="0 0 200 200"
                     overflow="visible"
-                    className="min-h-0 w-full flex-1 max-w-[320px] max-h-[320px] [@media(orientation:portrait)_and_(max-height:700px)]:h-full [@media(orientation:portrait)_and_(max-height:700px)]:w-auto [@media(orientation:portrait)_and_(max-height:700px)]:flex-none [@media(orientation:portrait)_and_(max-height:700px)]:aspect-square [@media(orientation:landscape)_and_(max-height:500px)]:max-h-[112px]!"
+                    className="min-h-0 w-full flex-1 max-w-[320px] max-h-[320px] [@media(orientation:portrait)_and_(max-height:700px)]:h-full [@media(orientation:portrait)_and_(max-height:700px)]:w-auto [@media(orientation:portrait)_and_(max-height:700px)]:flex-none [@media(orientation:portrait)_and_(max-height:700px)]:aspect-square [@media(orientation:landscape)_and_(max-height:500px)]:max-h-[96px]!"
                     style={{ filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.3))' }}
                     role="img"
                     aria-label={`Scope radar: ${scopeRatio.toFixed(1)} to 1 ratio, ${scopeQuality}, ${formatDistance(swingRadiusPreview)} swing radius`}
@@ -259,7 +268,7 @@ export const ScopeRadar: React.FC<ScopeRadarProps> = React.memo(
                         fill="var(--day-ui-text, white)"
                         style={{ textShadow: '0 0 10px rgba(255,255,255,0.15)' }}
                     >
-                        {scopeRatio.toFixed(1)}:1
+                        {ratioText}
                     </text>
                 </svg>
                 <div className="flex min-w-0 shrink-0 flex-col items-center gap-1.5 [@media(orientation:portrait)_and_(max-height:700px)]:shrink [@media(orientation:portrait)_and_(max-height:700px)]:items-start">
