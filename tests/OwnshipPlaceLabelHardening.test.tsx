@@ -10,6 +10,9 @@
  *
  *  - an unchanged paint value is a no-op, and a change to or from a
  *    feature-state value is a full base-source re-parse ("relayout");
+ *  - any layout change and any addLayer queue a reload of the layer's whole
+ *    source too (Style._updateLayer), and isStyleLoaded() is false until the
+ *    next frame (Style.loaded() while a source cache update is queued);
  *  - queryRenderedFeatures returns the placed labels whose boxes touch the
  *    query box, on visible layers only;
  *  - 'idle' and 'moveend' are real listener sets, isMoving() is settable.
@@ -26,7 +29,7 @@ import {
     useVesselTracker,
     withOwnshipLabelFade,
 } from '../components/map/useVesselTracker';
-import { hideIsobarLayers, showIsobarLayers } from '../components/map/isobarLayerSetup';
+import { hideIsobarLayers, initIsobarLayers, showIsobarLayers } from '../components/map/isobarLayerSetup';
 import { readsOwnshipFade } from '../components/map/ownshipLabelFade';
 
 const mocks = vi.hoisted(() => ({
@@ -120,18 +123,21 @@ const dataDriven = (value: unknown) => /"feature-state"|"get"/.test(JSON.stringi
 
 /**
  * dark-v11's three settlement layers (their real starting opacities, read off
- * the live style), a POI layer and an ENC label, on a map whose projection is
- * x = lng * 10, y = lat * 10.
+ * the live style), a POI layer, an ENC label and two land fills (one with its
+ * fill-color unset), on a map whose projection is x = lng * 10, y = lat * 10.
  */
 function labelMap() {
     const styleLayers: Array<Record<string, unknown> & { id: string }> = [
+        { id: 'landuse', type: 'fill', source: 'composite', 'source-layer': 'landuse' },
+        { id: 'land-structure-polygon', type: 'fill', source: 'composite', 'source-layer': 'structure' },
         ...SETTLEMENT_LAYERS.map((id) => ({ id, type: 'symbol', source: 'composite', 'source-layer': 'place_label' })),
         { id: 'poi-label', type: 'symbol', source: 'composite', 'source-layer': 'poi_label' },
         { id: 'enc-vec-lndare-label', type: 'symbol', source: 'enc-vec-points' },
     ];
-    const appLayers = new Map<string, { id: string }>();
+    const appLayers = new Map<string, Record<string, unknown> & { id: string }>();
     const sources = new Map<string, { setData: ReturnType<typeof vi.fn> }>();
     const paint = new Map<string, unknown>([
+        ['landuse|fill-color', '#333b45'],
         ['settlement-minor-label|icon-opacity', ['step', ['zoom'], 1, 8, 0]],
         ['settlement-major-label|icon-opacity', ['step', ['zoom'], 1, 8, 0]],
         // useMapInit's load pass inks every label layer white on a dark halo
@@ -155,19 +161,41 @@ function labelMap() {
     const relayouts: string[] = [];
     /** Every paint write that actually changed a value (mapbox drops the rest). */
     const changes: string[] = [];
-    const sim = { moving: false, zoom: 10, tilesLoaded: true };
+    /**
+     * Every source reload mapbox would queue, as `source|layer`: a relayout
+     * above, any layout change, any addLayer (Style._updateLayer).
+     */
+    const reloads: string[] = [];
+    const sim = { moving: false, zoom: 10, tilesLoaded: true, styleDirty: false };
     const stateKey = (t: { source: string; sourceLayer?: string; id: string | number }) =>
         `${t.source}|${t.sourceLayer ?? ''}|${t.id}`;
     const visible = (id: string) => (layout.get(`${id}|visibility`) ?? 'visible') !== 'none';
+    const findLayer = (id: string) => styleLayers.find((layer) => layer.id === id) ?? appLayers.get(id);
+    const queueReload = (id: string) => {
+        const source = findLayer(id)?.source;
+        if (typeof source !== 'string') return;
+        reloads.push(`${source}|${id}`);
+        sim.styleDirty = true;
+    };
 
     const map = {
         getStyle: vi.fn(() => ({ layers: [...styleLayers, ...appLayers.values()] })),
-        getLayer: (id: string) => styleLayers.find((layer) => layer.id === id) ?? appLayers.get(id),
-        addLayer: vi.fn((layer: { id: string }) => {
+        getLayer: findLayer,
+        addLayer: vi.fn((layer: Record<string, unknown> & { id: string }) => {
             appLayers.set(layer.id, layer);
+            for (const kind of ['paint', 'layout'] as const) {
+                const into = kind === 'paint' ? paint : layout;
+                for (const [k, v] of Object.entries((layer[kind] ?? {}) as Record<string, unknown>)) {
+                    into.set(`${layer.id}|${k}`, v);
+                }
+            }
+            queueReload(layer.id);
         }),
         removeLayer: (id: string) => {
             appLayers.delete(id);
+            for (const into of [paint, layout]) {
+                for (const key of [...into.keys()]) if (key.startsWith(`${id}|`)) into.delete(key);
+            }
         },
         getSource: (id: string) => (id === 'composite' ? {} : sources.get(id)),
         addSource: vi.fn((id: string) => {
@@ -180,6 +208,7 @@ function labelMap() {
         hasImage: () => false,
         getPaintProperty: (id: string, property: string) => paint.get(`${id}|${property}`),
         setPaintProperty: vi.fn((id: string, property: string, value: unknown) => {
+            if (!findLayer(id)) return; // mapbox: an error event, no write
             const key = `${id}|${property}`;
             const old = paint.get(key);
             // Style.setPaintProperty: deep-equal returns early.
@@ -187,15 +216,23 @@ function labelMap() {
             const overridable =
                 property === 'text-color' &&
                 JSON.stringify(layout.get(`${id}|text-field`) ?? null).includes('text-color');
-            if (dataDriven(old) || dataDriven(value) || overridable) relayouts.push(key);
+            if (dataDriven(old) || dataDriven(value) || overridable) {
+                relayouts.push(key);
+                queueReload(id);
+            }
             changes.push(key);
             paint.set(key, value);
         }),
         getLayoutProperty: (id: string, property: string) => layout.get(`${id}|${property}`),
         setLayoutProperty: vi.fn((id: string, property: string, value: unknown) => {
-            layout.set(`${id}|${property}`, value);
+            if (!findLayer(id)) return;
+            const key = `${id}|${property}`;
+            // Style.setLayoutProperty: deep-equal returns early; any change reloads the source.
+            if (JSON.stringify(layout.get(key) ?? null) === JSON.stringify(value ?? null)) return;
+            layout.set(key, value);
+            queueReload(id);
         }),
-        isStyleLoaded: () => true,
+        isStyleLoaded: () => !sim.styleDirty,
         isSourceLoaded: () => sim.tilesLoaded,
         isMoving: () => sim.moving,
         getZoom: () => sim.zoom,
@@ -249,7 +286,25 @@ function labelMap() {
         for (const fn of [...(listeners.get(type) ?? [])]) fn({ type });
     };
     const hidden = (id: number) => state.get(`composite|place_label|${id}`)?.[STATE] === true;
-    return { map, asMap: map as never, placed, relayouts, changes, sim, layout, paint, listeners, fire, hidden };
+    /** The next render frame: mapbox applies the queued source updates. */
+    const frame = () => {
+        sim.styleDirty = false;
+    };
+    return {
+        map,
+        asMap: map as never,
+        placed,
+        relayouts,
+        changes,
+        reloads,
+        sim,
+        layout,
+        paint,
+        listeners,
+        fire,
+        hidden,
+        frame,
+    };
 }
 
 type LabelMap = ReturnType<typeof labelMap>;
@@ -444,6 +499,7 @@ describe('the isobar basemap pass keeps the fade and costs nothing when unchange
         const settlementWrites = () =>
             t.map.setPaintProperty.mock.calls.filter(([id]) => SETTLEMENT_LAYERS.includes(id)).length;
         const before = settlementWrites();
+        const allWrites = t.map.setPaintProperty.mock.calls.length;
         const relayouts = t.relayouts.length;
 
         for (let pass = 0; pass < 3; pass++) hideIsobarLayers(t.map as never, new Map());
@@ -454,10 +510,12 @@ describe('the isobar basemap pass keeps the fade and costs nothing when unchange
         for (const id of SETTLEMENT_LAYERS) {
             expect(JSON.stringify(t.paint.get(`${id}|text-opacity`))).toContain(STATE);
         }
-        // Every other symbol layer still gets exactly its 1.0, every pass.
-        expect(t.paint.get('poi-label|text-opacity')).toBe(1.0);
-        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBe(1.0);
-        expect(otherSymbolWrites(t, 1.0)).toBe(6);
+        // No ghost was ever recorded, so nothing is handed back: no flat 1.0
+        // over the other labels (it used to clobber the app's own 0.85/0.58).
+        expect(t.paint.get('poi-label|text-opacity')).toBeUndefined();
+        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBeUndefined();
+        expect(otherSymbolWrites(t, 1.0)).toBe(0);
+        expect(t.map.setPaintProperty.mock.calls.length).toBe(allWrites);
     });
 
     const GHOST_INK = 'rgba(255, 255, 255, 0.3)';
@@ -503,7 +561,7 @@ describe('the isobar basemap pass keeps the fade and costs nothing when unchange
         hideIsobarLayers(t.map as never, saved);
         expectInk('#ffffff', 'rgba(0, 0, 0, 0.9)');
         expectArmedOpacity();
-        expect(t.paint.get('poi-label|text-opacity')).toBe(1.0);
+        expect(t.paint.get('poi-label|text-opacity')).toBeUndefined(); // unset, as it was
 
         // Not one composite re-parse in any of it, and Gladstone stayed faded.
         expect(t.relayouts.length).toBe(relayouts);
@@ -513,10 +571,13 @@ describe('the isobar basemap pass keeps the fade and costs nothing when unchange
 
     it('an unarmed town layer (own-ship off) is ghosted the same way, so a later arm never wraps the ghost', () => {
         const fake = labelMap();
+        // A town layer's opacity is the own-ship fade's: written only through
+        // its helper, which leaves a layer it has not armed alone. Never a
+        // plain constant, on or off.
         hideIsobarLayers(fake.map as never, new Map());
-        expect(fake.paint.get('settlement-major-label|text-opacity')).toBe(1.0);
+        expect(fake.paint.get('settlement-major-label|text-opacity')).toBeUndefined();
         showIsobarLayers(fake.map as never, new Map(), false);
-        expect(fake.paint.get('settlement-major-label|text-opacity')).toBe(1.0);
+        expect(fake.paint.get('settlement-major-label|text-opacity')).toBeUndefined();
         expect(fake.paint.get('settlement-major-label|text-color')).toBe(GHOST_INK);
         expect(fake.paint.get('poi-label|text-opacity')).toBe(0.3);
         expect(fake.relayouts).toEqual([]);
@@ -572,6 +633,223 @@ describe('the isobar basemap pass keeps the fade and costs nothing when unchange
         expect(fake.paint.get('settlement-subdivision-label|text-color')).toBe(GHOST_INK);
         hideIsobarLayers(fake.map as never, new Map());
         expect(fake.relayouts.length).toBe(relayouts);
+    });
+});
+
+describe('the standalone chart on live weather passes, on a map that settles a frame late', () => {
+    const INK = 'rgba(255, 255, 255, 0.3)';
+    const HALO = 'rgba(0, 0, 0, 0.27)';
+    const LAND = 'rgba(20, 20, 20, 0.35)';
+
+    /**
+     * One pass of useWeatherLayers' main effect as far as the pressure chart
+     * goes (the pressure-off hide; else init, show and, on the first solo
+     * chart, the coastal vignette on the base source at line-opacity 0.6).
+     */
+    const weatherPass = (fake: LabelMap, saved: Map<string, unknown>, active: string[]) => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,');
+        if (!active.includes('pressure')) {
+            hideIsobarLayers(fake.asMap, saved);
+            return;
+        }
+        const overlay = active.length > 1;
+        initIsobarLayers(fake.asMap);
+        showIsobarLayers(fake.asMap, saved, overlay);
+        if (!overlay && !fake.map.getLayer('coastal-vignette') && fake.map.getSource('composite')) {
+            fake.map.addLayer({
+                id: 'coastal-vignette',
+                type: 'line',
+                source: 'composite',
+                'source-layer': 'water',
+                paint: { 'line-color': '#000814', 'line-width': 6, 'line-blur': 8, 'line-opacity': 0.6 },
+            });
+        }
+    };
+    const expectInk = (fake: LabelMap, color: string, halo: string) =>
+        SETTLEMENT_LAYERS.forEach((id) => {
+            expect([id, fake.paint.get(`${id}|text-color`)]).toEqual([id, color]);
+            expect([id, fake.paint.get(`${id}|text-halo-color`)]).toEqual([id, halo]);
+        });
+    /** Gladstone faded under own-ship, and the app's own label opacities set: ENC 0.85, buoyage 0.58. */
+    const berth = () => {
+        const t = mount();
+        t.placed.push(GLADSTONE);
+        t.fix();
+        expect(t.hidden(GLADSTONE.id)).toBe(true);
+        t.paint.set('enc-vec-lndare-label|text-opacity', 0.85);
+        t.map.addLayer({
+            id: 'thalassa-buoyage-direction-arrow',
+            type: 'symbol',
+            source: 'thalassa-buoyage-direction',
+            paint: { 'text-opacity': 0.58 },
+        });
+        t.frame();
+        const armed = SETTLEMENT_LAYERS.map((id) => t.paint.get(`${id}|text-opacity`));
+        const expectFadeHeld = () => {
+            SETTLEMENT_LAYERS.forEach((id, i) => expect(t.paint.get(`${id}|text-opacity`)).toEqual(armed[i]));
+            expect(t.hidden(GLADSTONE.id)).toBe(true);
+            expect(ownshipPlaceLabelWasReset(t.asMap)).toBe(false);
+        };
+        return { t, expectFadeHeld };
+    };
+
+    it('pressure solo ghosts on the very pass that turns it on, though that pass leaves the style unsettled', () => {
+        const { t, expectFadeHeld } = berth();
+        const saved = new Map();
+        weatherPass(t, saved, ['rain']);
+        t.frame();
+        const relayouts = t.relayouts.length;
+
+        weatherPass(t, saved, ['pressure']);
+        // The isobar adds and visibility writes queued their sources' reloads:
+        // mapbox reports the style not loaded until the next frame, and
+        // nothing re-runs the weather effect while pressure stays solo.
+        expect(t.map.isStyleLoaded()).toBe(false);
+        expectInk(t, INK, HALO);
+        expect(t.paint.get('landuse|fill-color')).toBe(LAND);
+        expect(t.paint.get('land-structure-polygon|fill-color')).toBe(LAND);
+        expect(t.paint.get('poi-label|text-opacity')).toBe(0.3);
+        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBe(0.3);
+        expect(t.paint.get('thalassa-buoyage-direction-arrow|text-opacity')).toBe(0.3);
+        expectFadeHeld();
+        expect(t.relayouts.length).toBe(relayouts);
+    });
+
+    it('pressure off hands every value back on its own pass, exactly, the app opacities included', () => {
+        const { t, expectFadeHeld } = berth();
+        const saved = new Map();
+        // However the ghost got there: here a third solo pass with nothing
+        // left to settle (the only pass the pre-fix code ghosted on).
+        for (let pass = 0; pass < 3; pass++) {
+            weatherPass(t, saved, ['pressure']);
+            t.frame();
+        }
+        expect(t.paint.get('poi-label|text-opacity')).toBe(0.3);
+        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBe(0.3);
+        const relayouts = t.relayouts.length;
+
+        weatherPass(t, saved, []);
+        expect(t.map.isStyleLoaded()).toBe(false); // the hides queued reloads
+        expectInk(t, '#ffffff', 'rgba(0, 0, 0, 0.9)');
+        expect(t.paint.get('poi-label|text-opacity')).toBeUndefined();
+        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBe(0.85);
+        expect(t.paint.get('thalassa-buoyage-direction-arrow|text-opacity')).toBe(0.58);
+        expect(t.paint.get('landuse|fill-color')).toBe('#333b45');
+        expect(t.paint.get('land-structure-polygon|fill-color')).toBeUndefined();
+        expectFadeHeld();
+        expect(t.relayouts.length).toBe(relayouts);
+
+        // The rain passes after it write nothing at all.
+        const writes = t.map.setPaintProperty.mock.calls.length;
+        for (let pass = 0; pass < 3; pass++) {
+            weatherPass(t, saved, ['rain']);
+            t.frame();
+        }
+        expect(t.map.setPaintProperty.mock.calls.length).toBe(writes);
+        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBe(0.85);
+    });
+
+    it('solo to overlay (wind on) hands the basemap back on that pass too', () => {
+        const { t, expectFadeHeld } = berth();
+        const saved = new Map();
+        weatherPass(t, saved, ['pressure']);
+        t.frame();
+        weatherPass(t, saved, ['pressure', 'wind']);
+        expect(t.map.isStyleLoaded()).toBe(false);
+        expectInk(t, '#ffffff', 'rgba(0, 0, 0, 0.9)');
+        expect(t.paint.get('poi-label|text-opacity')).toBeUndefined();
+        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBe(0.85);
+        expect(t.paint.get('thalassa-buoyage-direction-arrow|text-opacity')).toBe(0.58);
+        expect(t.paint.get('landuse|fill-color')).toBe('#333b45');
+        expectFadeHeld();
+    });
+
+    it('weather passes that never had pressure on leave the app opacities and the fade alone', () => {
+        const { t, expectFadeHeld } = berth();
+        const saved = new Map();
+        const writes = t.map.setPaintProperty.mock.calls.length;
+        for (const active of [['rain'], [], ['wind'], ['rain', 'wind'], []]) {
+            weatherPass(t, saved, active);
+            t.frame();
+        }
+        expect(t.map.setPaintProperty.mock.calls.length).toBe(writes);
+        expect(t.paint.get('enc-vec-lndare-label|text-opacity')).toBe(0.85);
+        expect(t.paint.get('thalassa-buoyage-direction-arrow|text-opacity')).toBe(0.58);
+        expect(t.paint.get('poi-label|text-opacity')).toBeUndefined();
+        expectFadeHeld();
+    });
+
+    it('re-parses the base map once, for the vignette add, and never again on any toggle', () => {
+        const { t, expectFadeHeld } = berth();
+        const saved = new Map();
+        const composite = () => t.reloads.filter((reload) => reload.startsWith('composite|'));
+        const atLoad = composite().length; // the one-time arming of the fade
+        weatherPass(t, saved, ['pressure']);
+        t.frame();
+        expect(composite().slice(atLoad)).toEqual(['composite|coastal-vignette']);
+
+        for (const active of [
+            ['pressure', 'wind'],
+            ['pressure'],
+            [],
+            ['rain'],
+            ['pressure'],
+            ['pressure', 'rain'],
+            [],
+        ]) {
+            weatherPass(t, saved, active);
+            t.frame();
+            expect([active, composite().slice(atLoad)]).toEqual([active, ['composite|coastal-vignette']]);
+            expect([active, t.paint.get('coastal-vignette|line-opacity')]).toEqual([
+                active,
+                active.length === 1 && active[0] === 'pressure' ? 0.6 : 0,
+            ]);
+        }
+        expect(composite().slice(atLoad)).toEqual(['composite|coastal-vignette']);
+        expect(t.layout.get('coastal-vignette|visibility')).toBeUndefined();
+        expectFadeHeld();
+    });
+
+    it('a label layer that mounts while the chart is up is ghosted once its styledata settles, and the fade holds', () => {
+        const { t, expectFadeHeld } = berth();
+        const saved = new Map();
+        weatherPass(t, saved, ['pressure']);
+        t.frame();
+        expectInk(t, INK, HALO);
+        const relayouts = t.relayouts.length;
+        const reloads = t.reloads.filter((reload) => reload.startsWith('composite|')).length;
+        const townWrites = () =>
+            t.map.setPaintProperty.mock.calls.filter(([id]) => SETTLEMENT_LAYERS.includes(id)).length;
+        const towns = townWrites();
+
+        // The ENC stack mounts on the first zoom into chart cover: no weather
+        // pass runs, only the style's own styledata.
+        t.map.addLayer({
+            id: 'enc-vec-lights-label',
+            type: 'symbol',
+            source: 'enc-vec-lights',
+            paint: { 'text-opacity': 0.85 },
+        });
+        t.frame();
+        t.fire('styledata');
+        expect(t.paint.get('enc-vec-lights-label|text-opacity')).toBe(0.85);
+        t.tick(120);
+        expect(t.paint.get('enc-vec-lights-label|text-opacity')).toBe(0.3);
+        // The walk wrote only the new layer: the town names were seen at the
+        // toggle pass and are not touched again, and nothing re-parsed.
+        expect(townWrites()).toBe(towns);
+        expect(t.relayouts.length).toBe(relayouts);
+        expect(t.reloads.filter((reload) => reload.startsWith('composite|')).length).toBe(reloads);
+        expectInk(t, INK, HALO);
+        expectFadeHeld();
+
+        weatherPass(t, saved, []);
+        expect(t.paint.get('enc-vec-lights-label|text-opacity')).toBe(0.85);
+        expectInk(t, '#ffffff', 'rgba(0, 0, 0, 0.9)');
+        expect(t.listeners.get('styledata')?.size ?? 0).toBe(0);
+        expect(t.relayouts.length).toBe(relayouts);
+        expectFadeHeld();
     });
 });
 

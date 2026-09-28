@@ -8,16 +8,18 @@
  *   ['case', ['boolean', ['feature-state', 'thalassaOwnshipHidden'], false], 0, <the layer's own opacity>]
  *
  * isobarLayerSetup is the only other code that writes text-opacity on those
- * layers: it hands the basemap back at 1.0 on every pass of the weather effect.
- * A plain number there dropped the switch, so the town name came back under the
- * boat, and every swap between a constant and a feature-state value re-parses
- * the whole `composite` source in mapbox-gl 3.x (StyleLayer.setPaintProperty
- * returns requiresRelayout when either side is data-driven). So an armed layer
- * is only ever written through withOwnshipLabelFade, and not at all when the
- * value is already there: an unchanged value is a no-op, not a style change.
- * The standalone pressure chart ghosts these town names through their text and
- * halo colours instead of their opacity, for the same reason (see
- * isobarLayerSetup).
+ * layers, and only through setOpacityKeepingOwnshipFade: at 1 (a no-op once it
+ * is there), on the passes that put the standalone pressure chart up, and never
+ * when it hands the basemap back. It once wrote them a plain 1.0 on every pass
+ * of the weather effect. A plain number there dropped the switch, so the town
+ * name came back under the boat, and every swap between a constant and a
+ * feature-state value re-parses the whole `composite` source in mapbox-gl 3.x
+ * (StyleLayer.setPaintProperty returns requiresRelayout when either side is
+ * data-driven). So an armed layer is only ever written through
+ * withOwnshipLabelFade, and not at all when the value is already there: an
+ * unchanged value is a no-op, not a style change. The standalone pressure
+ * chart ghosts these town names through their text and halo colours instead
+ * of their opacity, for the same reason (see isobarLayerSetup).
  *
  * Kept free of the tracker's service imports so the weather code can use it.
  */
