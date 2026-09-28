@@ -119,10 +119,11 @@ describe('resolveGpsSourceState', () => {
 
     // UX referee run 8 (gps-one-truth): 'GPS unavailable — showing forecast
     // for the last location · fix just now' had no verb, and its 'fix just
-    // now' read as a fresh fix. The row now says the receiver isn't giving a
-    // position and dates the FORECAST; the fix's age is the card's line.
+    // now' read as a fresh fix. The row says the receiver isn't giving a
+    // position. Run 10 (system-status-times): each time names what it dates,
+    // the fix ('fixed 5 min ago') and the forecast ('refreshed 20 s ago').
     it.each(['phone', 'boat'] as const)(
-        'retained %s weather says the receiver is not giving a position and dates the forecast, not a fix',
+        'retained %s weather says the receiver is not giving a position and names what each time dates',
         (target) => {
             const now = Date.now();
             const result = resolveGpsSourceState({
@@ -138,9 +139,9 @@ describe('resolveGpsSourceState', () => {
             });
             expect(result).toMatchObject({ glyph: target, tone: 'none', canChoose: false });
             expect(result.label).toBe(
-                `Position: ${target === 'phone' ? 'this phone' : 'the boat'} isn’t giving a position. Showing the forecast for your last location (updated just now).`,
+                `Position: ${target === 'phone' ? 'this phone' : 'the boat'} isn’t giving a position. Forecast for your last position (fixed 5 min ago), refreshed 20 s ago.`,
             );
-            expect(result.label).not.toMatch(/live|fix/);
+            expect(result.label).not.toMatch(/live|fix just now/);
         },
     );
 
@@ -158,7 +159,7 @@ describe('resolveGpsSourceState', () => {
                     storeStatus: 'connected',
                     remoteVia: null,
                 }).label,
-            ).toBe('Position: this phone isn’t giving a position. Showing the forecast for your last location.');
+            ).toBe('Position: this phone isn’t giving a position. Forecast for your last position (fixed 5 min ago).');
         },
     );
 });
@@ -224,11 +225,11 @@ describe('<GpsSourceRow /> — the System Status panel row', () => {
         const row = screen.getByTestId('gps-source-row');
         expect(row.getAttribute('data-glyph')).toBe('phone');
         expect(row.getAttribute('data-tone')).toBe('none');
-        // The referee's wording: a verb, and the forecast's update time in
-        // the forecast-age pill's words ('5m ago'), never 'fix just now'.
+        // The referee's wording: a verb, and each time named for what it
+        // dates, in the card's one age wording ('5 min ago'), never 'fix just now'.
         expect(
             screen.getByText(
-                'This phone isn’t giving a position. Showing the forecast for your last location (updated 5m ago).',
+                'This phone isn’t giving a position. Forecast for your last position (fixed 5 min ago), refreshed 5 min ago.',
             ),
         ).toBeInTheDocument();
     });

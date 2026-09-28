@@ -167,9 +167,9 @@ describe('the referee’s screen: retained phone weather, last phone position 46
         now: NOW,
     });
 
-    it('the header has a verb and dates the forecast, not a fix', () => {
+    it('the header has a verb and names what each time dates', () => {
         expect(header.label).toBe(
-            'Position: this phone isn’t giving a position. Showing the forecast for your last location (updated just now).',
+            'Position: this phone isn’t giving a position. Forecast for your last position (fixed 46 s ago), refreshed 20 s ago.',
         );
         expect(header.label).not.toMatch(/fix just now|unavailable/);
     });
@@ -579,7 +579,7 @@ describe('constructed states: every line of the box and the own-ship badge', () 
             weather: { kind: 'phone', target: 'phone', timestamp: NOW - 5 * 60_000 },
             status: 'unavailable',
             retainedWeather: true,
-            header: 'Position: this phone isn’t giving a position. Showing the forecast for your last location (updated just now).',
+            header: 'Position: this phone isn’t giving a position. Forecast for your last position (fixed 5 min ago), refreshed 30 s ago.',
             phoneLine: 'No live fix · last position 5 min ago',
             badge: 'Last fix 5 min',
         },
@@ -589,7 +589,7 @@ describe('constructed states: every line of the box and the own-ship badge', () 
             weather: { kind: 'phone', target: 'phone', timestamp: NOW - 46_000 },
             status: 'unavailable',
             retainedWeather: true,
-            header: 'Position: this phone isn’t giving a position. Showing the forecast for your last location (updated just now).',
+            header: 'Position: this phone isn’t giving a position. Forecast for your last position (fixed 46 s ago), refreshed 30 s ago.',
             phoneLine: 'No live fix · last position 46 s ago',
             badge: null,
         },
@@ -634,7 +634,7 @@ describe('constructed states: every line of the box and the own-ship badge', () 
             // 'just now' belongs to a live fix only.
             if (fix.kind !== 'live') expect(line(card)).not.toMatch(/just now/);
         }
-        // The header's only 'just now' may date the FORECAST ('updated just now').
-        expect(header.replace('(updated just now)', '')).not.toMatch(/just now/);
+        // The header's only 'just now' may date the FORECAST ('refreshed just now').
+        expect(header.replace('refreshed just now', '')).not.toMatch(/just now/);
     });
 });

@@ -631,8 +631,11 @@ function readNmeaBackboneStatus(): SystemState['nmea'] {
     });
 }
 
-/** The systems list: one grouped surface, rows divided by hairlines. */
-const SYSTEM_LIST_CLASS = 'divide-y divide-white/6 overflow-hidden rounded-xl border border-white/8 bg-white/2';
+/** The systems list: one grouped surface, rows divided by hairlines. The
+ *  hairline is slate at 20 %, which reads on the navy sheet and on the white
+ *  daylight one; divide-white/6 has no daylight remap, so the rows ran
+ *  together in light mode. */
+const SYSTEM_LIST_CLASS = 'divide-y divide-slate-500/20 overflow-hidden rounded-xl border border-white/8 bg-white/2';
 
 const SystemRow: React.FC<{
     icon: React.ReactNode;

@@ -15,7 +15,7 @@ import React from 'react';
 import { useWeatherOptional } from '../context/WeatherContext';
 import { useNmeaConnectionStatus } from './nmea/useNmeaStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { formatFixAge, type WeatherFixKind, type WeatherFollowTarget } from '../services/weatherPosition';
+import { type WeatherFixKind, type WeatherFollowTarget } from '../services/weatherPosition';
 import { fixAgeText, followedFix, validFixTime, type GpsBoxFixes } from './gpsFixState';
 
 export type GpsGlyph = 'boat' | 'phone' | 'none';
@@ -30,9 +30,16 @@ export interface GpsSourceState {
     canChoose: boolean;
 }
 
-/** '(updated just now)' for a retained forecast, in the forecast-age pill's words; nothing when undated. */
-function forecastUpdated(at: number | null | undefined, now: number): string {
-    return validFixTime(at, now) ? ` (updated ${formatFixAge(now - at)})` : '';
+/**
+ * 'Forecast for your last position (fixed 44 s ago), refreshed 20 s ago.'
+ * Each time names what it dates, and both use the card's one age wording
+ * (fixAgeText), so the sentence never mixes '5 min' with '5m' (UX scorecard
+ * run 10: two bare times about different things read as a contradiction).
+ */
+function retainedForecast(fixAge: string | null, updatedAt: number | null | undefined, now: number): string {
+    const fixed = fixAge ? ` (fixed ${fixAge})` : '';
+    const refreshed = validFixTime(updatedAt, now) ? `, refreshed ${fixAgeText(Math.max(0, now - updatedAt))}` : '';
+    return `Forecast for your last position${fixed}${refreshed}.`;
 }
 
 /** Pure: the shape and tone from what the weather chain and the instrument store say. */
@@ -87,21 +94,20 @@ export function resolveGpsSourceState(input: {
                 glyph: target ?? 'none',
                 tone: 'none',
                 label: input.retainedWeather
-                    ? `Position: showing the forecast for your last location${forecastUpdated(input.forecastUpdatedAt, now)}.`
+                    ? `Position: ${retainedForecast(null, input.forecastUpdatedAt, now).replace(/^F/, 'f')}`
                     : finding,
                 canChoose: false,
             };
         }
-        // A sentence with a verb, and no fix age: the retained tail dates the
-        // FORECAST ('fix just now' read as a fresh fix). The fix's own age is
-        // the card's position line, once.
+        // A sentence with a verb. The retained tail names what each time
+        // dates: the fix ('fixed 44 s ago', the card's own age words, never a
+        // bare 'fix just now' that read as a fresh fix) and the forecast's
+        // refresh (UX scorecard run 10).
         return {
             glyph: target ?? 'none',
             tone: 'none',
             label: `Position: ${target === 'boat' ? 'the boat' : 'this phone'} isn’t giving a position.${
-                input.retainedWeather
-                    ? ` Showing the forecast for your last location${forecastUpdated(input.forecastUpdatedAt, now)}.`
-                    : ''
+                input.retainedWeather ? ` ${retainedForecast(fixAge(), input.forecastUpdatedAt, now)}` : ''
             }`,
             canChoose: false,
         };
