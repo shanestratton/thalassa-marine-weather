@@ -22,6 +22,10 @@ stopPassageLookAhead();
 setPassageHudEnabled(true);
 setPassageHudOpen(true);
 const mode = new URLSearchParams(location.search).get('mode') ?? 'recording';
+// ?extras=1: a non-weather layer key is on too, as on a real passage (the route,
+// track and passage layers), so the controls are labelled 'layer controls' and
+// stay offered while looking ahead.
+const extras = new URLSearchParams(location.search).get('extras') === '1';
 if (mode !== 'recording') {
     useFollowRouteStore
         .getState()
@@ -50,6 +54,8 @@ const grid = {
     west: 0,
     east: 0,
     totalHours: hours.length,
+    // The timeline names each frame's valid time (UTC) from the model run.
+    refTime: '2026-09-27T06:00:00.000Z',
 };
 
 function Fixture() {
@@ -94,6 +100,14 @@ function Fixture() {
                 embedded={false}
                 controlsHidden={hidden}
                 onControlsHiddenChange={setHidden}
+                extraLegend={
+                    extras ? (
+                        <section aria-label="Routes & tracks key" className="text-xs text-slate-300">
+                            Purple · planned route, not proof of a safe passage.
+                        </section>
+                    ) : undefined
+                }
+                extraLegendCount={extras ? 1 : undefined}
             />
             <nav
                 aria-label="Main"

@@ -12,6 +12,7 @@
 
 import React, { useState, useCallback, useEffect, useId, useLayoutEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
+import { LAYERS_GLYPH_PATH } from './LayersGlyph';
 import { type WeatherLayer, SEA_STATE_LAYERS } from './mapConstants';
 import { triggerHaptic } from '../../utils/system';
 import { isCmemsLayerAvailable, isCmemsProductLayer } from './cmemsFeatureAvailability';
@@ -1492,11 +1493,8 @@ const HelmWheelIcon: React.FC<{ isOpen: boolean }> = ({ isOpen }) => (
             stroke="currentColor"
             strokeWidth={1.5}
         >
-            <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"
-            />
+            {/* Shared with the chart's layer pill (LayersGlyph): one glyph for "layers". */}
+            <path strokeLinecap="round" strokeLinejoin="round" d={LAYERS_GLYPH_PATH} />
         </svg>
         <svg
             className={`absolute inset-0 h-5 w-5 transition-opacity duration-150 ${isOpen ? 'opacity-100' : 'opacity-0'}`}

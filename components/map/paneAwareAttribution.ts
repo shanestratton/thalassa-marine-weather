@@ -36,6 +36,10 @@ export function installPaneAwareAttribution(map: mapboxgl.Map, container: HTMLEl
         map.addControl(control, 'bottom-right');
         if (previous) map.removeControl(previous);
         wasCompact = compact;
+        // Named on the chart for its own controls' CSS (index.css): the full
+        // strip is always shown and runs left under the chart's bottom-left
+        // layer controls, which then stand above it. The ⓘ never does.
+        container.dataset.attributionLayout = compact ? 'compact' : 'strip';
     };
     refresh();
     // The map's existing ResizeObserver calls this alongside map.resize(),

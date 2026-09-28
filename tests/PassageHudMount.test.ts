@@ -71,6 +71,24 @@ describe('the passage pane on the Obs chart', () => {
         expect(css).not.toMatch(/\[data-split-pane='chart'\] \.thalassa-passage-hud \{/);
     });
 
+    it('leaves an open layer panel only the room the strip leaves at its tightest', () => {
+        // The consolidated layer panel (~280px) outgrew the 232px the strip
+        // was built to clear, and pushed its last readings below the fold
+        // (browser-tests/passage-hud-height.spec.ts). The strip publishes the
+        // room below its TIGHTEST height; the panel caps itself to it (never
+        // under its header and Play row), timeline first, and its body scrolls.
+        expect(paneCode).toContain("pane.dataset.density = 'tight';");
+        expect(paneCode).toContain("chart.style.setProperty('--passage-hud-reserve-bottom', `${reserve}px`);");
+        expect(paneCode).toContain("chart.style.removeProperty('--passage-hud-reserve-bottom');");
+        const flat = css.replace(/\s+/g, ' ');
+        expect(flat).toContain(
+            'max( calc(44px + 12px + 1px + 2px + 8px + 60px), calc(var(--passage-hud-reserve-bottom, 100%) - var(--thalassa-chart-controls-bottom)) )',
+        );
+        expect(flat).toMatch(
+            /main\[data-passage-hud='open'\][^{]*\.thalassa-chart-controls-panel-body > :has\(\[role='slider'\]\[aria-label\$=' timeline'\]\) \{ order: -1; \}/,
+        );
+    });
+
     it('stands down for the planner, the consensus matrix, a storm card and a landscape phone', () => {
         for (const owner of [
             '.thalassa-passage-banner',

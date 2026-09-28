@@ -155,7 +155,12 @@ export function MapBaseSelector({
                     aria-label="Map base"
                     // Opaque (thalassa-popover-solid): at /95 + blur the chart's coach
                     // mark read through behind the Hybrid row (UX scorecard run 5).
-                    className="thalassa-popover-solid mt-2 w-[min(280px,calc(100vw-152px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl"
+                    // thalassa-map-base-menu (index.css) bounds it above the tab
+                    // bar and scrolls it: the chart is an isolated stacking
+                    // context, so even open at z-9998 it paints under App's
+                    // z-900 nav, and on a 320px-tall landscape phone with the
+                    // bar open the ENC row sat under the Plan tab.
+                    className="thalassa-popover-solid thalassa-map-base-menu mt-2 w-[min(280px,calc(100vw-152px))] rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl"
                 >
                     {MAP_BASE_OPTIONS.map((option, index) => {
                         const checked = option.id === value;

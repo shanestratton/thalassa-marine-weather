@@ -134,17 +134,27 @@ export const AnchorageTonightSheet: React.FC<{
                         triggerHaptic('light');
                         setOpen(true);
                     }}
-                    className="fixed left-3 z-720 px-3 py-2 bg-slate-800/95 border border-cyan-500/30 rounded-full text-cyan-300 text-xs font-black uppercase tracking-widest shadow-xl shadow-black/40 active:scale-95 transition-all"
-                    style={{ bottom: 'calc(8.5rem + env(safe-area-inset-bottom))' }}
+                    // Geometry in index.css (.thalassa-anchorage-chip): it rides
+                    // directly above the chart's layer pill, which the Anchorages
+                    // layer always brings with it. At a fixed 8.5rem it lay over
+                    // the pill (and, in short landscape, the zoom rail) once the
+                    // pill stepped up clear of the Mapbox wordmark. Absolute, in
+                    // the pill's own containing block, so a split pane keeps it
+                    // in the chart. 44px tall: the app's touch-target floor.
+                    className="thalassa-anchorage-chip absolute z-720 inline-flex min-h-[44px] items-center justify-center gap-1 px-3 py-2 bg-slate-800/95 border border-cyan-500/30 rounded-full text-cyan-300 text-xs font-black uppercase tracking-widest shadow-xl shadow-black/40 active:scale-95 transition-all"
                     aria-label="Compare anchorages for the next 12 hours"
                 >
-                    <span aria-hidden>⚓ </span>Next 12 hours
+                    <span aria-hidden>⚓</span>
+                    <span className="thalassa-anchorage-chip-text">Next 12 hours</span>
                 </button>
             )}
             {open && (
                 <div
                     ref={dialogRef}
-                    className="fixed inset-0 z-730 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                    // The chart's modal-sheet tier (10050+, as TraceReportModal),
+                    // above the helm (10020): at z-730 MOB and the layers button
+                    // painted over the sheet, and MOB lay across its Close button.
+                    className="fixed inset-0 z-10050 flex items-center justify-center p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby={titleId}

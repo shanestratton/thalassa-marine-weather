@@ -104,13 +104,18 @@ describe('pane-aware native map attribution', () => {
     it('uses the actual map width for a narrow map on a wide browser', () => {
         const map = chart(390);
         expect(map.controls[0].options.compact).toBe(true);
+        // The chart names the layout for its own bottom-left controls' CSS:
+        // the full strip is always shown and runs left under them.
+        expect(map.container.dataset.attributionLayout).toBe('compact');
         map.resize(1100);
         expect(map.controls).toHaveLength(1);
         expect(map.controls[0].options.compact).toBeUndefined();
         expect(map.container.querySelector('.mapboxgl-ctrl-attrib')).not.toHaveClass('mapboxgl-compact');
+        expect(map.container.dataset.attributionLayout).toBe('strip');
         map.resize(600);
         expect(map.controls[0].options.compact).toBe(true);
         expect(map.container.querySelectorAll('.mapboxgl-ctrl-attrib')).toHaveLength(1);
+        expect(map.container.dataset.attributionLayout).toBe('compact');
     });
 
     it('restores responsive full credits after leaving split view without listener accumulation', () => {

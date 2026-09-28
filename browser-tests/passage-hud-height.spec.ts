@@ -1,11 +1,8 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
-test('all HUD readings fit without inner scrolling while timelines and navigation stay clear', async ({
-    page,
-    baseURL,
-}, info) => {
-    test.setTimeout(60_000);
-    const origin = new URL(baseURL!).origin;
+/** Synthetic read-only hooks and forecasts for the passage-recording fixture. */
+async function routeFixture(page: Page, baseURL: string) {
+    const origin = new URL(baseURL).origin;
     const stubs: Record<string, string> = {
         '/hooks/useHudRecording.ts': `export const useHudRecording=()=>({isTracking:true,isPaused:false,isRapidMode:false,currentVoyageId:'layout-only'});`,
         '/hooks/usePassageRecordingMetrics.ts': `export const usePassageRecordingMetrics=()=>({distanceNm:12.4,recordedAt:Date.now()-120000,departedAt:Date.now()-7500000,nowMs:Date.now()});`,
@@ -34,6 +31,14 @@ test('all HUD readings fit without inner scrolling while timelines and navigatio
             : route.continue();
     });
     await page.routeWebSocket('**/*', (socket) => socket.close());
+}
+
+test('all HUD readings fit without inner scrolling while timelines and navigation stay clear', async ({
+    page,
+    baseURL,
+}, info) => {
+    test.setTimeout(60_000);
+    await routeFixture(page, baseURL!);
     for (const mode of ['recording', 'route', 'forecast']) {
         await page.setViewportSize({ width: 393, height: 852 });
         await page.goto(`/e2e/fixtures/passage-recording.html?mode=${mode}`);
@@ -96,5 +101,62 @@ test('all HUD readings fit without inner scrolling while timelines and navigatio
             }),
         ).toBe(true);
         await page.screenshot({ path: info.outputPath(`hud-${mode}-full-height.png`), animations: 'disabled' });
+    }
+});
+
+/** Whole boxes, not centres: an edge under the strip is still a covered control. */
+async function boxOf(locator: Locator) {
+    await expect(locator).toBeVisible();
+    const box = await locator.boundingBox();
+    expect(box).not.toBeNull();
+    return box!;
+}
+
+test('the layer controls stay clear of the passage strip and of the look-ahead scrubber', async ({ page, baseURL }) => {
+    test.setTimeout(60_000);
+    await routeFixture(page, baseURL!);
+    for (const mode of ['recording', 'forecast']) {
+        await page.setViewportSize({ width: 393, height: 852 });
+        // A route/track/passage key is on, as on any real passage: the controls
+        // are 'layer controls', and they stay offered while looking ahead.
+        await page.goto(`/e2e/fixtures/passage-recording.html?mode=${mode}&extras=1`);
+        const pane = page.getByTestId('passage-hud');
+        await expect(pane).toBeVisible();
+        const panel = page.getByRole('region', { name: 'Chart layer controls', exact: true });
+        await expect(panel).toBeVisible();
+        const scrubber = page.locator('.thalassa-route-scrubber');
+        if (mode === 'forecast') await expect(scrubber).toBeVisible();
+        else await expect(scrubber).toHaveCount(0);
+        for (const state of ['open', 'collapsed']) {
+            const control =
+                state === 'open' ? panel : page.getByRole('button', { name: 'Show layer controls', exact: true });
+            if (state === 'collapsed') {
+                await page.getByRole('button', { name: 'Hide layer controls', exact: true }).click();
+                await expect(panel).toHaveCount(0);
+            }
+            const box = await boxOf(control);
+            // The strip measures the controls and stops 8px above them.
+            await expect
+                .poll(async () => {
+                    const hud = (await pane.boundingBox())!;
+                    return hud.y + hud.height <= box.y - 7 || hud.x + hud.width <= box.x;
+                }, `the passage strip runs over the ${state} layer controls (${mode})`)
+                .toBe(true);
+            if (mode === 'forecast') {
+                const scrub = await boxOf(scrubber);
+                expect(
+                    box.y + box.height <= scrub.y || box.y >= scrub.y + scrub.height,
+                    `the ${state} layer controls overlap the look-ahead scrubber: ${JSON.stringify({ box, scrub })}`,
+                ).toBe(true);
+            }
+            if (state === 'collapsed') {
+                const hit = await control.evaluate((element) => {
+                    const rect = element.getBoundingClientRect();
+                    const target = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+                    return target === element || element.contains(target);
+                });
+                expect(hit, `the collapsed layer pill is covered (${mode})`).toBe(true);
+            }
+        }
     }
 });

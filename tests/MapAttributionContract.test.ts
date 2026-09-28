@@ -93,10 +93,87 @@ describe('map provider attribution contract', () => {
         const css = read('index.css');
         expect(css).toContain('.thalassa-chart-map .mapboxgl-ctrl-bottom-left');
         expect(css).toContain('.thalassa-chart-map .mapboxgl-ctrl-bottom-right');
-        // Must clear the 4rem nav AND the home-indicator inset.
-        expect(css).toMatch(/\.thalassa-chart-map[^}]*bottom:\s*calc\(4rem[^)]*env\(safe-area-inset-bottom\)/s);
+        // Must clear the 4rem nav AND the home-indicator inset. The band is one
+        // custom property, so the chart's own bottom-left controls (measured
+        // from it) cannot drift back onto the wordmark; the containers read it.
+        expect(css).toMatch(
+            /:root \{\s*--thalassa-chart-credits-bottom: calc\(4rem \+ 1px \+ env\(safe-area-inset-bottom\)\);\s*\}/,
+        );
+        expect(css).toMatch(
+            /\.thalassa-chart-map \.mapboxgl-ctrl-bottom-left,\s*\.thalassa-chart-map \.mapboxgl-ctrl-bottom-right \{\s*bottom: var\(--thalassa-chart-credits-bottom\);/,
+        );
+        // …and a real container RULE still states the nav + inset itself: the
+        // bottom-right lift (above the Locate fab), selector and first
+        // declaration together, so comment text can never satisfy it.
+        expect(css).toMatch(
+            /^\.thalassa-chart-map \.mapboxgl-ctrl-bottom-right \{\s*bottom: calc\(4rem \+ \d+px \+ env\(safe-area-inset-bottom\)\);/m,
+        );
+        // The chart's own bottom-left pill and panel stand clear of the
+        // wordmark (container + 10px margin - 4px + 23px = 29px up), through
+        // one property everything stacked on the pill reads; the geometry
+        // itself is proven in e2e/chart-warning.spec.ts.
+        const lift = css.match(
+            /:root \{\s*--thalassa-chart-controls-bottom: calc\(var\(--thalassa-chart-credits-bottom\) \+ (\d+)px\);\s*\}/,
+        );
+        expect(lift, 'layer controls are measured from the credits band').not.toBeNull();
+        expect(Number(lift![1])).toBeGreaterThan(29);
+        expect(css).toMatch(
+            /\.thalassa-chart-controls-pill,\s*\.thalassa-chart-controls-panel \{[^}]*bottom: var\(--thalassa-chart-controls-bottom\);/,
+        );
+        // The Anchorages chip rides on the same property, a pill (48px) + 8px
+        // above it, in the pill's own containing block (not the viewport).
+        expect(css).toMatch(
+            /\.thalassa-anchorage-chip \{\s*left: max\(12px, env\(safe-area-inset-left\)\);\s*bottom: calc\(var\(--thalassa-chart-controls-bottom\) \+ 48px \+ 8px\);/,
+        );
+        const chip = read('components/map/AnchorageTonightSheet.tsx');
+        expect(chip).toMatch(/className="thalassa-anchorage-chip absolute [^"]*min-h-\[44px\]/);
+        expect(chip).not.toMatch(/bottom: 'calc\(8\.5rem/);
+        // On a landscape phone the folded pill sits ON the credits row, so it
+        // must start right of the wordmark's run (6px + 88px = 94px).
+        const shortPill = css.match(
+            /@media \(orientation: landscape\) and \(max-height: 500px\) \{\s*\.thalassa-chart-controls-pill \{\s*left: calc\((\d+)px \+ env\(safe-area-inset-left\)\);\s*bottom: var\(--thalassa-chart-credits-bottom\);/,
+        );
+        expect(shortPill, 'the folded landscape pill rule').not.toBeNull();
+        expect(Number(shortPill![1])).toBeGreaterThanOrEqual(104);
         // And the class has to actually be on MapHub's container.
         expect(read('components/map/MapHub.tsx')).toContain('thalassa-chart-map');
+    });
+
+    it('stacks the chart credits under every surface the skipper opens', () => {
+        // The containers keep Mapbox's own z-index: geometry keeps the app's
+        // furniture off the wordmark and the ⓘ. A blanket lift put the scale
+        // bar over the open layer panel's Hide button and the wordmark through
+        // the anchorage sheet's backdrop (2026-09-28).
+        const css = read('index.css');
+        const joint = css.match(
+            /\.thalassa-chart-map \.mapboxgl-ctrl-bottom-left,\s*\.thalassa-chart-map \.mapboxgl-ctrl-bottom-right \{([^}]*)\}/,
+        );
+        expect(joint, 'the joint credits-band rule').not.toBeNull();
+        expect(joint![1]).not.toMatch(/z-index/);
+        // Every z-index a credits container gets is conditional on its OPENED
+        // credits (Mapbox's own aria-expanded toggle), never a standing lift.
+        const stacked = css
+            .split('}')
+            .filter((block) => /mapboxgl-ctrl-bottom-(left|right)/.test(block) && /z-index/.test(block));
+        expect(stacked.length).toBeGreaterThanOrEqual(2);
+        for (const block of stacked) {
+            expect(block).toContain(".mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true'])");
+            expect(block).not.toContain('.mapboxgl-ctrl-bottom-left');
+        }
+        // …and while a surface the skipper opened is up (the layer panel, a
+        // menu, a sheet or dialog, the consensus matrix) the opened credits sit
+        // one step under the layer panel's 500.
+        const yieldRule = stacked.find((block) => /z-index:\s*499;/.test(block));
+        expect(yieldRule, 'opened credits yield to opened surfaces').toBeDefined();
+        for (const surface of [
+            '.thalassa-chart-controls-panel',
+            '.radial-helm-open',
+            "[role='menu']",
+            "[role='dialog']",
+            "[aria-modal='true']",
+            "button[aria-label='Close consensus matrix']",
+        ])
+            expect(yieldRule).toContain(surface);
     });
 
     it('keeps the compact ⓘ toggle wired on every Log Leaflet map', () => {

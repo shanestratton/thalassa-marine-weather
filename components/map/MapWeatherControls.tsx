@@ -13,6 +13,7 @@ import type { useWeatherLayers } from './useWeatherLayers';
 import type { WeatherLayer } from './mapConstants';
 import { ThalassaHelixControl, LegendDock, weatherLayerLabel, type HelixLayer } from './ThalassaHelixControl';
 import { WindModelFieldSelector } from './WindModelFieldSelector';
+import { LayersGlyph } from './LayersGlyph';
 import { usePassageLookAheadOn } from '../../stores/passageHudStore';
 import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
 import { isUsableWindGrid, windHoursFromNow, windForecastHourAtFrame } from './windTimeAxis';
@@ -614,13 +615,24 @@ export function MapWeatherControls({
                     ref={autoHide.panelRef}
                     {...autoHide.interactionProps}
                     aria-label={hasExtraLegend ? 'Chart layer controls' : 'Weather controls'}
-                    className="absolute z-500 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/90 text-white shadow-lg backdrop-blur-xl"
-                    style={{
-                        left: 'max(12px, env(safe-area-inset-left))',
-                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
-                        width: 'min(420px, calc(100% - 24px))',
-                        maxHeight: embedded ? 'calc(100% - 24px)' : 'min(60%, calc(100% - 160px))',
-                    }}
+                    // On the chart the geometry lives in index.css
+                    // (.thalassa-chart-controls-panel): it is measured from the
+                    // Mapbox credits band and changes with the zoom rail's
+                    // landscape position, which an inline style cannot follow.
+                    // Since the panel took every chart layer (not only weather)
+                    // it is the default surface, and at bottom 80px it lay on
+                    // the Mapbox wordmark, the ⓘ, Locate and the zoom rail.
+                    className={`${embedded ? '' : 'thalassa-chart-controls-panel '}absolute z-500 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/90 text-white shadow-lg backdrop-blur-xl`}
+                    style={
+                        embedded
+                            ? {
+                                  left: 'max(12px, env(safe-area-inset-left))',
+                                  bottom: 12,
+                                  width: 'min(420px, calc(100% - 24px))',
+                                  maxHeight: 'calc(100% - 24px)',
+                              }
+                            : undefined
+                    }
                 >
                     <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-1.5">
                         <h2 className="min-w-0 text-xs font-bold">
@@ -631,7 +643,10 @@ export function MapWeatherControls({
                         </h2>
                         {hideControlsButton}
                     </div>
-                    <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain p-2">
+                    {/* thalassa-chart-controls-panel-body: while the passage strip is
+                        open, index.css caps the panel to the room the strip
+                        leaves and lifts the timeline to the top of this body. */}
+                    <div className="thalassa-chart-controls-panel-body min-h-0 space-y-2 overflow-y-auto overscroll-contain p-2">
                         {showTimeline && activeWeatherLayers.length > 1 && (
                             <div
                                 role="group"
@@ -758,22 +773,33 @@ export function MapWeatherControls({
                     onClick={autoHide.show}
                     data-testid="weather-status-pill"
                     data-tone={compactSummary.tone}
-                    className={`absolute z-510 flex min-h-[44px] max-w-[calc(100%-88px)] items-center gap-2 rounded-2xl border bg-slate-950/90 px-3 py-1.5 text-left text-[11px] text-slate-200 shadow-lg backdrop-blur-md active:scale-[0.98] ${compactSummary.tone === 'warning' ? 'border-amber-400/50' : 'border-sky-400/30'}`}
-                    style={{
-                        left: 'max(12px, env(safe-area-inset-left))',
-                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
-                    }}
+                    // Chart geometry: .thalassa-chart-controls-pill in index.css,
+                    // which keeps it off the Mapbox wordmark (a licence credit)
+                    // and, in short landscape, folds it to its glyphs on the
+                    // credits row beside the wordmark. 12px text (the app's
+                    // floor) on py-1 keeps two lines inside the 48px the CSS
+                    // allows under the opened Mapbox credits.
+                    className={`${embedded ? 'max-w-[calc(100%-88px)] ' : 'thalassa-chart-controls-pill '}absolute z-510 flex min-h-[44px] items-center gap-2 rounded-2xl border bg-slate-950/90 px-3 py-1 text-left text-[12px] text-slate-200 shadow-lg backdrop-blur-md active:scale-[0.98] ${compactSummary.tone === 'warning' ? 'border-amber-400/50' : 'border-sky-400/30'}`}
+                    style={embedded ? { left: 'max(12px, env(safe-area-inset-left))', bottom: 12 } : undefined}
                     aria-label={hasExtraLegend ? 'Show layer controls' : 'Show weather controls'}
                     aria-describedby={summaryId}
                     title={compactSummary.accessibleText}
                 >
-                    <span
-                        aria-hidden="true"
-                        className={`shrink-0 text-base ${compactSummary.tone === 'warning' ? 'text-amber-300' : 'text-sky-300'}`}
-                    >
-                        {compactSummary.tone === 'warning' ? '!' : 'ⓘ'}
+                    {/* The app's layers glyph, not an ⓘ: folded to its glyph on a
+                        landscape phone the pill sits on the credits row, beside
+                        Mapbox's own ⓘ, and must not read as a second one. The
+                        tone rides on its colour, a '!' badge and the pill's border. */}
+                    <span aria-hidden="true" className="relative shrink-0">
+                        <LayersGlyph
+                            className={`h-5 w-5 ${compactSummary.tone === 'warning' ? 'text-amber-300' : 'text-sky-300'}`}
+                        />
+                        {compactSummary.tone === 'warning' && (
+                            <span className="absolute -right-2 -top-2 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 text-[12px] font-black leading-none text-slate-950">
+                                !
+                            </span>
+                        )}
                     </span>
-                    <span className="min-w-0">
+                    <span className="thalassa-chart-controls-pill-text min-w-0">
                         <span className="block truncate font-bold leading-snug">{compactSummary.primary}</span>
                         <span
                             className={`block truncate leading-snug ${compactSummary.tone === 'warning' ? 'text-amber-200' : 'text-slate-400'}`}

@@ -574,13 +574,18 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
         // Use the room actually available, not the old worst-case weather
         // reservation. The LIVE model row and the forecast scrubber have
         // different heights; either can change as controls fold or notes wrap.
+        // The chart's layer pill and panel by class: with any non-weather layer
+        // on (a route, a track, the passage itself) they are labelled 'layer
+        // controls', not 'weather controls', and the strip used to run over them.
         const furnitureSelector =
             '.thalassa-route-scrubber, .mapboxgl-ctrl-bottom-left, ' +
+            '.thalassa-chart-controls-pill, .thalassa-chart-controls-panel, ' +
             '[role="slider"][aria-label$=" timeline"], [aria-label^="Wind model "], ' +
             '[aria-label="Hide weather controls"], [aria-label="Show weather controls"]';
         const observed = new Set<Element>();
         let frame = 0;
         let availableHeight = -1;
+        let reserveBottom = -1;
         const measure = () => {
             frame = 0;
             const bounds = pane.getBoundingClientRect();
@@ -625,6 +630,23 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             if (cells.scrollHeight > cells.clientHeight + 1 && pane.dataset.density === 'compact') {
                 pane.dataset.density = 'tight';
             }
+            // The chart's open layer panel shares this column, under the strip,
+            // and takes only the room the strip leaves at its TIGHTEST
+            // (index.css, --passage-hud-reserve-bottom): both then fit wherever
+            // they can. Measured at that density and put back within this
+            // frame, so nothing paints in between and no observer sees it. It
+            // does not depend on the panel's own height, so the two can never
+            // chase each other.
+            const settled = pane.dataset.density;
+            pane.dataset.density = 'tight';
+            const tightHeight = pane.getBoundingClientRect().height - cells.clientHeight + cells.scrollHeight;
+            if (settled) pane.dataset.density = settled;
+            else delete pane.dataset.density;
+            const reserve = Math.max(0, Math.floor(chartBounds.bottom - (bounds.top + tightHeight + 8)));
+            if (reserve !== reserveBottom) {
+                reserveBottom = reserve;
+                chart.style.setProperty('--passage-hud-reserve-bottom', `${reserve}px`);
+            }
             const targets = new Set<Element>([chart, pane, ...cells.children, ...furniture]);
             for (const target of targets) {
                 if (!observed.has(target)) {
@@ -666,6 +688,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
             mutations.disconnect();
             window.removeEventListener('resize', schedule);
             pane.style.removeProperty('--passage-hud-available-height');
+            chart.style.removeProperty('--passage-hud-reserve-bottom');
             delete pane.dataset.density;
         };
     }, [open, look.on]);
