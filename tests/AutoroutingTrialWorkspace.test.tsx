@@ -306,6 +306,147 @@ afterEach(() => {
     document.documentElement.classList.remove('display-light');
 });
 
+describe('read-only day-plan proposal review', () => {
+    async function openDayPlanReview(onReviewChange = vi.fn(), onClose = vi.fn()) {
+        const view = render(
+            <AutoroutingTrialWorkspace
+                mapboxToken="fixture-token"
+                initialDraftM={1.6}
+                initialSpeedKts={6}
+                reviewProposal={route}
+                onReviewChange={onReviewChange}
+                onClose={onClose}
+            />,
+        );
+        await waitFor(() => expect(mocks.maps).toHaveLength(1));
+        act(() => mocks.maps[0].handlers.get('load')!());
+        await screen.findByRole('region', { name: 'Trial proposal' });
+        return { ...view, onReviewChange, onClose };
+    }
+
+    const expectNoRouteMutationControls = () => {
+        for (const name of ['Setup', 'Calculate trial route', 'Clear', 'Save as planned route'])
+            expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Save planned proposal' })).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('departure latitude')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('destination longitude')).not.toBeInTheDocument();
+    };
+
+    it('opens the supplied geometry directly with no setup, calculation or standalone save path', async () => {
+        const original = JSON.stringify(route);
+        const { onClose } = await openDayPlanReview();
+        await waitFor(() => expect(mocks.review).toHaveBeenCalledTimes(1));
+        const reviewedProposal = mocks.review.mock.calls[0][0] as AutoroutingTrialRoute;
+        expect(reviewedProposal).not.toBe(route);
+        expect(reviewedProposal).toEqual(route);
+        expect(routeLine()).toEqual(route.coordinates);
+        expectNoRouteMutationControls();
+        expect(mocks.calculate).not.toHaveBeenCalled();
+        expect(mocks.guidedCalculate).not.toHaveBeenCalled();
+        expect(mocks.canalCalculate).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Whole route' }));
+        expect(mocks.maps[0].fitBounds).toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: 'Expand tracer panel' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Back to day plan' }));
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(JSON.stringify(route)).toBe(original);
+    });
+
+    it('locks even an interior waypoint and ignores chart taps that would otherwise edit geometry', async () => {
+        await openDayPlanReview();
+        await waitFor(() => expect(mocks.review).toHaveBeenCalledTimes(1));
+        tapWaypoint(2);
+        const editor = screen.getByRole('region', { name: 'Waypoint 2' });
+        const move = within(editor).getByRole('button', { name: 'Move' });
+        expect(move).toBeDisabled();
+        expect(within(editor).getByText(/Itinerary preview only/)).toBeVisible();
+        fireEvent.click(move);
+        tapChart(154, -28);
+        expect(screen.queryByRole('button', { name: 'Confirm move' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Undo last move/ })).not.toBeInTheDocument();
+        expect(routeLine()).toEqual(route.coordinates);
+        expect(mocks.review).toHaveBeenCalledTimes(1);
+        expect(mocks.calculate).not.toHaveBeenCalled();
+        expectNoRouteMutationControls();
+    });
+
+    it('delivers checking and complete review evidence back to the owning planner', async () => {
+        const pending = deferred<TrialRouteReview>();
+        mocks.review.mockImplementation(() => pending.promise);
+        const { onReviewChange } = await openDayPlanReview();
+        await waitFor(() =>
+            expect(onReviewChange).toHaveBeenCalledWith(expect.objectContaining({ phase: 'checking' })),
+        );
+        const verdict = {
+            grade: 'danger' as const,
+            issues: [{ severity: 'danger' as const, message: 'Charted obstruction' }],
+            minDepthM: 0.5,
+            minAt: null,
+            needsTide: false,
+            nudge: null,
+            nudgeTo: null,
+        };
+        await act(async () =>
+            pending.resolve({
+                phase: 'complete',
+                legs: route.coordinates.slice(1).map(() => ({ incomplete: false, verdict })),
+            }),
+        );
+        await waitFor(() =>
+            expect(onReviewChange).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    phase: 'complete',
+                    basis: expect.objectContaining({ proposalId: route.id, draftM: 1.6 }),
+                    legs: expect.arrayContaining([expect.objectContaining({ verdict })]),
+                }),
+            ),
+        );
+        expect(screen.getAllByText(/Danger reported/).length).toBeGreaterThan(0);
+        expectNoRouteMutationControls();
+    });
+
+    it('aborts pending checks and prevents late review delivery after unmount', async () => {
+        const pending = deferred<TrialRouteReview>();
+        mocks.review.mockReturnValue(pending.promise);
+        const { onReviewChange, unmount } = await openDayPlanReview();
+        const reviewSignal = mocks.review.mock.calls[0][2] as AbortSignal;
+        await waitFor(() =>
+            expect(onReviewChange).toHaveBeenCalledWith(expect.objectContaining({ phase: 'checking' })),
+        );
+        const count = onReviewChange.mock.calls.length;
+        unmount();
+        expect(reviewSignal.aborted).toBe(true);
+        await act(async () => pending.resolve({ phase: 'complete', legs: [] }));
+        expect(onReviewChange).toHaveBeenCalledTimes(count);
+        expect(mocks.maps[0].remove).toHaveBeenCalledOnce();
+    });
+
+    it('reports an unsuccessful local review without offering calculation or save', async () => {
+        mocks.review.mockRejectedValue(new Error('Chart checks unavailable'));
+        const { onReviewChange } = await openDayPlanReview();
+        await waitFor(() =>
+            expect(onReviewChange).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'error' })),
+        );
+        expectNoRouteMutationControls();
+        expect(screen.getByRole('button', { name: 'Back to day plan' })).toBeEnabled();
+    });
+
+    it('preserves setup, calculation, planned-save and interior waypoint edits in normal mode', async () => {
+        await openWorkspace();
+        expect(calculateButton()).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Clear' })).toBeVisible();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        expect(screen.getByRole('button', { name: 'Setup' })).toBeVisible();
+        expect(screen.getByRole('region', { name: 'Save planned proposal' })).toBeVisible();
+        tapWaypoint(2);
+        expect(screen.getByRole('button', { name: 'Move' })).toBeEnabled();
+        expect(screen.queryByRole('button', { name: 'Back to day plan' })).not.toBeInTheDocument();
+        expect(mocks.calculate).toHaveBeenCalledOnce();
+    });
+});
+
 describe('isolated autorouting trial workspace', () => {
     it.each([undefined, false])(
         'keeps the original provider path without advertised guidance: %s',

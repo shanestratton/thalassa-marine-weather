@@ -37,6 +37,7 @@ import { DepartControl } from './passage/DepartControl';
 import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
 import { RoutingModeDialog } from './autorouting/RoutingModeDialog';
+import { DayPlannerEntry } from './dayPlanner/DayPlannerEntry';
 import { lazyRetry } from '../utils/lazyRetry';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
@@ -965,6 +966,14 @@ export const RoutePlanner: React.FC<{
                     {/* ── Tracer front door (the PLAN-tab morph) ── */}
                     {!LEGACY_PLANNER_FORM && (
                         <>
+                            <DayPlannerEntry
+                                vessel={usingDefaultVessel ? null : vessel}
+                                mapboxToken={mapboxToken ?? ''}
+                                onOpenSaved={(id) => {
+                                    requestTracerOpen({ kind: 'load-saved', id });
+                                    setPage('map');
+                                }}
+                            />
                             {/* Trip · Legs — pick a trip, tap a leg to open it,
                                 or plot the NEXT leg (pin 1 locked at the
                                 previous leg's arrival). */}

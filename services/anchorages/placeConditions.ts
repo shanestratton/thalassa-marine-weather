@@ -41,6 +41,16 @@ export interface ConditionsForecast {
     lat: number;
     lon: number;
     hours: ConditionsHour[];
+    /** Actual provider grids, retained separately from the requested weather cell. */
+    windGrid?: { readonly lat: number; readonly lon: number };
+    seaGrid?: { readonly lat: number; readonly lon: number };
+}
+export type ReadonlyConditionsForecast = Readonly<Omit<ConditionsForecast, 'hours'>> & {
+    readonly hours: readonly Readonly<ConditionsHour>[];
+};
+export interface ConditionsWindow {
+    fromMs: number;
+    toMs: number;
 }
 export interface PlaceConditions {
     light: TrafficLight;
@@ -52,6 +62,7 @@ export interface PlaceConditions {
 }
 export const CONDITIONS_WINDOW_MS = 12 * 3_600_000;
 export const CONDITIONS_MAX_AGE_MS = 15 * 60_000;
+export const CONDITIONS_MAX_WINDOW_MS = 7 * 24 * 3_600_000;
 export const validFetchTable = (table: unknown): table is number[] =>
     Array.isArray(table) && table.length === 36 && table.every((v) => Number.isFinite(v) && v >= 0 && v <= 15);
 const valid = (n: unknown, min: number, max: number): n is number =>
@@ -66,10 +77,45 @@ export const distanceNM = (a: { lat: number; lon: number }, b: { lat: number; lo
  * Class C uses the lower 24 kn limit, including the Moreton Bay exception. */
 export function assessPlaceConditions(
     place: ConditionsPlace,
-    forecast?: ConditionsForecast | null,
+    forecast?: ReadonlyConditionsForecast | null,
     now = Date.now(),
 ): PlaceConditions {
-    const base = { fromMs: now, toMs: now + CONDITIONS_WINDOW_MS, fetchedAt: forecast?.fetchedAt };
+    return assessConditionsInterval(place, forecast, { fromMs: now, toMs: now + CONDITIONS_WINDOW_MS }, now, false);
+}
+
+/** Assess a bounded future stay using today's forecast freshness, not the
+ * future arrival time. Both bracketing hourly samples must be available. */
+export function assessPlaceConditionsWindow(
+    place: ConditionsPlace,
+    forecast: ReadonlyConditionsForecast | null | undefined,
+    window: ConditionsWindow,
+    now = Date.now(),
+): PlaceConditions {
+    if (
+        !Number.isFinite(now) ||
+        !Number.isFinite(window.fromMs) ||
+        !Number.isFinite(window.toMs) ||
+        window.fromMs < now ||
+        window.toMs <= window.fromMs ||
+        window.toMs > now + CONDITIONS_MAX_WINDOW_MS
+    )
+        return {
+            ...window,
+            fetchedAt: forecast?.fetchedAt,
+            light: 'unknown',
+            reasons: ['Choose a valid future period within the next seven days.'],
+        };
+    return assessConditionsInterval(place, forecast, window, now, true);
+}
+
+function assessConditionsInterval(
+    place: ConditionsPlace,
+    forecast: ReadonlyConditionsForecast | null | undefined,
+    window: ConditionsWindow,
+    now: number,
+    requestedPeriod: boolean,
+): PlaceConditions {
+    const base = { ...window, fetchedAt: forecast?.fetchedAt };
     const result = (light: TrafficLight, reasons: string[], worstAt?: number): PlaceConditions => ({
         ...base,
         light,
@@ -99,7 +145,7 @@ export function assessPlaceConditions(
         distanceNM(place, forecast) > 5
     )
         return result('unknown', ['Fresh local forecast unavailable.']);
-    const start = Math.floor(now / 3_600_000) * 3_600_000;
+    const start = Math.floor(base.fromMs / 3_600_000) * 3_600_000;
     const end = Math.ceil(base.toMs / 3_600_000) * 3_600_000;
     const hours = forecast.hours.filter((h) => h.t >= start && h.t <= end).sort((a, b) => a.t - b.t);
     let incomplete = hours.length !== (end - start) / 3_600_000 + 1;
@@ -147,11 +193,16 @@ export function assessPlaceConditions(
             worstAt,
         );
     const missing: string[] = [];
-    if (incomplete) missing.push('Incomplete wind, gust, weather or wave coverage for the next 12 hours.');
+    const period = requestedPeriod ? 'requested period' : 'next 12 hours';
+    if (incomplete) missing.push(`Incomplete wind, gust, weather or wave coverage for the ${period}.`);
     if (!shelterKnown) missing.push('No usable shelter geometry for this exact position.');
     if (mooring && (!limit || !vesselKnown))
         missing.push('Mooring limits or vessel length / hull type are not verified.');
-    if (missing.length) return result(cautions.size ? 'amber' : 'unknown', [...cautions, ...missing]);
+    if (missing.length)
+        return result(cautions.size && !(requestedPeriod && incomplete) ? 'amber' : 'unknown', [
+            ...cautions,
+            ...missing,
+        ]);
     if (cautions.size) return result('amber', [...cautions]);
-    return result('green', ['Wind, gusts and wave exposure look favourable across the next 12 hours.']);
+    return result('green', [`Wind, gusts and wave exposure look favourable across the ${period}.`]);
 }

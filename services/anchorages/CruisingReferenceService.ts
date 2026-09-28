@@ -96,11 +96,20 @@ export async function loadOfficialMoorings(): Promise<CruisingPoint[]> {
     return official;
 }
 
-export async function loadReferenceTile(tile: ReferenceTile, signal: AbortSignal): Promise<ReferenceResult> {
+export async function loadReferenceTile(
+    tile: ReferenceTile,
+    signal: AbortSignal,
+    options: { requireRestrictionMetadata?: boolean } = {},
+): Promise<ReferenceResult> {
     await restore();
     signal.throwIfAborted();
     const previous = cache.get(tile.key);
-    if (previous && Date.now() - previous.at < FRESH_MS) return { points: previous.points, stale: false };
+    if (
+        previous &&
+        Date.now() - previous.at < FRESH_MS &&
+        (!options.requireRestrictionMetadata || previous.points.every((point) => Array.isArray(point.restrictionNotes)))
+    )
+        return { points: previous.points, stale: false };
     try {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Offline');
         for (const endpoint of [

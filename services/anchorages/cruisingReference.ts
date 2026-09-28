@@ -16,6 +16,9 @@ export interface CruisingPoint {
     sourceUrl: string;
     retrievedAt: string;
     approximate: boolean;
+    /** Normalized reported restrictions. Absent in legacy caches whose parser
+     * did not preserve anchoring/access tags; [] does not establish permission. */
+    restrictionNotes?: string[];
     /** Exact-point coastline model, optional; never borrowed from a nearby bay. */
     fetchLandNM?: number[];
 }
@@ -73,6 +76,12 @@ export function validCachedReference(value: unknown): value is CruisingPoint {
         ) &&
         Number.isFinite(Date.parse(p.retrievedAt)) &&
         typeof p.approximate === 'boolean' &&
+        (p.restrictionNotes === undefined ||
+            (Array.isArray(p.restrictionNotes) &&
+                p.restrictionNotes.length <= 20 &&
+                p.restrictionNotes.every(
+                    (note) => typeof note === 'string' && note.length > 0 && note.length <= 1000,
+                ))) &&
         p.band === null &&
         p.mooringClass === null
     );
@@ -99,6 +108,45 @@ export function referenceTiles(bounds: ReferenceBounds, zoom: number): Reference
 export function referenceQuery(tile: ReferenceTile): string {
     const bbox = `${tile.south},${tile.west},${tile.north},${tile.east}`;
     return `[out:json][timeout:20];(nwr["seamark:type"="mooring"](${bbox});nwr["mooring"="buoy"](${bbox});nwr["seamark:buoy_special_purpose:category"="mooring"](${bbox});nwr["seamark:type"~"^(anchorage|anchor_berth)$"](${bbox}););out center 3001;`;
+}
+
+function osmRestrictionNotes(tags: Record<string, string>): string[] {
+    const notes: string[] = [];
+    for (const key of [
+        'access',
+        'boat',
+        'motorboat',
+        'sailboat',
+        'seamark:anchorage:access',
+        'seamark:mooring:access',
+    ]) {
+        const value = str(tags[key]);
+        if (
+            /(?:^|[;,\s])(?:no|private|restricted|military|customers|permit|permission|destination)(?:$|[;,\s_])/i.test(
+                value,
+            )
+        )
+            notes.push(`Access restriction reported: ${key}=${value}`);
+    }
+    for (const key of ['anchoring', 'anchorage']) {
+        const value = str(tags[key]);
+        if (/^(?:no|prohibited|forbidden|restricted)$/i.test(value))
+            notes.push(`Anchoring restriction reported: ${key}=${value}`);
+    }
+    for (const key of [
+        'seamark:anchorage:restriction',
+        'seamark:restriction',
+        'seamark:restricted_area:restriction',
+        'access:conditional',
+        'boat:conditional',
+        'motorboat:conditional',
+        'sailboat:conditional',
+        'anchoring:conditional',
+    ]) {
+        const value = str(tags[key]);
+        if (value && !/^(?:none|unrestricted)$/i.test(value)) notes.push(`Restriction reported: ${key}=${value}`);
+    }
+    return notes;
 }
 
 export function parseOsmReferences(body: unknown, retrievedAt: string): CruisingPoint[] {
@@ -130,7 +178,7 @@ export function parseOsmReferences(body: unknown, retrievedAt: string): Cruising
             (t['seamark:type'] === 'mooring' && (!category || category === 'buoy'));
         if (!anchor && !mooring) return [];
         const kind = anchor ? 'anchorage' : 'mooring';
-        const access = str(t.access || t['seamark:mooring:access']);
+        const access = str(t.access || t[anchor ? 'seamark:anchorage:access' : 'seamark:mooring:access']);
         return [
             {
                 id: `osm-${e.type}${e.id}`,
@@ -156,6 +204,7 @@ export function parseOsmReferences(body: unknown, retrievedAt: string): Cruising
                 sourceUrl: `https://www.openstreetmap.org/${e.type}/${e.id}`,
                 retrievedAt,
                 approximate: e.type !== 'node',
+                restrictionNotes: osmRestrictionNotes(t),
             } as CruisingPoint,
         ];
     });
