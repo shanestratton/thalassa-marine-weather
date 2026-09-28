@@ -38,7 +38,12 @@ const BUDGETS = {
     // keyboard guard, centred modals, and ENC governor work. No accidental
     // lodger found — the two new deps were audited before the line moved.
     // Same ~3% headroom as the last move.
-    javascript: 9.9 * MIB,
+    // 10.2, was 9.9 (2026-09-28). The consolidated OBS controls/keys,
+    // licensed-chart installer, voyage/stores fixes and lazy Day Planner
+    // catalogue bring the measured payload to 9.96 MiB. package.json and
+    // package-lock.json are unchanged from production: no new frontend
+    // dependency. Keep ~2.4% headroom; total and entry budgets stay unchanged.
+    javascript: 10.2 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
 };

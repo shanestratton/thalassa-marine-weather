@@ -188,7 +188,14 @@ describe('Pi transport completeness', () => {
         const enc = codeOf('services/EncImportService.ts');
         expect(enc).toContain('/api/enc/installed');
         const listing = enc.slice(enc.indexOf('export async function listPiInstalledCharts'));
-        expect(listing.slice(0, 600)).toContain('pinnedPiRequest');
+        expect(listing.slice(0, 600)).toContain('fetchVerifiedFromPi');
+        // The signed-response wrapper adds integrity checks without losing
+        // transport pinning. Assert that chain, not the previous helper name.
+        const pairing = codeOf('services/PiPairingService.ts');
+        const verified = pairing.slice(pairing.indexOf('export async function fetchVerifiedFromPi'));
+        expect(verified.slice(0, 2200)).toContain('await piRequest(');
+        expect(verified.slice(0, 2200)).toContain('pinnedSpki: getPairing()?.publicKeySpki');
+        expect(listing.slice(0, 600)).not.toMatch(/CapacitorHttp\.|await fetch\(/);
     });
 
     it('never carries the diary relay token over an unpinned channel', () => {

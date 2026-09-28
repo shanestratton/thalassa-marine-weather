@@ -189,7 +189,10 @@ describe('what it says', () => {
         expect(screen.getByRole('contentinfo', { name: 'Squall intensity legend' })).toBeInTheDocument();
         expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('Possible');
         expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('Extreme');
-        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('observed conditions');
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent('Heavy-rain proxy');
+        expect(screen.getByTestId('passage-hud-info')).toHaveTextContent(
+            'its own snapshot time, not the forecast boat’s future time',
+        );
         expect(screen.queryByTestId('route-scrub-credit')).toBeNull();
         act(() => setPassageSquallInfoVisible(false));
         expect(screen.queryByTestId('passage-hud-info')).toBeNull();
