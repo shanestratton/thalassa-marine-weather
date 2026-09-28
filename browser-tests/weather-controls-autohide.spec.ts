@@ -16,12 +16,14 @@ async function openFixture(page: Page, baseURL: string, extras = '') {
         return route.continue();
     });
     await page.routeWebSocket('**/*', (socket) => socket.close());
-    await page.clock.install({ time: new Date('2026-09-27T06:00:00Z') });
+    // Pause before the fixture creates timers; loading cannot consume the
+    // auto-hide deadline or race a timestamp read across browser round trips.
+    await page.clock.install({ time: new Date('2026-09-27T05:00:00Z') });
+    await page.clock.pauseAt(new Date('2026-09-27T06:00:00Z'));
     await page.goto(`/e2e/fixtures/weather-controls.html?autohide=1${extras}`);
+    await page.clock.runFor(50);
     const panel = page.getByRole('region', { name: extras ? 'Chart layer controls' : 'Weather controls', exact: true });
     await expect(panel).toBeVisible();
-    // Allow normal page/React initialization before taking control of time.
-    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 50));
     return { panel, fixture: page.getByTestId('weather-fixture'), failures };
 }
 
