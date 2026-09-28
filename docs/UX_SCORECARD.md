@@ -38,6 +38,7 @@ ordering within a screen.
 | Run 8: batch 9 (13 area fix sets), harness GPS fix at Gladstone Marina     | 5055a3de | **85.4** | 9.10   | 8.76   | 8.53   | 8.34 | 7.50\* | 8.91 | 8.81   | 8.58 |
 | Run 9: one GPS fix-state source, batch 10 (67 items in 5 groups)           | 351205f9 | **87.9** | 9.21   | 8.90   | 8.55   | 8.56 | 8.61   | 9.12 | 8.86   | 8.40 |
 | Run 10: batch 11 (95 items in 8 groups, each proved by a capture)          | 0fed4e65 | 87.6     | 9.09   | 8.93   | 8.58   | 8.51 | 8.76   | 8.88 | 8.77   | 8.37 |
+| Run 11: batch 12 (~90 items in 7 groups), own-ship clears the town name    | fba606d1 | **88.9** | 9.14   | 9.06   | 8.85   | 8.57 | 8.80   | 9.04 | 8.91   | 8.56 |
 
 \* capped at 7.5 by a HIGH defect. Baseline and run 2: the anchor watch arming
 bar (touch). Run 4: the anchor radar readouts at 7–9 px on a tall phone
@@ -55,7 +56,8 @@ gave three accounts of one GPS fix, 'fix just now', 'Last position 46 s ago' and
 uncapped 87.0. No cap bites in run 3, run 9 or run 10. Run 10 fell 0.3 with
 batch 11's fixes credited (F +0.21, compass Y 6 → 9): the panel logged new
 medium items, many in files another session holds uncommitted, and gave back
-some 10s (N −0.24).
+some 10s (N −0.24). Run 11 rose 1.24 with every dimension up (Y +0.40: the
+own-ship dot no longer prints through 'Gladstone').
 
 Automated scan, all capture sets, baseline → run 3: text under 12 px 1,191 →
 41 (the Vessel hub safety words at 9.5 px — kept on Shane's 2026-09-05 call so
