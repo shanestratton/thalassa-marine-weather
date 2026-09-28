@@ -440,7 +440,7 @@ html.public-voyage-page .pv-now__chev {
     opacity: 0.8;
 }
 
-/* Trip chip: a custom face over the untouched native <select> */
+/* Trip chip: a button that opens the voyage shelf (§3b) */
 html.public-voyage-page .pv-trip {
     min-height: 52px;
     padding: 7px 12px 7px 14px;
@@ -448,6 +448,7 @@ html.public-voyage-page .pv-trip {
     border: 1px solid var(--pv-line-strong);
     background: rgba(255, 255, 255, 0.05);
     color: var(--pv-ivory);
+    font: inherit;
     cursor: pointer;
     transition:
         border-color 0.15s,
@@ -457,12 +458,16 @@ html.public-voyage-page .pv-trip:hover {
     border-color: rgba(94, 234, 212, 0.45);
     background: rgba(255, 255, 255, 0.07);
 }
-html.public-voyage-page .pv-trip:focus-within {
+html.public-voyage-page .pv-trip:focus-visible {
     outline: 2px solid var(--pv-sea);
     outline-offset: 2px;
 }
+html.public-voyage-page .pv-trip[aria-expanded='true'],
 html.public-voyage-page .pv-trip[aria-busy='true'] {
     border-color: rgba(94, 234, 212, 0.45);
+}
+html.public-voyage-page .pv-trip[aria-disabled='true'] {
+    cursor: wait;
 }
 html.public-voyage-page .pv-trip__eyebrow {
     font: 600 12px/16px var(--pv-font-ui);
@@ -483,12 +488,18 @@ html.public-voyage-page .pv-hero[data-overlay='false'] .pv-trip {
     min-height: 44px;
     padding: 6px 10px 6px 12px;
 }
-/* Docked phone bar: two 16 px lines still fit the 44 px chip, so the
-   distance reads in full instead of '25 Sept 2026 · 17…'. */
+/* Docked phone bar: two 16 px lines still fit the 44 px chip, so a named
+   trip reads 'Hamilton Island → Airlie Beach' in full and an unnamed one its
+   day and distance. A named trip's day is in the diary chapter head below. */
 html.public-voyage-page .pv-hero[data-overlay='false'] .pv-trip__value {
     font-size: 13px;
     line-height: 16px;
     white-space: normal;
+}
+html.public-voyage-page .pv-trip__meta {
+    font: 500 12px/16px var(--pv-font-ui);
+    color: var(--pv-meta);
+    font-variant-numeric: tabular-nums;
 }
 html.public-voyage-page .pv-trip__icon {
     width: 18px;
@@ -496,10 +507,182 @@ html.public-voyage-page .pv-trip__icon {
     flex: none;
     color: var(--pv-meta);
 }
-html.public-voyage-page .pv-trip__select {
-    opacity: 0; /* the real control — its face above is aria-hidden */
-    font-size: 16px; /* no iOS focus zoom */
-    color: var(--pv-ink);
+/* 'Hamilton Island → Airlie Beach': the arrow is the track colour */
+html.public-voyage-page .pv-arrow {
+    color: var(--pv-sea);
+    font-family: var(--pv-font-ui);
+    font-weight: 600;
+}
+
+/* ── 3b. Voyage shelf: the trip picker's modal ───────────────────────
+   Centred with internal scroll; on phones a full-width card with 12 px
+   side margins, clear of the notch, the home indicator and the tab bar. */
+html.public-voyage-page .pv-picker-scrim {
+    z-index: 90;
+    padding: calc(env(safe-area-inset-top) + 16px) calc(env(safe-area-inset-right) + 12px)
+        calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 12px);
+    background: rgba(3, 8, 18, 0.62);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
+    color: var(--pv-text);
+    font-family: var(--pv-font-ui);
+}
+@media (max-width: 1023px) {
+    /* The phone/tablet tab bar (min 48 px + 12 px padding) stays visible below. */
+    html.public-voyage-page .pv-picker-scrim {
+        padding-bottom: calc(env(safe-area-inset-bottom) + 72px);
+    }
+}
+@media (max-width: 1023px) and (max-height: 500px) {
+    html.public-voyage-page .pv-picker-scrim {
+        padding-top: calc(env(safe-area-inset-top) + 8px);
+        padding-bottom: calc(env(safe-area-inset-bottom) + 64px);
+    }
+}
+html.public-voyage-page .pv-picker {
+    width: min(560px, 100%);
+    max-height: min(760px, 100%);
+    border-radius: var(--pv-r-lg);
+    /* Solid, not glass: the hero card's words must not ghost through the head. */
+    background: var(--pv-glass-solid);
+    box-shadow:
+        inset 0 1px 0 var(--pv-spec),
+        0 24px 60px rgba(0, 0, 0, 0.55);
+}
+html.public-voyage-page .pv-picker__head {
+    padding: 16px 12px 12px 18px;
+    border-bottom: 1px solid var(--pv-line);
+    background: linear-gradient(180deg, rgba(94, 234, 212, 0.06), transparent 80%);
+}
+html.public-voyage-page .pv-picker__title {
+    font: 600 var(--pv-fs-title) / 28px var(--pv-font-display);
+    letter-spacing: -0.01em;
+    color: var(--pv-ivory);
+}
+html.public-voyage-page .pv-picker__close {
+    width: var(--pv-ctrl);
+    height: var(--pv-ctrl);
+    border-radius: 50%;
+    border: 1px solid var(--pv-line-strong);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--pv-ivory);
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        color 0.15s;
+}
+html.public-voyage-page .pv-picker__close:hover {
+    border-color: rgba(94, 234, 212, 0.45);
+    color: var(--pv-sea);
+}
+/* Focusable only so a click inside keeps Escape and the Tab trap alive
+   (tabIndex -1); it is never a keyboard stop, so it draws no ring. */
+html.public-voyage-page .pv-picker:focus {
+    outline: none;
+}
+html.public-voyage-page .pv-picker__list {
+    padding: 12px 12px 16px;
+    /* Arrow/Home/End scroll a card into view 'nearest': keep its 2 px focus
+       ring (offset 2 px) and rounded edge clear of the list's edges. */
+    scroll-padding: 12px 0 16px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+html.public-voyage-page .pv-picker__group {
+    padding: 10px 6px 0;
+}
+html.public-voyage-page .pv-voyage {
+    min-height: 64px;
+    padding: 12px 12px 12px 14px;
+    border-radius: var(--pv-r);
+    border: 1px solid var(--pv-line);
+    background: var(--pv-hull);
+    color: var(--pv-text);
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        background-color 0.15s;
+}
+html.public-voyage-page .pv-voyage:hover {
+    border-color: rgba(94, 234, 212, 0.45);
+    background: var(--pv-hull-2);
+}
+html.public-voyage-page .pv-voyage[aria-selected='true'] {
+    border-color: rgba(94, 234, 212, 0.7);
+    background: var(--pv-sea-sel);
+    box-shadow: inset 3px 0 0 var(--pv-sea);
+}
+html.public-voyage-page .pv-voyage[aria-disabled='true'] {
+    cursor: wait;
+    opacity: 0.6;
+}
+html.public-voyage-page :is(.pv-voyage, .pv-picker__close, .pv-trip):focus-visible {
+    outline: 2px solid var(--pv-sea);
+    outline-offset: 2px;
+}
+html.public-voyage-page .pv-voyage__kicker {
+    font: 600 12px/16px var(--pv-font-ui);
+    letter-spacing: var(--pv-track-eyebrow);
+    text-transform: uppercase;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-voyage__title {
+    font: 600 18px/24px var(--pv-font-display);
+    letter-spacing: -0.005em;
+    color: var(--pv-ivory);
+    overflow-wrap: anywhere;
+}
+html.public-voyage-page .pv-voyage__note {
+    font-size: var(--pv-fs-small);
+    line-height: 18px;
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-voyage__meta {
+    font-size: var(--pv-fs-small);
+    line-height: 18px;
+    font-weight: 500;
+    color: var(--pv-meta);
+    font-variant-numeric: tabular-nums;
+}
+html.public-voyage-page .pv-voyage[aria-selected='true'] .pv-voyage__meta {
+    color: var(--pv-text);
+}
+html.public-voyage-page .pv-voyage__check {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    color: var(--pv-sea);
+}
+html.public-voyage-page .pv-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 22px;
+    padding: 2px 8px;
+    border-radius: var(--pv-r-pill);
+    border: 1px solid var(--pv-line-strong);
+    font: 600 12px/16px var(--pv-font-ui);
+    color: var(--pv-meta);
+    white-space: nowrap;
+}
+html.public-voyage-page .pv-tag .pv-dot {
+    width: 6px;
+    height: 6px;
+    margin-right: 0;
+}
+html.public-voyage-page .pv-tag[data-tone='live'] {
+    color: var(--pv-sea);
+    border-color: rgba(94, 234, 212, 0.4);
+    background: var(--pv-sea-tint);
+}
+html.public-voyage-page .pv-tag[data-tone='latest'] {
+    color: var(--pv-brass);
+    border-color: rgba(245, 194, 107, 0.4);
+    background: var(--pv-brass-tint);
+}
+html.public-voyage-page .pv-tag[data-tone='route'] {
+    color: var(--pv-route);
+    border-color: rgba(196, 181, 253, 0.4);
 }
 
 /* ── 4. Passage stats ──────────────────────────────────────────────── */
@@ -1831,7 +2014,8 @@ html.public-voyage-page .pv-skel--chip {
     html.public-voyage-page .pv-ownship__ring::after {
         animation: none !important;
     }
-    html.public-voyage-page :is(.pv-rail, .pv-expand, .pv-map-notes, .pv-entry, .pv-feed, .pv-photo img) {
+    html.public-voyage-page
+        :is(.pv-rail, .pv-expand, .pv-map-notes, .pv-entry, .pv-feed, .pv-photo img, .pv-voyage, .pv-trip) {
         transition: none !important;
     }
 }

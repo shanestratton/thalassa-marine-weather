@@ -138,6 +138,29 @@ const choose = (name: 'Instruments' | 'Diary') => fireEvent.click(desktopViews()
 const mobileViews = () => within(screen.getByRole('navigation', { name: 'Voyage views' }));
 const chooseMobile = (name: 'Map' | 'Instruments' | 'Diary') =>
     fireEvent.click(mobileViews().getByRole('button', { name }));
+// The trip picker is a chip button that opens a 'Choose a voyage' dialog.
+const tripChip = () => screen.getByRole('button', { name: /^Choose a voyage to view/ });
+const TRIP_MODE = { latest: 'Latest trip', 'all-diary': 'Whole journey' } as const;
+const expectTripMode = (mode: keyof typeof TRIP_MODE) =>
+    expect(tripChip()).toHaveAccessibleName(new RegExp(`^Choose a voyage to view · ${TRIP_MODE[mode]} · `));
+const openTripPicker = () => {
+    fireEvent.click(tripChip());
+    return screen.getByRole('dialog', { name: 'Choose a voyage' });
+};
+const chooseTrip = async (value: string) => {
+    const option = within(openTripPicker())
+        .getAllByRole('option')
+        .find((item) => item.getAttribute('data-trip-id') === value);
+    if (!option) throw new Error(`The picker has no option for ${value}`);
+    // Inside act, so the request the choice starts settles like the old change.
+    await act(async () => fireEvent.click(option));
+};
+const expectPickerOffers = (name: string, { selected }: { selected: boolean }) => {
+    const dialog = openTripPicker();
+    expect(within(dialog).getByRole('option', { name, selected })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+};
 
 function mockViewport(initialWidth = 390, initialHeight = 844) {
     let width = initialWidth;
@@ -209,7 +232,7 @@ describe('public voyage Instruments / Diary switch', () => {
         mocks.fetchVoyageLog.mockResolvedValue(recorded);
         await openPage();
         expect(mocks.fetchVoyageLog.mock.calls.map((call) => call[1])).toEqual(['latest']);
-        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+        expectTripMode('latest');
         expect(document.getElementById('voyage-map')).not.toHaveClass('hidden');
         if (width < 1024) {
             expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
@@ -247,6 +270,47 @@ describe('public voyage Instruments / Diary switch', () => {
         },
     );
 
+    it('names the diary chapter as the picker card does, in boat-local time, never the UTC label', async () => {
+        mockViewport(1280, 900);
+        const hamilton = {
+            ...DATA.trips[0],
+            label: 'Track · 25 Sept 2026',
+            started_at: '2026-09-25T22:42:58.38Z',
+            ended_at: '2026-09-26T01:16:23.42Z',
+            active: false,
+            distance_nm: 17.2,
+        };
+        const localDay = /Sat (26 Sept?|Sept? 26)/;
+        mocks.fetchVoyageLog.mockResolvedValue({
+            ...DATA,
+            instruments_shared: false,
+            instruments: null,
+            trips: [
+                { ...hamilton, from_name: 'Hamilton Island', to_name: 'Airlie Beach', time_zone: 'Australia/Brisbane' },
+                DATA.trips[1],
+            ],
+        });
+        await openPage();
+        const chapter = screen.getByRole('heading', { level: 2, name: 'Hamilton Island → Airlie Beach' });
+        // The day moves to the context line, so the phone's dateless docked chip is never the only date.
+        const context = chapter.nextElementSibling!;
+        expect(context.textContent).toMatch(new RegExp(`^Historic trip diary · ${localDay.source} · 1 entry$`));
+        expect(document.body.textContent).not.toMatch(/25 Sept 2026/);
+        cleanup();
+
+        // No named end: the chapter is the boat-local day, not 'Track · 25 Sept 2026'.
+        mocks.fetchVoyageLog.mockResolvedValue({
+            ...DATA,
+            instruments_shared: false,
+            instruments: null,
+            trips: [{ ...hamilton, time_zone: 'Australia/Brisbane' }, DATA.trips[1]],
+        });
+        await openPage();
+        expect(screen.getByRole('heading', { level: 2, name: localDay })).toBeInTheDocument();
+        expect(screen.getByText(/^Historic trip diary · 1 entry$/)).toBeInTheDocument();
+        expect(document.body.textContent).not.toMatch(/25 Sept 2026/);
+    });
+
     it('defaults a route-less latest trip to all public entries in newest-first order', async () => {
         const oldest = { ...ENTRY, id: 'oldest', title: 'Oldest entry', created_at: '2026-09-01T00:00:00Z' };
         const middle = { ...ENTRY, id: 'middle', title: 'Middle entry', created_at: '2026-09-05T00:00:00Z' };
@@ -258,7 +322,7 @@ describe('public voyage Instruments / Diary switch', () => {
         );
         await openPage();
         expect(mocks.fetchVoyageLog.mock.calls.map((call) => call[1])).toEqual(['latest', 'all-diary']);
-        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('all-diary');
+        expectTripMode('all-diary');
         expect(screen.getByRole('heading', { name: 'All trips & diary' })).toBeInTheDocument();
         expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
             ENTRY.title,
@@ -275,14 +339,10 @@ describe('public voyage Instruments / Diary switch', () => {
             selected_trip: trip === 'all-diary' ? 'all-diary' : 'trip-1',
         }));
         await openPage();
-        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('all-diary');
-        await act(async () =>
-            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                target: { value: 'latest' },
-            }),
-        );
+        expectTripMode('all-diary');
+        await chooseTrip('latest');
         await act(async () => vi.advanceTimersByTimeAsync(60_000));
-        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+        expectTripMode('latest');
         expect(mocks.fetchVoyageLog.mock.calls.map((call) => call[1])).toEqual([
             'latest',
             'all-diary',
@@ -308,14 +368,9 @@ describe('public voyage Instruments / Diary switch', () => {
                     : { ...DATA, passage: explicit ? DATA.passage : null },
             );
             await openPage();
-            if (explicit)
-                await act(async () =>
-                    fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                        target: { value: 'all-diary' },
-                    }),
-                );
-            expect(screen.getByRole('option', { name: 'All trips & diary' })).toBeInTheDocument();
-            expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('all-diary');
+            if (explicit) await chooseTrip('all-diary');
+            expectPickerOffers('All trips & diary', { selected: true });
+            expectTripMode('all-diary');
             expect(mobileViews().getByRole('button', { name: 'Map', pressed: true })).toBeInTheDocument();
             expect(mocks.mapProps).toHaveBeenLastCalledWith(
                 expect.objectContaining({
@@ -335,14 +390,31 @@ describe('public voyage Instruments / Diary switch', () => {
         },
     );
 
+    it('a trip picked from the dialog freezes polling on that id, as the select did', async () => {
+        await openPage();
+        await chooseTrip('trip-1');
+        expect(tripChip()).toHaveAccessibleName(/^Choose a voyage to view · Trip · /);
+        expect(tripChip()).toHaveFocus();
+        await act(async () => vi.advanceTimersByTimeAsync(120_000));
+        expect(mocks.fetchVoyageLog.mock.calls.map((call) => call[1])).toEqual(['latest', 'trip-1', 'trip-1']);
+        // Picking the option already showing is no change, exactly like a <select>.
+        await chooseTrip('trip-1');
+        expect(mocks.fetchVoyageLog).toHaveBeenCalledTimes(3);
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(tripChip()).toHaveFocus();
+        await chooseTrip('latest');
+        expectTripMode('latest');
+        expect(mocks.fetchVoyageLog.mock.calls.at(-1)?.[1]).toBe('latest');
+    });
+
     it('retains the routed-trip starting view and never changes it when a later poll loses the route', async () => {
         await openPage();
         expect(mocks.fetchVoyageLog).toHaveBeenCalledTimes(1);
-        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+        expectTripMode('latest');
         expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
         mocks.fetchVoyageLog.mockResolvedValue({ ...DATA, passage: null });
         await act(async () => vi.advanceTimersByTimeAsync(60_000));
-        expect(screen.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+        expectTripMode('latest');
         expect(mocks.fetchVoyageLog.mock.calls.every((call) => call[1] === 'latest')).toBe(true);
     });
 
@@ -478,19 +550,11 @@ describe('public voyage Instruments / Diary switch', () => {
         async (trip) => {
             await openPage();
             mocks.fetchVoyageLog.mockRejectedValue(new VoyageLogError(429, 'Try again later'));
-            await act(async () =>
-                fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                    target: { value: trip },
-                }),
-            );
+            await chooseTrip(trip);
             expectDiaryOnly();
             expect(desktopViews().getByRole('button', { name: 'Instruments' })).toBeDisabled();
             mocks.fetchVoyageLog.mockResolvedValue(DATA);
-            await act(async () =>
-                fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                    target: { value: 'latest' },
-                }),
-            );
+            await chooseTrip('latest');
             expect(screen.getByRole('region', { name: 'Onboard instruments' })).toBeInTheDocument();
         },
     );
@@ -649,11 +713,7 @@ describe('public voyage mobile views', () => {
             await openPage();
             await act(async () => chooseMobile('Instruments'));
             mocks.fetchVoyageLog.mockRejectedValue(new VoyageLogError(429, 'Try again later'));
-            await act(async () =>
-                fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                    target: { value: trip },
-                }),
-            );
+            await chooseTrip(trip);
             expect(mobileViews().getByRole('button', { name: 'Instruments' })).toBeDisabled();
             expect(
                 mobileViews().getByRole('button', { name: trip === 'all-diary' ? 'Map' : 'Diary', pressed: true }),
@@ -685,6 +745,21 @@ describe('public voyage mobile views', () => {
         expect(screen.getByRole('complementary')).not.toHaveClass('hidden');
         expect(mocks.fetchPublicInstruments).toHaveBeenCalledTimes(2);
         expect(mocks.mapMount).toHaveBeenCalledTimes(1);
+    });
+
+    it('hands focus to Restore page header when a picker choice folds the header away', async () => {
+        // Short landscape starts folded; Diary docks the header, and All trips
+        // then returns to a Map that folds it (and the chip) again.
+        mockViewport(844, 390);
+        await openPage();
+        chooseMobile('Diary');
+        const chip = tripChip();
+        // The folded header is display:none, where focus() does nothing; jsdom
+        // has no layout, so say so.
+        chip.focus = () => {};
+        await chooseTrip('all-diary');
+        expect(screen.getByRole('region', { name: 'Voyage selection' }).parentElement).toHaveClass('hidden');
+        expect(screen.getByRole('button', { name: 'Restore page header', pressed: true })).toHaveFocus();
     });
 
     it('keeps a wide landscape phone on Map with its header restored by the map control', async () => {

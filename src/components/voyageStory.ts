@@ -7,7 +7,13 @@
  * flag and the header, the hero tiles and the diary chapter head) imports it
  * from this one module, so they can never disagree about wording or maths.
  */
-import type { PublicVoyageTrip, VoyageLogInstruments, VoyageLogTelemetry, VoyageLogTrackPoint } from '../voyageLogApi';
+import type {
+    PublicVoyageTrip,
+    VoyageLogInstruments,
+    VoyageLogTelemetry,
+    VoyageLogTrackPoint,
+    VoyageLogWaypoint,
+} from '../voyageLogApi';
 import { formatPublicAge, isPublicPositionFresh } from '../publicVoyageFreshness';
 
 /**
@@ -103,6 +109,222 @@ export function splitWaypointName(name: string): { place: string; role: string |
     return { place, role: role || null };
 }
 
+// ── Boat-local dates ────────────────────────────────────────────────
+//
+// The diary cards format in the viewer's own zone (Intl with no timeZone),
+// so that is the fallback whenever the server has not said which zone a
+// trip or waypoint sits in. Never UTC: the server's old picker labels were
+// built in UTC, which put four of seven Whitsundays trips a day early.
+
+/** The zone the diary already uses: the viewer's own (undefined for Intl). */
+export const DIARY_TIME_ZONE: string | undefined = undefined;
+
+const knownZones = new Map<string, string | undefined>();
+
+/** A zone Intl accepts, or undefined (the viewer's own zone). */
+export function usableTimeZone(zone: string | null | undefined): string | undefined {
+    const name = typeof zone === 'string' ? zone.trim() : '';
+    if (!name) return undefined;
+    if (!knownZones.has(name)) {
+        let accepted: string | undefined;
+        try {
+            new Intl.DateTimeFormat('en', { timeZone: name });
+            accepted = name;
+        } catch {
+            accepted = undefined;
+        }
+        knownZones.set(name, accepted);
+    }
+    return knownZones.get(name);
+}
+
+type LocalFormat = 'day' | 'dayYear' | 'date' | 'dateYear' | 'year' | 'time' | 'stamp' | 'zone';
+const LOCAL_FORMATS: Record<LocalFormat, Intl.DateTimeFormatOptions> = {
+    day: { weekday: 'short', day: 'numeric', month: 'short' },
+    dayYear: { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' },
+    date: { day: 'numeric', month: 'short' },
+    dateYear: { day: 'numeric', month: 'short', year: 'numeric' },
+    year: { year: 'numeric' },
+    time: { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' },
+    // Wall-clock identity, for 'is this zone's time the viewer's time?'
+    stamp: { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' },
+    zone: { timeZoneName: 'short' },
+};
+const localFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function localFormatter(kind: LocalFormat, zone: string | undefined, locale: string | undefined): Intl.DateTimeFormat {
+    const key = `${kind}|${zone ?? ''}|${locale ?? ''}`;
+    let formatter = localFormatters.get(key);
+    if (!formatter) {
+        formatter = new Intl.DateTimeFormat(locale, { ...LOCAL_FORMATS[kind], timeZone: zone });
+        localFormatters.set(key, formatter);
+    }
+    return formatter;
+}
+
+/** The first zone in the list that Intl accepts, else the diary's zone. */
+const pickZone = (...zones: (string | null | undefined)[]): string | undefined => {
+    for (const zone of zones) {
+        const usable = usableTimeZone(zone);
+        if (usable) return usable;
+    }
+    return DIARY_TIME_ZONE;
+};
+
+export interface LocalDateOptions {
+    /** Used when the item carries no usable zone. Defaults to the diary's. */
+    fallbackZone?: string | null;
+    /** 'Now', for the this-year test. Defaults to the clock. */
+    nowMs?: number;
+    /** Tests pin this; the page leaves it to the viewer, like the diary. */
+    locale?: string;
+    /** 'Sat 26 Sep' (the default) or, false, '26 Sep' for a stat tile. */
+    weekday?: boolean;
+    /** The reader's own zone; tests pin it, the page leaves it to the browser. */
+    viewerTimeZone?: string;
+}
+
+/**
+ * 'Sat 26 Sep' in the given zone, in the diary cards' style: the locale's
+ * own order and words with list commas dropped, and the year only when it
+ * is not this year. `weekday: false` gives '26 Sep'. Null for a missing or
+ * unparsable timestamp.
+ */
+export function formatLocalDay(
+    iso: string | null | undefined,
+    zone: string | null | undefined,
+    { fallbackZone, nowMs = Date.now(), locale, weekday = true }: LocalDateOptions = {},
+): string | null {
+    const at = iso ? Date.parse(iso) : Number.NaN;
+    if (!Number.isFinite(at)) return null;
+    const tz = pickZone(zone, fallbackZone);
+    const year = localFormatter('year', tz, locale);
+    const thisYear = year.format(at) === year.format(nowMs);
+    const kind = weekday ? (thisYear ? 'day' : 'dayYear') : thisYear ? 'date' : 'dateYear';
+    return localFormatter(kind, tz, locale)
+        .formatToParts(at)
+        .map((part) => (part.type === 'literal' ? part.value.replace(/[,،、，]/g, ' ') : part.value))
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * 'Sat 26 Sep · 08:42' in the given zone (the progress bar's ' · ' separator).
+ * When that zone's clock differs from the reader's at that moment, the zone
+ * is named ('08:42 AEST'), so a reader in Los Angeles never takes the boat's
+ * time for their own.
+ */
+export function formatLocalMoment(
+    iso: string | null | undefined,
+    zone: string | null | undefined,
+    options: LocalDateOptions = {},
+): string | null {
+    const day = formatLocalDay(iso, zone, { ...options, weekday: true });
+    if (!day || !iso) return null;
+    const at = Date.parse(iso);
+    const tz = pickZone(zone, options.fallbackZone);
+    const time = localFormatter('time', tz, options.locale).format(at);
+    const readerTz = usableTimeZone(options.viewerTimeZone);
+    const readersClock =
+        localFormatter('stamp', tz, options.locale).format(at) ===
+        localFormatter('stamp', readerTz, options.locale).format(at);
+    const zoneName = readersClock
+        ? undefined
+        : localFormatter('zone', tz, options.locale)
+              .formatToParts(at)
+              .find((part) => part.type === 'timeZoneName')?.value;
+    return `${day} · ${time}${zoneName ? ` ${zoneName}` : ''}`;
+}
+
+// ── Recovered departure / arrival waypoints ─────────────────────────
+
+const RECOVERED_ROLES: Record<string, string> = {
+    'recovered departure': 'Departed',
+    'recovered arrival': 'Arrived',
+};
+
+/** The 15 Sep recovery's first fix: 'Recovered GPS track · Newport to Gladstone'. */
+const RECOVERED_TRACK_START = /^Recovered GPS track(?: · .*)?$/i;
+
+/**
+ * Bookkeeping pins that are not marks anyone dropped: the app's rolling
+ * 'Latest Position' and the 23 Sep recovery's mid-track provenance note.
+ * The server drops them too; this covers a server that does not yet.
+ */
+const HIDDEN_PUBLIC_WAYPOINTS = new Set(['latest position', 'app recording began · original mark']);
+
+/** True for a waypoint the public map never labels (see HIDDEN_PUBLIC_WAYPOINTS). */
+export function isHiddenPublicWaypoint(name: string): boolean {
+    return HIDDEN_PUBLIC_WAYPOINTS.has(name.trim().replace(/\s+/g, ' ').toLowerCase());
+}
+
+/**
+ * A map waypoint's two label lines. '<Place> · recovered departure' reads
+ * place '<Place>', role 'Departed Sat 26 Sep · 08:42'; '· recovered arrival'
+ * reads 'Arrived …'. Those timestamps are when the boat actually moved.
+ * 'Recovered GPS track · …' (the 15 Sep recovery's first fix, taken with
+ * the boat already making 6 kn off Newport) reads place 'Departed', role
+ * 'Tue 15 Sep · 12:28': its name holds no place field, so none is invented.
+ * Every other name ('Voyage Start', 'Voyage End') keeps splitWaypointName's
+ * lines exactly: a Voyage Start time is when tracking began, which can be
+ * half a day before she left the berth.
+ */
+export function waypointLabel(
+    waypoint: Pick<VoyageLogWaypoint, 'name' | 'timestamp' | 'time_zone'>,
+    options: LocalDateOptions = {},
+): { place: string; role: string | null } {
+    if (RECOVERED_TRACK_START.test(waypoint.name.trim())) {
+        return { place: 'Departed', role: formatLocalMoment(waypoint.timestamp, waypoint.time_zone, options) };
+    }
+    const split = splitWaypointName(waypoint.name);
+    const verb = split.role ? RECOVERED_ROLES[split.role.toLowerCase()] : undefined;
+    if (!verb) return split;
+    const when = formatLocalMoment(waypoint.timestamp, waypoint.time_zone, options);
+    return { place: split.place, role: when ? `${verb} ${when}` : verb };
+}
+
+// ── The trip picker's words ─────────────────────────────────────────
+
+const cleanPlace = (value: unknown): string | null =>
+    typeof value === 'string' && value.trim() ? value.trim().replace(/\s+/g, ' ') : null;
+
+export interface TripSummary {
+    /** Server-named ends; null (or absent on older servers) stays null. */
+    from: string | null;
+    to: string | null;
+    /** 'Hamilton Island → Airlie Beach', 'From Hamilton Island',
+     *  'To Airlie Beach', or the local date when neither end is named.
+     *  Never 'Departed …': started_at is when tracking began, which can be
+     *  half a day before she left, and the date sits right beside it. */
+    headline: string;
+    /** The same words for a screen reader: '→' is read as 'to'. */
+    spokenHeadline: string;
+    /** True when the headline names a place rather than a date. */
+    named: boolean;
+    /** 'Sat 26 Sep' where the trip started; null without a usable start. */
+    date: string | null;
+    /** '17.2 nm'; null without a positive distance. */
+    distance: string | null;
+}
+
+/**
+ * What a trip is called in the picker and on its chip. Places come only
+ * from the server's from_name/to_name; the date is built from started_at
+ * in the trip's own zone, never from the UTC-built label, which is kept as
+ * the last fallback for a trip with no usable start.
+ */
+export function tripSummary(trip: PublicVoyageTrip, options: LocalDateOptions = {}): TripSummary {
+    const from = cleanPlace(trip.from_name);
+    const to = cleanPlace(trip.to_name);
+    const date = formatLocalDay(trip.started_at, trip.time_zone, options);
+    const distance = positiveNm(trip.distance_nm) ? `${formatNm(trip.distance_nm)} nm` : null;
+    const undated = stripTrackPrefix(trip.label ?? '').trim() || 'Trip';
+    const headline = from && to ? `${from} → ${to}` : from ? `From ${from}` : to ? `To ${to}` : (date ?? undated);
+    const spokenHeadline = from && to ? `${from} to ${to}` : headline;
+    return { from, to, headline, spokenHeadline, named: !!(from || to), date, distance };
+}
+
 const AUTO_DATE_TITLE =
     /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day [0-9]{1,2} [A-Z][a-z]+ [0-9]{4} · [0-9]{1,2}:[0-9]{2}$/;
 
@@ -173,8 +395,6 @@ export function formatNm(nm: number): string {
     return nm >= 100 ? Math.round(nm).toLocaleString() : nm.toFixed(1);
 }
 
-const SHORT_DAY_MONTH = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
-
 const positiveNm = (value: number | null | undefined): value is number =>
     typeof value === 'number' && Number.isFinite(value) && value > 0;
 
@@ -183,22 +403,32 @@ const partsText = (parts: PassageStatPart[]): string =>
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-/** The shared tracks, their summed distance and the earliest start. */
+/** The shared tracks, their summed distance and the earliest-started one. */
 function journeyTotals(trips: PublicVoyageTrip[]): {
     tracks: PublicVoyageTrip[];
     total: number;
-    first: number | null;
+    first: PublicVoyageTrip | null;
 } {
     const tracks = trips.filter((trip) => trip.kind === 'track');
     let total = 0;
-    let first: number | null = null;
+    let first: PublicVoyageTrip | null = null;
+    let firstMs = Number.POSITIVE_INFINITY;
     for (const trip of tracks) {
         if (positiveNm(trip.distance_nm)) total += trip.distance_nm;
         const started = trip.started_at ? Date.parse(trip.started_at) : Number.NaN;
-        if (Number.isFinite(started) && (first === null || started < first)) first = started;
+        if (Number.isFinite(started) && started < firstMs) {
+            first = trip;
+            firstMs = started;
+        }
     }
     return { tracks, total, first };
 }
+
+/** '15 Sep': the first track's start, in its own zone like the picker's card. */
+const firstTrackDay = (first: PublicVoyageTrip | null, nowMs: number): string | null =>
+    first
+        ? formatLocalDay(first.started_at, first.time_zone, { fallbackZone: DIARY_TIME_ZONE, nowMs, weekday: false })
+        : null;
 
 /** Start to finish for an ended trip; null when either end is unusable. */
 function endedTripDuration(trip: PublicVoyageTrip): PassageStatPart[] | null {
@@ -240,8 +470,9 @@ export function passageFacts({
                 note: plural(tracks.length, 'shared track'),
             });
         }
-        if (first !== null) {
-            stats.push({ key: 'first', label: 'First track', parts: [{ value: SHORT_DAY_MONTH.format(first) }] });
+        const firstDay = firstTrackDay(first, nowMs);
+        if (firstDay) {
+            stats.push({ key: 'first', label: 'First track', parts: [{ value: firstDay }] });
         }
         if (entryCount > 0) {
             stats.push({ key: 'stories', label: 'Stories', parts: [{ value: String(entryCount) }] });
@@ -263,7 +494,8 @@ export function passageFacts({
     }
 
     if (tracks.length >= 2 && total > 0) {
-        const since = first !== null ? ` · since ${SHORT_DAY_MONTH.format(first)}` : '';
+        const firstDay = firstTrackDay(first, nowMs);
+        const since = firstDay ? ` · since ${firstDay}` : '';
         stats.push({
             key: 'journey',
             label: 'Whole journey',

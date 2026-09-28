@@ -21,10 +21,11 @@ import { shipTypeLabel, vesselColor } from '../aisShipType';
 import { publicVoyageWaypoints } from '../publicVoyageWaypoints';
 import { publicTrackSegments } from '../publicTrackSegments';
 import {
+    isHiddenPublicWaypoint,
     labelSide,
     latestPublicTrackPoint,
     publicLastKnownLabel,
-    splitWaypointName,
+    waypointLabel,
     type LabelSide,
 } from './voyageStory';
 
@@ -402,8 +403,10 @@ function MapContainer({
      * finished is a fact about the voyage, not a competing claim about the plan.
      */
     const hasPlanLine = !!passageLine && passageLine.length >= 2;
+    // Bookkeeping pins (the recovery's 'App recording began · original
+    // mark') are never labelled, whatever the server still sends.
     const lifecycleWaypoints = useMemo(
-        () => publicVoyageWaypoints(waypoints, waypointVoyageId),
+        () => publicVoyageWaypoints(waypoints, waypointVoyageId).filter((w) => !isHiddenPublicWaypoint(w.name)),
         [waypoints, waypointVoyageId],
     );
     const shownWaypoints = useMemo(
@@ -695,14 +698,18 @@ function MapContainer({
     });
 
     // Lifecycle waypoint labels: place on line one, the server's qualifier
-    // quiet on line two. A label within 40 px of the boat stands down so it
+    // quiet on line two ('· recovered departure' reads 'Departed Sat 26 Sep
+    // · 08:42' in the waypoint's own zone, else the diary's, naming the zone
+    // when it is not the reader's). The measured width below follows the
+    // longer line, so clearLabelSide already knows the box grew. A label
+    // within 40 px of the boat stands down so it
     // never overprints her flag, and the whole-journey view hides them all
     // until the viewer zooms in past 9. The rest keep clear of the chrome
     // and of the flag. Until the camera first settles there is no frame to
     // measure against (and the opening flight moves every mark), so the
     // labels wait for it rather than flash over the flag.
     const waypointLabels = shownWaypoints.map((w) => {
-        const { place, role } = splitWaypointName(w.name);
+        const { place, role } = waypointLabel(w);
         const p = screenPoint(w.lon, w.lat);
         const nearBoat = !!p && !!boatPoint && Math.hypot(p.x - boatPoint.x, p.y - boatPoint.y) < 40;
         const quiet = labelFrame === null || nearBoat || (allTrips && labelFrame.zoom < 9);
