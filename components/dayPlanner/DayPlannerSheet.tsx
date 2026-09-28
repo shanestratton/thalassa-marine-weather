@@ -9,7 +9,8 @@ import {
     type DayPlanResult,
 } from '../../services/dayPlanner/engine';
 import { dayPlannerVesselInputs, runDayPlanner } from '../../services/dayPlanner/runtime';
-import { saveDayPlan } from '../../services/dayPlanner/save';
+import { saveDayPlanWithCatalogueCheck } from '../../services/dayPlanner/save';
+import type { CataloguePlanSelection } from '../../services/dayPlanner/cataloguePlanningTypes';
 import {
     dayPlanDuration,
     dayPlanInputTime,
@@ -43,6 +44,7 @@ import { OverlayPortal } from '../ui/OverlayPortal';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { DayPlanOutline } from './DayPlanOutline';
+import { CatalogueTripPicker } from './CatalogueTripPicker';
 import './DayPlanner.css';
 
 const ChartReview = lazyRetry(() =>
@@ -131,6 +133,8 @@ export default function DayPlannerSheet({
     const [stopHours, setStopHours] = useState('2');
     const [activities, setActivities] = useState<DayPlannerActivity[]>([]);
     const [destinationId, setDestinationId] = useState('');
+    const [catalogueSelection, setCatalogueSelection] = useState<CataloguePlanSelection | null>(null);
+    const [catalogueReadyKey, setCatalogueReadyKey] = useState('');
     const [flexibleStart, setFlexibleStart] = useState(false);
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState('');
@@ -144,6 +148,10 @@ export default function DayPlannerSheet({
     const [saveMessage, setSaveMessage] = useState('');
     const [now, setNow] = useState(Date.now);
     const active = useRef<AbortController | null>(null);
+    const activeSave = useRef<AbortController | null>(null);
+    const [saveBusy, setSaveBusy] = useState(false);
+    const vesselRef = useRef(vessel);
+    vesselRef.current = vessel;
     const saving = useRef(false);
     const mounted = useRef(true);
     const locationRun = useRef(0);
@@ -174,9 +182,14 @@ export default function DayPlannerSheet({
     );
     const localDestinations = coverage === 'reviewed' ? area?.region?.destinations : undefined;
     const chosenDestination = localDestinations?.find((destination) => destination.id === destinationId);
+    const catalogueContextKey = `${lat},${lon}/${mode}/${JSON.stringify(catalogueSelection)}`;
+    const catalogueReady = !catalogueSelection || catalogueReadyKey === catalogueContextKey;
     const changePlan = useCallback(() => {
         active.current?.abort();
         active.current = null;
+        activeSave.current?.abort();
+        activeSave.current = null;
+        setSaveBusy(false);
         setBusy(false);
         setError('');
         setResult(null);
@@ -189,6 +202,21 @@ export default function DayPlannerSheet({
         setSaveMessage('');
         saving.current = false;
     }, []);
+    const chooseCatalogue = useCallback(
+        (selection: CataloguePlanSelection | null) => {
+            changePlan();
+            setCatalogueReadyKey('');
+            setCatalogueSelection(selection);
+            if (selection) setDestinationId('');
+        },
+        [changePlan],
+    );
+    const catalogueReadiness = useCallback(
+        (ready: boolean) => {
+            setCatalogueReadyKey(ready ? catalogueContextKey : '');
+        },
+        [catalogueContextKey],
+    );
 
     useEffect(() => {
         const nextZone = area?.timeZone;
@@ -264,6 +292,7 @@ export default function DayPlannerSheet({
         void locate();
         const cancelIdentity = subscribeAuthIdentityScope(() => {
             active.current?.abort();
+            activeSave.current?.abort();
             onClose();
         });
         const clock = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -277,6 +306,7 @@ export default function DayPlannerSheet({
             // eslint-disable-next-line react-hooks/exhaustive-deps
             locationRun.current++;
             active.current?.abort();
+            activeSave.current?.abort();
             cancelIdentity();
             chartChange();
             window.clearInterval(clock);
@@ -286,6 +316,10 @@ export default function DayPlannerSheet({
     const positionNeedsConfirmation = manualPosition || !fix || now - fix.timestamp > PLANNER_LIVE_FIX_MS;
     const calculate = async () => {
         if (!vessel || !inputs || !scopeValid() || busy) return;
+        if (!catalogueReady) {
+            setError('Complete the shared catalogue selection, or explicitly choose regional or mapped stops.');
+            return;
+        }
         const needsConfirmationNow = manualPosition || !fix || Date.now() - fix.timestamp > PLANNER_LIVE_FIX_MS;
         if (!startValid || !area || area.timeZone !== timeZone || (needsConfirmationNow && !confirmedPosition)) {
             setNow(Date.now());
@@ -305,6 +339,8 @@ export default function DayPlannerSheet({
             );
             return;
         }
+        const catalogueRequestSelection = catalogueSelection ? { ...catalogueSelection } : null;
+        if (mode === 'overnight' && catalogueRequestSelection) delete catalogueRequestSelection.return;
         const nextRequest: DayPlanRequest = {
             start: { lat: +lat, lon: +lon, label: startLabel.trim() || 'Departure' },
             departureMs,
@@ -313,7 +349,11 @@ export default function DayPlannerSheet({
             stopHours: +stopHours,
             mode,
             activities,
-            ...(chosenDestination ? { destinationIds: [chosenDestination.id] } : {}),
+            ...(catalogueRequestSelection
+                ? { catalogueSelection: catalogueRequestSelection }
+                : chosenDestination
+                  ? { destinationIds: [chosenDestination.id] }
+                  : {}),
             speedKts: inputs.speedKts,
             draftM: inputs.draftM,
             maxWindKts: Math.min(inputs.maxWindKts ?? 20, 20),
@@ -416,13 +456,19 @@ export default function DayPlannerSheet({
             (leg, i) => reviewedLegs.includes(i) && routeDisplay(leg, request.draftM).light !== 'red',
         ) &&
         acknowledged &&
+        !saveBusy &&
         !savedIds.length;
-    const save = () => {
+    const save = async () => {
         if (!canSave || saving.current || !selected || !request || !result || !inputs || !scopeValid()) return;
         saving.current = true;
+        const controller = new AbortController();
+        activeSave.current?.abort();
+        activeSave.current = controller;
+        const saveCurrent = () => activeSave.current === controller && !controller.signal.aborted && scopeValid();
+        setSaveBusy(true);
         setError('');
         try {
-            const saved = saveDayPlan(
+            const saved = await saveDayPlanWithCatalogueCheck(
                 {
                     option: selected,
                     request: { ...request, departureMs: selected.departureMs },
@@ -432,12 +478,21 @@ export default function DayPlannerSheet({
                     currentVesselInputs: inputs,
                 },
                 scope,
+                {
+                    signal: controller.signal,
+                    getCurrentVesselProfile: () => snapshotAutoroutingVesselProfile(vesselRef.current),
+                    getCurrentVesselInputs: () => {
+                        if (!vesselRef.current) throw new Error('Your vessel changed. Recalculate before saving.');
+                        return dayPlannerVesselInputs(vesselRef.current);
+                    },
+                },
             );
+            if (!saveCurrent()) return;
             setSavedIds(saved.traces.map((trace) => trace.id));
             setSaveMessage('Saved on this device. Private sync pending. Nothing is being followed or recorded.');
             void saved.cloud
                 .then((statuses) => {
-                    if (!scopeValid()) return;
+                    if (!saveCurrent()) return;
                     setSaveMessage(
                         statuses.every((status) => status === 'ok')
                             ? 'Saved to your private route library. Nothing is being followed or recorded.'
@@ -445,11 +500,14 @@ export default function DayPlannerSheet({
                     );
                 })
                 .catch(() => {
-                    if (scopeValid()) setSaveMessage('Saved on this device; private sync is pending.');
+                    if (saveCurrent()) setSaveMessage('Saved on this device; private sync is pending.');
                 });
         } catch (cause) {
+            if (!saveCurrent()) return;
             saving.current = false;
             setError(cause instanceof Error ? cause.message : 'Could not save the itinerary.');
+        } finally {
+            if (saveCurrent()) setSaveBusy(false);
         }
     };
 
@@ -600,7 +658,11 @@ export default function DayPlannerSheet({
                                         Destination
                                         <select
                                             value={chosenDestination?.id ?? ''}
-                                            onChange={(e) => setDestinationId(e.target.value)}
+                                            onChange={(e) => {
+                                                setDestinationId(e.target.value);
+                                                setCatalogueSelection(null);
+                                                setCatalogueReadyKey('');
+                                            }}
                                         >
                                             <option value="">All local destinations</option>
                                             {localDestinations.map((destination) => (
@@ -611,15 +673,30 @@ export default function DayPlannerSheet({
                                         </select>
                                     </label>
                                 )}
+                                <CatalogueTripPicker
+                                    position={{ lat: +lat, lon: +lon }}
+                                    enabled={
+                                        !!scope.userId &&
+                                        startValid &&
+                                        !!area &&
+                                        (!positionNeedsConfirmation || confirmedPosition)
+                                    }
+                                    mode={mode}
+                                    value={catalogueSelection}
+                                    onChange={chooseCatalogue}
+                                    onReadyChange={catalogueReadiness}
+                                />
                                 {area && (
                                     <aside
                                         className="day-plan-coverage day-plan-coverage-compact"
                                         aria-label="Destination coverage"
                                     >
                                         <strong>
-                                            {mappedMode
-                                                ? 'Mapped stops · local details unverified'
-                                                : `${area.name} · reviewed destination guide`}
+                                            {catalogueSelection
+                                                ? 'Shared catalogue choice · access unverified'
+                                                : mappedMode
+                                                  ? 'Mapped stops · local details unverified'
+                                                  : `${area.name} · reviewed destination guide`}
                                         </strong>
                                         {mappedMode && <p>Access and shelter unverified. Checks remain incomplete.</p>}
                                     </aside>
@@ -657,13 +734,15 @@ export default function DayPlannerSheet({
                                     ))}
                                 </div>
                                 <p className="day-plan-fine">
-                                    {chosenDestination
-                                        ? 'Your chosen destination is checked even if activities do not match.'
-                                        : mappedMode
-                                          ? 'Map references only; activities and landing access are unverified.'
-                                          : activities.length
-                                            ? 'Suggestions match at least one activity.'
-                                            : 'Compare nearby stops, with no activity filter.'}
+                                    {catalogueSelection
+                                        ? 'Your shared catalogue choice is checked even if activities do not match.'
+                                        : chosenDestination
+                                          ? 'Your chosen destination is checked even if activities do not match.'
+                                          : mappedMode
+                                            ? 'Map references only; activities and landing access are unverified.'
+                                            : activities.length
+                                              ? 'Suggestions match at least one activity.'
+                                              : 'Compare nearby stops, with no activity filter.'}
                                 </p>
                             </fieldset>
                             <fieldset className="day-plan-section" disabled={busy} onChange={changePlan}>
@@ -789,9 +868,11 @@ export default function DayPlannerSheet({
                                     visit; an overnight stay is assessed through your chosen end time.
                                 </p>
                                 <p>
-                                    {mappedMode
-                                        ? 'Mapped stops have unverified access, shelter, holding and activities. They stay “Checks incomplete” even with a favourable forecast. Coverage varies; some areas have no usable mapped stops.'
-                                        : 'Reviewed guides document activities and local notes. Current access and anchoring conditions still need checking. Picnic lunch means bring your own. Quiet stops do not predict crowds or calm water; snorkelling visibility is unverified.'}
+                                    {catalogueSelection
+                                        ? 'Shared catalogue entries retain source reviews and limitations. These do not establish a verified approach or current access, shelter and holding.'
+                                        : mappedMode
+                                          ? 'Mapped stops have unverified access, shelter, holding and activities. They stay “Checks incomplete” even with a favourable forecast. Coverage varies; some areas have no usable mapped stops.'
+                                          : 'Reviewed guides document activities and local notes. Current access and anchoring conditions still need checking. Picnic lunch means bring your own. Quiet stops do not predict crowds or calm water; snorkelling visibility is unverified.'}
                                 </p>
                                 <p>
                                     Up to four nearby destinations per search. Every qualifying assessed option is
@@ -815,14 +896,23 @@ export default function DayPlannerSheet({
                     {result && request && (
                         <aside className="day-plan-coverage" aria-label="Plan coverage and time zone">
                             <strong>
-                                {result.coverage?.type === 'mapped-reference' || request.activities.includes('explore')
-                                    ? 'Mapped stops · local details unverified'
-                                    : `${result.coverage?.name ?? area?.name ?? 'Regional'} · reviewed destination guide`}
+                                {result.coverage?.type === 'catalogue-reference'
+                                    ? 'Shared catalogue · reviewed source references'
+                                    : result.coverage?.type === 'mapped-reference' ||
+                                        request.activities.includes('explore')
+                                      ? 'Mapped stops · local details unverified'
+                                      : `${result.coverage?.name ?? area?.name ?? 'Regional'} · reviewed destination guide`}
                             </strong>
                             <p>
                                 All itinerary times use the departure area:{' '}
                                 {dayPlanTimeZoneLabel(request.departureMs, displayZone)}.
                             </p>
+                            {result.coverage?.type === 'catalogue-reference' && (
+                                <p>
+                                    Reviewed source references do not verify the approach, access, shelter or current
+                                    conditions. Local conditions remain unassessed.
+                                </p>
+                            )}
                             {!!result.coverage?.limitations.length && (
                                 <ul>
                                     {result.coverage.limitations.map((note) => (
@@ -868,19 +958,27 @@ export default function DayPlannerSheet({
                                             point.
                                         </p>
                                     )}
+                                    {option.candidate.destination.catalogueQuality === 'catalogue-reference' && (
+                                        <p className="day-plan-notice">
+                                            Reviewed catalogue reference. Approach and local conditions remain
+                                            unverified.
+                                        </p>
+                                    )}
                                     <p>{option.candidate.destination.summary}</p>
                                     <p className="day-plan-fine">
-                                        {request.destinationIds?.length
-                                            ? 'Your chosen destination · activities do not filter this stop'
-                                            : !request.activities.length
-                                              ? 'No activity preference'
-                                              : `Matches: ${ACTIVITY_LABELS.filter(
-                                                    ([activity]) =>
-                                                        request.activities.includes(activity) &&
-                                                        option.candidate.destination.activities.includes(activity),
-                                                )
-                                                    .map(([, label]) => label)
-                                                    .join(' · ')}`}
+                                        {request.catalogueSelection
+                                            ? 'Your shared catalogue choice · activities do not filter this stop'
+                                            : request.destinationIds?.length
+                                              ? 'Your chosen destination · activities do not filter this stop'
+                                              : !request.activities.length
+                                                ? 'No activity preference'
+                                                : `Matches: ${ACTIVITY_LABELS.filter(
+                                                      ([activity]) =>
+                                                          request.activities.includes(activity) &&
+                                                          option.candidate.destination.activities.includes(activity),
+                                                  )
+                                                      .map(([, label]) => label)
+                                                      .join(' · ')}`}
                                     </p>
                                     <DayPlanOutline option={option} />
                                     <div className="day-plan-metrics">
@@ -940,7 +1038,7 @@ export default function DayPlannerSheet({
                             <button
                                 type="button"
                                 className="day-plan-secondary"
-                                disabled={!!savedIds.length}
+                                disabled={!!savedIds.length || saveBusy}
                                 onClick={() => {
                                     setSelected(null);
                                     setAcknowledged(false);
@@ -1025,7 +1123,7 @@ export default function DayPlannerSheet({
                                         <button
                                             type="button"
                                             className="day-plan-secondary"
-                                            disabled={!!savedIds.length}
+                                            disabled={!!savedIds.length || saveBusy}
                                             onClick={() => setReviewLeg(i)}
                                         >
                                             {reviewedLegs.includes(i) ? 'Review chart again' : 'Open ENC review'}
@@ -1050,9 +1148,11 @@ export default function DayPlannerSheet({
                                     {selected.candidate.destination.sourceLabel}
                                 </a>
                                 <p>
-                                    {selected.candidate.destination.catalogueQuality === 'mapped-reference'
-                                        ? `Unreviewed map reference${selected.candidate.destination.retrievedAt ? `, retrieved ${selected.candidate.destination.retrievedAt}` : ''}. Retrieval is not verification. Check local notices, access and restrictions.`
-                                        : `Destination reference reviewed ${selected.candidate.destination.verifiedAt}. Check current notices before visiting.`}
+                                    {selected.candidate.destination.catalogueQuality === 'catalogue-reference'
+                                        ? 'Reviewed catalogue source reference. This review does not establish an approved approach or current conditions.'
+                                        : selected.candidate.destination.catalogueQuality === 'mapped-reference'
+                                          ? `Unreviewed map reference${selected.candidate.destination.retrievedAt ? `, retrieved ${selected.candidate.destination.retrievedAt}` : ''}. Retrieval is not verification. Check local notices, access and restrictions.`
+                                          : `Destination reference reviewed ${selected.candidate.destination.verifiedAt}. Check current notices before visiting.`}
                                 </p>
                                 {selected.candidate.destination.supportingSources?.map((source) => (
                                     <p key={source.url}>
@@ -1067,7 +1167,9 @@ export default function DayPlannerSheet({
                                     ))}
                                 </ul>
                                 <p>
-                                    OpenStreetMap contributors (ODbL). Regional source references are listed above.
+                                    {selected.candidate.destination.catalogueQuality === 'catalogue-reference'
+                                        ? 'Catalogue evidence and limitations are listed above. Source review is separate from navigation checks.'
+                                        : 'OpenStreetMap contributors (ODbL). Regional source references are listed above.'}
                                     Forecast: Open-Meteo / national weather services. Routing: SevenCs. Model output is
                                     not a guarantee of conditions or clearance.
                                 </p>
@@ -1077,6 +1179,7 @@ export default function DayPlannerSheet({
                                     <input
                                         type="checkbox"
                                         checked={acknowledged}
+                                        disabled={saveBusy}
                                         onChange={(e) => setAcknowledged(e.target.checked)}
                                     />
                                     I have reviewed each leg and the limitations. Save a private plan only—not
@@ -1115,6 +1218,11 @@ export default function DayPlannerSheet({
                             {progress}
                         </p>
                     )}
+                    {saveBusy && (
+                        <p className="day-plan-progress" role="status">
+                            Rechecking this plan before saving…
+                        </p>
+                    )}
                 </div>
                 <footer className="day-plan-footer">
                     {busy ? (
@@ -1139,7 +1247,12 @@ export default function DayPlannerSheet({
                             <button type="button" className="day-plan-secondary" onClick={changePlan}>
                                 Change plan
                             </button>
-                            <button type="button" className="day-plan-primary" disabled={!canSave} onClick={save}>
+                            <button
+                                type="button"
+                                className="day-plan-primary"
+                                disabled={!canSave}
+                                onClick={() => void save()}
+                            >
                                 Save {selected.legs.length === 2 ? 'both legs' : 'day plan'}
                             </button>
                         </>
@@ -1154,6 +1267,7 @@ export default function DayPlannerSheet({
                             disabled={
                                 !!profileError ||
                                 !scope.userId ||
+                                !catalogueReady ||
                                 !startValid ||
                                 !area ||
                                 area.timeZone !== timeZone ||

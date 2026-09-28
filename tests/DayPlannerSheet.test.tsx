@@ -6,6 +6,7 @@ import type { BoatFix } from '../services/boatPositionChain';
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import type { TrialRouteReview } from '../services/autoroutingReview';
 import type { DayPlanLeg, DayPlanRequest, DayPlanResult } from '../services/dayPlanner/engine';
+import type { CatalogueDetail, CatalogueSummary } from '../services/dayPlanner/catalogue';
 import { WHITSUNDAYS_DAY_DESTINATIONS } from '../services/dayPlanner/destinations';
 import { autoroutingProposalGeometryKey } from '../services/autoroutingProposalEvidence';
 import { snapshotAutoroutingVesselProfile } from '../services/autoroutingVesselProfile';
@@ -18,6 +19,8 @@ const mock = vi.hoisted(() => ({
     run: vi.fn(),
     locate: vi.fn(),
     save: vi.fn(),
+    discover: vi.fn(),
+    catalogueDetail: vi.fn(),
     inputs: vi.fn(),
     registry: 'charts',
     chartListeners: new Set<() => void>(),
@@ -28,7 +31,13 @@ vi.mock('../services/dayPlanner/runtime', () => ({
     runDayPlanner: (...args: unknown[]) => mock.run(...args),
     dayPlannerVesselInputs: (vessel: VesselProfile) => mock.inputs(vessel),
 }));
-vi.mock('../services/dayPlanner/save', () => ({ saveDayPlan: (...args: unknown[]) => mock.save(...args) }));
+vi.mock('../services/dayPlanner/save', () => ({
+    saveDayPlanWithCatalogueCheck: (...args: unknown[]) => mock.save(...args),
+}));
+vi.mock('../services/dayPlanner/cataloguePlanning', () => ({
+    discoverCatalogueChoices: (...args: unknown[]) => mock.discover(...args),
+    loadCatalogueChoice: (...args: unknown[]) => mock.catalogueDetail(...args),
+}));
 vi.mock('../services/plannerVesselPosition', () => ({
     PLANNER_LIVE_FIX_MS: 60_000,
     readPlannerVesselPosition: () => mock.locate(),
@@ -89,6 +98,51 @@ const vessel: VesselProfile = {
     maxWaveHeight: 6,
 };
 const freshFix: BoatFix = { latitude: -20.2, longitude: 148.99, timestamp: NOW, rung: 'bus' };
+const sharedId = '00000000-0000-4000-8000-000000000001';
+const outboundRef = { id: '00000000-0000-4000-8000-000000000002', version: 2 };
+const returnRef = { id: '00000000-0000-4000-8000-000000000003', version: 3 };
+function sharedTrip() {
+    const review = {
+        reviewedAt: new Date(NOW - HOUR).toISOString(),
+        reviewDueAt: new Date(NOW + 24 * HOUR).toISOString(),
+    };
+    const summary: CatalogueSummary = {
+        id: sharedId,
+        version: 1,
+        kind: 'trip',
+        name: 'Shared island trip',
+        summary: 'A catalogue reference',
+        position: { lat: -20.2, lon: 148.99 },
+        distanceNM: 0,
+        review,
+    };
+    const detail: CatalogueDetail = {
+        ...summary,
+        kind: 'trip',
+        review: { ...review, reviewerLabel: 'Editor', scope: 'Public source reference' },
+        evidence: [],
+        limitations: ['Local conditions remain unassessed.'],
+        activities: [],
+        origin: { id: '00000000-0000-4000-8000-000000000004', version: 1 },
+        destination: { id: '00000000-0000-4000-8000-000000000005', version: 1 },
+        variantsTruncated: false,
+        variants: [
+            { ...outboundRef, direction: 'outbound', name: 'Outbound reference' },
+            { ...returnRef, direction: 'return', name: 'Return reference' },
+        ],
+    };
+    mock.discover.mockResolvedValue({ status: 'ready', summaries: [summary], message: 'One shared trip nearby.' });
+    mock.catalogueDetail.mockResolvedValue(detail);
+}
+async function chooseSharedTrip() {
+    await locate();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse shared catalogue' }));
+    await screen.findByRole('option', { name: 'Shared island trip · trip' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Shared destination or trip' }), {
+        target: { value: `${sharedId}:1` },
+    });
+    await screen.findByRole('combobox', { name: 'Outbound route reference' });
+}
 
 function resultFor(request: DayPlanRequest, offset = mock.delay): DayPlanResult {
     const destination = WHITSUNDAYS_DAY_DESTINATIONS[0];
@@ -218,6 +272,10 @@ beforeEach(() => {
         traces: [{ id: 'saved-first' }, { id: 'saved-second' }],
         cloud: Promise.resolve(['ok', 'ok']),
     });
+    mock.discover
+        .mockReset()
+        .mockResolvedValue({ status: 'empty', summaries: [], message: 'No nearby shared references.' });
+    mock.catalogueDetail.mockReset();
 });
 afterEach(() => {
     cleanup();
@@ -546,7 +604,137 @@ describe('DayPlannerSheet position and request ownership', () => {
     });
 });
 
+describe('DayPlannerSheet shared catalogue ownership', () => {
+    it.each(['return', 'overnight'] as const)(
+        'sends the exact shared choice instead of local destinations in %s mode',
+        async (mode) => {
+            sharedTrip();
+            mount();
+            await locate();
+            expect(mock.discover).not.toHaveBeenCalled();
+            fireEvent.change(screen.getByRole('combobox', { name: 'Destination' }), {
+                target: { value: 'whitehaven-beach' },
+            });
+            if (mode === 'overnight') fireEvent.click(screen.getByRole('button', { name: 'Stay overnight' }));
+            await chooseSharedTrip();
+            expect(screen.getByRole('combobox', { name: 'Destination' })).toHaveValue('');
+            await waitFor(() => expect(screen.getByRole('button', { name: 'Find my day' })).toBeEnabled());
+            fireEvent.click(screen.getByRole('button', { name: 'Find my day' }));
+            await screen.findByRole('button', { name: 'Review in Plan' });
+            const request = mock.run.mock.calls[0][0] as DayPlanRequest;
+            expect(request).not.toHaveProperty('destinationIds');
+            expect(request.catalogueSelection).toEqual({
+                id: sharedId,
+                version: 1,
+                outbound: outboundRef,
+                ...(mode === 'return' ? { return: returnRef } : {}),
+            });
+        },
+    );
+
+    it('blocks a failed shared choice until the user explicitly selects a local destination', async () => {
+        sharedTrip();
+        mock.catalogueDetail.mockRejectedValue(new Error('withdrawn'));
+        mount();
+        await locate();
+        fireEvent.click(screen.getByRole('button', { name: 'Browse shared catalogue' }));
+        await screen.findByRole('option', { name: 'Shared island trip · trip' });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Shared destination or trip' }), {
+            target: { value: `${sharedId}:1` },
+        });
+        await screen.findByText(/This selected reference is unavailable/);
+        expect(screen.getByRole('button', { name: 'Find my day' })).toBeDisabled();
+        expect(mock.run).not.toHaveBeenCalled();
+        fireEvent.change(screen.getByRole('combobox', { name: 'Destination' }), {
+            target: { value: 'whitehaven-beach' },
+        });
+        expect(screen.getByRole('combobox', { name: 'Shared destination or trip' })).toHaveValue('');
+        fireEvent.click(screen.getByRole('button', { name: 'Find my day' }));
+        await screen.findByRole('button', { name: 'Review in Plan' });
+        expect(mock.run.mock.calls[0][0]).toMatchObject({ destinationIds: ['whitehaven-beach'] });
+        expect(mock.run.mock.calls[0][0]).not.toHaveProperty('catalogueSelection');
+    });
+
+    it('shows catalogue source review separately from approach and local condition checks', async () => {
+        mock.run.mockImplementation(async (request: DayPlanRequest) => {
+            const result = resultFor(request);
+            result.coverage = {
+                id: 'shared',
+                name: 'Shared catalogue',
+                type: 'catalogue-reference',
+                timeZone: 'Australia/Brisbane',
+                sourceAttributions: ['Catalogue editor'],
+                limitations: ['Local conditions remain unassessed.'],
+            };
+            result.options[0].candidate.destination = {
+                ...result.options[0].candidate.destination,
+                catalogueQuality: 'catalogue-reference',
+            };
+            result.options[0].light = 'unknown';
+            return result;
+        });
+        mount();
+        await calculate();
+        expect(screen.getByText('Shared catalogue · reviewed source references')).toBeInTheDocument();
+        expect(
+            screen.getByText('Reviewed catalogue reference. Approach and local conditions remain unverified.'),
+        ).toBeInTheDocument();
+        expect(screen.getByText('Checks incomplete')).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: 'Review in Plan' }));
+        expect(
+            screen.getByText(
+                'Reviewed catalogue source reference. This review does not establish an approved approach or current conditions.',
+            ),
+        ).toBeInTheDocument();
+    });
+});
+
 describe('DayPlannerSheet review and planned-only save', () => {
+    it('aborts a pending save on change plan and ignores its late result', async () => {
+        let finish!: (value: unknown) => void;
+        mock.save.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve;
+                }),
+        );
+        mount();
+        await calculate();
+        fireEvent.click(screen.getByRole('button', { name: 'Review in Plan' }));
+        await reviewNext();
+        await reviewNext();
+        fireEvent.click(screen.getByRole('checkbox', { name: /I have reviewed each leg/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save both legs' }));
+        const options = mock.save.mock.calls[0][2] as { signal: AbortSignal };
+        expect(screen.getByRole('button', { name: 'Save both legs' })).toBeDisabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Change plan' }));
+        expect(options.signal.aborted).toBe(true);
+        await act(async () => finish({ traces: [{ id: 'late-save' }], cloud: Promise.resolve(['ok']) }));
+        expect(screen.queryByRole('button', { name: 'Open saved plan' })).toBeNull();
+        expect(screen.queryByText(/Saved to your private route library/)).toBeNull();
+    });
+
+    it('supplies current vessel getters during an asynchronous save and aborts on unmount', async () => {
+        mock.save.mockImplementation(() => new Promise(() => {}));
+        const view = mount();
+        await calculate();
+        fireEvent.click(screen.getByRole('button', { name: 'Review in Plan' }));
+        await reviewNext();
+        await reviewNext();
+        fireEvent.click(screen.getByRole('checkbox', { name: /I have reviewed each leg/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Save both legs' }));
+        const options = mock.save.mock.calls[0][2] as {
+            signal: AbortSignal;
+            getCurrentVesselProfile: () => unknown;
+            getCurrentVesselInputs: () => unknown;
+        };
+        const changedVessel = { ...vessel, draft: 7, cruisingSpeed: 7 };
+        view.rerender(<DayPlannerSheet {...view.props} vessel={changedVessel} />);
+        expect(options.getCurrentVesselProfile()).toEqual(snapshotAutoroutingVesselProfile(changedVessel));
+        expect(options.getCurrentVesselInputs()).toEqual(mock.inputs(changedVessel));
+        view.unmount();
+        expect(options.signal.aborted).toBe(true);
+    });
     it.each([false, true])(
         'requires both chart reviews and acknowledgement, then saves the selected departure (flexible=%s)',
         async (flexible) => {

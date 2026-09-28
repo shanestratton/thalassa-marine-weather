@@ -3,8 +3,13 @@ import { validateAutoroutingVesselProfile } from '../../supabase/functions/_shar
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdentityScope';
 import { CONDITIONS_MAX_AGE_MS } from '../anchorages/placeConditions';
 import { prepareReviewedAutoroutingProposal } from '../autoroutingProposalSave';
+import { getRegistryFingerprint } from '../enc/EncCellMetadata';
 import { saveTraceTrip, type SavedTrace } from '../routeTracer';
 import type { PushResult } from '../savedRoutesSync';
+import { CRUISING_CATALOGUE_LIMITATION } from './catalogue';
+import { revalidateCataloguePlan, validateCatalogueCandidate } from './cataloguePlanning';
+import type { CataloguePlanSelection } from './cataloguePlanningTypes';
+import { assertCatalogueRouteCheckpoints, catalogueRouteWarnings } from './catalogueRouteConstraints';
 import { DAY_PLAN_TIME_ZONE, dayPlanDateTime, dayPlanLocalDate, isDayPlanTimeZone } from './presentation';
 import {
     assessDayPlanRoute,
@@ -27,6 +32,20 @@ export interface DayPlanSaveInput {
     currentVesselInputs?: { draftM: number; speedKts: number; maxWindKts?: number; maxWaveM?: number };
 }
 
+export interface DayPlanCatalogueSaveOptions {
+    signal: AbortSignal;
+    getCurrentVesselProfile: () => AutoroutingVesselProfile;
+    getCurrentVesselInputs: () => {
+        draftM: number;
+        speedKts: number;
+        maxWindKts?: number;
+        maxWaveM?: number;
+    };
+}
+
+export const DAY_PLAN_CATALOGUE_SAVE_TIMEOUT_MS = 15_000;
+type DayPlanSaveResult = { traces: SavedTrace[]; cloud: Promise<PushResult[]> };
+
 const HOUR_MS = 3_600_000;
 const unchangedTime = (actual: number, expected: number) =>
     Number.isFinite(actual) && Number.isFinite(expected) && Math.abs(actual - expected) < 1;
@@ -40,13 +59,134 @@ const shortName = (value: string) => {
     return text.length > 52 ? `${text.slice(0, 51)}…` : text;
 };
 
+const hasCatalogueReference = ({ request, option }: DayPlanSaveInput) =>
+    request.catalogueSelection !== undefined ||
+    option.candidate.catalogue !== undefined ||
+    option.candidate.destination.catalogueQuality === 'catalogue-reference' ||
+    option.candidate.destination.referencePosition === 'catalogue-reference';
+
+const selectionKey = (selection: CataloguePlanSelection | undefined) =>
+    selection === undefined
+        ? undefined
+        : JSON.stringify([
+              selection.id,
+              selection.version,
+              selection.outbound?.id,
+              selection.outbound?.version,
+              selection.return?.id,
+              selection.return?.version,
+          ]);
+
+function assertCatalogueSelection(input: DayPlanSaveInput): void {
+    const { catalogue, destination } = input.option.candidate;
+    if (
+        !catalogue ||
+        !input.request.catalogueSelection ||
+        catalogue.mode !== input.request.mode ||
+        selectionKey(input.request.catalogueSelection) !== selectionKey(catalogue.selection) ||
+        destination.catalogueQuality !== 'catalogue-reference' ||
+        destination.referencePosition !== 'catalogue-reference'
+    )
+        throw new Error('The selected catalogue reference changed. Recalculate before saving.');
+}
+
+/** Catalogue saves must await a fresh public read. The synchronous entry point
+ * cannot accept a caller-supplied timestamp or other reusable preflight token. */
+export function saveDayPlan(input: DayPlanSaveInput, expectedScope: AuthIdentityScope): DayPlanSaveResult {
+    if (hasCatalogueReference(input))
+        throw new Error('Catalogue references require a fresh catalogue check before saving. Nothing was saved.');
+    return commitDayPlan(input, expectedScope);
+}
+
+/** Re-read the exact catalogue versions, then cross the final local checks and
+ * commit in one synchronous turn. Neither request data nor vessel getters can
+ * update the detached itinerary while the public reads are pending. */
+export async function saveDayPlanWithCatalogueCheck(
+    input: DayPlanSaveInput,
+    expectedScope: AuthIdentityScope,
+    options: DayPlanCatalogueSaveOptions,
+): Promise<DayPlanSaveResult> {
+    const cancelled = () => new DOMException('Day-plan save cancelled. Nothing was saved.', 'AbortError');
+    if (options.signal.aborted) throw cancelled();
+    if (!hasCatalogueReference(input)) {
+        const currentInput = {
+            ...input,
+            currentVesselProfile: options.getCurrentVesselProfile(),
+            currentVesselInputs: options.getCurrentVesselInputs(),
+        };
+        if (options.signal.aborted) throw cancelled();
+        return saveDayPlan(currentInput, expectedScope);
+    }
+    if (!expectedScope.userId || !isAuthIdentityScopeCurrent(expectedScope))
+        throw new Error('Your account changed. Recalculate the day plan before saving.');
+
+    const scope = { ...expectedScope };
+    const snapshot = structuredClone(input);
+    assertCatalogueSelection(snapshot);
+    validateCatalogueCandidate(snapshot.option.candidate, snapshot.request.mode);
+    validateDayPlanRequest(snapshot.request, Date.now());
+    const selected = selectionKey(snapshot.request.catalogueSelection);
+    const profile = validateAutoroutingVesselProfile(options.getCurrentVesselProfile());
+    const vesselInputs = structuredClone(options.getCurrentVesselInputs());
+    const profileKey = JSON.stringify(profile);
+    const fingerprint = getRegistryFingerprint();
+    snapshot.currentVesselProfile = profile;
+    snapshot.currentVesselInputs = vesselInputs;
+
+    const controller = new AbortController();
+    let timeoutError: Error | undefined;
+    const deadline = Date.now() + DAY_PLAN_CATALOGUE_SAVE_TIMEOUT_MS;
+    const onCancel = () => controller.abort();
+    const timeout = setTimeout(() => {
+        timeoutError = new Error('The catalogue check timed out. Nothing was saved. Try again.');
+        controller.abort();
+    }, DAY_PLAN_CATALOGUE_SAVE_TIMEOUT_MS);
+    options.signal.addEventListener('abort', onCancel, { once: true });
+    let rejectAborted: () => void = () => undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+        rejectAborted = () => reject(timeoutError ?? cancelled());
+        controller.signal.addEventListener('abort', rejectAborted, { once: true });
+    });
+    try {
+        if (options.signal.aborted) controller.abort();
+        await Promise.race([
+            controller.signal.aborted
+                ? Promise.reject(cancelled())
+                : revalidateCataloguePlan(snapshot.option.candidate.catalogue!, controller.signal),
+            aborted,
+        ]);
+        if (controller.signal.aborted || options.signal.aborted) throw timeoutError ?? cancelled();
+        if (Date.now() >= deadline) throw new Error('The catalogue check timed out. Nothing was saved. Try again.');
+        if (!isAuthIdentityScopeCurrent(scope))
+            throw new Error('Your account changed. Recalculate the day plan before saving.');
+        if (getRegistryFingerprint() !== fingerprint)
+            throw new Error('Charts changed. Recalculate the day plan before saving.');
+        assertCatalogueSelection(input);
+        if (selectionKey(input.request.catalogueSelection) !== selected)
+            throw new Error('The selected catalogue reference changed. Recalculate before saving.');
+        if (JSON.stringify(validateAutoroutingVesselProfile(options.getCurrentVesselProfile())) !== profileKey)
+            throw new Error('The vessel profile changed. Recalculate before saving.');
+        const currentInputs = options.getCurrentVesselInputs();
+        if (
+            !(['draftM', 'speedKts', 'maxWindKts', 'maxWaveM'] as const).every((key) =>
+                Object.is(currentInputs[key], vesselInputs[key]),
+            )
+        )
+            throw new Error('Vessel draft, speed or weather limits changed. Recalculate before saving.');
+        validateCatalogueCandidate(snapshot.option.candidate, snapshot.request.mode);
+        if (controller.signal.aborted || options.signal.aborted) throw timeoutError ?? cancelled();
+        return commitDayPlan(snapshot, scope);
+    } finally {
+        clearTimeout(timeout);
+        options.signal.removeEventListener('abort', onCancel);
+        controller.signal.removeEventListener('abort', rejectAborted);
+    }
+}
+
 /** Saves only new canonical planned routes. All legs and notes are prepared
  * synchronously before the single local commit; this creates no voyage,
  * navigation verification, active route, log mirror or Float Plan. */
-export function saveDayPlan(
-    input: DayPlanSaveInput,
-    expectedScope: AuthIdentityScope,
-): { traces: SavedTrace[]; cloud: Promise<PushResult[]> } {
+function commitDayPlan(input: DayPlanSaveInput, expectedScope: AuthIdentityScope): DayPlanSaveResult {
     if (!expectedScope.userId || !isAuthIdentityScopeCurrent(expectedScope))
         throw new Error('Your account changed. Recalculate the day plan before saving.');
     const now = Date.now();
@@ -96,10 +236,11 @@ export function saveDayPlan(
     if (destination.timeZone !== undefined && !isDayPlanTimeZone(destination.timeZone))
         throw new Error('The destination time zone is invalid. Nothing was saved.');
     if (
-        destination.catalogueQuality === 'mapped-reference' &&
+        (destination.catalogueQuality === 'mapped-reference' ||
+            destination.catalogueQuality === 'catalogue-reference') &&
         (option.light !== 'unknown' || option.conditions.light !== 'unknown')
     )
-        throw new Error('An unreviewed mapped reference must retain its unassessed limitations. Nothing was saved.');
+        throw new Error('A mapped or catalogue reference must retain its unassessed limitations. Nothing was saved.');
     if (
         !Number.isFinite(option.distanceNM) ||
         !Number.isFinite(option.sailingHours) ||
@@ -131,9 +272,15 @@ export function saveDayPlan(
     const originName = shortName(request.start.label);
     const destinationName = shortName(destination.name);
     const reportNotes = [
-        `Day plan: ${request.mode === 'return' ? 'return trip' : 'overnight stop'}; ${request.destinationIds?.length ? 'chosen destination (activity preferences not applied)' : request.activities.join(', ') || 'no activity preference'}; ${request.speedKts} kn planning speed.`,
+        `Day plan: ${request.mode === 'return' ? 'return trip' : 'overnight stop'}; ${request.catalogueSelection ? 'chosen catalogue reference (activity preferences not applied)' : request.destinationIds?.length ? 'chosen destination (activity preferences not applied)' : request.activities.join(', ') || 'no activity preference'}; ${request.speedKts} kn planning speed.`,
         `Stay at ${destination.name}: ${dayPlanDateTime(option.stayFromMs, destinationZone)} to ${dayPlanDateTime(option.stayToMs, destinationZone)}.`,
-        `Destination source: ${boundedText(destination.sourceLabel, 500)}; ${destination.catalogueQuality === 'mapped-reference' || !destination.verifiedAt ? 'unreviewed mapped reference' : `facts reviewed ${boundedText(destination.verifiedAt, 30)}`}; ${boundedText(destination.sourceUrl, 2048)}`,
+        `Destination source: ${boundedText(destination.sourceLabel, 500)}; ${destination.catalogueQuality === 'catalogue-reference' ? 'reviewed editorial catalogue reference; approach and stop suitability remain unverified' : destination.catalogueQuality === 'mapped-reference' || !destination.verifiedAt ? 'unreviewed mapped reference' : `facts reviewed ${boundedText(destination.verifiedAt, 30)}`}; ${boundedText(destination.sourceUrl, 2048)}`,
+        ...(option.candidate.catalogue
+            ? [
+                  CRUISING_CATALOGUE_LIMITATION,
+                  `Catalogue versions: ${option.candidate.catalogue.details.map((detail) => `${detail.kind} ${detail.id} v${detail.version}`).join('; ')}.`,
+              ]
+            : []),
         ...(destination.supportingSources ?? []).map(
             (source) => `Supporting source: ${boundedText(source.label, 500)}; ${boundedText(source.url, 2048)}`,
         ),
@@ -150,8 +297,16 @@ export function saveDayPlan(
         if (!fresh(checkedAt)) throw new Error('A route review is stale. Recalculate before saving.');
         if (JSON.stringify(validateAutoroutingVesselProfile(leg.route.vesselProfile)) !== profileKey)
             throw new Error('The vessel profile changed. Recalculate before saving.');
+        const constraint = index === 0 ? option.candidate.catalogue?.outbound : option.candidate.catalogue?.return;
+        if (constraint) assertCatalogueRouteCheckpoints(leg.route.coordinates, constraint);
+        const assessedRoute = {
+            ...leg.route,
+            warnings: [
+                ...new Set([...leg.route.warnings, ...catalogueRouteWarnings(option.candidate.catalogue, constraint)]),
+            ],
+        };
         // These checks also reject provider/local danger and required tide clearance.
-        assessDayPlanRoute(leg.route, leg.review, request.draftM);
+        assessDayPlanRoute(assessedRoute, leg.review, request.draftM);
         const distanceNM = dayPlanRouteDistanceNM(leg.route.coordinates);
         const from = index === 0 ? request.start : destination;
         const to = index === 0 ? destination : request.start;
@@ -172,10 +327,10 @@ export function saveDayPlan(
         // Shallow clone only the changed warnings; the preparer detaches all saved
         // geometry/evidence and never persists the licensed raw route.source.
         const route = {
-            ...leg.route,
+            ...assessedRoute,
             warnings: [
                 ...new Set([
-                    ...leg.route.warnings,
+                    ...assessedRoute.warnings,
                     `Itinerary leg ${index + 1}: ${fromName} to ${toName}; depart ${dayPlanDateTime(leg.departureMs, index === 0 ? departureZone : destinationZone)}, arrive ${dayPlanDateTime(leg.arrivalMs, index === 0 ? destinationZone : departureZone)}.`,
                     ...reportNotes,
                 ]),

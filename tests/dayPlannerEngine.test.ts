@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import type { TrialRouteReview } from '../services/autoroutingReview';
 import type { ConditionsForecast, ConditionsHour } from '../services/anchorages/placeConditions';
+import type { CatalogueRouteConstraint } from '../services/dayPlanner/cataloguePlanningTypes';
 import {
     assessDayPlanRoute,
     assessDayPlanTransit,
@@ -101,8 +102,179 @@ const dependencies = (extra: Partial<DayPlannerDependencies> = {}): DayPlannerDe
 });
 const build = (req = request(), list = [candidate()], deps = dependencies()) =>
     buildDayPlan(req, list, deps, { signal: signal() });
+const withCatalogue = (id = 'a', bendLon = 148.81): DayPlanCandidate => {
+    const result = candidate(id);
+    const chain = (direction: 'outbound' | 'return'): CatalogueRouteConstraint => ({
+        variant: { id: `00000000-0000-4000-8000-00000000000${direction === 'outbound' ? '1' : '2'}`, version: 1 },
+        direction,
+        checkpoints: (direction === 'outbound'
+            ? [start, { lat: -20.175, lon: bendLon }, result.destination]
+            : [result.destination, { lat: -20.175, lon: bendLon + 0.01 }, start]
+        ).map((point, index) => ({
+            lat: point.lat,
+            lon: point.lon,
+            sequence: index + 1,
+            required: true,
+            name: `Point ${index}`,
+            evidenceNote: 'Synthetic fixture',
+        })),
+    });
+    result.catalogue = {
+        mode: 'return',
+        selection: { id: '00000000-0000-4000-8000-000000000003', version: 1 },
+        details: [],
+        outbound: chain('outbound'),
+        return: chain('return'),
+    };
+    const binding = result.catalogue;
+    binding.details = [binding.outbound!, binding.return!].map((constraint) => ({
+        ...constraint.variant,
+        kind: 'route_variant',
+        name: 'Synthetic route variant',
+        summary: 'Synthetic fixture only.',
+        position: { lat: constraint.checkpoints[0].lat, lon: constraint.checkpoints[0].lon },
+        review: {
+            reviewedAt: new Date(NOW).toISOString(),
+            reviewDueAt: new Date(NOW + 24 * HOUR).toISOString(),
+            reviewerLabel: 'Fixture',
+            scope: 'Synthetic test',
+        },
+        evidence: [
+            {
+                sourceUrl: 'https://example.org/test',
+                sourceLabel: 'Fixture',
+                retrievedAt: new Date(NOW).toISOString(),
+                licence: 'Fixture',
+                licenceUrl: 'https://example.org/licence',
+                attribution: 'Fixture',
+                scope: 'Synthetic test',
+            },
+        ],
+        limitations: ['Current clearance remains unverified.'],
+        activities: [],
+        trip: binding.selection,
+        direction: constraint.direction,
+        checkpoints: structuredClone(constraint.checkpoints),
+    }));
+    result.destination.catalogueQuality = 'catalogue-reference';
+    result.destination.referencePosition = 'catalogue-reference';
+    return result;
+};
+const catalogueDependencies = (): DayPlannerDependencies =>
+    dependencies({
+        route: vi.fn(
+            async (
+                from: DayPlanPoint,
+                to: DayPlanPoint,
+                _signal: AbortSignal,
+                constraint?: CatalogueRouteConstraint,
+            ) => {
+                const proposal = route(
+                    from,
+                    to,
+                    constraint?.checkpoints.slice(1, -1).map((point) => [point.lon, point.lat]),
+                );
+                return { route: proposal, review: review(proposal) };
+            },
+        ),
+    });
 
 describe('day planner deterministic itinerary construction', () => {
+    it('keeps independent directional catalogue constraints and unknown stop suitability', async () => {
+        const destination = withCatalogue();
+        const deps = catalogueDependencies();
+        const result = await build(
+            request({ catalogueSelection: destination.catalogue!.selection, activities: ['quiet'] }),
+            [destination],
+            deps,
+        );
+        expect(result.options).toHaveLength(1);
+        expect(deps.route).toHaveBeenNthCalledWith(
+            1,
+            start,
+            destination.destination,
+            expect.any(AbortSignal),
+            destination.catalogue!.outbound,
+        );
+        expect(deps.route).toHaveBeenNthCalledWith(
+            2,
+            destination.destination,
+            start,
+            expect.any(AbortSignal),
+            destination.catalogue!.return,
+        );
+        expect(result.options[0].conditions.light).toBe('unknown');
+        expect(result.options[0].light).toBe('unknown');
+    });
+
+    it('excludes catalogue trips with no explicit return and provider shortcuts', async () => {
+        const destination = withCatalogue();
+        delete destination.catalogue!.return;
+        const deps = catalogueDependencies();
+        const missing = await build(request(), [destination], deps);
+        expect(missing.excluded[0].reason).toMatch(/no separately reviewed return/);
+        expect(deps.route).not.toHaveBeenCalled();
+        const shortcut = await build(request(), [withCatalogue()], dependencies());
+        expect(shortcut.options).toHaveLength(0);
+        expect(shortcut.excluded[0].reason).toMatch(/every required catalogue checkpoint/);
+    });
+
+    it.each(['outbound', 'return'] as const)(
+        'rejects recognized tide dependency in the selected %s variant even if the provider omits its warning',
+        async (direction) => {
+            const destination = withCatalogue();
+            const detail = destination.catalogue!.details.find(
+                (entry) => entry.kind === 'route_variant' && entry.direction === direction,
+            )!;
+            detail.limitations = ['This passage requires a tide window.'];
+            const result = await build(request(), [destination], catalogueDependencies());
+            expect(result.options).toHaveLength(0);
+            expect(result.excluded[0].reason).toMatch(/tide or tidal clearance/);
+        },
+    );
+
+    it('keeps destination shore-access tide notes separate from directional route limitations', async () => {
+        const destination = withCatalogue();
+        destination.destination.accessNotes.push('Shore landing requires a tide window.');
+        const result = await build(request(), [destination], catalogueDependencies());
+        expect(result.options).toHaveLength(1);
+    });
+
+    it('rejects a selected catalogue identity changing before engine use', async () => {
+        const destination = withCatalogue();
+        await expect(
+            build(
+                request({ catalogueSelection: { ...destination.catalogue!.selection, version: 2 } }),
+                [destination],
+                catalogueDependencies(),
+            ),
+        ).rejects.toThrow(/exact selected/);
+    });
+
+    it('includes required detours and origin connectors in the pre-routing sailing budget', async () => {
+        const destination = withCatalogue();
+        destination.catalogue!.outbound!.checkpoints[0].lon += 5;
+        const deps = catalogueDependencies();
+        const result = await build(request(), [destination], deps);
+        expect(result.options).toHaveLength(0);
+        expect(result.excluded[0].reason).toMatch(/Outside the sailing budget/);
+        expect(deps.route).not.toHaveBeenCalled();
+    });
+
+    it('memoizes flexible routes by the entire variant chain even when endpoints match', async () => {
+        const deps = catalogueDependencies();
+        const result = await buildFlexibleDayPlan(
+            request({ flexibleStart: true }),
+            [withCatalogue('a', 148.81), withCatalogue('b', 148.82)],
+            deps,
+            { signal: signal() },
+        );
+        expect(result.options).toHaveLength(2);
+        expect(deps.route).toHaveBeenCalledTimes(4);
+        const middle = result.options.map((option) => option.legs[0].route.coordinates[1][0]).sort();
+        expect(middle).toEqual([148.81, 148.82]);
+    });
+
     it('uses exact routed distances, independently requests the return and excludes stop time from sailing', async () => {
         const dest = candidate();
         const deps = dependencies({

@@ -20,6 +20,8 @@ const api = vi.hoisted(() => ({
     canal: vi.fn(),
     resolveExit: vi.fn(),
     verifyExit: vi.fn(),
+    catalogue: vi.fn(),
+    revalidateCatalogue: vi.fn(),
     currentAccount: true,
     fingerprint: 'charts-v1',
     authListeners: new Set<() => void>(),
@@ -33,6 +35,10 @@ vi.mock('../services/autoroutingTrial', () => ({
 vi.mock('../services/autoroutingReview', () => ({ reviewAutoroutingProposal: api.review }));
 vi.mock('../services/anchorages/AnchorageService', () => ({ AnchorageService: { loadNear: api.load } }));
 vi.mock('../services/dayPlanner/discovery', () => ({ discoverMappedDayPlanCandidates: api.discover }));
+vi.mock('../services/dayPlanner/cataloguePlanning', () => ({
+    loadCataloguePlan: api.catalogue,
+    revalidateCataloguePlan: api.revalidateCatalogue,
+}));
 vi.mock('../services/anchorages/PlaceConditionsService', () => ({
     cachedConditionsForecast: api.cached,
     loadPlaceConditions: api.weather,
@@ -89,6 +95,88 @@ const request = (): DayPlanRequest => ({
     draftM: 6 / FEET_PER_METRE,
 });
 const emptyResult = () => ({ options: [], excluded: [], calculatedAt: now });
+const catalogueSelection = { id: '00000000-0000-4000-8000-000000000101', version: 1 };
+const catalogueCandidate = (): DayPlanCandidate => {
+    const destination: DayPlanCandidate['destination'] = {
+        ...structuredClone(WHITSUNDAYS_DAY_DESTINATIONS[0]),
+        catalogueQuality: 'catalogue-reference',
+        referencePosition: 'catalogue-reference',
+    };
+    const points = [request().start, { lat: -20.26, lon: 148.9 }, destination];
+    const result: DayPlanCandidate = {
+        destination,
+        place: { id: 'catalogue-stop', lat: destination.lat, lon: destination.lon, kind: 'anchorage' },
+        catalogue: {
+            mode: 'return',
+            selection: catalogueSelection,
+            details: [],
+            outbound: {
+                variant: { id: '00000000-0000-4000-8000-000000000102', version: 1 },
+                direction: 'outbound',
+                checkpoints: points.map((point, i) => ({
+                    lat: point.lat,
+                    lon: point.lon,
+                    sequence: i + 1,
+                    required: true,
+                    name: `Point ${i}`,
+                    evidenceNote: 'Synthetic fixture',
+                })),
+            },
+        },
+    };
+    const constraint = result.catalogue!.outbound!;
+    result.catalogue!.details = [
+        {
+            ...constraint.variant,
+            kind: 'route_variant',
+            name: 'Synthetic route variant',
+            summary: 'Synthetic fixture only.',
+            position: { lat: constraint.checkpoints[0].lat, lon: constraint.checkpoints[0].lon },
+            review: {
+                reviewedAt: new Date(now).toISOString(),
+                reviewDueAt: new Date(now + 86400000).toISOString(),
+                reviewerLabel: 'Fixture',
+                scope: 'Synthetic test',
+            },
+            evidence: [
+                {
+                    sourceUrl: 'https://example.org/test',
+                    sourceLabel: 'Fixture',
+                    retrievedAt: new Date(now).toISOString(),
+                    licence: 'Fixture',
+                    licenceUrl: 'https://example.org/licence',
+                    attribution: 'Fixture',
+                    scope: 'Synthetic test',
+                },
+            ],
+            limitations: ['Current clearance remains unverified.'],
+            activities: [],
+            trip: result.catalogue!.selection,
+            direction: constraint.direction,
+            checkpoints: structuredClone(constraint.checkpoints),
+        },
+    ];
+    return result;
+};
+function withCatalogueRoute() {
+    api.catalogue.mockResolvedValue(catalogueCandidate());
+    api.build.mockImplementation(
+        async (
+            input: DayPlanRequest,
+            candidates: DayPlanCandidate[],
+            deps: DayPlannerDependencies,
+            runOptions: { signal: AbortSignal },
+        ) => {
+            await deps.route(
+                input.start,
+                candidates[0].destination,
+                runOptions.signal,
+                candidates[0].catalogue?.outbound,
+            );
+            return emptyResult();
+        },
+    );
+}
 const data = () => ({
     points: {
         type: 'FeatureCollection',
@@ -227,6 +315,7 @@ beforeEach(() => {
     api.build.mockResolvedValue(emptyResult());
     api.weather.mockResolvedValue(undefined);
     api.cached.mockReturnValue(undefined);
+    api.revalidateCatalogue.mockResolvedValue(undefined);
     api.guidance.mockReturnValue(api.calculate);
     api.verifyExit.mockResolvedValue(true);
 });
@@ -260,6 +349,127 @@ describe('Planner vessel inputs', () => {
 });
 
 describe('Day planner live adapter', () => {
+    it('loads only the exact selected shared entry, bounded known restrictions and fresh rechecks', async () => {
+        api.catalogue.mockResolvedValue(catalogueCandidate());
+        const result = await runDayPlanner({ ...request(), catalogueSelection }, vessel(), options());
+        expect(api.catalogue).toHaveBeenCalledWith(catalogueSelection, 'return', expect.any(AbortSignal));
+        expect(api.discover).not.toHaveBeenCalled();
+        const destination = WHITSUNDAYS_DAY_DESTINATIONS[0];
+        expect(api.load).toHaveBeenCalledWith(destination.lat, destination.lon, 1);
+        expect(api.build.mock.calls[0][1][0].destination.catalogueQuality).toBe('catalogue-reference');
+        expect(api.revalidateCatalogue).toHaveBeenCalledTimes(2);
+        expect(result.coverage?.type).toBe('catalogue-reference');
+    });
+
+    it('never falls back when a selected entry is withdrawn or final revalidation fails', async () => {
+        api.catalogue.mockRejectedValueOnce(new Error('Selected reference withdrawn'));
+        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
+            /withdrawn/,
+        );
+        expect(api.discover).not.toHaveBeenCalled();
+        expect(api.load).not.toHaveBeenCalled();
+        api.catalogue.mockResolvedValue(catalogueCandidate());
+        api.revalidateCatalogue
+            .mockResolvedValueOnce(undefined)
+            .mockRejectedValueOnce(new Error('Reference withdrawn during planning'));
+        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
+            /during planning/,
+        );
+    });
+
+    it('rejects combined local and catalogue choices before network work', async () => {
+        await expect(
+            runDayPlanner(
+                { ...request(), catalogueSelection, destinationIds: ['whitehaven-beach'] },
+                vessel(),
+                options(),
+            ),
+        ).rejects.toThrow(/not both/);
+        expect(api.status).not.toHaveBeenCalled();
+    });
+
+    it('retains known no-anchoring restrictions and rejects malformed restriction data', async () => {
+        api.catalogue.mockResolvedValue(catalogueCandidate());
+        const chart = data();
+        Object.assign(chart.points.features[0].properties, { noAnchoring: true });
+        api.load.mockResolvedValue(chart);
+        await runDayPlanner({ ...request(), catalogueSelection }, vessel(), options());
+        expect(api.build.mock.calls[0][1][0].place.noAnchoring).toBe(true);
+        api.load.mockResolvedValue({ ...chart, noAnchor: null });
+        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
+            /restriction data/,
+        );
+    });
+
+    it('fences account switches during exact catalogue detail loading', async () => {
+        api.catalogue.mockReturnValue(new Promise(() => {}));
+        const pending = runDayPlanner({ ...request(), catalogueSelection }, vessel(), options());
+        const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+        await vi.advanceTimersByTimeAsync(0);
+        api.currentAccount = false;
+        api.authListeners.forEach((listener) => listener());
+        await rejected;
+        expect(api.build).not.toHaveBeenCalled();
+    });
+
+    it('passes every required interior checkpoint to the provider then reviews the whole returned route', async () => {
+        withCatalogueRoute();
+        api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true, channelGuidance: true });
+        api.calculate.mockImplementation(async (input: AutoroutingTrialRequest) => ({
+            ...route(input),
+            coordinates: [
+                [input.departure.lon, input.departure.lat],
+                ...(input.chartTrackConstraints ?? []).map((point) => [point.lon, point.lat]),
+                [input.destination.lon, input.destination.lat],
+            ],
+        }));
+        await runDayPlanner({ ...request(), catalogueSelection }, vessel(), options());
+        expect(api.calculate.mock.calls[0][0].chartTrackConstraints).toEqual([{ lat: -20.26, lon: 148.9 }]);
+        expect(api.review.mock.calls[0][0].coordinates).toHaveLength(3);
+        expect(api.review.mock.calls[0][0].warnings).toContain(
+            'Catalogue outbound route limitation: Current clearance remains unverified.',
+        );
+    });
+
+    it('rejects unsupported constraints and provider shortcuts without a generic-route retry', async () => {
+        withCatalogueRoute();
+        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
+            /does not support/,
+        );
+        expect(api.calculate).not.toHaveBeenCalled();
+        api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true, channelGuidance: true });
+        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
+            /every required/,
+        );
+        expect(api.calculate).toHaveBeenCalledTimes(1);
+        expect(api.review).not.toHaveBeenCalled();
+    });
+
+    it('rejects a canal handover that cannot preserve the required catalogue chain', async () => {
+        withCatalogueRoute();
+        api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true, channelGuidance: true });
+        api.profiles.push({
+            departureArea: {
+                type: 'Polygon',
+                coordinates: [
+                    [
+                        [148.7, -20.3],
+                        [148.9, -20.3],
+                        [148.9, -20.2],
+                        [148.7, -20.2],
+                        [148.7, -20.3],
+                    ],
+                ],
+            },
+        });
+        api.resolveExit.mockReturnValue({ status: 'resolved' });
+        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
+            /cannot be combined/,
+        );
+        expect(api.calculate).not.toHaveBeenCalled();
+        expect(api.canal).not.toHaveBeenCalled();
+    });
+
     it('passes only the explicit local destination to the engine with activity preferences intact', async () => {
         const selected = WHITSUNDAYS_DAY_DESTINATIONS.at(-1)!;
         await runDayPlanner({ ...request(), destinationIds: [selected.id] }, vessel(), options());
