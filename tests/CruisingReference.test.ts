@@ -23,6 +23,30 @@ const buoy = (tags: Record<string, string>, extra = {}) => ({
 const parse = (tags: Record<string, string>, extra = {}) =>
     parseOsmReferences({ elements: [buoy(tags, extra)] }, retrieved);
 describe('Mooring data, not an access/suitability classifier', () => {
+    it.each<Record<string, string>>([
+        { anchoring: 'no' },
+        { anchorage: 'prohibited' },
+        { 'seamark:anchorage:restriction': 'anchoring_prohibited' },
+        { 'seamark:restriction': 'restricted_entry' },
+        { 'seamark:restricted_area:restriction': 'anchoring_prohibited' },
+        { 'seamark:anchorage:access': 'private' },
+        { boat: 'no' },
+        { 'access:conditional': 'no @ (Oct-Apr)' },
+        { 'motorboat:conditional': 'no @ (Oct-Apr)' },
+        { 'sailboat:conditional': 'no @ (Oct-Apr)' },
+        { boat: 'destination', access: 'yes' },
+        { 'seamark:anchorage:access': 'destination', access: 'yes' },
+    ])('preserves explicit OSM restriction tags for strict planner exclusion: %j', (tags) => {
+        const [p] = parse({ 'seamark:type': 'anchorage', ...tags });
+        expect(p.restrictionNotes?.length).toBeGreaterThan(0);
+        expect(p.restrictionNotes?.join(' ')).toContain(Object.values(tags)[0]);
+    });
+    it('marks current restriction parsing without inventing public access', () => {
+        const [p] = parse({ 'seamark:type': 'anchorage' });
+        expect(p.restrictionNotes).toEqual([]);
+        expect(p.access).toContain('Unknown');
+        expect(parse({ 'seamark:type': 'anchorage', 'seamark:anchorage:access': 'private' })[0].access).toBe('private');
+    });
     it('records blue and white body colours without inferring public access', () => {
         const [p] = parse({
             'seamark:type': 'mooring',

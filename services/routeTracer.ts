@@ -2427,6 +2427,90 @@ export function saveTrace(
     return { trace, persisted, cloud };
 }
 
+/** A new planned itinerary is indivisible on this device: validate all rows,
+ * write once, then publish once and start best-effort account sync. Existing
+ * rows are retained verbatim; capacity refusal never evicts an older trip. */
+export function saveTraceTrip(
+    inputs: readonly {
+        name: string;
+        points: readonly TracePoint[];
+        destName?: string;
+        proposalEvidence: SavedAutoroutingProposalEvidence;
+    }[],
+    expectedScope: AuthIdentityScope,
+): { traces: SavedTrace[]; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult[]> } {
+    const assertScope = () => {
+        if (!expectedScope.userId || !isAuthIdentityScopeCurrent(expectedScope))
+            throw new Error('Your account changed. Nothing was saved.');
+    };
+    assertScope();
+    if (!Array.isArray(inputs as unknown) || inputs.length < 1 || inputs.length > 2)
+        throw new Error('A day itinerary must contain one or two complete routes.');
+    const createdAt = new Date().toISOString();
+    const batchId = `trace-${crypto.randomUUID()}`;
+    const traces: SavedTrace[] = inputs.map((input, index) => {
+        const name = input.name.trim();
+        if (!name || name.length > 120) throw new Error('Enter route names between 1 and 120 characters.');
+        const points = input.points.map(({ lat, lon }) => ({ lat, lon }));
+        const proposalEvidence = normaliseAutoroutingProposalEvidence(input.proposalEvidence, points);
+        if (!proposalEvidence)
+            throw new Error('Proposal evidence is incomplete or does not match these waypoints. Nothing was saved.');
+        const destName = input.destName?.trim();
+        if (destName !== undefined && (!destName || destName.length > 120))
+            throw new Error('The route destination label is invalid. Nothing was saved.');
+        return {
+            id: index === 0 ? batchId : `${batchId}-${index + 1}`,
+            name,
+            points,
+            createdAt,
+            ...(inputs.length > 1 ? { tripId: batchId, legOrdinal: index + 1 } : {}),
+            ...(destName ? { destName } : {}),
+            proposalEvidence,
+        };
+    });
+    const key = tracesStorageKey(expectedScope);
+    // Do not turn an unreadable library into an empty library and overwrite it.
+    const previous = localStorage.getItem(key);
+    let stored: unknown;
+    try {
+        stored = previous === null ? [] : JSON.parse(previous);
+    } catch {
+        throw new Error('Saved Routes could not be read. Nothing was saved.');
+    }
+    if (!Array.isArray(stored)) throw new Error('Saved Routes could not be read. Nothing was saved.');
+    if (stored.length + traces.length > 50)
+        throw new Error('Saved Routes is full. Free space before saving the complete itinerary.');
+    const tombstones = getSavedTraceTombstones(expectedScope);
+    if (traces.some((trace) => stored.some((row) => row?.id === trace.id) || tombstones[trace.id]))
+        throw new Error('A route identity conflicted. Retry saving the itinerary.');
+    const payload = JSON.stringify([...traces, ...stored]);
+    const cloudSnapshots: SavedTrace[] = JSON.parse(JSON.stringify(traces));
+    assertScope();
+    let persisted = false;
+    try {
+        localStorage.setItem(key, payload);
+        persisted = localStorage.getItem(key) === payload;
+    } catch {
+        /* Quota refusal is atomic in localStorage; no row is pushed remotely. */
+    }
+    assertScope();
+    const cloud = persisted
+        ? import('./savedRoutesSync')
+              .then(({ pushSavedRoute }) =>
+                  Promise.all(
+                      cloudSnapshots.map((trace) =>
+                          isAuthIdentityScopeCurrent(expectedScope)
+                              ? pushSavedRoute(trace, expectedScope).catch(() => 'error' as const)
+                              : Promise.resolve('stale' as const),
+                      ),
+                  ),
+              )
+              .catch(() => cloudSnapshots.map(() => 'error' as const))
+        : Promise.resolve(cloudSnapshots.map(() => 'error' as const));
+    if (persisted) notifySavedRoutesChanged(expectedScope);
+    return { traces, persisted, cloud };
+}
+
 /**
  * Attach the exact records created by PassagePlanSave to an already-persisted
  * trace. It is intentionally a separate mutation: tracer geometry saves

@@ -1,6 +1,6 @@
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import type { TrialRouteReview } from './autoroutingReview';
-import { saveTrace, type SavedTrace } from './routeTracer';
+import { saveTrace, type SavedTrace, type TracePoint } from './routeTracer';
 import { getRegistryFingerprint } from './enc/EncCellMetadata';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 import {
@@ -65,12 +65,12 @@ export function evaluateAutoroutingProposalSave(
     };
 }
 
-/** Explicit new canonical row, not a voyage, trip append, verification, export,
- * public share or activation. No await can cross the last identity/check fence. */
-export function saveReviewedAutoroutingProposal(
+/** Fully validate and detach planned-only evidence without writing any route.
+ * A multi-leg caller can preflight every proposal before one atomic save. */
+export function prepareReviewedAutoroutingProposal(
     input: ReviewedProposalSaveInput,
     expectedScope: AuthIdentityScope,
-): { trace: SavedTrace; cloud: Promise<PushResult> } {
+): { name: string; points: TracePoint[]; proposalEvidence: SavedAutoroutingProposalEvidence } {
     if (!expectedScope.userId || !isAuthIdentityScopeCurrent(expectedScope))
         throw new Error('Your account changed. Reopen the proposal before saving.');
     const name = input.name.trim();
@@ -111,7 +111,17 @@ export function saveReviewedAutoroutingProposal(
             'The complete proposal evidence is invalid or exceeds the 1 MiB save limit. Nothing was saved.',
         );
     if (!isAuthIdentityScopeCurrent(expectedScope)) throw new Error('Your account changed. Nothing was saved.');
-    const result = saveTrace(name, points, { proposalEvidence: evidence });
+    return { name, points, proposalEvidence: evidence };
+}
+
+/** Explicit new canonical row, not a voyage, trip append, verification, export,
+ * public share or activation. No await can cross the last identity/check fence. */
+export function saveReviewedAutoroutingProposal(
+    input: ReviewedProposalSaveInput,
+    expectedScope: AuthIdentityScope,
+): { trace: SavedTrace; cloud: Promise<PushResult> } {
+    const prepared = prepareReviewedAutoroutingProposal(input, expectedScope);
+    const result = saveTrace(prepared.name, prepared.points, { proposalEvidence: prepared.proposalEvidence });
     if (!result.persisted) throw new Error('Device storage could not retain the complete proposal. Nothing was saved.');
     return { trace: result.trace, cloud: result.cloud };
 }

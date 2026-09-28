@@ -13,6 +13,39 @@ beforeEach(() => {
     storage.set.mockClear();
 });
 describe('Worldwide reference loading', () => {
+    it('refreshes fresh legacy cache metadata for strict planner callers without changing default map reads', async () => {
+        const { parseOsmReferences } = await import('../services/anchorages/cruisingReference');
+        const at = Date.now() - 1000;
+        const legacy = parseOsmReferences(response, new Date(at).toISOString());
+        delete legacy[0].restrictionNotes;
+        storage.get.mockResolvedValue({ value: JSON.stringify([[tile.key, { at, points: legacy }]]) });
+        const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => response });
+        vi.stubGlobal('fetch', fetcher);
+        const { loadReferenceTile } = await import('../services/anchorages/CruisingReferenceService');
+        expect(
+            (await loadReferenceTile(tile, new AbortController().signal)).points[0].restrictionNotes,
+        ).toBeUndefined();
+        expect(fetcher).not.toHaveBeenCalled();
+        expect(
+            (await loadReferenceTile(tile, new AbortController().signal, { requireRestrictionMetadata: true }))
+                .points[0].restrictionNotes,
+        ).toEqual([]);
+        expect(fetcher).toHaveBeenCalledOnce();
+        await loadReferenceTile(tile, new AbortController().signal, { requireRestrictionMetadata: true });
+        expect(fetcher).toHaveBeenCalledOnce();
+    });
+    it('does not label unfiltered legacy cache fresh when the strict refresh fails', async () => {
+        const { parseOsmReferences } = await import('../services/anchorages/cruisingReference');
+        const at = Date.now() - 1000;
+        const legacy = parseOsmReferences(response, new Date(at).toISOString());
+        delete legacy[0].restrictionNotes;
+        storage.get.mockResolvedValue({ value: JSON.stringify([[tile.key, { at, points: legacy }]]) });
+        vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+        const { loadReferenceTile } = await import('../services/anchorages/CruisingReferenceService');
+        expect(
+            (await loadReferenceTile(tile, new AbortController().signal, { requireRestrictionMetadata: true })).stale,
+        ).toBe(true);
+    });
     it('reuses fresh tile data and persists it for offline reads', async () => {
         const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => response });
         vi.stubGlobal('fetch', fetcher);

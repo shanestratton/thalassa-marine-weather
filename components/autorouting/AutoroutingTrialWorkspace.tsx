@@ -53,6 +53,10 @@ export interface AutoroutingTrialWorkspaceProps {
     initialDraftM?: number;
     initialSpeedKts?: number;
     initialVesselProfile?: AutoroutingVesselProfile;
+    /** Read-only itinerary review. No edits, standalone saves or setup changes;
+     * the owning planner must retain the exact route/schedule relationship. */
+    reviewProposal?: AutoroutingTrialRoute;
+    onReviewChange?: (review: import('../../services/autoroutingReview').TrialRouteReview | null) => void;
 }
 type Endpoint = 'departure' | 'destination' | 'canal exit';
 type DepartureMode = 'canal' | 'open-water';
@@ -78,6 +82,8 @@ export function AutoroutingTrialWorkspace({
     initialDraftM,
     initialSpeedKts,
     initialVesselProfile,
+    reviewProposal,
+    onReviewChange,
 }: AutoroutingTrialWorkspaceProps) {
     const pane = usePaneScope();
     const keyboardHeight = useKeyboardOffset(!pane);
@@ -99,7 +105,7 @@ export function AutoroutingTrialWorkspace({
     const [status, setStatus] = useState<AutoroutingTrialStatus | null>(null);
     const panelId = useId();
     const [panelExpanded, setPanelExpanded] = useState(true);
-    const [panelPage, setPanelPage] = useState<'setup' | 'review'>('setup');
+    const [panelPage, setPanelPage] = useState<'setup' | 'review'>(reviewProposal ? 'review' : 'setup');
     const [fitRevision, setFitRevision] = useState(0);
     const [focusRevision, setFocusRevision] = useState(0);
     const pendingSpot = useRef<[number, number] | null>(null);
@@ -129,8 +135,16 @@ export function AutoroutingTrialWorkspace({
             right: Math.min(frame.width * 0.15, 65),
         };
     }, [dialogRef]);
-    const [departure, setDeparture] = useState(emptyPosition);
-    const [destination, setDestination] = useState(emptyPosition);
+    const [departure, setDeparture] = useState(() =>
+        reviewProposal
+            ? { lat: String(reviewProposal.coordinates[0][1]), lon: String(reviewProposal.coordinates[0][0]) }
+            : emptyPosition(),
+    );
+    const [destination, setDestination] = useState(() =>
+        reviewProposal
+            ? { lat: String(reviewProposal.coordinates.at(-1)![1]), lon: String(reviewProposal.coordinates.at(-1)![0]) }
+            : emptyPosition(),
+    );
     const [canalExit, setCanalExit] = useState(emptyPosition);
     // No default: an unnoticed checkbox must not send a canal departure
     // straight to SevenCs, bypassing the local connector.
@@ -180,7 +194,9 @@ export function AutoroutingTrialWorkspace({
         speed <= AUTOROUTING_TRIAL_MAX_SPEED_KTS &&
         vesselProfile?.draftStatus !== 'missing';
     const profileSupported = !vesselProfile || status?.vesselProfile === true;
-    const [proposal, setProposal] = useState<AutoroutingTrialRoute | null>(null);
+    const [proposal, setProposal] = useState<AutoroutingTrialRoute | null>(() =>
+        reviewProposal ? structuredClone(reviewProposal) : null,
+    );
     // One immutable checkpoint only: bounded memory and no implicit route history.
     const [undoProposal, setUndoProposal] = useState<AutoroutingTrialRoute | null>(null);
     // Sparse markers are a view of the exact checked/saved geometry, never a
@@ -205,6 +221,9 @@ export function AutoroutingTrialWorkspace({
     const locatedProviderRef = useRef(locatedProvider);
     locatedProviderRef.current = locatedProvider;
     const { review, stop: stopReview, recheck } = useAutoroutingReview(proposal, draft, draftAssumed);
+    useEffect(() => {
+        if (reviewProposal) onReviewChange?.(review);
+    }, [reviewProposal, review, onReviewChange]);
     const [selectedWaypoint, setSelectedWaypoint] = useState(0);
     const [inspectingWaypoint, setInspectingWaypoint] = useState(false);
     const [movingWaypoint, setMovingWaypoint] = useState(false);
@@ -213,7 +232,7 @@ export function AutoroutingTrialWorkspace({
     const movingWaypointRef = useRef(false);
     const moveBasisRef = useRef<{ route: AutoroutingTrialRoute; pathIndex: number } | null>(null);
     movingWaypointRef.current = movingWaypoint;
-    const [editingEndpoints, setEditingEndpoints] = useState(true);
+    const [editingEndpoints, setEditingEndpoints] = useState(!reviewProposal);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const collapsePanel = () => {
@@ -705,13 +724,15 @@ export function AutoroutingTrialWorkspace({
         collapsePanel();
     };
     const inspectedWaypoint = inspectingWaypoint ? displayWaypoints[selectedWaypoint] : undefined;
-    const moveLockedReason = !inspectedWaypoint
-        ? undefined
-        : inspectedWaypoint.pathIndex === 0 || inspectedWaypoint.pathIndex === (proposal?.coordinates.length ?? 0) - 1
-          ? 'Change departure or destination in route setup, then recalculate.'
-          : inspectedWaypoint.pathIndex === proposal?.canalDeparture?.handoverIndex
-            ? 'Change the canal exit in route setup, then recalculate.'
-            : undefined;
+    const moveLockedReason = reviewProposal
+        ? 'Itinerary preview only. Save the plan, then edit it in Plan and reassess timings and weather.'
+        : !inspectedWaypoint
+          ? undefined
+          : inspectedWaypoint.pathIndex === 0 || inspectedWaypoint.pathIndex === (proposal?.coordinates.length ?? 0) - 1
+            ? 'Change departure or destination in route setup, then recalculate.'
+            : inspectedWaypoint.pathIndex === proposal?.canalDeparture?.handoverIndex
+              ? 'Change the canal exit in route setup, then recalculate.'
+              : undefined;
     const cancelMove = () => {
         setMovingWaypoint(false);
         setMoveCandidate(null);
@@ -1068,7 +1089,9 @@ export function AutoroutingTrialWorkspace({
                 <div
                     ref={container}
                     role="region"
-                    aria-label="Trial chart — tap to set selected endpoint"
+                    aria-label={
+                        reviewProposal ? 'Day plan route review chart' : 'Trial chart — tap to set selected endpoint'
+                    }
                     className="absolute inset-0"
                     style={{ position: 'absolute', inset: 0 }}
                 />
@@ -1185,7 +1208,8 @@ export function AutoroutingTrialWorkspace({
                         </>
                     }
                     navigation={
-                        proposal && (
+                        proposal &&
+                        !reviewProposal && (
                             <>
                                 {(['setup', 'review'] as const).map((page) => (
                                     <button
@@ -1206,7 +1230,20 @@ export function AutoroutingTrialWorkspace({
                         )
                     }
                     footer={
-                        !proposal || panelPage === 'setup' ? (
+                        reviewProposal ? (
+                            <div className="grid grid-cols-2 gap-2">
+                                <button type="button" onClick={fitRoute} className={buttonClass}>
+                                    Whole route
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    className={`${buttonClass} bg-teal-600 text-white`}
+                                >
+                                    Back to day plan
+                                </button>
+                            </div>
+                        ) : !proposal || panelPage === 'setup' ? (
                             <div className="grid grid-cols-[1fr_auto] gap-2">
                                 <button
                                     type="button"
@@ -1558,7 +1595,7 @@ export function AutoroutingTrialWorkspace({
                                 </section>
                             </div>
                         )}
-                        {proposal && typeof draft === 'number' && (
+                        {proposal && typeof draft === 'number' && !reviewProposal && (
                             <div hidden={panelPage !== 'review'}>
                                 <AutoroutingProposalSaveCard
                                     key={proposal.id}
@@ -1620,7 +1657,9 @@ export function AutoroutingTrialWorkspace({
                     {proposal
                         ? dangerReported
                             ? 'Danger reported · open Route review before proceeding.'
-                            : 'Trial proposal only · open Route review to inspect checks and save.'
+                            : reviewProposal
+                              ? 'Day plan preview · review checks, then return to the itinerary.'
+                              : 'Trial proposal only · open Route review to inspect checks and save.'
                         : !departureMode
                           ? 'Open Set up route to choose Canal / marina or Open water.'
                           : `Tap the chart to set ${target}.`}
