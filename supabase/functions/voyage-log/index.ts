@@ -24,7 +24,8 @@
  *     vessel:      { name, type, model },
  *     scope:       'personal' | 'combined',
  *     destination: { name, lat, lon } | null,
- *     trips:     [{ id, kind, label, started_at, ended_at, active, ... }],
+ *     trips:     [{ id, kind, label, started_at, ended_at, active, ...,
+ *                   from_name | null, to_name | null, time_zone | null }],
  *     selected_trip: <trip id | "all-diary" | null>,
  *     entries:   [{ id, title, body, mood, photos[], location_name,
  *                   latitude, longitude, weather_summary, weather_data,
@@ -56,6 +57,20 @@ import {
     buildPublicTripCatalogue,
     resolvePublicTripSelection,
 } from '../_shared/public-trip-selector.ts';
+import {
+    createPublicTimeZoneAt,
+    derivePublicTripPlacesFromReads,
+    inPublicPlaceBatches,
+    NO_PUBLIC_TRIP_PLACES,
+    type PublicPlaceDiaryEntry,
+    publicPlaceMarksFromRows,
+    publicPlaceSearchBoxes,
+    type PublicPlaceWaypoint,
+    publicTrackworthyFix,
+    type PublicTripFix,
+    type PublicTripPlaces,
+    publicTripStartMayBeClipped,
+} from '../_shared/public-trip-places.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -1073,6 +1088,147 @@ Deno.serve(async (req: Request) => {
         }
         const selectedTrackId = tripSelection.mode === 'track' ? (tripSelection.trip?.id ?? null) : null;
 
+        // ── Picker places: honest From/To + each trip's local zone ──
+        // Shane 2026-09-28: the picker "only shows dates and nm". Names come
+        // only from what this log already publishes — the authorised
+        // catalogue's own ship_logs rows and published diary entries — by the
+        // ladder in public-trip-places.ts; never geocoded, never invented.
+        // Started here and awaited at the response so its few small reads
+        // overlap the track fetch. It can only ever leave names null: a failed
+        // read logs a warning and never fails the request.
+        const timeZoneAt = createPublicTimeZoneAt(tzLookup);
+        const resolveTripPlaces = async (
+            catalogue: ReadonlyArray<
+                { id: string; kind: string; active: boolean; started_at: string | null; ended_at: string | null }
+            >,
+        ): Promise<Map<string, PublicTripPlaces>> => {
+            const trackTrips = catalogue.filter((trip) => trip.kind === 'track');
+            // Same fence as the track itself: no hidden-trip authority, no
+            // track-derived names.
+            if (!trackVisibilityReadable || trackTrips.length === 0) return new Map();
+            const authorised = new Set(trackTrips.map((trip) => trip.id));
+            const warn = (what: string, error: unknown): void => {
+                const message = error && typeof error === 'object' && 'message' in error
+                    ? String((error as { message: unknown }).message)
+                    : String(error);
+                console.warn(`voyage-log: trip-place ${what} unavailable; picker names left null:`, message);
+            };
+
+            // First/last fix per trip, and the recovered marks with them.
+            // The catalogue's started_at/ended_at are the exact timestamps of
+            // those rows, and every '<Place> · recovered departure|arrival'
+            // mark is written at exactly its trip's start or end, so one
+            // exact (voyage, timestamp) read — a few rows per trip on the
+            // (boat_id, voyage_id, timestamp) index — carries both. No scan of
+            // every waypoint since the history edge. Rows this request already
+            // holds (live trickle, rollout fallback) count too.
+            const fixKey = (voyageId: string, timestamp: unknown): string =>
+                `${voyageId}|${Date.parse(typeof timestamp === 'string' ? timestamp : '')}`;
+            const fixes = new Map<string, PublicTripFix>();
+            const endpointRows: Record<string, unknown>[] = [];
+            const remember = (row: Record<string, unknown>): void => {
+                const voyageId = typeof row.voyage_id === 'string' ? row.voyage_id.trim() : '';
+                if (!authorised.has(voyageId)) return;
+                if (row.entry_type === 'waypoint') endpointRows.push(row);
+                const fix = publicTrackworthyFix(row);
+                const key = fixKey(voyageId, row.timestamp);
+                if (fix && !fixes.has(key)) fixes.set(key, fix);
+            };
+            for (const row of catalogueLiveRows) remember(row);
+            // The rollout fallback already paged every row in the window,
+            // marks included.
+            for (const row of catalogueFallbackRows) remember(row);
+            const endpointStamps = (trip: { started_at: string | null; ended_at: string | null }): string[] =>
+                [trip.started_at, trip.ended_at].filter((stamp): stamp is string => typeof stamp === 'string');
+            const toRead = catalogueFallbackRows.length > 0
+                ? trackTrips.filter((trip) => endpointStamps(trip).some((stamp) => !fixes.has(fixKey(trip.id, stamp))))
+                : trackTrips;
+            let fixesReadable = true;
+            try {
+                const pages = await mapPublicHistory(inPublicPlaceBatches(toRead, 20), async (batch) => {
+                    let query = supabase
+                        .from('ship_logs')
+                        .select<string, Record<string, unknown>>(
+                            'voyage_id, timestamp, latitude, longitude, entry_type, source, waypoint_name, notes',
+                        )
+                        .eq('user_id', ownerId)
+                        .in('voyage_id', batch.map((trip) => trip.id))
+                        .in('timestamp', [...new Set(batch.flatMap(endpointStamps))])
+                        .or('archived.is.null,archived.eq.false');
+                    if (boatId) query = query.eq('boat_id', boatId);
+                    const { data, error } = await query.order('id', { ascending: true }).limit(1000);
+                    if (error) throw error;
+                    return data ?? [];
+                });
+                for (const row of pages.flat()) remember(row);
+            } catch (error) {
+                fixesReadable = false;
+                warn('endpoint fixes', error);
+            }
+            const marks: PublicPlaceWaypoint[] = publicPlaceMarksFromRows(endpointRows);
+            const placeTrips = trackTrips.map((trip) => ({
+                id: trip.id,
+                active: trip.active,
+                // The catalogue clips a trip that straddles the history edge
+                // to its first row inside the window: not a departure.
+                start_may_be_clipped: publicTripStartMayBeClipped(trip.started_at, trackSince),
+                first_fix: trip.started_at ? (fixes.get(fixKey(trip.id, trip.started_at)) ?? null) : null,
+                last_fix: trip.ended_at ? (fixes.get(fixKey(trip.id, trip.ended_at)) ?? null) : null,
+            }));
+
+            // Published diary names near those ends: the same is_public,
+            // this-log authors and boat fence as the all-diary feed, but only
+            // three columns inside small boxes around each end — no bodies,
+            // no photo signing.
+            let diary: PublicPlaceDiaryEntry[] = [];
+            let diaryReadable = true;
+            const endpoints = placeTrips
+                .flatMap((trip) => [trip.first_fix, trip.last_fix])
+                .filter((fix): fix is PublicTripFix => fix !== null);
+            try {
+                const pages = await mapPublicHistory(
+                    inPublicPlaceBatches(publicPlaceSearchBoxes(endpoints), 40),
+                    async (boxes) => {
+                        let query = supabase
+                            .from('diary_entries')
+                            .select<string, Record<string, unknown>>('location_name, latitude, longitude, is_public')
+                            .in('user_id', entryUserIds)
+                            .eq('is_public', true)
+                            .not('location_name', 'is', null)
+                            .or(boxes.join(','));
+                        if (boatId) query = query.eq('boat_id', boatId);
+                        const { data, error } = await query
+                            .order('created_at', { ascending: false })
+                            .order('id', { ascending: false })
+                            .limit(1000);
+                        if (error) throw error;
+                        return data ?? [];
+                    },
+                );
+                diary = pages.flat().map((row) => ({
+                    location_name: row.location_name,
+                    lat: row.latitude,
+                    lon: row.longitude,
+                    is_public: row.is_public,
+                }));
+            } catch (error) {
+                diaryReadable = false;
+                warn('diary names', error);
+            }
+
+            // A failed diary read drops only rule 3 (names from marks stay);
+            // failed endpoint rows blank every name. Neither can swap one
+            // name for another between polls.
+            return derivePublicTripPlacesFromReads(placeTrips, marks, diary, timeZoneAt, {
+                fixes: fixesReadable,
+                diary: diaryReadable,
+            });
+        };
+        const tripPlacesPromise = resolveTripPlaces(trips).catch((error: unknown) => {
+            console.warn('voyage-log: trip-place derivation failed; picker names left null:', error);
+            return new Map<string, PublicTripPlaces>();
+        });
+
         // The compatible all-diary selector now presents the complete PUBLIC
         // cruising overview: each authorised trip retains its own endpoints
         // and fair share of geometry. Paginate per trip so a dense newer trip
@@ -1308,8 +1464,11 @@ Deno.serve(async (req: Request) => {
         // promotes the newest fix to a waypoint each tick and demotes the
         // prior one — demotion doesn't always fire offline, so several leak
         // through). It's never a mark the skipper interacted with — drop it.
+        // 'App recording began · original mark' is the 23 Sep recovery's
+        // provenance note, sitting mid-track: bookkeeping, not a place
+        // (Shane 2026-09-28: "get rid of the recovered departure notes").
         // Voyage Start/End and any custom names stay.
-        const SYSTEM_WAYPOINT_NAMES = new Set(['Latest Position']);
+        const SYSTEM_WAYPOINT_NAMES = new Set(['Latest Position', 'App recording began · original mark']);
         const waypoints = publicWaypointRows
             .filter(
                 (p) =>
@@ -1324,6 +1483,9 @@ Deno.serve(async (req: Request) => {
                 name: p.waypoint_name as string,
                 timestamp: p.timestamp as string,
                 voyage_id: (p.voyage_id as string | null) ?? null,
+                // The civil zone AT the mark, so "Departed Sat 26 Sep · 08:42"
+                // reads in the place's own time, not the server's UTC.
+                time_zone: timeZoneAt(p.latitude as number, p.longitude as number),
             }));
 
         // ── Passage: linked plan → destination + progress ──────────
@@ -1811,13 +1973,18 @@ Deno.serve(async (req: Request) => {
             telemetry,
         );
 
+        // Every row carries the fields (null when unknown) so the shape is
+        // uniform; `label` is untouched for older clients.
+        const tripPlaces = await tripPlacesPromise;
+        const publicTrips = trips.map((trip) => ({ ...trip, ...(tripPlaces.get(trip.id) ?? NO_PUBLIC_TRIP_PLACES) }));
+
         return json(
             {
                 vessel,
                 scope,
                 destination,
                 passage,
-                trips,
+                trips: publicTrips,
                 selected_trip: tripSelection.mode === 'legacy' ? null : (tripSelection.trip?.id ?? null),
                 entries,
                 track: instrumentsEnabled ? track : track.map(redactPublicTrackPoint),

@@ -25,6 +25,14 @@ export interface PublicTrip {
     point_count: number;
     distance_nm: number | null;
     has_route: boolean;
+    /**
+     * Honest picker places and the zone at the first fix, attached by the
+     * voyage-log handler (public-trip-places.ts). Optional: a missing field
+     * means exactly what null means — unknown, keep the date label.
+     */
+    from_name?: string | null;
+    to_name?: string | null;
+    time_zone?: string | null;
 }
 
 function timestampMs(value: unknown): number {
