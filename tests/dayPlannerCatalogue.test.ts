@@ -365,7 +365,7 @@ describe('UNDEPLOYED catalogue SQL source contract (not database integration)', 
 
     it('keeps geospatial queries bounded and imports no private sailed tracks or seeds', () => {
         expect(sql).toContain('USING gist (location)');
-        expect(sql).toContain('ST_DWithin(v.location, query_location, p_radius_nm * 1852.0)');
+        expect(sql).toContain('%1$I.ST_DWithin(v.location, query_location, p_radius_nm * 1852.0, true)');
         expect(sql).toContain('p_radius_nm <= 100');
         expect(sql).toContain('p_limit NOT BETWEEN 1 AND 50');
         expect(sql).toContain('LIMIT p_limit');
@@ -374,5 +374,28 @@ describe('UNDEPLOYED catalogue SQL source contract (not database integration)', 
             /(?:FROM|JOIN|REFERENCES)\s+(?:public\.)?(?:voyages|ship_logs|shared_tracks|traced_routes|community_tracks)\b/i,
         );
         expect(sql).not.toMatch(/INSERT\s+INTO/i);
+    });
+
+    it('constrains the owner-authority nearby RPC to bounded eligible shared summaries', () => {
+        const nearby = sql.match(/CREATE FUNCTION public\.nearby_cruising_catalogue\([\s\S]+?\$\$;/)?.[0];
+        expect(nearby).toBeDefined();
+        expect(nearby).toContain('SECURITY DEFINER SET search_path = pg_catalog, public, extensions, pg_temp');
+        expect(nearby).toContain('FROM public.cruising_catalogue_versions v');
+        expect(nearby).toContain("v.kind IN ('destination', 'trip')");
+        expect(nearby).toContain('AND public.cruising_catalogue_is_readable(v.entry_id, v.version)');
+        expect(nearby).toContain('p_radius_nm > 0 AND p_radius_nm <= 100');
+        expect(nearby).toContain('p_limit NOT BETWEEN 1 AND 50');
+        expect(nearby).toContain('DECLARE query_location %1$I.geography');
+        expect(nearby).toContain('%1$I.ST_SetSRID(%1$I.ST_MakePoint(p_longitude, p_latitude), 4326)::%1$I.geography');
+        expect(nearby).toContain('%1$I.ST_Distance(v.location, query_location, true)');
+        expect(nearby).toContain('%1$I.ST_DWithin(v.location, query_location, p_radius_nm * 1852.0, true)');
+        expect(nearby).toContain('LIMIT p_limit');
+        expect(nearby).not.toMatch(/\b(?:EXECUTE|INSERT|UPDATE|DELETE|TRUNCATE)\b/);
+        expect(sql).toContain(
+            'REVOKE ALL ON FUNCTION public.nearby_cruising_catalogue(double precision, double precision, double precision, integer) FROM PUBLIC, anon',
+        );
+        expect(sql).toContain(
+            'GRANT EXECUTE ON FUNCTION public.nearby_cruising_catalogue(double precision, double precision, double precision, integer) TO authenticated, service_role',
+        );
     });
 });

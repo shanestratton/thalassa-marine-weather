@@ -1,0 +1,45 @@
+name: Cruising Catalogue Database
+
+on:
+    pull_request:
+        branches: [master, main]
+        paths:
+            - '.github/workflows/cruising-catalogue-db.yml'
+            - 'scripts/check-cruising-catalogue-db.mjs'
+            - 'services/dayPlanner/catalogue.ts'
+            - 'supabase/migrations/20260928120000_cruising_trip_catalogue.sql'
+    push:
+        branches: [master, main]
+        paths:
+            - '.github/workflows/cruising-catalogue-db.yml'
+            - 'scripts/check-cruising-catalogue-db.mjs'
+            - 'services/dayPlanner/catalogue.ts'
+            - 'supabase/migrations/20260928120000_cruising_trip_catalogue.sql'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: cruising-catalogue-db-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    isolated-postgres-postgis:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: 24
+            - name: Install isolated test engine (no application dependencies)
+              run: >-
+                  npm install --prefix "$RUNNER_TEMP/thalassa-catalogue-db"
+                  --ignore-scripts --no-audit --no-fund --save-exact
+                  @electric-sql/pglite@0.5.8 @electric-sql/pglite-postgis@0.2.8
+            - name: Exercise actual SQL, RLS, spatial queries and read client
+              env:
+                  PGLITE_MODULE_PATH: ${{ runner.temp }}/thalassa-catalogue-db/node_modules/@electric-sql/pglite/dist/index.js
+                  PGLITE_POSTGIS_MODULE_PATH: ${{ runner.temp }}/thalassa-catalogue-db/node_modules/@electric-sql/pglite-postgis/dist/index.js
+              run: node scripts/check-cruising-catalogue-db.mjs
