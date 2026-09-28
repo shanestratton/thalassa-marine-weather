@@ -40,8 +40,14 @@ describe('NMEA Gateway page — plain words, fewer toggles', () => {
         expect(section).toContain('if (value) {');
         expect(section).toContain('setSheetOpen(true);');
         expect(section).toContain('setShareEnabled(false);');
-        expect(section).toMatch(/fixed inset-0 z-200 flex items-center justify-center/);
+        // Centred in a full-screen portal (OverlayPortal is fixed inset-0):
+        // rendered in place, the Preferences Section card's entry transform
+        // clipped the fixed sheet inside the card (UX scorecard run 10).
+        expect(section).toContain('<OverlayPortal');
+        expect(section).toMatch(/className="flex items-center justify-center/);
         expect(section).toContain('role="dialog"');
+        // A modal that says so holds the keyboard, and Escape is 'Not now'.
+        expect(section).toContain('useFocusTrap<HTMLDivElement>(true, { onEscape: onDismiss');
         // It reads the boat's link itself — no prop from the page that mounts it.
         expect(section).toContain('useNmeaConnectionStatus()');
         expect(section).toContain("link.status === 'remote' && link.remote?.via === 'lan'");

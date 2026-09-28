@@ -590,7 +590,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
             />
 
             {/* Call type stays above all variable-height/scrolling content. */}
-            <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-3">
+            <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-3 [@media(max-height:700px)]:pb-2">
                 <div ref={selectorRef}>
                     <DscSelector mode={dscMode} onChange={chooseMode} mobActive={mobActive} />
                 </div>
@@ -602,10 +602,14 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                    'Prepare voice call' dock cut through its border; the app's
                    scroll fade now fades it out above the dock instead, and the
                    16 px foot lets the last card scroll clear of the fade (UX
-                   scorecard run 9). ── */}
+                   scorecard run 9). Run 10 still read the card as clipped at
+                   rest, so on short screens (max-height 700px) the call-type
+                   chips, the gaps and the readout card are a little tighter
+                   and the whole card, bottom edge and all, sits above the fade
+                   before any scroll. ── */}
             <div
                 data-testid="radio-console-body"
-                className="thalassa-scroll-fade mx-auto w-full max-w-3xl flex-1 min-h-0 space-y-3 px-4 pb-4 overflow-y-auto overscroll-contain"
+                className="thalassa-scroll-fade mx-auto w-full max-w-3xl flex-1 min-h-0 space-y-3 px-4 pb-4 overflow-y-auto overscroll-contain [@media(max-height:700px)]:space-y-2"
             >
                 {/* Vessel identity strip */}
                 {vesselIdentity}
@@ -616,7 +620,7 @@ const RadioConsole: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) =
                     data"); the visible label/value pair is hidden from the
                     reader, which used to hear "SOG, em dash kts". '--' is the
                     app's one no-data glyph (UX scorecard run 6). */}
-                <div className="shrink-0 rounded-xl border border-white/6 bg-white/2 px-4 py-3 font-mono">
+                <div className="shrink-0 rounded-xl border border-white/6 bg-white/2 px-4 py-3 font-mono [@media(max-height:700px)]:py-2">
                     <div className="flex items-center">
                         <div className="flex-1 text-center">
                             <span className="sr-only">
@@ -810,7 +814,7 @@ const DscSelector: React.FC<{
                     triggerHaptic(m === 'distress' ? 'heavy' : 'light');
                     onChange(m);
                 }}
-                className={`min-h-14 min-w-0 flex-1 py-2.5 px-1 rounded-xl border text-center transition-all active:scale-[0.97] ${
+                className={`min-h-14 min-w-0 flex-1 py-2.5 px-1 rounded-xl border text-center transition-all active:scale-[0.97] [@media(max-height:700px)]:min-h-12 [@media(max-height:700px)]:py-1.5 ${
                     isActive
                         ? activeClasses
                         : (restClasses ?? 'bg-white/3 border-white/8 text-slate-400 hover:bg-white/6')
@@ -821,8 +825,12 @@ const DscSelector: React.FC<{
                 role="radio"
                 aria-checked={isActive}
             >
-                <div className="text-xs font-extrabold tracking-wide uppercase">{label}</div>
-                <div className="text-xs font-bold uppercase mt-0.5">{hint}</div>
+                {/* Sentence-case options, as Anchor Watch's Rode type row sets
+                    them; only the prowords keep their capitals, in the DOM so
+                    VoiceOver says them as written (UX scorecard run 10,
+                    segmented-control-pattern). */}
+                <div className="text-sm font-bold leading-tight">{label}</div>
+                <div className="mt-0.5 text-xs font-bold leading-tight tracking-wide">{hint}</div>
             </button>
         );
     };
@@ -838,10 +846,10 @@ const DscSelector: React.FC<{
             </div>
             <div className="flex gap-2">
                 {pill('routine', 'Routine', 'Position', 'bg-sky-500/15 border-sky-500/40 text-sky-300')}
-                {pill('urgency', 'Urgency', 'Pan-Pan', 'bg-amber-500/15 border-amber-400/40 text-amber-300')}
+                {pill('urgency', 'Urgency', 'PAN-PAN', 'bg-amber-500/15 border-amber-400/40 text-amber-300')}
                 {/* Mayday carries a faint red edge even at rest, so it never reads
                     as just another option beside Routine and Pan-Pan. */}
-                {pill('distress', 'Distress', 'Mayday', 'bg-red-500/15 border-red-400/40 text-red-300', MAYDAY_AT_REST)}
+                {pill('distress', 'Distress', 'MAYDAY', 'bg-red-500/15 border-red-400/40 text-red-300', MAYDAY_AT_REST)}
             </div>
         </div>
     );

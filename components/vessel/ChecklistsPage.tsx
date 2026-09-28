@@ -448,16 +448,22 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     onBack={onBack}
                     breadcrumbs={['Boat Binder', 'Checklists']}
                     status={<OfflineBadge />}
+                    // One term for one thing (UX scorecard run 6): a heading IS a
+                    // checklist — pre-departure, anchoring — and its rows are items.
+                    // While there are none, what the page is for rather than
+                    // '0 checklists' under CHECKLISTS, the word twice (run 9), and
+                    // in PageHeader's own caption style, as Maintenance and Polars
+                    // set theirs: in the bold count style it read as a count (run 10).
+                    // Count first: LoadErrorNotEmpty pins the page's load-error
+                    // branch ahead of its empty-list branch in source order.
                     subtitle={
-                        <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {/* One term for one thing (UX scorecard run 6): a heading IS a
-                                checklist — pre-departure, anchoring — and its rows are items.
-                                While there are none, what the page is for rather than
-                                '0 checklists' under CHECKLISTS, the word twice (run 9). */}
-                            {headings.length === 0
-                                ? 'Pre‑departure & passage lists'
-                                : `${headings.length} checklist${headings.length !== 1 ? 's' : ''} · ${totalDetails} item${totalDetails !== 1 ? 's' : ''}`}
-                        </p>
+                        headings.length > 0 ? (
+                            <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
+                                {`${headings.length} checklist${headings.length !== 1 ? 's' : ''} · ${totalDetails} item${totalDetails !== 1 ? 's' : ''}`}
+                            </p>
+                        ) : (
+                            'Pre‑departure & passage lists'
+                        )
                     }
                     // The menu's one action, Run checklist, needs an item to check,
                     // so the ⋮ waits for one instead of opening onto a disabled row

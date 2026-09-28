@@ -116,9 +116,18 @@ describe('MobPage activation feedback', () => {
 
         mocks.radioHasFix = false;
         render(<MobPage onBack={vi.fn()} />);
-        expect(screen.getByRole('button', { name: 'MOB, mark position, no GPS fix' })).toHaveTextContent(
-            /Tap to mark\s*·\s*No fix/,
-        );
+        // The spoken name keeps the warning. The face no longer repeats it: the
+        // pill and the one sentence above the button say it before the tap (UX
+        // scorecard run 10, mob-copy: "No fix" was said three times).
+        const button = screen.getByRole('button', { name: 'MOB, mark position, no GPS fix' });
+        expect(button).toHaveTextContent(/Tap to mark/);
+        expect(button).not.toHaveTextContent(/No fix/i);
+        expect(
+            screen.getByText(
+                'No GPS fix. Tap anyway: it marks your last known position, or the first fix in a few seconds.',
+            ),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/With none held/)).not.toBeInTheDocument();
     });
 
     it('locks duplicate activation while the emergency GPS request is pending', async () => {

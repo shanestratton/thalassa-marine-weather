@@ -19,15 +19,23 @@ describe('the gateway surfaces say how the boat is being read', () => {
         expect(hook).toContain('prev.status === next.status &&');
     });
 
-    it('the Vessel hub row reads Connected, Away via the Pi, or connect-when-aboard', () => {
+    it('the Vessel hub row reads Connected, Aboard or Away via the Pi, or Not connected', () => {
         const hub = read('components/VesselHub.tsx');
-        expect(hub).toContain("? 'Connected · instruments & AIS'");
+        // The state rides in the row's right-hand slot, as the Settings rows
+        // show theirs, and the subtitle stays a description (UX scorecard run
+        // 10): it was inline after a dot ('Instruments & AIS · connect when aboard').
+        expect(hub).toContain(
+            "const gatewayStatus = nmeaLink.status === 'remote' ? 'Reading her via the Pi' : 'Instruments & AIS';",
+        );
+        expect(hub).toContain("? 'Connected'");
+        expect(hub).toContain("? 'Aboard'");
+        expect(hub).toContain(": 'Away'");
+        expect(hub).toContain(": 'Not connected'");
         // Shane 2026-09-07: "calypso is not the boat name. it is the internal pi
         // name" — the hostname never reaches a user-facing string.
-        expect(hub).toContain("'Away · reading her via the Pi'");
         expect(hub).not.toContain('reading her via ${');
-        expect(hub).toContain("'Instruments & AIS · connect when aboard'");
         expect(hub).toContain('status={gatewayStatus}');
+        expect(hub).toContain('value={gatewayState}');
     });
 
     it('the gateway page shows an Away badge instead of a fault while the cloud feeds the panel', () => {

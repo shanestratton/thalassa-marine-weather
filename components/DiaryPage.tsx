@@ -30,6 +30,7 @@ import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
 import { useDiaryPendingComments } from '../hooks/useDiaryPendingComments';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { POLISH_INTENSITY, type PolishStyle } from '../types/settings';
@@ -281,6 +282,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         phone: { lat: number; lon: number };
         distanceM: number;
     } | null>(null);
+    // Focus in, Tab kept inside, focus restored (UX scorecard run 10,
+    // dialog-focus-traps). No Escape: the question has no dismiss choice, and
+    // a key must never pick 'On the boat' or 'Where I'm standing' for the skipper.
+    const gpsConflictTrapRef = useFocusTrap<HTMLDivElement>(gpsConflict !== null);
     const [gpsSource, setGpsSource] = useState<'vessel' | 'phone' | null>(null);
     // A Save snapshots only the refs it is adopting. Account B can therefore
     // begin a clean compose after an A→B switch without Cancel racing A's bytes.
@@ -1322,6 +1327,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 {photoPinDialog}
                 {gpsConflict && (
                     <div
+                        ref={gpsConflictTrapRef}
                         // Centred, not a bottom sheet: anchored low it slid its second
                         // option under the tab bar, and a question with one visible answer
                         // is not a question (Shane, 2026-08-31). The bottom padding keeps

@@ -289,17 +289,22 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // The chips read to VoiceOver as one run ('3 due 36 ok 1 needs hours'), so
     // assistive tech gets this sentence instead and the chips are hidden from
     // it (UX scorecard run 7).
+    // "Up to date" is earned by a logged service (UX scorecard run 10,
+    // maint-36-ok): while no task has ever been done — the suggested schedule
+    // straight after seeding — the green count says "not due", not "ok".
+    const anyServiceLogged = useMemo(() => tasksWithStatus.some((t) => !!t.last_completed), [tasksWithStatus]);
     const countsSummary = useMemo(() => {
         const parts: string[] = [];
         if (counts.red > 0) parts.push(`${counts.red} overdue`);
         if (counts.yellow > 0) parts.push(`${counts.yellow} due soon`);
-        if (tasksWithStatus.length > 0) parts.push(`${counts.green} up to date`);
+        if (tasksWithStatus.length > 0)
+            parts.push(`${counts.green} ${anyServiceLogged ? 'up to date' : 'not yet due'}`);
         if (counts.needsHours > 0)
             parts.push(`${counts.needsHours} ${counts.needsHours === 1 ? 'needs' : 'need'} engine hours`);
         if (counts.unscheduled > 0) parts.push(`${counts.unscheduled} unscheduled`);
         if (counts.paused > 0) parts.push(`${counts.paused} paused`);
         return parts.length > 0 ? `Tasks: ${parts.join(', ')}.` : '';
-    }, [counts, tasksWithStatus.length]);
+    }, [counts, tasksWithStatus.length, anyServiceLogged]);
 
     // ── Log Service ──
     const handleLogService = useCallback(async () => {
@@ -609,61 +614,81 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 hours' is one row at 393 pt instead of two (UX scorecard
                                 run 9: the chips were half of what pushed the first task
                                 to mid-screen). */}
-                            {counts.red > 0 && (
-                                <span
-                                    aria-hidden="true"
-                                    className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-black"
-                                    title="Overdue"
-                                >
-                                    {counts.red} overdue
-                                </span>
-                            )}
-                            {counts.yellow > 0 && (
-                                <span
-                                    aria-hidden="true"
-                                    className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
-                                    title="Due soon"
-                                >
-                                    {/* 'due soon', as the rows and the spoken summary
-                                        say it; a bare '3 due' read as overdue (UX
-                                        scorecard run 8). */}
-                                    {counts.yellow} due soon
-                                </span>
-                            )}
+                            {/* The chip row runs the header's full width, under the ⋮
+                                (UX scorecard run 10, maint-chips-375): at 375 pt the
+                                title column alone wrapped the chips onto a second row
+                                and pushed the first task ~24 pt down. PageHeader sets
+                                the ⋮ at the top of its row (items-start), so the chips
+                                always sit below it; -mr-14 is its 44 pt plus the 12 pt
+                                gap. Rendered only with a chip in it, so the status row
+                                still collapses (empty:hidden) when there are no tasks. */}
                             {tasksWithStatus.length > 0 && (
                                 <span
                                     aria-hidden="true"
-                                    className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
-                                    title="Up to date"
+                                    data-testid="maintenance-status-chips"
+                                    className="-mr-14 flex flex-wrap items-center gap-1.5"
                                 >
-                                    {counts.green} ok
-                                </span>
-                            )}
-                            {counts.needsHours > 0 && (
-                                <span
-                                    aria-hidden="true"
-                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                    title="Due by engine hours — enter current engine hours"
-                                >
-                                    {counts.needsHours} need{counts.needsHours === 1 ? 's' : ''} hours
-                                </span>
-                            )}
-                            {counts.unscheduled > 0 && (
-                                <span
-                                    aria-hidden="true"
-                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                    title="No due date or engine hours set"
-                                >
-                                    {counts.unscheduled} unscheduled
-                                </span>
-                            )}
-                            {counts.paused > 0 && (
-                                <span
-                                    aria-hidden="true"
-                                    className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
-                                    title="Paused"
-                                >
-                                    {counts.paused} paused
+                                    {counts.red > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-black"
+                                            title="Overdue"
+                                        >
+                                            {counts.red} overdue
+                                        </span>
+                                    )}
+                                    {counts.yellow > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black"
+                                            title="Due soon"
+                                        >
+                                            {/* 'due soon', as the rows and the spoken summary
+                                        say it; a bare '3 due' read as overdue (UX
+                                        scorecard run 8). */}
+                                            {counts.yellow} due soon
+                                        </span>
+                                    )}
+                                    {tasksWithStatus.length > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-black"
+                                            title={anyServiceLogged ? 'Up to date' : 'Not yet due'}
+                                        >
+                                            {counts.green} {anyServiceLogged ? 'ok' : 'not due'}
+                                        </span>
+                                    )}
+                                    {/* '1 by hours', not '1 needs hours' (UX scorecard run 10,
+                                maint-chips-375): the three chips wrapped to two rows
+                                at 375 pt. The title and the spoken summary keep the
+                                full reason. */}
+                                    {counts.needsHours > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                            title="Due by engine hours — enter current engine hours"
+                                        >
+                                            {counts.needsHours} by hours
+                                        </span>
+                                    )}
+                                    {counts.unscheduled > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                            title="No due date or engine hours set"
+                                        >
+                                            {counts.unscheduled} unscheduled
+                                        </span>
+                                    )}
+                                    {counts.paused > 0 && (
+                                        <span
+                                            aria-hidden="true"
+                                            className="px-1.5 py-0.5 rounded-full bg-gray-500/20 text-gray-300 text-xs font-black"
+                                            title="Paused"
+                                        >
+                                            {counts.paused} paused
+                                        </span>
+                                    )}
                                 </span>
                             )}
                         </>
@@ -916,7 +941,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 // Two lines, not three (UX scorecard run 9); the caveat
                                 // itself is unchanged.
                                 <p className="text-xs text-gray-400 px-1">
-                                    Suggested schedule: due dates count from the day it was added, not your last
+                                    Suggested schedule: due dates count from the day they were added, not your last
                                     service. Tap a task to adjust it.
                                 </p>
                             )}

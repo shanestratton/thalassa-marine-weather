@@ -9,6 +9,7 @@
  */
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { trimVideoLossless } from '../../services/videoTrim';
 import { triggerHaptic } from '../../utils/system';
 import { createLogger } from '../../utils/createLogger';
@@ -34,6 +35,10 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
     const [startSec, setStartSec] = useState(0);
     const [cutting, setCutting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Focus in, Tab kept inside, focus restored on close (UX scorecard run 10,
+    // dialog-focus-traps). Escape is Cancel, and like the Cancel button it
+    // does nothing while the cut is running.
+    const trapRef = useFocusTrap<HTMLDivElement>(true, { onEscape: cutting ? undefined : onCancel });
     const barRef = useRef<HTMLDivElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const dragging = useRef(false);
@@ -102,6 +107,7 @@ export const VideoTrimmer: React.FC<VideoTrimmerProps> = ({ file, durationSec, o
         // clear of the menu, and the card itself scrolls internally rather
         // than ever pushing its buttons off-screen.
         <div
+            ref={trapRef}
             className="fixed inset-0 z-1200 flex items-center justify-center bg-black/80 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
             role="dialog"
             aria-modal="true"

@@ -76,29 +76,57 @@ export interface TaskWithStatus extends MaintenanceTask {
     hoursRemaining: number | null;
 }
 
+/** A bare 'YYYY-MM-DD' names a calendar day, not an instant. */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Whole LOCAL calendar days from today to the due date: 0 today, 1 tomorrow,
+ * -1 yesterday. The same local day the card prints beside the status
+ * (utils/displayDate formatDisplayDate): a bare 'YYYY-MM-DD' is that local
+ * day, a timestamp is the local day it falls on.
+ *
+ * It used to be Math.ceil((due - now) / 1 day) on instants, so a task due
+ * later today read "Due in 1 day" beside today's date (UX scorecard run 10,
+ * maint-due-today). Math.round absorbs a daylight-saving 23- or 25-hour day.
+ * Null for an unreadable date.
+ */
+export function calendarDaysUntil(dueDate: string, now: Date = new Date()): number | null {
+    const due = DATE_ONLY.test(dueDate) ? new Date(`${dueDate}T00:00:00`) : new Date(dueDate);
+    if (Number.isNaN(due.getTime())) return null;
+    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return Math.round((dueDay - today) / (1000 * 60 * 60 * 24));
+}
+
+/** "Due today", "Due tomorrow", "Due in 5 days". */
+function dueInLabel(days: number): string {
+    if (days === 0) return 'Due today';
+    if (days === 1) return 'Due tomorrow';
+    return `Due in ${days} days`;
+}
+
 /**
  * Calculate traffic light status for a task given current engine hours.
  */
 export function calculateStatus(task: MaintenanceTask, currentEngineHours: number): TaskWithStatus {
-    const now = Date.now();
     let status: TrafficLight = 'green';
     let statusLabel = 'OK';
     let daysRemaining: number | null = null;
     let hoursRemaining: number | null = null;
 
-    // Date-based check
+    // Date-based check, in local calendar days
     if (task.next_due_date) {
-        const dueMs = new Date(task.next_due_date).getTime();
-        daysRemaining = Math.ceil((dueMs - now) / (1000 * 60 * 60 * 24));
-
+        daysRemaining = calendarDaysUntil(task.next_due_date);
+    }
+    if (daysRemaining !== null) {
         if (daysRemaining < 0) {
             status = 'red';
             statusLabel = `Overdue by ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining) !== 1 ? 's' : ''}`;
         } else if (daysRemaining <= 14) {
             status = 'yellow';
-            statusLabel = `Due in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}`;
+            statusLabel = dueInLabel(daysRemaining);
         } else {
-            statusLabel = `Due in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}`;
+            statusLabel = dueInLabel(daysRemaining);
         }
     }
 

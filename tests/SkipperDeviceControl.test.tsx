@@ -177,6 +177,9 @@ describe('SkipperDeviceControl takeover confirmation', () => {
         // Says what signing in lets this phone do, in the secondary style: the
         // filled primary made this nudge louder than MOB (UX scorecard run 9).
         const signIn = screen.getByRole('button', { name: 'Sign in to share position from this phone' });
+        // The status above names the state instead of saying "share position"
+        // a second time, one line over the button (UX scorecard run 10).
+        expect(screen.getByTestId('skipper-device-status')).toHaveTextContent(/^No primary phone yet$/);
         expect(signIn).toHaveClass('h-11', 'whitespace-nowrap');
         expect(signIn).not.toHaveClass('ui-primary-action');
         expect(screen.getByTestId('skipper-device-card')).toHaveClass('h-[calc(7rem_+_2px)]');

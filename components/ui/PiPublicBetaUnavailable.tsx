@@ -35,9 +35,11 @@ export const PiPublicBetaUnavailable: React.FC<{ onOpenEncLibrary?: () => void }
             )
         }
     >
+        {/* The last words are held together with non-breaking spaces so 'Pi.'
+            never sits alone on the last line (UX scorecard run 10, avnav-orphan). */}
         <p>
             Open Thalassa on your iPhone, on the boat&rsquo;s Wi-Fi, to pair with the Pi. Only the iPhone app can check
-            that it is talking to your own boat&rsquo;s Pi.
+            that it is talking to your own&nbsp;boat&rsquo;s&nbsp;Pi.
         </p>
     </NeedsIPhoneAppNotice>
 );
