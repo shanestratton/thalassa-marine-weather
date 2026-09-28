@@ -77,18 +77,25 @@ describe('the Mapbox ⓘ is never under the Locate fab', () => {
         expect(fabs).toContain("bottom: 'calc(80px + env(safe-area-inset-bottom))'");
         expect(fabs).toContain('w-12 h-12');
         // Two rules name this container: the joint bottom-left/right rule
-        // (4rem + 1px, the tab bar) and the dedicated lift AFTER it. The
-        // cascade takes the later one, so that is the one that must clear
-        // the fab: 4rem is the bar (h-16); +73px lands 9px above the fab's top.
+        // (the credits band, 4rem + 1px — the tab bar — held in ONE custom
+        // property the chart's own bottom-left controls also measure from)
+        // and the dedicated lift AFTER it. The cascade takes the later one, so
+        // that is the one that must clear the fab: 4rem is the bar (h-16);
+        // +73px lands 9px above the fab's top.
+        expect(css).toContain('--thalassa-chart-credits-bottom: calc(4rem + 1px + env(safe-area-inset-bottom));');
+        const joint = css.indexOf(
+            '.thalassa-chart-map .mapboxgl-ctrl-bottom-right {\n    bottom: var(--thalassa-chart-credits-bottom);',
+        );
+        expect(joint, 'the joint rule reads the shared credits band').toBeGreaterThan(-1);
         const rules = [
             ...css.matchAll(
                 /\.mapboxgl-ctrl-bottom-right \{\s*bottom: calc\(4rem \+ (\d+)px \+ env\(safe-area-inset-bottom\)\);/g,
             ),
         ];
-        expect(rules.length, 'joint rule plus the dedicated lift').toBeGreaterThanOrEqual(2);
-        const lift = rules[rules.length - 1];
+        expect(rules.length, 'exactly one dedicated lift').toBe(1);
+        const lift = rules[0];
         expect(Number(lift[1])).toBeGreaterThanOrEqual(128 - 64 + 8);
-        expect(lift.index!).toBeGreaterThan(rules[0].index!);
+        expect(lift.index!).toBeGreaterThan(joint);
         // The elements themselves are never styled (MapAttributionContract).
         expect(css).not.toContain('.mapboxgl-ctrl-attrib');
         expect(css).not.toContain('.mapboxgl-ctrl-logo');

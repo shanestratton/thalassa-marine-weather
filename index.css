@@ -3706,10 +3706,56 @@ body,
    naming the attribution-pill or logo elements themselves, and rightly so —
    those must never be restyled or hidden. Only their wrapper moves. Scoped to
    .thalassa-chart-map (MapHub's own container) so embedded, picker and pin
-   maps, which have no tab bar under them, are untouched. */
+   maps, which have no tab bar under them, are untouched.
+
+   The band's height is ONE custom property, because the chart's own bottom-left
+   controls are measured from it (.thalassa-chart-controls-pill below): when
+   they carried their own 80px, they drifted onto the Mapbox wordmark the
+   moment they became the default surface (2026-09-28). The short-landscape
+   block redefines it, never the containers alone. */
+:root {
+    --thalassa-chart-credits-bottom: calc(4rem + 1px + env(safe-area-inset-bottom));
+}
 .thalassa-chart-map .mapboxgl-ctrl-bottom-left,
 .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
-    bottom: calc(4rem + 1px + env(safe-area-inset-bottom));
+    bottom: var(--thalassa-chart-credits-bottom);
+}
+/* Stacking. The containers keep Mapbox's own z-index (2): the wordmark and the
+   closed ⓘ are kept clear by GEOMETRY — nothing of the app's is placed on them
+   (the layer controls below, the ENC notice, e2e/chart-warning.spec.ts) — and
+   at 2 every surface the skipper opens (the layer panel, the pickers, the
+   anchorage and consensus sheets, every modal) still covers them, as it must.
+   A blanket lift over the whole chart (2026-09-28, first cut) put the scale
+   bar over the open layer panel's Hide button and the wordmark through the
+   anchorage sheet's backdrop.
+   OPENED, the credits are a popover the skipper just asked for, and they run
+   left along the chart over whatever shares that row (the landscape ENC
+   notice, the tide scrubber, the folded layer pill), so only then does the
+   bottom-right container rise: over every passive chart layer, and one step
+   under the helm (10020), so MOB and the layers button always stay on top —
+   a long scale bar or three lines of credits in short landscape would
+   otherwise reach MOB. Not while a surface the skipper opened is up (the
+   layer panel, a menu, a sheet, a dialog, the consensus matrix, the plan
+   map's tracer and chart key): there it sits one step under the layer panel
+   (500), over the notices that yield to the panel (498), and under every
+   menu, sheet and modal. Containers only; the attribution control itself is
+   never named. */
+.thalassa-chart-map .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+    z-index: 10019;
+}
+[data-testid='map-hub']:has(
+        .thalassa-chart-controls-panel,
+        .radial-helm-open,
+        .map-tracer-panel,
+        [aria-label='Nautical chart key'],
+        [role='menu'],
+        [role='dialog'],
+        [aria-modal='true'],
+        button[aria-label='Close consensus matrix']
+    )
+    .thalassa-chart-map
+    .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+    z-index: 499;
 }
 
 /* The bottom-RIGHT container (compact ⓘ attribution + scale) shared its
@@ -3853,6 +3899,271 @@ body,
     }
     .thalassa-enc-coverage-notice > button {
         align-self: flex-end;
+    }
+}
+
+/* ── Chart layer controls: beside the credits, never on them ──────────
+   MapWeatherControls' collapsed pill and expanded panel. Since the panel took
+   every chart layer's key (not only weather) it shows whenever ANY layer is
+   on — ENC alone is enough — and at a fixed bottom: 80px it lay across the
+   Mapbox wordmark, a licence credit (e2e/chart-warning.spec.ts, 2026-09-28).
+
+   Heights are in the credits band's own units, held in ONE property that
+   everything stacked on the pill reads (the anchorage chip too). The
+   wordmark's container sits at --thalassa-chart-credits-bottom; its control
+   carries a 10px margin, the logo pulls back 4px and is 23px tall, so the
+   wordmark's top is 29px up. +34px leaves 5px of chart between them, at any
+   root font size, and keeps a pill of up to 48px under the OPENED compact
+   attribution, whose foot is 82px up (the bottom-right lift's 72px + its 10px
+   margin): measured, +37px put the pill 2-3px into the opened credits.
+
+   Widths leave the right-hand rail alone: Locate and the portrait zoom rail
+   are max(44px, 3rem) wide on a 16px margin, and Mapbox's ⓘ sits inside that.
+   The open panel keeps 4px from them and no more, because at 320 wide every
+   further pixel comes out of the layer key: the Lightning key, which carries
+   the Blitzortung.org credit, needs 211px and overflowed a 232px panel. The
+   scale bar may run further left than that rail; the credit containers stay
+   at Mapbox's own z-index (above), so an OPEN panel covers the ruler and never
+   the other way round — its Hide button and rows stay whole.
+
+   Geometry only. The Mapbox attribution and wordmark elements are never
+   named, restyled or moved here (MapAttributionContract.test.ts). */
+:root {
+    --thalassa-chart-controls-bottom: calc(var(--thalassa-chart-credits-bottom) + 34px);
+}
+/* Wider than 640px (a tablet, a desktop window) Mapbox prints the credits as
+   a full strip, always shown, at the foot of the bottom-right container
+   (4rem + 73px, above) and running left as far as its text goes: with several
+   sources on, under an open panel. paneAwareAttribution.ts marks that layout on
+   the chart; the controls then start above two lines of it (20px each) + 8px. */
+main:has(.thalassa-chart-map[data-attribution-layout='strip']) {
+    --thalassa-chart-controls-bottom: calc(4rem + 73px + 48px + env(safe-area-inset-bottom));
+}
+.thalassa-chart-controls-pill,
+.thalassa-chart-controls-panel {
+    left: max(12px, env(safe-area-inset-left));
+    bottom: var(--thalassa-chart-controls-bottom);
+}
+.thalassa-chart-controls-pill {
+    max-width: calc(100% - 88px - env(safe-area-inset-left) - env(safe-area-inset-right));
+}
+.thalassa-chart-controls-panel {
+    width: min(
+        420px,
+        calc(
+            100% - max(12px, env(safe-area-inset-left)) - max(16px, env(safe-area-inset-right)) - max(44px, 3rem) - 4px
+        )
+    );
+    /* Its top stays under MOB (97px + half the top inset, 52px tall) and the
+       layers button beside it: 160px + the inset clears both on every phone. */
+    max-height: min(60%, calc(100% - var(--thalassa-chart-controls-bottom) - 160px - env(safe-area-inset-top)));
+}
+/* The Anchorages layer's 'Next 12 hours' chip rides directly above the pill
+   (a pill is at most 48px tall, + 8px), so the two never meet whatever the
+   band, the credits strip or the look-ahead scrubber does to the pill. */
+.thalassa-anchorage-chip {
+    left: max(12px, env(safe-area-inset-left));
+    bottom: calc(var(--thalassa-chart-controls-bottom) + 48px + 8px);
+}
+/* Looking ahead, the route scrubber takes the bottom-left row (4rem + 38px, up
+   to 4rem + 163px tall with its credit and notes) and sits over the chart
+   (PassageHudPane lives outside the chart's stacking context), so a pill left
+   on the wordmark row lay under its Play button. The layer controls step
+   above its tallest state instead; the passage strip measures them and stops
+   short. Only while the scrubber is really on screen: the same exclusions
+   that hide it above, and never in short landscape, where it stands down. */
+@media not ((orientation: landscape) and (max-height: 600px)) {
+    main:has(.thalassa-route-scrubber):not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges)) {
+        --thalassa-chart-controls-bottom: calc(4rem + 171px + env(safe-area-inset-bottom));
+    }
+}
+/* The passage strip and an open layer panel share the left of the chart, the
+   strip above. The consolidated panel (header, model row, timeline, key) is
+   ~280px tall, where the weather controls it replaced topped out at 210px —
+   the budget the strip was built on (its 232px, below) — so opening it pushed
+   the strip's last readings below its fold (passage-hud-height.spec.ts).
+   While the strip is really on screen the panel therefore takes only the room
+   the strip leaves at its tightest (PassageHudPane measures that and publishes
+   it as --passage-hud-reserve-bottom), and never less than its header and the
+   timeline's Play-and-scrub row (a 44px Hide target + 12px padding + its rule,
+   the panel's 2px border, the body's 8px inset and that 60px row). Its body
+   scrolls, the timeline first, so what shows is the control being used; the
+   model row and the key scroll beneath it. */
+@media not ((orientation: landscape) and (max-height: 600px)) {
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-chart-controls-panel {
+        max-height: min(
+            60%,
+            calc(100% - var(--thalassa-chart-controls-bottom) - 160px - env(safe-area-inset-top)),
+            max(
+                calc(44px + 12px + 1px + 2px + 8px + 60px),
+                calc(var(--passage-hud-reserve-bottom, 100%) - var(--thalassa-chart-controls-bottom))
+            )
+        );
+    }
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-chart-controls-panel-body {
+        display: flex;
+        flex-direction: column;
+    }
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-chart-controls-panel-body
+        > :has([role='slider'][aria-label$=' timeline']) {
+        order: -1;
+    }
+    /* The anchorage chip folds to its anchor and steps right of the strip, as
+       the wind legend does: under the strip's column it lay beneath it. */
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-anchorage-chip {
+        left: calc(9.5rem + 12px);
+        width: 48px;
+        height: 48px;
+        padding: 0;
+    }
+    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
+            :has(button[aria-label='Close consensus matrix'])
+        ):not(:has(.storm-hud-badges))
+        .thalassa-anchorage-chip-text {
+        display: none;
+    }
+}
+/* An open panel is the skipper's own choice, so the passive overlays that sit
+   high in the chart's stack (the ENC coverage and reference notices, the live
+   tide badge and scrubber) and the anchorage chip drop beneath it while it is
+   open — otherwise the notice painted over the panel's own Hide button at
+   667x375, and the chip lay across its rows. 498: under the opened Mapbox
+   credits too, which sit at 499 while the panel is up (above). The panel does
+   NOT climb over them instead: the credits strip (z-509/520) and the storm
+   card (z-760) must stay above it. */
+main:has(.thalassa-chart-controls-panel)
+    :is(
+        .thalassa-enc-coverage-notice,
+        .thalassa-enc-reference-notice,
+        .thalassa-tide-depth-badge,
+        .thalassa-tide-depth-scrubber,
+        .thalassa-anchorage-chip
+    ) {
+    z-index: 498;
+}
+/* Short landscape (the same 600px line as the zoom rail and the ENC notice):
+   the zoom rail owns the middle-left, so both surfaces start right of it
+   (16px + up to 51px + 9px) and the right-hand rail keeps 156px, which clears
+   MOB (148px in) as well as Locate, the ⓘ and the scale. The panel's top stays
+   under the top row (8px + 3rem) and level with MOB's top. */
+@media (orientation: landscape) and (max-height: 600px) {
+    /* The right-hand rail of a short landscape chart has no 9px to spare
+       between Locate and the layers button: at 4rem + 73px the ⓘ's top lay
+       5px under the layers button in a 1024x520 split pane (a covered licence
+       credit), and the scale under it on a landscape phone. Here the container
+       stands ON Locate's top edge (its 80px + 3rem), the ⓘ still 10px above
+       Locate on its own margin. The folded-bar rule (60px) still overrides
+       this. Container only; nothing inside it is named. */
+    .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
+        bottom: calc(80px + 3rem + env(safe-area-inset-bottom));
+    }
+    .thalassa-chart-controls-pill,
+    .thalassa-chart-controls-panel {
+        left: calc(76px + env(safe-area-inset-left));
+    }
+    .thalassa-chart-controls-pill {
+        max-width: calc(100% - 232px - env(safe-area-inset-left) - env(safe-area-inset-right));
+    }
+    .thalassa-chart-controls-panel {
+        width: min(420px, calc(100% - 232px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        max-height: calc(100% - var(--thalassa-chart-controls-bottom) - 64px - env(safe-area-inset-top));
+    }
+    /* No column down the left survives the ENC notice (top-anchored at 148px
+       here) and, on a phone, the tide controls: the anchorage chip folds to
+       its anchor and takes the top row, right of the ZOOM readout (16px +
+       3rem), level with it. The open panel's top stays 8px under that row. */
+    .thalassa-anchorage-chip {
+        top: calc(env(safe-area-inset-top) + 8px);
+        bottom: auto;
+        left: calc(76px + env(safe-area-inset-left));
+        width: 48px;
+        height: 48px;
+        padding: 0;
+    }
+    .thalassa-anchorage-chip-text {
+        display: none;
+    }
+}
+/* A landscape phone has no row to spare between the zoom rail, the ENC notice
+   and the tide scrubber, so the collapsed pill folds to the layers glyph (48px)
+   and sits ON the credits row, right of the wordmark (whose 88px run ends at
+   94px). The ENC notice moves one pill further right onto that row while the
+   controls are there; nothing sits above it there without tide. Its text size,
+   wrapping and Library button are untouched.
+   With live tide the notice already owns that row (the --with-tide rule above)
+   and the scrubber sits right above it: at 568x320 the narrower notice wrapped
+   to three lines and met the scrubber. There the pill takes the gap between
+   the zoom rail and the scrubber instead, clear of a three-line notice (60px
+   from its 4rem + 2px foot) by 8px.
+   With the landscape tab bar FOLDED the credits come down to 60px, and the
+   bottom-right container with them, so the scale bar (above the ⓘ, up to 100px
+   long) lay on the notice's right end. Both notices then take the chart's own
+   bottom edge instead — the 12px + inset floor that Locate and the navigation
+   toggle already share, between the two — which is clear of the scale, of the
+   ⓘ and, with tide, of the scrubber. */
+@media (orientation: landscape) and (max-height: 500px) {
+    .thalassa-chart-controls-pill {
+        left: calc(104px + env(safe-area-inset-left));
+        bottom: var(--thalassa-chart-credits-bottom);
+        width: 48px;
+        height: 48px;
+        padding: 0;
+        justify-content: center;
+    }
+    .thalassa-chart-controls-pill-text {
+        display: none;
+    }
+    main:has(.thalassa-chart-controls-pill, .thalassa-chart-controls-panel)
+        .thalassa-enc-coverage-notice:not(.thalassa-enc-coverage-notice--with-tide) {
+        top: auto;
+        bottom: calc(var(--thalassa-chart-credits-bottom) + 1px);
+        left: calc(160px + env(safe-area-inset-left));
+        width: min(390px, calc(100% - 232px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    }
+    :root:not(:has(nav[aria-label='Navigation toggle']))
+        main:has(.thalassa-chart-controls-pill, .thalassa-chart-controls-panel)
+        .thalassa-enc-coverage-notice:not(.thalassa-enc-coverage-notice--with-tide),
+    :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-enc-coverage-notice--with-tide {
+        bottom: calc(env(safe-area-inset-bottom) + 12px);
+    }
+    main:has(.thalassa-enc-coverage-notice--with-tide) .thalassa-chart-controls-pill {
+        left: calc(76px + env(safe-area-inset-left));
+        bottom: calc(4rem + 70px + env(safe-area-inset-bottom));
+    }
+}
+
+/* ── Map base picker: clear of the tab bar, scrolling inside ─────────
+   The chart is its own stacking context (MapHub's `isolate`, which keeps the
+   helm and chart popups under App's modals), so the open picker's z-9998 no
+   longer lifts it over App's z-900 tab bar. On a 320px-tall landscape phone
+   with the bar open, its ENC row lay under the Plan tab and could not be
+   pressed. Bounded instead, like every panel over the chart: it ends 8px above
+   the bar and scrolls, rows and text unchanged. Above it: the trigger's 8px
+   top offset, its h-12 (3rem) and the menu's mt-2 (0.5rem), all fluid with the
+   root font. */
+.thalassa-map-base-menu {
+    max-height: calc(100dvh - env(safe-area-inset-top) - 16px - 3.5rem - 4rem - 1px - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+    /* The bar folded away: keep the credits band clear instead. */
+    :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-map-base-menu {
+        max-height: calc(100dvh - env(safe-area-inset-top) - 16px - 3.5rem - var(--thalassa-chart-credits-bottom));
     }
 }
 
@@ -4231,9 +4542,14 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
        (its toggle's nav is then labelled 'Navigation toggle'), and these
        lowered positions put Locate under it and the scale into the ENC
        notice's band (UX scorecard run 7). The defaults already clear it. */
+    :root:not(:has(nav[aria-label='Navigation toggle'])) {
+        --thalassa-chart-credits-bottom: calc(env(safe-area-inset-bottom) + 60px);
+    }
+    /* Named explicitly, not left to the joint rule: the bottom-right has its
+       own fab-row lift above, which this band must still override. */
     :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-chart-map .mapboxgl-ctrl-bottom-left,
     :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
-        bottom: calc(env(safe-area-inset-bottom) + 60px);
+        bottom: var(--thalassa-chart-credits-bottom);
     }
     /* …and clear of a landscape notch: the containers sat at the map's edge,
        inside the ~59 pt inset on a notched iPhone. Containers only. */

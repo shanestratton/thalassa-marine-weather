@@ -82,7 +82,9 @@ test('route-free recording HUD and weather timeline fit open and collapsed at 39
     await timeline.focus();
     await timeline.press('ArrowRight');
     await expect(timeline).toHaveAttribute('aria-valuenow', '1');
-    await expect(timeline).toHaveAttribute('aria-valuetext', '+1h — Forecast');
+    // The wind timeline names the frame's valid time from the model run
+    // (06:00 UTC in the fixture), not just its offset.
+    await expect(timeline).toHaveAttribute('aria-valuetext', '+1h — Forecast · Valid 09-27 07:00 UTC');
     await page.screenshot({
         path: info.outputPath('recording-hud-collapsed-weather-preview.png'),
         animations: 'disabled',

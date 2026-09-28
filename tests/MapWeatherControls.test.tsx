@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { MapWeatherControls } from '../components/map/MapWeatherControls';
 import type { useWeatherLayers } from '../components/map/useWeatherLayers';
 import { startPassageLookAhead, stopPassageLookAhead } from '../stores/passageHudStore';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const read = (path: string) => readFileSync(resolve(process.cwd(), path), 'utf8');
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
 
@@ -70,6 +74,39 @@ describe('MapWeatherControls', () => {
         expect(screen.queryByRole('region', { name: 'Chart layer controls' })).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: 'Show layer controls' }));
         expect(onControlsHiddenChange).toHaveBeenCalledWith(false);
+    });
+
+    it("the collapsed pill carries the app's layers glyph and 12px text, never an ⓘ", () => {
+        // Folded to its glyph on a landscape phone it sits on the credits row
+        // beside Mapbox's own ⓘ: it must not read as a second attribution
+        // button, and its name says what it opens.
+        render(
+            <MapWeatherControls
+                {...controls}
+                controlsHidden
+                weather={weather({ activeLayers: new Set() })}
+                extraLegend={<section aria-label="AIS legend">AIS targets</section>}
+                extraLegendCount={1}
+            />,
+        );
+        const pill = screen.getByRole('button', { name: 'Show layer controls' });
+        expect(pill.querySelector('svg[data-glyph="layers"]')).not.toBeNull();
+        expect(pill).not.toHaveTextContent('ⓘ');
+        expect(pill).toHaveClass('text-[12px]');
+        expect(pill).not.toHaveClass('text-[11px]');
+        expect(pill).toHaveAccessibleDescription(/Layer key/);
+        // The same glyph as the layer menu's own button.
+        const helm = read('components/map/RadialHelmMenu.tsx');
+        expect(helm).toContain("import { LAYERS_GLYPH_PATH } from './LayersGlyph';");
+        expect(helm).toContain('d={LAYERS_GLYPH_PATH}');
+    });
+
+    it('marks the open panel body the passage strip reorders and caps', () => {
+        render(<MapWeatherControls {...controls} weather={weather({ activeLayers: new Set(['wind']) })} />);
+        const panel = screen.getByRole('region', { name: 'Weather controls' });
+        const body = panel.querySelector('.thalassa-chart-controls-panel-body');
+        expect(body).not.toBeNull();
+        expect(within(body as HTMLElement).getByRole('slider', { name: 'Wind timeline' })).toBeInTheDocument();
     });
 
     it('combines weather and other chart keys without duplicating the weather timeline', () => {
@@ -630,7 +667,12 @@ describe('MapWeatherControls', () => {
         expect(hide).toHaveClass('h-[44px]', 'w-[44px]');
         expect(hide.style.bottom).toBe('');
         const panel = screen.getByRole('region', { name: 'Weather controls' });
-        expect(panel.style.bottom).toBe('calc(80px + env(safe-area-inset-bottom))');
+        // On the chart the geometry is index.css's, measured from the Mapbox
+        // credits band: an inline bottom would beat it and put the panel back
+        // on the wordmark (chart-warning.spec.ts, 2026-09-28).
+        expect(panel).toHaveClass('thalassa-chart-controls-panel');
+        expect(panel.style.bottom).toBe('');
+        expect(panel.style.width).toBe('');
         fireEvent.click(screen.getByRole('button', { name: 'Show weather legends' }));
         expect(within(panel).getByRole('button', { name: 'Hide weather controls' })).toBe(hide);
         expect(screen.getByRole('region', { name: 'Wind legend' })).toBeVisible();
@@ -645,7 +687,23 @@ describe('MapWeatherControls', () => {
             />,
         );
         const show = screen.getByRole('button', { name: 'Show weather controls' });
-        expect(show.style.bottom).toBe('calc(80px + env(safe-area-inset-bottom))');
+        expect(show).toHaveClass('thalassa-chart-controls-pill');
+        expect(show.style.bottom).toBe('');
+        expect(show.style.left).toBe('');
+        cleanup();
+        // An embedded map has no chart credits band under it: its own inset.
+        render(
+            <MapWeatherControls
+                weather={weather({ activeLayers: new Set(['wind']) })}
+                visible
+                embedded
+                controlsHidden={false}
+                onControlsHiddenChange={vi.fn()}
+            />,
+        );
+        const embeddedPanel = screen.getByRole('region', { name: 'Weather controls' });
+        expect(embeddedPanel).not.toHaveClass('thalassa-chart-controls-panel');
+        expect(embeddedPanel.style.bottom).toBe('12px');
     });
 
     it('the RainViewer credit sits centred under the basemap dropdown, shown or hidden', () => {

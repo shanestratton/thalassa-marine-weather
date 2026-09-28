@@ -73,7 +73,7 @@ export function ChartDepthControls({
                                 ? 'Depths shown at a future tide — tap to return to now'
                                 : 'Live tide depth is on — tap to return to chart datum'
                         }
-                        className={`absolute left-1/2 top-16 z-9990 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95 ${showCoverageNotice ? 'thalassa-enc-tide-badge' : '-translate-x-1/2'}`}
+                        className={`thalassa-tide-depth-badge absolute left-1/2 top-16 z-9990 whitespace-nowrap rounded-full border px-4 py-2.5 text-[13px] font-black tracking-wide shadow-lg active:scale-95 ${showCoverageNotice ? 'thalassa-enc-tide-badge' : '-translate-x-1/2'}`}
                         style={
                             tideOffsetInfo && tideScrubQ > 0
                                 ? {
@@ -112,7 +112,7 @@ export function ChartDepthControls({
                     </button>
                     {tideOffsetInfo && (
                         <div
-                            className={`absolute left-1/2 top-[6.4rem] z-9989 w-60 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg ${showCoverageNotice ? 'thalassa-enc-tide-scrubber' : '-translate-x-1/2'}`}
+                            className={`thalassa-tide-depth-scrubber absolute left-1/2 top-[6.4rem] z-9989 w-60 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg ${showCoverageNotice ? 'thalassa-enc-tide-scrubber' : '-translate-x-1/2'}`}
                         >
                             <input
                                 type="range"
@@ -192,7 +192,7 @@ export function ChartDepthControls({
 
             {encReferenceCellCount > 0 && encVisible && referenceNoticeVisible && (
                 <div
-                    className={`absolute left-1/2 z-9995 flex w-[min(440px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-[11px] font-bold text-amber-100 shadow-lg backdrop-blur-xs ${
+                    className={`thalassa-enc-reference-notice absolute left-1/2 z-9995 flex w-[min(440px,calc(100%-24px))] -translate-x-1/2 items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-slate-950/95 px-3 py-2 text-[11px] font-bold text-amber-100 shadow-lg backdrop-blur-xs ${
                         tideDepthMode && surfaceVisible ? 'top-28' : 'top-16'
                     }`}
                     role="status"
