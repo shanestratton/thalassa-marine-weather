@@ -63,11 +63,17 @@ export function MapBaseSelector({
        the one item they cannot reach without a mouse. */
     const itemCount = MAP_BASE_OPTIONS.length + 1;
     const noCharts = encCellCount === 0;
+    /* With nothing installed and the layer off, 'OFF' was a state for charts
+       that don't exist, with no hint that the tap leads to getting some: it
+       turns the layer on, and its no-charts notice carries the ENC Library
+       button (UX scorecard run 10). Once on, the row says so as before. */
+    const offerAdd = noCharts && !encVisible;
     const encDetail = noCharts
         ? 'None installed yet'
         : encVisible
           ? 'Safety layers above the base'
           : 'Hidden — base map only';
+    const encName = `ENC charts, ${encDetail.toLowerCase()}${offerAdd ? ', tap to add charts' : ''}`;
 
     useEffect(() => {
         if (!visible) setOpen(false);
@@ -219,7 +225,7 @@ export function MapBaseSelector({
                             type="button"
                             role="menuitemcheckbox"
                             aria-checked={encVisible}
-                            aria-label={`ENC charts, ${encDetail.toLowerCase()}`}
+                            aria-label={encName}
                             onClick={() => {
                                 triggerHaptic('light');
                                 onToggleEnc();
@@ -236,13 +242,14 @@ export function MapBaseSelector({
                                 <span className="block text-xs font-black">ENC charts</span>
                                 <span className="block text-[10px] font-medium text-slate-400">{encDetail}</span>
                             </span>
-                            {/* The state, not just what tapping does. */}
+                            {/* The state, not just what tapping does, while there
+                                are charts to show; with none, the next step. */}
                             <span
-                                className={`text-[10px] font-black uppercase tracking-wider ${
-                                    encVisible ? 'text-emerald-300' : 'text-slate-500'
+                                className={`shrink-0 pl-2 text-[10px] font-black uppercase tracking-wider ${
+                                    encVisible ? 'text-emerald-300' : offerAdd ? 'text-sky-300' : 'text-slate-500'
                                 }`}
                             >
-                                {encVisible ? 'ON' : 'OFF'}
+                                {encVisible ? 'ON' : offerAdd ? 'Add ›' : 'OFF'}
                             </span>
                         </button>
                     </>

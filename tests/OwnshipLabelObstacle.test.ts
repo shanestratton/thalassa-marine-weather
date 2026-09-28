@@ -1,8 +1,15 @@
 /**
  * UX scorecard run 8, ownship-label: at a marina the own-ship dot and its
  * 'Stopped' chip sat on the town's place label ("Gla◯to Stopped"). The marker
- * is DOM, which Mapbox's label placement cannot see, so the hook keeps an
- * invisible symbol under it that takes the footprint in the collision index.
+ * is DOM, which Mapbox's label placement cannot see, so syncOwnshipObstacle
+ * builds an invisible symbol that takes the footprint in the collision index.
+ *
+ * The hook no longer places it: with crossSourceCollisions:false (useMapInit)
+ * a symbol alone in its own source collides with nothing, so its per-fix
+ * setData was pure cost. syncOwnshipPlaceLabel clears the town name instead
+ * (tests/OwnshipPlaceLabelHardening.test.tsx pins that the hook never adds or
+ * updates it). The builder stays, tested, for the day cross-source collisions
+ * come back.
  */
 import { describe, expect, it, vi } from 'vitest';
 

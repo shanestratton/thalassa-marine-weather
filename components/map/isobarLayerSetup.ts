@@ -7,8 +7,147 @@
  */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { isBasePlaceLabelLayer, setOpacityKeepingOwnshipFade } from './ownshipLabelFade';
 
 const log = createLogger('IsobarLayers');
+
+// ── Base town names under the standalone chart: ghosted by ink, not opacity ──
+//
+// The synoptic chart ghosts basemap labels to 30%. For the base style's town
+// and suburb layers it must not do that through text-opacity: useVesselTracker
+// arms their opacity with the own-ship fade (a feature-state switch), and in
+// mapbox-gl 3.19 any paint change to or from a data-driven value re-parses the
+// whole `composite` source and drops its tile cache (StyleLayer.setPaintProperty
+// returns requiresRelayout, Style._updateLayer reloads the source). Writing
+// fade(0.3) and back to fade(1) cost two full base reloads per pressure or
+// weather toggle. So their opacity is only ever handed back to 1 (a no-op once
+// it is there) and the ghost goes into their text and halo colours instead:
+// constant to constant, a repaint and nothing else. The colours they had are
+// kept here and written back exactly when the chart hands the basemap back.
+//
+// A layer whose colours are not plain constants, or whose text-field can
+// override text-color per section (then even a constant colour write relayouts,
+// SymbolStyleLayer.hasPaintOverride), is left drawn at full strength rather
+// than cost a reload. dark-v11's settlement layers are neither, once useMapInit
+// has inked them '#ffffff' on 'rgba(0, 0, 0, 0.9)'.
+
+/** How strongly the standalone chart ghosts basemap labels. */
+const LABEL_GHOST_OPACITY = 0.3;
+
+interface PlaceLabelInk {
+    color: string | undefined;
+    halo: string | undefined;
+}
+
+/** Per map: the base town-name layers ghosted by ink, and the colours to put back. */
+const savedPlaceLabelInk = new WeakMap<object, Map<string, PlaceLabelInk>>();
+
+const clampUnit = (v: number) => Math.min(1, Math.max(0, v));
+
+function hslToRgb(hue: number, s: number, l: number): [number, number, number] {
+    const h = (((hue % 360) + 360) % 360) / 360;
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const channel = (t: number) => {
+        const x = t < 0 ? t + 1 : t > 1 ? t - 1 : t;
+        if (x < 1 / 6) return p + (q - p) * 6 * x;
+        if (x < 1 / 2) return q;
+        if (x < 2 / 3) return p + (q - p) * (2 / 3 - x) * 6;
+        return p;
+    };
+    return [channel(h + 1 / 3) * 255, channel(h) * 255, channel(h - 1 / 3) * 255];
+}
+
+/** A plain CSS colour as [r, g, b, a] (0-255, alpha 0-1); null for anything else. */
+function parsePlainColor(value: string): [number, number, number, number] | null {
+    const s = value.trim().toLowerCase();
+    if (s === 'transparent') return [0, 0, 0, 0];
+    if (s === 'white') return [255, 255, 255, 1];
+    if (s === 'black') return [0, 0, 0, 1];
+    const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(s);
+    if (hex) {
+        const h = hex[1].length <= 4 ? [...hex[1]].map((c) => c + c).join('') : hex[1];
+        const byte = (i: number) => parseInt(h.slice(i, i + 2), 16);
+        return [byte(0), byte(2), byte(4), h.length === 8 ? byte(6) / 255 : 1];
+    }
+    const fn = /^(rgba?|hsla?)\(([^()]*)\)$/.exec(s);
+    if (!fn) return null;
+    const parts = fn[2].split(/[\s,/]+/).filter(Boolean);
+    if (parts.length !== 3 && parts.length !== 4) return null;
+    const num = (part: string, percentOf: number) => {
+        const v = Number(part.endsWith('%') ? part.slice(0, -1) : part);
+        return part.endsWith('%') ? (v / 100) * percentOf : v;
+    };
+    const alpha = parts.length === 4 ? clampUnit(num(parts[3], 1)) : 1;
+    let rgb: number[];
+    if (fn[1].startsWith('rgb')) {
+        rgb = parts.slice(0, 3).map((part) => Math.min(255, Math.max(0, num(part, 255))));
+    } else {
+        if (!parts[1].endsWith('%') || !parts[2].endsWith('%')) return null;
+        rgb = hslToRgb(Number(parts[0].replace(/deg$/, '')), clampUnit(num(parts[1], 1)), clampUnit(num(parts[2], 1)));
+    }
+    if (![...rgb, alpha].every(Number.isFinite)) return null;
+    return [rgb[0], rgb[1], rgb[2], alpha];
+}
+
+/** `value` (or the spec default when unset) with its alpha scaled; null when it is not a plain colour. */
+function ghostInk(value: unknown, specDefault: string): string | null {
+    if (value !== undefined && typeof value !== 'string') return null;
+    const rgba = parsePlainColor(value ?? specDefault);
+    if (!rgba) return null;
+    const [r, g, b, a] = rgba;
+    const alpha = Math.round(a * LABEL_GHOST_OPACITY * 1000) / 1000;
+    return `rgba(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)}, ${alpha})`;
+}
+
+/**
+ * Ghost one base town-name layer by its ink (see above). Idempotent: the
+ * colours are saved once and the ghost is always computed from them, so every
+ * later pass writes the same constants, which mapbox drops as unchanged.
+ */
+function ghostPlaceLabelInk(map: mapboxgl.Map, layerId: string): void {
+    let saved = savedPlaceLabelInk.get(map);
+    const ink: PlaceLabelInk = saved?.get(layerId) ?? {
+        color: map.getPaintProperty(layerId, 'text-color') as string | undefined,
+        halo: map.getPaintProperty(layerId, 'text-halo-color') as string | undefined,
+    };
+    const field =
+        typeof map.getLayoutProperty === 'function' ? map.getLayoutProperty(layerId, 'text-field') : undefined;
+    const color = JSON.stringify(field ?? null).includes('"text-color"') ? null : ghostInk(ink.color, '#000000');
+    const halo = ghostInk(ink.halo, 'rgba(0, 0, 0, 0)');
+    if (color === null || halo === null) return; // left drawn: never a relayout
+    if (!saved) savedPlaceLabelInk.set(map, (saved = new Map()));
+    saved.set(layerId, ink);
+    map.setPaintProperty(layerId, 'text-color', color);
+    map.setPaintProperty(layerId, 'text-halo-color', halo);
+}
+
+/** Put back the colours ghostPlaceLabelInk saved. Needs no style walk, so it never waits for tiles. */
+function restorePlaceLabelInk(map: mapboxgl.Map): void {
+    const saved = savedPlaceLabelInk.get(map);
+    if (!saved) return;
+    for (const [layerId, ink] of saved) {
+        try {
+            if (map.getLayer(layerId)) {
+                map.setPaintProperty(layerId, 'text-color', ink.color as string);
+                map.setPaintProperty(layerId, 'text-halo-color', ink.halo as string);
+            }
+            saved.delete(layerId);
+        } catch (_) {
+            /* style mid-swap: the next pass puts it back */
+        }
+    }
+}
+
+/**
+ * A basemap label's opacity back to 1. An armed town-name layer keeps its
+ * own-ship fade, and an unchanged value writes nothing (ownshipLabelFade).
+ */
+function restoreLabelOpacity(map: mapboxgl.Map, layer: { id: string; type?: string; source?: unknown }): void {
+    if (!setOpacityKeepingOwnshipFade(map, layer, 'text-opacity', 1.0)) {
+        map.setPaintProperty(layer.id, 'text-opacity', 1.0);
+    }
+}
 
 /**
  * IDs of all isobar-related layers for hide/show toggling.
@@ -72,6 +211,9 @@ function restoreBasemapTreatment(
             /* skip */
         }
     }
+    // Town names ghosted by ink get their colours back (before the guard
+    // below: it needs no style walk).
+    restorePlaceLabelInk(map);
     // Restore land label opacity — guarded because getStyle() throws
     // "Style is not done loading" when called before style load completes;
     // the effect will re-fire once it's ready.
@@ -81,7 +223,7 @@ function restoreBasemapTreatment(
         for (const layer of style.layers) {
             if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
                 try {
-                    map.setPaintProperty(layer.id, 'text-opacity', 1.0);
+                    restoreLabelOpacity(map, layer);
                 } catch (_) {
                     /* skip */
                 }
@@ -161,7 +303,14 @@ export function showIsobarLayers(
             }
             if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
                 try {
-                    map.setPaintProperty(layer.id, 'text-opacity', 0.3);
+                    if (isBasePlaceLabelLayer(layer)) {
+                        // Town names: opacity stays at 1 (it may carry the
+                        // own-ship fade), the ghost goes into their ink.
+                        restoreLabelOpacity(map, layer);
+                        ghostPlaceLabelInk(map, layer.id);
+                    } else {
+                        map.setPaintProperty(layer.id, 'text-opacity', LABEL_GHOST_OPACITY);
+                    }
                 } catch (_) {
                     /* skip */
                 }
