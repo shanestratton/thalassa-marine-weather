@@ -142,30 +142,32 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                     </button>
                 </div>
 
-                {/* Row 2: Status label + due info. Only overdue and due-soon
-                    tasks shout in bold capitals; an up-to-date task says so
-                    quietly, so the 3 due stand out from the 36 that are fine
-                    (UX scorecard run 7). */}
+                {/* Row 2: Status label + due info. Every status is sentence
+                    case; overdue and due-soon stand out by colour and weight
+                    alone, so the 3 due still stand out from the 36 that are
+                    fine (UX scorecard run 7) without bold tracked capitals
+                    among sentence-case labels (run 10, maint-casing-chips). */}
                 <div className="flex items-center justify-between gap-2 mt-1.5">
                     <p
                         className={`text-label ${light.text} ${
-                            task.status === 'red' || task.status === 'yellow'
-                                ? 'font-bold uppercase tracking-widest'
-                                : 'font-medium'
+                            task.status === 'red' || task.status === 'yellow' ? 'font-bold' : 'font-medium'
                         }`}
                     >
                         {readableStatusLabel(task.statusLabel)}
                     </p>
+                    {/* Dates and hours in the body font with tabular figures,
+                        as dates are set elsewhere in the app: monospace gave
+                        'Mon  28  Sep  2026' double-width gaps (run 10). */}
                     <div className="flex shrink-0 items-center gap-2">
                         {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
-                            <span className="text-label text-slate-400 font-mono">
+                            <span className="text-label text-slate-400 tabular-nums">
                                 @ {task.next_due_hours?.toLocaleString()} hrs
                             </span>
                         )}
                         {/* The app's one day form, 'Sun 28 Sep 2026': bare
                             toLocaleDateString() gave '28/9/2026' (UX scorecard run 9). */}
                         {task.next_due_date && (
-                            <span className="text-label text-slate-400 font-mono">
+                            <span className="text-label text-slate-400 tabular-nums">
                                 {formatDisplayDate(task.next_due_date)}
                             </span>
                         )}

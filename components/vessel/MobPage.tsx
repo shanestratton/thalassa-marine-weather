@@ -369,7 +369,7 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate, backLabel,
                         </span>
                     }
                 />
-                <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 gap-8 [@media(max-height:700px)]:gap-5">
+                <div className="flex-1 flex flex-col items-center justify-center px-6 pb-8 gap-8 [@media(max-height:700px)]:gap-4">
                     <div className="text-center max-w-sm">
                         <h2 className="text-2xl font-black text-white mb-3">Mark MOB position</h2>
                         {/* Says what the tap will actually mark (UX scorecard run 8):
@@ -378,12 +378,15 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate, backLabel,
                             and with none held it waits a few seconds for a fix
                             (MobService.activate), or says why it could not. It
                             must never read as "nothing to mark, so don't tap".
-                            One line above the button, the first thing read in an
-                            emergency; the rest sits under the button (run 9). */}
+                            ONE sentence above the button, the first thing read in
+                            an emergency, covering both cases (UX scorecard run 10,
+                            mob-copy): it used to hedge across a line here and a
+                            second one under the button ("With none held, it waits
+                            briefly"), and "No fix" was also said on the button. */}
                         <p className="text-[13px] text-slate-400 leading-relaxed">
                             {fixWord === 'Ready'
                                 ? 'Tap to snapshot the current GPS fix.'
-                                : 'No live fix: marks the last position held.'}
+                                : 'No GPS fix. Tap anyway: it marks your last known position, or the first fix in a few seconds.'}
                         </p>
                         {activationError && (
                             <p
@@ -403,7 +406,10 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate, backLabel,
                         // Voice Control, and carries the no-fix warning the
                         // caption shows (UX scorecard run 7).
                         aria-label={fixWord === 'No fix' ? 'MOB, mark position, no GPS fix' : 'MOB, mark position'}
-                        className="relative w-56 h-56 [@media(max-height:700px)]:w-48 [@media(max-height:700px)]:h-48 rounded-full flex items-center justify-center active:scale-[0.97] transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
+                        // 150 pt on short screens (max-height 700px), from 192:
+                        // at 375x667 the "Also immediately" checklist was cut in
+                        // half by the bottom fade (UX scorecard run 10).
+                        className="relative w-56 h-56 [@media(max-height:700px)]:w-[150px] [@media(max-height:700px)]:h-[150px] rounded-full flex items-center justify-center active:scale-[0.97] transition-transform disabled:opacity-60 disabled:cursor-not-allowed"
                         style={{
                             // The highlight stays top-left; from just under the
                             // pivot down the face is #c81e1e → #b91c1c, so the
@@ -440,37 +446,37 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate, backLabel,
                                 {activating ? 'Marking…' : 'MOB'}
                             </span>
                             {/* Still tappable with no fix (the tap takes the best position the
-                                phone holds and says why if there is none), but the caption warns
-                                before the tap rather than after it. */}
-                            {/* On short screens the no-fix caption breaks onto two
-                                lines at a tighter tracking: on one line it ran
-                                into the rim at 375×667 (UX scorecard run 7). */}
+                                phone holds and says why if there is none). The no-fix
+                                warning is said before the tap by the status pill and
+                                the sentence above; the face no longer repeats it (UX
+                                scorecard run 10, mob-copy). The button's spoken name
+                                still carries it. */}
                             <span className="text-center text-xs font-bold tracking-widest uppercase [@media(max-height:700px)]:tracking-wider">
                                 Tap to mark
-                                {fixWord === 'No fix' && (
-                                    <>
-                                        <span className="[@media(max-height:700px)]:hidden"> · </span>
-                                        <span className="[@media(max-height:700px)]:block">No fix</span>
-                                    </>
-                                )}
                             </span>
                         </div>
                     </button>
 
                     <div className="max-w-xs text-center">
                         {/* What happens after the tap, moved from above the button
-                            (UX scorecard run 9) and kept whole: the wait for a fix
-                            when none is held, then the bearing and distance back. */}
+                            (UX scorecard run 9): the bearing and distance back. The
+                            wait for a fix when none is held is now said once, in
+                            the sentence above the button (run 10). */}
                         <p className="mb-3 text-[13px] leading-relaxed text-slate-400">
-                            {fixWord === 'Ready' ? '' : 'With none held, it waits briefly for a fix. '}
                             The app then keeps a live bearing and distance back to the mark.
                         </p>
                         {/* A two-sentence procedure, so it is set as prose: uppercase and
                             letter-spacing are for labels, not for instructions someone has
-                            to follow with a person in the water. */}
-                        <p className="text-sm font-bold leading-relaxed text-slate-300">
+                            to follow with a person in the water. By day it takes an
+                            explicit slate-900: the caption remap set it slate-600
+                            (6.2:1), lighter than the plain paragraph above (8.5:1),
+                            which reversed the emphasis (UX scorecard run 10). */}
+                        {/* text-balance as well as the non-breaking space: the
+                            space alone moved the orphan from 'fitted.' to 'if
+                            fitted.' on its own last line at 393 pt. */}
+                        <p className="text-sm font-bold leading-relaxed text-balance text-slate-300 [.display-light_&]:text-slate-900!">
                             Also immediately: throw a flotation device, shout &ldquo;Man Overboard,&rdquo; assign a
-                            spotter, and hit the MOB button on your chartplotter if fitted.
+                            spotter, and hit the MOB button on your chartplotter if&nbsp;fitted.
                         </p>
                     </div>
                 </div>

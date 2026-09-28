@@ -122,7 +122,22 @@ export const OfficeRow: React.FC<{
                 {icon}
             </div>
             <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-black leading-tight tracking-wide text-white">{label}</span>
+                {/* The live value sits on the title line, where the Settings rows
+                    put theirs, not centred on the row. */}
+                <span className="flex items-baseline justify-between gap-2">
+                    <span className="min-w-0 text-[13px] font-black leading-tight tracking-wide text-white">
+                        {label}
+                    </span>
+                    {value && (
+                        <span
+                            id={`${id}-value`}
+                            className="shrink-0 whitespace-nowrap text-xs font-bold"
+                            style={{ color: valueColor ? daylightUiColor(valueColor) : undefined }}
+                        >
+                            {value}
+                        </span>
+                    )}
+                </span>
                 <span
                     id={`${id}-status`}
                     className="mt-0.5 block text-xs font-semibold leading-snug"
@@ -139,15 +154,6 @@ export const OfficeRow: React.FC<{
                     }`}
                 >
                     {badge}
-                </span>
-            )}
-            {value && (
-                <span
-                    id={`${id}-value`}
-                    className="shrink-0 whitespace-nowrap text-xs font-bold"
-                    style={{ color: valueColor ? daylightUiColor(valueColor) : undefined }}
-                >
-                    {value}
                 </span>
             )}
             <span aria-hidden="true" className="shrink-0">

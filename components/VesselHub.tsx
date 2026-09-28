@@ -182,6 +182,12 @@ const CONNECTIONS_OPEN_KEY = 'thalassa_vessel_connections_open';
 // ink. The 9.5 px size is Shane's, and stays.
 const DESCRIPTOR_INK = 'var(--day-ui-muted, #94a3b8)';
 
+/** The idle ("not watching") state on a safety tile — Anchor's Up and
+ *  Guardian's Off: a grey glyph and a full-ink state word. Colour is kept for
+ *  the watching and alarm states (UX scorecard run 10). */
+const IDLE_STATE_INK = '#e2e8f0';
+const IDLE_GLYPH_INK = '#9ca3af';
+
 const ALERT_SAFETY_CONTROL_CARD = {
     ...SAFETY_CONTROL_CARD,
     background:
@@ -259,14 +265,19 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // Pi's cloud snapshot when away (Shane 2026-09-07: "update the NMEA
     // Gateway card since it will not need to directly connect any more").
     const nmeaLink = useNmeaConnectionStatus();
-    const gatewayStatus =
+    // The row's state sits in the right-hand slot, as the Settings rows show
+    // theirs, and its subtitle stays a plain description (UX scorecard run 10,
+    // vessel-row-status-slot): the state used to ride inline after a dot
+    // ('Instruments & AIS · connect when aboard').
+    const gatewayStatus = nmeaLink.status === 'remote' ? 'Reading her via the Pi' : 'Instruments & AIS';
+    const gatewayState =
         nmeaLink.status === 'connected'
-            ? 'Connected · instruments & AIS'
+            ? 'Connected'
             : nmeaLink.status === 'remote'
               ? nmeaLink.remote?.via === 'lan'
-                  ? 'Aboard · reading her via the Pi'
-                  : 'Away · reading her via the Pi'
-              : 'Instruments & AIS · connect when aboard';
+                  ? 'Aboard'
+                  : 'Away'
+              : 'Not connected';
     const gatewayStatusColor =
         nmeaLink.status === 'connected' || nmeaLink.remote?.via === 'lan'
             ? '#6ee7b7'
@@ -623,12 +634,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
               : anchorWatchedRemotely
                 ? 'Down · Pi'
                 : 'Up';
-    const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorEffectivelyArmed ? '#22d3ee' : '#9ca3af';
+    const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorEffectivelyArmed ? '#22d3ee' : IDLE_GLYPH_INK;
     // The tile's second line is a STATE here, so it is inked as one: the
     // descriptors (MOB's "Overboard", Radio's "Position") are the dim slate
     // words, and a grey "Up" read as one of them (UX scorecard run 6). The
     // glyph keeps the grey; only the word moves to full ink.
-    const anchorWordColor = anchorStatus === 'alarm' || anchorEffectivelyArmed ? anchorColor : '#e2e8f0';
+    const anchorWordColor = anchorStatus === 'alarm' || anchorEffectivelyArmed ? anchorColor : IDLE_STATE_INK;
     // What VoiceOver hears. The tile's aria-label used to be a fixed "Anchor
     // Watch", which overrode the visible state entirely.
     const anchorSpoken =
@@ -881,7 +892,21 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 this deck in normal flex layout also means its dynamic anchor
                 and voyage states never overlap the first scrollable card.
             */}
-            <section className="z-20 shrink-0 px-4 pt-4 pb-1" aria-label="Vessel status and safety controls">
+            <section className="relative z-20 shrink-0 px-4 pt-4 pb-1" aria-label="Vessel status and safety controls">
+                {/* The deck's lower edge, once the port below has moved (UX
+                    scorecard run 10, vessel-scroll-fade): a hairline and a short
+                    shade, so a card scrolled up under the deck reads as going
+                    on above instead of cut flat. It hangs below the deck
+                    (top-full), over the port's clear band, so it costs no height
+                    and the deck's box never moves. Off at home, like the port's
+                    own top fade. */}
+                <div
+                    aria-hidden="true"
+                    data-testid="vessel-deck-scroll-edge"
+                    className={`pointer-events-none absolute inset-x-4 top-full h-3 border-t border-white/10 bg-linear-to-b from-black/45 to-transparent transition-opacity duration-200 [.display-light_&]:border-slate-300 [.display-light_&]:from-slate-900/6 ${
+                        portScrolled ? 'opacity-100' : 'opacity-0'
+                    }`}
+                />
                 {/* ═══════════════════════════════════════════ */}
                 {/* HERO BAND — situational awareness           */}
                 {/* Vessel · voyage state · last fix            */}
@@ -1099,9 +1124,19 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     style={SAFETY_CONTROL_CARD}
                                     className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                                 >
+                                    {/* Off wears the idle ink Anchor's Up wears (UX
+                                        scorecard run 10, vessel-idle-ink-tabbar):
+                                        amber OFF beside a white UP gave the two
+                                        "not watching" states two colours. The grey
+                                        glyph and full-ink word are Anchor's up
+                                        state exactly; colour is kept for watching. */}
                                     <div
                                         className="flex h-8 w-8 items-center justify-center rounded-lg"
-                                        style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                                        style={{
+                                            background: guardianArmed
+                                                ? 'rgba(245, 158, 11, 0.12)'
+                                                : `${IDLE_GLYPH_INK}1f`,
+                                        }}
                                     >
                                         {/* The tick only while Guardian watches (UX
                                             scorecard run 9): a shield-with-tick
@@ -1109,7 +1144,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         {guardianArmed ? (
                                             <ShieldIcon color="var(--day-ui-amber, #f59e0b)" />
                                         ) : (
-                                            <PlainShieldGlyph color="var(--day-ui-amber, #f59e0b)" />
+                                            <PlainShieldGlyph color={daylightUiColor(IDLE_GLYPH_INK)} />
                                         )}
                                     </div>
                                     <span className="text-[11px] font-black leading-none tracking-wide text-white">
@@ -1117,7 +1152,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     </span>
                                     <p
                                         className="max-w-full text-[9.5px] font-bold uppercase leading-[1.1] text-balance [overflow-wrap:anywhere]"
-                                        style={{ color: daylightUiColor(guardianArmed ? '#10b981' : '#f59e0b') }}
+                                        style={{ color: daylightUiColor(guardianArmed ? '#10b981' : IDLE_STATE_INK) }}
                                     >
                                         {/* The "· N nearby" suffix does not fit here; the
                                         count replaces the word so it is not lost. */}
@@ -1318,7 +1353,22 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             >
                                 <ChatBubbleIcon color={HUB_ACCENT} />
                             </span>
-                            <span className="min-w-0 text-[13px] font-black tracking-wide text-white">Scuttlebutt</span>
+                            {/* A descriptor under the sailor's word (UX scorecard
+                                run 10, copy-nits-bundle): "Scuttlebutt" alone does
+                                not say it is chat. Diary needs none. Two tight
+                                lines fit the icon chip's height, so the tile does
+                                not grow. */}
+                            <span className="min-w-0">
+                                <span className="block text-[13px] font-black leading-tight tracking-wide text-white">
+                                    Scuttlebutt
+                                </span>
+                                <span
+                                    className="block text-xs font-semibold leading-snug"
+                                    style={{ color: daylightUiColor('#94a3b8') }}
+                                >
+                                    Sailor chat
+                                </span>
+                            </span>
                         </button>
                     </div>
                 </div>
@@ -1426,7 +1476,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             </span>
                         }
                         label="Settings"
-                        status={`Units, alerts, vessel · ${(() => {
+                        // The account state in the right-hand slot, as the
+                        // Settings rows show theirs; the subtitle says what is
+                        // inside (UX scorecard run 10, vessel-row-status-slot).
+                        status="Units, alerts, vessel"
+                        statusColor="#94a3b8"
+                        value={(() => {
                             // During the free public beta there is no
                             // plan to name, so say what is true of this
                             // account instead of "Free public beta"
@@ -1440,8 +1495,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             return (
                                 (TIER_INFO[tier as SubscriptionTier] as { label: string } | undefined) ?? TIER_INFO.free
                             ).label;
-                        })()}`}
-                        statusColor={(() => {
+                        })()}
+                        valueColor={(() => {
                             if (PUBLIC_BETA_ACCESS.enabled) return authenticatedUserId ? '#7dd3fc' : '#94a3b8';
                             // Tier badge stays its own colour —
                             // owner=amber (premium), crew=the hub
@@ -1485,13 +1540,39 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         expanded={expanded.has('setup')}
                         onToggle={toggleSection}
                     />
+                    {/* What the closed group holds (UX scorecard run 10,
+                        vessel-connections-names): the header alone hid NMEA
+                        gateway, Boat network and Music behind a name that
+                        names none of them. Closed only; open, the rows name
+                        themselves. Pulled up into the header's own padding and
+                        aligned with its label. A tap on it presses the header
+                        (the heading just above), so the group opens and scrolls
+                        into view exactly as from the header. The header's button
+                        stays the one control for assistive tech, so this line is
+                        read as text. */}
+                    {!expanded.has('setup') && (
+                        <p
+                            data-testid="vessel-hub-connections-contents"
+                            onClick={(event) =>
+                                event.currentTarget.previousElementSibling
+                                    ?.querySelector<HTMLButtonElement>('button[aria-expanded]')
+                                    ?.click()
+                            }
+                            className="-mt-2.5 cursor-pointer pb-1 pl-3.5 text-xs font-semibold leading-snug"
+                            style={{ color: daylightUiColor('#94a3b8') }}
+                        >
+                            NMEA gateway · Boat network · Music
+                        </p>
+                    )}
                     <CollapsibleContent open={expanded.has('setup')} id="vessel-hub-connections">
                         <div className="mt-2" style={GLASS.listContainer}>
                             <OfficeRow
                                 icon={<PlugIcon color={HUB_ACCENT} />}
                                 label="NMEA Gateway"
                                 status={gatewayStatus}
-                                statusColor={gatewayStatusColor}
+                                statusColor="#94a3b8"
+                                value={gatewayState}
+                                valueColor={gatewayStatusColor}
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('nmea');
@@ -1835,8 +1916,11 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                                   // Post WHAT is said (UX scorecard run 8), in the
                                   // width left beside "GPS: this phone" at 375 pt.
                                   // "Share", not the system word "post" (UX
-                                  // scorecard run 9).
-                                  vesselGpsLive
+                                  // scorecard run 9). Signed out, the button
+                                  // under it already says "share position", so
+                                  // this names the state instead of saying it
+                                  // twice (UX scorecard run 10).
+                                  vesselGpsLive || needsSignIn
                                   ? 'No primary phone yet'
                                   : 'Signed-in phones share position'}
                         </span>

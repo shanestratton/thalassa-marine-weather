@@ -5,7 +5,7 @@
  * plus Supabase-backed CRUD operations via mocks.
  */
 import { describe, it, expect } from 'vitest';
-import { calculateStatus, sortByUrgency, type TaskWithStatus } from '../services/MaintenanceService';
+import { calculateStatus, calendarDaysUntil, sortByUrgency, type TaskWithStatus } from '../services/MaintenanceService';
 import type { MaintenanceTask } from '../types';
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -137,6 +137,45 @@ describe('calculateStatus', () => {
         if (Math.abs(result.daysRemaining!) === 1) {
             expect(result.statusLabel).toMatch(/1 day$/);
         }
+    });
+
+    it('counts local calendar days, so a task due later today reads "Due today" (UX scorecard run 10)', () => {
+        // Local 'YYYY-MM-DD' for today and tomorrow, whatever the hour: the
+        // old instant count made anything due later today "Due in 1 day".
+        const local = (offsetDays: number) => {
+            const d = new Date();
+            d.setDate(d.getDate() + offsetDays);
+            const pad = (n: number) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        };
+        const today = calculateStatus(makeTask({ next_due_date: local(0) }), 100);
+        expect(today.daysRemaining).toBe(0);
+        expect(today.status).toBe('yellow');
+        expect(today.statusLabel).toBe('Due today');
+
+        const tomorrow = calculateStatus(makeTask({ next_due_date: local(1) }), 100);
+        expect(tomorrow.daysRemaining).toBe(1);
+        expect(tomorrow.statusLabel).toBe('Due tomorrow');
+
+        expect(calculateStatus(makeTask({ next_due_date: local(5) }), 100).statusLabel).toBe('Due in 5 days');
+
+        const yesterday = calculateStatus(makeTask({ next_due_date: local(-1) }), 100);
+        expect(yesterday.status).toBe('red');
+        expect(yesterday.statusLabel).toBe('Overdue by 1 day');
+    });
+
+    it('reads a timestamp on the local day it falls on', () => {
+        // 23:30 local today is still today, 00:30 local tomorrow is tomorrow.
+        const at = (offsetDays: number, hours: number, minutes: number) => {
+            const d = new Date();
+            d.setDate(d.getDate() + offsetDays);
+            d.setHours(hours, minutes, 0, 0);
+            return d;
+        };
+        const now = at(0, 5, 42);
+        expect(calendarDaysUntil(at(0, 23, 30).toISOString(), now)).toBe(0);
+        expect(calendarDaysUntil(at(1, 0, 30).toISOString(), now)).toBe(1);
+        expect(calendarDaysUntil('not a date', now)).toBeNull();
     });
 
     it('handles singular hour label', () => {

@@ -33,6 +33,15 @@ const CHANNEL_PRIORITY: Record<string, number> = {
     General: 3,
 };
 
+/* Display wording for a stored channel description, by channel name. The
+   Neighbourhood Watch line opened "Maritime safety alerts", which reads like
+   official safety information on a channel that is sailors' own chat (UX
+   scorecard run 10, copy-nits-bundle). The stored row is left alone. */
+const DESCRIPTION_OVERRIDES: Record<string, string> = {
+    'Neighbourhood Watch': 'Sailors’ own reports: suspicious activity and local hazards',
+};
+const channelDescription = (ch: ChatChannel) => DESCRIPTION_OVERRIDES[ch.name] ?? ch.description;
+
 interface ChannelListProps {
     channels: ChatChannel[];
     onOpenChannel: (channel: ChatChannel) => void;
@@ -199,7 +208,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                 id={`channel-desc-${ch.id}`}
                                 className={`${isSub ? 'text-xs' : 'text-sm'} text-white/60 line-clamp-2 ${isSub ? '' : 'mt-0.5'}`}
                             >
-                                {isPrivateLocked ? 'Request access to join' : ch.description}
+                                {isPrivateLocked ? 'Request access to join' : channelDescription(ch)}
                             </p>
                         </div>
 

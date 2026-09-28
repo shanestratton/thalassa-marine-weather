@@ -385,9 +385,12 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                             <h2 id="galley-sign-in-title" className="text-sm font-bold text-white">
                                                 Sign in to plan meals
                                             </h2>
+                                            {/* No "Departure Brief" while signed out (UX
+                                                scorecard run 10): the signed-out Crew &
+                                                Float Plan page never names it. */}
                                             <p className="mt-1 text-xs text-gray-400">
-                                                No active meals yet. Meals are planned in the Departure Brief on Crew
-                                                &amp; Float Plan, which needs an account.
+                                                No active meals yet. You plan meals for a passage on Crew &amp; Float
+                                                Plan, which needs an&nbsp;account.
                                             </p>
                                         </div>
                                     </div>
@@ -643,7 +646,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             <SignInScreen
                 isOpen={showSignIn}
                 onClose={() => setShowSignIn(false)}
-                prompt="Sign in to plan meals in the Departure Brief on Crew & Float Plan."
+                prompt="Sign in to plan meals for a passage on Crew & Float Plan."
             />
 
             {identityOwnsRenderedData && editorRecipe && (

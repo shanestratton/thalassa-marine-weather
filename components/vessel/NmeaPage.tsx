@@ -21,9 +21,59 @@ import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services
 import { PageHeader } from '../ui/PageHeader';
 import { useKeyboardScroll } from '../../hooks/useKeyboardScroll';
 import { assessHostRoute, getInterfaces } from '../../services/network/networkContext';
-import { FormField } from '../ui/FormField';
 import { Button } from '../ui/Button';
 import { BoatIcon, GaugeIcon } from '../Icons';
+import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+
+/** A field label on this page: sentence case at label size, so it reads under
+ *  the card's capital eyebrow (GATEWAY) rather than as its peer (UX scorecard
+ *  run 10, nmea-labels). */
+const FIELD_LABEL = 'block text-label font-bold text-gray-400';
+
+/**
+ * Host IP and Port. FormField's input and keyboard handling, with this page's
+ * sentence-case label and an optional quiet hint. FormField owns the app's
+ * capital field-label token, which is what set 'HOST IP (DEFAULT)' level with
+ * the section eyebrow above it. The hint follows the label on its own
+ * line, not on a line under the input: there it pushed Connect into the tab
+ * bar's fade at 375x667.
+ */
+const GatewayField: React.FC<{
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    placeholder?: string;
+    hint?: string;
+    inputMode?: 'text' | 'numeric';
+}> = ({ label, value, onChange, placeholder, hint, inputMode }) => {
+    const fieldId = useId();
+    const hintId = hint ? `${fieldId}-hint` : undefined;
+    return (
+        <div>
+            <div className="flex items-baseline gap-2">
+                <label htmlFor={fieldId} className={`${FIELD_LABEL} shrink-0`}>
+                    {label}
+                </label>
+                {hint && (
+                    <span id={hintId} className="min-w-0 text-xs font-medium leading-snug text-gray-400">
+                        {hint}
+                    </span>
+                )}
+            </div>
+            <input
+                id={fieldId}
+                type="text"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
+                inputMode={inputMode}
+                aria-describedby={hintId}
+                onFocus={scrollInputAboveKeyboard}
+                className="w-full min-w-0 min-h-11 mt-0.5 bg-white/5 border border-white/10 focus:border-sky-500/30 rounded-xl px-3 py-2 text-white text-sm font-mono outline-hidden transition-colors placeholder:text-gray-400"
+            />
+        </div>
+    );
+};
 
 /** The pinned Instrument Panel button's height. The scroller clears it plus
  *  12 px, and fades its content out just above it (UX scorecard run 6: at
@@ -481,9 +531,14 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                         <h2 className="mb-2 text-xs font-black uppercase tracking-widest text-gray-400">
                             Position source
                         </h2>
-                        <div className="flex items-center gap-3">
+                        {/* The source's colour dot at 8 pt, set on the title's line
+                            like the header pill's dot, beside the source's name:
+                            a 10 pt dot centred on two lines read as an unselected
+                            radio button (UX scorecard run 10, nmea-labels). */}
+                        <div className="flex items-start gap-2.5">
                             <span
-                                className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                                aria-hidden="true"
+                                className={`mt-[7px] h-2 w-2 shrink-0 rounded-full ${
                                     receiver.kind === 'ios-accessory'
                                         ? 'bg-emerald-400'
                                         : receiver.kind === 'vessel-nmea'
@@ -635,10 +690,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             <div className="space-y-3 mb-3 [@media(max-height:700px)]:space-y-2 [@media(max-height:700px)]:mb-2">
                                 {/* Device preset selector */}
                                 <div>
-                                    <label
-                                        htmlFor={deviceSelectId}
-                                        className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5"
-                                    >
+                                    <label htmlFor={deviceSelectId} className={`${FIELD_LABEL} mb-1`}>
                                         Gateway device
                                     </label>
                                     {/* .thalassa-select draws the chevron in both palettes; an
@@ -662,27 +714,32 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     shoves them up — they are the two fields on
                                     this page anyone actually types into. */}
                                 <div className="thalassa-keyboard-safe-field flex gap-2">
-                                    <div className="flex-1">
+                                    <div className="flex-1 min-w-0">
                                         {/* Pre-filled on a fresh install, which read as
-                                            detected (UX scorecard run 9): the label says
-                                            it is the default until it is changed or saved. */}
-                                        <FormField
-                                            label={hostIsDefault ? 'Host IP (default)' : 'Host IP'}
+                                            detected (UX scorecard run 9): a quiet hint
+                                            says it is the default until it is changed or
+                                            saved. It was '(DEFAULT)' in the label's
+                                            capitals (run 10). */}
+                                        <GatewayField
+                                            label="Host IP"
                                             value={host}
                                             onChange={setHost}
                                             placeholder={DEFAULT_GATEWAY_HOST}
-                                            mono
+                                            // Not "YDWG-02 factory default": .151 is an
+                                            // address on a boat LAN, not a factory
+                                            // setting, so the hint claims only what
+                                            // is true of it.
+                                            hint={hostIsDefault ? 'Default, not detected' : undefined}
                                         />
                                     </div>
                                     <div className="w-24">
-                                        <FormField
+                                        <GatewayField
                                             label="Port"
                                             value={port}
                                             onChange={setPort}
                                             placeholder={
                                                 NMEA_DEVICE_PROFILES.find((d) => d.id === device)?.port || '1456'
                                             }
-                                            mono
                                             inputMode="numeric"
                                         />
                                     </div>

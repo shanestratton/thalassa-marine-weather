@@ -321,7 +321,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
     return (
         <div className="flex h-full w-full flex-col bg-slate-950 slide-up-enter">
             <PageHeader title="ENC Library" subtitle="Unverified reference overlays" onBack={onBack} />
-            <main className="flex-1 overflow-y-auto px-4 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+            <div className="flex-1 overflow-y-auto px-4 pb-[calc(2rem+env(safe-area-inset-bottom))]">
                 <div className="mx-auto max-w-2xl space-y-4">
                     <section
                         className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4"
@@ -491,7 +491,7 @@ export const EncLibraryPage: React.FC<EncLibraryPageProps> = ({ onBack, onOpenMa
                         </p>
                     </section>
                 </div>
-            </main>
+            </div>
 
             <ModalSheet
                 isOpen={urlOpen}
