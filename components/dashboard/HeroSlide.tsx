@@ -1,7 +1,7 @@
 /**
  * @filesize-justified Single React.memo component — monolithic render with no natural sub-component boundaries.
  */
-import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useId, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { TideGraph } from './TideAndVessel';
 // MapHub removed from essential mode — uses static image to prevent GPU heating
 import { DropletIcon, EyeIcon, SunIcon, ThermometerIcon, GaugeIcon, CompassIcon, CloudIcon, WaveIcon } from '../Icons';
@@ -406,6 +406,7 @@ const HeroSlideComponent = ({
     }, [index]);
     // The same day as spoken and captioned: "Today" rather than "TODAY".
     const dayName = useMemo(() => heroRowDayName(index), [index]);
+    const hoursHintId = useId();
 
     // Auto-scroll to slide 0 when entering essential mode (map only renders on slide 0)
     useEffect(() => {
@@ -698,6 +699,9 @@ const HeroSlideComponent = ({
                 </div>
             )}
 
+            <span id={hoursHintId} hidden>
+                Swipe left or right, or use the left and right arrow keys, to change the hour.
+            </span>
             {/* ========== SCROLLABLE HORIZONTAL CAROUSEL ========== */}
             <div
                 className={`absolute inset-x-0 ${showDayLabel ? 'top-5' : 'top-0'} bottom-0 overflow-y-auto overflow-x-hidden no-scrollbar`}
@@ -709,7 +713,11 @@ const HeroSlideComponent = ({
                     tabIndex={0}
                     role="region"
                     aria-roledescription="carousel"
-                    aria-label={`${dayName}: hourly forecast — left and right arrow keys move between hours`}
+                    // 'Today, by hour': named for what it holds, with the gestures
+                    // as its description. The arrow-key instruction was the name,
+                    // which an iPhone VoiceOver user cannot act on (UX scorecard run 10).
+                    aria-label={`${dayName}, by hour`}
+                    aria-describedby={hoursHintId}
                     className={`w-full h-full ${isEssentialMode ? 'overflow-hidden' : 'overflow-x-auto snap-x snap-mandatory'} no-scrollbar flex flex-row focus:outline-hidden`}
                     style={{ willChange: 'scroll-position' }}
                 >
@@ -761,8 +769,9 @@ const HeroSlideComponent = ({
                                                 dateLabel={rowDateLabel}
                                                 caption={caption}
                                                 // Not on a 667 pt phone: the hero above already
-                                                // names the day and the reason, and in the ~95 pt
-                                                // card the heading and button were cut (run 9).
+                                                // names the day, and in the ~95 pt card the
+                                                // heading and button were cut (run 9). The reason
+                                                // is said here only (run 10).
                                                 showDateHeading={!showDayLabel && !compact}
                                                 onChooseModel={
                                                     forecastRange?.modelLabel ? openGlassModelPicker : undefined

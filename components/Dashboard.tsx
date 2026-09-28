@@ -201,11 +201,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         glassFooterObserverRef.current = observer;
     }, []);
     useEffect(() => () => glassFooterObserverRef.current?.disconnect(), []);
-    const glassHeroBottom = `calc(env(safe-area-inset-bottom) + ${74 + glassFooterHeightPx + glassTopLayout.cardGapPx}px)`;
-    const glassLayerPos = landscapeFlow ? 'absolute' : 'fixed';
     // A 667 pt phone held upright. (A landscape phone is under 700 tall too,
     // but its column scrolls, so it keeps the roomier hero.)
     const shortPortrait = glassTopLayout.isShortViewport && !landscapeFlow;
+    // The footer's bottom offset: 74 px clears the tab bar by 12-13 pt. On a
+    // 667 pt phone it clears it by the Glass gap instead, and the footer's
+    // own padding halves, so the ~14 pt they free goes to the tide card,
+    // squashed there to a 40 pt curve (UX scorecard run 10). The 163 px grid
+    // is not touched.
+    const glassFooterBottomPx = shortPortrait ? 68 : 74;
+    const glassHeroBottom = `calc(env(safe-area-inset-bottom) + ${glassFooterBottomPx + glassFooterHeightPx + glassTopLayout.cardGapPx}px)`;
+    const glassLayerPos = landscapeFlow ? 'absolute' : 'fixed';
     const landscapeHeroHeightPx = GLASS_LANDSCAPE_HERO_CONTAINER_HEIGHT_PX;
 
     // Derived UI Props
@@ -1262,7 +1268,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         locationType={data.locationType}
                                         onToggleExpand={isInland || isOffshore ? undefined : handleToggleExpand}
                                         onReturnToToday={activeDay > 0 ? handleReturnToToday : undefined}
-                                        rangeNote={activeDay > 0 ? shownDayRangeNote : null}
                                     />
                                 </div>
 
@@ -1368,13 +1373,18 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             coordinates={data.coordinates}
                                         />
                                     </div>
+                                    {/* A day past the model's range holds only its
+                                        'Beyond ICON's range' card and no tide, so the
+                                        heading says what is there (UX scorecard run 10). */}
                                     <h2 className="sr-only">
                                         {!isExpanded
                                             ? 'Map'
-                                            : (data.locationType === 'coastal' || data.locationType === 'inshore') &&
-                                                !isLandlocked
-                                              ? 'Tides'
-                                              : 'Hourly forecast'}
+                                            : activeDay > 0 && shownDayRangeNote
+                                              ? 'Forecast by day'
+                                              : (data.locationType === 'coastal' || data.locationType === 'inshore') &&
+                                                  !isLandlocked
+                                                ? 'Tides'
+                                                : 'Hourly forecast'}
                                     </h2>
                                     <HeroSection
                                         current={current}
@@ -1443,11 +1453,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                           12,
                                                   ),
                                               }
-                                            : { bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }
+                                            : { bottom: `calc(env(safe-area-inset-bottom) + ${glassFooterBottomPx}px)` }
                                     }
                                 >
                                     <h2 className="sr-only">Forecast source</h2>
-                                    <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
+                                    <div
+                                        className={`rounded-xl bg-black/40 ${t.border.default} ${shortPortrait ? 'px-2 py-1' : 'p-2'}`}
+                                    >
                                         <StatusBadges
                                             isLandlocked={isLandlocked}
                                             locationName={props.displayTitle || ''}
@@ -1481,7 +1493,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         {landscapeMoreBelow && (
                                             <div
                                                 data-testid="glass-fold-cue"
-                                                className="fixed inset-x-0 bottom-0 z-130 h-6 flex items-end justify-center pb-[max(2px,env(safe-area-inset-bottom))] bg-linear-to-t from-slate-950/80 [.display-light_&]:from-slate-200/80 to-transparent pointer-events-none animate-in fade-in duration-300"
+                                                // A solid full-width band with a hairline top,
+                                                // not a fade: over the fade the chip sat inside
+                                                // the BARO cell, across the grid's bottom border
+                                                // and right under '1025' (UX scorecard run 10).
+                                                className="fixed inset-x-0 bottom-0 z-130 h-[calc(22px+env(safe-area-inset-bottom))] flex items-center justify-center pb-[env(safe-area-inset-bottom)] bg-slate-950 border-t border-white/12 [.display-light_&]:border-slate-300! pointer-events-none animate-in fade-in duration-300"
                                                 aria-hidden="true"
                                             >
                                                 {/* Words on a chip of its own: a bare chevron at
@@ -1489,10 +1505,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                     as a BARO control (UX scorecard run 8). Sky-200
                                                     because daylight takes it to sky-700 (4.7:1 on
                                                     the pale chip); sky-300 goes to sky-600, 3.4:1.
-                                                    A 16 pt chip on a 24 pt band, low on the grid's
-                                                    bottom border: at 22 pt its top sat on the foot
-                                                    of '1026' and it still read as BARO's (run 9).
-                                                    It bounces twice, then rests. */}
+                                                    A 16 pt chip centred on its own 22 pt solid band,
+                                                    below the grid's digits: over the grid it read as
+                                                    BARO's (runs 9, 10). It bounces twice, then rests. */}
                                                 <span
                                                     className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/90 py-0 pl-2.5 pr-2 text-xs leading-[14px] font-bold text-sky-200 animate-bounce-subtle"
                                                     style={{ animationIterationCount: 2 }}

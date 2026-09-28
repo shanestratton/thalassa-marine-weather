@@ -179,7 +179,7 @@ describe('the Glass status strip stays one row and names no receiver', () => {
     });
 
     it.each([
-        ['sg', 'SG BLEND'],
+        ['sg', 'Auto'],
         ['ecmwf', 'ECMWF'],
         ['gfs', 'GFS'],
         ['icon', 'ICON'],

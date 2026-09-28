@@ -42,7 +42,7 @@ describe('rain modal', () => {
         // — WeatherKit sees an hour, Rainbow four. It is the LIVE reach of the
         // remaining frames (UX scorecard run 7), stated by the headline and by
         // the axis's far tick; the credit said it a third time (run 9).
-        expect(src).toContain("if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km';");
+        expect(src).toContain("if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km grid';");
         expect(src).toContain("if (source === 'weatherkit') return 'Apple WeatherKit · minute-by-minute';");
         expect(src).toContain(
             "if (source === 'synthetic') return 'Estimated from the hourly forecast — not a live rain feed';",

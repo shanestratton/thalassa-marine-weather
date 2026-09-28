@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useId, useMemo, useRef, useCallback } from 'react';
 
 // PERF: Refs used to keep handler closures stable while accessing latest callbacks
 
@@ -98,6 +98,7 @@ export const HeroSection = ({
     onShownDayChange?: (day: ShownGlassDay) => void;
 }) => {
     const { settings, updateSettings } = useSettings();
+    const daysHintId = useId();
     const [activeIndex, setActiveIndex] = useState(0);
     const scrollRef = useRef<HTMLDivElement>(null);
     const activeIndexRef = useRef(0);
@@ -407,6 +408,9 @@ export const HeroSection = ({
         <div
             className={`w-full h-full relative flex flex-col items-center justify-start overflow-hidden ${className || ''}`}
         >
+            <span id={daysHintId} hidden>
+                Swipe up or down, or use the up and down arrow keys, to change the day.
+            </span>
             {/* VERTICAL SCROLL SNAP CONTAINER */}
             <div
                 ref={scrollRef}
@@ -415,7 +419,11 @@ export const HeroSection = ({
                 tabIndex={0}
                 role="region"
                 aria-roledescription="carousel"
-                aria-label="Daily forecast carousel — use up and down arrow keys to navigate between days"
+                // Named for what it holds; the gestures are its description.
+                // 'Use up and down arrow keys' was the name, an instruction an
+                // iPhone VoiceOver user cannot act on (UX scorecard run 10).
+                aria-label="Forecast days"
+                aria-describedby={daysHintId}
                 /* Snap stays on in BOTH modes and only the overflow changes.
                    Mandatory snap then re-resolves row alignment for free on any
                    future height change — rotation, or the rain card growing
@@ -495,24 +503,40 @@ export const HeroSection = ({
                 card — below the day label row, above the hour-dot band — and
                 centres the rail. On a short phone the ~94 pt card is shorter
                 than the 96 px rail, so it steps to 5 px dots on a 1 px gap
-                (65 px for 11 days), inset 16 px from the top so the first dot
-                clears the card's corner radius and the last clears the
-                more-hours chevron (UX scorecard run 9). */}
+                (65 px for 11 days), hung 12 px from the top so the first dot
+                clears the card's corner radius and the last ends well clear of
+                the more-hours chevron: centred, it sat 5 pt above it (UX
+                scorecard runs 9, 10).
+                A day past the pinned model's range is a hollow ring, so the
+                rail shows where the model's days stop before a swipe lands on
+                an empty one (run 10). */}
             {!isEssentialMode && dayRows.length > 1 && (
                 <div
-                    className={`absolute right-[18px] ${compact ? 'top-4 bottom-5 gap-px' : 'top-5 bottom-4 gap-[3px]'} z-30 flex flex-col justify-center pointer-events-none`}
+                    className={`absolute right-[18px] ${compact ? 'top-3 bottom-7 gap-px justify-start' : 'top-5 bottom-4 gap-[3px] justify-center'} z-30 flex flex-col pointer-events-none`}
                     aria-hidden="true"
                 >
-                    {dayRows.map((_, i) => (
-                        <div
-                            key={i}
-                            // Inactive: white/45 by night (~3.8:1 on the card), slate-500
-                            // by day (4.8:1 on the white card; slate-400 was 2.6:1). The
-                            // active dot steps to sky-600 by day so it still out-weighs
-                            // the inactive ones.
-                            className={`${compact ? 'w-[5px] h-[5px]' : 'w-1.5 h-1.5'} shrink-0 rounded-full transition-colors duration-300 ${i === shownIndex ? 'bg-sky-400 [.display-light_&]:bg-sky-600' : 'bg-white/45 [.display-light_&]:bg-slate-500'}`}
-                        />
-                    ))}
+                    {dayRows.map((row, i) => {
+                        const active = i === shownIndex;
+                        const beyond = !row.hasWeather;
+                        return (
+                            <div
+                                key={i}
+                                data-beyond-range={beyond || undefined}
+                                // Inactive: white/45 by night (~3.8:1 on the card), slate-500
+                                // by day (4.8:1 on the white card; slate-400 was 2.6:1). The
+                                // active dot steps to sky-600 by day so it still out-weighs
+                                // the inactive ones. Past the range: the same ink as a
+                                // 1 px ring with no fill.
+                                className={`${compact ? 'w-[5px] h-[5px]' : 'w-1.5 h-1.5'} shrink-0 rounded-full transition-colors duration-300 ${
+                                    beyond
+                                        ? `border ${active ? 'border-sky-400 [.display-light_&]:border-sky-600' : 'border-white/45 [.display-light_&]:border-slate-500'}`
+                                        : active
+                                          ? 'bg-sky-400 [.display-light_&]:bg-sky-600'
+                                          : 'bg-white/45 [.display-light_&]:bg-slate-500'
+                                }`}
+                            />
+                        );
+                    })}
                 </div>
             )}
         </div>

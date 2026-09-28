@@ -23,6 +23,52 @@ const CRITICAL_PATTERNS = [
 ];
 const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
 
+/**
+ * The moon as a line glyph in the chip's icon style: an outlined disc with
+ * its lit part filled. The phase emoji was the page's only colour emoji and,
+ * a yellow disc beside GOLDEN HOUR, read as a second sun (UX scorecard run
+ * 10). Drawn as the phase emoji draws it (lit on the right while waxing).
+ */
+const MoonPhaseGlyph: React.FC<{ phase?: string; className?: string }> = ({ phase = '', className }) => {
+    const name = phase.toLowerCase();
+    const waning = name.includes('waning') || name.includes('last');
+    // The terminator's half-width, and which way it bows.
+    const lit = name.startsWith('full')
+        ? 'full'
+        : name.startsWith('new')
+          ? 'none'
+          : name.includes('quarter')
+            ? 'half'
+            : name.includes('gibbous')
+              ? 'gibbous'
+              : 'crescent';
+    // Limb arc from top to bottom down the lit side, back up the terminator.
+    const limbSweep = waning ? 0 : 1;
+    const d =
+        lit === 'half'
+            ? `M12 3 A9 9 0 0 ${limbSweep} 12 21 Z`
+            : lit === 'crescent'
+              ? `M12 3 A9 9 0 0 ${limbSweep} 12 21 A4.5 9 0 0 ${1 - limbSweep} 12 3 Z`
+              : lit === 'gibbous'
+                ? `M12 3 A9 9 0 0 ${limbSweep} 12 21 A4.5 9 0 0 ${limbSweep} 12 3 Z`
+                : null;
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.6}
+            className={className}
+            aria-hidden="true"
+            data-moon-phase={lit}
+        >
+            <circle cx="12" cy="12" r="9" />
+            {lit === 'full' && <circle cx="12" cy="12" r="9" fill="currentColor" fillOpacity={0.55} />}
+            {d && <path d={d} fill="currentColor" fillOpacity={0.55} strokeLinejoin="round" />}
+        </svg>
+    );
+};
+
 export const CompactHeaderRow = ({
     alerts,
     sunrise,
@@ -86,7 +132,9 @@ export const CompactHeaderRow = ({
                 Not h-11: index.css floors .h-11 after the utilities, so it beat
                 the trimmed-rhythm h-8 and the pill stood 44 pt tall beside a
                 30 pt chip, overhanging the hero card (UX scorecard run 7). The
-                ::before of hit-target-44 keeps the 44 pt hit area. */}
+                pill is drawn 40 pt, the sun chip's height, where 44 beside 40
+                read as two unrelated pills (run 10); the ::before of
+                hit-target-44 keeps the 44 pt hit area. */}
             <div className="flex-1 min-w-0 flex" aria-live="polite" aria-atomic="true">
                 <button
                     onClick={() => {
@@ -98,7 +146,7 @@ export const CompactHeaderRow = ({
                         hasWarnings
                             ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
                             : 'bg-emerald-500/10 border-emerald-500/20'
-                    } transition-all active:scale-[0.97] border rounded-xl px-2.5 h-[max(44px,2.75rem)] -my-0.5 in-data-[glass-rhythm]:h-8 in-data-[glass-rhythm]:my-0 hit-target-44 flex items-center gap-1.5 shadow-lg cursor-pointer group flex-1 min-w-0`}
+                    } transition-all active:scale-[0.97] border rounded-xl px-2.5 h-[40px] in-data-[glass-rhythm]:h-8 hit-target-44 flex items-center gap-1.5 shadow-lg cursor-pointer group flex-1 min-w-0`}
                 >
                     {hasWarnings ? (
                         <>
@@ -139,8 +187,10 @@ export const CompactHeaderRow = ({
                 {goldenHour ? (
                     <div className="flex items-center gap-1.5 animate-in fade-in duration-500">
                         <SunIcon className="w-3.5 h-3.5 text-amber-400" />
-                        <span aria-hidden="true" className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                            Golden Hour
+                        {/* Sentence case, as the alerts pill beside it (UX
+                            scorecard run 10: tracked caps against a sentence). */}
+                        <span aria-hidden="true" className="text-xs leading-4 font-bold text-amber-300">
+                            Golden hour
                         </span>
                         <span className="sr-only">{withComma('Golden hour', !!moonPhase)}</span>
                     </div>
@@ -175,8 +225,8 @@ export const CompactHeaderRow = ({
                 {/* Moon phase: the glyph is the picture, the words are what is
                     read. The part before it carries the comma. */}
                 {moonPhase && (
-                    <span className="text-base leading-none">
-                        <span aria-hidden="true">{moonPhase}</span>
+                    <span className="inline-flex items-center leading-none">
+                        <MoonPhaseGlyph phase={moonPhaseName} className="w-4 h-4 text-white/80" />
                         <span className="sr-only">
                             {moonPhaseName ? `${moonPhaseName.toLowerCase()} moon` : 'moon phase'}
                         </span>

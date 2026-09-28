@@ -309,6 +309,10 @@ const InstrumentCell: React.FC<{
     spokenValue?: string;
     /** Words for what only a glyph shows, e.g. the swell arrow's bearing. */
     spokenExtra?: string;
+    /** A muted word under the value naming what the number covers ('today'),
+     *  where the cell's label alone left it ambiguous. Seen, not read: the
+     *  cell's name already says it. */
+    caption?: string;
 }> = ({
     label,
     icon,
@@ -324,6 +328,7 @@ const InstrumentCell: React.FC<{
     spokenLabel,
     spokenValue,
     spokenExtra,
+    caption,
 }) => {
     value = asReading(value);
     const reading = value === '--' ? ', no reading' : ` ${spokenValue ?? spokenReading(value, unit)}`;
@@ -373,6 +378,16 @@ const InstrumentCell: React.FC<{
                     </span>
                 )}
             </div>
+            {/* In the cell's bottom padding, so the value keeps the row's
+                baseline. */}
+            {caption && (
+                <span
+                    aria-hidden="true"
+                    className="absolute inset-x-0 bottom-0.5 text-center text-[11px] leading-none font-sans font-medium text-slate-400 pointer-events-none"
+                >
+                    {caption}
+                </span>
+            )}
         </div>
     );
 };
@@ -659,7 +674,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 overheated phones on long voyages; the iteration-count
                 cap is the fix. See index.css → "METRIC GRID ICON
                 ANIMATIONS" for the full keyframe details. */}
-                <div className="w-full grid grid-cols-5 divide-x divide-white/12 h-[80px]">
+                <div
+                    className={`w-full grid grid-cols-5 divide-x divide-white/12 h-[80px] ${emptyDayNote ? 'opacity-40' : ''}`}
+                >
                     {/* Wind Speed — or TEMP if wind is pinned to hero */}
                     <DraggableMetricCell
                         id={heroMetric === 'wind' ? 'temp' : 'wind'}
@@ -797,8 +814,12 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Horizontal divider between rows */}
                 <div className="w-full h-px bg-white/12" />
 
-                {/* BOTTOM ROW: UV, Vis, Baro, Hum, Rain */}
-                <div className="w-full grid grid-cols-5 divide-x divide-white/12 h-[80px]">
+                {/* BOTTOM ROW: UV, Vis, Baro, Hum, Rain. Both rows step back to
+                    40 % on a day past the model's range: ten '--' cells at full
+                    strength spent 160 pt saying nothing (UX scorecard run 10). */}
+                <div
+                    className={`w-full grid grid-cols-5 divide-x divide-white/12 h-[80px] ${emptyDayNote ? 'opacity-40' : ''}`}
+                >
                     {/* UV — or TEMP if pinned */}
                     <DraggableMetricCell
                         id={heroMetric === 'uv' ? 'temp' : 'uv'}
@@ -919,6 +940,14 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 // starting with the visible word.
                                 label={isLive ? 'RAIN' : 'RAIN %'}
                                 spokenLabel={isLive ? 'Rain today' : 'Rain chance'}
+                                // The model's total for the day, over the rain strip's
+                                // minute-by-minute nowcast: 'RAIN 0 mm' right above
+                                // 'Rain in 51 min · Nowcast' read as two sources
+                                // disagreeing (UX scorecard run 10). The cell's name
+                                // already says 'Rain today'. Only when the value IS the
+                                // day's total: with no hourly rows the cell falls back
+                                // to the chance figure, which is not today's mm.
+                                caption={isLive && !!hourly?.length && rainValue !== '--' ? 'today' : undefined}
                                 icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                                 value={rainValue}
                                 unit={rainUnit}
