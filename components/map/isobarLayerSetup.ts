@@ -20,10 +20,11 @@ const log = createLogger('IsobarLayers');
 // whole `composite` source and drops its tile cache (StyleLayer.setPaintProperty
 // returns requiresRelayout, Style._updateLayer reloads the source). Writing
 // fade(0.3) and back to fade(1) cost two full base reloads per pressure or
-// weather toggle. So their opacity is only ever handed back to 1 (a no-op once
-// it is there) and the ghost goes into their text and halo colours instead:
-// constant to constant, a repaint and nothing else. The colours they had are
-// kept here and written back exactly when the chart hands the basemap back.
+// weather toggle. So their opacity is only ever written through the own-ship
+// helper, at 1 (a no-op once it is there), and the ghost goes into their text
+// and halo colours instead: constant to constant, a repaint and nothing else.
+// The colours they had are kept here and written back exactly when the chart
+// hands the basemap back.
 //
 // A layer whose colours are not plain constants, or whose text-field can
 // override text-color per section (then even a constant colour write relayouts,
@@ -139,18 +140,146 @@ function restorePlaceLabelInk(map: mapboxgl.Map): void {
     }
 }
 
+// ── Everything else the standalone chart changes: recorded, put back exactly ──
+//
+// The chart turns land fills charcoal and ghosts every other label layer to
+// 30% by its text-opacity. Each value it replaces is recorded, unset included
+// (land fills in the caller's savedLandColors, label opacity per map below),
+// and handing the basemap back writes exactly those and nothing else. It never
+// flattens the app's own opacities to 1 (ENC labels and soundings 0.85, the
+// ENC layer at 0.75, buoyage arrows 0.58, caution mounts 0.9, the base style's
+// state and continent labels), and it writes nothing at all on the weather
+// passes where no ghost is recorded. A layer that no longer shows the ghost
+// (removed, re-added or rewritten by its owner since) is left as it is. A
+// value that reads feature data is never ghosted: a write to or from it
+// re-parses its whole source (StyleLayer.setPaintProperty).
+//
+// Neither side waits for map.isStyleLoaded(). In mapbox-gl 3.19 that is false
+// for a frame after any visibility write or addLayer (Style._updateLayer
+// queues a source reload) and while any tile is loading, which is exactly when
+// the pressure toggle runs its visibility writes; nothing re-runs the weather
+// effect while pressure stays on, so the ghost never landed, and after
+// pressure off the labels stayed at 30%. The ghost needs only the style JSON
+// (getStyle throws until that is in), and the restore needs no style walk.
+//
+// For the same reason, a label layer mounted after the toggle pass (the ENC
+// stack on the first zoom into chart cover, AIS or waypoint names) would draw
+// at full strength over the charcoal chart. So while the standalone chart is
+// up, a coalesced styledata watch ghosts each layer that was not in the style
+// on the previous walk, once (see "Layers that mount while the chart is up").
+
+/** The charcoal the standalone chart paints land fills. */
+const LAND_GHOST_FILL = 'rgba(20, 20, 20, 0.35)';
+
+/** Per map: the text-opacity each ghosted label layer had (undefined when unset). */
+const savedLabelOpacity = new WeakMap<object, Map<string, unknown>>();
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+const FEATURE_DATA_OPERATOR =
+    /"(?:get|has|properties|feature-state|id|geometry-type|accumulated|line-progress|heatmap-density)"/;
+
+/** A paint value that reads feature data: a write to or from it re-parses the layer's source. */
+function readsFeatureData(value: unknown): boolean {
+    if (value === null || typeof value !== 'object') return false;
+    if (!Array.isArray(value)) return 'property' in value; // legacy function: {property} is data, {stops} is zoom
+    return FEATURE_DATA_OPERATOR.test(JSON.stringify(value));
+}
+
 /**
- * A basemap label's opacity back to 1. An armed town-name layer keeps its
- * own-ship fade, and an unchanged value writes nothing (ownshipLabelFade).
+ * Write the ghost `value` to one paint property, recording what it replaces.
+ * Idempotent: a layer still showing the ghost keeps its record and is not
+ * written again. A layer that shows anything else (the first pass, or its
+ * owner re-added or rewrote it since) is recorded afresh.
  */
-function restoreLabelOpacity(map: mapboxgl.Map, layer: { id: string; type?: string; source?: unknown }): void {
-    if (!setOpacityKeepingOwnshipFade(map, layer, 'text-opacity', 1.0)) {
-        map.setPaintProperty(layer.id, 'text-opacity', 1.0);
+function ghostPaint(
+    map: mapboxgl.Map,
+    saved: Map<string, unknown>,
+    layerId: string,
+    property: 'fill-color' | 'text-opacity',
+    value: string | number,
+): void {
+    const current = map.getPaintProperty(layerId, property);
+    if (saved.has(layerId) && sameValue(current, value)) return;
+    if (readsFeatureData(current)) {
+        saved.delete(layerId); // left drawn: never a re-parse
+        return;
+    }
+    saved.set(layerId, current);
+    map.setPaintProperty(layerId, property, value);
+}
+
+/**
+ * Put back what ghostPaint recorded, where the ghost is still what is drawn,
+ * and forget it. Needs no style walk, so it never waits for tiles.
+ */
+function restorePaint(
+    map: mapboxgl.Map,
+    saved: Map<string, unknown>,
+    property: 'fill-color' | 'text-opacity',
+    ghost: string | number,
+): void {
+    for (const [layerId, original] of saved) {
+        try {
+            if (map.getLayer(layerId) && sameValue(map.getPaintProperty(layerId, property), ghost)) {
+                // undefined goes back to the spec default (mapbox's null path).
+                map.setPaintProperty(layerId, property, original as string);
+            }
+            saved.delete(layerId);
+        } catch (_) {
+            /* style mid-swap: the record stays and the next pass puts it back */
+        }
+    }
+}
+
+const isGhostedLandFill = (layer: { id: string; type?: string }) =>
+    layer.type === 'fill' &&
+    /land|building|park|landuse|landcover|background/i.test(layer.id) &&
+    !/water|ocean|sea/i.test(layer.id);
+
+const isGhostedLabel = (layer: { id: string; type?: string }) =>
+    layer.type === 'symbol' && !/isobar|wind|barb|movement|circulation/i.test(layer.id);
+
+// ── Coastal vignette: switched by its opacity, never its visibility ──
+//
+// useWeatherLayers adds it once, on the first standalone chart, as a line
+// layer on the base `composite` source at line-opacity 0.6. Every visibility
+// write on it would re-parse every loaded base tile (Style._updateLayer
+// reloads the layer's source), so it stays added and only its constant
+// line-opacity changes: a repaint.
+//
+// At 0 mapbox skips drawing it (drawLine returns early), but the trade has a
+// cost, on record here: the worker still builds its line bucket and uploads
+// it for every base tile parsed from then on (WorkerTile.parse skips a layer
+// for its zoom range or visibility 'none', never for its opacity). So after
+// the first standalone chart, every new base tile carries the water outlines
+// as a 6 px line bucket for the rest of the session, pressure on or off, in
+// exchange for no re-parse of every loaded base tile on each pressure toggle.
+// If that bucket ever shows on a device, the fix belongs to the caller
+// (useWeatherLayers): remove the layer when the chart goes (Style.removeLayer
+// queues no source reload in 3.19, so only the re-add on each solo chart
+// re-parses the base), or draw the glow from a source of its own.
+
+/** The coastal glow's layer id (added by useWeatherLayers). */
+const COASTAL_VIGNETTE_LAYER_ID = 'coastal-vignette';
+
+/** The glow's line-opacity on the standalone chart; 0 anywhere else. */
+const COASTAL_VIGNETTE_OPACITY = 0.6;
+
+function setCoastalVignette(map: mapboxgl.Map, on: boolean): void {
+    if (!map.getLayer(COASTAL_VIGNETTE_LAYER_ID)) return;
+    const opacity = on ? COASTAL_VIGNETTE_OPACITY : 0;
+    try {
+        if (sameValue(map.getPaintProperty(COASTAL_VIGNETTE_LAYER_ID, 'line-opacity'), opacity)) return;
+        map.setPaintProperty(COASTAL_VIGNETTE_LAYER_ID, 'line-opacity', opacity);
+    } catch (_) {
+        /* style mid-swap: the next pass sets it */
     }
 }
 
 /**
- * IDs of all isobar-related layers for hide/show toggling.
+ * IDs of all isobar-related layers for hide/show toggling. The coastal
+ * vignette is not one of them: it is switched by opacity (see above).
  */
 export const ISOBAR_LAYER_IDS = [
     'isobar-shadow',
@@ -163,7 +292,6 @@ export const ISOBAR_LAYER_IDS = [
     'wind-barb-layer',
     'circulation-arrow-layer',
     'pressure-heatmap-layer',
-    'coastal-vignette',
 ] as const;
 
 /**
@@ -171,13 +299,13 @@ export const ISOBAR_LAYER_IDS = [
  * view. When isobars ride on top of another layer (wind, rain…) these stay
  * hidden: the pressure heatmap would fight the wind ramp for the same pixels,
  * the barbs duplicate the particle field, and the vignette/land treatment is
- * a full-chart look, not an overlay's.
+ * a full-chart look, not an overlay's. (The vignette itself goes to opacity 0
+ * rather than hidden: setCoastalVignette.)
  */
 export const SYNOPTIC_ONLY_LAYER_IDS = [
     'wind-barb-layer',
     'circulation-arrow-layer',
     'pressure-heatmap-layer',
-    'coastal-vignette',
 ] as const;
 
 /**
@@ -187,63 +315,185 @@ export const SYNOPTIC_ONLY_LAYER_IDS = [
  */
 const MOVEMENT_TRACK_LAYER_IDS = ['movement-track-lines', 'movement-track-labels'] as const;
 
+/**
+ * Set a layer's visibility only when that changes it. Style drops an unchanged
+ * value, but Map.setLayoutProperty still flags the style dirty and repaints,
+ * and every weather pass with pressure off used to make a dozen of those.
+ * Unset reads as 'visible', as mapbox has it.
+ */
+function setVisibility(map: mapboxgl.Map, id: string, value: 'visible' | 'none'): void {
+    if (!map.getLayer(id)) return;
+    const current =
+        typeof map.getLayoutProperty === 'function' ? (map.getLayoutProperty(id, 'visibility') ?? 'visible') : null;
+    if (current === value) return;
+    map.setLayoutProperty(id, 'visibility', value);
+}
+
 function hideMovementTrackLayers(map: mapboxgl.Map) {
-    for (const id of MOVEMENT_TRACK_LAYER_IDS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
-    }
+    for (const id of MOVEMENT_TRACK_LAYER_IDS) setVisibility(map, id, 'none');
 }
 
 /**
- * Undo the synoptic chart's basemap treatment: restore land fills and label
- * opacity. Shared by full teardown (hideIsobarLayers) and by the overlay
- * presentation, which keeps the contours but must hand the basemap back.
+ * Undo the synoptic chart's basemap treatment: put back the land fills, town
+ * name ink and label opacities the ghost recorded, and only those. Shared by
+ * full teardown (hideIsobarLayers, every weather pass with pressure off) and
+ * by the overlay presentation, which keeps the contours but must hand the
+ * basemap back. It walks the records, not the style, so it never waits for
+ * the style to settle.
  */
 function restoreBasemapTreatment(
     map: mapboxgl.Map,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     savedLandColors: Map<string, any>,
 ) {
-    // Restore land fill colors
-    for (const [layerId, color] of savedLandColors) {
-        try {
-            if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-color', color);
-        } catch (_) {
-            /* skip */
-        }
-    }
-    // Town names ghosted by ink get their colours back (before the guard
-    // below: it needs no style walk).
+    restorePaint(map, savedLandColors, 'fill-color', LAND_GHOST_FILL);
     restorePlaceLabelInk(map);
-    // Restore land label opacity — guarded because getStyle() throws
-    // "Style is not done loading" when called before style load completes;
-    // the effect will re-fire once it's ready.
-    if (!map.isStyleLoaded()) return;
-    const style = map.getStyle();
-    if (style?.layers) {
-        for (const layer of style.layers) {
-            if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
-                try {
-                    restoreLabelOpacity(map, layer);
-                } catch (_) {
-                    /* skip */
-                }
-            }
-        }
+    const labels = savedLabelOpacity.get(map);
+    if (labels) restorePaint(map, labels, 'text-opacity', LABEL_GHOST_OPACITY);
+}
+
+type StyleLayerIdentity = { id: string; type?: string; source?: unknown };
+
+/** The style's layers; undefined until the style JSON is in (getStyle throws before that). */
+function styleLayers(map: mapboxgl.Map): StyleLayerIdentity[] | undefined {
+    try {
+        return map.getStyle()?.layers;
+    } catch (_) {
+        return undefined;
     }
 }
 
 /**
- * Hide all isobar layers and restore land fill colors.
+ * The standalone chart's treatment for one layer: charcoal for a land fill,
+ * the ghost for a label. Anything else is left alone.
+ */
+function ghostLayer(
+    map: mapboxgl.Map,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    savedLandColors: Map<string, any>,
+    layer: StyleLayerIdentity,
+): void {
+    try {
+        if (isGhostedLandFill(layer)) {
+            ghostPaint(map, savedLandColors, layer.id, 'fill-color', LAND_GHOST_FILL);
+        } else if (isGhostedLabel(layer)) {
+            if (isBasePlaceLabelLayer(layer)) {
+                // Town names: opacity stays at 1 and keeps the own-ship
+                // fade (written only through the helper, and not at all
+                // on a layer it has not armed); the ghost goes into ink.
+                setOpacityKeepingOwnshipFade(map, layer, 'text-opacity', 1);
+                ghostPlaceLabelInk(map, layer.id);
+            } else {
+                let labels = savedLabelOpacity.get(map);
+                if (!labels) savedLabelOpacity.set(map, (labels = new Map()));
+                ghostPaint(map, labels, layer.id, 'text-opacity', LABEL_GHOST_OPACITY);
+            }
+        }
+    } catch (_) {
+        /* style mid-swap: the next pass ghosts it */
+    }
+}
+
+/**
+ * Charcoal land and ghosted labels: the standalone chart's basemap. Needs the
+ * style JSON only, never a settled style (see "recorded, put back exactly").
+ * Returns the ids it walked, or null when the style JSON is not in yet.
+ */
+function ghostBasemapTreatment(
+    map: mapboxgl.Map,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    savedLandColors: Map<string, any>,
+): Set<string> | null {
+    const layers = styleLayers(map);
+    if (!layers) return null;
+    for (const layer of layers) ghostLayer(map, savedLandColors, layer);
+    return new Set(layers.map((layer) => layer.id));
+}
+
+// ── Layers that mount while the chart is up ──
+//
+// While the standalone chart is up, the first styledata of a burst (a layer
+// add comes with one) schedules one walk 120 ms later and the rest of the
+// burst rides on it, as MapHub's own styledata apply does: a quiet map is
+// never walked. The walk ghosts only the layers that were not in the
+// style on the previous walk, once each. A layer seen before is never written
+// again from here, even when its owner has rewritten it since: two writers
+// that each answer the other's styledata are the ~8 Hz loop this map has been
+// through before. The next toggle pass re-ghosts such a layer, and a layer
+// that goes and mounts again counts as new once a walk has seen it gone. The
+// restore needs nothing from this: whatever the walk ghosted is recorded like
+// the rest. Taken down on pressure off and when the chart becomes an overlay.
+
+/** How long a styledata burst must settle before the late-layer walk. */
+const LATE_LAYER_SETTLE_MS = 120;
+
+interface LateLayerWatch {
+    onStyleData: () => void;
+    timer: ReturnType<typeof setTimeout> | null;
+    /** The ids in the style at the last walk. */
+    seen: Set<string>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    savedLandColors: Map<string, any>;
+}
+
+/** Per map: the watch the standalone chart keeps while it is up. */
+const lateLayerWatch = new WeakMap<object, LateLayerWatch>();
+
+function watchLateLayers(
+    map: mapboxgl.Map,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    savedLandColors: Map<string, any>,
+    seen: Set<string>,
+): void {
+    if (typeof map.on !== 'function' || typeof map.off !== 'function') return;
+    const current = lateLayerWatch.get(map);
+    if (current) {
+        current.seen = seen;
+        current.savedLandColors = savedLandColors;
+        return;
+    }
+    const watch: LateLayerWatch = {
+        timer: null,
+        seen,
+        savedLandColors,
+        onStyleData: () => {
+            if (watch.timer !== null) return;
+            watch.timer = setTimeout(() => {
+                watch.timer = null;
+                if (lateLayerWatch.get(map) !== watch) return;
+                const layers = styleLayers(map);
+                if (!layers) return;
+                for (const layer of layers) {
+                    if (!watch.seen.has(layer.id)) ghostLayer(map, watch.savedLandColors, layer);
+                }
+                watch.seen = new Set(layers.map((layer) => layer.id));
+            }, LATE_LAYER_SETTLE_MS);
+        },
+    };
+    lateLayerWatch.set(map, watch);
+    map.on('styledata', watch.onStyleData);
+}
+
+function unwatchLateLayers(map: mapboxgl.Map): void {
+    const watch = lateLayerWatch.get(map);
+    if (!watch) return;
+    lateLayerWatch.delete(map);
+    if (watch.timer !== null) clearTimeout(watch.timer);
+    map.off('styledata', watch.onStyleData);
+}
+
+/**
+ * Hide all isobar layers and hand the basemap back.
  */
 export function hideIsobarLayers(
     map: mapboxgl.Map,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     savedLandColors: Map<string, any>,
 ) {
-    for (const id of ISOBAR_LAYER_IDS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
-    }
+    unwatchLateLayers(map);
+    for (const id of ISOBAR_LAYER_IDS) setVisibility(map, id, 'none');
     hideMovementTrackLayers(map);
+    setCoastalVignette(map, false);
     restoreBasemapTreatment(map, savedLandColors);
 }
 
@@ -266,57 +516,27 @@ export function showIsobarLayers(
 ) {
     const synopticOnly = new Set<string>(SYNOPTIC_ONLY_LAYER_IDS);
     for (const id of ISOBAR_LAYER_IDS) {
-        if (!map.getLayer(id)) continue;
-        const visible = overlay && synopticOnly.has(id) ? 'none' : 'visible';
-        map.setLayoutProperty(id, 'visibility', visible);
+        setVisibility(map, id, overlay && synopticOnly.has(id) ? 'none' : 'visible');
     }
     // These remain hidden even while the rest of the pressure chart is shown.
     hideMovementTrackLayers(map);
+    setCoastalVignette(map, !overlay);
 
     if (overlay) {
         // A previous standalone activation may have left the charcoal land —
         // hand the basemap back before the host layer paints over it.
+        unwatchLateLayers(map);
         restoreBasemapTreatment(map, savedLandColors);
         return;
     }
 
-    // Desaturate landmasses to charcoal + ghost labels to 30% — guarded
-    // because getStyle() throws before style load completes.
-    if (!map.isStyleLoaded()) return;
-    const style = map.getStyle();
-    if (style?.layers) {
-        for (const layer of style.layers) {
-            if (
-                layer.type === 'fill' &&
-                layer.id.match(/land|building|park|landuse|landcover|background/i) &&
-                !layer.id.match(/water|ocean|sea/i)
-            ) {
-                try {
-                    if (!savedLandColors.has(layer.id)) {
-                        const current = map.getPaintProperty(layer.id, 'fill-color');
-                        if (current) savedLandColors.set(layer.id, current);
-                    }
-                    map.setPaintProperty(layer.id, 'fill-color', 'rgba(20, 20, 20, 0.35)');
-                } catch (_) {
-                    /* skip */
-                }
-            }
-            if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
-                try {
-                    if (isBasePlaceLabelLayer(layer)) {
-                        // Town names: opacity stays at 1 (it may carry the
-                        // own-ship fade), the ghost goes into their ink.
-                        restoreLabelOpacity(map, layer);
-                        ghostPlaceLabelInk(map, layer.id);
-                    } else {
-                        map.setPaintProperty(layer.id, 'text-opacity', LABEL_GHOST_OPACITY);
-                    }
-                } catch (_) {
-                    /* skip */
-                }
-            }
-        }
-    }
+    // Desaturate landmasses to charcoal + ghost labels to 30%. The visibility
+    // writes above leave map.isStyleLoaded() false until the next frame; the
+    // ghost does not wait for it. Layers that mount after this pass are
+    // ghosted by the watch (an empty `seen` when the style JSON is not in yet:
+    // its first walk then ghosts everything).
+    const walked = ghostBasemapTreatment(map, savedLandColors);
+    watchLateLayers(map, savedLandColors, walked ?? new Set());
 }
 
 /**
