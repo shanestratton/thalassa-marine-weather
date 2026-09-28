@@ -286,7 +286,7 @@ describe('AnchorWatchPage', () => {
         render(<AnchorWatchPage {...defaultProps} />);
 
         expect(screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' })).toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Watch from ashore. Sign in to use Shore Watch' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Shore Watch. Sign in to use Shore Watch' }));
 
         expect(screen.getByRole('dialog')).toHaveTextContent(
             'Sign in to share Anchor Watch between your vessel and shore devices',
@@ -299,12 +299,13 @@ describe('AnchorWatchPage', () => {
         // The advice sits with the dial's verdict, not in a strip the sticky
         // arming bar covered. No current wind in this mock: '--', never 0, and
         // the light-air scope still offered as a one-tap set (5 m x 5:1). It
-        // says 'now': the advice reads this minute's wind (UX scorecard run 9).
+        // says 'now': the advice reads this minute's wind (UX scorecard run 9),
+        // wind first, then what the scope needs (UX scorecard run 10).
         expect(screen.getByText('ADEQUATE')).toBeInTheDocument();
-        const advice = screen.getByRole('button', { name: /^Wind now -- kts: 25 m for 5:1, set rode to 25 metres$/ });
+        const advice = screen.getByRole('button', { name: /^-- kts now · 5:1 needs 25 m, set rode to 25 metres$/ });
         fireEvent.click(advice);
         expect(screen.getByText('25 m')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /^Wind now -- kts: 5:1 set/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^-- kts now · 5:1 set/ })).toBeInTheDocument();
         // No fix in the test environment: the bar says so before the slide,
         // and the name the tests and Voice Control use is unchanged.
         const arm = screen.getByRole('button', { name: 'Drop anchor and arm Anchor Watch' });
@@ -366,7 +367,7 @@ describe('AnchorWatchPage', () => {
         expect(screen.getByRole('button', { name: 'Retry Anchor Watch monitoring' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Stop Watch' })).toHaveTextContent('Weigh Anchor');
         expect(screen.queryByText('Holding')).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Create Session' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /^(Start|Sign in for) Shore Watch$/ })).not.toBeInTheDocument();
     });
 
     it('shows only cleanup controls when a paused watch belongs to the previous account', async () => {
