@@ -80,6 +80,12 @@ export const LOG_SIGNED_OUT_LINE = `Voyages on this phone. ${LOG_SIGNED_OUT_BODY
  *  longer differ in corner, surface, title colour and icon. */
 export const LOG_CARD_SHELL =
     'overflow-hidden rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 shadow-[0_0_20px_rgba(14,165,233,0.08)]';
+/** Archived voyages keeps the recipe but wears a gold hue (Shane 2026-09-29:
+ *  identical to Voyage stats directly above it, the two did not read apart at
+ *  a glance). Border, glow and a faint wash only — not the filled amber of the
+ *  'history didn't load' notice, so it never reads as a warning. */
+export const LOG_CARD_SHELL_ARCHIVED =
+    'overflow-hidden rounded-2xl border border-amber-300/40 bg-linear-to-br from-amber-400/10 to-slate-900/40 shadow-[0_0_22px_rgba(251,191,36,0.14)]';
 /** The card's title is a tappable row title, so it wears the app's one row
  *  recipe (Settings, the Vessel hub, Scuttlebutt): bold white sentence case
  *  over a grey description. Tracked sky capitals made 'VOYAGE STATS' read as

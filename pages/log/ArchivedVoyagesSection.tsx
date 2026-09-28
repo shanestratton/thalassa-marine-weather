@@ -5,7 +5,7 @@ import { formatVoyageDuration, voyageElapsedMs } from '../../utils/voyageTiming'
 import { groupPassageLogs } from './PassageLogList';
 import { useEndpointNames } from './useEndpointNames';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { ARCHIVE_DIDNT_LOAD, LOG_CARD_SHELL, LOG_CARD_TITLE } from './logPageHelpers';
+import { ARCHIVE_DIDNT_LOAD, LOG_CARD_SHELL_ARCHIVED, LOG_CARD_TITLE } from './logPageHelpers';
 
 type RestorePassage = (passageId: string, voyageIds: string[]) => Promise<void>;
 
@@ -131,7 +131,7 @@ export function ArchivedVoyagesSection({
         // Voyage stats' recipe (radius, material, title ink, an icon on both,
         // Show/Hide), and named by its title with the status as the
         // description, as that card is (UX scorecard run 7).
-        <section className={`${className} ${LOG_CARD_SHELL}`}>
+        <section className={`${className} ${LOG_CARD_SHELL_ARCHIVED}`}>
             <button
                 type="button"
                 aria-expanded={showArchived}
@@ -139,12 +139,12 @@ export function ArchivedVoyagesSection({
                 aria-labelledby={titleId}
                 aria-describedby={statusLineId}
                 onClick={() => setShowArchived(!showArchived)}
-                className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/3 focus-visible:outline-2 focus-visible:outline-sky-400"
+                className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/3 focus-visible:outline-2 focus-visible:outline-amber-300"
             >
                 <span className="flex min-w-0 items-center gap-3">
                     <svg
                         aria-hidden="true"
-                        className="h-5 w-5 shrink-0 text-sky-300"
+                        className="h-5 w-5 shrink-0 text-amber-300"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -169,7 +169,10 @@ export function ArchivedVoyagesSection({
                         </span>
                     </span>
                 </span>
-                <span aria-hidden="true" className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-sky-200">
+                <span
+                    aria-hidden="true"
+                    className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-amber-200"
+                >
                     {showArchived ? 'Hide' : 'Show'}
                     <svg
                         aria-hidden="true"
