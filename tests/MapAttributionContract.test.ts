@@ -139,6 +139,16 @@ describe('map provider attribution contract', () => {
         expect(read('components/map/MapHub.tsx')).toContain('thalassa-chart-map');
     });
 
+    it('gives opened credits a legible ink on their white card', () => {
+        // Plain-text credits (Blitzortung.org, Anchorages, Moorings, MPA)
+        // inherited the chart's white ink on Mapbox's white card. The CONTAINER
+        // carries Mapbox's link ink so they inherit it; the attribution and logo
+        // elements stay unnamed.
+        const css = read('index.css');
+        expect(css).toMatch(
+            /^\.thalassa-chart-map \.mapboxgl-ctrl-bottom-right \{\s*color: rgb\(0 0 0 \/ 0\.75\);\s*\}/m,
+        );
+    });
     it('stacks the chart credits under every surface the skipper opens', () => {
         // The containers keep Mapbox's own z-index: geometry keeps the app's
         // furniture off the wordmark and the ⓘ. A blanket lift put the scale
