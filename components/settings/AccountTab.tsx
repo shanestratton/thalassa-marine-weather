@@ -113,7 +113,9 @@ interface AccountTabProps extends SettingsTabProps {
     onOpenPreferences?: () => void;
 }
 
-/** Satellite mode's state in one line, pointing at its switch in Preferences. */
+/** Satellite mode's state in one line, pointing at its switch in Preferences.
+ *  'change it', not 'switch': as a verb beside 'Off' it read as an order
+ *  (UX scorecard run 10). */
 const SatellitePointer: React.FC<{ on: boolean }> = ({ on }) => (
     <div className="flex flex-1 min-w-0 items-center gap-3">
         <div
@@ -124,7 +126,7 @@ const SatellitePointer: React.FC<{ on: boolean }> = ({ on }) => (
         </div>
         <div className="min-w-0 flex-1">
             <p className="text-sm font-bold text-white">Satellite mode</p>
-            <p className="text-xs text-gray-400">{on ? 'On, forecast only' : 'Off'} · switch in Preferences</p>
+            <p className="text-xs text-gray-400">{on ? 'On, forecast only' : 'Off'} · change it in Preferences</p>
         </div>
     </div>
 );

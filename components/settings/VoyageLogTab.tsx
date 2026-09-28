@@ -599,10 +599,13 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                     {/* Body leading, as body text elsewhere in Settings: the
                         relaxed 22 pt leading set this one paragraph apart (UX
                         scorecard run 8). */}
+                    {/* The page title already names it, so the card says it
+                        once, in its heading: the name ran four times in one
+                        card (UX scorecard run 10). */}
                     <Row>
                         <p className="text-sm text-gray-300">
-                            Your public voyage page is where the folks at home can follow your passage — your published
-                            diary entries, your track on a map, and your latest position and barometer reading.
+                            This is where the folks at home can follow your passage — your published diary entries, your
+                            track on a map, and your latest position and barometer reading.
                         </p>
                     </Row>
                     {signedOut ? (
@@ -615,7 +618,7 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                         <div className="p-4 border-b border-white/5 last:border-0">
                             <SignInCard
                                 title="Sign in to set up your public voyage page"
-                                reason="Your public voyage page belongs to your Thalassa account."
+                                reason="It belongs to your Thalassa account."
                                 onSignIn={() => {
                                     setSignInOpen(true);
                                     onSignInOpened?.();

@@ -7,8 +7,10 @@
  * settings page. i want to move most toggles there"). The consent rules are
  * unchanged and documented on ConsentSheet below.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Toggle } from './SettingsPrimitives';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { OverlayPortal } from '../ui/OverlayPortal';
 import { useAuthStore } from '../../stores/authStore';
 import { useNmeaConnectionStatus } from '../nmea/useNmeaStore';
 import { triggerHaptic } from '../../utils/system';
@@ -42,97 +44,113 @@ import {
  * standing is held — so telling the skipper sharing has stopped would be
  * false, and would push them to switch it off.
  */
-const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = ({ onAccept, onDismiss }) => (
-    <div
-        className="fixed inset-0 z-200 flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Share what you hear"
-        onClick={onDismiss}
-    >
-        {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
-        <div
-            className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-5 pb-8"
-            onClick={(e) => e.stopPropagation()}
+const ConsentSheet: React.FC<{ onAccept: () => void; onDismiss: () => void }> = ({ onAccept, onDismiss }) => {
+    // A modal that says so must hold the keyboard: focus moves in, Tab stays
+    // inside, Escape is 'Not now', and focus goes back to the switch after
+    // (UX scorecard run 10). Focus starts on 'Not now', never on the consent
+    // button, so a stray Return cannot opt the boat in.
+    const notNowRef = useRef<HTMLButtonElement>(null);
+    const trapRef = useFocusTrap<HTMLDivElement>(true, { onEscape: onDismiss, initialFocusRef: notNowRef });
+    return (
+        // Portalled out of the page: inside Preferences its Section card's
+        // entry animation leaves a transform, which made this fixed sheet a
+        // box clipped inside that card instead of a centred modal.
+        <OverlayPortal
+            className="flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+            role="presentation"
+            onClick={onDismiss}
         >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
-            <h2 className="text-lg font-bold text-gray-100">Share what you hear</h2>
-            <p className="mt-3 text-[13px] leading-relaxed text-gray-300">
-                Turn this on and every AIS sentence your gateway hears gets sent to Thalassa&rsquo;s fleet map and on to
-                AISHub, a public AIS network that copies it out to other tracking sites. It&rsquo;s off by default and
-                it&rsquo;s entirely your call.
-            </p>
+            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
+            <div
+                ref={trapRef}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Share what you hear"
+                className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl border border-white/10 bg-slate-900 p-5 pb-8"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20" />
+                <h2 className="text-lg font-bold text-gray-100">Share what you hear</h2>
+                <p className="mt-3 text-[13px] leading-relaxed text-gray-300">
+                    Turn this on and every AIS sentence your gateway hears gets sent to Thalassa&rsquo;s fleet map and
+                    on to AISHub, a public AIS network that copies it out to other tracking sites. It&rsquo;s off by
+                    default and it&rsquo;s entirely your call.
+                </p>
 
-            <h3 className="mt-5 text-[15px] font-bold text-amber-300">Your own boat becomes publicly trackable.</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                If your setup transmits &mdash; any Class A or Class B transponder &mdash; your boat&rsquo;s own
-                position reports go out with everything else. Your MMSI, your boat&rsquo;s name if it&rsquo;s programmed
-                in, your position, course and speed, live, on public tracking websites, to anyone who cares to look.
-            </p>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                We can&rsquo;t take that back. Once it reaches AISHub it&rsquo;s copied onward within seconds and we
-                have no way to reach the sites that copied it. Turning sharing off later stops new reports. It does not
-                remove what&rsquo;s already out there.
-            </p>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                Don&rsquo;t turn this on if there&rsquo;s any reason you&rsquo;d rather your boat wasn&rsquo;t findable
-                &mdash; you sail alone, you&rsquo;re avoiding someone, or you&rsquo;re heading somewhere that being
-                tracked is a risk.
-            </p>
-            <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
-                If your gear only receives and never transmits, nothing about your boat goes out. Only the ships you
-                hear.
-            </p>
+                <h3 className="mt-5 text-[15px] font-bold text-amber-300">Your own boat becomes publicly trackable.</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
+                    If your setup transmits &mdash; any Class A or Class B transponder &mdash; your boat&rsquo;s own
+                    position reports go out with everything else. Your MMSI, your boat&rsquo;s name if it&rsquo;s
+                    programmed in, your position, course and speed, live, on public tracking websites, to anyone who
+                    cares to look.
+                </p>
+                <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
+                    We can&rsquo;t take that back. Once it reaches AISHub it&rsquo;s copied onward within seconds and we
+                    have no way to reach the sites that copied it. Turning sharing off later stops new reports. It does
+                    not remove what&rsquo;s already out there.
+                </p>
+                <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
+                    Don&rsquo;t turn this on if there&rsquo;s any reason you&rsquo;d rather your boat wasn&rsquo;t
+                    findable &mdash; you sail alone, you&rsquo;re avoiding someone, or you&rsquo;re heading somewhere
+                    that being tracked is a risk.
+                </p>
+                <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
+                    If your gear only receives and never transmits, nothing about your boat goes out. Only the ships you
+                    hear.
+                </p>
 
-            <h3 className="mt-5 text-[15px] font-bold text-gray-100">Being heard by nobody still counts.</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                Anchored somewhere with no ships for 200 miles? That silence is worth as much as a busy harbour &mdash;
-                it proves someone was listening out there. What we count is time on watch, never ships delivered. An
-                empty ocean earns exactly what Sydney Harbour earns.
-            </p>
+                <h3 className="mt-5 text-[15px] font-bold text-gray-100">Being heard by nobody still counts.</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
+                    Anchored somewhere with no ships for 200 miles? That silence is worth as much as a busy harbour
+                    &mdash; it proves someone was listening out there. What we count is time on watch, never ships
+                    delivered. An empty ocean earns exactly what Sydney Harbour earns.
+                </p>
 
-            <h3 className="mt-5 text-[15px] font-bold text-gray-100">What we keep about you.</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                One row: how many minutes you&rsquo;ve been on watch, when we last heard from you, and how many
-                sentences you&rsquo;ve sent. Not where you were, not where you went, no history. It&rsquo;s deleted when
-                your account is.
-            </p>
+                <h3 className="mt-5 text-[15px] font-bold text-gray-100">What we keep about you.</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
+                    One row: how many minutes you&rsquo;ve been on watch, when we last heard from you, and how many
+                    sentences you&rsquo;ve sent. Not where you were, not where you went, no history. It&rsquo;s deleted
+                    when your account is.
+                </p>
 
-            <h3 className="mt-5 text-[15px] font-bold text-gray-100">What this never affects.</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
-                Nothing here changes what you see from your own AIS receiver, the collision guard, the anchor radar, or
-                any ship near you. That&rsquo;s safety data. It&rsquo;s never rationed, for anyone, and never will be.
-            </p>
+                <h3 className="mt-5 text-[15px] font-bold text-gray-100">What this never affects.</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-gray-300">
+                    Nothing here changes what you see from your own AIS receiver, the collision guard, the anchor radar,
+                    or any ship near you. That&rsquo;s safety data. It&rsquo;s never rationed, for anyone, and never
+                    will be.
+                </p>
 
-            <p className="mt-4 text-[12px] leading-relaxed text-gray-400">
-                <span className="font-semibold text-gray-300">Data cost.</span> About 5 MB a month when there&rsquo;s
-                nothing to hear, more in busy water. Switch on Low-data link for a satellite connection and it&rsquo;s
-                under 1 MB &mdash; you earn exactly the same either way.
-            </p>
-            <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
-                <span className="font-semibold text-gray-300">Turning it off.</span> One tap, any time. Sharing stops
-                immediately.
-            </p>
+                <p className="mt-4 text-[12px] leading-relaxed text-gray-400">
+                    <span className="font-semibold text-gray-300">Data cost.</span> About 5 MB a month when
+                    there&rsquo;s nothing to hear, more in busy water. Switch on Low-data link for a satellite
+                    connection and it&rsquo;s under 1 MB &mdash; you earn exactly the same either way.
+                </p>
+                <p className="mt-2 text-[12px] leading-relaxed text-gray-400">
+                    <span className="font-semibold text-gray-300">Turning it off.</span> One tap, any time. Sharing
+                    stops immediately.
+                </p>
 
-            <div className="mt-5 flex flex-col gap-2">
-                <button
-                    type="button"
-                    onClick={onAccept}
-                    className="rounded-xl bg-emerald-500 px-4 py-3 text-[15px] font-semibold text-slate-950 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-300"
-                >
-                    Share what I hear
-                </button>
-                <button
-                    type="button"
-                    onClick={onDismiss}
-                    className="rounded-xl px-4 py-3 text-[15px] font-semibold text-emerald-300 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-300"
-                >
-                    Not now
-                </button>
+                <div className="mt-5 flex flex-col gap-2">
+                    <button
+                        type="button"
+                        onClick={onAccept}
+                        className="rounded-xl bg-emerald-500 px-4 py-3 text-[15px] font-semibold text-slate-950 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-300"
+                    >
+                        Share what I hear
+                    </button>
+                    <button
+                        ref={notNowRef}
+                        type="button"
+                        onClick={onDismiss}
+                        className="rounded-xl px-4 py-3 text-[15px] font-semibold text-emerald-300 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-emerald-300"
+                    >
+                        Not now
+                    </button>
+                </div>
             </div>
-        </div>
-    </div>
-);
+        </OverlayPortal>
+    );
+};
 
 export const FleetSharingSection: React.FC = () => {
     // "Connected" here means the boat is being heard: the gateway socket, or

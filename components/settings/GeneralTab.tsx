@@ -13,7 +13,7 @@ import {
     type SettingsTabProps,
 } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
-import { AestheticsSections } from './AestheticsTab';
+import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
 import { MapPinIcon, TrashIcon } from '../Icons';
@@ -24,6 +24,13 @@ import { canAccess } from '../../services/SubscriptionService';
 import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
 import { OFFSHORE_MODELS } from '../../services/weather/forecastModels';
 import { offshoreModelHelper } from '../dashboard/ModelPickerSheet';
+
+/** The Settings menu row's icon tile (SettingsModal's MENU_ICON_TILE): the soft
+ *  surface with the one sky accent on the glyph, in both display modes. */
+const ROW_ICON_TILE: React.CSSProperties = {
+    background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))',
+    color: 'var(--day-ui-accent, #7dd3fc)',
+};
 
 /** The saved home that follows the phone (or the boat) rather than a port. */
 const FOLLOWS_YOU = 'Current Location';
@@ -86,78 +93,14 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
 
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-            {/* Display mode (the night red tint) and Visual preferences lead:
-                they are what a skipper reaches for at night, and sat fourth
-                below seven Units selects set once (UX scorecard run 9). Legal,
-                Beta and Reset this phone stay last. */}
-            <AestheticsSections settings={settings} onSave={onSave} />
-
-            {/* The home the Glass opens on. Its label is the one Settings form
-                label (FIELD_LABEL_CLASS) over a full-width field, and it is
-                called what the menu row calls it, 'Home port'. The saved value
-                that follows you ('Current Location') is not shown as if typed
-                into the box: the box stays empty and says what it does (UX
-                scorecard run 8). Typing a port replaces it, as before. The
-                button beside it says what it does, 'Pin here' (run 9): icon
-                only, beside 'Follows you', it read as a no-op. */}
-            <Section title="Location & time">
-                <div className="p-4">
-                    <label htmlFor="settings-home-port" className={FIELD_LABEL_CLASS}>
-                        Home port
-                    </label>
-                    <div className="flex gap-2">
-                        <input
-                            id="settings-home-port"
-                            type="text"
-                            value={followsYou ? '' : settings.defaultLocation || ''}
-                            onChange={(e) => {
-                                setPin('idle');
-                                onSave({ defaultLocation: e.target.value });
-                            }}
-                            aria-describedby={helpId}
-                            className="min-h-11 min-w-0 flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
-                            placeholder={followsYou ? 'Follows you' : 'City, Country'}
-                        />
-                        <button
-                            type="button"
-                            onClick={() => void pinHere()}
-                            aria-busy={pin === 'locating' || undefined}
-                            className="min-h-11 min-w-32 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg bg-sky-500/20 px-3 text-sm font-bold text-sky-300"
-                            aria-label={
-                                pin === 'locating'
-                                    ? 'Locating where you are now'
-                                    : 'Pin here: set home port to where you are now'
-                            }
-                        >
-                            {pin === 'locating' ? (
-                                <span
-                                    aria-hidden="true"
-                                    className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
-                                />
-                            ) : (
-                                <MapPinIcon className="h-4 w-4 shrink-0" />
-                            )}
-                            <span aria-hidden="true">{pin === 'locating' ? 'Locating…' : 'Pin here'}</span>
-                        </button>
-                    </div>
-                    {pin === 'failed' ? (
-                        <p id="settings-home-port-nofix" role="status" className="mt-1.5 text-xs text-amber-300">
-                            No GPS fix came back. Try again, or type a port.
-                        </p>
-                    ) : (
-                        followsYou && (
-                            <p id="settings-home-port-follows" className="mt-1.5 text-xs text-gray-400">
-                                The Glass opens on your current position. Type a port, or Pin here to fix it at this
-                                spot.
-                            </p>
-                        )
-                    )}
-                </div>
-            </Section>
-
-            {/* Ship's bells, test, clock zone — out of the Instrument Panel's
-                Bells page (Shane 2026-09-09). */}
-            <ShipClockSection />
+            {/* In order of use (UX scorecard run 10): Display mode (the night
+                red tint) leads, Units follow it — the most-used setting sat
+                sixth, below orientation, home port and the ship's clock — then
+                the screen switches, home port and clock, the forecast and
+                routing choices, and the rarely touched ones (network mode,
+                Smart Polars, AIS sharing, orientation lock). Legal, Beta and
+                Reset this phone stay last. */}
+            <DisplayModeSection settings={settings} onSave={onSave} />
 
             {/* Australian spelling, as the rest of the app ('Centre', 'Centreboard')
                 — the options said 'Meters' and 'Liters' (UX scorecard run 7).
@@ -278,14 +221,159 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                 </div>
             </Section>
-            {/* Appearance — Display Mode, Visual Preferences, Display Orientation
-                (the Aesthetics tab, folded in here by Shane 2026-09-09) — now
-                leads the page, above. */}
 
-            {/* AIS crowd-feed consent — moved here from the NMEA Gateway page
-                (Shane 2026-09-09: "i want to move most toggles there"). */}
-            <Section title="Share what you hear">
-                <FleetSharingSection />
+            <VisualPreferencesSection settings={settings} onSave={onSave} />
+
+            {/* The home the Glass opens on. Its label is the one Settings form
+                label (FIELD_LABEL_CLASS) over a full-width field, and it is
+                called what the menu row calls it, 'Home port'. The saved value
+                that follows you ('Current Location') is not shown as if typed
+                into the box: the box stays empty and says what it does (UX
+                scorecard run 8). Typing a port replaces it, as before. The
+                button beside it says what it does, 'Pin here' (run 9): icon
+                only, beside 'Follows you', it read as a no-op. */}
+            <Section title="Location & time">
+                <div className="p-4">
+                    <label htmlFor="settings-home-port" className={FIELD_LABEL_CLASS}>
+                        Home port
+                    </label>
+                    <div className="flex gap-2">
+                        <input
+                            id="settings-home-port"
+                            type="text"
+                            value={followsYou ? '' : settings.defaultLocation || ''}
+                            onChange={(e) => {
+                                setPin('idle');
+                                onSave({ defaultLocation: e.target.value });
+                            }}
+                            aria-describedby={helpId}
+                            className="min-h-11 min-w-0 flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
+                            placeholder={followsYou ? 'Follows you' : 'City, Country'}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => void pinHere()}
+                            aria-busy={pin === 'locating' || undefined}
+                            className="min-h-11 min-w-32 shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg bg-sky-500/20 px-3 text-sm font-bold text-sky-300"
+                            aria-label={
+                                pin === 'locating'
+                                    ? 'Locating where you are now'
+                                    : 'Pin here: set home port to where you are now'
+                            }
+                        >
+                            {pin === 'locating' ? (
+                                <span
+                                    aria-hidden="true"
+                                    className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent"
+                                />
+                            ) : (
+                                <MapPinIcon className="h-4 w-4 shrink-0" />
+                            )}
+                            <span aria-hidden="true">{pin === 'locating' ? 'Locating…' : 'Pin here'}</span>
+                        </button>
+                    </div>
+                    {pin === 'failed' ? (
+                        <p id="settings-home-port-nofix" role="status" className="mt-1.5 text-xs text-amber-300">
+                            No GPS fix came back. Try again, or type a port.
+                        </p>
+                    ) : (
+                        followsYou && (
+                            <p id="settings-home-port-follows" className="mt-1.5 text-xs text-gray-400">
+                                The Glass opens on your current position. Type a port, or Pin here to fix it at this
+                                spot.
+                            </p>
+                        )
+                    )}
+                </div>
+            </Section>
+
+            {/* Ship's bells, test, clock zone — out of the Instrument Panel's
+                Bells page (Shane 2026-09-09). */}
+            <ShipClockSection />
+
+            {/* Offshore model — unlocked during the public beta. Named for
+                when it applies, and described from the same table as the
+                Glass's model sheet, with no claims nothing here backs ('best
+                overall accuracy', 'professional-grade': UX scorecard run 9). */}
+            {canAccess(settings.subscriptionTier, 'weatherFull') && (
+                <Section title="Model used beyond 20 nm">
+                    <div className="p-4">
+                        <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+                            Forecast model used when you&apos;re more than 20 nm offshore. Everywhere else, including
+                            inland, the Glass uses the model on its own forecast-model pill.
+                        </p>
+                        <div className="space-y-2">
+                            {OFFSHORE_MODELS.map((m) => ({
+                                value: m.id,
+                                label: m.label,
+                                tag: m.id === 'sg' ? 'Default' : undefined,
+                                desc: offshoreModelHelper(m.id),
+                            })).map((opt) => {
+                                const isActive = (settings.offshoreModel || 'sg') === opt.value;
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        // Pressed state, like Display Mode's buttons: the ring
+                                        // alone told a screen reader nothing about which is chosen.
+                                        aria-label={`${opt.label} offshore model — ${opt.desc}`}
+                                        aria-pressed={isActive}
+                                        onClick={() => onSave({ offshoreModel: opt.value })}
+                                        className={`w-full text-left p-3 rounded-xl border transition-all duration-200 flex items-center gap-3 ${
+                                            isActive
+                                                ? 'bg-sky-500/10 border-sky-500/30'
+                                                : 'bg-white/2 border-white/5 hover:bg-white/5'
+                                        }`}
+                                    >
+                                        <div
+                                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                                isActive ? 'border-sky-500' : 'border-white/20'
+                                            }`}
+                                        >
+                                            {isActive && <div className="w-2 h-2 rounded-full bg-sky-400" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className={`text-sm font-bold ${isActive ? 'text-white' : 'text-gray-300'}`}
+                                                >
+                                                    {opt.label}
+                                                </span>
+                                                {opt.tag && (
+                                                    <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                                                        {opt.tag}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </Section>
+            )}
+
+            {/* High-fidelity ocean currents, moved here from Vessel Profile,
+                which keeps a line that points here (UX scorecard run 9). Same
+                setting (currentNrtEnabled), same effect. Not behind the
+                weatherFull gate: the switch was never gated. */}
+            <Section title="Ocean currents">
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">High-fidelity ocean currents</p>
+                        <p className="text-xs text-gray-400">
+                            Use recent ocean currents (about 5 days old) instead of monthly averages. Helps where a
+                            strong current decides your timing.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="High-fidelity ocean currents"
+                        checked={settings.currentNrtEnabled === true}
+                        onChange={(on) => onSave({ currentNrtEnabled: on })}
+                    />
+                </Row>
             </Section>
 
             {/* Satellite mode, moved here from Account & Cloud, which keeps a
@@ -366,106 +454,35 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Polars">
                 <SmartPolarsSetting settings={settings} onSave={onSave} />
             </Section>
-            {/* Offshore model — unlocked during the public beta. Named for
-                when it applies, and described from the same table as the
-                Glass's model sheet, with no claims nothing here backs ('best
-                overall accuracy', 'professional-grade': UX scorecard run 9). */}
-            {canAccess(settings.subscriptionTier, 'weatherFull') && (
-                <Section title="Model used beyond 20 nm">
-                    <div className="p-4">
-                        <p className="text-xs text-gray-400 mb-4 leading-relaxed">
-                            Forecast model used when you&apos;re more than 20 nm offshore.
-                        </p>
-                        <div className="space-y-2">
-                            {OFFSHORE_MODELS.map((m) => ({
-                                value: m.id,
-                                label: m.label,
-                                tag: m.id === 'sg' ? 'Default' : undefined,
-                                desc: offshoreModelHelper(m.id),
-                            })).map((opt) => {
-                                const isActive = (settings.offshoreModel || 'sg') === opt.value;
-                                return (
-                                    <button
-                                        key={opt.value}
-                                        type="button"
-                                        // Pressed state, like Display Mode's buttons: the ring
-                                        // alone told a screen reader nothing about which is chosen.
-                                        aria-label={`${opt.label} offshore model — ${opt.desc}`}
-                                        aria-pressed={isActive}
-                                        onClick={() => onSave({ offshoreModel: opt.value })}
-                                        className={`w-full text-left p-3 rounded-xl border transition-all duration-200 flex items-center gap-3 ${
-                                            isActive
-                                                ? 'bg-sky-500/10 border-sky-500/30'
-                                                : 'bg-white/2 border-white/5 hover:bg-white/5'
-                                        }`}
-                                    >
-                                        <div
-                                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                                                isActive ? 'border-sky-500' : 'border-white/20'
-                                            }`}
-                                        >
-                                            {isActive && <div className="w-2 h-2 rounded-full bg-sky-400" />}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span
-                                                    className={`text-sm font-bold ${isActive ? 'text-white' : 'text-gray-300'}`}
-                                                >
-                                                    {opt.label}
-                                                </span>
-                                                {opt.tag && (
-                                                    <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-                                                        {opt.tag}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </Section>
-            )}
 
-            {/* High-fidelity ocean currents, moved here from Vessel Profile,
-                which keeps a line that points here (UX scorecard run 9). Same
-                setting (currentNrtEnabled), same effect. Not behind the
-                weatherFull gate: the switch was never gated. */}
-            <Section title="Ocean currents">
-                <Row>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white font-medium">High-fidelity ocean currents</p>
-                        <p className="text-xs text-gray-400">
-                            Use recent ocean currents (about 5 days old) instead of monthly averages. Helps where a
-                            strong current decides your timing.
-                        </p>
-                    </div>
-                    <Toggle
-                        label="High-fidelity ocean currents"
-                        checked={settings.currentNrtEnabled === true}
-                        onChange={(on) => onSave({ currentNrtEnabled: on })}
-                    />
-                </Row>
+            {/* AIS crowd-feed consent — moved here from the NMEA Gateway page
+                (Shane 2026-09-09: "i want to move most toggles there"). */}
+            <Section title="Share what you hear">
+                <FleetSharingSection />
             </Section>
+
+            {/* Set once, so it sits with the rarely touched sections. */}
+            <OrientationSection settings={settings} onSave={onSave} />
 
             {/* Legal and Beta Support are plain rows in their section card, like
                 every section above — each used to sit in a bordered card of its
-                own inside the section card (UX scorecard run 6). */}
+                own inside the section card (UX scorecard run 6). Each row's
+                name starts with its printed title, as a voice user says it. */}
             <Section title="Legal">
                 <Row
                     onClick={() => void openExternalUrl(THALASSA_TERMS_URL)}
-                    label="Open Terms of Service and Privacy Policy"
+                    label="Terms of Service & Privacy Policy: read them on thalassawx.app"
                     className="min-h-[44px]"
                 >
                     <div className="flex flex-1 min-w-0 items-center gap-3">
-                        {/* The same sky tile as Send beta feedback, the link row
-                            under it: grey here read as a second recipe (UX
-                            scorecard run 9). */}
-                        <div className="shrink-0 rounded-lg bg-sky-400/15 p-2 text-sky-300" aria-hidden="true">
+                        {/* The Settings menu row's tile (soft surface, sky glyph,
+                            20 px icon in 8 px padding), so these two link rows
+                            match every Settings root row, title inset included;
+                            the filled blue chip was a second recipe (UX
+                            scorecard run 10). */}
+                        <div className="shrink-0 rounded-lg p-2" style={ROW_ICON_TILE} aria-hidden="true">
                             <svg
-                                className="h-4 w-4"
+                                className="h-5 w-5"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -480,9 +497,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className="text-sm text-white font-bold">Terms of Service & Privacy Policy</p>
-                            <p className="text-xs text-gray-300 mt-0.5">
-                                View our terms, conditions, and data practices
-                            </p>
+                            <p className="text-xs text-gray-300 mt-0.5">Read them on thalassawx.app</p>
                         </div>
                     </div>
                     <RowChevron />
@@ -491,12 +506,12 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Beta support">
                 <Row
                     onClick={() => void openFeedbackDestination()}
-                    label="Report a bug or request a feature"
+                    label="Send beta feedback: report a bug or an idea"
                     className="min-h-[44px]"
                 >
                     <div className="flex flex-1 min-w-0 items-center gap-3">
-                        <div className="shrink-0 rounded-lg bg-sky-400/15 p-2 text-sky-300" aria-hidden="true">
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div className="shrink-0 rounded-lg p-2" style={ROW_ICON_TILE} aria-hidden="true">
+                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
@@ -508,7 +523,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-white">Send beta feedback</p>
                             <p className="mt-0.5 text-xs text-gray-300">
-                                Report a bug or tell us what needs improving; version and platform are pre-filled.
+                                Report a bug or an idea. Your app version is filled in for you.
                             </p>
                         </div>
                     </div>

@@ -9,7 +9,7 @@
  * without coords still render and re-geocode at planner time.
  */
 import React, { useState } from 'react';
-import { Section, type SettingsTabProps } from './SettingsPrimitives';
+import { RowChevron, Section, type SettingsTabProps } from './SettingsPrimitives';
 import { MapPinIcon, PartlyCloudyIcon, TrashIcon } from '../Icons';
 import { buildRemoveLocationPatch } from '../../utils/savedLocations';
 import { UndoToast } from '../ui/UndoToast';
@@ -17,6 +17,39 @@ import { UndoToast } from '../ui/UndoToast';
 interface LocationsTabProps extends SettingsTabProps {
     onLocationSelect: (location: string) => void;
 }
+
+/** Goes to a tab the way the tab bar does (App's 'thalassa:navigate'). */
+const openTab = (tab: 'dashboard' | 'voyage') =>
+    window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab } }));
+
+/**
+ * The two places a port is saved from, as buttons that go there: the hint
+ * named them and linked to neither, so the page was a soft dead end (UX
+ * scorecard run 10). Each goes to that tab, exactly as the tab bar would.
+ * Each name starts with the words printed on the button.
+ */
+const AddFrom: React.FC = () => (
+    <div className="flex gap-2 px-4 pb-4">
+        <button
+            type="button"
+            onClick={() => openTab('dashboard')}
+            aria-label="The Glass: save a port from its star menu"
+            className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-bold text-white hover:bg-white/10"
+        >
+            The Glass
+            <RowChevron className="h-3.5 w-3.5 text-gray-400" />
+        </button>
+        <button
+            type="button"
+            onClick={() => openTab('voyage')}
+            aria-label="Route planner: save a departure or destination"
+            className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 text-sm font-bold text-white hover:bg-white/10"
+        >
+            Route planner
+            <RowChevron className="h-3.5 w-3.5 text-gray-400" />
+        </button>
+    </div>
+);
 
 export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, onLocationSelect }) => {
     // A hand-saved port must not vanish on one unguarded tap. The removal is
@@ -45,7 +78,9 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
     return (
         <>
             <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-                <Section title="Saved Ports & Anchorages">
+                {/* 'Saved places', not a third 'ports & anchorages' under the
+                    page's own subtitle (UX scorecard run 10). */}
+                <Section title="Saved places">
                     {(settings.savedLocations || []).length === 0 && (
                         <div className="text-center px-4 py-8 text-gray-400">
                             <MapPinIcon className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -58,6 +93,7 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                             </p>
                         </div>
                     )}
+                    {(settings.savedLocations || []).length === 0 && <AddFrom />}
                     {/* Flat rows in the section card (no card-in-card), each a real
                         button. "Show weather for", not "Navigate to": in a marine
                         app that reads as plotting a route. It ends in a weather
@@ -104,12 +140,15 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                                             </span>
                                         )}
                                     </span>
+                                    {/* Says what the tap shows, not a bare 'Show' (UX
+                                        scorecard run 10); one word, so the place name
+                                        keeps its line at 375 pt. */}
                                     <span
                                         aria-hidden="true"
                                         className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold text-sky-300"
                                     >
                                         <PartlyCloudyIcon className="h-4 w-4" />
-                                        Show
+                                        Weather
                                     </span>
                                 </button>
                                 <span
@@ -128,10 +167,13 @@ export const LocationsTab: React.FC<LocationsTabProps> = ({ settings, onSave, on
                         );
                     })}
                     {(settings.savedLocations || []).length > 0 && (
-                        <p className="px-4 py-3 text-xs leading-snug text-gray-400">
-                            Add more from the ★ menu on The Glass, or by saving a departure or destination in the route
-                            planner.
-                        </p>
+                        <div>
+                            <p className="px-4 pt-3 pb-2 text-xs leading-snug text-gray-400">
+                                Add more from the ★ menu on The Glass, or by saving a departure or destination in the
+                                route planner.
+                            </p>
+                            <AddFrom />
+                        </div>
                     )}
                 </Section>
             </div>
