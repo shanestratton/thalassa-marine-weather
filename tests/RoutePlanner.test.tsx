@@ -329,9 +329,11 @@ describe('RoutePlanner', () => {
 
                 const tripPicker = screen.getByRole('combobox', { name: 'Pick a trip or route to continue' });
                 // The hidden card's wrapper must disappear too: an empty
-                // first sibling still earns space-y margin above the Trip.
+                // sibling still earns space-y margin. Plan Your Day now leads
+                // the form, with the Trip directly after it and no empty gap.
                 const firstFormCard = container.querySelector('.route-planner-form > div')?.firstElementChild;
-                expect(firstFormCard).toContainElement(tripPicker);
+                expect(firstFormCard).toBe(screen.getByRole('button', { name: /Plan Your Day/ }));
+                expect(firstFormCard?.nextElementSibling).toContainElement(tripPicker);
                 fireEvent.change(tripPicker, { target: { value: 'comfort-hidden-trip' } });
                 fireEvent.click(screen.getByRole('button', { name: /Newport - Musgrave/ }));
                 expect(plannerMocks.requestTracerOpen).toHaveBeenLastCalledWith(
