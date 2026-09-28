@@ -18,9 +18,9 @@
  * untouched.
  */
 import type { Feature } from 'geojson';
+import type { EncCellContentIdentityInput } from './cellContentIdentity';
 
-export interface CellExtent {
-    id: string;
+export interface CellExtent extends EncCellContentIdentityInput {
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
     /** Keeps unsigned reference overlays from clipping/shadowing trusted
      * navigation geometry (and vice versa) in a shared display merge. */

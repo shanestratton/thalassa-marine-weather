@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { syncBuiltinESMExports } from 'node:module';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { test, mock } from 'node:test';
+import chokidar from 'chokidar';
+
+test('watcher reconciles startup, rewritten charts and key-only updates without assuming AU', async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), 'enc-watcher-test-'));
+    const before = { ...process.env };
+    process.env.ENC_WATCH_DIR = directory;
+    process.env.ENC_EXTRACTOR_DIR = directory;
+    process.env.ENC_CHART_DIR = join(directory, 'store');
+    process.env.ENC_WATCHER_DEBOUNCE_MS = '5';
+    process.env.ENC_WATCHER_ENABLED = 'true';
+    process.env.ENC_S63_WATCHER_ENABLED = 'false';
+    process.env.ENC_CHARTWORLD_ENABLED = 'false';
+    process.env.ENC_DEFAULT_SOURCE_HO = 'AU'; // legacy environment must no longer stamp all packages AU
+    const fakeWatcher = new EventEmitter() as EventEmitter & { close: () => Promise<void> };
+    fakeWatcher.close = async () => {};
+    let options: Parameters<typeof chokidar.watch>[1];
+    mock.method(chokidar, 'watch', (_path: unknown, opts: typeof options) => {
+        options = opts;
+        return fakeWatcher;
+    });
+    const calls: string[][] = [];
+    let exitCode = 0;
+    mock.method(childProcess, 'spawn', (_command: string, args: string[]) => {
+        calls.push(args);
+        const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        setImmediate(() => child.emit('exit', exitCode));
+        return child;
+    });
+    syncBuiltinESMExports();
+    const watcher = await import('./encWatcher.js');
+    t.after(async () => {
+        await watcher.stopEncWatcher();
+        mock.restoreAll();
+        syncBuiltinESMExports();
+        for (const key of Object.keys(process.env)) if (!(key in before)) delete process.env[key];
+        Object.assign(process.env, before);
+        await rm(directory, { recursive: true, force: true });
+    });
+    watcher.startEncWatcher();
+    assert.equal(options?.ignoreInitial, false);
+    fakeWatcher.emit('add', join(directory, 'set', 'AU530150.oesu'));
+    await delay(20);
+    assert.equal(calls.length, 0, 'initial files are coalesced until the initial scan completes');
+    fakeWatcher.emit('ready');
+    await delay(30);
+    assert.equal(calls.length, 1);
+    assert.ok(!calls[0].includes('--source-ho'));
+    assert.ok(calls[0].includes('--skip-existing'));
+    fakeWatcher.emit('change', join(directory, 'set', 'AU530150.oesu'));
+    await delay(30);
+    assert.equal(calls.length, 2);
+    fakeWatcher.emit('change', join(directory, 'set', 'oeuSENC-test-sglABC.XML'));
+    await delay(30);
+    assert.equal(calls.length, 3);
+    exitCode = 1;
+    fakeWatcher.emit('change', join(directory, 'set', 'thalassa-chart-source.json'));
+    await delay(30);
+    assert.equal(calls.length, 4);
+    assert.equal(watcher.getWatcherStatus().lastDecryptResult?.success, false);
+    assert.match(watcher.getWatcherStatus().lastDecryptResult?.error ?? '', /exit 1/);
+    assert.equal(watcher.isOChartsInput('/charts/readme.txt'), false);
+    assert.equal(watcher.isOChartsInput('/charts/oeuSENC-set-sgl123.xml'), true);
+});

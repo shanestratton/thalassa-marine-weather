@@ -2,7 +2,7 @@
  * InventoryScanner — smoke tests (893 LOC component)
  */
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../utils/createLogger', () => ({
@@ -33,6 +33,18 @@ describe('InventoryScanner', () => {
     it('renders content', () => {
         render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
         expect(screen.getByRole('dialog', { name: 'Inventory barcode scanner' })).toBeInTheDocument();
+    });
+
+    it('shows the primary Add item category chooser as three columns of five categories', () => {
+        render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} startInManualMode />);
+        const dialog = screen.getByRole('dialog', { name: 'Add item' });
+        const grid = within(dialog).getByRole('group', { name: 'Store category' });
+        expect(grid).toHaveClass('grid-cols-3');
+        expect(within(grid).getAllByRole('button')).toHaveLength(15);
+        fireEvent.click(within(grid).getByRole('button', { name: 'Electrical' }));
+        expect(within(grid).getByRole('button', { name: 'Electrical' })).toHaveAttribute('aria-pressed', 'true');
+        expect(within(grid).getByRole('button', { name: 'Provisions' })).toHaveAttribute('aria-pressed', 'false');
+        expect(LocalInventoryService.create).not.toHaveBeenCalled();
     });
 
     it('focuses the camera close action and handles Escape', () => {
@@ -76,6 +88,11 @@ describe('InventoryScanner', () => {
 
             expect(LocalInventoryService.findByBarcode).toHaveBeenCalledTimes(1);
             expect(screen.getByRole('dialog', { name: 'Add new item' })).toBeInTheDocument();
+            const grid = screen.getByRole('group', { name: 'Store category' });
+            expect(grid).toHaveClass('grid-cols-3');
+            expect(within(grid).getAllByRole('button')).toHaveLength(15);
+            fireEvent.click(within(grid).getByRole('button', { name: 'Safety' }));
+            expect(within(grid).getByRole('button', { name: 'Safety' })).toHaveAttribute('aria-pressed', 'true');
         } finally {
             play.mockRestore();
             vi.useRealTimers();

@@ -116,6 +116,7 @@ import { FollowBlockNoticeCard } from './log/FollowBlockNoticeCard';
 import { FollowRoutePromptSheet } from './log/FollowRoutePromptSheet';
 import { LiveVoyageCard } from './log/LiveVoyageCard';
 import { LogPageHeader } from './log/LogPageHeader';
+import { LogHistoryScroll } from './log/LogHistoryScroll';
 import { LogStatsFullscreen } from './log/LogStatsFullscreen';
 import { VoyageStatsRollup } from './log/VoyageStatsRollup';
 import { HistoryStatusLine } from './log/HistoryStatusLine';
@@ -2030,7 +2031,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     lifetimeUnavailable={lifetimeUnavailable}
                 />
             ) : (
-                <div className="flex flex-col h-full">
+                <div className="flex min-h-0 flex-col h-full">
                     {/* ── Header ── */}
                     <LogPageHeader
                         isTracking={isTracking}
@@ -2079,14 +2080,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     {historyUnreachable && <HistoryStatusLine onRetry={retryHistory} retrying={historyRetryPending} />}
 
                     {/* Career totals and records stay available without crowding the log. */}
-                    <VoyageStatsRollup
-                        voyageStats={voyageStats}
-                        records={records}
-                        notice={lifetimeStatsNotice}
-                        lifetimeUnavailable={lifetimeUnavailable}
-                        onRetry={historyUnreachable ? undefined : reloadArchivedVoyages}
-                        retrying={lifetimeLoading}
-                    />
+                    {isTracking && (
+                        <VoyageStatsRollup
+                            voyageStats={voyageStats}
+                            records={records}
+                            notice={lifetimeStatsNotice}
+                            lifetimeUnavailable={lifetimeUnavailable}
+                            onRetry={historyUnreachable ? undefined : reloadArchivedVoyages}
+                            retrying={lifetimeLoading}
+                        />
+                    )}
 
                     {castOffHandoff &&
                         (castOffHandoff.caution ||
@@ -2163,10 +2166,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     ) : (
                         <>
                             {/* ── NOT TRACKING: Scrollable voyage list ── */}
-                            <div
-                                className="flex-1 overflow-y-auto overflow-x-hidden px-4 snap-y snap-proximity scroll-pt-2"
-                                style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}
-                            >
+                            <LogHistoryScroll>
+                                {/* Stats scroll with history so expanding them cannot
+                                    squeeze the archive off a short phone screen. */}
+                                <VoyageStatsRollup
+                                    inHistory
+                                    voyageStats={voyageStats}
+                                    records={records}
+                                    notice={lifetimeStatsNotice}
+                                    lifetimeUnavailable={lifetimeUnavailable}
+                                    onRetry={historyUnreachable ? undefined : reloadArchivedVoyages}
+                                    retrying={lifetimeLoading}
+                                />
                                 {/* The smaller "X TODAY · Y VOYAGES · Z NM"
                                     status row that used to live here was
                                     removed 2026-05-17 — it was a duplicate
@@ -2261,7 +2272,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         )}
                                     />
                                 )}
-                            </div>
+                            </LogHistoryScroll>
 
                             {/* ── Slide to Start CTA — pinned at bottom ── */}
                             <StartTrackingFooter

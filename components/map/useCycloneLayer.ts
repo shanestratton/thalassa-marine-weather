@@ -1252,13 +1252,41 @@ const SLEEVE_CORE = 'cyclone-sleeve-core';
 const SLEEVE_EDGE = 'cyclone-sleeve-edge';
 const SLEEVE_CENTER = 'cyclone-sleeve-center';
 
+function removeProbabilitySleeve(map: mapboxgl.Map): void {
+    for (const id of [SLEEVE_CENTER, SLEEVE_EDGE, SLEEVE_CORE, SLEEVE_GLOW]) {
+        if (map.getLayer(id)) map.removeLayer(id);
+    }
+    if (map.getSource(SLEEVE_SOURCE)) map.removeSource(SLEEVE_SOURCE);
+}
+
+/** Retire only this hook's canvas resources; never leave departed storm tracks. */
+function removeRetiredCycloneLayers(map: mapboxgl.Map, active: readonly ActiveCyclone[] = []): void {
+    const sources = new Set(active.map((storm) => `past-track-${storm.sid}`));
+    const layers = new Set([...sources].flatMap((source) => [`${source}-line`, `${source}-outline`]));
+    const style = map.getStyle();
+    for (const layer of style?.layers ?? []) {
+        if (layer.id.startsWith('past-track-') && !layers.has(layer.id)) map.removeLayer(layer.id);
+    }
+    for (const id of Object.keys(style?.sources ?? {})) {
+        if (id.startsWith('past-track-') && !sources.has(id)) map.removeSource(id);
+    }
+    if (active.length === 0) {
+        removeProbabilitySleeve(map);
+        if (map.getLayer('storm-black-borders')) map.removeLayer('storm-black-borders');
+        if (map.getSource('storm-black-borders')) map.removeSource('storm-black-borders');
+    }
+}
+
 /**
  * Add or update the Probability Sleeve on the map for the forecast track.
  * Creates a multi-layer glow effect using Mapbox GL fill + line layers.
  */
 function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
     const forecast = cyclone.forecastTrack;
-    if (!forecast || forecast.length < 2) return;
+    if (!forecast || forecast.length < 2) {
+        removeProbabilitySleeve(map);
+        return;
+    }
 
     // Build the track centerline from current position through forecast —
     // continuous longitudes, corrupt fixes cut (see sanitizeTrackLongitudes).
@@ -1266,7 +1294,10 @@ function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
         [cyclone.currentPosition.lon, cyclone.currentPosition.lat],
         ...forecast.map((p) => [p.lon, p.lat] as [number, number]),
     ]);
-    if (allPoints.length < 2) return;
+    if (allPoints.length < 2) {
+        removeProbabilitySleeve(map);
+        return;
+    }
 
     // Calculate total forecast hours from timestamps
     let totalHours = 120;
@@ -1723,12 +1754,31 @@ export function useCycloneLayer(
 
                 log.info(`[CYCLONE] Got ${cyclones.length} active cyclone(s)`);
 
+                removeRetiredCycloneLayers(map, cyclones);
+                cyclonesRef.current = cyclones;
                 if (cyclones.length === 0) {
+                    rebuildMarkers();
+                    trackOverlayRef.current?.remove();
+                    trackOverlayRef.current = null;
+                    removeCloudOverlay(map);
+                    map.getContainer().querySelector('#cyclone-hud-badges')?.remove();
+                    selectedStormRef.current = null;
+                    stormCenterRef.current = null;
+                    hasFlown.current = false;
                     onClosestStormRef.current?.(null);
                     return;
                 }
 
-                cyclonesRef.current = cyclones;
+                // A manually selected storm may have ended since the previous
+                // advisory. Do not leave its card or camera lock over another
+                // storm's newly rendered track.
+                if (selectedStormRef.current && !cyclones.some((c) => c.sid === selectedStormRef.current?.sid)) {
+                    selectedStormRef.current = null;
+                    map.getContainer().querySelector('#cyclone-hud-badges')?.remove();
+                    stormCenterRef.current = null;
+                    hasFlown.current = false;
+                    if (skipAutoFlyRef) skipAutoFlyRef.current = false;
+                }
                 lastZoomInt = Math.round(map.getZoom());
 
                 // ── Update track overlay (SVG cone + centerline + dots) ──
@@ -1978,6 +2028,14 @@ export function useCycloneLayer(
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
             cyclonesRef.current = [];
+            trackOverlayRef.current?.remove();
+            trackOverlayRef.current = null;
+            hasFlown.current = false;
+            try {
+                removeRetiredCycloneLayers(map);
+            } catch {
+                /* map or style may already have been removed */
+            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, mapReady]);

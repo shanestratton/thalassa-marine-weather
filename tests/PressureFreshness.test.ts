@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fetchPressureGrid, generateIsobars } from '../services/weather/isobars';
 import { pressureFrameValidAt } from '../services/weather/pressureProvenance';
@@ -14,8 +14,11 @@ const hourly = () => ({
     wind_direction_10m: [90, 100, 110],
 });
 beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-20T03:00:00Z'));
     points.mockImplementation((_operation, coords) => Promise.resolve(coords.map(() => ({ hourly: hourly() }))));
 });
+afterEach(() => vi.useRealTimers());
 
 describe('pressure grid clock and fallback integrity', () => {
     it('uses the shared provider UTC axis rather than pretending fetch time is model time', async () => {
@@ -88,6 +91,18 @@ describe('pressure grid clock and fallback integrity', () => {
             canvas.mockRestore();
         }
     });
+
+    it('rejects expired and future fallback grids instead of renewing their fetch age', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 503 }));
+        try {
+            for (const now of ['2026-09-20T05:00:00Z', '2026-09-20T01:00:00Z']) {
+                vi.setSystemTime(new Date(now));
+                expect(await generateIsobars(2, 0, 0, 2, 4)).toBeNull();
+            }
+        } finally {
+            fetchMock.mockRestore();
+        }
+    });
 });
 
 describe('pressure refresh lifecycle wiring', () => {
@@ -98,16 +113,12 @@ describe('pressure refresh lifecycle wiring', () => {
     );
     it('retries an initial unavailable load and resumes from focus, online and visibility', () => {
         expect(refresh.indexOf('if (!grid ||')).toBeLessThan(refresh.indexOf('if (!grid) return'));
-        for (const event of ['focus', 'online', 'visibilitychange']) {
-            expect(refresh).toContain(`addEventListener('${event}', refresh)`);
-            expect(refresh).toContain(`removeEventListener('${event}', refresh)`);
-        }
-        expect(refresh).toContain("document.visibilityState === 'hidden'");
-        expect(refresh).toContain('PRESSURE_REFRESH_MS');
+        expect(refresh).toContain('subscribePressureRefresh(refresh)');
+        expect(refresh).toContain('pressureCacheIsFresh');
     });
     it('cancels abandoned frame generation and preserves only deliberate manual valid time', () => {
         expect(source).toContain('if (cachedGridRef.current !== grid) return;');
         expect(/const previousValidAt\s*=\s*manual\s*\?\s*pressureFrameValidAt/.test(source)).toBe(true);
-        expect(source).toContain('pressureValidTimeMs: pressureFrameValidAt');
+        expect(source).toContain(': pressureFrameValidAt(cachedGridRef.current, forecastHour)');
     });
 });

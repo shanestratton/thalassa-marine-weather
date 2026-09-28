@@ -268,6 +268,7 @@
     "https://esm.sh/@supabase/storage-js@2.110.9/denonext/storage-js.mjs": "f1f03e679c80955a84703f27bf4c769749fa7e34ba0938aa70f1b841e58d4c9e",
     "https://esm.sh/@supabase/supabase-js@2.110.9": "649ae8415d0ea35102fa931ba3b37569ea4be476ff630be26f8e3687bbf4907c",
     "https://esm.sh/@supabase/supabase-js@2.110.9/denonext/supabase-js.mjs": "2c5c0927e55bb729021518816027c2b3bd6ac780cc1da652bf7945d54b65deba",
+    "https://esm.sh/@supabase/supabase-js@2.39.3": "832d7714491bd1c8a9008a332b35cb099f24b451ad79e755ecf4d71985fd6610",
     "https://esm.sh/async-function@1.0.0/deno/async-function.mjs": "9a68a79494e7318827f19367915e5e8c902d81d395a2a429114371d8f506afd8",
     "https://esm.sh/async-function@1.0.0?target=deno": "b4a04115a74f63ae3a1e102aad0b9f31d07bac8b8d74e26e93fa0223164bef42",
     "https://esm.sh/async-generator-function@1.0.0/deno/async-generator-function.mjs": "c7d6e6484a0083577a002c3114e08d84762b6f74327c89cd0129226cefd7436a",

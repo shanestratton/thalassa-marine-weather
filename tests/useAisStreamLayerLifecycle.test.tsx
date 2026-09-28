@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
     batchLookup: vi.fn().mockResolvedValue(undefined),
     getVesselIntel: vi.fn(),
     canAccess: vi.fn(),
+    satelliteMode: false,
+    ownship: null as { lat: number; lon: number; sog: number; cog: number } | null,
 }));
 
 vi.mock('mapbox-gl', () => {
@@ -42,6 +44,8 @@ vi.mock('../services/AisStore', () => ({
     AisStore: { toGeoJSON: () => ({ type: 'FeatureCollection', features: [] }) },
 }));
 vi.mock('../services/supabase', () => ({ supabase: {} }));
+vi.mock('../services/networkPolicy', () => ({ satelliteModeBlocks: () => mocks.satelliteMode }));
+vi.mock('../services/ownshipPosition', () => ({ resolveOwnshipPosition: () => mocks.ownship }));
 vi.mock('../components/map/useAisLayer', () => ({ onLocalAisChange: () => () => undefined }));
 vi.mock('../stores/LocationStore', () => ({ LocationStore: { getState: () => ({ lat: 0, lon: 0 }) } }));
 vi.mock('../services/NmeaStore', () => ({
@@ -127,7 +131,34 @@ describe('useAisStreamLayer request lifecycle', () => {
         mocks.batchLookup.mockClear();
         mocks.getVesselIntel.mockReset();
         mocks.canAccess.mockReset();
+        mocks.satelliteMode = false;
+        mocks.ownship = null;
         document.getElementById('vessel-detail-modal')?.remove();
+    });
+
+    it('resumes the ownship floor after Satellite mode ends without toggling AIS', async () => {
+        vi.useFakeTimers();
+        mocks.satelliteMode = true;
+        mocks.ownship = { lat: -28, lon: 154, sog: 4, cog: 90 };
+        mocks.fetchNearby.mockResolvedValue({ type: 'FeatureCollection', features: [] });
+        const { map } = makeMap();
+        const hook = renderHook(() => useAisStreamLayer(map as never, true));
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(90_000);
+        });
+        expect(mocks.fetchNearby).not.toHaveBeenCalled();
+
+        mocks.satelliteMode = false;
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(90_000);
+        });
+        expect(mocks.fetchNearby).toHaveBeenCalledWith({ lat: -28, lon: 154, radiusNm: 12 });
+        hook.unmount();
+        const calls = mocks.fetchNearby.mock.calls.length;
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(180_000);
+        });
+        expect(mocks.fetchNearby).toHaveBeenCalledTimes(calls);
     });
 
     it('accepts the new fetch after re-enable and rejects the older in-flight response', async () => {

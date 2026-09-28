@@ -17,7 +17,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { CREDITS_SLOT_PX } from './creditsStrip';
+import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop } from './creditsStrip';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -81,7 +81,7 @@ import { useTraceDraft } from './useTraceDraft';
 import { useMapHubLayerVisibility } from './useMapHubLayerVisibility';
 import { useAnchorageLayer } from './useAnchorageLayer';
 import { useCruisingReferenceLayer } from './useCruisingReferenceLayer';
-import { CruisingReferenceKey } from './CruisingReferenceKey';
+import { ObsLayerKey, obsLayerKeyCount, type ObsLayerKeyProps } from './ObsLayerKey';
 import type { MooringColourFilter } from '../../services/anchorages/cruisingReference';
 import { AnchorageTonightSheet } from './AnchorageTonightSheet';
 import { useNoticeLayer } from './useNoticeLayer';
@@ -247,7 +247,6 @@ import { usePersistedState } from '../../hooks/usePersistedState';
 // or hook order changed.
 import {
     AisGuardAlert,
-    AisLegend,
     ChartKeyPanel,
     CmemsAttribution,
     ConsensusMatrix,
@@ -2553,6 +2552,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         !isPinView;
     const passageOverviewAvailable =
         passageHudOnChart &&
+        passageOverlay &&
         isFollowingRoute &&
         followedRouteCoords.length >= 2 &&
         !planningSurface &&
@@ -2584,17 +2584,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     useDestinationFlag(mapRef, mapReady && !planningSurface && passageOverlay, { onTap: () => setStopFollowAsk(true) });
     // Passage strip look-ahead: where she will be at the scrubbed moment. The
     // strip works out the place; this only draws it (passageHudStore).
-    useRouteGhostMarker(mapRef, mapReady && !planningSurface);
+    useRouteGhostMarker(mapRef, mapReady && !planningSurface && passageOverlay);
     // Active MOB fix — plain mapReady, NOT gated on planningSurface: an
     // active MOB must never vanish because the planner happens to be open.
     useMobMarker(mapRef, mapReady);
 
-    // Routes (planned) and Tracks (sailed) chart layers. Both come
-    // from the user's ship-log entries — Routes are voyageIds prefixed
-    // `planned_*`, Tracks are everything else. Each is its own layer
-    // so the user can have one of each visible simultaneously, with
-    // distinct colours so they read clearly when overlapped. Hidden
-    // while tracing — same declutter rule as above.
+    // Exclusive selections: reusable saved plans from Plan, or a sailed
+    // track from Log. Hidden while tracing — same declutter rule as above.
     useRouteTrackLayer({
         mapRef,
         mapReady: mapReady && !planningSurface,
@@ -2884,7 +2880,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     useSeamarkLayer(mapRef, mapReady, browseSeamarkVisible, seamarkMode);
 
     // ── Tide Station Markers ──
-    useTideStationLayer(mapRef, mapReady, browseTideStationsVisible);
+    const tideStationStatus = useTideStationLayer(mapRef, mapReady, browseTideStationsVisible);
     // Stable identity so the tile effect keys on actual movement, not renders.
     const anchorageCentre = useMemo(
         () => (weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null),
@@ -3301,9 +3297,38 @@ export const MapHub: React.FC<MapHubProps> = ({
         // under both. Testing for 'radar' alone let the two overlap.
         !!weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showEmbeddedRainViewerAttribution = embedded && embeddedRain.embRainCount > 0 && embeddedRain.embRainIdx >= 0;
+    const obsKeyProps: ObsLayerKeyProps = {
+        enc: encVisible
+            ? {
+                  imageryOn,
+                  tideDepthMode: tideDepthMode && !!tideOffsetInfo,
+                  draftConfigured: Number(settings.vessel?.draft) > 0,
+                  tideTimeLabel: tideScrubQ > 0 ? `at the selected tide time (+${tideScrubQ / 4} h)` : 'RIGHT NOW',
+              }
+            : undefined,
+        ais: browseAisVisible,
+        lightning: browseLightningVisible,
+        squall: browseSquallVisible,
+        storms: browseCycloneVisible,
+        tides: browseTideStationsVisible,
+        moorings: browseMooringsVisible,
+        anchorages: browseAnchorageVisible,
+        marks: browseSeamarkVisible,
+        protectedAreas: weather.mpaVisible,
+        route: activeChartRoute !== null,
+        track: activeChartTrack !== null,
+        passage: passageHudOnChart,
+        forecastRoute: passage.showPassage && !!passage.routeAnalysis,
+        verificationStatus: passage.routeVerification.status,
+        referenceStatus: cruisingReferences.status,
+        mooringFilter: mooringColourFilter,
+        onMooringFilter: setMooringColourFilter,
+        tideStatus: tideStationStatus,
+    };
+    const obsKeyCount = !planningSurface && !embedded && !pickerMode && !isPinView ? obsLayerKeyCount(obsKeyProps) : 0;
 
     return (
-        <div data-testid="map-hub" className={`w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
+        <div data-testid="map-hub" className={`isolate w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
             {/* Floating route-enhancement chip — visible while the */}
             {/* passage planner's bathymetric/weather/depth pipeline runs */}
             {/* in the background after the basic plan lands. */}
@@ -3560,21 +3585,28 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     iconKind: 'generic' as const,
                                     enabled: activeChartRoute !== null,
                                     onToggle: () => setRoutePickerOpen((v) => !v),
+                                    onClear: () => {
+                                        setActiveChartRoute(null);
+                                        setRoutePickerOpen(false);
+                                    },
                                     // Opens the picker sheet — the menu must
                                     // roll up or its scrim eats the sheet's
                                     // taps (see RadialHelmMenuProps).
                                     opensSheet: true,
                                 },
                                 // Tracks — picker for actually-sailed passages.
-                                // Same UX as Routes; renders amber solid line so
-                                // the two can be visible together without confusing
-                                // which is the plan vs the reality.
+                                // Same UX as Routes; an amber sailed track replaces
+                                // the manually selected purple planned route.
                                 {
                                     id: 'tracks',
                                     label: 'Tracks',
                                     iconKind: 'generic' as const,
                                     enabled: activeChartTrack !== null,
                                     onToggle: () => setTrackPickerOpen((v) => !v),
+                                    onClear: () => {
+                                        setActiveChartTrack(null);
+                                        setTrackPickerOpen(false);
+                                    },
                                     opensSheet: true,
                                 },
                                 ...(!CHARTS_FAB_CATEGORY_VISIBLE
@@ -4679,8 +4711,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* Routes picker — saved planned passages from the
-                    ships log. Selection becomes activeChartRoute; the
+                {/* Routes picker — the same saved library as Plan.
+                    Selection becomes activeChartRoute; the
                     useRouteTrackLayer renders + fits bounds. */}
                 {routePickerOpen && !planningSurface && !embedded && !pickerMode && !isPinView && (
                     <Suspense fallback={<RouteTrackPickerLoading label="Opening routes…" />}>
@@ -4690,18 +4722,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                             selectedId={activeChartRoute?.id ?? null}
                             onSelect={(item) => {
                                 setActiveChartRoute(item);
-                                // "Clear selection" must stick: the passage overlay
-                                // would re-apply the active voyage's route, so a clear
-                                // turns it off (2026-09-09).
-                                if (item === null) setPassageOverlay(false);
+                                if (item) setActiveChartTrack(null);
+                                // A manual choice owns the chart; background
+                                // passage refresh must not re-add the other line.
+                                setPassageOverlay(false);
                             }}
                             onClose={() => setRoutePickerOpen(false)}
                         />
                     </Suspense>
                 )}
 
-                {/* Tracks picker — actually-sailed passages. Same UX as
-                    Routes; the two can be active simultaneously. */}
+                {/* Tracks picker — actually-sailed passages, exclusive
+                    with a selected saved route. Recording is unaffected. */}
                 {trackPickerOpen && !planningSurface && !embedded && !pickerMode && !isPinView && (
                     <Suspense fallback={<RouteTrackPickerLoading label="Opening tracks…" />}>
                         <RouteTrackPicker
@@ -4710,7 +4742,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             selectedId={activeChartTrack?.id ?? null}
                             onSelect={(item) => {
                                 setActiveChartTrack(item);
-                                if (item === null) setPassageOverlay(false);
+                                if (item) setActiveChartRoute(null);
+                                setPassageOverlay(false);
                             }}
                             onClose={() => setTrackPickerOpen(false)}
                         />
@@ -4740,38 +4773,25 @@ export const MapHub: React.FC<MapHubProps> = ({
                     marine users who need to know what their data costs
                     them and whether live feeds will update. */}
                 <ConnectivityChip visible={!planningSurface && !embedded && !pickerMode && !isPinView} />
-                {(browseMooringsVisible || browseAnchorageVisible) &&
-                    !planningSurface &&
-                    !embedded &&
-                    !pickerMode &&
-                    !isPinView && (
-                        <CruisingReferenceKey
-                            moorings={browseMooringsVisible}
-                            status={cruisingReferences.status}
-                            filter={mooringColourFilter}
-                            onFilter={setMooringColourFilter}
-                        />
-                    )}
                 <AnchorageTonightSheet
                     visible={browseAnchorageVisible && !planningSurface && !embedded && !pickerMode && !isPinView}
                     centre={anchorageCentre}
                     onShow={anchorageLayer.showAnchorage}
                 />
 
-                {/* Keep lightning attribution visible. The tall squall key
-                    now lives in the existing blue i information panel. */}
-                {!pickerMode && !planningSurface && browseLightningVisible && (
+                {/* Keep licence credit and feed status visible independently
+                    of the shared key's collapsed state. */}
+                {!pickerMode && !planningSurface && !embedded && !isPinView && browseLightningVisible && (
                     <div
-                        className="fixed left-2 z-140 flex flex-col-reverse gap-2 pointer-events-none"
+                        className={`${CREDITS_STRIP_POSITION_CLASS} z-510 max-w-[calc(100%-120px)] pointer-events-none`}
                         style={{
-                            bottom: weather.activeLayers.has('wind')
-                                ? 'calc(env(safe-area-inset-bottom) + 240px)'
-                                : weather.activeLayers.size > 0
-                                  ? 'calc(env(safe-area-inset-bottom) + 140px)'
-                                  : 'max(96px, calc(env(safe-area-inset-bottom) + 80px))',
+                            top: creditsStripTop(
+                                ((rainCreditShown ? 1 : 0) + (cmemsAttributionLayers.length > 0 ? 1 : 0)) *
+                                    CREDITS_SLOT_PX,
+                            ),
                         }}
                     >
-                        <BlitzortungAttribution visible={browseLightningVisible} />
+                        <BlitzortungAttribution visible compact />
                     </div>
                 )}
 
@@ -4819,9 +4839,6 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
-                    {!planningSurface && !embedded && !pickerMode && !isPinView && (
-                        <AisLegend visible={browseAisVisible} />
-                    )}
                     {cmemsAttributionLayers.length > 0 && (
                         <React.Suspense fallback={null}>
                             <CmemsAttribution
@@ -4997,7 +5014,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* ═══ ROUTE LEGEND (during passage mode) ═══ */}
                 <Suspense fallback={null}>
                     <RouteLegend
-                        visible={passage.showPassage && !!passage.routeAnalysis && !pickerMode && !isPinView}
+                        visible={
+                            (planningSurface || embedded) &&
+                            passage.showPassage &&
+                            !!passage.routeAnalysis &&
+                            !pickerMode &&
+                            !isPinView
+                        }
                         embedded={embedded}
                         verificationStatus={passage.routeVerification.status}
                     />
@@ -5143,7 +5166,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {!isPinView && !embedded && !pickerMode && weather.activeLayers.size > 0 && (
+                {!isPinView && !embedded && !pickerMode && (weather.activeLayers.size > 0 || obsKeyCount > 0) && (
                     <Suspense fallback={null}>
                         <MapWeatherControls
                             weather={weather}
@@ -5152,6 +5175,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             embedded={embedded}
                             controlsHidden={chartControlsHidden}
                             onControlsHiddenChange={setChartControlsHidden}
+                            extraLegend={obsKeyCount > 0 ? <ObsLayerKey {...obsKeyProps} /> : undefined}
+                            extraLegendCount={obsKeyCount}
                         />
                     </Suspense>
                 )}

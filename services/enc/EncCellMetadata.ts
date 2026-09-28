@@ -22,6 +22,7 @@
 import { createLogger } from '../../utils/createLogger';
 import type { EncCell } from './types';
 import { canonicalEncCellId, ENC_CELL_ID_PATTERN, ENC_METADATA_PREFIX, encCellStorageIdentity } from './types';
+import { encCellContentIdentity } from './cellContentIdentity';
 
 const log = createLogger('EncCellMetadata');
 
@@ -506,18 +507,16 @@ export function getRegistryFingerprint(scope?: [number, number, number, number])
     // i have checked and reapproved the route, same issue' — his Pi and
     // cloud sync churned cells hundreds of miles from the route).
     const cells = scope ? cellsForBBox(scope) : listCells();
-    // Chart IDENTITY only: id + edition + issue date + size. Deliberately NOT
+    // Chart IDENTITY only: content hash and revision, with legacy metadata
+    // fallback for older imports. Deliberately NOT
     // cloudManifestVersion — that is a DELIVERY artefact: every manifest
     // publication re-stamps every cloud cell with the new version
     // (cloudCellSync's needsRefresh walk), so including it meant the Pi
     // publishing ANY cell anywhere re-fingerprinted the whole library and
     // the Cast Off recheck loop survived even the route-scoped fix (Shane
-    // 2026-08-26, second sighting). A real chart change moves edition,
-    // issued or sizeBytes.
-    return cells
-        .map((cell) => `${cell.id}@${cell.edition}@${cell.issued}@${cell.sizeBytes ?? 'unknown'}`)
-        .sort()
-        .join('|');
+    // 2026-08-26, second sighting). Same-edition updates can change geometry
+    // without changing issue date or byte length, so include update/hash too.
+    return cells.map(encCellContentIdentity).sort().join('|');
 }
 
 /**

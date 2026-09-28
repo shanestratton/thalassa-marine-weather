@@ -365,6 +365,8 @@ export async function fetchVerifiedFromPi<T>(options: {
      * native bridge has already received the response, but this still avoids
      * turning an accidental/hostile body into multiple further heap copies. */
     maxResponseBytes?: number;
+    /** Exact immutable chart revision expected from the signed index. */
+    expectedSha256?: string;
 }): Promise<T> {
     if (!PI_INTEGRATION_ENABLED) throw new Error(PI_PUBLIC_BETA_UNAVAILABLE_MESSAGE);
     const {
@@ -375,6 +377,7 @@ export async function fetchVerifiedFromPi<T>(options: {
         readTimeout = 30000,
         requestBinding,
         maxResponseBytes,
+        expectedSha256,
     } = options;
 
     // Pinned transport, always. There is no unpinned lane to fall back to:
@@ -413,6 +416,11 @@ export async function fetchVerifiedFromPi<T>(options: {
         );
         if (!check.ok) {
             throw new Error(`Pi response for ${rawPath} failed signature check (${check.reason}) — refusing the data`);
+        }
+    }
+    if (expectedSha256 !== undefined) {
+        if (!/^[a-f0-9]{64}$/.test(expectedSha256) || (await sha256Hex(body)) !== expectedSha256) {
+            throw new Error('Pi chart changed since its index was read. Sync again to fetch the current revision.');
         }
     }
     return JSON.parse(body) as T;

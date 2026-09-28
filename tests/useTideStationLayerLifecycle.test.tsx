@@ -154,6 +154,7 @@ function makeMap() {
         },
         setZoom: (value: number) => {
             zoom = value;
+            emit('zoom');
             emit('moveend');
         },
         beginStyle: () => {
@@ -180,6 +181,7 @@ beforeEach(() => {
     api.search.mockReset().mockResolvedValue([STATION]);
     api.details.mockReset().mockResolvedValue(details());
     api.markers.length = 0;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
 });
 afterEach(async () => {
     cleanup();
@@ -263,13 +265,101 @@ describe('tide station layer lifecycle', () => {
     it('does not fetch below overview zoom but loads promptly after zooming in', async () => {
         const c = makeMap();
         c.setZoom(4);
-        renderHook(() => useTideStationLayer(c.ref, true, true));
+        const hook = renderHook(() => useTideStationLayer(c.ref, true, true));
         await flush();
         expect(api.search).not.toHaveBeenCalled();
-        c.setZoom(8);
+        expect(hook.result.current.zoomRequired).toBe(true);
+        expect(hook.result.current.loading).toBe(false);
+        c.setZoom(6);
+        expect(hook.result.current.zoomRequired).toBe(false);
         act(() => vi.advanceTimersByTime(650));
         await flush();
         expect(api.search).toHaveBeenCalledOnce();
+    });
+    it('reports overview zoom immediately, cancels pending search, and resets the gate when switched off', async () => {
+        const request = deferred<TideStation[] | null>();
+        api.search.mockReturnValueOnce(request.promise);
+        const c = makeMap();
+        const hook = renderHook(({ visible }) => useTideStationLayer(c.ref, true, visible), {
+            initialProps: { visible: true },
+        });
+        expect(hook.result.current.loading).toBe(true);
+        const signal = api.search.mock.calls[0][2].signal as AbortSignal;
+        c.setZoom(5.99);
+        expect(hook.result.current.zoomRequired).toBe(true);
+        expect(hook.result.current.loading).toBe(false);
+        expect(signal.aborted).toBe(true);
+        request.resolve([STATION]);
+        await flush();
+        expect(hook.result.current.stationCount).toBe(0);
+        hook.rerender({ visible: false });
+        expect(hook.result.current.zoomRequired).toBe(false);
+        expect(hook.result.current.error).toBe(false);
+    });
+    it('revalidates a stationary viewport every five minutes without fetching predictions or opening details', async () => {
+        const c = makeMap();
+        const hook = renderHook(() => useTideStationLayer(c.ref, true, true));
+        await flush();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+        });
+        expect(api.search).toHaveBeenCalledTimes(1);
+        api.search.mockResolvedValue([STATION, OTHER]);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(1);
+        });
+        expect(api.search).toHaveBeenCalledTimes(2);
+        expect(hook.result.current.stationCount).toBe(2);
+        expect(api.details).not.toHaveBeenCalled();
+        expect(c.container.querySelector('.tide-station-detail-overlay')).toBeNull();
+        hook.unmount();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10 * 60_000);
+        });
+        expect(api.search).toHaveBeenCalledTimes(2);
+    });
+    it('retries failures while stationary and refreshes immediately after returning from days hidden', async () => {
+        api.search.mockResolvedValueOnce(null).mockResolvedValue([STATION]);
+        const c = makeMap();
+        const hook = renderHook(() => useTideStationLayer(c.ref, true, true));
+        await flush();
+        expect(hook.result.current.error).toBe(true);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(60_000);
+        });
+        expect(api.search).toHaveBeenCalledTimes(2);
+        expect(hook.result.current.error).toBe(false);
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden' });
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(2 * 24 * 3_600_000);
+        });
+        expect(api.search).toHaveBeenCalledTimes(2);
+        Object.defineProperty(document, 'visibilityState', { value: 'visible' });
+        act(() => document.dispatchEvent(new Event('visibilitychange')));
+        await flush();
+        expect(api.search).toHaveBeenCalledTimes(3);
+        expect(api.details).not.toHaveBeenCalled();
+    });
+    it('does not refresh below the zoom gate or after disabling, and does not cache through a backward clock change', async () => {
+        const c = makeMap();
+        const hook = renderHook(({ visible }) => useTideStationLayer(c.ref, true, visible), {
+            initialProps: { visible: true },
+        });
+        await flush();
+        vi.setSystemTime(Date.now() - 60_000);
+        act(() => window.dispatchEvent(new Event('focus')));
+        await flush();
+        expect(api.search).toHaveBeenCalledTimes(2);
+        c.setZoom(5);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(10 * 60_000);
+        });
+        expect(api.search).toHaveBeenCalledTimes(2);
+        hook.rerender({ visible: false });
+        act(() => window.dispatchEvent(new Event('online')));
+        await flush();
+        expect(api.search).toHaveBeenCalledTimes(2);
+        expect(hook.result.current.zoomRequired).toBe(false);
     });
     it('opens genuine on-demand predictions in a closeable React card without moving camera', async () => {
         const c = makeMap();

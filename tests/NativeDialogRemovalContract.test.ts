@@ -41,7 +41,7 @@ describe('native browser dialog removal contract', () => {
         expect(calypso).toContain("'browserFinished'");
 
         const enc = source('components/vessel/EncCellManager.tsx');
-        expect(enc).toContain('title="Install ENC from URL"');
+        expect(enc).toContain('title="Add or update charts"');
         expect(enc).toContain('htmlFor="enc-install-url"');
         expect(enc).toContain('role="alert"');
         expect(enc).toContain('urlInstallInFlight.current');

@@ -128,11 +128,13 @@ describe('Passage chart route authority', () => {
         setVoyage('recording-voyage');
         useFollowRouteStore.getState().startFollowing(PLAN, 'planned-log-route', POINTS);
         const { result } = renderSync();
-        await waitFor(() => expect(world.fetchVoyageAsTrack).toHaveBeenCalledWith('recording-voyage'));
+        expect(world.fetchVoyageAsTrack).not.toHaveBeenCalled();
         expect(result.current.route?.id).toBe('planned-log-route');
+        expect(result.current.track).toBeNull();
 
         act(() => useFollowRouteStore.getState().stopFollowing());
         expect(result.current.route).toBeNull();
+        await waitFor(() => expect(world.fetchVoyageAsTrack).toHaveBeenCalledWith('recording-voyage'));
         await act(async () => window.dispatchEvent(new Event('thalassa:routes-and-tracks-changed')));
         expect(result.current.route).toBeNull();
         expect(world.fetchRoutesAndTracks).not.toHaveBeenCalled();
@@ -201,6 +203,22 @@ describe('Passage chart route authority', () => {
 });
 
 describe('Passage chart sailed track', () => {
+    it('replaces a track with the followed route and rejects a late trail response', async () => {
+        setVoyage('recording-a');
+        const pending = deferredTrack();
+        world.fetchVoyageAsTrack.mockReturnValueOnce(pending.promise);
+        const { result } = renderSync();
+        await waitFor(() => expect(world.fetchVoyageAsTrack).toHaveBeenCalledOnce());
+        act(() => useFollowRouteStore.getState().startFollowing(PLAN, 'followed', POINTS));
+        await act(async () => pending.resolve(item('recording-a')));
+        expect(result.current.route?.id).toBe('followed');
+        expect(result.current.track).toBeNull();
+        world.fetchVoyageAsTrack.mockResolvedValue(item('recording-a'));
+        act(() => useFollowRouteStore.getState().stopFollowing());
+        await waitFor(() => expect(result.current.track?.id).toBe('recording-a'));
+        expect(result.current.route).toBeNull();
+    });
+
     it('uses the actual casual recording without falling back to a cached named passage or route', async () => {
         world.activeVoyage = { id: 'old-named-passage', status: 'active', voyage_name: 'Old passage' };
         setVoyage('just-recording');

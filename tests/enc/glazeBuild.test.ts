@@ -13,6 +13,8 @@ import type { GlazeUpgradeItem } from '../../services/enc/geometryUpgrades';
 import type { CoverageGeom, FineCoverage } from '../../services/enc/clipDepareOverlap';
 import { clearGlazeCell, clearAllGlazeAssemblies, getGlazeCell } from '../../services/enc/glazeCellCache';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
+import { accumulateCellLayers } from '../../services/enc/mergeFold';
+import type { EncCell, EncConversionResult } from '../../services/enc/types';
 
 /** A square DEPARE polygon at (x,y)..(x+1,y+1). */
 const square = (x: number, y: number): Feature => ({
@@ -38,7 +40,7 @@ const mergedShell = () =>
     ({ DEPARE_GLAZE: fc([]), DEPCNT_DERIVED: fc([]), SOUNDG: fc([]), cellCount: 1 }) as unknown as EncMergedVectorData;
 
 interface Overrides {
-    shadows?: Array<{ id: string; bbox: [number, number, number, number] }>;
+    shadows?: GlazeBuildContext['glazeShadows'];
     coverageFor?: (id: string) => CoverageGeom | null;
     feature?: Feature;
 }
@@ -122,5 +124,116 @@ describe('buildCellGlaze', () => {
         expect(second.mergeGlazeKeys[0]).toBe(key); // same key
         expect(second.merged.DEPARE_GLAZE.features.length).toBe(cachedFeatCount); // reused
         expect(second.glazeUpgradeQueue).toHaveLength(0); // upgraded → no re-queue
+    });
+
+    it.each(['updateNumber', 'contentSha256'] as const)(
+        'invalidates same-size cell content when %s changes',
+        async (field) => {
+            const first = makeCtx();
+            Object.assign(first.ctx.cell, { updateNumber: 1, contentSha256: 'a'.repeat(64) });
+            await buildCellGlaze(first.ctx);
+            const replacement = square(10, 10);
+            replacement.properties = { drval1: 6 };
+            const second = makeCtx({ feature: replacement });
+            Object.assign(second.ctx.cell, {
+                updateNumber: 1,
+                contentSha256: 'a'.repeat(64),
+                [field]: field === 'updateNumber' ? 2 : 'b'.repeat(64),
+            });
+            await buildCellGlaze(second.ctx);
+            expect(second.mergeGlazeKeys[0]).not.toBe(first.mergeGlazeKeys[0]);
+            expect(second.merged.DEPARE_GLAZE.features[0].properties?.drval1).toBe(6);
+        },
+    );
+
+    it.each(['updateNumber', 'contentSha256'] as const)(
+        'reclips coarse glaze when a same-id shadow changes %s',
+        async (field) => {
+            const fine = {
+                id: 'fineA',
+                bbox: [10, 10, 11, 11] as [number, number, number, number],
+                edition: 1,
+                sizeBytes: 100,
+                updateNumber: 1,
+                contentSha256: 'a'.repeat(64),
+            };
+            const first = makeCtx({ shadows: [fine], coverageFor: () => null });
+            first.ctx.stripRectsFor = () => [];
+            await buildCellGlaze(first.ctx);
+            expect(first.merged.DEPARE_GLAZE.features).toHaveLength(1);
+            const second = makeCtx({
+                shadows: [{ ...fine, [field]: field === 'updateNumber' ? 2 : 'b'.repeat(64) }],
+                coverageFor: () => null,
+            });
+            await buildCellGlaze(second.ctx);
+            expect(second.mergeGlazeKeys[0]).not.toBe(first.mergeGlazeKeys[0]);
+            expect(second.merged.DEPARE_GLAZE.features).toHaveLength(0);
+        },
+    );
+
+    it('reclips when a legacy shadow extent changes and preserves order-independent cache reuse', async () => {
+        const first = makeCtx({ shadows: [{ id: 'fineA', bbox: [20, 20, 21, 21] }], coverageFor: () => null });
+        await buildCellGlaze(first.ctx);
+        expect(first.merged.DEPARE_GLAZE.features).toHaveLength(1);
+        const second = makeCtx({ shadows: [{ id: 'fineA', bbox: [10, 10, 11, 11] }], coverageFor: () => null });
+        await buildCellGlaze(second.ctx);
+        expect(second.mergeGlazeKeys[0]).not.toBe(first.mergeGlazeKeys[0]);
+        expect(second.merged.DEPARE_GLAZE.features).toHaveLength(0);
+        const twoShadows: GlazeBuildContext['glazeShadows'] = [
+            { id: 'fineA', bbox: [20, 20, 21, 21] },
+            { id: 'fineB', bbox: [30, 30, 31, 31] },
+        ];
+        const third = makeCtx({ shadows: twoShadows });
+        const reordered = makeCtx({ shadows: [...twoShadows].reverse() });
+        await buildCellGlaze(third.ctx);
+        await buildCellGlaze(reordered.ctx);
+        expect(reordered.mergeGlazeKeys[0]).toBe(third.mergeGlazeKeys[0]);
+    });
+
+    it('preserves shadow revisions through the real merge-fold data-extent reanchoring', async () => {
+        const coarse: EncCell = {
+            id: 'AU530150',
+            sourceHO: 'AU',
+            edition: 1,
+            issued: '2026-09-01',
+            importedAt: '2026-09-27',
+            bbox: [0, 0, 20, 20],
+            geojsonPath: 'enc/coarse.json',
+            hazardCount: 1,
+        };
+        const fineBbox: EncCell['bbox'] = [10, 10, 11, 11];
+        const runFold = async (contentSha256: string, clip: boolean) => {
+            const fixture = makeCtx();
+            fixture.merged.DEPARE = fc([]);
+            const blob: EncConversionResult = {
+                cellId: coarse.id,
+                sourceHO: 'AU',
+                edition: 1,
+                issued: coarse.issued,
+                bbox: coarse.bbox,
+                layers: fixture.ctx.blob.layers,
+            };
+            await accumulateCellLayers(coarse, blob, {
+                merged: fixture.merged,
+                cellExtents: [{ id: 'fineA', bbox: fineBbox, contentSha256, updateNumber: 1 }],
+                depareExtent: new Map([['fineA', fineBbox]]),
+                coverageFor: () => null,
+                stripRectsFor: () => (clip ? [fineBbox] : []),
+                lineLayerExtent: () => null,
+                seaareByName: new Map(),
+                glazeCoverageLib: fixture.ctx.glazeCoverageLib,
+                glazeUpgradeQueue: fixture.glazeUpgradeQueue,
+                mergeGlazeKeys: fixture.mergeGlazeKeys,
+                buildGlaze: true,
+                cullDeg: 0,
+                yieldIfNeeded: async () => {},
+            });
+            return fixture;
+        };
+        const first = await runFold('a'.repeat(64), false);
+        const second = await runFold('b'.repeat(64), true);
+        expect(first.merged.DEPARE_GLAZE.features).toHaveLength(1);
+        expect(second.merged.DEPARE_GLAZE.features).toHaveLength(0);
+        expect(second.mergeGlazeKeys[0]).not.toBe(first.mergeGlazeKeys[0]);
     });
 });

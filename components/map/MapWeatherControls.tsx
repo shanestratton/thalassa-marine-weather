@@ -5,15 +5,17 @@
  * Kept separate from MapHub so the control surface can evolve and be tested
  * without entangling it with Mapbox lifecycle and route-planning state.
  */
-import type React from 'react';
+import React, { useId, useState } from 'react';
+import { useWeatherControlsAutoHide } from './useWeatherControlsAutoHide';
+import { summarizeWeatherControls } from './weatherControlSummary';
 import { CREDITS_STRIP_POSITION_CLASS, creditsStripTop } from './creditsStrip';
 import type { useWeatherLayers } from './useWeatherLayers';
 import type { WeatherLayer } from './mapConstants';
-import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
+import { ThalassaHelixControl, LegendDock, weatherLayerLabel, type HelixLayer } from './ThalassaHelixControl';
 import { WindModelFieldSelector } from './WindModelFieldSelector';
 import { usePassageLookAheadOn } from '../../stores/passageHudStore';
 import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
-import { isUsableWindGrid, windHoursFromNow } from './windTimeAxis';
+import { isUsableWindGrid, windHoursFromNow, windForecastHourAtFrame } from './windTimeAxis';
 import type { CmemsLayerId } from './CmemsAttribution';
 import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isCmemsRenderedStepReady } from './useCmemsPlayback';
@@ -44,6 +46,9 @@ interface MapWeatherControlsProps {
     embedded: boolean;
     controlsHidden: boolean;
     onControlsHiddenChange: (hidden: boolean) => void;
+    /** Already-active non-weather chart layers; this surface does not own their lifecycle. */
+    extraLegend?: React.ReactNode;
+    extraLegendCount?: number;
 }
 
 /**
@@ -59,26 +64,27 @@ export function MapWeatherControls({
     embedded,
     controlsHidden,
     onControlsHiddenChange,
+    extraLegend,
+    extraLegendCount,
 }: MapWeatherControlsProps): React.ReactElement | null {
     // Above the early return: a hook is called on every render or on none.
     const passageLookAheadOn = usePassageLookAheadOn();
-    if (!visible) return null;
+    const [selectedLayer, setSelectedLayer] = useState<HelixLayer>(null);
+    const summaryId = useId();
 
     // Identify active weather layers (only scrubber-capable types).
     const weatherKeys: HelixLayer[] = [
-        'pressure',
         'wind',
         'rain',
+        'pressure',
         'temperature',
         'clouds',
-        // Currents + waves + SST + chl only get the scrubber when their CMEMS
-        // pipeline is on. Under a raster fallback the tiles are static heatmaps.
-        ...(isCmemsFeatureEnabled('currents') ? (['currents'] as HelixLayer[]) : []),
-        ...(isCmemsFeatureEnabled('waves') ? (['waves'] as HelixLayer[]) : []),
-        ...(isCmemsFeatureEnabled('sst') ? (['sst'] as HelixLayer[]) : []),
-        ...(isCmemsFeatureEnabled('chl') ? (['chl'] as HelixLayer[]) : []),
-        ...(isCmemsFeatureEnabled('seaice') ? (['seaice'] as HelixLayer[]) : []),
-        ...(isCmemsFeatureEnabled('mld') ? (['mld'] as HelixLayer[]) : []),
+        'currents',
+        'waves',
+        'sst',
+        'chl',
+        'seaice',
+        'mld',
     ];
     const activeWeatherLayers = weatherKeys.filter((key) =>
         key === 'wind'
@@ -93,52 +99,41 @@ export function MapWeatherControls({
     // they stay exactly where they are.
     const lookingAhead = passageLookAheadOn && !embedded;
     const showTimeline = !controlsHidden && !lookingAhead;
-    // The minimise button lives IN the scrubber's row as its trailing square —
-    // same height as the pill, same glass — rather than at a hardcoded left
-    // offset that drifted to the right edge whenever the pill's width changed
-    // (Shane 2026-09-06: "right beside the scrubber… a square button the same
-    // height as the scrubber"). When no scrubber is showing, a same-sized
-    // square stands where the pill would start, so the row stays the one place
-    // to look for it.
-    let helixShown = false;
+    const hasExtraLegend = extraLegend != null && extraLegend !== false;
+    const surfaceAvailable = hasExtraLegend || (!lookingAhead && activeWeatherLayers.length > 0);
+    const showSurface = !controlsHidden && surfaceAvailable;
+    // The selected tab only chooses which dataset to control. It never
+    // changes the other layers' clocks or turns layers on/off.
+    const activeLayer =
+        selectedLayer && activeWeatherLayers.includes(selectedLayer) ? selectedLayer : activeWeatherLayers[0];
+    const autoHide = useWeatherControlsAutoHide({
+        enabled: visible && !embedded && surfaceAvailable,
+        hidden: controlsHidden,
+        contextKey: `${activeWeatherLayers.join(',')}:${extraLegendCount ?? 0}:${lookingAhead}`,
+        onHiddenChange: onControlsHiddenChange,
+    });
+    if (!visible) return null;
+    const compactSummary = summarizeWeatherControls({
+        weather,
+        activeLayer: activeLayer ?? null,
+        activeWeatherLayers,
+        cmemsLayerStates,
+        extraLegendCount: hasExtraLegend ? Math.max(1, extraLegendCount || 1) : 0,
+        lookingAhead,
+    });
     const hideControlsButton = (
         <button
             type="button"
-            onClick={() => onControlsHiddenChange(true)}
-            className="flex w-16 shrink-0 items-center justify-center self-stretch rounded-2xl border border-white/8 bg-slate-900/80 text-slate-300 shadow-lg backdrop-blur-md transition-transform active:scale-95"
-            aria-label="Hide weather controls"
+            onClick={autoHide.hide}
+            className="flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition-transform active:scale-95"
+            aria-label={hasExtraLegend ? 'Hide layer controls' : 'Hide weather controls'}
             title="Hide controls"
         >
             <span className="text-[14px] leading-none">▾</span>
         </button>
     );
     const hasWindLayer = activeWeatherLayers.includes('wind');
-    // Keep the wind controls available when Wind is paired with Rain. The
-    // timeline intentionally changes to Rain in that combination, but the
-    // wind-model selector remains available.
-    const windFieldControls =
-        showTimeline && hasWindLayer ? (
-            <WindModelFieldSelector
-                model={weather.windModel}
-                onModelChange={weather.setWindModel}
-                embedded={embedded}
-            />
-        ) : null;
-
-    // Wind + rain share a deliberately-short rain timeline. Keep the wind
-    // frame close to the selected radar frame rather than replaying a stale
-    // wind field alongside current rain.
-    const isWindRainCombo =
-        activeWeatherLayers.length === 2 &&
-        activeWeatherLayers.includes('wind') &&
-        activeWeatherLayers.includes('rain');
-    // Wind + pressure is the synoptic overlay: isobars ride the wind field
-    // and FOLLOW the wind timeline (useWeatherLayers syncs the isobar frame
-    // to windHour). One scrubber, the wind one — not the LegendDock.
-    const isWindPressureCombo =
-        activeWeatherLayers.length === 2 &&
-        activeWeatherLayers.includes('wind') &&
-        activeWeatherLayers.includes('pressure');
+    const pressureFollowsWind = weather.pressureFollowsWind ?? hasWindLayer;
     const currentRainFrame = weather.unifiedFramesRef?.current?.[weather.rainFrameIndex];
     const showRainViewerAttribution =
         weather.activeLayers.has('rain') && weather.rainReady && currentRainFrame?.type === 'radar';
@@ -161,105 +156,79 @@ export function MapWeatherControls({
     };
     const isCmemsLayer = (layer: HelixLayer): layer is CmemsLayerId =>
         layer !== null && Object.prototype.hasOwnProperty.call(cmemsRequestedSteps, layer);
-    const legendWeatherLayers = activeWeatherLayers.filter((layer) => {
-        if (!isCmemsLayer(layer)) return true;
-        const state = cmemsLayerStates[layer];
-        return Boolean(state && isCmemsRenderedStepReady(state, cmemsRequestedSteps[layer]));
-    });
-    const stackedCmemsStatuses = activeWeatherLayers.filter(isCmemsLayer).flatMap((layer) => {
-        const state = cmemsLayerStates[layer];
-        return state && isCmemsRenderedStepReady(state, cmemsRequestedSteps[layer])
-            ? []
-            : [{ layer, phase: state?.phase === 'error' ? ('error' as const) : ('loading' as const) }];
-    });
-
-    let content: React.ReactNode = null;
-    if (showTimeline && activeWeatherLayers.length >= 2 && !isWindRainCombo && !isWindPressureCombo) {
-        // A requested CMEMS layer is not necessarily on the map yet. Keep its
-        // legend out of the stacked dock until that exact step and generation
-        // have passed verification and rendering.
-        helixShown = true;
-        content = (
-            <>
-                <LegendDock layers={legendWeatherLayers} embedded={embedded} trailing={hideControlsButton} />
-                {stackedCmemsStatuses.length > 0 && (
-                    <div
-                        className="absolute z-501 min-w-44 rounded-xl border border-white/10 bg-slate-950/85 px-3 py-2 text-white shadow-lg backdrop-blur-xl"
-                        style={{ left: 12, bottom: embedded ? 64 : 'calc(132px + env(safe-area-inset-bottom))' }}
-                        role={stackedCmemsStatuses.some(({ phase }) => phase === 'error') ? 'alert' : 'status'}
-                        aria-live="polite"
-                    >
-                        {stackedCmemsStatuses.map(({ layer, phase }) => (
-                            <p key={layer} className="text-[11px] font-semibold">
-                                <span className="font-black">{CMEMS_STATUS_LABELS[layer]}</span>
-                                {phase === 'error' ? ' · Unavailable — Retry from alert' : ' · Loading…'}
-                            </p>
-                        ))}
-                    </div>
-                )}
-            </>
-        );
-    } else if (showTimeline && isWindRainCombo) {
-        if (weather.rainReady && !rainIsLoading && weather.rainFrameCount > 1) {
-            const rainNow = weather.rainNowIdxRef.current;
-            const currentFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
-            const isForecast = currentFrame?.type === 'forecast';
-            helixShown = true;
-            content = (
-                <ThalassaHelixControl
-                    trailing={hideControlsButton}
-                    activeLayer="wind"
-                    frameIndex={weather.rainFrameIndex}
-                    totalFrames={weather.rainFrameCount}
-                    frameLabel={currentFrame?.label ?? '--'}
-                    sublabel={isForecast ? 'Forecast' : 'Live'}
-                    isPlaying={weather.rainPlaying}
-                    embedded={embedded}
-                    nowIndex={rainNow}
-                    dualColor
-                    forecastAccent="#fbbf24"
-                    onScrub={(index: number) => {
-                        weather.setRainFrameIndex(index);
-                        const frame = weather.unifiedFramesRef.current[index];
-                        if (!frame || weather.windForecastHours.length === 0) return;
-
-                        const forecastHours = weather.windForecastHours;
-                        const windNowIndex = weather.windNowIdx;
-                        const rainNowIndex = weather.rainNowIdxRef.current;
-                        // Rain frames are 10 minutes apart; choose the nearest
-                        // available wind frame rather than assuming hourly data.
-                        const targetForecastHour =
-                            (forecastHours[windNowIndex] ?? 0) + ((index - rainNowIndex) * 10) / 60;
-                        let nearestWindIndex = windNowIndex;
-                        let nearestDistance = Infinity;
-                        for (let candidate = 0; candidate < forecastHours.length; candidate += 1) {
-                            const distance = Math.abs(forecastHours[candidate] - targetForecastHour);
-                            if (distance < nearestDistance) {
-                                nearestDistance = distance;
-                                nearestWindIndex = candidate;
-                            }
-                        }
-                        weather.setWindHour(nearestWindIndex);
-                    }}
-                    onScrubStart={() => weather.setRainPlaying(false)}
-                    onPlayToggle={() => weather.setRainPlaying(!weather.rainPlaying)}
-                />
+    const validTime = (ms: number | undefined | null) =>
+        Number.isFinite(ms) && ms != null
+            ? `Valid ${new Date(ms).toISOString().slice(5, 16).replace('T', ' ')} UTC`
+            : 'Valid time unavailable';
+    const windReference = Date.parse(weather.windState?.grid?.refTime ?? '');
+    const windOffset = windForecastHourAtFrame(weather.windForecastHours ?? [], weather.windHour);
+    const windValidTime = validTime(
+        Number.isFinite(windReference) && windOffset != null ? windReference + windOffset * 3_600_000 : null,
+    );
+    const pressureFetched =
+        weather.pressureFetchedAtMs != null && Number.isFinite(weather.pressureFetchedAtMs)
+            ? ` · Fetched ${new Date(weather.pressureFetchedAtMs).toISOString().slice(5, 16).replace('T', ' ')} UTC`
+            : '';
+    const pressureCaption = `Model forecast · ${pressureSourceText(pressureProvenance(weather.pressureSource, weather.pressureRefTime, weather.pressureClockMs))} · ${pressureValidTimeText(weather.pressureValidTimeMs)}${weather.pressureError && weather.pressureSource ? ' · Saved data; refresh unavailable' : ''}${pressureFetched}`;
+    const unavailableLayers = activeWeatherLayers.filter((layer) => {
+        if (layer === 'wind')
+            return !weather.windReady || !isUsableWindGrid(weather.windState?.grid) || !!weather.windState?.error;
+        if (layer === 'pressure')
+            return (
+                !weather.pressureSource ||
+                !weather.framesReady ||
+                weather.pressureValidTimeMs === null ||
+                !!weather.pressureTimeUnavailable
             );
-        }
-        // If rain is not ready we intentionally fall through to a wind-only
-        // timeline, exactly as the previous inlined renderer did.
+        if (layer === 'rain') return !weather.rainReady || rainIsLoading || !currentRainFrame;
+        if (isCmemsLayer(layer))
+            return (
+                !isCmemsFeatureEnabled(layer) ||
+                !cmemsLayerStates[layer] ||
+                !isCmemsRenderedStepReady(cmemsLayerStates[layer]!, cmemsRequestedSteps[layer])
+            );
+        return false;
+    });
+    const captions: Partial<Record<NonNullable<HelixLayer>, string>> = {};
+    for (const layer of activeWeatherLayers) {
+        if (!layer) continue;
+        if (layer === 'wind')
+            captions[layer] = unavailableLayers.includes(layer)
+                ? weather.windState?.loading
+                    ? 'Loading wind data'
+                    : 'Wind data unavailable'
+                : `Model forecast · ${windValidTime}`;
+        else if (layer === 'pressure')
+            captions[layer] =
+                weather.pressureTimeUnavailable ??
+                (weather.pressureSource
+                    ? `${pressureCaption}${pressureFollowsWind ? ' · Follows wind where coverage permits' : ''}`
+                    : 'Pressure data unavailable');
+        else if (layer === 'rain')
+            captions[layer] = unavailableLayers.includes(layer)
+                ? rainIsLoading
+                    ? 'Loading rain imagery'
+                    : 'Rain imagery unavailable'
+                : `${currentRainFrame?.type === 'forecast' ? 'Forecast' : 'Radar'} · ${validTime(currentRainFrame?.timeMs)}`;
+        else if (isCmemsLayer(layer)) {
+            const state = cmemsLayerStates[layer];
+            captions[layer] = unavailableLayers.includes(layer)
+                ? state?.phase === 'error'
+                    ? `${CMEMS_STATUS_LABELS[layer]} unavailable`
+                    : isCmemsFeatureEnabled(layer)
+                      ? `Verifying ${CMEMS_STATUS_LABELS[layer].toLowerCase()}`
+                      : 'No verified forecast source available'
+                : `Copernicus Marine · Selected step ${cmemsRequestedSteps[layer]} · Valid UTC unavailable`;
+        } else captions[layer] = 'OpenWeather static tiles · Frame time and tile availability not exposed';
     }
 
-    if (showTimeline && content === null && activeWeatherLayers.length > 0) {
-        // weatherKeys lists 'pressure' first, so in the wind+pressure combo
-        // the wind timeline must be picked explicitly — pressure has no
-        // scrubber of its own there, it follows windHour.
-        const activeLayer = isWindPressureCombo ? 'wind' : activeWeatherLayers[0];
+    let content: React.ReactNode = null;
+    if (showTimeline && activeWeatherLayers.length > 0) {
         if (activeLayer) {
             let frameIndex = 0;
             let totalFrames = 1;
-            let frameLabel = 'Live';
-            let sublabel = 'Live';
+            let frameLabel = 'Static tiles';
+            let sublabel = 'OpenWeather · Frame time unavailable · Not controlled by this timeline';
             let isPlaying = false;
             let isLoading = false;
             let showInlineLoading = false;
@@ -296,15 +265,21 @@ export function MapWeatherControls({
                 // Names the provider and the model RUN. "Fallback" told the
                 // skipper nothing about which forecast they were reading and
                 // failed to credit Open-Meteo, whose CC-BY terms require it.
-                const pressureSource = pressureSourceText(
-                    pressureProvenance(weather.pressureSource, weather.pressureRefTime, weather.pressureClockMs),
-                );
+                const pressureSource =
+                    'Model forecast · ' +
+                    pressureSourceText(
+                        pressureProvenance(weather.pressureSource, weather.pressureRefTime, weather.pressureClockMs),
+                    );
                 const validTime = pressureValidTimeText(weather.pressureValidTimeMs);
-                if (!weather.pressureSource || !framesReady) {
-                    frameLabel = weather.pressureLoading ? 'Loading…' : 'Unavailable';
+                if (!weather.pressureSource || !framesReady || weather.pressureValidTimeMs === null) {
+                    const framePending =
+                        !!weather.pressureSource &&
+                        weather.pressureValidTimeMs === null &&
+                        !weather.pressureTimeUnavailable;
+                    frameLabel = weather.pressureLoading || framePending ? 'Loading…' : 'Unavailable';
                     sublabel = 'Mean sea-level pressure';
                     totalFrames = 1;
-                    isLoading = !!weather.pressureLoading;
+                    isLoading = !!weather.pressureLoading || framePending;
                     showInlineLoading = true;
                 } else if (frameIndex === pressureNowIndex) {
                     // Nearest 2h GFS frame is a model prediction, not a live
@@ -324,19 +299,31 @@ export function MapWeatherControls({
                     sublabel = `${pressureSource} · ${validTime}`;
                 }
                 if (weather.pressureError && weather.pressureSource) sublabel += ' · Saved data; refresh unavailable';
+                if (weather.pressureSource) sublabel += pressureFetched;
+                if (weather.pressureTimeUnavailable) {
+                    frameLabel = 'Unavailable';
+                    sublabel = `${weather.pressureTimeUnavailable} · ${pressureCaption}`;
+                    totalFrames = 1;
+                    isLoading = false;
+                    showInlineLoading = true;
+                } else if (pressureFollowsWind && weather.pressureSource) {
+                    totalFrames = 1;
+                    isPlaying = false;
+                    sublabel += ' · Follows wind where coverage permits';
+                }
                 onScrub = weather.setForecastHour;
                 onPlayToggle = () => weather.setIsPlaying(!weather.isPlaying);
                 onScrubStart = () => weather.setIsPlaying(false);
                 applyFrame = weather.applyFrame;
             } else if (activeLayer === 'wind') {
-                const forecastHours = weather.windForecastHours;
-                const usableGrid = isUsableWindGrid(weather.windState.grid);
+                const forecastHours = weather.windForecastHours ?? [];
+                const usableGrid = isUsableWindGrid(weather.windState?.grid);
 
-                if (weather.windState.error) {
+                if (weather.windState?.error) {
                     totalFrames = 1;
                     frameLabel = 'Unavailable';
                     sublabel = 'Wind data';
-                } else if ((weather.windState.loading && !usableGrid) || (usableGrid && !weather.windReady)) {
+                } else if ((weather.windState?.loading && !usableGrid) || (usableGrid && !weather.windReady)) {
                     totalFrames = 1;
                     frameLabel = 'Loading…';
                     sublabel = 'Wind data';
@@ -347,13 +334,14 @@ export function MapWeatherControls({
                     sublabel = 'Wind data';
                 } else {
                     const windNowIndex = weather.windNowIdx;
+                    nowIndex = windNowIndex;
                     const roundedIndex = Math.round(weather.windHour);
                     const relativeHours = windHoursFromNow(forecastHours, roundedIndex, windNowIndex);
                     frameIndex = weather.windHour;
                     totalFrames = forecastHours.length;
                     if (roundedIndex === windNowIndex || relativeHours === 0) {
-                        frameLabel = 'Now';
-                        sublabel = 'Current';
+                        frameLabel = 'Near now';
+                        sublabel = 'Model forecast';
                     } else if (relativeHours !== null) {
                         const displayHours = Number.isInteger(relativeHours)
                             ? relativeHours
@@ -369,6 +357,7 @@ export function MapWeatherControls({
                     onScrub = weather.setWindHour;
                     onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
                     onScrubStart = () => weather.setWindPlaying(false);
+                    sublabel += ` · ${windValidTime}`;
                 }
             } else if (activeLayer === 'currents' && isCmemsFeatureEnabled('currents')) {
                 frameIndex = weather.currentsHour;
@@ -529,13 +518,13 @@ export function MapWeatherControls({
             } else if (activeLayer === 'rain') {
                 if (rainIsLoading) {
                     isLoading = true;
-                } else if (weather.rainReady && weather.rainFrameCount > 1) {
+                } else if (weather.rainReady && weather.rainFrameCount > 0) {
                     frameIndex = weather.rainFrameIndex;
                     totalFrames = weather.rainFrameCount;
                     nowIndex = weather.rainNowIdxRef.current;
                     const currentFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
                     frameLabel = currentFrame?.label ?? '--';
-                    sublabel = currentFrame?.type === 'forecast' ? 'Forecast' : 'Radar';
+                    sublabel = `${currentFrame?.type === 'forecast' ? 'Forecast' : 'Radar'} · ${validTime(currentFrame?.timeMs)}`;
                     isPlaying = weather.rainPlaying;
                     dualColor = true;
                     onScrub = weather.setRainFrameIndex;
@@ -547,18 +536,18 @@ export function MapWeatherControls({
                     // retry itself.
                     showRainRetry = true;
                 }
+            } else if (isCmemsLayer(activeLayer)) {
+                frameLabel = 'Unavailable';
+                sublabel = 'No verified forecast source available';
+                showInlineLoading = true;
             }
 
-            // The scrubber pill renders only on the last arm of this ternary; the
-            // minimise square rides inside it, so the same-row fallback below
-            // must stand down exactly then.
-            helixShown = !showRainRetry && !showInlineLoading && !isLoading;
+            if (isCmemsLayer(activeLayer) && !showInlineLoading) sublabel += ' · Valid UTC unavailable';
             content = showRainRetry ? (
                 <button
                     type="button"
                     onClick={() => weather.retryRain()}
-                    className="absolute z-500 flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-left text-white shadow-lg backdrop-blur-xl active:bg-slate-800/80"
-                    style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
+                    className="flex min-h-12 w-full items-center gap-2 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-left text-white active:bg-slate-800/80"
                     aria-label={
                         rainOffline
                             ? 'Rain radar unavailable — no internet connection. Tap to retry.'
@@ -577,10 +566,9 @@ export function MapWeatherControls({
                         </span>
                     </span>
                 </button>
-            ) : showInlineLoading ? (
+            ) : showInlineLoading || isLoading ? (
                 <div
-                    className="absolute z-500 flex min-h-12 min-w-40 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-2 text-white shadow-lg backdrop-blur-xl"
-                    style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
+                    className="flex min-h-12 min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-white"
                     role={isLoading ? 'status' : 'alert'}
                     aria-live="polite"
                 >
@@ -590,14 +578,15 @@ export function MapWeatherControls({
                             aria-hidden="true"
                         />
                     )}
-                    <span>
-                        <span className="block text-xs font-black">{frameLabel}</span>
-                        <span className="block text-[11px] font-semibold text-slate-300">{sublabel}</span>
+                    <span className="min-w-0">
+                        <span className="block text-xs font-black">{isLoading ? 'Loading…' : frameLabel}</span>
+                        <span className="block break-words text-[11px] font-semibold text-slate-300">{sublabel}</span>
                     </span>
                 </div>
             ) : !isLoading ? (
                 <ThalassaHelixControl
-                    trailing={hideControlsButton}
+                    inline
+                    legendVisible={false}
                     activeLayer={activeLayer}
                     frameIndex={frameIndex}
                     totalFrames={totalFrames}
@@ -620,8 +609,84 @@ export function MapWeatherControls({
 
     return (
         <>
-            {windFieldControls}
-            {content}
+            {showSurface && (
+                <section
+                    ref={autoHide.panelRef}
+                    {...autoHide.interactionProps}
+                    aria-label={hasExtraLegend ? 'Chart layer controls' : 'Weather controls'}
+                    className="absolute z-500 flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/90 text-white shadow-lg backdrop-blur-xl"
+                    style={{
+                        left: 'max(12px, env(safe-area-inset-left))',
+                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
+                        width: 'min(420px, calc(100% - 24px))',
+                        maxHeight: embedded ? 'calc(100% - 24px)' : 'min(60%, calc(100% - 160px))',
+                    }}
+                >
+                    <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-1.5">
+                        <h2 className="min-w-0 text-xs font-bold">
+                            {hasExtraLegend ? 'Chart layers' : 'Weather'}
+                            {showTimeline && activeLayer && (
+                                <span className="font-normal text-slate-400"> · {weatherLayerLabel(activeLayer)}</span>
+                            )}
+                        </h2>
+                        {hideControlsButton}
+                    </div>
+                    <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain p-2">
+                        {showTimeline && activeWeatherLayers.length > 1 && (
+                            <div
+                                role="group"
+                                aria-label="Weather layer controls"
+                                className="flex min-w-0 gap-1 overflow-x-auto pb-1"
+                            >
+                                {activeWeatherLayers.map((layer) => (
+                                    <button
+                                        key={layer}
+                                        type="button"
+                                        aria-label={`Control ${weatherLayerLabel(layer)}`}
+                                        aria-pressed={activeLayer === layer}
+                                        onClick={() => setSelectedLayer(layer)}
+                                        className={`min-h-[44px] min-w-[44px] shrink-0 rounded-xl border px-3 py-2 text-xs font-bold ${activeLayer === layer ? 'border-sky-400/40 bg-sky-500/20 text-sky-200' : 'border-white/10 bg-white/5 text-slate-300'}`}
+                                    >
+                                        {weatherLayerLabel(layer)}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {showTimeline && activeLayer === 'wind' && (
+                            <WindModelFieldSelector
+                                model={weather.windModel}
+                                onModelChange={weather.setWindModel}
+                                embedded={embedded}
+                                inline
+                            />
+                        )}
+                        {content}
+                        {showTimeline &&
+                            activeWeatherLayers.includes('pressure') &&
+                            hasWindLayer &&
+                            activeLayer !== 'pressure' && (
+                                <p
+                                    role={weather.pressureTimeUnavailable ? 'alert' : undefined}
+                                    className="px-2 text-[11px] leading-snug text-slate-300"
+                                >
+                                    Pressure:{' '}
+                                    {weather.pressureTimeUnavailable ??
+                                        `${pressureCaption} · Follows wind where coverage permits`}
+                                </p>
+                            )}
+                        <LegendDock
+                            inline
+                            layers={activeWeatherLayers}
+                            embedded={embedded}
+                            captions={captions}
+                            unavailableLayers={unavailableLayers}
+                            pressureOverlay={weather.activeLayers.size > 1}
+                            extraLegend={extraLegend}
+                            extraLegendCount={extraLegendCount}
+                        />
+                    </div>
+                </section>
+            )}
             {/* RainViewer credit. It STAYS — their terms ask for the source to
                 be named with a link, and they give us the radar for free — but
                 a bare <a target="_blank"> navigated the WebView away from the
@@ -686,31 +751,44 @@ export function MapWeatherControls({
                     </a>
                 </div>
             )}
-            {lookingAhead ? null : controlsHidden ? (
+            {!surfaceAvailable ? null : controlsHidden ? (
                 <button
+                    ref={autoHide.triggerRef}
                     type="button"
-                    onClick={() => onControlsHiddenChange(false)}
-                    className="absolute left-1/2 -translate-x-1/2 z-510 flex min-h-[44px] items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-[12px] font-bold text-slate-200"
-                    style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
-                    aria-label="Show weather controls"
+                    onClick={autoHide.show}
+                    data-testid="weather-status-pill"
+                    data-tone={compactSummary.tone}
+                    className={`absolute z-510 flex min-h-[44px] max-w-[calc(100%-88px)] items-center gap-2 rounded-2xl border bg-slate-950/90 px-3 py-1.5 text-left text-[11px] text-slate-200 shadow-lg backdrop-blur-md active:scale-[0.98] ${compactSummary.tone === 'warning' ? 'border-amber-400/50' : 'border-sky-400/30'}`}
+                    style={{
+                        left: 'max(12px, env(safe-area-inset-left))',
+                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
+                    }}
+                    aria-label={hasExtraLegend ? 'Show layer controls' : 'Show weather controls'}
+                    aria-describedby={summaryId}
+                    title={compactSummary.accessibleText}
                 >
-                    <span className="text-sky-300 leading-none">▴</span> Weather controls
+                    <span
+                        aria-hidden="true"
+                        className={`shrink-0 text-base ${compactSummary.tone === 'warning' ? 'text-amber-300' : 'text-sky-300'}`}
+                    >
+                        {compactSummary.tone === 'warning' ? '!' : 'ⓘ'}
+                    </span>
+                    <span className="min-w-0">
+                        <span className="block truncate font-bold leading-snug">{compactSummary.primary}</span>
+                        <span
+                            className={`block truncate leading-snug ${compactSummary.tone === 'warning' ? 'text-amber-200' : 'text-slate-400'}`}
+                        >
+                            {compactSummary.secondary}
+                        </span>
+                    </span>
+                    <span aria-hidden="true" className="shrink-0 text-sky-300">
+                        ▴
+                    </span>
+                    <span id={summaryId} className="sr-only">
+                        {compactSummary.accessibleText}
+                    </span>
                 </button>
-            ) : helixShown ? null : (
-                // No scrubber pill to sit beside (nothing scrubbable, or the
-                // rain snapshot is still loading): the same square stands where
-                // the pill would start, on the same row.
-                <button
-                    type="button"
-                    onClick={() => onControlsHiddenChange(true)}
-                    className="absolute z-510 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/8 bg-slate-900/80 text-slate-300 shadow-lg backdrop-blur-md transition-transform active:scale-95"
-                    style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
-                    aria-label="Hide weather controls"
-                    title="Hide controls"
-                >
-                    <span className="text-[14px] leading-none">▾</span>
-                </button>
-            )}
+            ) : null}
         </>
     );
 }

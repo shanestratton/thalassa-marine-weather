@@ -283,9 +283,25 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
     if (S57_CELL_NAME_PATTERN.test(cellId) && sourceHO !== cellId.slice(0, 2)) {
         throw new Error(`${cellId}: sourceHO must match the first two characters of an S-57 cell name.`);
     }
+    const sourceCellId = value.sourceCellId;
+    if (
+        sourceCellId !== undefined &&
+        (typeof sourceCellId !== 'string' ||
+            !S57_CELL_NAME_PATTERN.test(sourceCellId) ||
+            sourceCellId.slice(0, 2) !== sourceHO)
+    ) {
+        throw new Error(`${cellId}: original chart identifier must match the issuing office.`);
+    }
     const edition = finiteNumber(value.edition, `${cellId}.edition`);
     if (!Number.isInteger(edition) || edition < 0 || edition > 9999) {
         throw new Error(`${cellId}.edition must be an integer from 0 to 9999.`);
+    }
+    const updateNumber = value.updateNumber;
+    if (
+        updateNumber !== undefined &&
+        (typeof updateNumber !== 'number' || !Number.isInteger(updateNumber) || updateNumber < 0 || updateNumber > 9999)
+    ) {
+        throw new Error(`${cellId}.updateNumber must be an integer from 0 to 9999.`);
     }
     const issued = typeof value.issued === 'string' ? value.issued.trim() : '';
     const issuedDate = new Date(`${issued}T00:00:00Z`);
@@ -339,7 +355,9 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
     return {
         cellId,
         sourceHO,
+        ...(sourceCellId !== undefined ? { sourceCellId: sourceCellId as string } : {}),
         edition,
+        ...(updateNumber !== undefined ? { updateNumber: updateNumber as number } : {}),
         issued,
         bbox,
         layers,

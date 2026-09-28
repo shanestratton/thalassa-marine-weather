@@ -1,12 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RouteTrackPicker } from '../components/map/RouteTrackPicker';
 import type { RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 
-const fetchRoutesAndTracks = vi.hoisted(() => vi.fn());
+const loadSavedRouteLibrary = vi.hoisted(() => vi.fn());
+const fetchSeaVoyageChoices = vi.hoisted(() => vi.fn());
+const fetchVoyageAsTrack = vi.hoisted(() => vi.fn());
 const triggerHaptic = vi.hoisted(() => vi.fn());
 
-vi.mock('../services/shiplog/RoutesAndTracks', () => ({ fetchRoutesAndTracks }));
+vi.mock('../services/shiplog/RoutesAndTracks', () => ({ fetchSeaVoyageChoices, fetchVoyageAsTrack }));
+vi.mock('../services/savedRouteLibrary', () => ({ loadSavedRouteLibrary }));
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
     triggerHaptic,
@@ -30,6 +34,22 @@ const route: RouteOrTrack = {
     isLocal: false,
     kind: 'sea',
 };
+const libraryRoute = {
+    source: 'saved-trace',
+    key: 'saved:moreton',
+    routeId: 'moreton',
+    label: route.label,
+    points: route.points,
+    timestamp: route.timestamp,
+};
+const trackChoice = {
+    voyageId: 'voyage-hamilton',
+    label: 'Daydream Island → Hamilton Island',
+    sublabel: '25 Sep · 11 NM',
+    timestamp: route.timestamp,
+    distanceNm: 11,
+    isLocal: false,
+};
 
 function props(overrides: Partial<React.ComponentProps<typeof RouteTrackPicker>> = {}) {
     return {
@@ -44,7 +64,10 @@ function props(overrides: Partial<React.ComponentProps<typeof RouteTrackPicker>>
 
 beforeEach(() => {
     vi.clearAllMocks();
-    fetchRoutesAndTracks.mockResolvedValue({ routes: [route], tracks: [] });
+    setAuthIdentityScope('picker-owner');
+    loadSavedRouteLibrary.mockResolvedValue([libraryRoute]);
+    fetchSeaVoyageChoices.mockResolvedValue([trackChoice]);
+    fetchVoyageAsTrack.mockResolvedValue({ ...route, id: trackChoice.voyageId });
 });
 
 describe('RouteTrackPicker', () => {
@@ -58,20 +81,106 @@ describe('RouteTrackPicker', () => {
         await screen.findByRole('button', { name: /Brisbane to Moreton/ });
         fireEvent.click(screen.getByRole('button', { name: /Brisbane to Moreton/ }));
 
-        expect(input.onSelect).toHaveBeenCalledWith(route);
+        expect(input.onSelect).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: libraryRoute.key,
+                savedRouteId: libraryRoute.routeId,
+                points: route.points,
+            }),
+        );
         expect(input.onClose).toHaveBeenCalledOnce();
         expect(triggerHaptic).toHaveBeenCalledWith('light');
     });
 
     it('offers a retry instead of leaving a failed fetch as an empty sheet', async () => {
-        fetchRoutesAndTracks.mockRejectedValueOnce(new Error('offline'));
+        loadSavedRouteLibrary.mockRejectedValueOnce(new Error('offline'));
         const input = props();
         render(<RouteTrackPicker {...input} />);
 
         expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load routes right now");
         fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-        await waitFor(() => expect(fetchRoutesAndTracks).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(loadSavedRouteLibrary).toHaveBeenCalledTimes(2));
         expect(await screen.findByRole('button', { name: /Brisbane to Moreton/ })).toBeInTheDocument();
+    });
+
+    it('shows local Plan routes while account sync is still pending', async () => {
+        loadSavedRouteLibrary.mockImplementationOnce((_scope, onCanonical) => {
+            onCanonical([libraryRoute]);
+            return new Promise(() => undefined);
+        });
+        render(<RouteTrackPicker {...props()} />);
+        expect(await screen.findByRole('button', { name: /Brisbane to Moreton/ })).toBeEnabled();
+        expect(screen.getByText(/reusable after sailing/)).toBeInTheDocument();
+    });
+
+    it('lists named history, keeps date/distance, and loads full track only when chosen', async () => {
+        const input = props({ variant: 'track' });
+        render(<RouteTrackPicker {...input} />);
+        const button = await screen.findByRole('button', { name: /Daydream Island → Hamilton Island/ });
+        expect(button).toHaveTextContent('25 Sep · 11 NM');
+        expect(fetchVoyageAsTrack).not.toHaveBeenCalled();
+        expect(loadSavedRouteLibrary).not.toHaveBeenCalled();
+        fireEvent.click(button);
+        await waitFor(() =>
+            expect(input.onSelect).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    id: trackChoice.voyageId,
+                    label: trackChoice.label,
+                    points: route.points,
+                }),
+            ),
+        );
+        expect(fetchVoyageAsTrack).toHaveBeenCalledWith(trackChoice.voyageId);
+        expect(input.onClose).toHaveBeenCalledOnce();
+    });
+
+    it('allows older history to be requested without a GPS-entry window', async () => {
+        fetchSeaVoyageChoices.mockResolvedValueOnce(
+            Array.from({ length: 20 }, (_, index) => ({
+                ...trackChoice,
+                voyageId: `voyage-${index}`,
+            })),
+        );
+        render(<RouteTrackPicker {...props({ variant: 'track' })} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Show older tracks' }));
+        await waitFor(() => expect(fetchSeaVoyageChoices).toHaveBeenLastCalledWith(40, expect.any(Function)));
+    });
+
+    it('does not select a late track after the picker closes', async () => {
+        let resolve!: (track: RouteOrTrack) => void;
+        fetchVoyageAsTrack.mockReturnValueOnce(
+            new Promise<RouteOrTrack>((done) => {
+                resolve = done;
+            }),
+        );
+        const input = props({ variant: 'track' });
+        const { rerender } = render(<RouteTrackPicker {...input} />);
+        fireEvent.click(await screen.findByRole('button', { name: /Daydream Island/ }));
+        rerender(<RouteTrackPicker {...input} visible={false} />);
+        await act(async () => {
+            resolve(route);
+        });
+        expect(input.onSelect).not.toHaveBeenCalled();
+    });
+
+    it('drops old-account canonical callbacks and reopens on the new identity', async () => {
+        let oldCallback!: (routes: (typeof libraryRoute)[]) => void;
+        loadSavedRouteLibrary
+            .mockImplementationOnce((_scope, callback) => {
+                oldCallback = callback;
+                return new Promise(() => undefined);
+            })
+            .mockResolvedValueOnce([]);
+        render(<RouteTrackPicker {...props()} />);
+        await waitFor(() => expect(loadSavedRouteLibrary).toHaveBeenCalledOnce());
+        await act(async () => {
+            setAuthIdentityScope('different-picker-owner');
+        });
+        await act(async () => {
+            oldCallback([libraryRoute]);
+        });
+        expect(screen.queryByRole('button', { name: /Brisbane to Moreton/ })).not.toBeInTheDocument();
+        expect(await screen.findByText(/No saved routes yet/)).toBeInTheDocument();
     });
 
     it('keeps focus inside the dialog and restores the opener on close', async () => {

@@ -57,6 +57,17 @@ import { normaliseOutboundHttpUrl, outboundFetch } from '../outboundHttp.js';
 import { sendSignedJson, routeRequestBinding } from './pair.js';
 import type { PiIdentity } from '../identity.js';
 import { validateInshoreRouteBoundary } from '../inshoreRouteBoundary.js';
+import {
+    ChartInstallError,
+    chartBlobPath,
+    publishChartDelivery,
+    readChartIndex,
+    removeChartCell,
+    type InstalledCellMeta,
+    type PackageSummary,
+} from '../encChartStore.js';
+import { installOChartsDelivery, verifyArchiveSha256 } from '../oChartsInstaller.js';
+import { listEncJobReceipts, restoredEncJobReceipt, saveEncJobReceipt, type EncJobReceipt } from '../encJobJournal.js';
 import { pollChartworldOnce } from '../chartworldSync.js';
 import { generateFingerprint, s63Status, savePermits } from '../s63Setup.js';
 import {
@@ -119,6 +130,11 @@ interface EncJob {
     installUrl?: string;
     /** Cell IDs that were persisted to the chart store this run. */
     persistedCellIds?: string[];
+    resultKind?: 'conversion' | 'installed' | 'staged';
+    packageSummary?: PackageSummary;
+    /** Expected download checksum is never treated as chart licensing evidence. */
+    expectedSha256?: string;
+    archiveSha256?: string;
 }
 
 const jobs = new Map<string, EncJob>();
@@ -241,9 +257,42 @@ const OGR2OGR_TIMEOUT_MS = 60 * 1000; // 1 minute per layer is generous
  * data on a bigger disk.
  */
 const CHART_STORE_DIR = process.env.ENC_CHART_DIR || './enc-charts';
-const CHART_INDEX_PATH = path.join(CHART_STORE_DIR, 'index.json');
-const CHART_CELL_DIR = path.join(CHART_STORE_DIR, 'cells');
-const URL_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 min for big regional ZIPs
+// Regional deliveries exceed 700 MB; allow ordinary boat/mobile links while
+// retaining a hard deadline and the separate streamed byte/storage limits.
+const URL_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
+
+function publicJobSummary(job: EncJob): EncJobReceipt {
+    return {
+        id: job.id,
+        filename: job.filename,
+        status: job.status,
+        progress: job.progress,
+        step: job.step,
+        error: job.error,
+        errorCode: job.errorCode,
+        startedAt: job.startedAt,
+        completedAt: job.completedAt,
+        cellId: job.cellId,
+        bbox: job.bbox,
+        featureCount: job.featureCount,
+        cellCount: job.cellCount,
+        cellsDone: job.cellsDone,
+        skippedCells: job.skippedCells,
+        resultKind: job.resultKind,
+        persistedCellIds: job.persistedCellIds,
+        packageSummary: job.packageSummary,
+        resultUrl: job.status === 'done' && job.resultPath ? `/api/enc/result/${job.id}` : undefined,
+    };
+}
+
+async function rememberJob(job: EncJob): Promise<void> {
+    try {
+        await saveEncJobReceipt(CHART_STORE_DIR, publicJobSummary(job));
+        await listEncJobReceipts(CHART_STORE_DIR); // bound receipt retention, including while no client is polling
+    } catch {
+        console.warn('[enc] Could not save installation receipt');
+    }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -252,66 +301,24 @@ const URL_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 min for big regional ZIPs
 /**
  * One entry per converted cell. Kept lean — fields the phone
  * needs to render the chart-locker list without fetching the
- * big GeoJSON blob. The blob lives at `${CHART_CELL_DIR}/<id>.json`.
+ * big GeoJSON blob. The index references an immutable version under cells/;
+ * legacy indexes without a blobPath still resolve <cellId>.json.
  */
-interface InstalledCellMeta {
-    cellId: string;
-    sourceHO: string;
-    edition: number;
-    issued: string;
-    bbox: [number, number, number, number];
-    /** Total feature count across hazard layers. */
-    featureCount: number;
-    /** Size of the on-disk JSON in bytes — UI shows this. */
-    sizeBytes: number;
-    /** When the Pi finished converting it. */
-    installedAt: string;
-    /** Where the cell came from — useful for "re-install" flows. */
-    source: 'phone-upload' | 'url';
-    /** Original source URL when installed via URL. */
-    sourceUrl?: string;
-}
-
-interface InstalledIndex {
-    version: 1;
-    cells: InstalledCellMeta[];
-}
-
-async function loadInstalledIndex(): Promise<InstalledIndex> {
-    try {
-        const raw = await fs.readFile(CHART_INDEX_PATH, 'utf8');
-        const parsed = JSON.parse(raw) as InstalledIndex;
-        if (parsed.version === 1 && Array.isArray(parsed.cells)) return parsed;
-    } catch {
-        /* fresh install / corrupted — fall through */
-    }
-    return { version: 1, cells: [] };
-}
-
-async function saveInstalledIndex(index: InstalledIndex): Promise<void> {
-    await fs.mkdir(CHART_STORE_DIR, { recursive: true });
-    await fs.writeFile(CHART_INDEX_PATH, JSON.stringify(index, null, 2), 'utf8');
-}
-
-function cellStorePath(cellId: string): string {
-    // Cell IDs are alphanumeric per S-57 (e.g. AU530150) but sanitise
-    // anyway so a malformed metadata can't escape the store dir.
-    const safe = cellId.replace(/[^A-Za-z0-9_-]/g, '_');
-    return path.join(CHART_CELL_DIR, `${safe}.json`);
-}
+const loadInstalledIndex = () => readChartIndex(CHART_STORE_DIR);
 
 /**
  * Write one converted cell to the persistent store and update the
  * index. The blob format is `{cells: [single]}` so it matches the
  * EncConversionBatch wire format the phone already understands.
  *
- * Idempotent — re-installing replaces in place.
+ * Use the same immutable publication path as licensed o-charts deliveries.
  */
 async function persistCell(
     cell: {
         cellId: string;
         sourceHO: string;
         edition: number;
+        updateNumber?: number;
         issued: string;
         bbox: [number, number, number, number];
         layers: Record<string, unknown>;
@@ -320,16 +327,13 @@ async function persistCell(
     source: 'phone-upload' | 'url',
     sourceUrl?: string,
 ): Promise<InstalledCellMeta> {
-    await fs.mkdir(CHART_CELL_DIR, { recursive: true });
     const blob = { cells: [cell] };
     const data = JSON.stringify(blob);
-    const filePath = cellStorePath(cell.cellId);
-    await fs.writeFile(filePath, data, 'utf8');
-
     const meta: InstalledCellMeta = {
         cellId: cell.cellId,
         sourceHO: cell.sourceHO,
         edition: cell.edition,
+        updateNumber: cell.updateNumber,
         issued: cell.issued,
         bbox: cell.bbox,
         featureCount,
@@ -339,26 +343,19 @@ async function persistCell(
         sourceUrl,
     };
 
-    const index = await loadInstalledIndex();
-    const existingIdx = index.cells.findIndex((c) => c.cellId === cell.cellId);
-    if (existingIdx >= 0) index.cells[existingIdx] = meta;
-    else index.cells.push(meta);
-    await saveInstalledIndex(index);
-    return meta;
+    const stageDir = await fs.mkdtemp(path.join(os.tmpdir(), 'thalassa-enc-persist-'));
+    try {
+        const filename = path.join(stageDir, 'cell.json');
+        await fs.writeFile(filename, data, { mode: 0o600 });
+        const published = await publishChartDelivery(CHART_STORE_DIR, [{ filename, meta }]);
+        return published.cells[0];
+    } finally {
+        await fs.rm(stageDir, { recursive: true, force: true });
+    }
 }
 
 async function removeInstalledCell(cellId: string): Promise<boolean> {
-    const index = await loadInstalledIndex();
-    const before = index.cells.length;
-    index.cells = index.cells.filter((c) => c.cellId !== cellId);
-    if (index.cells.length === before) return false;
-    await saveInstalledIndex(index);
-    try {
-        await fs.unlink(cellStorePath(cellId));
-    } catch {
-        /* file may already be gone */
-    }
-    return true;
+    return removeChartCell(CHART_STORE_DIR, cellId);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -370,7 +367,7 @@ function sanitiseFilename(name: string): string {
 }
 
 function boundaryErrorCode(error: unknown): string | undefined {
-    return error instanceof PiResourceBoundaryError ? error.code : undefined;
+    return error instanceof PiResourceBoundaryError || error instanceof ChartInstallError ? error.code : undefined;
 }
 
 function sendWorkloadBusy(res: Response, error: PiWorkloadBusyError): Response {
@@ -792,40 +789,7 @@ async function countOesuFiles(root: string): Promise<number> {
     return entries.filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.oesu')).length;
 }
 
-/**
- * Move an unpacked o-charts set into the watched chart directory.
- *
- * The set keeps its own folder so several chart sets can coexist, and the
- * folder is named after the archive (o-charts names these `oeuSENC-AU-…`,
- * which is exactly the shape decryptBatch expects). The keyFile XML that
- * pairs with the cells is carried across too — decryptBatch finds it by glob
- * and cannot decrypt without it.
- *
- * Deliberately a copy of the DIRECTORY CONTAINING the cells, not the whole
- * unzip tree: o-charts archives nest the set one level down, and decryptBatch
- * expects the .oesu files and the keyFile to be siblings.
- */
-async function installOesuChartSet(unzipDir: string, archiveName: string): Promise<string> {
-    const entries = await fs.readdir(unzipDir, { withFileTypes: true, recursive: true });
-    const firstCell = entries.find((e) => e.isFile() && e.name.toLowerCase().endsWith('.oesu'));
-    if (!firstCell) throw new Error('no .oesu files after unzip');
-    const sourceDir = firstCell.parentPath ?? unzipDir;
-
-    // Prefer the set's own directory name (o-charts already names it
-    // meaningfully); fall back to the archive name without its extension.
-    const inferred = path.basename(sourceDir);
-    const setName = /^oeuSENC/i.test(inferred) ? inferred : path.basename(archiveName, path.extname(archiveName));
-    const dest = path.join(OESU_CHART_DIR, sanitiseFilename(setName));
-
-    await fs.mkdir(dest, { recursive: true });
-    for (const entry of await fs.readdir(sourceDir, { withFileTypes: true })) {
-        if (!entry.isFile()) continue;
-        await fs.copyFile(path.join(sourceDir, entry.name), path.join(dest, entry.name));
-    }
-    return dest;
-}
-
-async function runConversion(job: EncJob): Promise<void> {
+async function runConversion(job: EncJob, installOCharts = installOChartsDelivery): Promise<void> {
     if (!job.workDir) throw new Error('workDir not set');
     const inputPath = path.join(job.workDir, job.filename);
 
@@ -865,20 +829,36 @@ async function runConversion(job: EncJob): Promise<void> {
             throw new Error(`Failed to unzip: ${(err as Error).message}`);
         }
 
-        // o-charts chart sets arrive as .oesu, not raw S-57. They can't go
-        // through ogr2ogr at all — they're encrypted and only oexserverd can
-        // read them. Hand the set to the chart directory the decrypt watcher
-        // already watches and let that pipeline do the work.
+        // Keep source and output isolated until every licensed cell validates.
+        // This job owns the conversion lease throughout, so do not re-acquire
+        // it in the installer or delegate completion to the filesystem watcher.
         const oesuCount = await countOesuFiles(unzipDir);
         if (oesuCount > 0) {
-            job.step = `installing o-charts set (${oesuCount} cells)`;
-            const setDir = await installOesuChartSet(unzipDir, job.filename);
+            job.status = 'converting';
             job.cellCount = oesuCount;
-            job.cellsDone = oesuCount;
+            job.cellsDone = 0;
+            const installed = await installOCharts({
+                extractedDir: unzipDir,
+                workDir: job.workDir,
+                chartStoreDir: CHART_STORE_DIR,
+                extractorDir:
+                    process.env.ENC_EXTRACTOR_DIR ||
+                    path.join(os.homedir(), 'thalassa-marine-weather', 'tools', 'senc-extractor'),
+                archiveHash: job.archiveSha256 ?? (await verifyArchiveSha256(inputPath)),
+                onProgress(step, completed, total) {
+                    job.step = step;
+                    job.cellsDone = completed;
+                    job.progress = 0.1 + (completed / total) * 0.85;
+                },
+            });
+            job.resultKind = 'installed';
+            job.persistedCellIds = installed.persistedCellIds;
+            job.packageSummary = installed.packageSummary;
+            job.featureCount = installed.featureCount;
+            job.cellsDone = installed.persistedCellIds.length;
             job.status = 'done';
             job.progress = 1;
-            job.step =
-                `o-charts set staged at ${setDir} — the decrypt watcher will publish ` + `${oesuCount} cell(s) shortly`;
+            job.step = `${installed.packageSummary.total} chart(s) ready on the Pi`;
             job.completedAt = Date.now();
             return;
         }
@@ -897,6 +877,7 @@ async function runConversion(job: EncJob): Promise<void> {
             // transferred in. Taking it again inside the poll would queue behind
             // ourselves and never resolve.
             const outcome = await pollChartworldOnce({ conversionLeaseHeld: true });
+            job.resultKind = 'staged';
             job.status = 'done';
             job.progress = 1;
             job.step = `ChartWorld ${label} accepted as ${path.basename(dropped)} — ${outcome}`;
@@ -920,7 +901,6 @@ async function runConversion(job: EncJob): Promise<void> {
                 const cellOutDir = path.join(outputBaseDir, path.basename(cellPath, '.000'));
                 await fs.mkdir(cellOutDir, { recursive: true });
                 const conv = await convertOneCell(cellPath, cellOutDir);
-                cells.push(conv.result);
                 // Persist to the Pi-side chart store immediately
                 // so subsequent boats / devices can pull it from
                 // `/api/enc/installed/:cellId/data` without re-
@@ -931,6 +911,7 @@ async function runConversion(job: EncJob): Promise<void> {
                     job.installSource ?? 'phone-upload',
                     job.installUrl,
                 );
+                cells.push(conv.result);
                 job.persistedCellIds = [...(job.persistedCellIds ?? []), conv.cellId];
                 if (job.cellId == null) {
                     job.cellId = conv.cellId;
@@ -976,6 +957,7 @@ async function runConversion(job: EncJob): Promise<void> {
     const resultPath = path.join(job.workDir, 'result.json');
     await fs.writeFile(resultPath, JSON.stringify(batch), 'utf8');
     job.resultPath = resultPath;
+    job.resultKind = 'conversion';
     job.progress = 1;
     job.step = 'done';
     job.status = 'done';
@@ -989,7 +971,10 @@ async function runConversion(job: EncJob): Promise<void> {
  * data (installed list + per-cell blobs). Optional so a bare dev instance
  * without an identity file still serves everything, just unsigned.
  */
-export function createEncRoutes(identity?: PiIdentity): Router {
+export function createEncRoutes(
+    identity?: PiIdentity,
+    dependencies: { installOCharts?: typeof installOChartsDelivery } = {},
+): Router {
     const router = Router();
 
     type ReservedConversionRequest = Request & {
@@ -1079,7 +1064,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
         const jobId = randomUUID();
         const workDir = path.join(TEMP_ROOT, jobId);
         try {
-            await fs.mkdir(workDir, { recursive: true });
+            await fs.mkdir(workDir, { recursive: true, mode: 0o700 });
             await fs.writeFile(path.join(workDir, filename), rawBody);
         } catch (err) {
             return res.status(500).json({ error: `Failed to stage upload: ${(err as Error).message}` });
@@ -1100,12 +1085,13 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             return res.status(500).json({ error: 'Conversion workload lease was not reserved' });
         }
         jobs.set(jobId, job);
+        await rememberJob(job);
         reserved.conversionWorkloadTransferred = true;
 
         // Run conversion in the background so the client can poll. Ownership
         // of the upload's admission lease transfers here and is released on
         // every conversion result, including process-spawn/archive failures.
-        void runConversion(job)
+        void runConversion(job, dependencies.installOCharts)
             .catch((err) => {
                 job.status = 'error';
                 job.error = err instanceof Error ? err.message : String(err);
@@ -1113,43 +1099,44 @@ export function createEncRoutes(identity?: PiIdentity): Router {
                 job.completedAt = Date.now();
                 job.progress = 0;
             })
-            .finally(() => {
+            .finally(async () => {
                 workload.lease.release();
                 workload.cleanup();
+                await rememberJob(job);
             });
 
         return res.json({ jobId, status: 'pending' });
     });
 
+    /** Recent installation receipts let a reconnected phone resume polling. */
+    router.get('/jobs', async (req: Request, res: Response) => {
+        const receipts = new Map(
+            (await listEncJobReceipts(CHART_STORE_DIR)).map((receipt) => [receipt.id, restoredEncJobReceipt(receipt)]),
+        );
+        for (const job of jobs.values()) receipts.set(job.id, publicJobSummary(job));
+        const payload = { jobs: [...receipts.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, 30) };
+        if (identity) return sendSignedJson(identity, req, res, payload);
+        return res.json(payload);
+    });
+
     /** GET /api/enc/jobs/:id — poll for progress. */
-    router.get('/jobs/:id', (req: Request, res: Response) => {
+    router.get('/jobs/:id', async (req: Request, res: Response) => {
         const id = req.params.id;
         if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
         const job = jobs.get(id);
-        if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (!job) {
+            const saved = (await listEncJobReceipts(CHART_STORE_DIR)).find((receipt) => receipt.id === id);
+            if (!saved) return res.status(404).json({ error: 'Job not found' });
+            const summary = restoredEncJobReceipt(saved);
+            if (identity) return sendSignedJson(identity, req, res, summary);
+            return res.json(summary);
+        }
 
         // Public job summary — exclude server-only fields like workDir.
         // Signed: the app trusts `status`/`resultUrl` to decide when to fetch
         // and import a converted cell, so an on-path attacker must not be able
         // to steer that. See sendSignedJson.
-        const summary = {
-            id: job.id,
-            filename: job.filename,
-            status: job.status,
-            progress: job.progress,
-            step: job.step,
-            error: job.error,
-            errorCode: job.errorCode,
-            startedAt: job.startedAt,
-            completedAt: job.completedAt,
-            cellId: job.cellId,
-            bbox: job.bbox,
-            featureCount: job.featureCount,
-            cellCount: job.cellCount,
-            cellsDone: job.cellsDone,
-            skippedCells: job.skippedCells,
-            resultUrl: job.status === 'done' ? `/api/enc/result/${job.id}` : undefined,
-        };
+        const summary = publicJobSummary(job);
         if (identity) return sendSignedJson(identity, req, res, summary);
         return res.json(summary);
     });
@@ -1181,6 +1168,8 @@ export function createEncRoutes(identity?: PiIdentity): Router {
         if (typeof id !== 'string') return res.status(400).json({ error: 'Invalid id' });
         const job = jobs.get(id);
         if (!job) return res.status(404).json({ error: 'Job not found' });
+        if (job.status !== 'done' && job.status !== 'error')
+            return res.status(409).json({ error: 'Installation is still running' });
         if (job.workDir) {
             await fs.rm(job.workDir, { recursive: true, force: true }).catch(() => {});
         }
@@ -1204,10 +1193,22 @@ export function createEncRoutes(identity?: PiIdentity): Router {
      * client can poll progress with the existing /jobs/:id flow.
      */
     router.post('/install-from-url', async (req: Request, res: Response) => {
-        const { url, filename } = (req.body ?? {}) as { url?: string; filename?: string };
+        const { url, filename, expectedSha256 } = (req.body ?? {}) as {
+            url?: string;
+            filename?: string;
+            expectedSha256?: unknown;
+        };
         if (!url || typeof url !== 'string') {
             return res.status(400).json({ error: 'Body must include {url}' });
         }
+        if (
+            expectedSha256 !== undefined &&
+            (typeof expectedSha256 !== 'string' || !/^[a-fA-F0-9]{64}$/.test(expectedSha256))
+        ) {
+            return res.status(400).json({ error: 'expectedSha256 must contain 64 hexadecimal characters' });
+        }
+        if (filename !== undefined && (typeof filename !== 'string' || filename.length > 255))
+            return res.status(400).json({ error: 'Invalid filename' });
         let parsed: URL;
         try {
             parsed = normaliseOutboundHttpUrl(url);
@@ -1216,12 +1217,18 @@ export function createEncRoutes(identity?: PiIdentity): Router {
         }
         const downloadUrl = parsed.href;
 
-        const safeName = sanitiseFilename(filename ?? path.basename(parsed.pathname) ?? 'cell.zip');
+        // Download paths, like queries, can contain bearer tokens. Never use
+        // an opaque URL path as a filename displayed in job history.
+        const lastPathComponent = path.basename(parsed.pathname);
+        const directCellName = /^[A-Z]{2}\d[A-Z0-9]{2,5}\.000$/i.test(lastPathComponent)
+            ? lastPathComponent
+            : 'charts.zip';
+        const safeName = sanitiseFilename(filename ?? directCellName);
 
         const jobId = randomUUID();
         const workDir = path.join(TEMP_ROOT, jobId);
         try {
-            await fs.mkdir(workDir, { recursive: true });
+            await fs.mkdir(workDir, { recursive: true, mode: 0o700 });
         } catch (err) {
             return res.status(500).json({ error: `Failed to stage workdir: ${(err as Error).message}` });
         }
@@ -1235,6 +1242,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             workDir,
             installSource: 'url',
             installUrl: downloadUrl,
+            expectedSha256: expectedSha256 as string | undefined,
         };
         let submission;
         try {
@@ -1267,6 +1275,8 @@ export function createEncRoutes(identity?: PiIdentity): Router {
                                 if (total > 0) job.progress = Math.min(0.05, (downloaded / total) * 0.05);
                             },
                         });
+                        job.step = 'verifying download';
+                        job.archiveSha256 = await verifyArchiveSha256(downloadPath, job.expectedSha256);
                     } finally {
                         clearTimeout(timer);
                     }
@@ -1274,13 +1284,15 @@ export function createEncRoutes(identity?: PiIdentity): Router {
                     // Hand off to the existing pipeline. runConversion
                     // checks magic bytes, unzips if needed, persists each
                     // cell to the chart store via persistCell.
-                    await runConversion(job);
+                    await runConversion(job, dependencies.installOCharts);
                 } catch (err) {
                     job.status = 'error';
                     job.error = err instanceof Error ? err.message : String(err);
                     job.errorCode = boundaryErrorCode(err);
                     job.completedAt = Date.now();
                     job.progress = 0;
+                } finally {
+                    await rememberJob(job);
                 }
             });
         } catch (error) {
@@ -1289,6 +1301,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             throw error;
         }
         jobs.set(jobId, job);
+        await rememberJob(job);
         // Errors are recorded inside the job closure so polling retains the
         // existing status/error contract. Consume the completion either way.
         void submission.completion.catch(() => {});
@@ -1393,9 +1406,11 @@ export function createEncRoutes(identity?: PiIdentity): Router {
         if (typeof cellId !== 'string' || !cellId) {
             return res.status(400).json({ error: 'Invalid cellId' });
         }
-        const filePath = cellStorePath(cellId);
         try {
-            const text = await fs.readFile(filePath, 'utf8');
+            const index = await loadInstalledIndex();
+            const meta = index.cells.find((cell) => cell.cellId === cellId);
+            if (!meta) return res.status(404).json({ error: 'Cell not installed' });
+            const text = await fs.readFile(chartBlobPath(CHART_STORE_DIR, meta), 'utf8');
             // Signed: this is navigation data — see /installed above.
             if (identity) return sendSignedJson(identity, req, res, text);
             res.setHeader('Content-Type', 'application/json');
@@ -1519,7 +1534,9 @@ export function createEncRoutes(identity?: PiIdentity): Router {
             const cellsUsed: string[] = [];
             for (const cellId of candidates) {
                 try {
-                    const text = await fs.readFile(cellStorePath(cellId), 'utf8');
+                    const meta = index.cells.find((cell) => cell.cellId === cellId);
+                    if (!meta) continue;
+                    const text = await fs.readFile(chartBlobPath(CHART_STORE_DIR, meta), 'utf8');
                     const blob = JSON.parse(text) as {
                         cells: { layers: Record<string, { features?: unknown[] }> }[];
                     };
@@ -1726,8 +1743,7 @@ export function createEncRoutes(identity?: PiIdentity): Router {
      *   1. Validates shape
      *   2. Groups features by _layer
      *   3. Computes union bbox
-     *   4. Persists to enc-charts/cells/<region>.json (same flat
-     *      namespace as NOAA imports)
+     *   4. Persists an immutable region version in the chart store
      *   5. Updates the chart-store index so /installed lists it
      */
     router.post('/install-public', async (req: Request, res: Response) => {

@@ -5,9 +5,8 @@
  *   - For the "Routes" Charts entry → purple colour, solid line
  *   - For the "Tracks" Charts entry → amber colour, solid line
  *
- * Both instances are independent so a user can have a planned route
- * AND a recorded track displayed at the same time without them
- * fighting over the same Mapbox source/layer ids.
+ * Separate source/layer ids let MapHub replace route with track (or vice
+ * versa) without reusing stale geometry. MapHub owns exclusive selection.
  *
  * On select:
  *   1. Builds a GeoJSON LineString from the selected item's points

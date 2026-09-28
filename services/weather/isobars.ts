@@ -14,7 +14,7 @@
 
 // ── Types ──────────────────────────────────────────────────────
 
-interface PressureGrid {
+export interface PressureGrid {
     allHourlyPressure: number[][][]; // [hour][row][col] in hPa
     allHourlyWindSpeed: number[][][]; // [hour][row][col] in knots
     allHourlyWindDir: number[][][]; // [hour][row][col] in degrees
@@ -23,9 +23,8 @@ interface PressureGrid {
     rows: number;
     cols: number;
     totalHours: number;
-    /** ISO timestamp of the GFS run (or null if the source doesn't expose one,
-     *  e.g. the Open-Meteo fallback). Used to align scrubber "Now" to wall-
-     *  clock time instead of forecast hour 0. */
+    /** GFS run timestamp, or the Open-Meteo valid-time axis origin (NOT its
+     * model run). Used to align frames to UTC, never the download clock. */
     refTime: string | null;
     /** Forecast-hour offsets for the keyframes BEFORE interpolation, e.g.
      *  [0,6,12,…,42]. Combined with INTERP_STEPS=3 this gives 0,2,4,…,42
@@ -42,6 +41,7 @@ interface PressureGrid {
 interface HourGrid {
     values: number[][];
     forecastValues: number[][];
+    forecastLeadHours: number;
     windSpeeds: number[][];
     windDirs: number[][];
     lats: number[];
@@ -70,6 +70,7 @@ const _GRID_RESOLUTION_ZOOMED = 0.5;
 export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
 
 import { fetchOpenMeteoPoints } from './openMeteoProxy';
+import { pressureReplacementError } from './pressureProvenance';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -428,10 +429,13 @@ export async function fetchPressureGrid(
 
 function extractHourGrid(grid: PressureGrid, hour: number): HourGrid {
     const h = Math.min(hour, grid.totalHours - 1);
-    const forecastH = Math.min(h + 12, grid.totalHours - 1);
+    // GFS sub-frames are 2h, not 1h. Twelve indices used to mean 24h of
+    // displacement reported as 12h (and double the implied system speed).
+    const forecastH = Math.min(h + Math.round(12 / grid.subFrameStepHours), grid.totalHours - 1);
     return {
         values: grid.allHourlyPressure[h],
         forecastValues: grid.allHourlyPressure[forecastH],
+        forecastLeadHours: (forecastH - h) * grid.subFrameStepHours,
         windSpeeds: grid.allHourlyWindSpeed[h],
         windDirs: grid.allHourlyWindDir[h],
         lats: grid.lats,
@@ -888,11 +892,12 @@ export async function generateIsobars(
     // Try GFS first (higher resolution, NOAA source), fallback to Open-Meteo
     let grid = await fetchPressureGridGfs(north, south, west, east);
 
+    if (grid && pressureReplacementError(grid)) grid = null;
     if (!grid) {
         grid = await fetchPressureGrid(north, south, west, east, zoom);
     }
 
-    if (!grid) return null;
+    if (!grid || pressureReplacementError(grid)) return null;
     const result = generateIsobarsFromGrid(grid, 0);
     return { grid, result };
 }
@@ -1156,6 +1161,9 @@ function generateMovementTracks(
     currentCenters: { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[],
     hourGrid: HourGrid,
 ): GeoJSON.Feature[] {
+    // Near the end of the forecast there is no full 12h comparison. Do not
+    // divide a shorter displacement by 12 or imply an extrapolated track.
+    if (hourGrid.forecastLeadHours !== 12) return [];
     // Build a forecast grid using the forecastValues (current+12h)
     const forecastGrid: HourGrid = {
         ...hourGrid,

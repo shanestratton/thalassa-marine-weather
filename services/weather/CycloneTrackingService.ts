@@ -57,7 +57,7 @@ const NOAA_OBSERVED_URL =
     'https://services9.arcgis.com/RHVPKKiFTONKtxq3/ArcGIS/rest/services/Active_Hurricanes_v1/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=500';
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-const CACHE_VERSION = 8; // v8: synthetic forecast for non-NHC basins
+const CACHE_VERSION = 9; // v9: never manufacture forecast positions from track history
 
 // ── Cache ──────────────────────────────────────────────────
 
@@ -810,45 +810,11 @@ async function _fetchActiveCyclonesImpl(): Promise<ActiveCyclone[]> {
             log.warn('[CYCLONE] Track accumulator error:', err);
         }
 
-        // ── Synthetic Forecast: extrapolate for storms without NHC forecast ──
-        // NOAA NHC only covers Atlantic/Eastern Pacific. For South Pacific,
-        // Indian Ocean, and Western Pacific storms, generate a synthetic
-        // forecast by extrapolating from the last 2 track positions.
-        // NOTE: Must run AFTER observed track merge so c.track has full history.
-        for (const c of cyclones) {
-            if (c.forecastTrack.length >= 2) continue; // Already has forecast
-            if (c.track.length < 2) continue; // Need at least 2 points to extrapolate
-
-            const t1 = c.track[c.track.length - 2];
-            const t2 = c.track[c.track.length - 1];
-            const dt = new Date(t2.time).getTime() - new Date(t1.time).getTime();
-            if (dt <= 0 || isNaN(dt)) continue;
-
-            // Calculate heading vector (degrees per hour)
-            const dtHours = dt / 3600000;
-            const dLatPerHour = (t2.lat - t1.lat) / dtHours;
-            const dLonPerHour = (t2.lon - t1.lon) / dtHours;
-
-            // Generate forecast points at 12h, 24h, 36h, 48h, 72h
-            const forecastHours = [12, 24, 36, 48, 72];
-            const baseTime = new Date(t2.time).getTime();
-            const syntheticForecast: CyclonePosition[] = [];
-
-            for (const h of forecastHours) {
-                syntheticForecast.push({
-                    lat: t2.lat + dLatPerHour * h,
-                    lon: t2.lon + dLonPerHour * h,
-                    time: new Date(baseTime + h * 3600000).toISOString(),
-                    windKts: c.currentPosition.windKts,
-                    pressureMb: c.currentPosition.pressureMb,
-                });
-            }
-
-            c.forecastTrack = syntheticForecast;
-            log.info(
-                `[CYCLONE] 🔮 Synthesized ${syntheticForecast.length}-pt forecast for ${c.name} (extrapolated from track heading)`,
-            );
-        }
+        // Missing official forecast coverage stays missing. Two historical
+        // positions cannot establish a 72-hour forecast, yet the old straight-
+        // line extrapolation was displayed with the same cone as NHC guidance.
+        // Keep observed tracks/current positions; only provider forecast points
+        // may populate forecastTrack until another official source is wired.
 
         log.info(
             `[CYCLONE] 🌀 ${cyclones.length} active cyclone(s):`,

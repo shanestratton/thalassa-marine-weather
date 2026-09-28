@@ -118,6 +118,7 @@ export function useLightningLayer(
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
+        const strikes = strikesRef.current;
 
         if (visible && !isSetUp.current) {
             try {
@@ -503,6 +504,33 @@ export function useLightningLayer(
             if (unsubRef.current) {
                 unsubRef.current();
                 unsubRef.current = null;
+            }
+            // React can replay this effect while visibility remains true, and
+            // map readiness can cycle on the same hook instance. A stopped
+            // subscription/RAF must never retain the "already running" latch.
+            isSetUp.current = false;
+            strikes.clear();
+            lastPaintEmpty.delete(map);
+            setLightningViewportStats(0, 0);
+            for (const id of [
+                LIGHTNING_LAYER_BOLT,
+                LIGHTNING_LAYER_HIT,
+                LIGHTNING_LAYER_RIM,
+                LIGHTNING_LAYER_CRATER,
+                LIGHTNING_LAYER_HALO,
+                LIGHTNING_LAYER_SHOCKWAVE,
+            ]) {
+                try {
+                    if (map.getLayer(id)) map.removeLayer(id);
+                } catch {
+                    /* removed map or concurrent style replacement */
+                }
+            }
+            try {
+                if (map.getSource(LIGHTNING_SOURCE)) map.removeSource(LIGHTNING_SOURCE);
+                if (map.hasImage(BOLT_ICON)) map.removeImage(BOLT_ICON);
+            } catch {
+                /* removed map or concurrent style replacement */
             }
         };
     }, [mapRef, mapReady, visible]);

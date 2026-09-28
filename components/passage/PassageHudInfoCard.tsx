@@ -81,7 +81,7 @@ export const PassageHudInfoCard: React.FC = () => {
             {squallVisible && (
                 <div className="space-y-2 border-t border-white/10 pt-2">
                     <p className="text-xs text-slate-300">
-                        Squall intensity key · observed conditions, not the forecast boat’s future time.
+                        Heavy-rain proxy · its own snapshot time, not the forecast boat’s future time.
                     </p>
                     <SquallLegend visible />
                 </div>

@@ -31,7 +31,8 @@
 
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
-import { fetchVerifiedFromPi, pinnedPiRequest } from './PiPairingService';
+import { fetchVerifiedFromPi, getPairing, pinnedPiRequest } from './PiPairingService';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
 import * as EncHazardService from './enc/EncHazardService';
 import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './enc/types';
 import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
@@ -77,13 +78,37 @@ export interface EncImportSkipped {
 export interface EncImportSummary {
     cells: EncCell[];
     skipped: EncImportSkipped[];
+    installedOnPi?: boolean;
+    packageSummary?: { new: number; updated: number; unchanged: number; total: number };
+}
+
+/** Accepted by the Pi, but no terminal receipt confirmed. Retry polling, not downloading. */
+export class EncInstallPendingError extends Error {
+    readonly installationPending = true;
+    constructor(readonly jobId: string) {
+        super(
+            'Installation is still unconfirmed. Use Recent installs to check the Pi; do not download the package again.',
+        );
+        this.name = 'EncInstallPendingError';
+    }
 }
 
 // ── Constants ──────────────────────────────────────────────────────
 
 const POLL_INTERVAL_MS = 2000;
-/** 10 minutes — enough for a large port cell with thousands of features. */
-const POLL_MAX_ATTEMPTS = 300;
+/** Regional licensed sets may contain hundreds of cells. The Pi keeps working if the app closes. */
+const POLL_MAX_ATTEMPTS = 1350;
+
+function captureImportAuthority(): () => void {
+    const scope = getAuthIdentityScope();
+    const base = piCache.baseUrl;
+    const key = getPairing()?.publicKeySpki;
+    return () => {
+        if (!isAuthIdentityScopeCurrent(scope) || base !== piCache.baseUrl || key !== getPairing()?.publicKeySpki) {
+            throw new Error('Account or paired Pi changed. Reopen Charts to continue.');
+        }
+    };
+}
 
 // ── File picker ───────────────────────────────────────────────────
 
@@ -196,6 +221,7 @@ export async function importEncCell(
     file: File | Blob,
     onProgress?: (p: EncImportProgress) => void,
 ): Promise<EncImportSummary> {
+    const assertAuthority = captureImportAuthority();
     const filename = file instanceof File ? file.name : 'cell.000';
 
     const emit = (p: EncImportProgress): void => {
@@ -218,6 +244,7 @@ export async function importEncCell(
     emit({ phase: 'reading', progress: 0.05, step: `reading ${filename}` });
 
     const buffer = await file.arrayBuffer();
+    assertAuthority();
     if (buffer.byteLength === 0) {
         const error = 'File is empty';
         emit({ phase: 'error', progress: 0, error });
@@ -255,19 +282,20 @@ export async function importEncCell(
             readTimeout: 60000,
         });
 
+        const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
         if (res.status < 200 || res.status >= 300) {
             const detail =
-                typeof res.data === 'object' && res.data && 'error' in res.data
-                    ? (res.data as { error?: string }).error
+                typeof data === 'object' && data && 'error' in data
+                    ? (data as { error?: string }).error
                     : `HTTP ${res.status}`;
             throw new Error(`Pi rejected upload: ${detail}`);
         }
 
-        const data = res.data as { jobId?: string } | undefined;
-        if (!data || typeof data.jobId !== 'string') {
+        if (!data || typeof data.jobId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(data.jobId)) {
             throw new Error('Pi did not return a job ID');
         }
         jobId = data.jobId;
+        assertAuthority();
         log.info(`[Import] Pi accepted upload — jobId=${jobId}`);
     } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
@@ -289,7 +317,10 @@ export async function importEncCell(
 export interface PiInstalledCell {
     cellId: string;
     sourceHO: string;
+    sourceCellId?: string;
     edition: number;
+    updateNumber?: number;
+    contentSha256?: string;
     issued: string;
     bbox: [number, number, number, number];
     featureCount: number;
@@ -311,8 +342,7 @@ const PI_INSTALLED_INDEX_MAX_CELLS = 5_000;
  * cell's own identifier — e.g. US5GA22M, FR466870, GB501494.
  *
  * o-charts issues its own identifiers instead (OC-61-051031, OC-677-951904),
- * where "OC" is the o-charts SET prefix and carries no producer meaning: those
- * cells are Australian and correctly declare sourceHO "AU". The producer-code
+ * where "OC" is the o-charts SET prefix and carries no producer meaning. The producer-code
  * cross-check below is a real anti-tampering property for S-57 names and
  * simply false for o-charts IDs, so it is applied only where it means
  * something.
@@ -348,8 +378,17 @@ function validatePiInstalledCells(value: unknown): PiInstalledCell[] {
         if (
             !ENC_CELL_ID_PATTERN.test(cellId) ||
             (S57_CELL_NAME_PATTERN.test(cellId) ? sourceHO !== cellId.slice(0, 2) : !HO_CODE_PATTERN.test(sourceHO)) ||
+            (candidate.sourceCellId !== undefined &&
+                (typeof candidate.sourceCellId !== 'string' ||
+                    !S57_CELL_NAME_PATTERN.test(candidate.sourceCellId) ||
+                    candidate.sourceCellId.slice(0, 2) !== sourceHO)) ||
             !Number.isInteger(candidate.edition) ||
             (candidate.edition ?? -1) < 0 ||
+            (candidate.contentSha256 !== undefined && !/^[a-f0-9]{64}$/.test(candidate.contentSha256)) ||
+            (candidate.updateNumber !== undefined &&
+                (!Number.isInteger(candidate.updateNumber) ||
+                    candidate.updateNumber < 0 ||
+                    candidate.updateNumber > 9999)) ||
             !Array.isArray(bbox) ||
             bbox.length !== 4 ||
             !bbox.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate)) ||
@@ -392,7 +431,12 @@ export async function installEncFromUrl(
     url: string,
     filename: string | undefined,
     onProgress?: (p: EncImportProgress) => void,
+    options: { expectedSha256?: string } = {},
 ): Promise<EncImportSummary> {
+    const assertAuthority = captureImportAuthority();
+    if (options.expectedSha256 !== undefined && !/^[a-fA-F0-9]{64}$/.test(options.expectedSha256)) {
+        throw new Error('The chart checksum must contain 64 hexadecimal characters.');
+    }
     const emit = (p: EncImportProgress): void => {
         try {
             onProgress?.(p);
@@ -412,28 +456,35 @@ export async function installEncFromUrl(
     emit({ phase: 'uploading', progress: 0.05, step: 'asking Pi to download chart' });
 
     let jobId: string;
+    let rejected = false;
     try {
         const res = await pinnedPiRequest({
             url: `${piBase}/api/enc/install-from-url`,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            data: { url, filename },
+            data: { url, filename, expectedSha256: options.expectedSha256 },
             connectTimeout: 5000,
             readTimeout: 15000,
             responseType: 'text',
         });
+        const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
         if (res.status < 200 || res.status >= 300) {
+            rejected = true;
             const detail =
-                typeof res.data === 'object' && res.data && 'error' in res.data
-                    ? (res.data as { error?: string }).error
+                typeof data === 'object' && data && 'error' in data
+                    ? (data as { error?: string }).error
                     : `HTTP ${res.status}`;
             throw new Error(`Pi rejected install request: ${detail}`);
         }
-        const data = res.data as { jobId?: string } | undefined;
-        if (!data || typeof data.jobId !== 'string') throw new Error('Pi did not return a job ID');
+        if (!data || typeof data.jobId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(data.jobId)) {
+            throw new Error('Pi did not return a valid job ID');
+        }
+        assertAuthority();
         jobId = data.jobId;
         log.info(`[InstallFromUrl] Pi accepted — jobId=${jobId}`);
     } catch (err) {
+        assertAuthority();
+        if (!rejected) throw new EncInstallPendingError('');
         const error = err instanceof Error ? err.message : String(err);
         emit({ phase: 'error', progress: 0, error });
         throw new Error(error);
@@ -501,7 +552,10 @@ export interface SyncEncFromPiOptions {
  * its own value, so a legacy cell that predates the field re-imports once
  * rather than being pinned forever.
  */
-export function encCellSyncKey(cellId: string, edition: number, sizeBytes?: number): string {
+export function encCellSyncKey(cellId: string, edition: number, sizeBytes?: number, contentSha256?: string): string {
+    if (contentSha256 && /^[a-f0-9]{64}$/.test(contentSha256)) {
+        return `${encCellStorageIdentity(cellId)}@${edition}@sha256:${contentSha256}`;
+    }
     return `${encCellStorageIdentity(cellId)}@${edition}@${sizeBytes ?? 'unknown'}`;
 }
 
@@ -509,6 +563,7 @@ export async function syncEncFromPi(
     onProgress?: (p: EncImportProgress) => void,
     options: SyncEncFromPiOptions = {},
 ): Promise<EncImportSummary> {
+    const assertAuthority = captureImportAuthority();
     const emit = (p: EncImportProgress): void => {
         try {
             onProgress?.(p);
@@ -535,12 +590,21 @@ export async function syncEncFromPi(
             maxResponseBytes: 2 * 1024 * 1024,
         });
         installed = validatePiInstalledCells(data);
+        assertAuthority();
     } catch (err) {
         const error = `Failed to list Pi charts: ${err instanceof Error ? err.message : String(err)}`;
         emit({ phase: 'error', progress: 0, error });
         throw new Error(error);
     }
 
+    if (options.cellIds?.length) {
+        const available = new Set(installed.map((cell) => encCellStorageIdentity(cell.cellId)));
+        if (options.cellIds.some((id) => !available.has(encCellStorageIdentity(id)))) {
+            throw new Error(
+                'Some charts on that receipt are no longer available on the Pi. Check the chart library before continuing.',
+            );
+        }
+    }
     if (installed.length === 0) {
         emit({ phase: 'done', progress: 1, step: 'Pi has no charts installed' });
         return { cells: [], skipped: [] };
@@ -552,9 +616,9 @@ export async function syncEncFromPi(
     // chart-edition stays unchanged but the byte count shifts. Without
     // this guard, iOS would never pick up the cleaner version.
     const localCells = EncHazardService.getCoverage();
-    const localKeys = new Set(localCells.map((c) => encCellSyncKey(c.id, c.edition, c.sizeBytes)));
+    const localKeys = new Set(localCells.map((c) => encCellSyncKey(c.id, c.edition, c.sizeBytes, c.contentSha256)));
     const localKey = encCellSyncKey;
-    let toFetch = installed.filter((c) => !localKeys.has(localKey(c.cellId, c.edition, c.sizeBytes)));
+    let toFetch = installed.filter((c) => !localKeys.has(localKey(c.cellId, c.edition, c.sizeBytes, c.contentSha256)));
 
     // Explicit selection wins over both proximity ordering and the cap — the
     // caller asked for specific cells, so give them exactly those.
@@ -620,6 +684,7 @@ export async function syncEncFromPi(
     const skipped: EncImportSkipped[] = [];
 
     for (let i = 0; i < toFetch.length; i++) {
+        assertAuthority();
         const remote = toFetch[i];
         emit({
             phase: 'fetching',
@@ -636,6 +701,7 @@ export async function syncEncFromPi(
                 connectTimeout: 10000,
                 readTimeout: 120000,
                 maxResponseBytes: ENC_CELL_BLOB_MAX_BYTES + 1024 * 1024,
+                expectedSha256: remote.contentSha256,
             });
             const { validateLocalEncPack } = await import('./enc/localEncPackImport');
             const cells = validateLocalEncPack(blob).cells;
@@ -643,12 +709,22 @@ export async function syncEncFromPi(
                 cells.length !== 1 ||
                 encCellStorageIdentity(cells[0].cellId) !== encCellStorageIdentity(remote.cellId) ||
                 cells[0].edition !== remote.edition ||
+                cells[0].updateNumber !== remote.updateNumber ||
+                cells[0].sourceHO !== remote.sourceHO ||
+                cells[0].sourceCellId !== remote.sourceCellId ||
                 !bboxesMatch(cells[0].bbox, remote.bbox)
             ) {
                 throw new Error('Pi cell payload did not match its signed index/path');
             }
-            persisted.push(await EncHazardService.importCell(cells[0]));
+            assertAuthority();
+            persisted.push(
+                await EncHazardService.importCell(cells[0], {
+                    contentSha256: remote.contentSha256,
+                    assertAuthority,
+                }),
+            );
         } catch (err) {
+            assertAuthority();
             const msg = err instanceof Error ? err.message : String(err);
             log.warn(`[SyncFromPi] cell ${remote.cellId} failed`, err);
             skipped.push({ filename: remote.cellId, error: msg });
@@ -687,16 +763,15 @@ export async function syncEncFromPi(
 export async function listPiInstalledCharts(): Promise<PiInstalledCell[]> {
     if (!piCache.isAvailable()) return [];
     try {
-        const res = await pinnedPiRequest({
+        const assertAuthority = captureImportAuthority();
+        const data = await fetchVerifiedFromPi<unknown>({
             url: `${piCache.baseUrl}/api/enc/installed`,
             connectTimeout: 3000,
             readTimeout: 5000,
-            responseType: 'text',
+            maxResponseBytes: 2 * 1024 * 1024,
         });
-        if (res.status < 200 || res.status >= 300) {
-            throw new Error(`Pi chart index returned HTTP ${res.status}`);
-        }
-        return validatePiInstalledCells(JSON.parse(res.data));
+        assertAuthority();
+        return validatePiInstalledCells(data);
     } catch (err) {
         // RETHROW, do not swallow (2026-08-07). This used to return [] on any
         // failure, which is indistinguishable from "the Pi has no charts" —
@@ -723,6 +798,44 @@ interface PiJobStatus {
     bbox?: [number, number, number, number];
     cellCount?: number;
     cellsDone?: number;
+    resultKind?: 'conversion' | 'installed' | 'staged';
+    persistedCellIds?: string[];
+    packageSummary?: EncImportSummary['packageSummary'];
+}
+
+export interface EncInstallReceipt extends PiJobStatus {
+    id: string;
+    startedAt: number;
+}
+
+/** Receipts contain no private delivery URL and survive phone/Pi restarts. */
+export async function listRecentEncInstalls(): Promise<EncInstallReceipt[]> {
+    if (!piCache.isAvailable()) return [];
+    const assertAuthority = captureImportAuthority();
+    const data = await fetchVerifiedFromPi<{ jobs?: EncInstallReceipt[] }>({
+        url: `${piCache.baseUrl}/api/enc/jobs`,
+        maxResponseBytes: 1024 * 1024,
+    });
+    assertAuthority();
+    if (!Array.isArray(data.jobs)) return [];
+    return data.jobs
+        .filter(
+            (job) =>
+                job &&
+                /^[a-zA-Z0-9_-]{1,100}$/.test(job.id) &&
+                Number.isFinite(job.startedAt) &&
+                ['pending', 'extracting', 'converting', 'done', 'error'].includes(job.status),
+        )
+        .slice(0, 30);
+}
+
+export async function resumeEncInstall(
+    jobId: string,
+    onProgress?: (p: EncImportProgress) => void,
+): Promise<EncImportSummary> {
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(jobId)) throw new Error('Invalid chart installation receipt.');
+    if (!piCache.isAvailable()) throw new Error('Connect to your boat Pi to continue copying charts.');
+    return pollAndFetchAndStore(piCache.baseUrl, jobId, (p) => onProgress?.(p));
 }
 
 async function pollAndFetchAndStore(
@@ -731,9 +844,11 @@ async function pollAndFetchAndStore(
     emit: (p: EncImportProgress) => void,
 ): Promise<EncImportSummary> {
     let lastJobState: PiJobStatus | null = null;
+    const assertAuthority = captureImportAuthority();
 
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        assertAuthority();
         // Signature-verified: `status` and `resultUrl` decide when we fetch
         // and import converted chart data, so an attacker must not be able to
         // steer them. A 404 is surfaced from the thrown message.
@@ -747,9 +862,9 @@ async function pollAndFetchAndStore(
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             if (msg.includes('HTTP 404')) {
-                const error = 'Pi lost the conversion job (server may have restarted)';
+                const error = 'Pi has no receipt for this job. Check Recent installs before starting another download.';
                 emit({ phase: 'error', progress: 0, error });
-                throw new Error(error);
+                throw new EncInstallPendingError(jobId);
             }
             // A signature failure is fatal, not a flaky poll — do not retry
             // into an attacker's hands.
@@ -761,12 +876,16 @@ async function pollAndFetchAndStore(
             continue;
         }
         if (!job) continue;
+        assertAuthority();
         lastJobState = job;
         if (job.status === 'done') {
             emit({
                 phase: 'fetching',
                 progress: 0.85,
-                step: 'fetching converted cells from Pi',
+                step:
+                    job.resultKind === 'installed'
+                        ? 'Charts ready on Pi — copying to this phone'
+                        : 'fetching converted cells from Pi',
                 cellId: job.cellId,
                 bbox: job.bbox,
                 cellCount: job.cellCount,
@@ -792,9 +911,64 @@ async function pollAndFetchAndStore(
     }
 
     if (!lastJobState || lastJobState.status !== 'done') {
-        const error = 'Conversion timed out — Pi did not finish in 10 minutes';
+        const error =
+            'The Pi has not confirmed completion yet. Reopen Charts to check the installation; do not download it again.';
         emit({ phase: 'error', progress: 0, error });
-        throw new Error(error);
+        throw new EncInstallPendingError(jobId);
+    }
+
+    if (lastJobState.resultKind === 'staged') {
+        throw new Error(
+            'Files received by the Pi, but charts are not ready yet. Complete the required licensed chart/permit setup, then sync from Pi.',
+        );
+    }
+    if (lastJobState.resultKind === 'installed') {
+        const ids = lastJobState.persistedCellIds;
+        if (
+            !Array.isArray(ids) ||
+            ids.length === 0 ||
+            ids.length > PI_INSTALLED_INDEX_MAX_CELLS ||
+            !ids.every((id) => typeof id === 'string' && ENC_CELL_ID_PATTERN.test(id))
+        ) {
+            throw new Error(
+                'Pi installation receipt has no verifiable chart list. Check the Pi chart library before retrying.',
+            );
+        }
+        const counts = lastJobState.packageSummary;
+        const packageSummary =
+            counts &&
+            ['new', 'updated', 'unchanged', 'total'].every(
+                (key) =>
+                    Number.isInteger(counts[key as keyof typeof counts]) && counts[key as keyof typeof counts] >= 0,
+            ) &&
+            counts.new + counts.updated + counts.unchanged === counts.total
+                ? counts
+                : undefined;
+        try {
+            assertAuthority();
+            const result = await syncEncFromPi(emit, { cellIds: ids });
+            return { ...result, installedOnPi: true, packageSummary };
+        } catch {
+            // The Pi install is committed. Never invite a second download because
+            // Wi-Fi or device storage interrupted the independent phone copy.
+            assertAuthority();
+            emit({
+                phase: 'done',
+                progress: 1,
+                step: 'Installed on Pi — phone copy pending. Reconnect and sync charts.',
+            });
+            return {
+                cells: [],
+                skipped: [
+                    {
+                        filename: 'Phone copy',
+                        error: 'Installed on Pi. Reconnect to the boat and sync charts to finish copying to this phone.',
+                    },
+                ],
+                installedOnPi: true,
+                packageSummary,
+            };
+        }
     }
 
     let batch: EncConversionBatch;
@@ -817,6 +991,7 @@ async function pollAndFetchAndStore(
     const persisted: EncCell[] = [];
     const persistFailures: EncImportSkipped[] = [];
     for (let i = 0; i < batch.cells.length; i++) {
+        assertAuthority();
         const conversion = batch.cells[i];
         emit({
             phase: 'storing',
@@ -827,9 +1002,10 @@ async function pollAndFetchAndStore(
             cellsDone: i,
         });
         try {
-            const cell = await EncHazardService.importCell(conversion);
+            const cell = await EncHazardService.importCell(conversion, { assertAuthority });
             persisted.push(cell);
         } catch (err) {
+            assertAuthority();
             const msg = err instanceof Error ? err.message : String(err);
             persistFailures.push({ filename: conversion.cellId, error: msg });
         }

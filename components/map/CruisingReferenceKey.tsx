@@ -5,30 +5,42 @@ export function CruisingReferenceKey({
     status,
     filter,
     onFilter,
+    embedded = false,
 }: {
     moorings: boolean;
     status: string;
     filter: MooringColourFilter;
     onFilter: (filter: MooringColourFilter) => void;
+    embedded?: boolean;
 }) {
+    const Container = embedded ? 'section' : 'details';
     return (
-        <details
-            className="absolute left-3 z-30 text-slate-100"
-            style={{ bottom: 'calc(12rem + env(safe-area-inset-bottom))' }}
+        <Container
+            aria-label={moorings ? 'Moorings and anchorages key' : 'Anchorage key'}
+            className={embedded ? 'text-slate-100' : 'absolute left-3 z-30 text-slate-100'}
+            style={embedded ? undefined : { bottom: 'calc(12rem + env(safe-area-inset-bottom))' }}
         >
-            <summary className="cursor-pointer rounded-full border border-sky-400/40 bg-slate-950/95 px-3 py-2 text-xs font-bold shadow-lg min-h-[44px] flex items-center gap-2">
-                <span aria-hidden="true" className="text-sky-300">
-                    ⚓
-                </span>{' '}
-                {moorings ? 'Mooring key & colours' : 'Anchorage key'}
-                {status.startsWith('Zoom in') && <span className="text-sky-300">· zoom in</span>}
-                {status.includes('unavailable') || status.includes('Cached') ? (
-                    <span className="text-amber-300" aria-label="Reference coverage incomplete">
-                        !
-                    </span>
-                ) : null}
-            </summary>
-            <div className="absolute bottom-full mb-2 w-[min(18rem,calc(100vw-2rem))] max-h-[45dvh] overflow-y-auto rounded-2xl border border-sky-400/30 bg-slate-950/95 p-4 shadow-xl text-xs leading-relaxed">
+            {!embedded && (
+                <summary className="cursor-pointer rounded-full border border-sky-400/40 bg-slate-950/95 px-3 py-2 text-xs font-bold shadow-lg min-h-[44px] flex items-center gap-2">
+                    <span aria-hidden="true" className="text-sky-300">
+                        ⚓
+                    </span>{' '}
+                    {moorings ? 'Mooring key & colours' : 'Anchorage key'}
+                    {status.startsWith('Zoom in') && <span className="text-sky-300">· zoom in</span>}
+                    {status.includes('unavailable') || status.includes('Cached') ? (
+                        <span className="text-amber-300" aria-label="Reference coverage incomplete">
+                            !
+                        </span>
+                    ) : null}
+                </summary>
+            )}
+            <div
+                className={
+                    embedded
+                        ? 'text-xs leading-relaxed'
+                        : 'absolute bottom-full mb-2 w-[min(18rem,calc(100vw-2rem))] max-h-[45dvh] overflow-y-auto rounded-2xl border border-sky-400/30 bg-slate-950/95 p-4 shadow-xl text-xs leading-relaxed'
+                }
+            >
                 <h3 className="text-base font-bold text-sky-200 mb-2">A place to stop</h3>
                 <div className="mb-3 rounded-xl border border-white/15 bg-white/5 p-3">
                     <h4 className="font-bold text-white">Weather lights · next 12 hours</h4>
@@ -54,7 +66,7 @@ export function CruisingReferenceKey({
                             id="mooring-colour-filter"
                             value={filter}
                             onChange={(e) => onFilter(e.target.value as MooringColourFilter)}
-                            className="my-2 w-full min-h-[44px] rounded-xl border border-white/20 bg-slate-800 px-3 text-sm"
+                            className="thalassa-select my-2 h-[44px] min-h-[44px] w-full appearance-none rounded-xl border border-white/20 bg-slate-800 pl-3 pr-10 text-sm"
                         >
                             <option value="all">All colours · including unknown</option>
                             <option value="blue-white">Blue or white</option>
@@ -86,6 +98,6 @@ export function CruisingReferenceKey({
                     tap. Regional anchorage/zoning reference: GBRMPA. No live availability.
                 </p>
             </div>
-        </details>
+        </Container>
     );
 }

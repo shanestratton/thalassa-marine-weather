@@ -44,19 +44,27 @@ interface WindModelFieldSelectorProps {
     model: WeatherModelId;
     onModelChange: (model: WeatherModelId) => void;
     embedded?: boolean;
+    /** Participate in the shared weather panel instead of floating above it. */
+    inline?: boolean;
 }
 
 export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = memo(
-    ({ model, onModelChange, embedded = false }) => {
+    ({ model, onModelChange, embedded = false, inline = false }) => {
         return (
             <div
-                className="absolute z-500"
+                className={inline ? 'min-w-0' : 'absolute z-500'}
                 // 152px, was 132px. The scrubber below is anchored at 80px and
                 // stands ~60px tall (44px play button + 8px padding each side),
                 // so its top edge is ~140px — the row was OVERLAPPING it by
                 // about 8px, not merely touching (Shane 2026-07-22). 152 leaves
                 // a deliberate 12px gap so the two read as separate controls.
-                style={{ left: 12, bottom: embedded ? 70 : 'calc(152px + env(safe-area-inset-bottom))' }}
+                style={
+                    inline
+                        ? undefined
+                        : { left: 12, bottom: embedded ? 70 : 'calc(152px + env(safe-area-inset-bottom))' }
+                }
+                role="group"
+                aria-label="Wind forecast model"
             >
                 <div className="bg-slate-900/90 border border-white/8 rounded-2xl px-2 py-1.5 flex flex-col gap-1.5 shadow-lg shadow-black/30">
                     {/* Model chips (horizontally scrollable) */}
@@ -65,11 +73,14 @@ export const WindModelFieldSelector: React.FC<WindModelFieldSelectorProps> = mem
                         shorter Glass labels do most of the work; this caps
                         what is left. Still overflow-x-auto, so a longer list
                         scrolls rather than being clipped. */}
-                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[68vw]">
+                    <div
+                        className={`flex items-center gap-1 overflow-x-auto no-scrollbar ${inline ? 'max-w-full' : 'max-w-[68vw]'}`}
+                    >
                         {MODELS.map((m) => {
                             const active = m.id === model;
                             return (
                                 <button
+                                    type="button"
                                     key={m.id}
                                     aria-label={`Wind model ${m.label}`}
                                     aria-pressed={active}

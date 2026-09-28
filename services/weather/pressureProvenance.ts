@@ -28,11 +28,20 @@ export interface PressureTimeGrid {
     subFrameStepHours: number;
     totalHours: number;
     keyframeFhrs?: readonly number[];
+    source?: 'gfs' | 'open-meteo';
 }
 
 /** Frame zero may be a non-zero lead time; include it in every UTC conversion. */
 export function pressureFrameValidAt(grid: PressureTimeGrid | null, frameIndex: number): number | null {
-    if (!grid || !Number.isFinite(frameIndex)) return null;
+    if (
+        !grid ||
+        !Number.isFinite(frameIndex) ||
+        frameIndex < 0 ||
+        !Number.isInteger(grid.totalHours) ||
+        grid.totalHours < 1 ||
+        frameIndex > grid.totalHours - 1
+    )
+        return null;
     const base = Date.parse(grid.refTime ?? '');
     const first = grid.keyframeFhrs?.[0] ?? 0;
     if (
@@ -43,6 +52,59 @@ export function pressureFrameValidAt(grid: PressureTimeGrid | null, frameIndex: 
     )
         return null;
     return base + (first + Math.max(0, Math.round(frameIndex)) * grid.subFrameStepHours) * 3_600_000;
+}
+
+export function pressureCoverage(grid: PressureTimeGrid | null): { startMs: number; endMs: number } | null {
+    const startMs = pressureFrameValidAt(grid, 0);
+    const endMs = grid ? pressureFrameValidAt(grid, grid.totalHours - 1) : null;
+    return startMs === null || endMs === null ? null : { startMs, endMs };
+}
+
+/** Never substitute an endpoint for an instant outside the forecast window. */
+export function pressureCoversTime(grid: PressureTimeGrid | null, validAt: number): boolean {
+    const coverage = pressureCoverage(grid);
+    return !!coverage && Number.isFinite(validAt) && validAt >= coverage.startMs && validAt <= coverage.endMs;
+}
+
+export function pressureFrameWithinCoverage(grid: PressureTimeGrid | null, validAt: number | null): number | null {
+    return validAt !== null && pressureCoversTime(grid, validAt) ? pressureFrameForValidAt(grid, validAt) : null;
+}
+
+/** Fetch age is NOT model age. Even a just-downloaded response can be expired. */
+export function pressureCacheIsFresh(grid: PressureTimeGrid | null, fetchedAt: number, now = Date.now()): boolean {
+    const age = now - fetchedAt;
+    return fetchedAt > 0 && age >= 0 && age < PRESSURE_REFRESH_MS && pressureCoversTime(grid, now);
+}
+
+/** Keep the last usable field if an upstream cache goes backwards. Open-Meteo
+ * exposes a valid-time origin, not a run, so compare clocks only within a source. */
+export function pressureReplacementError(
+    candidate: PressureTimeGrid,
+    previous: PressureTimeGrid | null = null,
+    now = Date.now(),
+): string | null {
+    if (!pressureCoversTime(candidate, now)) return 'Pressure forecast does not cover the current time';
+    const run = Date.parse(candidate.refTime ?? '');
+    if (candidate.source === 'gfs' && run > now) return 'Pressure model run is in the future';
+    if (previous && previous.source === candidate.source && run < Date.parse(previous.refTime ?? '')) {
+        return 'Pressure refresh returned an older forecast';
+    }
+    return null;
+}
+
+/** Wind playback can be fractional; follow its UTC instant, never a guessed
+ * offset between two independently rounded "Now" indices. */
+export function pressureWindValidAt(
+    refTime: string | null | undefined,
+    hours: readonly number[],
+    index: number,
+): number | null {
+    const reference = Date.parse(refTime ?? '');
+    if (!Number.isFinite(reference) || !Number.isFinite(index) || index < 0 || index > hours.length - 1) return null;
+    const i0 = Math.floor(index);
+    const i1 = Math.min(i0 + 1, hours.length - 1);
+    if (!Number.isFinite(hours[i0]) || !Number.isFinite(hours[i1])) return null;
+    return reference + (hours[i0] + (hours[i1] - hours[i0]) * (index - i0)) * 3_600_000;
 }
 
 export function pressureFrameForValidAt(grid: PressureTimeGrid | null, validAt: number | null): number | null {

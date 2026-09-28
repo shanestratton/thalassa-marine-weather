@@ -512,8 +512,12 @@ async function importCellSerialized(
         usage?: 'navigation' | 'reference' | 'demo';
         cloudManifestVersion?: number;
         personalManifestVersion?: number;
+        contentSha256?: string;
+        /** Recheck the originating account/Pi after queued work and async I/O. */
+        assertAuthority?: () => void;
     } = {},
 ): Promise<EncCell> {
+    options.assertAuthority?.();
     const canonicalId = canonicalEncCellId(blob.cellId);
     if (!ENC_CELL_ID_PATTERN.test(canonicalId)) {
         throw new Error('ENC cell ID is invalid; bytes were not written.');
@@ -532,8 +536,23 @@ async function importCellSerialized(
     if (S57_CELL_NAME_PATTERN.test(canonicalId) && sourceHO !== canonicalId.slice(0, 2)) {
         throw new Error(`${canonicalId} source office does not match its S-57 cell ID; bytes were not written.`);
     }
+    if (
+        blob.sourceCellId !== undefined &&
+        (!S57_CELL_NAME_PATTERN.test(blob.sourceCellId) || blob.sourceCellId.slice(0, 2) !== sourceHO)
+    ) {
+        throw new Error(`${canonicalId} original chart identifier is invalid; bytes were not written.`);
+    }
     if (!Number.isInteger(blob.edition) || blob.edition < 0 || blob.edition > 9999) {
         throw new Error(`${canonicalId} edition is invalid; bytes were not written.`);
+    }
+    if (
+        blob.updateNumber !== undefined &&
+        (!Number.isInteger(blob.updateNumber) || blob.updateNumber < 0 || blob.updateNumber > 9999)
+    ) {
+        throw new Error(`${canonicalId} update number is invalid; bytes were not written.`);
+    }
+    if (options.contentSha256 !== undefined && !/^[a-f0-9]{64}$/.test(options.contentSha256)) {
+        throw new Error(`${canonicalId} revision fingerprint is invalid; bytes were not written.`);
     }
     if (
         !/^\d{4}-\d{2}-\d{2}$/.test(issued) ||
@@ -613,6 +632,14 @@ async function importCellSerialized(
     if (
         enforceMonotonic &&
         installedDisplayCell.edition === normalizedBlob.edition &&
+        installedDisplayCell.updateNumber !== undefined &&
+        (normalizedBlob.updateNumber === undefined || normalizedBlob.updateNumber < installedDisplayCell.updateNumber)
+    ) {
+        throw new Error(`${canonicalId} update is older or unknown; existing chart kept.`);
+    }
+    if (
+        enforceMonotonic &&
+        installedDisplayCell.edition === normalizedBlob.edition &&
         installedDisplayCell.issued &&
         normalizedBlob.issued < installedDisplayCell.issued
     ) {
@@ -626,7 +653,18 @@ async function importCellSerialized(
     // with a SECOND full JSON.stringify of the multi-MB blob right
     // after the save's own (2026-07-12 audit: ~2× CPU + a transient
     // twin allocation per imported cell, on the UI thread).
-    const { path, sizeBytes } = await cellStore.saveCellGeoJSON(canonicalId, normalizedBlob);
+    const { path, sizeBytes } = await cellStore.saveCellGeoJSON(canonicalId, normalizedBlob, options.assertAuthority);
+    try {
+        options.assertAuthority?.();
+    } catch (error) {
+        // Native writes cannot be cancelled halfway through. If authority
+        // changed during that write, the bytes must never inherit the old
+        // navigation registration. Leave the chart unregistered for resync.
+        cellMeta.removeCell(canonicalId);
+        dropIndex(canonicalId);
+        await cellStore.deleteCellGeoJSON(canonicalId);
+        throw error;
+    }
 
     // Rough hazard count for the metadata record (without parsing
     // every feature). Small inaccuracy is fine — UI stat only.
@@ -659,7 +697,10 @@ async function importCellSerialized(
     const cell: EncCell = {
         id: canonicalId,
         sourceHO: normalizedBlob.sourceHO,
+        sourceCellId: normalizedBlob.sourceCellId,
         edition: normalizedBlob.edition,
+        updateNumber: normalizedBlob.updateNumber,
+        contentSha256: options.contentSha256,
         issued: normalizedBlob.issued,
         importedAt: new Date().toISOString(),
         bbox: normalizedBlob.bbox,
@@ -696,6 +737,8 @@ export function importCell(
         usage?: 'navigation' | 'reference' | 'demo';
         cloudManifestVersion?: number;
         personalManifestVersion?: number;
+        contentSha256?: string;
+        assertAuthority?: () => void;
     } = {},
 ): Promise<EncCell> {
     return serializeCellMutation(typeof blob?.cellId === 'string' ? blob.cellId : '', () =>
@@ -1555,6 +1598,11 @@ async function buildMergedVectorData(
     const cellExtents = cells.map((c) => ({
         id: c.id,
         bbox: c.bbox,
+        edition: c.edition,
+        issued: c.issued,
+        sizeBytes: c.sizeBytes,
+        updateNumber: c.updateNumber,
+        contentSha256: c.contentSha256,
         authority: c.usage === 'reference' ? ('reference' as const) : ('navigation' as const),
     }));
     // COARSE → FINE merge order: overlapping near-opaque fills paint in

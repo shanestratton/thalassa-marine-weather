@@ -9,6 +9,9 @@ export interface ChartKeyPanelProps {
     tideDepthMode: boolean;
     draftConfigured: boolean;
     onClose: () => void;
+    /** Reuse the same chart vocabulary inside OBS's combined key. */
+    inline?: boolean;
+    tideTimeLabel?: string;
 }
 
 /**
@@ -16,7 +19,15 @@ export interface ChartKeyPanelProps {
  * caution-area colours. Kept outside MapHub so changes to the legend cannot
  * accidentally touch map lifecycle or layer orchestration.
  */
-export function ChartKeyPanel({ visible, imageryOn, tideDepthMode, draftConfigured, onClose }: ChartKeyPanelProps) {
+export function ChartKeyPanel({
+    visible,
+    imageryOn,
+    tideDepthMode,
+    draftConfigured,
+    onClose,
+    inline = false,
+    tideTimeLabel = 'RIGHT NOW',
+}: ChartKeyPanelProps) {
     if (!visible) return null;
 
     return (
@@ -26,17 +37,23 @@ export function ChartKeyPanel({ visible, imageryOn, tideDepthMode, draftConfigur
             // Tracer card = 9995 and compass rose = 9996. The key is an
             // explicitly-opened planning reference, so it must sit above both
             // while remaining below blocking sheets/modals (10050+).
-            className="absolute bottom-44 right-2 z-9997 w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl"
+            className={
+                inline
+                    ? 'min-w-0'
+                    : 'absolute bottom-44 right-2 z-9997 w-64 max-h-[calc(100dvh-12rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl'
+            }
         >
             <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">Chart key</span>
-                <button
-                    onClick={onClose}
-                    aria-label="Close chart key"
-                    className="flex min-h-[44px] min-w-[44px] items-center justify-center text-xs font-bold text-gray-400"
-                >
-                    ✕
-                </button>
+                {!inline && (
+                    <button
+                        onClick={onClose}
+                        aria-label="Close chart key"
+                        className="flex min-h-[44px] min-w-[44px] items-center justify-center text-xs font-bold text-gray-400"
+                    >
+                        ✕
+                    </button>
+                )}
             </div>
 
             {!imageryOn && (
@@ -67,7 +84,7 @@ export function ChartKeyPanel({ visible, imageryOn, tideDepthMode, draftConfigur
                     <div>Bluer = shallower — like the paper chart. White = deep. Khaki dries at low tide.</div>
                 )}
                 {tideDepthMode ? (
-                    <div>Numbers are metres of water RIGHT NOW (charted + predicted tide) — 3₄ means 3.4 m.</div>
+                    <div>Numbers are metres of water {tideTimeLabel} (charted + predicted tide) — 3₄ means 3.4 m.</div>
                 ) : (
                     <div>Numbers are metres at the lowest tide (LAT) — 3₄ means 3.4 m. Olive numbers dry.</div>
                 )}

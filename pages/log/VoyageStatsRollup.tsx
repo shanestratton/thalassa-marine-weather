@@ -17,7 +17,9 @@ export const VoyageStatsRollup: React.FC<{
     onRetry?: () => void | Promise<void>;
     /** That load is in flight (the page's lifetimeLoading). */
     retrying?: boolean;
-}> = ({ voyageStats, records, notice, lifetimeUnavailable = false, onRetry, retrying = false }) => {
+    /** Idle Log shares one scroll surface with its archive and voyage list. */
+    inHistory?: boolean;
+}> = ({ voyageStats, records, notice, lifetimeUnavailable = false, onRetry, retrying = false, inHistory = false }) => {
     const [expanded, setExpanded] = useState(false);
     // A Retry clears the page's error while the load runs, which would flip
     // the card to "includes archived" (and the tiles to 0.0) mid-retry. Hold
@@ -52,7 +54,7 @@ export const VoyageStatsRollup: React.FC<{
         // Same card material as Plan's Departure card, so the first card on
         // sibling tabs matches in daylight too (UX scorecard run 6), and the
         // same recipe as Archived voyages below it (run 7).
-        <section className={`shrink-0 mx-4 mb-3 ${LOG_CARD_SHELL}`}>
+        <section className={`shrink-0 ${inHistory ? '' : 'mx-4'} mb-3 ${LOG_CARD_SHELL}`}>
             <button
                 type="button"
                 aria-expanded={expanded}
@@ -101,7 +103,11 @@ export const VoyageStatsRollup: React.FC<{
                     {retryButton}
                 </div>
             )}
-            <div id={panelId} hidden={!expanded} className="max-h-[40dvh] overflow-y-auto border-t border-white/5 pt-3">
+            <div
+                id={panelId}
+                hidden={!expanded}
+                className={`${inHistory ? '' : 'max-h-[40dvh] overflow-y-auto'} border-t border-white/5 pt-3`}
+            >
                 {shownNotice && (
                     <div className="flex items-start justify-between gap-3 px-4 pb-3">
                         <p role="status" className="text-xs text-amber-200">

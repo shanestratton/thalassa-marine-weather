@@ -33,6 +33,8 @@ import { CLOUD_OVERLAY_LAYER, liftCloudOverlay, mountCloudOverlay, removeCloudOv
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { piCache } from '../../services/PiCacheService';
 import { SQUALL_COLOR_RAMP } from './isobarLayerSetup';
+import { squallSnapshotTimeMs, squallStatusStore, useSquallStatus } from '../../services/weather/squallStatus';
+import { subscribeWeatherRefresh } from '../../services/weather/pressureRefresh';
 
 const log = createLogger('SquallMap');
 
@@ -92,7 +94,7 @@ export function useSquallMap(
     /** Passage uses squalls as an overlay, without the standalone view's camera takeover. */
     preserveViewport = false,
 ) {
-    const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const status = useSquallStatus();
     const isSetUp = useRef(false);
     const stormMarkersRef = useRef<mapboxgl.Marker[]>([]);
     const lastRefreshAtRef = useRef<number>(0);
@@ -143,6 +145,45 @@ export function useSquallMap(
         if (!map || !mapReady) return;
         const loadSession = ++loadSessionRef.current;
         const isCurrentLoadSession = () => visible && loadSessionRef.current === loadSession;
+        let mountedSnapshot: number | null = null;
+        let tileFailure = false;
+        let tileTimer: ReturnType<typeof setTimeout> | undefined;
+        const failTiles = () => {
+            if (!isCurrentLoadSession()) return;
+            tileFailure = true;
+            clearTimeout(tileTimer);
+            squallStatusStore.set({
+                phase: 'error',
+                tilesReady: false,
+                error: 'Squall precipitation tiles unavailable',
+            });
+        };
+        const onSourceLoading = (event: mapboxgl.MapSourceDataEvent) => {
+            if (event.sourceId !== SQUALL_SOURCE || !isCurrentLoadSession() || tileFailure) return;
+            squallStatusStore.set({ phase: 'loading', tilesReady: false });
+            if (!tileTimer) tileTimer = setTimeout(failTiles, 20_000);
+        };
+        const onSourceData = (event: mapboxgl.MapSourceDataEvent) => {
+            if (event.sourceId === SQUALL_SOURCE && event.sourceDataType === 'error') {
+                failTiles();
+                return;
+            }
+            if (
+                event.sourceId !== SQUALL_SOURCE ||
+                event.sourceDataType !== 'content' ||
+                !isCurrentLoadSession() ||
+                tileFailure
+            )
+                return;
+            if (event.isSourceLoaded && map.isSourceLoaded(SQUALL_SOURCE)) {
+                clearTimeout(tileTimer);
+                tileTimer = undefined;
+                squallStatusStore.set({ phase: squallStatusStore.get().error ? 'error' : 'ready', tilesReady: true });
+            }
+        };
+        const onMapError = (event: mapboxgl.ErrorEvent & { sourceId?: string }) => {
+            if (event.sourceId === SQUALL_SOURCE) failTiles();
+        };
         const cancelInflightLoad = () => {
             const controller = inflightControllerRef.current;
             if (!controller) return;
@@ -161,7 +202,23 @@ export function useSquallMap(
             }
             const controller = new AbortController();
             inflightControllerRef.current = controller;
-            void loadSquallTiles(map, lastRefreshAtRef, controller, isCurrentLoadSession).finally(() => {
+            squallStatusStore.set({ phase: 'loading', error: null });
+            void loadSquallTiles(map, lastRefreshAtRef, controller, isCurrentLoadSession, (snapshot) => {
+                if (
+                    mountedSnapshot === snapshot &&
+                    map.getSource(SQUALL_SOURCE) &&
+                    squallStatusStore.get().tilesReady
+                ) {
+                    squallStatusStore.set({ phase: 'ready' });
+                    return false;
+                }
+                mountedSnapshot = snapshot;
+                tileFailure = false;
+                clearTimeout(tileTimer);
+                tileTimer = setTimeout(failTiles, 20_000);
+                squallStatusStore.set({ tilesReady: false });
+                return true;
+            }).finally(() => {
                 if (inflightControllerRef.current === controller) {
                     inflightControllerRef.current = null;
                 }
@@ -175,14 +232,17 @@ export function useSquallMap(
             styleWatchRef.current = null;
             cleanupLayers(map);
             isSetUp.current = false;
-            if (refreshTimer.current) {
-                clearInterval(refreshTimer.current);
-                refreshTimer.current = null;
-            }
             for (const m of stormMarkersRef.current) m.remove();
             stormMarkersRef.current = [];
+            squallStatusStore.reset();
             return;
         }
+
+        squallStatusStore.reset();
+        lastRefreshAtRef.current = 0;
+        map.on('sourcedataloading', onSourceLoading);
+        map.on('sourcedata', onSourceData);
+        map.on('error', onMapError);
 
         // ── Setup ──
         if (!isSetUp.current) {
@@ -231,17 +291,23 @@ export function useSquallMap(
         }
 
         // Auto-refresh every 5 min so the user always sees recent cells.
-        if (!refreshTimer.current) {
-            refreshTimer.current = setInterval(() => {
+        const stopRefresh = subscribeWeatherRefresh(() => {
+            const age = Date.now() - lastRefreshAtRef.current;
+            if (!lastRefreshAtRef.current || age < 0 || age >= REFRESH_INTERVAL_MS || squallStatusStore.get().error)
                 startLoad();
-            }, REFRESH_INTERVAL_MS);
-        }
+        });
 
         return () => {
             if (loadSessionRef.current === loadSession) {
                 loadSessionRef.current += 1;
             }
             cancelInflightLoad();
+            stopRefresh();
+            clearTimeout(tileTimer);
+            map.off('sourcedataloading', onSourceLoading);
+            map.off('sourcedata', onSourceData);
+            map.off('error', onMapError);
+            squallStatusStore.reset();
             styleWatchRef.current?.();
             styleWatchRef.current = null;
             // Reset the setup latch here too, not only in the !visible branch:
@@ -249,10 +315,6 @@ export function useSquallMap(
             // otherwise detaches the watcher and then skips the whole setup
             // block, so nothing re-establishes it.
             isSetUp.current = false;
-            if (refreshTimer.current) {
-                clearInterval(refreshTimer.current);
-                refreshTimer.current = null;
-            }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, mapReady]);
@@ -288,6 +350,7 @@ export function useSquallMap(
     // Tick the HUD's age display every minute — purely cosmetic so the
     // user can tell at a glance whether the data is still fresh.
     // HUD age tick removed — SquallLegend chip handles freshness display now.
+    return status;
 }
 
 // ── Rainbow snapshot fetcher + tile source mounting ──
@@ -306,6 +369,7 @@ async function loadSquallTiles(
     lastRefreshAtRef: React.MutableRefObject<number>,
     controller: AbortController,
     isCurrentLoadSession: () => boolean,
+    prepareMount: (snapshot: number) => boolean,
 ): Promise<void> {
     const isCurrent = () => !controller.signal.aborted && isCurrentLoadSession();
     if (!isCurrent()) return;
@@ -313,6 +377,7 @@ async function loadSquallTiles(
     const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
     if (!supabaseUrl) {
         log.warn('Supabase URL missing — cannot fetch Rainbow snapshot');
+        squallStatusStore.set({ phase: 'error', error: 'Squall service unavailable' });
         return;
     }
 
@@ -320,6 +385,7 @@ async function loadSquallTiles(
     // satellite link. No snapshot means mountSquallLayer is never reached.
     if (satelliteModeBlocks('raster')) {
         log.info('Satellite Mode — squall radar not fetched');
+        squallStatusStore.set({ phase: 'error', error: 'Squall precipitation paused in satellite mode' });
         return;
     }
 
@@ -370,6 +436,7 @@ async function loadSquallTiles(
                 if (!isCurrent()) return;
                 if (!res.ok) {
                     log.warn(`Rainbow snapshot HTTP ${res.status} after ${Date.now() - t0}ms`);
+                    squallStatusStore.set({ phase: 'error', error: 'Squall snapshot refresh unavailable' });
                     return;
                 }
                 data = await res.json();
@@ -380,6 +447,8 @@ async function loadSquallTiles(
         if (!isCurrent()) return;
         snapshot = data?.snapshot ?? null;
     } catch (err) {
+        if (isCurrentLoadSession())
+            squallStatusStore.set({ phase: 'error', error: 'Squall snapshot refresh unavailable' });
         if (!controller.signal.aborted) {
             log.warn(`Rainbow snapshot fetch failed after ${Date.now() - t0}ms`, err);
         } else {
@@ -394,20 +463,27 @@ async function loadSquallTiles(
         return;
     }
 
-    if (!snapshot) {
+    if (!Number.isSafeInteger(snapshot) || !snapshot || snapshot <= 0) {
         log.warn(`Rainbow snapshot empty after ${Date.now() - t0}ms`);
+        squallStatusStore.set({ phase: 'error', error: 'Squall snapshot unavailable' });
         return;
     }
     if (!isCurrent()) return;
 
-    log.warn(`Squall snapshot ${snapshot} — mounting tile layer`);
-    mountSquallLayer(map, supabaseUrl, snapshot);
+    const snapshotTimeMs = squallSnapshotTimeMs(snapshot);
+    const previousTime = squallStatusStore.get().snapshotTimeMs;
+    if (snapshotTimeMs !== null && previousTime !== null && snapshotTimeMs < previousTime) {
+        squallStatusStore.set({ phase: 'error', error: 'Squall refresh returned an older snapshot' });
+        return;
+    }
+    try {
+        if (prepareMount(snapshot)) mountSquallLayer(map, supabaseUrl, snapshot);
+    } catch {
+        squallStatusStore.set({ phase: 'error', tilesReady: false, error: 'Squall precipitation tiles unavailable' });
+        return;
+    }
     lastRefreshAtRef.current = Date.now();
-    // Publish to a window-scoped ref so the SquallLegend chip's
-    // age indicator can update without us threading a callback or
-    // store through the React tree just for one number.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).__thalassaSquallLastRefreshAt = lastRefreshAtRef.current;
+    squallStatusStore.set({ snapshotTimeMs, fetchedAtMs: lastRefreshAtRef.current });
 }
 
 /**

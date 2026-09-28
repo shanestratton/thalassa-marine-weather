@@ -51,6 +51,30 @@ describe('traceRegistryScope', () => {
 });
 
 describe('scoped registry fingerprint', () => {
+    it('preserves the persisted legacy fingerprint when content metadata is absent', () => {
+        putCell(cell({ sizeBytes: 100 }));
+        expect(getRegistryFingerprint()).toBe('AU5MB01P@3@2026-01-15@100');
+    });
+
+    it('same-edition, same-date, same-size updates invalidate by update number or content hash', () => {
+        const scope = traceRegistryScope(ROUTE);
+        putCell(cell({ sizeBytes: 100, updateNumber: 0, contentSha256: 'a'.repeat(64) }));
+        const original = getRegistryFingerprint(scope);
+        putCell(cell({ sizeBytes: 100, updateNumber: 1, contentSha256: 'a'.repeat(64) }));
+        const updated = getRegistryFingerprint(scope);
+        expect(updated).not.toBe(original);
+        putCell(cell({ sizeBytes: 100, updateNumber: 1, contentSha256: 'b'.repeat(64) }));
+        expect(getRegistryFingerprint(scope)).not.toBe(updated);
+    });
+
+    it('verified chart content remains stable across import and manifest bookkeeping changes', () => {
+        const metadata = { sizeBytes: 100, updateNumber: 2, contentSha256: 'a'.repeat(64) };
+        putCell(cell({ ...metadata, cloudManifestVersion: 3 }));
+        const original = getRegistryFingerprint();
+        putCell(cell({ ...metadata, cloudManifestVersion: 4, importedAt: '2026-09-27T00:00:00.000Z' }));
+        expect(getRegistryFingerprint()).toBe(original);
+    });
+
     it('a cell far from the route (the Mackay sync) does NOT move the scoped fingerprint', () => {
         putCell(cell()); // on-route cell, Moreton Bay
         const scope = traceRegistryScope(ROUTE);

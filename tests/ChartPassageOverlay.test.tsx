@@ -148,10 +148,10 @@ describe('active voyage chart sync — opt-in', () => {
             await Promise.resolve();
         });
         expect(chart.fetchRoutesAndTracks).not.toHaveBeenCalled();
-        expect(chart.fetchVoyageAsTrack).toHaveBeenCalledExactlyOnceWith('voyage-1');
+        expect(chart.fetchVoyageAsTrack).not.toHaveBeenCalled();
         expect(view.result.current.route?.points).toBe(useFollowRouteStore.getState().routeCoords);
         expect(view.result.current.route?.points).toEqual(ROUTE.points);
-        expect(view.result.current.track).toBe(TRACK);
+        expect(view.result.current.track).toBeNull();
         view.rerender({ on: false });
         expect(view.result.current.route).toBeNull();
         expect(view.result.current.track).toBeNull();
@@ -163,7 +163,7 @@ describe('active voyage chart sync — opt-in', () => {
             window.dispatchEvent(new Event('thalassa:routes-and-tracks-changed'));
             await Promise.resolve();
         });
-        expect(chart.fetchVoyageAsTrack).toHaveBeenCalledTimes(1);
+        expect(chart.fetchVoyageAsTrack).not.toHaveBeenCalled();
         expect(chart.fetchRoutesAndTracks).not.toHaveBeenCalled();
         expect(view.result.current.route).toBeNull();
         expect(view.result.current.track).toBeNull();
@@ -199,6 +199,12 @@ describe('MapHub wiring (source pins)', () => {
         expect(hub).toContain("id: 'passage'");
         expect(hub).toContain("label: 'Passage'");
         expect(hub).toContain('enabled: passageOverlay');
-        expect(hub.match(/if \(item === null\) setPassageOverlay\(false\);/g)?.length).toBe(2);
+        expect(hub).toMatch(/const passageOverviewAvailable =\s*passageHudOnChart &&\s*passageOverlay &&/);
+        expect(hub).toMatch(
+            /setActiveChartRoute\(item\);\s*if \(item\) setActiveChartTrack\(null\);[\s\S]*?setPassageOverlay\(false\);/,
+        );
+        expect(hub).toMatch(
+            /setActiveChartTrack\(item\);\s*if \(item\) setActiveChartRoute\(null\);\s*setPassageOverlay\(false\);/,
+        );
     });
 });

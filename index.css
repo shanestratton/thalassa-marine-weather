@@ -4185,20 +4185,6 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
         left: calc(9.5rem + 12px) !important;
         bottom: calc(50% - 24px) !important;
     }
-    /* The squall / lightning legend stack is viewport-fixed at left-2, in the
-       band of both the strip and the closed tab. */
-    main[data-passage-hud='open']:not(:has(.thalassa-passage-banner)):not(
-            :has(button[aria-label='Close consensus matrix'])
-        ):not(:has(.storm-hud-badges))
-        .fixed.left-2.z-140 {
-        left: calc(9.5rem + 8px);
-    }
-    main:has(.thalassa-passage-hud-tab):not(:has(.thalassa-passage-banner)):not(
-            :has(button[aria-label='Close consensus matrix'])
-        ):not(:has(.storm-hud-badges))
-        .fixed.left-2.z-140 {
-        left: calc(1.75rem + 8px);
-    }
     /* The ENC coverage notice is re-centred in the width that is left. Each
        context states its own transform: the split and narrow-portrait rules
        set transform:none, and a rule that only moved `left` inherited it and

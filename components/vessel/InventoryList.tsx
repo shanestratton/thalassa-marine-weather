@@ -11,6 +11,7 @@ const log = createLogger('InventoryList');
 import type { InventoryItem, InventoryCategory } from '../../types';
 import { INVENTORY_CATEGORIES as CATEGORIES } from '../../types';
 import { storesCategoryIcon } from './inventory/categoryIcons';
+import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
 import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { InventoryScanner } from './InventoryScanner';
 import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
@@ -634,23 +635,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
                                 Category
                             </label>
-                            <div className="grid grid-cols-4 gap-1 mt-0.5">
-                                {CATEGORIES.map((cat) => {
-                                    const CategoryIcon = storesCategoryIcon(cat);
-                                    return (
-                                        <button
-                                            aria-pressed={editCategory === cat}
-                                            key={cat}
-                                            type="button"
-                                            onClick={() => setEditCategory(cat)}
-                                            className={`flex items-center justify-center gap-1 py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
-                                        >
-                                            <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
-                                            {cat}
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            <StoresCategoryGrid value={editCategory} onChange={setEditCategory} />
                         </div>
 
                         {/* Name */}

@@ -28,8 +28,7 @@ interface InventoryScannerProps {
     startInManualMode?: boolean; // Skip camera and go straight to add form
 }
 
-import { INVENTORY_CATEGORIES as CATEGORIES } from '../../types';
-import { storesCategoryIcon } from './inventory/categoryIcons';
+import { StoresCategoryGrid } from './inventory/StoresCategoryGrid';
 import { Button } from '../ui/Button';
 
 export const InventoryScanner: React.FC<InventoryScannerProps> = ({
@@ -416,27 +415,10 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     {/* Category — first */}
                     <div>
                         <label className="text-label font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                        <div className="grid grid-cols-4 gap-1.5 mt-0.5">
-                            {CATEGORIES.map((cat) => {
-                                const CategoryIcon = storesCategoryIcon(cat);
-                                return (
-                                    <button
-                                        type="button"
-                                        aria-pressed={newItem.category === cat}
-                                        key={cat}
-                                        onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
-                                        className={`flex items-center justify-center gap-1 py-1 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
-                                            newItem.category === cat
-                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-400 border border-white/5'
-                                        }`}
-                                    >
-                                        <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
-                                        {cat}
-                                    </button>
-                                );
-                            })}
-                        </div>
+                        <StoresCategoryGrid
+                            value={newItem.category}
+                            onChange={(category) => setNewItem((prev) => ({ ...prev, category }))}
+                        />
                     </div>
 
                     {/* Item name */}
@@ -772,27 +754,10 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
                                 Category
                             </label>
-                            <div className="grid grid-cols-4 gap-1.5 mt-1">
-                                {CATEGORIES.map((cat) => {
-                                    const CategoryIcon = storesCategoryIcon(cat);
-                                    return (
-                                        <button
-                                            type="button"
-                                            aria-pressed={newItem.category === cat}
-                                            key={cat}
-                                            onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
-                                            className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-lg text-label font-bold transition-all text-center ${
-                                                newItem.category === cat
-                                                    ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                    : 'bg-white/5 text-gray-400 border border-white/5'
-                                            }`}
-                                        >
-                                            <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
-                                            {cat}
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                            <StoresCategoryGrid
+                                value={newItem.category}
+                                onChange={(category) => setNewItem((prev) => ({ ...prev, category }))}
+                            />
                         </div>
 
                         {/* Item name */}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
 import type { InventoryItem } from '../../types';
@@ -199,6 +199,20 @@ describe('InventoryList identity isolation', () => {
         act(() => setAuthIdentityScope('account-a'));
         await screen.findByText('Private A stores');
         expect(screen.queryByText('Private B stores')).not.toBeInTheDocument();
+    });
+
+    it('keeps the edit category chooser three-by-five and saves its selection', async () => {
+        render(<InventoryList onBack={vi.fn()} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit Private A stores' }));
+        const grid = screen.getByRole('group', { name: 'Store category' });
+        expect(grid).toHaveClass('grid-cols-3');
+        expect(within(grid).getAllByRole('button')).toHaveLength(15);
+        fireEvent.click(within(grid).getByRole('button', { name: 'Cleaning' }));
+        expect(within(grid).getByRole('button', { name: 'Cleaning' })).toHaveAttribute('aria-pressed', 'true');
+        fireEvent.click(screen.getByRole('button', { name: 'Save inventory item changes' }));
+        await waitFor(() =>
+            expect(mocks.update).toHaveBeenCalledWith('a-item', expect.objectContaining({ category: 'Cleaning' })),
+        );
     });
 
     it('drops a deferred A edit completion after switching to B', async () => {

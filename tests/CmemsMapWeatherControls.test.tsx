@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../components/map/cmemsFeatureAvailability', () => ({
@@ -77,6 +77,38 @@ const controls = {
 } as const;
 
 describe('MapWeatherControls CMEMS render honesty', () => {
+    it.each([
+        ['currents', 'Currents', 'currentsHour', 3, '+3h'],
+        ['waves', 'Waves', 'wavesHour', 3, '+9h'],
+        ['sst', 'Sea temperature', 'sstStep', 3, '+3d'],
+        ['chl', 'Chlorophyll', 'chlStep', 3, '+3d'],
+        ['seaice', 'Sea Ice', 'seaiceStep', 3, '+3d'],
+        ['mld', 'Mixed-layer depth', 'mldStep', 3, '+3d'],
+    ] as const)(
+        'retains the independent %s cadence with an atmospheric overlay',
+        (layer, name, field, step, offset) => {
+            const state = cmemsState({
+                phase: 'ready',
+                requestedStep: step,
+                verifiedStep: step,
+                sourceGeneration: 'generation',
+                presentation: 'visible',
+            });
+            render(
+                <MapWeatherControls
+                    weather={weather({ activeLayers: new Set(['clouds', layer]), [field]: step })}
+                    cmemsLayerStates={{ [layer]: state }}
+                    {...controls}
+                />,
+            );
+            fireEvent.click(screen.getByRole('button', { name: `Control ${name}` }));
+            expect(screen.getByRole('slider', { name: `${name} timeline` })).toHaveAttribute(
+                'aria-valuetext',
+                `${offset} — Forecast · Valid UTC unavailable`,
+            );
+            expect(screen.getAllByRole('slider')).toHaveLength(1);
+        },
+    );
     it('shows honest loading and unavailable states and only exposes the exact rendered step', () => {
         const loading = cmemsState();
         const { rerender } = render(
@@ -85,14 +117,14 @@ describe('MapWeatherControls CMEMS render honesty', () => {
 
         expect(screen.getByRole('status')).toHaveTextContent('Loading…');
         expect(screen.getByRole('status')).toHaveTextContent('Verifying currents');
-        expect(screen.queryByRole('button', { name: 'Currents layer' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('slider', { name: 'Currents timeline' })).not.toBeInTheDocument();
 
         const unavailable = cmemsState({ phase: 'error' });
         rerender(<MapWeatherControls weather={weather()} cmemsLayerStates={{ currents: unavailable }} {...controls} />);
 
         expect(screen.getByRole('alert')).toHaveTextContent('Unavailable');
         expect(screen.getByRole('alert')).toHaveTextContent('Retry from alert');
-        expect(screen.queryByRole('button', { name: 'Currents layer' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('slider', { name: 'Currents timeline' })).not.toBeInTheDocument();
 
         const ready = cmemsState({
             phase: 'ready',
@@ -103,10 +135,10 @@ describe('MapWeatherControls CMEMS render honesty', () => {
         });
         rerender(<MapWeatherControls weather={weather()} cmemsLayerStates={{ currents: ready }} {...controls} />);
 
-        expect(screen.getByRole('button', { name: 'Currents layer' })).toBeVisible();
+        expect(screen.getByRole('slider', { name: 'Currents timeline' })).toBeVisible();
         expect(screen.getByRole('slider', { name: 'Currents timeline' })).toHaveAttribute(
             'aria-valuetext',
-            'Now — Nowcast',
+            'Now — Nowcast · Valid UTC unavailable',
         );
         expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
 
@@ -119,20 +151,23 @@ describe('MapWeatherControls CMEMS render honesty', () => {
         );
 
         expect(screen.getByRole('status')).toHaveTextContent('Loading…');
-        expect(screen.queryByRole('button', { name: 'Currents layer' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('slider', { name: 'Currents timeline' })).not.toBeInTheDocument();
         expect(screen.queryByText('+1h')).not.toBeInTheDocument();
     });
 
-    it('hides a requested current legend in a stack until its exact step renders', () => {
+    it('retains layer controls but hides unverified current colour scales until the exact step renders', () => {
         const loading = cmemsState();
         const stackedWeather = weather({ activeLayers: new Set(['wind', 'currents']) });
         const { rerender } = render(
             <MapWeatherControls weather={stackedWeather} cmemsLayerStates={{ currents: loading }} {...controls} />,
         );
 
-        expect(screen.getByRole('button', { name: 'Show Wind legend' })).toBeVisible();
-        expect(screen.queryByRole('button', { name: 'Show Currents legend' })).not.toBeInTheDocument();
-        expect(screen.getByRole('status')).toHaveTextContent('Currents · Loading…');
+        fireEvent.click(screen.getByRole('button', { name: 'Show weather legends' }));
+        const currentKey = () => screen.getByRole('region', { name: 'Currents legend' });
+        expect(currentKey()).toHaveTextContent('Verifying currents');
+        expect(currentKey().querySelector('[data-weather-scale]')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Control Currents' }));
+        expect(screen.getByRole('status')).toHaveTextContent('Loading…');
 
         const ready = cmemsState({
             phase: 'ready',
@@ -143,8 +178,10 @@ describe('MapWeatherControls CMEMS render honesty', () => {
         });
         rerender(<MapWeatherControls weather={stackedWeather} cmemsLayerStates={{ currents: ready }} {...controls} />);
 
-        expect(screen.getByRole('button', { name: 'Show Wind legend' })).toBeVisible();
-        expect(screen.getByRole('button', { name: 'Show Currents legend' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Control Wind' })).toBeVisible();
+        expect(screen.getByRole('slider', { name: 'Currents timeline' })).toBeVisible();
+        expect(currentKey().querySelector('[data-weather-scale="currents"]')).not.toBeNull();
+        expect(within(currentKey()).getByText('Current speed · m/s')).toBeVisible();
         expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
         rerender(
@@ -155,8 +192,9 @@ describe('MapWeatherControls CMEMS render honesty', () => {
             />,
         );
 
-        expect(screen.getByRole('button', { name: 'Show Wind legend' })).toBeVisible();
-        expect(screen.queryByRole('button', { name: 'Show Currents legend' })).not.toBeInTheDocument();
-        expect(screen.getByRole('status')).toHaveTextContent('Currents · Loading…');
+        expect(screen.getByRole('button', { name: 'Control Wind' })).toBeVisible();
+        expect(currentKey().querySelector('[data-weather-scale]')).toBeNull();
+        expect(screen.queryByRole('slider', { name: 'Currents timeline' })).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('Loading…');
     });
 });

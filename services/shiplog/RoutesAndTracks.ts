@@ -468,7 +468,7 @@ export interface SeaVoyageChoice {
 type VoyageEndpoint = { lat: number | null; lon: number | null };
 let endpointNamer: Promise<typeof import('../routeAutoName')> | null = null;
 
-async function voyageEndpointName(point: VoyageEndpoint): Promise<string | null> {
+async function voyageEndpointName(point: VoyageEndpoint, allowQueuedLookup = false): Promise<string | null> {
     const { lat, lon } = point;
     if (
         typeof lat !== 'number' ||
@@ -485,7 +485,10 @@ async function voyageEndpointName(point: VoyageEndpoint): Promise<string | null>
         const position = { lat, lon };
         // This is decoration for at most the visible picker rows, not a full
         // track download. An offshore connection must not trap the picker.
-        const label = (await withTimeout(placeLabelFor(position), null, 3_000))?.trim();
+        const lookup = placeLabelFor(position);
+        // Incremental lists already painted their rows: let paced lookups
+        // finish instead of treating queue wait as a failed place lookup.
+        const label = (await (allowQueuedLookup ? lookup : withTimeout(lookup, null, 3_000)))?.trim();
         return label && label !== coordsLabel(position) && /\p{L}/u.test(label) ? label : null;
     } catch {
         return null;
@@ -500,7 +503,10 @@ async function voyageEndpointName(point: VoyageEndpoint): Promise<string | null>
  * capture). Offline-queue voyages (signed-out / no-network recordings)
  * merge in with a LOCAL flag.
  */
-export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]> {
+export async function fetchSeaVoyageChoices(
+    max = 6,
+    onUpdate?: (choices: SeaVoyageChoice[]) => void,
+): Promise<SeaVoyageChoice[]> {
     const scope = getAuthIdentityScope();
     const [summaries, offline] = await Promise.all([
         getVoyageSummaries().catch(() => [] as VoyageSummary[]),
@@ -537,14 +543,27 @@ export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]>
         }));
     if (!isAuthIdentityScopeCurrent(scope)) return [];
     const visible = [...fromQueue, ...fromCloud].sort((a, b) => b.timestamp - a.timestamp).slice(0, Math.max(0, max));
-    const choices = await Promise.all(
-        visible.map(async ({ first, last, ...choice }): Promise<SeaVoyageChoice> => {
-            const [departure, arrival] = await Promise.all([voyageEndpointName(first), voyageEndpointName(last)]);
-            return {
+    const choices: SeaVoyageChoice[] = visible.map(({ first: _first, last: _last, ...choice }) => ({
+        ...choice,
+        label: 'Unknown departure → Unknown arrival',
+        sublabel: `${fmtDate(choice.timestamp)} · ${choice.sublabel}`,
+    }));
+    const publish = () => {
+        if (isAuthIdentityScopeCurrent(scope)) onUpdate?.(choices.map((choice) => ({ ...choice })));
+    };
+    publish();
+    await Promise.all(
+        visible.map(async ({ first, last, ...choice }, index) => {
+            const [departure, arrival] = await Promise.all([
+                voyageEndpointName(first, !!onUpdate),
+                voyageEndpointName(last, !!onUpdate),
+            ]);
+            choices[index] = {
                 ...choice,
                 label: `${departure ?? 'Unknown departure'} → ${arrival ?? 'Unknown arrival'}`,
                 sublabel: `${fmtDate(choice.timestamp)} · ${choice.sublabel}`,
             };
+            publish();
         }),
     );
     return isAuthIdentityScopeCurrent(scope) ? choices : [];

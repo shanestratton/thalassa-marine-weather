@@ -240,8 +240,8 @@ export async function accumulateCellLayers(
     // DEPARE (marks-only) never erases coarse bands at all.
     const reanchorOnDepare = (list: readonly CellExtent[]) =>
         list
-            .map((s) => (depareExtent.has(s.id) ? { id: s.id, bbox: depareExtent.get(s.id)! } : null))
-            .filter((s): s is { id: string; bbox: [number, number, number, number] } => s !== null);
+            .map((s) => (depareExtent.has(s.id) ? { ...s, bbox: depareExtent.get(s.id)! } : null))
+            .filter((s): s is CellExtent => s !== null);
     const authority = cell.usage === 'reference' ? 'reference' : 'navigation';
     const peerExtents = cellExtents.filter((extent) => (extent.authority ?? 'navigation') === authority);
     const shadows = reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox, authority }, peerExtents));

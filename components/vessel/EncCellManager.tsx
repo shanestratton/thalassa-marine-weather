@@ -35,8 +35,12 @@ import {
     installEncFromUrl,
     syncEncFromPi,
     listPiInstalledCharts,
+    listRecentEncInstalls,
+    resumeEncInstall,
     encCellSyncKey,
     type EncImportProgress,
+    type EncImportSummary,
+    type EncInstallReceipt,
 } from '../../services/EncImportService';
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
 import type { EncCell } from '../../services/enc/types';
@@ -46,8 +50,108 @@ import { requestMapFit } from '../../stores/MapFitTargetStore';
 import { useUI } from '../../context/UIContext';
 import { ModalSheet } from '../ui/ModalSheet';
 import { Button } from '../ui/Button';
+import {
+    ENC_DELIVERY_MAX_TEXT,
+    parseEncChartDelivery,
+    type EncChartDeliveryPackage,
+} from '../../services/encChartDelivery';
+import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { getPairing } from '../../services/PiPairingService';
 
 // ── Helpers ────────────────────────────────────────────────────────
+
+interface DeliveryInstall {
+    package: EncChartDeliveryPackage;
+    status: 'queued' | 'installing' | 'complete' | 'failed' | 'phone-pending' | 'pi-pending';
+    message: string;
+    jobId?: string;
+}
+
+/** Service/provider text can contain signed URLs. Never render it in this flow. */
+function deliveryFailure(error: unknown): string {
+    const message = error instanceof Error ? error.message : '';
+    if (/checksum|sha.?256/i.test(message))
+        return 'The package checksum did not match. Copy the latest delivery email and try again.';
+    if (/expir|\b40[13]\b|forbidden/i.test(message))
+        return 'The download link may have expired. Copy a fresh delivery email and try again.';
+    if (/licen[cs]e|decrypt|key file/i.test(message))
+        return 'The Pi could not unlock this chart package. Check its chart licence and try again.';
+    return 'This package could not finish. Check your boat Wi-Fi and Pi connection, then retry.';
+}
+
+function deliveryProgress(progress: EncImportProgress): EncImportProgress {
+    return {
+        phase: progress.phase,
+        progress: Number.isFinite(progress.progress) ? progress.progress : 0,
+        step:
+            progress.phase === 'done'
+                ? 'Package processed; checking phone availability.'
+                : 'The Pi is processing this package.',
+    };
+}
+
+function packageCounts(value: EncImportSummary['packageSummary']): string | undefined {
+    if (
+        !value ||
+        ![value.new, value.updated, value.unchanged, value.total].every(
+            (count) => Number.isSafeInteger(count) && count >= 0 && count <= 1_000_000,
+        ) ||
+        value.new + value.updated + value.unchanged !== value.total
+    )
+        return undefined;
+    return `${value.new} new, ${value.updated} updated, ${value.unchanged} unchanged`;
+}
+
+function missingDepthArea(skip: EncImportSummary['skipped'][number]): boolean {
+    return /^[a-z0-9_.-]+: no DEPARE\/DRGARE depth-area coverage; the pack cannot verify water depths\.$/i.test(
+        skip.error,
+    );
+}
+
+/** Explain known phone failures without reflecting private URLs or arbitrary
+ * provider text. Only the exact local depth validator error is an exclusion. */
+function phoneCopyReasons(skipped: EncImportSummary['skipped']): EncImportSummary['skipped'] {
+    return skipped.map((skip, index) => {
+        const excluded = missingDepthArea(skip);
+        const filename =
+            excluded && /^[a-z0-9_.-]{1,100}$/i.test(skip.filename) ? skip.filename : `Phone copy ${index + 1}`;
+        let error =
+            'The phone copy did not finish for an unclassified reason. Check the Pi and phone before retrying sync.';
+        if (excluded)
+            error =
+                'Excluded from phone use: missing DEPARE/DRGARE depth-area coverage. This chart cannot verify water depths; the same file needs corrected data before it can be used.';
+        else if (/storage|quota|disk|no space/i.test(skip.error))
+            error = 'Phone storage could not retain this chart. Free space, then retry Sync charts.';
+        else if (/checksum|signature|integrity|signed|hash/i.test(skip.error))
+            error = 'Chart integrity could not be verified. Check the Pi chart library before retrying.';
+        else if (/timeout|timed out|network|fetch|connect|unreachable|wi.?fi|reconnect/i.test(skip.error))
+            error = 'The connection or download did not finish. Reconnect to your paired Pi, then retry Sync charts.';
+        else if (/payload|schema|invalid|malformed|unsupported|geometry|coordinate|depth/i.test(skip.error))
+            error =
+                'The phone rejected this chart’s format or data. Check the chart source; another sync may not resolve this.';
+        return { filename, error };
+    });
+}
+
+function deliverySummary(summary: EncImportSummary): string {
+    const changes = packageCounts(summary.packageSummary);
+    const counts = changes ? ` ${changes}.` : '';
+    if (summary.skipped.length) {
+        const excluded = summary.skipped.filter(missingDepthArea).length;
+        const other = summary.skipped.length - excluded;
+        const copied = summary.cells.length
+            ? ` ${summary.cells.length} chart${summary.cells.length === 1 ? '' : 's'} copied to this phone.`
+            : '';
+        const exclusions = excluded
+            ? ` ${excluded} chart${excluded === 1 ? '' : 's'} excluded from phone use: no DEPARE/DRGARE depth-area coverage. These files need corrected data; repeating the same sync will not add them.`
+            : '';
+        const incomplete = other
+            ? ' Phone copy is incomplete. Check the skipped reasons; connection or storage issues can be retried with Sync charts or Sync from Pi.'
+            : '';
+        return `${summary.installedOnPi ? 'Installed on Pi.' : 'Package processed.'}${copied}${exclusions}${incomplete} Do not reinstall the Pi package.${counts}`;
+    }
+    return `${summary.cells.length ? `${summary.cells.length} chart${summary.cells.length === 1 ? '' : 's'} available on this phone.` : summary.installedOnPi ? 'Installed on Pi. No new charts were copied to this phone.' : 'Package processed. No new charts were copied to this phone.'}${counts}`;
+}
 
 function formatBBox(bbox: [number, number, number, number]): string {
     const [minLon, minLat, maxLon, maxLat] = bbox;
@@ -245,7 +349,15 @@ export const EncCellManager: React.FC = () => {
     const [urlDialogOpen, setUrlDialogOpen] = useState(false);
     const [urlInput, setUrlInput] = useState('');
     const [urlError, setUrlError] = useState<string | null>(null);
+    const [deliveries, setDeliveries] = useState<DeliveryInstall[]>([]);
+    const [urlBatchVersion, setUrlBatchVersion] = useState(0);
+    const [recentInstalls, setRecentInstalls] = useState<EncInstallReceipt[]>([]);
+    const [recentInstallsBusy, setRecentInstallsBusy] = useState(false);
+    const [recentInstallsError, setRecentInstallsError] = useState<string | null>(null);
+    const [receiptNotes, setReceiptNotes] = useState<Record<string, string>>({});
+    const [resumingReceiptId, setResumingReceiptId] = useState<string | null>(null);
     const urlInstallInFlight = useRef(false);
+    const mountedRef = useRef(true);
     // One shared, cancellable timer for "keep 'done' on screen, then clear".
     // Four separate uncancelled setTimeouts used to survive unmount and fire
     // setState on a dead component if the skipper left the tab mid-import.
@@ -259,12 +371,13 @@ export const EncCellManager: React.FC = () => {
         }, 2500);
     }, []);
 
-    useEffect(
-        () => () => {
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
             if (progressClearRef.current !== null) window.clearTimeout(progressClearRef.current);
-        },
-        [],
-    );
+        };
+    }, []);
 
     const refreshCells = useCallback(() => {
         setCells(getEncCoverage());
@@ -345,14 +458,8 @@ export const EncCellManager: React.FC = () => {
     );
 
     /**
-     * "Install from URL" — Pi downloads the chart from a URL the
-     * user pastes (typically a free NOAA ZIP), converts on the Pi,
-     * and persists to its chart store. The phone then auto-syncs
-     * the converted blob into the local cache.
-     *
-     * This is the "best of the best" flow — Pi has stable internet,
-     * no iOS file-picker, and the resulting cells are available to
-     * any device on the boat without re-uploading.
+     * Keep this session's results when reopened. Delivery secrets remain only
+     * in component memory and are never used as React keys or progress labels.
      */
     const openUrlInstallDialog = useCallback(() => {
         if (importing || urlInstallInFlight.current) return;
@@ -376,7 +483,7 @@ export const EncCellManager: React.FC = () => {
         try {
             const text = (await navigator.clipboard.readText()).trim();
             if (!text) {
-                setUrlError('Clipboard is empty — copy the download link first.');
+                setUrlError('Clipboard is empty — copy the delivery email or download link first.');
                 return;
             }
             triggerHaptic('light');
@@ -387,50 +494,139 @@ export const EncCellManager: React.FC = () => {
         }
     }, []);
 
-    const handleInstallFromUrl = useCallback(async () => {
-        if (importing || urlInstallInFlight.current) return;
-        const url = urlInput.trim();
-        if (!url) {
-            setUrlError('Paste a chart download link to continue.');
-            return;
-        }
-
-        let parsed: URL;
-        try {
-            parsed = new URL(url);
-        } catch {
-            setUrlError('That doesn’t look like a valid URL.');
-            return;
-        }
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-            setUrlError('Only http/https URLs are supported.');
-            return;
-        }
-
-        urlInstallInFlight.current = true;
-        setImporting(true);
-        setLastSkipped([]);
-        setUrlError(null);
-        setProgress(null);
-        try {
-            const piErr = await checkPiHasGdal();
-            if (piErr) {
-                setUrlError(piErr);
-                return;
+    const handleInstallFromUrl = useCallback(
+        async (retryFailed = false) => {
+            if (importing || urlInstallInFlight.current) return;
+            let queue: EncChartDeliveryPackage[];
+            if (retryFailed)
+                queue = deliveries.filter((entry) => entry.status === 'failed').map((entry) => entry.package);
+            else {
+                const parsed = parseEncChartDelivery(urlInput);
+                if (parsed.errors.length) {
+                    setUrlError(parsed.errors.join(' '));
+                    return;
+                }
+                queue = parsed.packages.filter(
+                    (entry) =>
+                        !deliveries.some(
+                            (previous) => previous.package.url === entry.url && previous.status !== 'failed',
+                        ),
+                );
+                if (!queue.length) {
+                    setUrlError(
+                        'These packages are already listed in this window. Use their results or recent Pi install to continue; they will not be downloaded again.',
+                    );
+                    return;
+                }
             }
-            const summary = await installEncFromUrl(url, undefined, (p) => setProgress(p));
-            refreshCells();
-            if (summary.skipped.length > 0) setLastSkipped(summary.skipped);
-            setUrlDialogOpen(false);
+            if (!queue.length) return;
+            urlInstallInFlight.current = true;
+            const scope = getAuthIdentityScope();
+            const piBase = piCache.baseUrl;
+            const pairingKey = getPairing()?.publicKeySpki;
+            const authorityCurrent = () =>
+                isAuthIdentityScopeCurrent(scope) &&
+                piCache.baseUrl === piBase &&
+                getPairing()?.publicKeySpki === pairingKey;
+            setImporting(true);
+            setLastSkipped([]);
+            setUrlError(null);
+            setProgress(null);
             setUrlInput('');
-        } catch (err) {
-            setUrlError(err instanceof Error ? err.message : String(err));
-        } finally {
-            urlInstallInFlight.current = false;
-            setImporting(false);
-            scheduleProgressClear();
-        }
-    }, [importing, refreshCells, scheduleProgressClear, urlInput]);
+            setDeliveries((previous) => [
+                ...previous.filter((entry) => !queue.some((item) => item.url === entry.package.url)),
+                ...queue.map(
+                    (entry): DeliveryInstall => ({
+                        package: entry,
+                        status: 'queued',
+                        message: 'Waiting for the previous package.',
+                    }),
+                ),
+            ]);
+            const update = (
+                entry: EncChartDeliveryPackage,
+                status: DeliveryInstall['status'],
+                message: string,
+                jobId?: string,
+            ) => {
+                if (mountedRef.current)
+                    setDeliveries((previous) =>
+                        previous.map((row) =>
+                            row.package.url === entry.url
+                                ? { ...row, status, message, ...(jobId ? { jobId } : {}) }
+                                : row,
+                        ),
+                    );
+            };
+            try {
+                for (const [index, entry] of queue.entries()) {
+                    if (!mountedRef.current) break;
+                    if (!authorityCurrent()) {
+                        for (const remaining of queue.slice(index))
+                            update(
+                                remaining,
+                                'failed',
+                                'The account or paired Pi changed. Start again on the intended boat connection.',
+                            );
+                        break;
+                    }
+                    update(entry, 'installing', 'Installing on Pi…');
+                    setProgress(null);
+                    try {
+                        // o-charts uses the Pi's licensed decoder, not GDAL. The
+                        // installer itself checks the paired Pi's availability.
+                        const summary = await installEncFromUrl(
+                            entry.url,
+                            entry.filename,
+                            (value) => {
+                                if (mountedRef.current && authorityCurrent()) setProgress(deliveryProgress(value));
+                            },
+                            entry.expectedSha256 ? { expectedSha256: entry.expectedSha256 } : undefined,
+                        );
+                        if (!mountedRef.current) break;
+                        if (!authorityCurrent()) {
+                            update(
+                                entry,
+                                'failed',
+                                'The account or paired Pi changed. The result could not be confirmed on this connection.',
+                            );
+                            continue;
+                        }
+                        refreshCells();
+                        if (summary.skipped.length)
+                            setLastSkipped((previous) => [...previous, ...phoneCopyReasons(summary.skipped)]);
+                        update(entry, summary.skipped.length ? 'phone-pending' : 'complete', deliverySummary(summary));
+                    } catch (err) {
+                        if (err instanceof Error && err.name === 'EncInstallPendingError') {
+                            const jobId = (err as Error & { jobId?: unknown }).jobId;
+                            update(
+                                entry,
+                                'pi-pending',
+                                'The Pi may still be installing this package. Close this window and use Continue install under Recent Pi installs; do not download it again.',
+                                typeof jobId === 'string' ? jobId : undefined,
+                            );
+                            for (const remaining of queue.slice(index + 1))
+                                update(
+                                    remaining,
+                                    'failed',
+                                    'Not started. Continue the earlier Pi installation first, then retry this package.',
+                                );
+                            break;
+                        }
+                        update(entry, 'failed', deliveryFailure(err));
+                    }
+                }
+            } finally {
+                urlInstallInFlight.current = false;
+                if (mountedRef.current) {
+                    setImporting(false);
+                    setProgress(null);
+                    setUrlBatchVersion((value) => value + 1);
+                }
+            }
+        },
+        [deliveries, importing, refreshCells, urlInput],
+    );
 
     /**
      * "Sync from Pi" — pulls every chart the Pi has installed but
@@ -481,7 +677,7 @@ export const EncCellManager: React.FC = () => {
     // show which office issued a cell and roughly how big the pull is —
     // "FR466870" alone doesn't tell you it's Nouméa.
     const [piCellsSummary, setPiCellsSummary] = useState<
-        { cellId: string; edition: number; sourceHO?: string; sizeBytes?: number }[] | null
+        { cellId: string; edition: number; sourceHO?: string; sizeBytes?: number; contentSha256?: string }[] | null
     >(null);
     const [piListBusy, setPiListBusy] = useState(false);
     const refreshPiCells = useCallback(async () => {
@@ -494,6 +690,7 @@ export const EncCellManager: React.FC = () => {
                     edition: c.edition ?? 0,
                     sourceHO: c.sourceHO,
                     sizeBytes: c.sizeBytes,
+                    contentSha256: c.contentSha256,
                 })),
             );
         } catch (err) {
@@ -524,7 +721,106 @@ export const EncCellManager: React.FC = () => {
     }, []);
     useEffect(() => {
         void refreshPiCells();
-    }, [cells.length, piReachable, refreshPiCells]);
+    }, [cells.length, piReachable, refreshPiCells, urlBatchVersion]);
+
+    useEffect(() => {
+        if (!expanded) return;
+        let current = true;
+        const scope = getAuthIdentityScope();
+        const pairingKey = getPairing()?.publicKeySpki;
+        const piBase = piCache.baseUrl;
+        setRecentInstallsBusy(true);
+        setRecentInstallsError(null);
+        void listRecentEncInstalls()
+            .then((receipts) => {
+                if (
+                    current &&
+                    isAuthIdentityScopeCurrent(scope) &&
+                    getPairing()?.publicKeySpki === pairingKey &&
+                    piCache.baseUrl === piBase
+                ) {
+                    setRecentInstalls([...receipts].sort((a, b) => b.startedAt - a.startedAt).slice(0, 3));
+                    setDeliveries((rows) =>
+                        rows.map((row) =>
+                            row.status === 'pi-pending' &&
+                            receipts.some((receipt) => receipt.id === row.jobId && receipt.status === 'error')
+                                ? {
+                                      ...row,
+                                      status: 'failed',
+                                      message: 'The Pi confirmed this installation failed. You can retry this package.',
+                                  }
+                                : row,
+                        ),
+                    );
+                }
+            })
+            .catch(() => {
+                if (current)
+                    setRecentInstallsError(
+                        'Recent installs are unavailable. Reconnect to your paired Pi and check again.',
+                    );
+            })
+            .finally(() => {
+                if (current) setRecentInstallsBusy(false);
+            });
+        return () => {
+            current = false;
+        };
+    }, [expanded, piReachable, urlBatchVersion]);
+
+    const handleResumeInstall = useCallback(
+        async (receipt: EncInstallReceipt) => {
+            if (importing || urlInstallInFlight.current) return;
+            urlInstallInFlight.current = true;
+            const scope = getAuthIdentityScope();
+            const pairingKey = getPairing()?.publicKeySpki;
+            const piBase = piCache.baseUrl;
+            const current = () =>
+                mountedRef.current &&
+                isAuthIdentityScopeCurrent(scope) &&
+                getPairing()?.publicKeySpki === pairingKey &&
+                piCache.baseUrl === piBase;
+            setImporting(true);
+            setResumingReceiptId(receipt.id);
+            setProgress(null);
+            setLastSkipped([]);
+            setReceiptNotes((notes) => ({
+                ...notes,
+                [receipt.id]: 'Checking the existing Pi installation; no new download is started.',
+            }));
+            try {
+                const summary = await resumeEncInstall(receipt.id, (value) => {
+                    if (current()) setProgress(deliveryProgress(value));
+                });
+                if (!current()) return;
+                refreshCells();
+                setLastSkipped(phoneCopyReasons(summary.skipped));
+                setReceiptNotes((notes) => ({ ...notes, [receipt.id]: deliverySummary(summary) }));
+                setDeliveries((rows) =>
+                    rows.map((row) =>
+                        row.jobId === receipt.id
+                            ? {
+                                  ...row,
+                                  status: summary.skipped.length ? 'phone-pending' : 'complete',
+                                  message: deliverySummary(summary),
+                              }
+                            : row,
+                    ),
+                );
+            } catch (err) {
+                if (current()) setReceiptNotes((notes) => ({ ...notes, [receipt.id]: deliveryFailure(err) }));
+            } finally {
+                urlInstallInFlight.current = false;
+                if (mountedRef.current) {
+                    setImporting(false);
+                    setResumingReceiptId(null);
+                    setProgress(null);
+                    setUrlBatchVersion((version) => version + 1);
+                }
+            }
+        },
+        [importing, refreshCells],
+    );
 
     // Find Pi cells the device is either missing OR has at a stale
     // edition. Both count as "the user has something to sync".
@@ -536,13 +832,14 @@ export const EncCellManager: React.FC = () => {
     // hidden, and the picker — gated on the same flag — was hidden too. The
     // improved charts were unreachable with the Pi sitting right there.
     const localCellKeys = useMemo(
-        () => new Set(cells.map((c) => encCellSyncKey(c.id, c.edition ?? 0, c.sizeBytes))),
+        () => new Set(cells.map((c) => encCellSyncKey(c.id, c.edition ?? 0, c.sizeBytes, c.contentSha256))),
         [cells],
     );
     const missingOnDevice = useMemo(
         () =>
             (piCellsSummary ?? []).filter(
-                ({ cellId, edition, sizeBytes }) => !localCellKeys.has(encCellSyncKey(cellId, edition, sizeBytes)),
+                ({ cellId, edition, sizeBytes, contentSha256 }) =>
+                    !localCellKeys.has(encCellSyncKey(cellId, edition, sizeBytes, contentSha256)),
             ),
         [piCellsSummary, localCellKeys],
     );
@@ -662,17 +959,101 @@ export const EncCellManager: React.FC = () => {
                                     </span>
                                 ) : (
                                     <span className="flex items-center justify-center gap-2">
-                                        <span>{'\u{1F4E5}'}</span>
-                                        <span>Install on Pi from URL</span>
+                                        <span aria-hidden="true">{'\u{1F4E5}'}</span>
+                                        <span>Add or update charts</span>
                                     </span>
                                 )}
                             </button>
                             <p className="text-[11px] text-gray-500 leading-relaxed">
-                                Paste a chart download link and the Pi does the rest. Works for NOAA and other ENC
-                                archives, o-charts sets, and ChartWorld S-63 (paste the exchange set and the permit
-                                bundle, in either order).
+                                Paste your o-charts delivery email or chart download links. The Pi installs new charts
+                                and updates, then copies available charts to this phone.
                             </p>
                         </div>
+
+                        <section aria-label="Recent chart installs" className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
+                                    Recent Pi installs
+                                </p>
+                                <button
+                                    type="button"
+                                    disabled={importing || recentInstallsBusy}
+                                    onClick={() => setUrlBatchVersion((version) => version + 1)}
+                                    className="min-h-11 text-[11px] font-bold text-sky-300 disabled:opacity-50"
+                                >
+                                    {recentInstallsBusy ? 'Checking installs…' : 'Check recent installs'}
+                                </button>
+                            </div>
+                            <p className="text-[11px] text-gray-400">
+                                Closed the app or lost Wi-Fi? Continue an existing install here without downloading it
+                                again.
+                            </p>
+                            {recentInstallsError && (
+                                <p className="text-xs text-amber-300" role="status">
+                                    {recentInstallsError}
+                                </p>
+                            )}
+                            {!recentInstallsBusy && !recentInstallsError && !recentInstalls.length && (
+                                <p className="text-[11px] text-gray-500">No recent installs reported by this Pi.</p>
+                            )}
+                            {recentInstalls.map((receipt, index) => (
+                                <div
+                                    key={receipt.id}
+                                    className="rounded-xl border border-white/8 bg-white/2 p-3 space-y-2"
+                                >
+                                    <p className="text-xs font-bold text-white">Recent install {index + 1}</p>
+                                    <p className="text-[11px] text-gray-300">
+                                        {receipt.status === 'error'
+                                            ? 'The Pi could not finish this install. Paste the delivery again to retry.'
+                                            : receipt.status === 'done'
+                                              ? receipt.resultKind === 'installed'
+                                                  ? 'Installed on Pi. Phone availability is checked when you sync.'
+                                                  : receipt.resultKind === 'staged'
+                                                    ? 'Files received on Pi. Add the matching licensed chart or permit bundle to finish; these charts are not ready.'
+                                                    : 'Processing finished on Pi.'
+                                              : 'This installation is still in progress on the Pi.'}
+                                    </p>
+                                    {packageCounts(receipt.packageSummary) && (
+                                        <p className="text-[11px] text-gray-400">
+                                            {packageCounts(receipt.packageSummary)}
+                                        </p>
+                                    )}
+                                    {receiptNotes[receipt.id] && (
+                                        <p role="status" className="text-xs text-gray-300">
+                                            {receiptNotes[receipt.id]}
+                                        </p>
+                                    )}
+                                    {resumingReceiptId === receipt.id && progress && (
+                                        <ImportProgressBar progress={progress} />
+                                    )}
+                                    {receipt.status === 'error' ? (
+                                        <button
+                                            type="button"
+                                            disabled={importing}
+                                            onClick={openUrlInstallDialog}
+                                            className="min-h-11 text-xs font-bold text-sky-300 disabled:opacity-50"
+                                        >
+                                            Paste delivery again
+                                        </button>
+                                    ) : (
+                                        (receipt.status !== 'done' || receipt.resultKind === 'installed') && (
+                                            <button
+                                                type="button"
+                                                disabled={importing}
+                                                onClick={() => void handleResumeInstall(receipt)}
+                                                className="min-h-11 text-xs font-bold text-sky-300 disabled:opacity-50"
+                                            >
+                                                {resumingReceiptId === receipt.id
+                                                    ? 'Working…'
+                                                    : receipt.status === 'done'
+                                                      ? 'Sync charts'
+                                                      : 'Continue install'}
+                                            </button>
+                                        )
+                                    )}
+                                </div>
+                            ))}
+                        </section>
 
                         {/* ── Import section ── */}
                         <div className="space-y-2">
@@ -841,12 +1222,12 @@ export const EncCellManager: React.FC = () => {
                             {lastSkipped.length > 0 && (
                                 <div className="px-3 py-2 rounded-xl bg-amber-500/6 border border-amber-500/20">
                                     <p className="text-[11px] font-bold text-amber-300 mb-1">
-                                        {lastSkipped.length} cell{lastSkipped.length === 1 ? '' : 's'} skipped during
-                                        last import
+                                        {lastSkipped.length} item{lastSkipped.length === 1 ? '' : 's'} not added to this
+                                        phone during the last import or sync
                                     </p>
                                     <ul className="space-y-0.5">
-                                        {lastSkipped.slice(0, 5).map((s) => (
-                                            <li key={s.filename} className="text-[10px] text-amber-300/80">
+                                        {lastSkipped.slice(0, 5).map((s, index) => (
+                                            <li key={index} className="text-[10px] text-amber-300/80">
                                                 <span className="font-mono">{s.filename}</span>: {s.error}
                                             </li>
                                         ))}
@@ -928,44 +1309,40 @@ export const EncCellManager: React.FC = () => {
                     setUrlInput('');
                     setUrlError(null);
                 }}
-                title="Install ENC from URL"
+                title="Add or update charts"
                 maxWidth="max-w-lg"
             >
                 <form
                     className="space-y-4"
                     onSubmit={(event) => {
                         event.preventDefault();
-                        void handleInstallFromUrl();
+                        void handleInstallFromUrl(false);
                     }}
                 >
                     <p className="text-xs leading-relaxed text-gray-300">
-                        Paste a chart download link and the Pi does the rest — downloads it, unpacks it and installs it.
-                        Works for an ENC ZIP or a single <span className="font-mono text-sky-300">.000</span> file, an
-                        o-charts set, and ChartWorld S-63. For free NOAA charts, pick a cell at charts.noaa.gov and copy
-                        its ZIP link.
+                        Copy the whole o-charts delivery email, or paste up to four direct download links. New charts
+                        and updates use the same button. Keep this window open while the Pi works through them.
                     </p>
                     <p className="text-xs leading-relaxed text-gray-400">
-                        ChartWorld S-63 arrives in two parts and needs both: the exchange set from your order, and the
-                        permit bundle from My Installations. Paste them one after the other — the order does not matter,
-                        and the charts appear once both have landed.
+                        Connect to your boat&apos;s Wi-Fi; the Pi needs internet to download. If the email includes a
+                        SHA256 checksum, it is checked automatically. You do not need to find one yourself.
                     </p>
                     <div>
                         <label
                             htmlFor="enc-install-url"
                             className="mb-2 block text-[11px] font-bold uppercase tracking-widest text-gray-400"
                         >
-                            Chart URL
+                            Delivery emails or download links
                         </label>
-                        <input
+                        <textarea
                             id="enc-install-url"
-                            type="url"
-                            inputMode="url"
-                            autoComplete="url"
+                            autoComplete="off"
                             autoCapitalize="none"
                             autoCorrect="off"
                             spellCheck={false}
                             autoFocus
-                            maxLength={2048}
+                            maxLength={ENC_DELIVERY_MAX_TEXT}
+                            rows={5}
                             value={urlInput}
                             onChange={(event) => {
                                 setUrlInput(event.target.value);
@@ -974,7 +1351,7 @@ export const EncCellManager: React.FC = () => {
                             disabled={importing}
                             aria-invalid={urlError ? 'true' : 'false'}
                             aria-describedby={urlError ? 'enc-install-url-error' : 'enc-install-url-help'}
-                            placeholder="https://example.gov/charts/cell.zip"
+                            placeholder="Paste your delivery email or chart links here"
                             className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-hidden placeholder:text-gray-400 focus:border-sky-400 disabled:opacity-60"
                         />
                         <button
@@ -985,11 +1362,12 @@ export const EncCellManager: React.FC = () => {
                         >
                             <span className="flex items-center justify-center gap-2">
                                 <span>{'\u{1F4CB}'}</span>
-                                <span>Paste link</span>
+                                <span>Paste from clipboard</span>
                             </span>
                         </button>
                         <p id="enc-install-url-help" className="mt-2 text-[11px] text-gray-500">
-                            Only direct HTTP or HTTPS downloads are supported.
+                            Direct HTTP or HTTPS downloads only. Links stay in this window and are sent only to your
+                            paired Pi for installation. Do not share private delivery links.
                         </p>
                         {urlError && (
                             <p
@@ -1002,6 +1380,38 @@ export const EncCellManager: React.FC = () => {
                             </p>
                         )}
                     </div>
+                    {deliveries.length > 0 && (
+                        <section aria-label="Chart package results" aria-live="polite" className="space-y-2">
+                            {deliveries.map((entry, index) => (
+                                <div key={index} className="rounded-xl border border-white/10 bg-white/3 p-3">
+                                    <p className="text-sm font-bold text-white">{entry.package.label}</p>
+                                    <p
+                                        className={`mt-1 text-xs ${entry.status === 'failed' ? 'text-red-300' : entry.status === 'phone-pending' || entry.status === 'pi-pending' ? 'text-amber-300' : 'text-gray-300'}`}
+                                    >
+                                        {entry.message}
+                                    </p>
+                                    {entry.package.expectedSha256 && (
+                                        <p className="mt-1 text-[11px] text-gray-400">Publisher checksum included</p>
+                                    )}
+                                    {entry.status === 'installing' && progress && (
+                                        <div className="mt-2">
+                                            <ImportProgressBar progress={progress} />
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                            {deliveries.some((entry) => entry.status === 'failed') && (
+                                <button
+                                    type="button"
+                                    disabled={importing}
+                                    onClick={() => void handleInstallFromUrl(true)}
+                                    className="min-h-11 w-full rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs font-bold text-amber-200 disabled:opacity-50"
+                                >
+                                    Retry failed packages
+                                </button>
+                            )}
+                        </section>
+                    )}
                     <div className="flex gap-3">
                         <Button
                             variant="secondary"
@@ -1015,14 +1425,14 @@ export const EncCellManager: React.FC = () => {
                             disabled={importing}
                             className="flex-1 text-gray-300 disabled:opacity-50"
                         >
-                            Cancel
+                            {deliveries.length ? 'Close' : 'Cancel'}
                         </Button>
                         <button
                             type="submit"
                             disabled={importing || !urlInput.trim()}
                             className="min-h-11 flex-1 rounded-xl border border-emerald-400/30 bg-emerald-500/20 px-4 py-3 text-sm font-black uppercase tracking-wider text-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                            {importing ? 'Installing…' : 'Install on Pi'}
+                            {importing ? 'Installing…' : 'Add or update on Pi'}
                         </button>
                     </div>
                 </form>
