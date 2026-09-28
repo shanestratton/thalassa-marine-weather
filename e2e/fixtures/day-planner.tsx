@@ -30,7 +30,12 @@ class FixtureStorage implements Storage {
 }
 Object.defineProperty(window, 'localStorage', { configurable: true, value: new FixtureStorage() });
 Object.defineProperty(window, 'sessionStorage', { configurable: true, value: new FixtureStorage() });
-const fixture = { synthetic: true, blockedRequests: [] as string[], providerCalls: 0 };
+const fixture = {
+    synthetic: true,
+    blockedRequests: [] as string[],
+    providerCalls: 0,
+    catalogueRequests: [] as { name: string; args: Record<string, unknown> }[],
+};
 Object.assign(window, { __dayPlannerFixture: fixture });
 // All application fetches are disabled, including same-origin development API
 // proxies. Native ES-module loading still fetches the real source components.
@@ -49,6 +54,7 @@ const missingPosition = params.get('position') === 'missing';
 const signedOut = params.get('auth') === 'signed-out';
 const frontDoor = params.get('surface') === 'plan';
 const worldwide = params.get('region') === 'noumea';
+const catalogueMode = params.get('catalogue');
 document.documentElement.classList.toggle('display-light', mode === 'light');
 
 const [{ setAuthIdentityScope }, { NmeaGpsProvider }, { piCache }, { CloudTelemetryService }, { supabase }] =
@@ -109,6 +115,92 @@ if (supabase) {
                 },
                 error: null,
             };
+        },
+    });
+    // Synthetic public RPC payloads exercise the real parser, adapter and picker.
+    // They are created in memory; every other application network path stays blocked.
+    const catalogueId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    const stamp = Date.now();
+    const summary = {
+        entry_id: catalogueId(1),
+        version: 1,
+        kind: 'trip',
+        name: 'Synthetic island visit with a deliberately long departure and destination name for narrow phone screens',
+        summary:
+            'Synthetic source reference used to inspect the catalogue picker. No real route or destination is approved.',
+        latitude: worldwide ? -22.278 : -20.258,
+        longitude: worldwide ? 166.439 : 148.815,
+        distance_nm: 0,
+        status: 'published',
+        review_status: 'reviewed',
+        reviewed_at: new Date(stamp - 60_000).toISOString(),
+        review_due_at: new Date(stamp + 86_400_000).toISOString(),
+    };
+    const detail = {
+        ...summary,
+        reviewer_label: 'Synthetic fixture editor',
+        review_scope: 'Synthetic layout data only; no source review or navigation verification.',
+        evidence: [
+            {
+                source_url: 'https://example.com/synthetic-catalogue-source-for-mobile-containment',
+                source_label: 'Synthetic source with a deliberately long description to verify mobile text wrapping',
+                retrieved_at: new Date(stamp - 120_000).toISOString(),
+                licence: 'Synthetic fixture value only; no real licence asserted',
+                licence_url: 'https://example.com/synthetic-licence',
+                attribution: 'Synthetic fixture',
+                scope: 'Layout checks only',
+            },
+        ],
+        limitations: [
+            'Synthetic reference only. Approach, shore access, shelter, current conditions and mooring availability remain unverified.',
+        ],
+        activities: [],
+        origin_destination_id: catalogueId(2),
+        origin_destination_version: 1,
+        destination_id: catalogueId(3),
+        destination_version: 1,
+        trip_id: null,
+        trip_version: null,
+        direction: null,
+        checkpoints: null,
+        variants: [
+            {
+                entry_id: catalogueId(4),
+                version: 1,
+                direction: 'outbound',
+                name: 'Synthetic outbound reference with a long label to check narrow-phone select containment',
+            },
+            ...(catalogueMode === 'missing-return'
+                ? []
+                : [
+                      {
+                          entry_id: catalogueId(5),
+                          version: 1,
+                          direction: 'return',
+                          name: 'Synthetic separately reviewed return reference with a long label',
+                      },
+                  ]),
+        ],
+        variants_truncated: false,
+    };
+    Object.assign(supabase, {
+        rpc: (name: string, args: Record<string, unknown>) => {
+            fixture.catalogueRequests.push({ name, args });
+            const data =
+                name === 'nearby_cruising_catalogue'
+                    ? catalogueMode
+                        ? [summary]
+                        : []
+                    : name === 'cruising_catalogue_detail' && args.p_id === catalogueId(1) && args.p_version === 1
+                      ? detail
+                      : null;
+            const response = Promise.resolve({ data, error: null });
+            return Object.assign(response, {
+                abortSignal: (signal: AbortSignal) =>
+                    signal.aborted
+                        ? Promise.reject(new DOMException('Synthetic read cancelled', 'AbortError'))
+                        : response,
+            });
         },
     });
 }

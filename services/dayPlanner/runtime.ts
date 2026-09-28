@@ -17,10 +17,18 @@ import { FEET_PER_METRE, vesselDraftMetres } from '../units';
 import { verifyCanalExitChart } from '../verifyCanalExitChart';
 import { discoverMappedDayPlanCandidates } from './discovery';
 import { resolvePlanningArea } from './regions';
+import { loadCataloguePlan, revalidateCataloguePlan } from './cataloguePlanning';
+import { CRUISING_CATALOGUE_LIMITATION } from './catalogue';
+import {
+    catalogueRouteMustGo,
+    assertCatalogueRouteCheckpoints,
+    catalogueRouteWarnings,
+} from './catalogueRouteConstraints';
 import {
     buildFlexibleDayPlan,
     DAY_PLAN_DEFAULT_LIMITS,
     DAY_PLAN_MAX_FORECAST_CELLS,
+    dayPlanDistanceNM,
     validateDayPlanRequest,
     type DayPlanCandidate,
     type DayPlanPoint,
@@ -253,7 +261,76 @@ export async function runDayPlanner(
             limitations: [],
         };
         let referencesFreshUntilMs = Number.POSITIVE_INFINITY;
-        if (!area.region) {
+        if (input.catalogueSelection) {
+            const candidate = await wait(loadCataloguePlan(input.catalogueSelection, input.mode, controller.signal));
+            check();
+            if (!candidate.catalogue) throw new Error('The selected catalogue evidence is unavailable.');
+            // The atlas supplies known restrictions only. Missing geographic
+            // coverage never establishes current permission or safe anchoring.
+            const nearby = await wait(
+                AnchorageService.loadNear(candidate.destination.lat, candidate.destination.lon, 1),
+            );
+            if (
+                !nearby ||
+                nearby.points?.type !== 'FeatureCollection' ||
+                !Array.isArray(nearby.points.features) ||
+                nearby.noAnchor?.type !== 'FeatureCollection' ||
+                !Array.isArray(nearby.noAnchor.features) ||
+                nearby.points.features.length > 10000 ||
+                nearby.noAnchor.features.length > 10000
+            )
+                throw new Error('Mapped restriction data is unavailable for the selected catalogue stop.');
+            let restricted = false;
+            for (const feature of nearby.noAnchor.features) {
+                if (!feature || feature.type !== 'Feature' || !validArea(feature.geometry))
+                    throw new Error('Mapped restriction geometry is unavailable for the selected catalogue stop.');
+                if (contains(feature.geometry, candidate.destination)) restricted = true;
+            }
+            for (const feature of nearby.points.features) {
+                const coordinates = feature?.geometry?.coordinates;
+                const properties = feature?.properties;
+                if (
+                    !feature ||
+                    feature.type !== 'Feature' ||
+                    feature.geometry?.type !== 'Point' ||
+                    !Array.isArray(coordinates) ||
+                    coordinates.length !== 2 ||
+                    !between(coordinates[0], -180, 180) ||
+                    !between(coordinates[1], -90, 90) ||
+                    !properties ||
+                    (properties.noAnchoring !== undefined && typeof properties.noAnchoring !== 'boolean') ||
+                    (properties.notes != null &&
+                        (typeof properties.notes !== 'string' || properties.notes.length > 10000))
+                )
+                    throw new Error('Mapped restriction data is invalid for the selected catalogue stop.');
+                if (
+                    dayPlanDistanceNM(candidate.destination, { lon: coordinates[0], lat: coordinates[1] }) * 1852 <=
+                        20 &&
+                    (properties.noAnchoring ||
+                        /\b(?:no[ -]?anchor(?:ing|age)?|(?:do\s+not|must\s+not|not\s+permitted\s+to|not\s+allowed\s+to)\s+anchor|anchor(?:ing|age)?\s+(?:is\s+)?(?:not\s+(?:allowed|permitted)|prohibited|forbidden|banned)|private|no\s+access|restricted|closed|exclusion\s+zone|(?:permit|permission)\s+required)\b/i.test(
+                            properties.notes ?? '',
+                        ))
+                )
+                    restricted = true;
+            }
+            candidate.place.noAnchoring = candidate.place.noAnchoring === true || restricted;
+            candidates.push(candidate);
+            coverage.id = 'shared-catalogue';
+            coverage.name = 'Shared cruising catalogue';
+            coverage.type = 'catalogue-reference';
+            coverage.sourceAttributions = [
+                ...new Set(
+                    candidate.catalogue.details.flatMap((detail) =>
+                        detail.evidence.map((source) => source.attribution),
+                    ),
+                ),
+            ];
+            coverage.limitations = [
+                CRUISING_CATALOGUE_LIMITATION,
+                'Known mapped restrictions were checked where available; current worldwide access and anchoring permission remain unverified.',
+            ];
+            await wait(revalidateCataloguePlan(candidate.catalogue, controller.signal));
+        } else if (!area.region) {
             const discovery = await wait(
                 discoverMappedDayPlanCandidates(input, { signal: controller.signal, timeZone: area.timeZone }),
             );
@@ -306,14 +383,30 @@ export async function runDayPlanner(
         }
         const dependencies: DayPlannerDependencies = {
             now: Date.now,
-            async route(from, to) {
+            async route(from, to, _signal, constraint) {
                 check();
+                if (constraint && status.channelGuidance !== true)
+                    throw new Error('The route service does not support required catalogue checkpoints.');
+                const mustGo = constraint ? catalogueRouteMustGo(from, to, constraint) : [];
+                const sourceWarnings = constraint
+                    ? catalogueRouteWarnings(
+                          candidates.find((candidate) => {
+                              const variant = candidate.catalogue?.[constraint.direction]?.variant;
+                              return (
+                                  variant?.id === constraint.variant.id &&
+                                  variant.version === constraint.variant.version
+                              );
+                          })?.catalogue,
+                          constraint,
+                      )
+                    : [];
                 const routeRequest: AutoroutingTrialRequest = {
                     departure: { ...from },
                     destination: { ...to },
                     speedKts: inputs.speedKts,
                     draftM: inputs.draftM,
                     vesselProfile: structuredClone(profile),
+                    ...(mustGo.length ? { chartTrackConstraints: mustGo } : {}),
                 };
                 let calculateProvider = calculateAutoroutingTrial;
                 if (status.channelGuidance === true) {
@@ -326,6 +419,10 @@ export async function runDayPlanner(
                 const applicable = VERIFIED_CANAL_EXIT_PROFILES.filter((entry) => contains(entry.departureArea, from));
                 const exit = applicable.length ? resolveAutomaticCanalExit(from, to, applicable) : undefined;
                 if (exit?.status === 'manual-required') throw new Error(exit.reason);
+                if (constraint && exit?.status === 'resolved')
+                    throw new Error(
+                        'Required catalogue checkpoints cannot be combined with this automatic canal exit. Plot and review this departure separately.',
+                    );
                 let route: AutoroutingTrialRoute;
                 if (exit?.status === 'resolved') {
                     if (!options.mapboxToken || !(await wait(verifyCanalExitChart(exit.profileId, controller.signal))))
@@ -354,12 +451,13 @@ export async function runDayPlanner(
                         throw new Error('The automatic channel exit changed or expired during planning.');
                 } else route = await wait(calculateProvider(routeRequest, controller.signal));
                 check();
+                if (constraint) assertCatalogueRouteCheckpoints(route.coordinates, constraint);
                 if (route.provider !== 'SevenCs' || JSON.stringify(route.vesselProfile) !== profileKey)
                     throw new Error('The routing response did not preserve the current vessel profile.');
                 route = {
                     ...route,
                     coordinates: route.coordinates.map(([lon, lat]) => [lon, lat]),
-                    warnings: [...new Set([...route.warnings, ...vesselWarnings])],
+                    warnings: [...new Set([...route.warnings, ...vesselWarnings, ...sourceWarnings])],
                 };
                 const geometryKey = autoroutingProposalGeometryKey(route.coordinates);
                 if (!geometryKey) throw new Error('The routing response contains invalid geometry.');
@@ -430,6 +528,10 @@ export async function runDayPlanner(
                 },
             }),
         );
+        check();
+        for (const candidate of candidates) {
+            if (candidate.catalogue) await wait(revalidateCataloguePlan(candidate.catalogue, controller.signal));
+        }
         check();
         if (Date.now() >= referencesFreshUntilMs)
             throw new Error('Mapped-stop references expired during planning. Calculate a new plan.');

@@ -11,6 +11,8 @@ import {
     type TrafficLight,
 } from '../anchorages/placeConditions';
 import type { DayPlannerActivity, DayPlannerDestination } from './destinations';
+import type { CataloguePlanBinding, CataloguePlanSelection, CatalogueRouteConstraint } from './cataloguePlanningTypes';
+import { assertCatalogueRouteCheckpoints, catalogueRouteWarnings } from './catalogueRouteConstraints';
 import { DAY_PLAN_TIME_ZONE, dayPlanLocalDate, isDayPlanTimeZone } from './presentation';
 
 const HOUR_MS = 3_600_000;
@@ -38,6 +40,8 @@ export interface DayPlanRequest {
     /** Explicit stops override activity preferences only, never safety checks.
      * Omit to discover nearby options; an empty array also means no selection. */
     destinationIds?: readonly string[];
+    /** Exact public catalogue choice, mutually exclusive with local destination IDs. */
+    catalogueSelection?: CataloguePlanSelection;
     speedKts: number;
     draftM: number;
     maxWindKts?: number;
@@ -51,6 +55,7 @@ export interface DayPlanRequest {
 export interface DayPlanCandidate {
     destination: DayPlannerDestination;
     place: ConditionsPlace;
+    catalogue?: CataloguePlanBinding;
 }
 export interface DayPlanLeg {
     route: AutoroutingTrialRoute;
@@ -96,7 +101,7 @@ export interface DayPlanResult {
     coverage?: {
         id: string;
         name: string;
-        type: 'reviewed' | 'mapped-reference';
+        type: 'reviewed' | 'mapped-reference' | 'catalogue-reference';
         timeZone: string;
         sourceAttributions: string[];
         limitations: string[];
@@ -109,6 +114,7 @@ export interface DayPlannerDependencies {
         from: DayPlanPoint,
         to: DayPlanPoint,
         signal: AbortSignal,
+        constraint?: CatalogueRouteConstraint,
     ): Promise<{
         route: AutoroutingTrialRoute;
         review: TrialRouteReview;
@@ -205,6 +211,22 @@ export function validateDayPlanRequest(request: DayPlanRequest, now: number): vo
             new Set(request.destinationIds).size !== request.destinationIds.length)
     )
         throw new Error('Choose up to four distinct destinations.');
+    if (request.catalogueSelection !== undefined) {
+        const selection = request.catalogueSelection;
+        const validRef = (value: { id: string; version: number } | undefined) =>
+            !!value &&
+            /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.id) &&
+            Number.isInteger(value.version) &&
+            value.version > 0 &&
+            value.version <= 2147483647;
+        if (
+            !validRef(selection) ||
+            (selection.outbound !== undefined && !validRef(selection.outbound)) ||
+            (selection.return !== undefined && !validRef(selection.return)) ||
+            request.destinationIds?.length
+        )
+            throw new Error('Choose one exact catalogue reference or local destinations, not both.');
+    }
     for (const [key, upper] of [
         ['maxWindKts', 100],
         ['maxGustKts', 150],
@@ -486,16 +508,30 @@ function applyStayWindLimits(
 }
 
 function applyDestinationQuality(conditions: PlaceConditions, candidate: DayPlanCandidate): PlaceConditions {
-    return candidate.destination.catalogueQuality === 'mapped-reference' && conditions.light !== 'red'
+    const shared = !!candidate.catalogue || candidate.destination.catalogueQuality === 'catalogue-reference';
+    return (shared || candidate.destination.catalogueQuality === 'mapped-reference') && conditions.light !== 'red'
         ? {
               ...conditions,
               light: 'unknown',
               reasons: unique([
-                  'Unreviewed mapped reference: mapped data does not establish permission, activities, shelter or holding.',
+                  shared
+                      ? 'Reviewed catalogue reference: review does not establish current access, anchoring permission, shelter or holding.'
+                      : 'Unreviewed mapped reference: mapped data does not establish permission, activities, shelter or holding.',
                   ...conditions.reasons,
               ]),
           }
         : conditions;
+}
+
+function candidateDistanceLowerBound(request: DayPlanRequest, candidate: DayPlanCandidate): number {
+    const leg = (from: DayPlanPoint, to: DayPlanPoint, constraint?: CatalogueRouteConstraint) => {
+        const points = [from, ...(constraint?.checkpoints ?? []), to];
+        return points.slice(1).reduce((sum, point, index) => sum + dayPlanDistanceNM(points[index], point), 0);
+    };
+    return (
+        leg(request.start, candidate.destination, candidate.catalogue?.outbound) +
+        (request.mode === 'return' ? leg(candidate.destination, request.start, candidate.catalogue?.return) : 0)
+    );
 }
 
 /** One documented stop only. The lower-bound shortlist never supplies geometry,
@@ -512,6 +548,24 @@ export async function buildDayPlan(
     validateDayPlanRequest(request, startedAt);
     const excluded: DayPlanResult['excluded'] = [];
     const selectedIds = new Set(request.destinationIds ?? []);
+    if (request.catalogueSelection) {
+        const key = (selection: CataloguePlanSelection) =>
+            JSON.stringify([
+                selection.id,
+                selection.version,
+                selection.outbound?.id,
+                selection.outbound?.version,
+                selection.return?.id,
+                selection.return?.version,
+            ]);
+        if (
+            candidates.length !== 1 ||
+            !candidates[0].catalogue ||
+            candidates[0].catalogue.mode !== request.mode ||
+            key(candidates[0].catalogue.selection) !== key(request.catalogueSelection)
+        )
+            throw new Error('The exact selected catalogue reference is unavailable. Recalculate the plan.');
+    }
     if ([...selectedIds].some((id) => candidates.filter((candidate) => candidate.destination.id === id).length !== 1))
         throw new Error('A selected destination is unavailable or ambiguous. Refresh the local choices and try again.');
     const eligible = candidates
@@ -523,6 +577,7 @@ export async function buildDayPlan(
                 reason = 'The destination has an invalid IANA time zone.';
             else if (
                 !selectedIds.size &&
+                !request.catalogueSelection &&
                 request.activities.length > 0 &&
                 !request.activities.some((activity) => destination.activities.includes(activity))
             )
@@ -537,11 +592,7 @@ export async function buildDayPlan(
                 reason = 'The documented destination has no matching exact anchorage position.';
             else if (dayPlanDistanceNM(request.start, destination) < 0.0108)
                 reason = 'The destination is already at the start position.';
-            else if (
-                (dayPlanDistanceNM(request.start, destination) * (request.mode === 'return' ? 2 : 1)) /
-                    request.speedKts >
-                request.maxSailingHours
-            )
+            else if (candidateDistanceLowerBound(request, candidate) / request.speedKts > request.maxSailingHours)
                 reason = 'Outside the sailing budget even before route detours.';
             if (reason) excluded.push({ name: destination.name, reason });
             return !reason;
@@ -573,9 +624,26 @@ export async function buildDayPlan(
         try {
             progress('routing');
             const checks: DayPlanAssessment[] = [];
-            const getLeg = async (from: DayPlanPoint, to: DayPlanPoint, departureMs: number): Promise<DayPlanLeg> => {
+            const getLeg = async (
+                from: DayPlanPoint,
+                to: DayPlanPoint,
+                departureMs: number,
+                constraint?: CatalogueRouteConstraint,
+            ): Promise<DayPlanLeg> => {
                 stopIfAborted(signal);
-                const response = await deps.route(from, to, signal);
+                const sourceWarnings = catalogueRouteWarnings(candidate.catalogue, constraint);
+                const calculated = constraint
+                    ? await deps.route(from, to, signal, constraint)
+                    : await deps.route(from, to, signal);
+                const response = sourceWarnings.length
+                    ? {
+                          ...calculated,
+                          route: {
+                              ...calculated.route,
+                              warnings: unique([...calculated.route.warnings, ...sourceWarnings]),
+                          },
+                      }
+                    : calculated;
                 stopIfAborted(signal);
                 const distanceNM = dayPlanRouteDistanceNM(response.route.coordinates);
                 if (
@@ -583,6 +651,7 @@ export async function buildDayPlan(
                     dayPlanDistanceNM(to, pointOf(response.route.coordinates.at(-1)!)) * 1852 > 20
                 )
                     throw new Error('Route endpoints do not match the requested positions within 20 metres.');
+                if (constraint) assertCatalogueRouteCheckpoints(response.route.coordinates, constraint);
                 checks.push(assessDayPlanRoute(response.route, response.review, request.draftM));
                 return {
                     ...response,
@@ -591,7 +660,18 @@ export async function buildDayPlan(
                     arrivalMs: departureMs + (distanceNM / request.speedKts) * HOUR_MS,
                 };
             };
-            const outbound = await getLeg(request.start, destination, request.departureMs);
+            if (candidate.catalogue?.outbound && candidate.catalogue.outbound.direction !== 'outbound')
+                throw new Error('The catalogue outbound route has the wrong direction.');
+            if (candidate.catalogue?.return && candidate.catalogue.return.direction !== 'return')
+                throw new Error('The catalogue return route has the wrong direction.');
+            if (candidate.catalogue?.outbound && request.mode === 'return' && !candidate.catalogue.return)
+                throw new Error('This catalogue trip has no separately reviewed return route.');
+            const outbound = await getLeg(
+                request.start,
+                destination,
+                request.departureMs,
+                candidate.catalogue?.outbound,
+            );
             stopIfAborted(signal);
             const stayFromMs = outbound.arrivalMs;
             const stayToMs =
@@ -608,7 +688,7 @@ export async function buildDayPlan(
             }
             const legs = [outbound];
             if (request.mode === 'return') {
-                legs.push(await getLeg(destination, request.start, stayToMs));
+                legs.push(await getLeg(destination, request.start, stayToMs, candidate.catalogue?.return));
                 stopIfAborted(signal);
             }
             const distanceNM = legs.reduce((sum, leg) => sum + leg.distanceNM, 0);
@@ -733,12 +813,14 @@ export async function buildFlexibleDayPlan(
     const forecasts = new Map<string, ReturnType<DayPlannerDependencies['forecast']>>();
     const memoized: DayPlannerDependencies = {
         now: () => deps.now(),
-        async route(from, to, signal) {
+        async route(from, to, signal, constraint) {
             stopIfAborted(signal);
-            const key = JSON.stringify([from.lat, from.lon, to.lat, to.lon]);
+            const key = JSON.stringify([from.lat, from.lon, to.lat, to.lon, constraint ?? null]);
             let task = routes.get(key);
             if (!task) {
-                task = deps.route(from, to, signal).then(frozenSnapshot);
+                task = (constraint ? deps.route(from, to, signal, constraint) : deps.route(from, to, signal)).then(
+                    frozenSnapshot,
+                );
                 routes.set(key, task);
             }
             const response = await task;

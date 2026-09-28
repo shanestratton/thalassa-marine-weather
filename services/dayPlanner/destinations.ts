@@ -20,7 +20,7 @@ export interface DayPlannerDestination {
     verifiedAt?: string;
     /** Source retrieval timestamp, not verification of activities or access. */
     retrievedAt?: string;
-    catalogueQuality?: 'reviewed' | 'mapped-reference';
+    catalogueQuality?: 'reviewed' | 'mapped-reference' | 'catalogue-reference';
     /** IANA timezone for local calendar dates, especially access notices. */
     timeZone?: string;
     /** Public map link for the exact source feature, when available. */
@@ -29,7 +29,7 @@ export interface DayPlannerDestination {
     uncertaintyNotes: string[];
     anchorageId: string;
     anchorageName: string;
-    referencePosition: 'existing-anchorage';
+    referencePosition: 'existing-anchorage' | 'catalogue-reference';
     supportingSources?: { url: string; label: string }[];
     /** Inclusive destination-local dates; omit these candidates during this period. */
     knownClosures?: { fromDate: string; throughDate: string; reason: string; sourceUrl: string }[];

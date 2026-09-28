@@ -1,6 +1,6 @@
 /**
- * Read-only, opt-in client for the UNDEPLOYED shared cruising catalogue.
- * This is deliberately not connected to route calculation or private tracks.
+ * Read-only client for the shared cruising catalogue (schema deployed 2026-09-28).
+ * Planner integration is opt-in; this client never accesses private tracks.
  * Pass the application's authenticated Supabase client to the factory.
  */
 export const CRUISING_CATALOGUE_LIMITS = {

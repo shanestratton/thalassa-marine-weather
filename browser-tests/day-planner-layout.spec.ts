@@ -47,7 +47,14 @@ async function assertLayout(page: Page) {
             messages.push('Sheet escapes its viewport/pane.');
         for (const selector of ['.day-plan-header', '.day-plan-body', '.day-plan-footer']) {
             const element = sheet.querySelector<HTMLElement>(selector)!;
-            if (element.scrollWidth > element.clientWidth + 1) messages.push(`${selector} overflows horizontally.`);
+            if (element.scrollWidth > element.clientWidth + 1) {
+                const overflowing = [...element.querySelectorAll<HTMLElement>('*')]
+                    .filter((child) => child.clientWidth && child.scrollWidth > child.clientWidth + 1)
+                    .map((child) => `${child.tagName}.${child.className}: ${child.scrollWidth}/${child.clientWidth}`);
+                messages.push(
+                    `${selector} overflows horizontally (${element.scrollWidth}/${element.clientWidth}): ${overflowing.join(', ')}.`,
+                );
+            }
         }
         for (const element of sheet.querySelectorAll<HTMLElement>(
             '.day-plan-body input, .day-plan-body select, .day-plan-body label',
@@ -295,4 +302,89 @@ for (const size of sizes.filter((candidate) => !candidate.pane)) {
         await expect(plotting).toBeVisible();
         expect(errors).toEqual([]);
     });
+}
+
+for (const size of sizes.filter((candidate) => !candidate.pane)) {
+    for (const mode of ['dark', 'light']) {
+        test(`Shared catalogue picker fits ${size.width}px ${mode} with complete and missing route choices`, async ({
+            page,
+        }, testInfo) => {
+            const errors = await openFixture(page, size, mode, '&catalogue=ready');
+            const browse = page.getByRole('button', { name: 'Browse shared catalogue', exact: true });
+            await browse.scrollIntoViewIfNeeded();
+            await expect(browse).toBeEnabled();
+            expect(
+                await page.evaluate(
+                    () =>
+                        (window as unknown as { __dayPlannerFixture: { catalogueRequests: unknown[] } })
+                            .__dayPlannerFixture.catalogueRequests,
+                ),
+            ).toHaveLength(0);
+            await browse.click();
+            const selection = page.getByRole('combobox', { name: 'Shared destination or trip', exact: true });
+            await expect(selection.locator('option')).toHaveCount(2);
+            await selection.selectOption('00000000-0000-4000-8000-000000000001:1');
+            const outbound = page.getByRole('combobox', { name: 'Outbound route reference', exact: true });
+            const returning = page.getByRole('combobox', { name: 'Return route reference', exact: true });
+            await expect(outbound).toHaveValue('00000000-0000-4000-8000-000000000004:1');
+            await expect(returning).toHaveValue('00000000-0000-4000-8000-000000000005:1');
+            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeEnabled();
+            await outbound.scrollIntoViewIfNeeded();
+            await assertLayout(page);
+            await screenshot(page, testInfo, `day-planner-catalogue-${size.width}-${mode}-ready`);
+            await page.getByText('Catalogue source review', { exact: true }).click();
+            await page
+                .getByText('Synthetic source with a deliberately long description to verify mobile text wrapping', {
+                    exact: true,
+                })
+                .scrollIntoViewIfNeeded();
+            await assertLayout(page);
+            await screenshot(page, testInfo, `day-planner-catalogue-${size.width}-${mode}-sources`);
+            const calls = await page.evaluate(
+                () =>
+                    (
+                        window as unknown as {
+                            __dayPlannerFixture: {
+                                catalogueRequests: { name: string; args: Record<string, unknown> }[];
+                                providerCalls: number;
+                            };
+                        }
+                    ).__dayPlannerFixture,
+            );
+            expect(calls.catalogueRequests).toEqual([
+                {
+                    name: 'nearby_cruising_catalogue',
+                    args: { p_latitude: -20.258, p_longitude: 148.815, p_radius_nm: 30, p_limit: 24 },
+                },
+                {
+                    name: 'cruising_catalogue_detail',
+                    args: { p_id: '00000000-0000-4000-8000-000000000001', p_version: 1 },
+                },
+            ]);
+            expect(calls.providerCalls).toBe(0);
+            expect(errors).toEqual([]);
+
+            const missingErrors = await openFixture(page, size, mode, '&catalogue=missing-return');
+            await page.getByRole('button', { name: 'Browse shared catalogue', exact: true }).click();
+            await expect(selection.locator('option')).toHaveCount(2);
+            await selection.selectOption('00000000-0000-4000-8000-000000000001:1');
+            await expect(returning).toHaveValue('');
+            await expect(returning.locator('option')).toHaveText(['No reviewed route available']);
+            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeDisabled();
+            await returning.scrollIntoViewIfNeeded();
+            await expect(page.getByText(/A return route is not assumed from the outbound route/)).toBeVisible();
+            await assertLayout(page);
+            await screenshot(page, testInfo, `day-planner-catalogue-${size.width}-${mode}-missing-return`);
+            await selection.selectOption('');
+            await expect(page.getByRole('button', { name: 'Find my day', exact: true })).toBeEnabled();
+            expect(missingErrors).toEqual([]);
+            expect(
+                await page.evaluate(
+                    () =>
+                        (window as unknown as { __dayPlannerFixture: { providerCalls: number } }).__dayPlannerFixture
+                            .providerCalls,
+                ),
+            ).toBe(0);
+        });
+    }
 }
