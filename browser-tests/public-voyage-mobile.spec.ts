@@ -118,6 +118,17 @@ function voyageData(trip: string | null): VoyageLogData {
     };
 }
 
+// The voyage picker is a chip button that opens a 'Choose a voyage' dialog of
+// trip cards (it replaced a native <select>, so there is no combobox).
+const tripChip = (page: Page) => page.getByRole('button', { name: /^Choose a voyage to view/ });
+
+async function chooseTrip(page: Page, tripId: string) {
+    await tripChip(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Choose a voyage' });
+    await dialog.locator(`[role="option"][data-trip-id="${tripId}"]`).click();
+    await expect(dialog).toHaveCount(0);
+}
+
 async function openVoyage(page: Page, baseURL: string, justRecording = false) {
     const origin = new URL(baseURL).origin;
     await page.route('**/*', async (route) => {
@@ -222,7 +233,7 @@ test('a just-recorded trip opens on its map and offers its public diary without 
     const nav = page.getByRole('navigation', { name: 'Voyage views' });
     await expect(nav.getByRole('button', { name: 'Map', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#voyage-map')).toBeVisible();
-    await expect(page.getByRole('combobox', { name: 'Choose a voyage to view' })).toHaveValue('latest');
+    await expect(tripChip(page)).toHaveAccessibleName(/ · Latest trip · /);
     await nav.getByRole('button', { name: 'Diary', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Lagoon journal 1', exact: true })).toBeVisible();
     expect(tripRequests).not.toContain('all-diary');
@@ -232,9 +243,12 @@ test('a just-recorded trip opens on its map and offers its public diary without 
 test('whole journey keeps the phone map and all diary entries reachable', async ({ page, baseURL }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openVoyage(page, baseURL!, true);
-    const selector = page.getByRole('combobox', { name: 'Choose a voyage to view' });
-    await expect(selector.getByRole('option', { name: 'All trips & diary', exact: true })).toHaveCount(1);
-    await selector.selectOption('all-diary');
+    await tripChip(page).click();
+    const dialog = page.getByRole('dialog', { name: 'Choose a voyage' });
+    await expect(dialog.getByRole('option', { name: 'All trips & diary', exact: true })).toHaveCount(1);
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await chooseTrip(page, 'all-diary');
     const nav = page.getByRole('navigation', { name: 'Voyage views' });
     await expect(nav.getByRole('button', { name: 'Map', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#voyage-map')).toBeVisible();
@@ -323,7 +337,7 @@ for (const viewport of [
         expect(mapElement).not.toBeNull();
         const canvas = map.locator('.mapboxgl-canvas');
         const canvasElement = (await canvas.count()) ? await canvas.elementHandle() : null;
-        const selector = page.getByRole('combobox', { name: 'Choose a voyage to view' });
+        const selector = tripChip(page);
         const floatingHeader = page.getByTestId('public-voyage-header');
         const expand = page.getByRole('button', { name: 'Expand map', exact: true });
         const restore = page.getByRole('button', { name: 'Restore page header', exact: true });
@@ -433,7 +447,7 @@ test('mobile historical selection withdraws instruments and keeps diary navigati
     const instruments = nav.getByRole('button', { name: 'Instruments', exact: true });
     await instruments.click();
     await expect(page.getByRole('region', { name: 'Onboard instruments' })).toBeVisible();
-    await page.getByRole('combobox', { name: 'Choose a voyage to view' }).selectOption('old-trip');
+    await chooseTrip(page, 'old-trip');
     await expect(instruments).toBeDisabled();
     await expect(page.getByRole('region', { name: 'Onboard instruments' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Instrument sharing status' })).toHaveCount(0);

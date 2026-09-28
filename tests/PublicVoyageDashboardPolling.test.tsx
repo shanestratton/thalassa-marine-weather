@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VoyageLogData, VoyageLogTelemetry } from '../src/voyageLogApi';
 
@@ -132,6 +132,17 @@ const DATA: VoyageLogData = {
     generated_at: new Date(NOW).toISOString(),
 };
 
+// The trip picker is a chip button that opens a 'Choose a voyage' dialog.
+async function chooseTrip(value: string): Promise<void> {
+    fireEvent.click(screen.getByRole('button', { name: /^Choose a voyage to view/ }));
+    const option = within(screen.getByRole('dialog', { name: 'Choose a voyage' }))
+        .getAllByRole('option')
+        .find((item) => item.getAttribute('data-trip-id') === value);
+    if (!option) throw new Error(`The picker has no option for ${value}`);
+    // Inside act, so the request the choice starts settles like the old change.
+    await act(async () => fireEvent.click(option));
+}
+
 async function flushReact(): Promise<void> {
     await act(async () => {
         await Promise.resolve();
@@ -156,11 +167,7 @@ describe('public voyage dashboard polling honesty', () => {
         render(<ThalassaDashboard />);
         await flushReact();
         expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 1');
-        await act(async () =>
-            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                target: { value: 'trip-1' },
-            }),
-        );
+        await chooseTrip('trip-1');
         expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
     });
 
@@ -174,17 +181,9 @@ describe('public voyage dashboard polling honesty', () => {
         render(<ThalassaDashboard />);
         await flushReact();
         expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
-        await act(async () =>
-            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                target: { value: 'old-trip' },
-            }),
-        );
+        await chooseTrip('old-trip');
         mocks.fetchVoyageLog.mockImplementation(() => new Promise(() => {}));
-        await act(async () =>
-            fireEvent.change(screen.getByRole('combobox', { name: 'Choose a voyage to view' }), {
-                target: { value: 'latest' },
-            }),
-        );
+        await chooseTrip('latest');
         expect(screen.getByTestId('map-state')).toHaveTextContent('nearby 0');
     });
 

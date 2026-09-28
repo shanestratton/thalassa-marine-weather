@@ -74,6 +74,15 @@ export interface PublicVoyageTrip {
     point_count: number;
     distance_nm: number | null;
     has_route: boolean;
+    /** Where the trip left from and arrived at, named only from the boat's
+     *  own waypoints or public diary places near its first/last fix. Null
+     *  (or absent, on older servers) when there is no honest name; the page
+     *  never invents one. */
+    from_name?: string | null;
+    to_name?: string | null;
+    /** IANA zone at the trip's first fix, for boat-local dates. Absent on
+     *  older servers: fall back to the zone the diary uses. */
+    time_zone?: string | null;
 }
 
 export interface VoyageLogTrackPoint {
@@ -220,6 +229,8 @@ export interface VoyageLogWaypoint {
     lon: number;
     name: string;
     timestamp: string;
+    /** IANA zone at this waypoint. Absent on older servers. */
+    time_zone?: string | null;
 }
 
 export class VoyageLogError extends Error {

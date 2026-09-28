@@ -6,13 +6,15 @@ import DiarySidebar, { type PublicVoyagePanel } from './components/DiarySidebar'
 import type { PhotoLightboxMetadata } from './components/PhotoLightbox';
 import { VoyageProgressBar } from './components/VoyageProgressBar';
 import { PassageStats } from './components/PassageStats';
+import { TripPicker } from './components/TripPicker';
 import {
+    DIARY_TIME_ZONE,
     instrumentHeadline,
     latestPublicTrackPoint,
     passageFacts,
     passageKeySummary,
     publicLastKnownLabel,
-    stripTrackPrefix,
+    tripSummary,
 } from './components/voyageStory';
 import {
     fetchVoyageLog,
@@ -93,12 +95,6 @@ const entryLightbox = (entry: VoyageLogEntry, index: number): LightboxState => (
     },
 });
 
-const tripOptionLabel = (trip: PublicVoyageTrip): string => {
-    const distance = trip.distance_nm != null && trip.distance_nm > 0 ? ` · ${trip.distance_nm.toFixed(1)} nm` : '';
-    const route = trip.has_route ? ' · route' : '';
-    return `${trip.label}${distance}${route}`;
-};
-
 export default function ThalassaDashboard() {
     const [state, setState] = useState<LoadState>({ status: 'loading' });
     // "latest" is intentionally a mode rather than the current trip id. It
@@ -134,6 +130,9 @@ export default function ThalassaDashboard() {
     const isMobile = usePublicMediaQuery('(max-width: 1023px)');
     const isShortLandscape = usePublicMediaQuery('(max-width: 1023px) and (max-height: 500px)');
     const [mapExpandedChoice, setMapExpandedChoice] = useState<boolean | null>(null);
+    // The Expand map / Restore page header button: where focus goes when a
+    // picker choice folds the header (and its chip) away.
+    const expandButtonRef = useRef<HTMLButtonElement>(null);
     const mapExpanded = (!isMobile || mobileView === 'map') && (mapExpandedChoice ?? isShortLandscape);
     const { handle } = parseVoyageLogParams();
     const instrumentPanelOpen =
@@ -288,13 +287,16 @@ export default function ThalassaDashboard() {
     const handleClear = useCallback(() => setSelectedEntry(null), []);
     const handleLightboxClose = useCallback(() => setLightbox(null), []);
 
-    const handleTripChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    // The trip picker's choice: exactly what the native <select>'s onChange
+    // did before the picker became a dialog. TripPicker only calls this for
+    // a different option, as a <select> fires no change for its own value.
+    const handleTripChange = useCallback((value: string) => {
         initialTripDecided.current = true;
         initialOverviewPending.current = false;
-        if (event.target.value === 'all-diary') {
+        if (value === 'all-diary') {
             setMobileView('map');
         }
-        setRequestedTrip(event.target.value);
+        setRequestedTrip(value);
     }, []);
 
     // A photo tap: focus the entry (so the box shows its story) + open fullscreen.
@@ -446,26 +448,37 @@ export default function ThalassaDashboard() {
         lastSuccessfulAt === null ||
         nowMs - lastSuccessfulAt >= Math.max(expectedRefreshMs * 2, PUBLIC_POSITION_FRESH_MS);
     const connectionLost = pollFailed || responseOverdue;
-    const selectedTripLabel = selectedTrip?.label ?? null;
-    const diaryTitle = isAllDiaryView ? 'All trips & diary' : (selectedTripLabel ?? 'Voyage Log');
+    // The chapter head names the trip exactly as the picker's card does:
+    // from → to when the server named an end, else the boat-local day. The
+    // server's label (built in UTC, a day early for evening starts) is only
+    // tripSummary's last resort for a trip with no usable start. A named
+    // title moves the day into the context line, so the phone's Diary view,
+    // whose docked chip shows no date, still says when.
+    const selectedSummary =
+        selectedTrip?.kind === 'track' ? tripSummary(selectedTrip, { fallbackZone: DIARY_TIME_ZONE, nowMs }) : null;
+    const hasSelectedTrip = !!selectedTrip?.label || !!selectedSummary;
+    const diaryTitle = isAllDiaryView
+        ? 'All trips & diary'
+        : (selectedSummary?.headline ?? selectedTrip?.label ?? 'Voyage Log');
     const diaryContext = isAllDiaryView
         ? 'Shared tracks and every public diary entry, including stories between trips.'
-        : selectedTripLabel
-          ? `${selectedTrip?.active ? 'Live' : 'Historic'} trip diary`
+        : hasSelectedTrip
+          ? [
+                `${selectedTrip?.active ? 'Live' : 'Historic'} trip diary`,
+                selectedSummary?.named ? selectedSummary.date : null,
+            ]
+                .filter(Boolean)
+                .join(' · ')
           : undefined;
     const diaryEmptyMessage = isAllDiaryView
         ? 'No public diary entries yet.'
-        : selectedTripLabel
+        : hasSelectedTrip
           ? 'No public diary entries were recorded for this trip.'
           : 'No log entries published yet.';
     // The server-resolved id only changes when the applied selection changes.
     // It deliberately does not include live point updates, so a two-minute
     // refresh never wrests the camera away from a viewer who is panning.
     const mapFocusKey = selectedTripId ?? requestedTrip;
-    // The Latest option shows the distance the other options already show.
-    const latestOptionLabel = latestTrip
-        ? `Latest trip · ${tripOptionLabel(latestTrip)}`
-        : 'Latest trip · No trip started yet';
     // With no started trip, the server can resolve "latest" to all-diary;
     // shared instruments must still work for a boat sitting at her berth.
     const canViewInstruments = requestedTrip === 'latest';
@@ -496,21 +509,6 @@ export default function ThalassaDashboard() {
         canViewInstruments && !connectionLost && instrumentFeed.snapshot?.instruments_shared === true
             ? instrumentHeadline(instrumentFeed.snapshot.instruments, nowMs)
             : null;
-    // The trip chip's face. The native <select> underneath stays the control.
-    const chipTrip =
-        requestedTrip === 'latest'
-            ? latestTrip
-            : requestedTrip === 'all-diary'
-              ? null
-              : (trips.find((trip) => trip.id === requestedTrip) ?? null);
-    const chipEyebrow =
-        requestedTrip === 'latest' ? 'Latest trip' : requestedTrip === 'all-diary' ? 'Whole journey' : 'Trip';
-    const chipValue =
-        requestedTrip === 'all-diary'
-            ? 'All trips & diary'
-            : chipTrip
-              ? stripTrackPrefix(tripOptionLabel(chipTrip))
-              : 'No trip started yet';
     const statsTrip = !isAllDiaryView && selectedTrip?.kind === 'track' ? selectedTrip : null;
     const heroStats = passageFacts({
         trip: statsTrip,
@@ -564,68 +562,23 @@ export default function ThalassaDashboard() {
                 />
 
                 {/* A public log is a voyage shelf, not a single rolling feed. The
-                special latest option remains an auto-following mode; choosing
-                a concrete track id below freezes that voyage during polling.
-                The chip face is aria-hidden: the native <select> laid over it
-                is the real, focusable control. */}
+                    chip opens it as a modal of trip cards (from → to, the
+                    boat-local day, distance). Latest stays an auto-following
+                    mode; choosing a concrete track id freezes that voyage
+                    during polling. */}
                 <section aria-label="Voyage selection" className="min-w-0">
-                    <label
-                        className="pv-trip relative flex w-full min-w-0 items-center gap-3"
-                        aria-busy={isTripLoading}
-                    >
-                        <span aria-hidden="true" className="flex min-w-0 flex-1 flex-col">
-                            {headerOverMap && <span className="pv-trip__eyebrow">{chipEyebrow}</span>}
-                            {/* A no-break space keeps '17.2 nm' whole when the docked
-                                phone chip wraps its value onto a second line. */}
-                            <span className="pv-trip__value">{chipValue.replace(/(\d) (?=nm\b)/g, '$1\u00a0')}</span>
-                        </span>
-                        {isTripLoading ? (
-                            <span className="pv-spinner" aria-hidden="true" />
-                        ) : (
-                            <svg
-                                aria-hidden="true"
-                                className="pv-trip__icon"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2.5"
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="m7 10 5 5 5-5" />
-                            </svg>
-                        )}
-                        <select
-                            value={requestedTrip}
-                            onChange={handleTripChange}
-                            disabled={isTripLoading}
-                            aria-label="Choose a voyage to view"
-                            className="pv-trip__select absolute inset-0 h-full w-full cursor-pointer appearance-none disabled:cursor-wait"
-                        >
-                            <option value="latest">{latestOptionLabel}</option>
-                            {trips.some((trip) => trip.kind === 'track') && (
-                                <optgroup label="Started trips">
-                                    {trips
-                                        .filter((trip) => trip.kind === 'track')
-                                        .map((trip) => (
-                                            <option key={trip.id} value={trip.id}>
-                                                {tripOptionLabel(trip)}
-                                                {trip.id === latestTrip?.id ? ' · latest' : ''}
-                                            </option>
-                                        ))}
-                                </optgroup>
-                            )}
-                            {trips.some((trip) => trip.kind === 'all-diary') && (
-                                <optgroup label="Whole journey">
-                                    {trips
-                                        .filter((trip) => trip.kind === 'all-diary')
-                                        .map((trip) => (
-                                            <option key={trip.id} value={trip.id}>
-                                                All trips &amp; diary
-                                            </option>
-                                        ))}
-                                </optgroup>
-                            )}
-                        </select>
-                    </label>
+                    <TripPicker
+                        trips={trips}
+                        latestTrip={latestTrip}
+                        value={requestedTrip}
+                        onSelect={handleTripChange}
+                        loading={isTripLoading}
+                        layout={headerOverMap ? 'hero' : 'bar'}
+                        vesselName={vessel.name}
+                        nowMs={nowMs}
+                        fallbackTimeZone={DIARY_TIME_ZONE}
+                        fallbackFocusRef={expandButtonRef}
+                    />
                 </section>
 
                 {/* Desktop only: on phones the same facts sit in the map key
@@ -679,6 +632,7 @@ export default function ThalassaDashboard() {
                     {/* Sits in the map cluster's lower-left cell (.pv-expand),
                         clear of the credits band at the bottom corners. */}
                     <button
+                        ref={expandButtonRef}
                         type="button"
                         onClick={() => setMapExpandedChoice(!mapExpanded)}
                         aria-label={mapExpanded ? 'Restore page header' : 'Expand map'}

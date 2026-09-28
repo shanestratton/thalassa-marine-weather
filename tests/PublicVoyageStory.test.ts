@@ -14,6 +14,12 @@ import {
     publicLastKnownLabel,
     splitWaypointName,
     stripTrackPrefix,
+    tripSummary,
+    usableTimeZone,
+    waypointLabel,
+    formatLocalDay,
+    formatLocalMoment,
+    isHiddenPublicWaypoint,
     type PassageStat,
 } from '../src/components/voyageStory';
 import { PUBLIC_POSITION_FRESH_MS, formatPublicAge, isPublicPositionFresh } from '../src/publicVoyageFreshness';
@@ -427,6 +433,226 @@ describe('splitWaypointName', () => {
     });
 });
 
+// Boat-local time. Every fixture below is a UTC evening, where the old
+// UTC-built picker labels showed the day before. 'en-AU' pins the words and
+// a Brisbane reader pins 'is this the reader's clock?' (CI runs in UTC); the
+// page itself leaves both to the viewer, as the diary does.
+const BRISBANE = 'Australia/Brisbane';
+const AU = { locale: 'en-AU', nowMs: NOW, viewerTimeZone: BRISBANE } as const;
+
+describe('formatLocalDay / formatLocalMoment', () => {
+    it('builds the day in the given zone, never UTC', () => {
+        expect(formatLocalDay('2026-09-25T22:42:58.38+00:00', BRISBANE, AU)).toMatch(/^Sat 26 Sept?$/);
+        expect(formatLocalDay('2026-09-25T22:42:58.38+00:00', 'UTC', AU)).toMatch(/^Fri 25 Sept?$/);
+        expect(formatLocalMoment('2026-09-25T22:42:58.38+00:00', BRISBANE, AU)).toMatch(/^Sat 26 Sept? · 08:42$/);
+        expect(formatLocalMoment('2026-09-25T14:05:00Z', BRISBANE, AU)).toMatch(/^Sat 26 Sept? · 00:05$/);
+    });
+
+    it('falls back to the given zone, then to the viewer zone the diary uses', () => {
+        const iso = '2026-09-22T23:30:39.68+00:00';
+        expect(formatLocalDay(iso, null, { ...AU, fallbackZone: BRISBANE })).toMatch(/^Wed 23 Sept?$/);
+        expect(formatLocalDay(iso, 'Not/AZone', { ...AU, fallbackZone: BRISBANE })).toMatch(/^Wed 23 Sept?$/);
+        const viewer = new Intl.DateTimeFormat('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })
+            .format(Date.parse(iso))
+            .replace(/,/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        expect(formatLocalDay(iso, undefined, AU)).toBe(viewer);
+    });
+
+    it("names the zone only when it is not the reader's clock at that moment", () => {
+        const iso = '2026-09-25T22:42:58.38+00:00';
+        // A Los Angeles reader sees 15:42 on their own clock: say whose 08:42 it is.
+        expect(formatLocalMoment(iso, BRISBANE, { ...AU, viewerTimeZone: 'America/Los_Angeles' })).toMatch(
+            /^Sat 26 Sept? · 08:42 AEST$/,
+        );
+        expect(formatLocalMoment(iso, BRISBANE, { ...AU, viewerTimeZone: 'UTC' })).toMatch(/ · 08:42 AEST$/);
+        // Sydney keeps Brisbane's clock until daylight saving starts on 4 Oct.
+        expect(formatLocalMoment(iso, BRISBANE, { ...AU, viewerTimeZone: 'Australia/Sydney' })).toMatch(
+            /^Sat 26 Sept? · 08:42$/,
+        );
+        expect(
+            formatLocalMoment('2026-10-10T22:42:58Z', BRISBANE, { ...AU, viewerTimeZone: 'Australia/Sydney' }),
+        ).toMatch(/^Sun 11 Oct · 08:42 AEST$/);
+        // No zone at all is the reader's own clock: nothing to name.
+        expect(formatLocalMoment(iso, null, { locale: 'en-AU', nowMs: NOW })).toMatch(/\d$/);
+    });
+
+    it('drops the weekday for a tile when asked', () => {
+        expect(formatLocalDay('2026-09-14T20:00:00Z', BRISBANE, { ...AU, weekday: false })).toMatch(/^15 Sept?$/);
+        expect(formatLocalDay('2025-09-14T20:00:00Z', BRISBANE, { ...AU, weekday: false })).toMatch(/^15 Sept? 2025$/);
+    });
+
+    it('adds the year only outside this year, and refuses unusable input', () => {
+        expect(formatLocalDay('2025-12-31T20:00:00Z', BRISBANE, AU)).toBe('Thu 1 Jan');
+        expect(formatLocalDay('2025-12-30T20:00:00Z', BRISBANE, AU)).toMatch(/^Wed 31 Dec 2025$/);
+        expect(formatLocalDay(null, BRISBANE, AU)).toBeNull();
+        expect(formatLocalDay('not a date', BRISBANE, AU)).toBeNull();
+        expect(formatLocalMoment('', BRISBANE, AU)).toBeNull();
+    });
+
+    it('accepts only zones Intl knows', () => {
+        expect(usableTimeZone(BRISBANE)).toBe(BRISBANE);
+        expect(usableTimeZone(' Australia/Brisbane ')).toBe(BRISBANE);
+        expect(usableTimeZone('Mars/Olympus_Mons')).toBeUndefined();
+        expect(usableTimeZone('')).toBeUndefined();
+        expect(usableTimeZone(null)).toBeUndefined();
+    });
+});
+
+describe('waypointLabel', () => {
+    it('turns a recovered departure into Departed, in the waypoint zone', () => {
+        expect(
+            waypointLabel(
+                {
+                    name: 'Hamilton Island · recovered departure',
+                    timestamp: '2026-09-25T22:42:58.38+00:00',
+                    time_zone: BRISBANE,
+                },
+                AU,
+            ),
+        ).toEqual({ place: 'Hamilton Island', role: expect.stringMatching(/^Departed Sat 26 Sept? · 08:42$/) });
+    });
+
+    it('turns a recovered arrival into Arrived', () => {
+        expect(
+            waypointLabel(
+                {
+                    name: 'Airlie Beach · recovered arrival',
+                    timestamp: '2026-09-26T01:16:23.42+00:00',
+                    time_zone: BRISBANE,
+                },
+                AU,
+            ),
+        ).toEqual({ place: 'Airlie Beach', role: expect.stringMatching(/^Arrived Sat 26 Sept? · 11:16$/) });
+    });
+
+    it('uses the page zone when the waypoint has none (an older server)', () => {
+        expect(
+            waypointLabel(
+                { name: 'Tongue Bay · recovered departure', timestamp: '2026-09-22T23:30:39.68+00:00' },
+                { ...AU, fallbackZone: BRISBANE },
+            ),
+        ).toEqual({ place: 'Tongue Bay', role: expect.stringMatching(/^Departed Wed 23 Sept? · 09:30$/) });
+        expect(
+            waypointLabel(
+                {
+                    name: 'Butterfly Bay · Recovered Departure',
+                    timestamp: '2026-09-23T22:43:34.56+00:00',
+                    time_zone: 'Mars/Olympus_Mons',
+                },
+                { ...AU, fallbackZone: BRISBANE },
+            ),
+        ).toEqual({ place: 'Butterfly Bay', role: expect.stringMatching(/^Departed Thu 24 Sept? · 08:43$/) });
+    });
+
+    it('says Departed alone when the time is unusable', () => {
+        expect(waypointLabel({ name: 'Newport · recovered departure', timestamp: 'garbage' }, AU)).toEqual({
+            place: 'Newport',
+            role: 'Departed',
+        });
+    });
+
+    it("reads the 15 Sep recovery's first fix as Departed, inventing no place", () => {
+        expect(
+            waypointLabel(
+                {
+                    name: 'Recovered GPS track · Newport to Gladstone',
+                    timestamp: '2026-09-15T02:28:41.64+00:00',
+                    time_zone: BRISBANE,
+                },
+                AU,
+            ),
+        ).toEqual({ place: 'Departed', role: expect.stringMatching(/^Tue 15 Sept? · 12:28$/) });
+        expect(waypointLabel({ name: 'Recovered GPS track', timestamp: 'garbage' }, AU)).toEqual({
+            place: 'Departed',
+            role: null,
+        });
+    });
+
+    it('hides the bookkeeping pins, and only those', () => {
+        expect(isHiddenPublicWaypoint('App recording began · original mark')).toBe(true);
+        expect(isHiddenPublicWaypoint('  app recording began ·  original mark ')).toBe(true);
+        expect(isHiddenPublicWaypoint('Latest Position')).toBe(true);
+        for (const name of [
+            'Voyage Start',
+            'Voyage End',
+            'Hamilton Island · recovered departure',
+            'Recovered GPS track · Newport to Gladstone',
+            'App recording began',
+        ]) {
+            expect(isHiddenPublicWaypoint(name)).toBe(false);
+        }
+    });
+
+    it('leaves Voyage Start, Voyage End and every other name exactly as before', () => {
+        const at = { timestamp: '2026-09-18T10:38:31.356+00:00', time_zone: BRISBANE };
+        for (const name of [
+            'Voyage Start',
+            'Voyage End',
+            'App recording began · original mark',
+            'Airlie Beach · recovered arrival · 2',
+            ' · recovered departure',
+            'Channel entrance',
+        ]) {
+            expect(waypointLabel({ name, ...at }, AU)).toEqual(splitWaypointName(name));
+        }
+    });
+});
+
+describe('tripSummary', () => {
+    const base: PublicVoyageTrip = {
+        id: 'trip',
+        kind: 'track',
+        label: 'Track · 25 Sept 2026',
+        started_at: '2026-09-25T22:42:58.38+00:00',
+        ended_at: '2026-09-26T01:16:23.42+00:00',
+        active: false,
+        point_count: 912,
+        distance_nm: 17.2,
+        has_route: false,
+    };
+
+    it('names both ends and dates the trip where it started', () => {
+        const summary = tripSummary(
+            { ...base, from_name: 'Hamilton Island', to_name: 'Airlie Beach', time_zone: BRISBANE },
+            AU,
+        );
+        expect(summary).toMatchObject({
+            from: 'Hamilton Island',
+            to: 'Airlie Beach',
+            headline: 'Hamilton Island → Airlie Beach',
+            spokenHeadline: 'Hamilton Island to Airlie Beach',
+            named: true,
+            distance: '17.2 nm',
+        });
+        expect(summary.date).toMatch(/^Sat 26 Sept?$/);
+    });
+
+    it.each([
+        // 'From', never 'Departed': started_at is when tracking began.
+        [{ from_name: 'Mackay Harbour', to_name: null }, 'From Mackay Harbour', true],
+        [{ from_name: null, to_name: 'Callemondah' }, 'To Callemondah', true],
+        [{ from_name: '  ', to_name: '' }, null, false],
+        [{ from_name: null, to_name: null }, null, false],
+        [{}, null, false],
+    ])('falls back gracefully for %j', (fields, headline, named) => {
+        const summary = tripSummary({ ...base, ...fields, time_zone: BRISBANE }, AU);
+        expect(summary.named).toBe(named);
+        if (headline) expect(summary.headline).toBe(headline);
+        else expect(summary.headline).toMatch(/^Sat 26 Sept?$/);
+        expect(summary.spokenHeadline).toBe(summary.headline);
+    });
+
+    it('treats missing time_zone like null and keeps the UTC label only as a last resort', () => {
+        expect(tripSummary(base, { ...AU, fallbackZone: BRISBANE }).headline).toMatch(/^Sat 26 Sept?$/);
+        expect(tripSummary({ ...base, started_at: null }, AU).headline).toBe('25 Sept 2026');
+        expect(tripSummary({ ...base, started_at: null, label: '' }, AU).headline).toBe('Trip');
+        expect(tripSummary({ ...base, distance_nm: 306.4 }, AU).distance).toBe('306 nm');
+        expect(tripSummary({ ...base, distance_nm: 0 }, AU).distance).toBeNull();
+    });
+});
+
 describe('isAutoDateTitle', () => {
     it.each([
         'Tuesday 22 September 2026 · 09:15',
@@ -585,6 +811,28 @@ describe('passageFacts', () => {
             { key: 'first', label: 'First track', parts: [{ value: SHORT_DAY_MONTH.format(FIRST_SERENE_START) }] },
             { key: 'stories', label: 'Stories', parts: [{ value: '12' }] },
         ]);
+    });
+
+    it("dates the first track in its own zone, like the picker's card", () => {
+        // 00:30 on 16 Sep in Nouméa is still the 15th in Brisbane and in UTC.
+        const first = trip({ id: 'g', started_at: '2026-09-15T13:30:00Z', time_zone: 'Pacific/Noumea' });
+        const trips = [SERENE_TRIPS[0], first];
+        const expected = new Intl.DateTimeFormat(undefined, {
+            day: 'numeric',
+            month: 'short',
+            timeZone: 'Pacific/Noumea',
+        }).format(Date.parse(first.started_at!));
+        expect(expected).toMatch(/16/);
+        expect(passageFacts({ trip: null, trips, nowMs: NOW, journey: true, entryCount: 0 })[1]).toEqual({
+            key: 'first',
+            label: 'First track',
+            parts: [{ value: expected }],
+        });
+        expect(
+            passageFacts({ trip: SERENE_TRIPS[0], trips, nowMs: NOW, journey: false, entryCount: 0 }).find(
+                (s) => s.key === 'journey',
+            )?.note,
+        ).toBe(`2 tracks · since ${expected}`);
     });
 
     it('uses journey mode whenever journey is set, even if a trip is passed', () => {
