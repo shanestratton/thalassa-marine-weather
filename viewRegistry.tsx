@@ -94,6 +94,9 @@ const VIEW_NAMES: Record<string, string> = {
     vessel: 'Vessel',
     settings: 'Settings',
     warnings: 'Forecast alerts',
+    // Scuttlebutt is a page Calypso or Music can be opened over; without it
+    // their Back read a bare 'Go back' with no crumb (UX scorecard run 10).
+    chat: 'Scuttlebutt',
     voice: 'Calypso',
     music: 'Apple Music',
     compass: 'Anchor Watch',
@@ -322,15 +325,6 @@ export interface ViewConfig {
 
 // ── Registry ─────────────────────────────────────────────────────────────────
 
-/**
- * A page that sent the skipper to Settings to sign in. The scoped
- * `thalassa_settings_return_to` key alone cannot carry them back: signing in
- * flips the auth scope, so the key written while signed out is not the one
- * Settings reads afterwards. This remembers the destination for the session
- * and which key to clear (UX scorecard run 6).
- */
-let signInDetour: { key: string; returnTo: string } | null = null;
-
 export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     // ── Standalone pages ─────────────────────────────────────────────────
     voyage: {
@@ -351,22 +345,16 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         group: 'standalone',
         getProps: (ctx) => {
             // Check if we came from a page that asked to be returned to (the
-            // radio console, or Guardian's sign-in detour).
+            // radio console). Guardian no longer detours here to sign in: its
+            // card opens the sign-in sheet in place (UX scorecard run 10).
             const returnKey = authScopedStorageKey('thalassa_settings_return_to');
-            const returnTo =
-                (typeof window !== 'undefined' ? localStorage.getItem(returnKey) : null) ??
-                signInDetour?.returnTo ??
-                null;
+            const returnTo = typeof window !== 'undefined' ? localStorage.getItem(returnKey) : null;
             return {
                 settings: ctx.settings,
                 onSave: ctx.updateSettings,
                 onLocationSelect: ctx.handleFavoriteSelect,
                 onBack: () => {
                     localStorage.removeItem(returnKey);
-                    if (signInDetour) {
-                        localStorage.removeItem(signInDetour.key);
-                        signInDetour = null;
-                    }
                     ctx.setPage(returnTo || 'vessel');
                 },
             };
@@ -490,7 +478,14 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: TheGlassPage,
         boundaryName: 'TheGlass',
         group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('nmea') }),
+        // Only NMEA Gateway opens the Instrument Panel, and Back always goes
+        // there, so the chevron and crumb name it from that same fixed view
+        // (UX scorecard run 10: the only Vessel sub-page with a bare 'Go back'
+        // and no crumb).
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('nmea'),
+            ...backTo('nmea', 'Instrument Panel'),
+        }),
     },
     avnav: {
         component: AvNavPage,
@@ -552,18 +547,11 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: GuardianPage,
         boundaryName: 'Guardian',
         group: 'vessel',
-        // Sign in lives in Settings; the locked card offers the way there instead of
-        // describing it (Shane 2026-09-26: the smaller state items are my call).
-        // It opens straight on Account & Cloud, and Settings' Back returns here.
+        // The signed-out card opens the sign-in sheet in place, as Crew,
+        // Galley and Scuttlebutt do, so there is no detour to Settings to wire
+        // (UX scorecard run 10).
         getProps: (ctx) => ({
             onBack: () => ctx.setPage('vessel'),
-            onSignIn: () => {
-                localStorage.setItem(authScopedStorageKey('thalassa_settings_initial_tab'), 'account');
-                const key = authScopedStorageKey('thalassa_settings_return_to');
-                localStorage.setItem(key, 'guardian');
-                signInDetour = { key, returnTo: 'guardian' };
-                ctx.setPage('settings');
-            },
         }),
     },
     radio: {

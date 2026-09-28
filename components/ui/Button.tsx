@@ -24,7 +24,12 @@ import React from 'react';
 import { useThemeStore } from '../../stores/themeStore';
 import { touchTarget } from '../../theme';
 
-/** `cta` is the full-width bar at the foot of a page (theme.ts `button.cta`). */
+/** `cta` is the full-width bar at the foot of a page (theme.ts `button.cta`).
+ *
+ *  Which primary (UX scorecard run 10 counted four primary shapes on one tab):
+ *  the one bar at the foot of a page is `cta`, or TapToAction / SlideToAction
+ *  when it wears a theme colour; a primary inside a card, sheet or dialog is
+ *  `primary`. A hand-rolled fill for either is another shape. */
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'cta';
 export type ButtonSize = 'default' | 'sm' | 'icon';
 

@@ -70,6 +70,10 @@ vi.mock('../utils/system', async (importOriginal) => ({
     triggerHaptic: vi.fn(),
 }));
 
+vi.mock('../components/SignInScreen', () => ({
+    SignInScreen: ({ isOpen }: { isOpen: boolean }) => (isOpen ? <div role="dialog" aria-label="Sign in" /> : null),
+}));
+
 vi.mock('../context/SettingsContext', () => ({
     useSettings: () => ({
         settings: { userName: 'Skipper', vesselName: 'Test Vessel' },
@@ -222,15 +226,16 @@ describe('GuardianPage', () => {
         expect(screen.queryByText('Loading Guardian…')).not.toBeInTheDocument();
     });
 
-    it('names the signed-out action for where it goes', async () => {
+    it('opens the sign-in sheet in place, like every other sign-in card', async () => {
         authState.user = null;
         setAuthIdentityScope(null);
-        const onSignIn = vi.fn();
+        render(<GuardianPage onBack={vi.fn()} />);
 
-        render(<GuardianPage onBack={vi.fn()} onSignIn={onSignIn} />);
-
-        fireEvent.click(await screen.findByRole('button', { name: 'Open Settings to sign in' }));
-        expect(onSignIn).toHaveBeenCalledOnce();
+        // One sign-in recipe: 'Sign in' opens the sheet here instead of
+        // leaving for Settings (UX scorecard run 10).
+        expect(screen.queryByRole('dialog', { name: 'Sign in' })).not.toBeInTheDocument();
+        fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
+        expect(screen.getByRole('dialog', { name: 'Sign in' })).toBeInTheDocument();
         // The gate leads with what Guardian does, and 'watch' stays Anchor
         // Watch's word (UX scorecard run 7).
         expect(screen.getByText('See Thalassa boats near you and share safety alerts with them.')).toBeInTheDocument();

@@ -27,6 +27,7 @@ import { PageHeader } from './ui/PageHeader';
 import { OverlayPortal } from './ui/OverlayPortal';
 import { Button } from './ui/Button';
 import { SignInButton } from './ui/SignInButton';
+import { SignInScreen } from './SignInScreen';
 import { useAuthStore } from '../stores/authStore';
 import {
     getAuthIdentityScope,
@@ -52,8 +53,8 @@ import {
 
 interface GuardianPageProps {
     onBack: () => void;
-    /** Opens Settings, where Account & Cloud signs the skipper in. */
-    onSignIn?: () => void;
+    // No onSignIn: the signed-out card opens the sign-in sheet in place, as
+    // Crew, Galley and Scuttlebutt do (UX scorecard run 10).
 }
 
 function identityIsCurrent(scope: AuthIdentityScope, ownerId: string): boolean {
@@ -110,7 +111,7 @@ function guardianInitializationSettled(promise: Promise<void>): Promise<boolean>
     });
 }
 
-export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) => {
+export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const { settings } = useSettings();
     const authUserId = useAuthStore((state) => state.user?.id ?? null);
     const armDescriptionId = useId();
@@ -128,6 +129,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
     const [feedback, setFeedback] = useState<GuardianFeedback | null>(null);
 
     // Modals
+    const [showSignIn, setShowSignIn] = useState(false);
     const [showSetup, setShowSetup] = useState(false);
     const [showReport, setShowReport] = useState(false);
     const [showWeather, setShowWeather] = useState(false);
@@ -677,39 +679,55 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack, onSignIn }) 
                     onBack={onBack}
                     breadcrumbs={['Vessel', 'Guardian']}
                 />
-                <div className="flex-1 flex items-start justify-center px-5 pt-2">
-                    {/* A static gate, not a live region: it holds a heading and a
-                        button, and nothing in it changes while it is shown. Drawn
-                        with the shared unavailable-card recipe (round icon chip,
-                        bold heading, same copy measure, centred action). */}
-                    <div className="w-full max-w-2xl rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.07] p-6 text-center">
-                        <div
-                            aria-hidden="true"
-                            className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-300"
+                {/* The one sign-in card (Crew, Galley, Account & Cloud): an
+                    icon tile with a left-aligned title and reason, then the
+                    full-width SignInButton, which opens the sign-in sheet in
+                    place as theirs do (UX scorecard run 10: a centred lock
+                    over left-aligned copy and a narrow button was a sixth
+                    sign-in look, and 'Open Settings to sign in' was the one
+                    sign-in that left the page). 16 pt gutters, like every
+                    sibling card and the header above. A static card, not a
+                    live region: nothing in it changes while it is shown. */}
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                    <div className="mx-auto w-full max-w-2xl px-4 pt-2">
+                        <section
+                            aria-labelledby="guardian-sign-in-title"
+                            className="space-y-4 rounded-2xl border border-white/10 bg-white/3 p-4 shadow-lg shadow-black/10"
                         >
-                            <LockIcon className="h-5 w-5" />
-                        </div>
-                        <h2 className="text-lg font-bold text-white text-balance">Sign in to use Guardian</h2>
-                        {/* What Guardian does for the skipper first, then what it
-                            shares (UX scorecard run 7). Multi-line paragraphs read
-                            left-aligned, as on the parked Calypso page. */}
-                        <div className="mx-auto mt-2 max-w-lg space-y-3 text-left text-sm leading-relaxed text-slate-300 text-pretty">
-                            <p>See Thalassa boats near you and share safety alerts with them.</p>
-                            <p>
+                            <div className="flex items-start gap-3">
+                                <div className="shrink-0 rounded-xl bg-white/5 p-2.5 text-gray-300" aria-hidden="true">
+                                    <LockIcon className="h-5 w-5" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <h2 id="guardian-sign-in-title" className="text-sm font-bold text-white">
+                                        Sign in to use Guardian
+                                    </h2>
+                                    {/* What Guardian does for the skipper first, then
+                                        what it shares (UX scorecard run 7). */}
+                                    <p className="mt-1 text-xs text-gray-400">
+                                        See Thalassa boats near you and share safety alerts with them.
+                                    </p>
+                                </div>
+                            </div>
+                            <p className="text-xs leading-relaxed text-gray-400">
                                 While Guardian is armed, nearby Thalassa boats that also have it armed can see your
                                 vessel name and recent position. Nothing is shared while it is off.
                             </p>
-                        </div>
-                        {onSignIn && (
-                            // It opens Settings on Account & Cloud, so the label says so.
                             <SignInButton
-                                label="Open Settings to sign in"
-                                onClick={onSignIn}
-                                className="mx-auto mt-5"
+                                fullWidth
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setShowSignIn(true);
+                                }}
                             />
-                        )}
+                        </section>
                     </div>
                 </div>
+                <SignInScreen
+                    isOpen={showSignIn}
+                    onClose={() => setShowSignIn(false)}
+                    prompt="Sign in to see Thalassa boats near you and share safety alerts with them."
+                />
             </div>
         );
     }

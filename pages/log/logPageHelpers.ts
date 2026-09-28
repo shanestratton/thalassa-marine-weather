@@ -68,12 +68,24 @@ export const HISTORY_PHONE_ONLY = 'Your full voyage history didn’t load — sh
 export const LIFETIME_PHONE_ONLY_UNDER_LINE = 'This phone only';
 export const ARCHIVE_NOT_LOADED_UNDER_LINE = 'Not loaded';
 
+/** Signed out there is no account history to load, so "didn't load" is not
+ *  true for this skipper: the Log says what it holds and what signing in adds
+ *  (UX scorecard run 10). */
+export const LOG_SIGNED_OUT_BODY = 'Sign in to see voyages from your other devices.';
+/** The page-level line for a signed-out phone, in place of HISTORY_PHONE_ONLY. */
+export const LOG_SIGNED_OUT_LINE = `Voyages on this phone. ${LOG_SIGNED_OUT_BODY}`;
+
 /** One card recipe for the Log's sibling disclosure cards (Voyage stats,
- *  Archived voyages): Plan's Departure material, radius and title ink, so the
- *  two no longer differ in corner, surface, title colour and icon. */
+ *  Archived voyages): Plan's Departure material and radius, so the two no
+ *  longer differ in corner, surface, title colour and icon. */
 export const LOG_CARD_SHELL =
     'overflow-hidden rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 shadow-[0_0_20px_rgba(14,165,233,0.08)]';
-export const LOG_CARD_TITLE = 'block text-xs font-black uppercase tracking-widest text-sky-300';
+/** The card's title is a tappable row title, so it wears the app's one row
+ *  recipe (Settings, the Vessel hub, Scuttlebutt): bold white sentence case
+ *  over a grey description. Tracked sky capitals made 'VOYAGE STATS' read as
+ *  a section eyebrow, a second recipe for the same kind of row (UX scorecard
+ *  run 10); tracked capitals stay for eyebrows and chips. */
+export const LOG_CARD_TITLE = 'block text-sm font-bold text-white';
 
 /**
  * The full notice for a lifetime read that failed and never succeeded. It

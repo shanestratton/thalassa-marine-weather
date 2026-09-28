@@ -141,7 +141,7 @@ describe('SignInScreen accessibility', () => {
         const primaryAction = screen.getByRole('button', { name: 'Sign in with email' });
         fireEvent.click(primaryAction);
 
-        const nestedDialog = screen.getByRole('dialog', { name: 'Sync Your Logs' });
+        const nestedDialog = screen.getByRole('dialog', { name: 'Sync your logs' });
         const nestedOverlay = nestedDialog.closest('[data-overlay-layer="nested"]');
         const outerDialog = document.querySelector<HTMLElement>('[aria-labelledby="sign-in-title"]');
 
@@ -150,20 +150,20 @@ describe('SignInScreen accessibility', () => {
         expect(outerDialog).toHaveAttribute('aria-hidden', 'true');
         expect(outerDialog).not.toHaveAttribute('aria-modal');
         // Editing dialogs preserve autofocus and start in the first entry field.
-        expect(screen.getByRole('textbox', { name: 'Email Address' })).toHaveFocus();
+        expect(screen.getByRole('textbox', { name: 'Email address' })).toHaveFocus();
 
         fireEvent.click(screen.getByRole('button', { name: 'Close authentication dialog' }));
 
-        expect(screen.queryByRole('dialog', { name: 'Sync Your Logs' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Sync your logs' })).not.toBeInTheDocument();
         expect(outerDialog).not.toHaveAttribute('aria-hidden');
         expect(outerDialog).toHaveAttribute('aria-modal', 'true');
         expect(primaryAction).toHaveFocus();
 
         fireEvent.click(primaryAction);
-        const emailField = screen.getByRole('textbox', { name: 'Email Address' });
+        const emailField = screen.getByRole('textbox', { name: 'Email address' });
         expect(emailField).toHaveFocus();
         fireEvent.keyDown(emailField, { key: 'Escape' });
-        expect(screen.queryByRole('dialog', { name: 'Sync Your Logs' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Sync your logs' })).not.toBeInTheDocument();
         expect(outerDialog).not.toHaveAttribute('aria-hidden');
         expect(outerDialog).toHaveAttribute('aria-modal', 'true');
         expect(primaryAction).toHaveFocus();

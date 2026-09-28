@@ -73,12 +73,18 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     // screen reader nothing the chevron and the heading have not; hide it whole.
     const trailIsRedundant =
         !!breadcrumbs && breadcrumbs.every((crumb, i) => isTitleCrumb(crumb, i) || (i === lastCrumb - 1 && !!onBack));
+    // 'Parent › this page' says nothing the chevron cannot: the parent's name
+    // sits beside the chevron ('‹ VESSEL') instead of on a line of its own,
+    // which cost ~28 pt above every sub-page title (UX scorecard run 10,
+    // settings-header-375). Deeper or non-title trails keep the eyebrow.
+    const inlineParent =
+        onBack && breadcrumbs && lastCrumb === 1 && isTitleCrumb(breadcrumbs[1], 1) ? breadcrumbs[0] : undefined;
 
     return (
         // data-page-header: toasts anchor below it (components/Toast.tsx).
         <div data-page-header className="shrink-0 px-4 pt-4 pb-3">
             {/* Breadcrumb trail */}
-            {breadcrumbs && breadcrumbs.length > 0 && (
+            {breadcrumbs && breadcrumbs.length > 0 && !inlineParent && (
                 // The gap under the trail is the crumb's reach below its line
                 // (see the parent crumb below), so the crumb's 44 px and the
                 // chevron's 44 px sit one above the other without touching.
@@ -150,7 +156,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
                     `contents` keeps the button itself the flex item. */}
                 {onBack && (
                     <span data-page-back className="contents">
-                        <BackButton onClick={onBack} label={chevronLabel} />
+                        <BackButton onClick={onBack} label={chevronLabel} text={inlineParent} />
                     </span>
                 )}
 
