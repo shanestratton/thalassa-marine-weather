@@ -2101,7 +2101,7 @@ check(
     includesAll(anchorUi, [
         'if (!authedUser)',
         'Sign in to use Shore Watch',
-        'Sign in to Shore Share',
+        'Sign in for Shore Watch',
         'Local Anchor Watch remains available without an account.',
     ]),
 );
