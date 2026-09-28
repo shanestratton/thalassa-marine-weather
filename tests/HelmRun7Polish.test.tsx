@@ -81,7 +81,7 @@ describe('Instrument Panel', () => {
     });
 
     it('sets the plate heading at 12 px', () => {
-        expect(panel).toContain('whitespace-nowrap text-xs font-black uppercase tracking-[0.35em]');
+        expect(panel).toContain('whitespace-nowrap text-xs font-black uppercase tracking-widest');
     });
 });
 

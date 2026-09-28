@@ -19,7 +19,7 @@ export const GpsDiagnosticsCards: React.FC<{
             const matchesReceiver =
                 receiver && (phone ? receiver.kind !== 'vessel-nmea' : receiver.kind === 'vessel-nmea');
             // With no fix at all the card says so once (NO_GPS_FIX_LINE)
-            // instead of a position line and three tiles that each word
+            // instead of a position line and three rows that each word
             // "nothing" differently. The phone's own receiver line never
             // shows: all it ever says is whether the phone has a position
             // ('iPhone GPS in use' / 'No position yet — nothing is supplying
@@ -36,7 +36,7 @@ export const GpsDiagnosticsCards: React.FC<{
                 <section
                     key={source.label}
                     aria-label={source.label}
-                    className={`space-y-2 rounded-xl border p-3 ${phone ? 'border-white/10 bg-black/10' : 'border-sky-400/20 bg-sky-500/5'}`}
+                    className={`space-y-2 rounded-xl border p-3 ${phone ? 'border-white/10 bg-black/20' : 'border-sky-400/20 bg-sky-500/5'}`}
                 >
                     <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                         <h3 className="text-xs font-semibold text-white">{source.label}</h3>
@@ -58,28 +58,37 @@ export const GpsDiagnosticsCards: React.FC<{
                         </p>
                     )}
                     {source.noFix && <p className="text-xs text-slate-300">{NO_GPS_FIX_LINE}</p>}
+                    {/* Label-value rows, one fact a line. Three ~80 pt tiles
+                        broke one-concept values over two lines ('Not /
+                        reported', 'No current / fix'; UX scorecard run 10).
+                        HDOP joins the list as its own row when reported. The
+                        black/20 fill and white/5 rules are the ones index.css
+                        lightens for daylight (black/10 and /15 stayed grey). */}
                     {!source.noFix && (
-                        <dl className="grid grid-cols-3 gap-2">
+                        <dl className="rounded-lg bg-black/20 px-3">
                             {(
                                 [
                                     ['Satellites', source.satellites],
                                     ['Fix quality', source.quality],
                                     ['Accuracy', source.accuracy],
+                                    ...(source.hdop.state !== 'unknown'
+                                        ? ([['HDOP (geometry)', source.hdop]] as const)
+                                        : []),
                                 ] as const
                             ).map(([label, metric]) => (
-                                <div key={label} className="min-w-0 rounded-lg bg-black/15 px-2 py-2">
-                                    <dt className="text-xs text-slate-400">{label}</dt>
+                                <div
+                                    key={label}
+                                    className="flex items-baseline justify-between gap-3 border-t border-white/5 py-1.5 first:border-t-0"
+                                >
+                                    <dt className="shrink-0 text-xs text-slate-400">{label}</dt>
                                     <dd
-                                        className={`mt-1 break-words text-xs font-semibold ${metric.state === 'current' ? 'text-white' : metric.state === 'stale' ? 'text-amber-300' : 'text-slate-400'}`}
+                                        className={`min-w-0 text-right text-xs font-semibold ${metric.state === 'current' ? 'text-white' : metric.state === 'stale' ? 'text-amber-300' : 'text-slate-400'}`}
                                     >
                                         {metric.text}
                                     </dd>
                                 </div>
                             ))}
                         </dl>
-                    )}
-                    {!source.noFix && source.hdop.state !== 'unknown' && (
-                        <p className="text-xs text-slate-400">HDOP (geometry): {source.hdop.text}</p>
                     )}
                 </section>
             );

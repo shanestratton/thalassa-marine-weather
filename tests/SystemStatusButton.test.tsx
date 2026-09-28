@@ -441,7 +441,9 @@ describe('SystemStatusButton', () => {
         expect(boat.getByText('25')).toBeInTheDocument();
         expect(boat.getByText('Differential GPS')).toBeInTheDocument();
         expect(boat.getByText('Not reported')).toBeInTheDocument();
-        expect(boat.getByText('HDOP (geometry): 0.7')).toBeInTheDocument();
+        // HDOP is its own label-value row in the facts list (UX scorecard run 10).
+        expect(boat.getByText('HDOP (geometry)').tagName).toBe('DT');
+        expect(boat.getByText('0.7').tagName).toBe('DD');
         expect(boat.queryByText('±4.2 m')).toBeNull();
         const phone = within(screen.getByRole('region', { name: 'Phone location' }));
         expect(phone.getByText('±4.2 m')).toBeInTheDocument();

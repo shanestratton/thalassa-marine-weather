@@ -72,12 +72,26 @@ import {
 import { useWeatherOptional } from '../../context/WeatherContext';
 import { CloudTelemetryService } from '../../services/CloudTelemetryService';
 import { WindHistoryStats } from './WindHistoryStats';
+import { useViewportHeight } from '../../hooks/useViewportHeight';
 
 /** Picker value meaning “wherever the boat is”. */
 const SHIP_ZONE_AUTO = 'auto';
 
+/**
+ * The shortest viewport that keeps the header crumb. Every snap page is sized
+ * from what the header leaves, and at 667 pt (iPhone SE / 8) the crumb's 28 pt
+ * clipped the Wind page's APPARENT / TRUE rose labels and the Barometer's
+ * 3 h / rate / record tiles. At 812 pt and up every page still fits with it.
+ * The chevron keeps its name ('Back to NMEA Gateway') at every height.
+ */
+const CRUMB_MIN_VIEWPORT_PX = 740;
+
 interface TheGlassPageProps {
     onBack: () => void;
+    /** Where Back goes, in words ('Back to NMEA Gateway'); from the registry. */
+    backLabel?: string;
+    /** The crumb over the title, naming the same page Back goes to. */
+    breadcrumbs?: string[];
 }
 
 // ── Format helper — shows "--" for null / non-finite values ──
@@ -657,9 +671,12 @@ const ROSE_CELL_STYLE = WIND_CELL_STYLE;
 const SectionPlateComponent: React.FC<{ title: string; place?: string }> = ({ title, place }) => (
     <div className="flex items-center gap-3 py-1.5 shrink-0">
         <div aria-hidden="true" className="h-px flex-1 bg-linear-to-r from-transparent to-white/15" />
-        <h2 className="whitespace-nowrap text-xs font-black uppercase tracking-[0.35em] text-gray-400">
+        {/* The app's eyebrow tracking (tracking-widest). At 0.35em the words
+            read as spaced letters, 'C L O C K' (UX scorecard run 10); the
+            hairlines either side keep the instrument feel. */}
+        <h2 className="whitespace-nowrap text-xs font-black uppercase tracking-widest text-gray-400">
             {title}
-            {place && <span className="font-bold tracking-[0.2em]"> · {place}</span>}
+            {place && <span className="font-bold"> · {place}</span>}
         </h2>
         <div aria-hidden="true" className="h-px flex-1 bg-linear-to-l from-transparent to-white/15" />
     </div>
@@ -673,11 +690,14 @@ const SectionPlate = React.memo(SectionPlateComponent);
 // THE GLASS PAGE
 // ══════════════════════════════════════════════
 
-export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
+export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, breadcrumbs }) => {
     const state = useNmeaStore();
     // Crew only: whether the skipper has shared the panel (invite-only, 2026-09-07).
     const crewShare = useCrewInstrumentShare();
     const deviceClass = useDeviceClass();
+    // 0 (no DOM) reads as a tall phone, as the hook documents.
+    const viewportHeight = useViewportHeight();
+    const headerCrumbs = !viewportHeight || viewportHeight >= CRUMB_MIN_VIEWPORT_PX ? breadcrumbs : undefined;
 
     // The panel owns its own data source rather than trusting that some other
     // page started it. Every tile is gated on the store's connectionStatus, so
@@ -1257,6 +1277,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                 <PageHeader
                     title="Instrument Panel"
                     onBack={handleBack}
+                    // The crumb and the chevron's name, like every sibling
+                    // sub-page: it was the one bare 'Go back' (UX scorecard run
+                    // 10). The crumb yields on short screens (CRUMB_MIN_VIEWPORT_PX).
+                    backLabel={backLabel}
+                    breadcrumbs={headerCrumbs}
                     // Status lives on PageHeader's row under the title, like
                     // Anchor Watch and Radio: in the action slot the pill
                     // squeezed INSTRUMENT PANEL onto two lines at 375-393 pt.
@@ -1771,7 +1796,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             ] as const
                                         ).map(([label, text]) => (
                                             <div key={label} className="w-full text-center">
-                                                <p className="mb-1 text-[10px] font-black uppercase tracking-[0.35em] text-gray-500">
+                                                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gray-500">
                                                     {label}
                                                 </p>
                                                 <p
@@ -1792,7 +1817,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             </div>
                                         ))}
                                         {latitude.freshness !== 'live' && (
-                                            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-400">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-400">
                                                 Last known — not live
                                             </p>
                                         )}
@@ -1817,7 +1842,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     </span>
                                     <p
                                         aria-hidden="true"
-                                        className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400"
+                                        className="text-[10px] font-black uppercase tracking-widest text-gray-400"
                                     >
                                         SOG
                                     </p>
