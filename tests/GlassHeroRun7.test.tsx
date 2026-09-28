@@ -126,7 +126,12 @@ describe('warnings pill and sun chip', () => {
         expect(chip).toHaveTextContent(/Sunrise 05:42/);
         expect(chip).toHaveTextContent(/sunset 17:53/);
         expect(chip).toHaveTextContent(/full moon/);
-        expect(screen.getByText('🌕')).toHaveAttribute('aria-hidden', 'true');
+        // A line glyph, not the colour emoji that read as a second sun (UX
+        // scorecard run 10); the words are what is read.
+        expect(screen.queryByText('🌕')).toBeNull();
+        const moon = chip.querySelector('svg[data-moon-phase="full"]');
+        expect(moon).not.toBeNull();
+        expect(moon).toHaveAttribute('aria-hidden', 'true');
         // Each spoken part carries its own trailing comma, so no part starts
         // with one: a leading comma was read after a space (UX scorecard run 9).
         const spoken = Array.from(chip.querySelectorAll('.sr-only')).map((el) => el.textContent);

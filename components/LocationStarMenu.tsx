@@ -64,7 +64,13 @@ const BoatIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-const POPOVER_WIDTH = 264;
+/** About 340 pt, held inside the 16 pt gutters: at 264 'Gladstone, QLD'
+ *  wrapped to two lines beside its captioned Set home and Remove (UX
+ *  scorecard run 10). */
+const POPOVER_WIDTH = 340;
+const POPOVER_GUTTER = 16;
+/** Never narrower than it was. */
+const POPOVER_WIDTH_FLOOR = 264;
 const POPOVER_GAP = 8;
 /** A saved place within this of the place on screen IS the place on screen. */
 const SAME_PLACE_KM = 1;
@@ -276,11 +282,17 @@ export const LocationStarMenu: React.FC = () => {
         closeAndRestore();
     };
 
-    // Anchor to the button's right edge; clamp 8px from each viewport edge.
-    const popoverStyle: React.CSSProperties =
-        anchorRect && portalTarget
-            ? panePopoverStyle(portalTarget, anchorRect, POPOVER_WIDTH, POPOVER_GAP)
-            : { display: 'none' };
+    // Anchor to the button's right edge, as wide as fits with its left edge
+    // at least the 16 pt gutter in from the pane's.
+    const popoverStyle: React.CSSProperties = (() => {
+        if (!anchorRect || !portalTarget) return { display: 'none' };
+        const paneLeft = portalTarget.hasAttribute('data-pane-portal') ? portalTarget.getBoundingClientRect().left : 0;
+        const width = Math.max(
+            POPOVER_WIDTH_FLOOR,
+            Math.min(POPOVER_WIDTH, Math.round(anchorRect.right - paneLeft - POPOVER_GUTTER)),
+        );
+        return panePopoverStyle(portalTarget, anchorRect, width, POPOVER_GAP);
+    })();
 
     // min-h-[44px]: at 393 pt the one-line rows measured 43 pt (review, batch 11).
     const rowBase =
@@ -350,15 +362,17 @@ export const LocationStarMenu: React.FC = () => {
                                         aria-current={homePort && isShownRow(homePort) ? 'location' : undefined}
                                         className={`${rowBase} w-full`}
                                     >
-                                        <HomeIcon className="w-4 h-4 text-amber-400 shrink-0" />
-                                        <span className="flex-1 min-w-0 font-semibold text-amber-100 line-clamp-2 wrap-break-word">
+                                        {/* Neutral ink: amber is the no-fix warning's
+                                            alone in this menu (UX scorecard run 10). */}
+                                        <HomeIcon className="w-4 h-4 text-sky-300 shrink-0" />
+                                        <span className="flex-1 min-w-0 font-semibold text-white line-clamp-2 wrap-break-word">
                                             {homePort}
                                         </span>
-                                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400/70">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                                             Home
                                         </span>
                                         {homePort && isShownRow(homePort) && (
-                                            <CheckIcon className="w-4 h-4 text-amber-400 shrink-0" />
+                                            <CheckIcon className="w-4 h-4 text-sky-400 shrink-0" />
                                         )}
                                     </button>
                                 )}
@@ -466,7 +480,7 @@ export const LocationStarMenu: React.FC = () => {
                                             // as its status, not the action (UX scorecard run 8).
                                             aria-label={`Set home port to ${loc.name}`}
                                             title="Set as home port"
-                                            className="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-amber-400 transition-colors shrink-0"
+                                            className="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-300 transition-colors shrink-0"
                                         >
                                             <HomeIcon className="w-4 h-4" />
                                             <span
@@ -524,7 +538,9 @@ export const LocationStarMenu: React.FC = () => {
                                     type="button"
                                     role="menuitem"
                                     onClick={saveCurrent}
-                                    className="w-full flex items-center gap-2 px-3 py-2.5 border-t border-white/10 text-amber-300 hover:bg-white/5 transition-colors"
+                                    // The sky action colour, not amber: amber is the
+                                    // no-fix warning's in this menu (UX scorecard run 10).
+                                    className="w-full min-h-[44px] flex items-center gap-2 px-3 py-2.5 border-t border-white/10 text-sky-300 hover:bg-white/5 transition-colors"
                                 >
                                     <StarIcon className="w-4 h-4 shrink-0" />
                                     {/* 'Save “Gladstone”' under a saved 'Gladstone, QLD'

@@ -86,7 +86,7 @@ describe('RainForecastCard — the no-rain verdict names the window it checked',
             within(dialog).getByRole('img', { name: 'Rain intensity, next 3\u00bd hours: none' }),
         ).toBeInTheDocument();
         // The credit names the feed only; the horizon is not said a third time.
-        expect(within(dialog).getByText('Rainbow.ai nowcast · 1 km')).toBeInTheDocument();
+        expect(within(dialog).getByText('Rainbow.ai nowcast · 1 km grid')).toBeInTheDocument();
         expect(within(dialog).queryByText(/4 hours ahead/)).toBeNull();
         // The axis ends at the stated horizon, not at a '4 h' it cannot vouch for.
         for (const tick of ['Now', '1 h', '2 h', '3\u00bd h']) {

@@ -53,11 +53,35 @@ const CHART_AXIS_FLOOR = 2.5;
 /** The strip's mini chart draws any real rain at least this tall (per cent
  *  of its 22 px), so a light hour is a bar and not a dotted rule. */
 const MINI_BAR_MIN_PCT = 30;
-/** The detail's rain-on-glass layer: whole at the window's side edges,
- *  easing to 30 % across the 20 px gutters and held there wherever it lies
- *  under the dialog's text and chart. */
-const DROP_LAYER_MASK =
-    'linear-gradient(90deg, #000 0, rgba(0,0,0,0.3) 20px, rgba(0,0,0,0.3) calc(100% - 20px), #000 100%)';
+/** The detail's rain-on-glass layer: at 40 % at the very top edge, easing
+ *  to 12 % by 14 px, above the title row, and held at 12 % everywhere under
+ *  the dialog's title, X, text, chart, stats, credit and Close. Whole in the
+ *  side gutters, beads sat on the axis ticks, the stats and the Close button,
+ *  and on a moving boat shapes behind the numbers make them harder to read
+ *  (UX scorecard run 10). A 40 % band 24-72 px deep still put a bead inside
+ *  the X's box and beside the title (review, batch 12). */
+const DROP_LAYER_MASK = 'linear-gradient(180deg, rgba(0,0,0,0.4) 0, rgba(0,0,0,0.12) 14px, rgba(0,0,0,0.12) 100%)';
+/** Intensity bands the detail draws as faint reference lines under a
+ *  drizzle-only window, so the empty box above 10 pt bars reads as the scale
+ *  it is ('well short of Light') rather than dead space (UX scorecard run 10). */
+const LIGHT_RAIN_FROM = 0.5;
+/** The chart box: 120 px when there is rain to fill it, 96 px when the whole
+ *  window is drizzle under the Light line. */
+const CHART_BOX_TALL = 'h-[120px]';
+const CHART_BOX_DRIZZLE = 'h-24';
+const DRIZZLE_BOX_PX = 96;
+/** The Peak word's width, 12 px bold tracked capitals. */
+const PEAK_MARKER_PX = 40;
+/** The width the axis assumes when it decides two ticks would touch: a
+ *  375 pt phone's chart, the narrowest the dialog is drawn at. */
+const AXIS_ASSUMED_PX = 300;
+/** Rough width of a 12 px bold tick label, per character. */
+const AXIS_CHAR_PX = 7;
+
+/** A trace frame under the rain threshold: drawn faint, so a chart that
+ *  starts at 'Now' in the rain colour no longer says it is already raining
+ *  under 'Rain in 47 min' (UX scorecard run 10). */
+const TRACE_BAR_COLOR = 'rgba(148, 163, 184, 0.3)';
 
 /**
  * How far ahead the remaining frames reach, in the words rainAnalysis uses
@@ -367,11 +391,12 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                                     intensity >= RAIN_THRESHOLD ? MINI_BAR_MIN_PCT : 0,
                                 );
                                 const barColor = getBarColor(intensity, axisMax, isActive);
+                                const trace = intensity > 0 && intensity < RAIN_THRESHOLD;
 
                                 return (
                                     <div key={i} className="flex-1 min-w-0 relative" style={{ height: '100%' }}>
                                         <div
-                                            className="absolute bottom-0 left-0 right-0 rounded-t-[1px] [.display-light_&]:bg-sky-600/80!"
+                                            className={`absolute bottom-0 left-0 right-0 rounded-t-[1px] ${trace ? '[.display-light_&]:bg-slate-400/40!' : '[.display-light_&]:bg-sky-600/80!'}`}
                                             style={{
                                                 height: `${normalizedHeight}%`,
                                                 background: barColor,
@@ -479,7 +504,8 @@ const RainModal: React.FC<ModalProps> = ({
     // The horizon is the headline's and the axis's far tick's to say: the
     // credit said it a third time (UX scorecard run 9).
     const feedProvenance = (() => {
-        if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km';
+        // '1 km grid': a bare '1 km' read as a distance (UX scorecard run 10).
+        if (source === 'rainbow') return 'Rainbow.ai nowcast · 1 km grid';
         if (source === 'weatherkit') return 'Apple WeatherKit · minute-by-minute';
         if (source === 'synthetic') return 'Estimated from the hourly forecast — not a live rain feed';
         return null;
@@ -532,9 +558,16 @@ const RainModal: React.FC<ModalProps> = ({
     // '1H59 / 2H59 / 3H58' (UX scorecard run 6). The far tick is the
     // horizon the headline states, so a feed reaching 3 h 58 ends at '3½ h'
     // where 3½ h falls, not at a '4 h' it cannot vouch for (run 9).
-    const timeLabels = React.useMemo(() => {
+    //
+    // When rain is still to come, its onset gets a tick of its own in the
+    // headline's words ('47 min', in the rain colour) over a dashed line
+    // through the chart, and the round ticks it would touch step aside: the
+    // bars ran from 'Now' in the rain colour with nothing marking the onset,
+    // so the chart said it was already raining under 'Rain in 47 min' (UX
+    // scorecard run 10).
+    const { timeLabels, onsetPct } = React.useMemo(() => {
         if (!data || data.length === 0) {
-            return [{ pct: 0, label: 'Now' }];
+            return { timeLabels: [{ pct: 0, label: 'Now', onset: false }], onsetPct: null };
         }
         const firstMin = Math.max(0, Math.round((new Date(data[0].time).getTime() - now) / 60_000));
         const lastMin = Math.max(
@@ -550,17 +583,59 @@ const RainModal: React.FC<ModalProps> = ({
         const reach = liveWindow(data, now);
         const reachPct = reach ? Math.min(1, Math.max(0, (reach.minutes - firstMin) / span)) : 1;
 
-        const labels = [{ pct: 0, label: firstMin <= 2 ? 'Now' : formatMin(firstMin) }];
+        // The onset, in the minutes the headline counts ('Rain in 47 min').
+        // Only while rain is still to come: once it is raining the chart
+        // starts wet and the headline says so.
+        const onsetFrame =
+            analysis.hasRain && !analysis.isCurrentlyRaining && analysis.firstRainIdx > 0
+                ? data[analysis.firstRainIdx]
+                : undefined;
+        const onsetMin = onsetFrame
+            ? Math.max(1, Math.round((new Date(onsetFrame.time).getTime() - now) / 60_000))
+            : null;
+        const onsetAt = onsetMin !== null ? Math.min(1, Math.max(0, (onsetMin - firstMin) / span)) : null;
+        const onsetText = onsetMin !== null ? `${onsetMin} min` : '';
+        // Two centred ticks touch when their centres are closer than half of
+        // each label plus a gap, on the narrowest chart the dialog draws.
+        const clash = (aPct: number, aText: string, bPct: number, bText: string) =>
+            Math.abs(aPct - bPct) * AXIS_ASSUMED_PX < ((aText.length + bText.length) * AXIS_CHAR_PX) / 2 + 8;
+        const firstText = firstMin <= 2 ? 'Now' : formatMin(firstMin);
+        // The onset's tick needs room past the flush-left first tick and
+        // before the flush-right far one; the dashed line is drawn regardless.
+        const onsetLabelled =
+            onsetAt !== null &&
+            onsetAt * AXIS_ASSUMED_PX - (onsetText.length * AXIS_CHAR_PX) / 2 > firstText.length * AXIS_CHAR_PX + 8 &&
+            (reachPct - onsetAt) * AXIS_ASSUMED_PX - (onsetText.length * AXIS_CHAR_PX) / 2 >
+                (reach?.tick.length ?? 0) * AXIS_CHAR_PX + 8;
+
+        const labels = [{ pct: 0, label: firstText, onset: false }];
         for (let m = Math.ceil((firstMin + 1) / step) * step; m < (reach?.minutes ?? lastMin); m += step) {
             const pct = (m - firstMin) / span;
             // Too close to the first label, or to the far tick, to be read
             // beside it: '3 h' crowded a flush-right '3½ h' on a 375 pt phone.
             if (pct < 0.12 || reachPct - pct < 0.2) continue;
-            labels.push({ pct, label: formatMin(m) });
+            if (onsetLabelled && onsetAt !== null && clash(pct, formatMin(m), onsetAt, onsetText)) continue;
+            labels.push({ pct, label: formatMin(m), onset: false });
         }
-        if (reach && reachPct >= 0.12) labels.push({ pct: reachPct, label: reach.tick });
-        return labels;
-    }, [data, now]);
+        if (onsetLabelled && onsetAt !== null) labels.push({ pct: onsetAt, label: onsetText, onset: true });
+        if (reach && reachPct >= 0.12) labels.push({ pct: reachPct, label: reach.tick, onset: false });
+        return { timeLabels: labels, onsetPct: onsetAt };
+    }, [data, now, analysis.hasRain, analysis.isCurrentlyRaining, analysis.firstRainIdx]);
+    // A drizzle-only window: every bar under the Light line. The box steps
+    // down to 96 px and carries faint Light / Moderate lines, so its empty
+    // top reads as the scale rather than dead space (UX scorecard run 10).
+    // The labels sit on the side away from the peak marker.
+    const drizzleOnly = analysis.hasRain && analysis.maxIntensity < LIGHT_RAIN_FROM;
+    const refSide = peakPct > 0.5 ? 'left-0' : 'right-0';
+    // Where the Peak word sits across the chart, in per cent, as its
+    // transform places it: flush left near the start, flush right near the
+    // end, centred between.
+    const peakMarkerSpan = (() => {
+        const w = (PEAK_MARKER_PX / AXIS_ASSUMED_PX) * 100;
+        const at = peakPct * 100;
+        const [from, to] = peakPct < 0.1 ? [at, at + w] : peakPct > 0.9 ? [at - w, at] : [at - w / 2, at + w / 2];
+        return [Math.max(0, from - 2), Math.min(100, to + 2)];
+    })();
 
     return (
         // Centred and clear of the tab bar like the pin and model dialogs; the
@@ -579,7 +654,7 @@ const RainModal: React.FC<ModalProps> = ({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="rain-forecast-title"
-                className="relative w-full max-w-md max-h-full flex flex-col rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+                className="relative w-full max-w-md max-h-full flex flex-col rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 motion-reduce:animate-none"
                 onClick={(e) => e.stopPropagation()}
                 // Daylight gets the light day surface: the text inside already
                 // inverts to navy by day, and on this navy gradient it went
@@ -789,9 +864,12 @@ const RainModal: React.FC<ModalProps> = ({
                                 the text: one sat behind 'mm/hr' in the stats,
                                 a trail cut the Z of DRIZZLE, and others sat
                                 behind the '3 h' tick and Close (UX scorecard
-                                run 8). The mask keeps them whole only in the
-                                side gutters, the window's edge, and at 30 %
-                                under the content column. */}
+                                run 8), and whole in the side gutters they still
+                                crossed the axis, the stats and Close (run 10).
+                                The mask keeps them at 40 % only in the top
+                                edge's first few pixels, above the title and
+                                X, and at 12 % under everything else. They
+                                never move. */}
                             <svg
                                 className="absolute inset-0 w-full h-full [.display-light_&]:opacity-25"
                                 viewBox="0 0 200 400"
@@ -1055,8 +1133,55 @@ const RainModal: React.FC<ModalProps> = ({
                                 most MAX_CHART_BARS) against a fixed floor, clipped
                                 to the padded box so they share one width with the
                                 axis. */}
+                            {/* Reference lines under a drizzle-only window: Light at
+                                0.5 mm/hr, Moderate at the box's 2.5 mm/hr top. */}
+                            {drizzleOnly &&
+                                [
+                                    { level: LIGHT_RAIN_FROM, label: 'Light' },
+                                    { level: CHART_AXIS_FLOOR, label: 'Moderate' },
+                                ].map(({ level, label }) => {
+                                    const pct = (level / axisMax) * 100;
+                                    const top = pct >= 99;
+                                    // The line breaks under the Peak marker when it
+                                    // would run through the word.
+                                    const lineY = (pct / 100) * DRIZZLE_BOX_PX;
+                                    const markerY = (peakBarPct / 100) * DRIZZLE_BOX_PX + 4;
+                                    const crossesMarker = lineY >= markerY - 2 && lineY <= markerY + 14;
+                                    const [gapFrom, gapTo] = crossesMarker ? peakMarkerSpan : [100, 100];
+                                    const segments = [
+                                        [0, gapFrom],
+                                        [gapTo, 100],
+                                    ].filter(([from, to]) => to - from > 0.5);
+                                    return (
+                                        <React.Fragment key={label}>
+                                            {segments.map(([from, to]) => (
+                                                <div
+                                                    key={from}
+                                                    className="absolute h-0 border-t border-dashed pointer-events-none"
+                                                    style={{
+                                                        bottom: `${pct.toFixed(1)}%`,
+                                                        left: `${from.toFixed(1)}%`,
+                                                        width: `${(to - from).toFixed(1)}%`,
+                                                        borderColor: 'var(--day-ui-grid, rgba(255,255,255,0.16))',
+                                                    }}
+                                                />
+                                            ))}
+                                            <span
+                                                className={`absolute ${refSide} text-[11px] leading-none font-semibold text-white/60 whitespace-nowrap pointer-events-none`}
+                                                style={
+                                                    top ? { top: '3px' } : { bottom: `calc(${pct.toFixed(1)}% + 3px)` }
+                                                }
+                                            >
+                                                {label}
+                                            </span>
+                                        </React.Fragment>
+                                    );
+                                })}
+
                             <div
-                                className={`relative flex items-end gap-px w-full overflow-hidden ${analysis.hasRain ? 'h-[120px]' : 'h-8'}`}
+                                className={`relative flex items-end gap-px w-full overflow-hidden ${
+                                    analysis.hasRain ? (drizzleOnly ? CHART_BOX_DRIZZLE : CHART_BOX_TALL) : 'h-8'
+                                }`}
                             >
                                 <div
                                     className="absolute inset-x-0 bottom-0 h-px pointer-events-none"
@@ -1067,6 +1192,7 @@ const RainModal: React.FC<ModalProps> = ({
                                         const normalizedHeight = barHeightPct(intensity);
                                         const barColor = getBarColor(intensity, axisMax, true);
                                         const isPeak = i === peakBar;
+                                        const trace = intensity < RAIN_THRESHOLD;
 
                                         return (
                                             <div key={i} className="flex-1 min-w-0 relative" style={{ height: '100%' }}>
@@ -1076,7 +1202,7 @@ const RainModal: React.FC<ModalProps> = ({
                                                         height: `${normalizedHeight}%`,
                                                         background: barColor,
                                                         boxShadow:
-                                                            intensity > 0
+                                                            intensity > 0 && !trace
                                                                 ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
                                                                 : 'none',
                                                     }}
@@ -1085,6 +1211,15 @@ const RainModal: React.FC<ModalProps> = ({
                                         );
                                     })}
                             </div>
+                            {/* The onset: a dashed rule from the axis up through the
+                                bars, over its '47 min' tick below. */}
+                            {onsetPct !== null && (
+                                <div
+                                    aria-hidden="true"
+                                    className="absolute top-0 bottom-0 w-0 border-l border-dashed border-sky-300/70 pointer-events-none"
+                                    style={{ left: `${(onsetPct * 100).toFixed(2)}%` }}
+                                />
+                            )}
                         </div>
 
                         {/* Time Axis — labels positioned by true pct across the
@@ -1092,10 +1227,10 @@ const RainModal: React.FC<ModalProps> = ({
                             Keeps bars and labels aligned regardless of whether
                             the feed covers 60 min (WeatherKit) or 4h (Rainbow). */}
                         <div className="relative mt-2 h-4">
-                            {timeLabels.map(({ pct, label }, i) => (
+                            {timeLabels.map(({ pct, label, onset }, i) => (
                                 <span
                                     key={`${i}-${label}`}
-                                    className="absolute text-[11px] text-white/60 font-bold tracking-wide whitespace-nowrap"
+                                    className={`absolute text-[11px] font-bold tracking-wide whitespace-nowrap ${onset ? 'text-sky-300' : 'text-white/60'}`}
                                     style={{
                                         left: `${pct * 100}%`,
                                         // Shift the first label flush-left, the
@@ -1172,6 +1307,7 @@ const RainModal: React.FC<ModalProps> = ({
 
 function getBarColor(intensity: number, maxIntensity: number, active: boolean): string {
     if (intensity === 0) return 'transparent';
+    if (intensity < RAIN_THRESHOLD) return TRACE_BAR_COLOR;
 
     const ratio = intensity / Math.max(maxIntensity, 0.1);
 

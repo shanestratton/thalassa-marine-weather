@@ -45,12 +45,18 @@ describe('Glass chooses the source that serves the selected environment', () => 
         // Named by its visible heading (aria-labelledby), not a second phrase.
         const sheet = screen.getByRole('dialog', { name: 'Offshore forecast model' });
         expect(within(sheet).getByRole('heading', { name: 'Offshore forecast model' })).toBeVisible();
-        for (const model of ['SG BLEND', 'ECMWF', 'GFS', 'ICON']) {
+        for (const model of ['Auto', 'ECMWF', 'GFS', 'ICON']) {
             expect(within(sheet).getByRole('button', { name: `Use the ${model} forecast model` })).toBeVisible();
         }
-        for (const model of ['AIFS', 'UKMO', 'JMA', 'Spitfire', 'Auto']) {
+        for (const model of ['AIFS', 'UKMO', 'JMA', 'Spitfire']) {
             expect(within(sheet).queryByRole('button', { name: `Use the ${model} forecast model` })).toBeNull();
         }
+        // The offshore list's own 'Auto' (StormGlass source selection, named
+        // so since UX scorecard run 10), not the inshore Auto blend.
+        expect(within(sheet).queryByText('Blend of sources — no single model chosen')).toBeNull();
+        expect(within(sheet).getByRole('button', { name: 'Use the Auto forecast model' })).toHaveTextContent(
+            /StormGlass/,
+        );
         fireEvent.click(within(sheet).getByRole('button', { name: 'Use the GFS forecast model' }));
         expect(mocks.updateSettings).toHaveBeenCalledExactlyOnceWith({ offshoreModel: 'gfs' });
         expect(mocks.settings.forecastModel).toBe('ecmwf_aifs025_single');

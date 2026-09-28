@@ -196,7 +196,7 @@ for (const displayMode of ['light', 'dark'] as const) {
                     const modelLabel =
                         locationType === 'offshore'
                             ? width === 320
-                                ? 'SG BLEND'
+                                ? 'Auto'
                                 : 'GFS'
                             : width === 320
                               ? 'SPITFIRE'
@@ -271,7 +271,7 @@ for (const displayMode of ['light', 'dark'] as const) {
                         });
                         await expect(picker).toBeVisible();
                         if (locationType === 'offshore') {
-                            for (const unavailable of ['AIFS', 'UKMO', 'JMA', 'Spitfire', 'Auto']) {
+                            for (const unavailable of ['AIFS', 'UKMO', 'JMA', 'Spitfire']) {
                                 await expect(
                                     picker.getByRole('button', {
                                         name: `Use the ${unavailable} forecast model`,
@@ -279,6 +279,13 @@ for (const displayMode of ['light', 'dark'] as const) {
                                     }),
                                 ).toHaveCount(0);
                             }
+                            // Since UX scorecard run 10 'Auto' names the offshore
+                            // StormGlass selection as well as the inshore blend: both
+                            // are 'the app picks'. Offshore offers exactly one, never
+                            // the inshore blend beside it.
+                            await expect(
+                                picker.getByRole('button', { name: 'Use the Auto forecast model', exact: true }),
+                            ).toHaveCount(1);
                         }
                         const currentModel = picker.getByRole('button', {
                             name: `Use the ${modelLabel === 'SPITFIRE' ? 'Spitfire' : modelLabel} forecast model`,

@@ -283,10 +283,24 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                             <XIcon className="w-4 h-4" />
                         </button>
                     </div>
+                    {/* Each picker names the other: this sheet and Preferences'
+                        'Model used beyond 20 nm' both choose a model, and
+                        nothing said which governs the Glass where (UX
+                        scorecard run 10). One paragraph, so the inshore sheet
+                        still fits a 393 pt phone without scrolling. Inland
+                        places use this sheet's model too: only a place more
+                        than 20 nm offshore takes the Preferences one, so
+                        'within 20 nm of the coast' left inland unsaid. */}
                     <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
-                        {offshore
-                            ? 'Choose the offshore source used here. Your inshore model stays saved separately. Unavailable fields and fallback sources remain labelled.'
-                            : "The Glass repaints with the chosen model's numbers. Long-press any metric to see how the models compare."}
+                        {offshore ? (
+                            'The offshore source used beyond 20 nm: the same choice as Model used beyond 20 nm in Settings → Preferences. Your inshore model stays saved separately. Unavailable fields and fallback sources remain labelled.'
+                        ) : (
+                            // 'Long-press' kept whole: it broke at its hyphen on a 393 pt phone.
+                            <>
+                                The Glass shows this model except beyond 20 nm offshore, where Settings → Preferences
+                                chooses. <span className="inline-block">Long-press</span> any metric to compare models.
+                            </>
+                        )}
                     </p>
                 </div>
 

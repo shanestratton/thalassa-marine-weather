@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useId, useState } from 'react';
 import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
@@ -70,11 +70,6 @@ interface HeroHeaderProps {
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     /** Set while a later day is shown: the date gains a "Today" control. */
     onReturnToToday?: () => void;
-    /** Why a later day is all dashes ("Beyond ICON's range (ends Sun 4 Oct) —
-     *  try another model"). Its first clause stands under the date in place
-     *  of the '--' condition: the full caption sat ~300 pt below the wall of
-     *  dashes it explains (UX scorecard run 9). */
-    rangeNote?: string | null;
 }
 
 const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
@@ -89,7 +84,6 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     isExpanded = true,
     onToggleExpand,
     onReturnToToday,
-    rangeNote,
 }) => {
     // PERF: Memoize helper to get source text color for temperature
     const getTempColor = useCallback((): string => {
@@ -107,8 +101,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     // shown as text, no icon overlay). Kept the text-only display.
     // '' is the producers' sentinel for an unknown condition; never invent 'Cloudy'.
     const displayCondition = data.condition || '--';
-    // The reason alone; the card below keeps the '— try another model' and its button.
-    const rangeReason = !isLive && rangeNote ? rangeNote.split(' — ')[0] : null;
+    // A day past the model's range says why once, in the day card beside
+    // Choose model: the hero repeating its first clause printed 'Beyond ICON's
+    // range (ends Mon 5 Oct)' twice on one screen (UX scorecard run 10).
 
     // ── PINNED METRIC STATE ──────────────────────────────────────────
     // When `heroMetric` !== 'temp', the LEFT partition renders the pinned
@@ -137,6 +132,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     // DndContext means normal taps still pass through to the picker sheet.
     const { isOver, setNodeRef: setDroppableRef } = useDroppable({ id: 'hero-pin-slot' });
 
+    const pinHintId = useId();
     const tapTrackRef = React.useRef<{ count: number; timer: number | null }>({ count: 0, timer: null });
     const handleHeroLeftTap = useCallback(() => {
         void triggerHaptic('light');
@@ -187,11 +183,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             handleHeroLeftTap();
                         }
                     }}
+                    // The reading is the name; what a tap does is the description.
+                    // The name was a paragraph of instructions (UX scorecard run 10).
                     aria-label={
                         pinnedDisplay
-                            ? `Pinned metric ${pinnedDisplay.label}${pinnedMissing ? ', no reading' : ''}. Tap to change, double-tap to reset. Drop a grid metric here to pin it.`
-                            : `Temperature ${tempMissing ? 'no reading' : `${tempStr} degrees ${units.temp === 'F' ? 'Fahrenheit' : 'Celsius'}`}. Tap to pin a different metric to the top, or drop one from the grid below.`
+                            ? `Pinned metric ${pinnedDisplay.label}${pinnedMissing ? ', no reading' : ''}`
+                            : `Temperature ${tempMissing ? 'no reading' : `${tempStr} degrees ${units.temp === 'F' ? 'Fahrenheit' : 'Celsius'}`}`
                     }
+                    aria-describedby={pinHintId}
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
                     {/* Keying remounts this wrapper when the pinned metric
@@ -316,6 +315,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             })()
                         )}
                     </div>
+                    <span id={pinHintId} hidden>
+                        {pinnedDisplay
+                            ? 'Tap to change, double-tap to reset. Drop a grid metric here to pin it.'
+                            : 'Tap to pin a different metric to the top, or drop one from the grid below.'}
+                    </span>
                     {/* No corner 'edit' disc: at 16 px and 60 % it was too faint
                         to register, and a legible 20 px one lands on the °
                         ring at 375 pt. The first-run coach mark teaches the
@@ -332,7 +336,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     // standing in its place. Portrait only: in landscape the mark
                     // is ~250 pt away and the hero was left as '19°C' and a void
                     // for its 6 s (UX scorecard run 9).
-                    className="flex-2 flex items-center justify-center min-w-0 py-2 in-data-[glass-rhythm]:py-0 px-1 portrait:group-has-[[role=status]]/hero:invisible"
+                    // py-0.5 beside the Today chip: 30 + 18 + 14 px of date row,
+                    // condition and hour hold the 70 px row.
+                    className={`flex-2 flex items-center justify-center min-w-0 ${!isLive && onReturnToToday ? 'py-0.5' : 'py-2'} in-data-[glass-rhythm]:py-0 px-1 portrait:group-has-[[role=status]]/hero:invisible`}
                 >
                     {isLive ? (
                         <div className="flex items-center justify-center gap-2 max-w-full -ml-2">
@@ -345,7 +351,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         </div>
                     ) : (
                         <div className="flex flex-col items-center">
-                            <div className="flex items-center gap-1.5 mb-1">
+                            <div className={`flex items-center gap-1.5 ${onReturnToToday ? 'mb-0.5' : 'mb-1'}`}>
                                 <span
                                     // Tighter beside the Today pill, so 'WED 30 SEP' and the
                                     // pill share one line in the 375 pt centre column.
@@ -355,13 +361,14 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     {dateLabel}
                                 </span>
                                 {/* A later day: one tap back to today's live card, not
-                                    one swipe per day (UX scorecard run 7). The span
-                                    gives the 14 px pill a 44 pt target that hangs
-                                    down over the condition text, not up out of the
-                                    card into the warnings row. A return arrow leads
-                                    the word: a bare 'Today' beside 'WED 7 OCT' read
-                                    as a tag saying that day was today (run 8), and
-                                    'Back to today' does not fit the 375 pt column. */}
+                                    one swipe per day (UX scorecard run 7). A return
+                                    arrow leads the word: a bare 'Today' beside 'WED 7
+                                    OCT' read as a tag saying that day was today (run
+                                    8), and 'Back to today' does not fit the 375 pt
+                                    column. Drawn 30 pt tall with 13 px text, where
+                                    the 14 pt sliver was what a skipper aimed at (run
+                                    10); 18 pt in the trimmed 56 px rhythms, where the
+                                    span still gives it a centred 44 pt target. */}
                                 {onReturnToToday && (
                                     <button
                                         type="button"
@@ -371,10 +378,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                         }}
                                         // Starts with the visible word, for voice control.
                                         aria-label="Today, back to now"
-                                        className="relative shrink-0 inline-flex items-center gap-0.5 rounded-full border border-sky-400/40 bg-sky-500/10 px-1.5 text-xs font-semibold leading-none text-sky-300 glass-tide-caption active:bg-sky-500/25"
+                                        className="hit-target-44 relative shrink-0 inline-flex h-[30px] in-data-[glass-rhythm]:h-[18px] items-center gap-1 rounded-full border border-sky-400/40 bg-sky-500/10 px-2 text-[13px] font-semibold leading-none text-sky-300 glass-tide-caption active:bg-sky-500/25"
                                     >
                                         <span
-                                            className="absolute left-1/2 top-[-6px] h-11 w-full min-w-11 -translate-x-1/2"
+                                            className="absolute left-1/2 top-1/2 h-11 w-full min-w-11 -translate-x-1/2 -translate-y-1/2"
                                             aria-hidden="true"
                                         />
                                         <svg
@@ -384,7 +391,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                             strokeWidth="2.5"
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
-                                            className="w-2.5 h-2.5 shrink-0"
+                                            className="w-3.5 h-3.5 in-data-[glass-rhythm]:w-3 in-data-[glass-rhythm]:h-3 shrink-0"
                                             aria-hidden="true"
                                         >
                                             <path d="M9 14 4 9l5-5" />
@@ -394,17 +401,13 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     </button>
                                 )}
                             </div>
-                            {rangeReason ? (
-                                <p className="glass-forecast-caption max-w-full text-center text-xs font-medium leading-tight">
-                                    {rangeReason}
-                                </p>
-                            ) : (
-                                <div className="flex items-center justify-center gap-2 max-w-full">
-                                    <ConditionText text={displayCondition} />
-                                </div>
-                            )}
+                            <div className="flex items-center justify-center gap-2 max-w-full">
+                                <ConditionText text={displayCondition} />
+                            </div>
                             {timeLabel && (
-                                <span className="text-sky-300 text-sm font-bold font-mono leading-none mt-1">
+                                <span
+                                    className={`text-sky-300 text-sm font-bold font-mono leading-none ${onReturnToToday ? 'mt-0.5' : 'mt-1'}`}
+                                >
                                     {timeLabel}
                                 </span>
                             )}

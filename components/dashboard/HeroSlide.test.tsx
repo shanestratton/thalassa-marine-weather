@@ -351,7 +351,9 @@ describe('HeroSlide', () => {
                 timeZone="Australia/Brisbane"
             />,
         );
-        expect(screen.getByRole('region', { name: /^Today: hourly forecast/ })).toBeInTheDocument();
+        // Named for what it holds; the gestures are its description (UX scorecard run 10).
+        const hourRegion = screen.getByRole('region', { name: 'Today, by hour' });
+        expect(hourRegion).toHaveAccessibleDescription(/^Swipe left or right/);
         const slides = container.querySelectorAll('.snap-start');
         expect(slides.length).toBeGreaterThan(1);
         expect(slides[0]).not.toHaveAttribute('aria-hidden');

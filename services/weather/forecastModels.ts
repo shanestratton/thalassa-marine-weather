@@ -19,7 +19,11 @@ import type { OffshoreModel, WeatherModel } from '../../types';
 export const OFFSHORE_MODELS: { id: OffshoreModel; label: string; provider: string; blurb: string; hex: string }[] = [
     {
         id: 'sg',
-        label: 'SG BLEND',
+        // 'Auto', not the internal 'SG BLEND': Preferences led with an
+        // abbreviation while the Glass's own picker says 'Auto' for the source
+        // the app picks (UX scorecard run 10). Not 'Auto blend': at 85 px its
+        // capitals overran the 128 px model pill.
+        label: 'Auto',
         provider: 'StormGlass',
         blurb: 'Automatic offshore source selection',
         hex: '#34d399',
