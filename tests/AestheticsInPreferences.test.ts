@@ -12,8 +12,20 @@ const modal = readFileSync('components/SettingsModal.tsx', 'utf8');
 
 describe('Aesthetics lives inside Preferences', () => {
     it('Preferences renders the appearance sections', () => {
-        expect(general).toContain("import { AestheticsSections } from './AestheticsTab';");
-        expect(general).toContain('<AestheticsSections settings={settings} onSave={onSave} />');
+        // Each on its own since UX scorecard run 10, so Units can follow
+        // Display mode and the orientation lock can sit low on the page.
+        expect(general).toContain(
+            "import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';",
+        );
+        for (const section of ['DisplayModeSection', 'VisualPreferencesSection', 'OrientationSection']) {
+            expect(general).toContain(`<${section} settings={settings} onSave={onSave} />`);
+        }
+        // Units come straight after Display mode.
+        const displayAt = general.indexOf('<DisplayModeSection');
+        const unitsAt = general.indexOf('<Section title="Units">');
+        expect(displayAt).toBeGreaterThan(-1);
+        expect(unitsAt).toBeGreaterThan(displayAt);
+        expect(general.slice(displayAt, unitsAt)).not.toContain('<Section');
     });
 
     it('the sections are exported without a page wrapper, and keep every control', () => {

@@ -62,7 +62,7 @@ describe('Account & Cloud sign-in choices', () => {
         const options = ['Sign in with Apple', 'Sign in with Google', 'Sign in with email'];
         for (const name of options) expect(within(chooser).getByRole('button', { name })).toHaveClass('w-full', 'h-12');
         expect(screen.queryByRole('button', { name: 'Use email instead' })).not.toBeInTheDocument();
-        expect(screen.queryByRole('textbox', { name: 'Email Address' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('textbox', { name: 'Email address' })).not.toBeInTheDocument();
         expect(m.send).not.toHaveBeenCalled();
         expect(m.apple).not.toHaveBeenCalled();
         expect(m.google).not.toHaveBeenCalled();
@@ -72,7 +72,7 @@ describe('Account & Cloud sign-in choices', () => {
         render(<SignInScreen isOpen onClose={vi.fn()} />);
         const emailChoice = screen.getByRole('button', { name: 'Sign in with email' });
         fireEvent.click(emailChoice);
-        const email = screen.getByRole('textbox', { name: 'Email Address' });
+        const email = screen.getByRole('textbox', { name: 'Email address' });
         expect(email).toHaveFocus();
         expect(email).toHaveAttribute('autocomplete', 'email');
         expect(email).toHaveAttribute('inputmode', 'email');
@@ -87,22 +87,22 @@ describe('Account & Cloud sign-in choices', () => {
         m.keyboard = 340;
         render(<SignInScreen isOpen onClose={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: 'Sign in with email' }));
-        const email = screen.getByRole('textbox', { name: 'Email Address' });
+        const email = screen.getByRole('textbox', { name: 'Email address' });
         const panel = email.closest('.tablet-modal');
         expect(panel).toHaveClass('min-h-0', 'max-h-full', 'overflow-y-auto');
         expect(email).toHaveFocus();
-        expect(screen.getByRole('button', { name: 'Send verification code' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Send code' })).toBeVisible();
         fireEvent.change(email, { target: { value: 'skipper@example.com' } });
-        fireEvent.click(screen.getByRole('button', { name: 'Send verification code' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
         await waitFor(() =>
             expect(m.send).toHaveBeenCalledWith({ email: 'skipper@example.com', options: { shouldCreateUser: true } }),
         );
-        const otp = await screen.findByRole('textbox', { name: 'Verification Code' });
+        const otp = await screen.findByRole('textbox', { name: 'Verification code' });
         expect(otp).toHaveFocus();
         expect(otp).toHaveAttribute('autocomplete', 'one-time-code');
-        expect(screen.getByRole('button', { name: 'Send verification email' })).toBeDisabled();
-        fireEvent.click(screen.getByRole('button', { name: 'Change Email' }));
-        expect(screen.getByRole('textbox', { name: 'Email Address' })).toHaveValue('skipper@example.com');
+        expect(screen.getByRole('button', { name: /^Resend in \d+s$/ })).toBeDisabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Change email' }));
+        expect(screen.getByRole('textbox', { name: 'Email address' })).toHaveValue('skipper@example.com');
         expect(m.verify).not.toHaveBeenCalled();
     });
     it('starts with the method chooser on reopening, not a previous unfinished email step', () => {
@@ -112,7 +112,7 @@ describe('Account & Cloud sign-in choices', () => {
         view.rerender(<SignInScreen isOpen={false} onClose={close} />);
         view.rerender(<SignInScreen isOpen onClose={close} />);
         expect(screen.getByRole('dialog', { name: 'Sign in to Thalassa' })).toBeVisible();
-        expect(screen.queryByRole('textbox', { name: 'Email Address' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('textbox', { name: 'Email address' })).not.toBeInTheDocument();
         expect(m.send).not.toHaveBeenCalled();
     });
 });

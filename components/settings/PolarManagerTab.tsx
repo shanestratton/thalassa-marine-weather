@@ -52,6 +52,12 @@ type InputTab = 'import' | 'manual';
  *  button (three treatments before; UX scorecard run 9). */
 const OFF_PAGE_LINK_CLASS = 'inline-flex items-center text-xs font-bold text-sky-300';
 
+/** The page's one card heading: the neutral section-heading token in the
+ *  caption ink, as every other card heading in the Boat Binder (CHANNELS,
+ *  COMPATIBLE SOFTWARE, ENGINE). Sky blue made the headings read as links
+ *  beside the page's real links (UX scorecard run 10). */
+const CARD_HEADING_CLASS = 'ui-section-heading text-gray-400';
+
 /** Stretches a 16 px line to a 44 px hit area without growing its row: the
  *  app's hit-target-44 ::before (44 px tall, centred), widened from a 44 px
  *  square to the link's full width. For links in a line of text or a card
@@ -250,20 +256,21 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
                 {/* A named button, not an unlabelled ⋮, is the way in to typing or
                     importing figures (UX scorecard run 6). */}
                 <div className="mb-4 flex flex-col items-start gap-1">
-                    <h2 className="text-xs font-bold text-sky-300 uppercase tracking-widest">Polar diagram</h2>
+                    <h2 className={CARD_HEADING_CLASS}>Polar diagram</h2>
                     {boatModel ? (
                         <span className="text-base font-black text-white">{boatModel}</span>
                     ) : (
                         <>
                             <p className="text-sm text-gray-400">No boat design chosen</p>
+                            {/* The secondary-button look, like Enter polar figures
+                                under it: a button in the card head, not a fourth
+                                underlined link (UX scorecard run 10). It opens the
+                                Settings menu, where Vessel Profile is, so it says
+                                Settings; one line at 375 pt. */}
                             {onOpenVesselProfile ? (
-                                <button
-                                    type="button"
-                                    onClick={onOpenVesselProfile}
-                                    className={`${OFF_PAGE_LINK_CLASS} min-h-11`}
-                                >
-                                    <OffPageLinkText>Choose one in Settings, under Vessel profile</OffPageLinkText>
-                                </button>
+                                <Button variant="secondary" onClick={onOpenVesselProfile} className="mt-2 text-white">
+                                    <span>Choose one in Settings</span>
+                                </Button>
                             ) : (
                                 <p className="text-xs text-gray-400">Choose one in Settings, under Vessel profile</p>
                             )}
@@ -471,7 +478,7 @@ const SmartPolarsCard: React.FC<{
                 scorecard run 9). */}
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mb-4">
                 <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xs font-bold text-sky-300 uppercase tracking-widest">Smart Polars</h2>
+                    <h2 className={CARD_HEADING_CLASS}>Smart Polars</h2>
                     {!hasRpmData && smartEnabled && (
                         <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg font-bold inline-flex items-center gap-1">
                             <AlertTriangleIcon className="w-3 h-3" />
@@ -504,7 +511,7 @@ const SmartPolarsCard: React.FC<{
                     </button>
                 ) : (
                     <span className={`text-xs font-bold ${smartEnabled ? 'text-emerald-400' : 'text-gray-300'}`}>
-                        {smartEnabled ? 'On' : 'Off'} · switch in Settings → Preferences
+                        {smartEnabled ? 'On' : 'Off'} · change it in Settings → Preferences
                     </span>
                 )}
             </div>
@@ -727,7 +734,7 @@ const ImportTab: React.FC<{
         <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
             {/* The page's one card-heading style, not an amber bar here and an
                 emerald one on Manual (UX scorecard run 7). */}
-            <h3 className="mb-4 text-xs font-bold text-sky-300 uppercase tracking-widest">Import a polar file</h3>
+            <h3 className={`mb-4 ${CARD_HEADING_CLASS}`}>Import a polar file</h3>
 
             <input
                 ref={fileInputRef}
@@ -817,7 +824,7 @@ const ManualTab: React.FC<{
     return (
         <div className="bg-white/3 border border-white/6 rounded-2xl p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-4">
-                <h3 className="text-xs font-bold text-sky-300 uppercase tracking-widest">Type the figures</h3>
+                <h3 className={CARD_HEADING_CLASS}>Type the figures</h3>
                 <span className="text-xs text-gray-400">Boat speed in knots</span>
             </div>
 

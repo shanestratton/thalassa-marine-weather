@@ -8,7 +8,8 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('AlertsTab');
-import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { Section, Row, RowChevron, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { useAuthStore } from '../../stores/authStore';
 import {
     WindIcon,
     WaveIcon,
@@ -309,8 +310,44 @@ const PermissionStatus: React.FC<{ state: PermissionState }> = ({ state }) => {
     );
 };
 
-export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+/**
+ * Signed out, this phone gets its alerts only while Thalassa is open: the
+ * in-app check (NotificationManager) runs in the app, and the 30-minute server
+ * check and its push go to a signed-in account. The intro said sign-in was
+ * needed but never that this phone is signed out, so a skipper arming High
+ * wind would assume they were covered overnight (UX scorecard run 10). The
+ * way to sign in is Account & Cloud's sign-in card, one tap away.
+ */
+const SignedOutNotice: React.FC<{ onOpenAccount?: () => void }> = ({ onOpenAccount }) => (
+    <div className="flex items-center gap-2 border-b border-white/5 px-4 py-2">
+        <AlertTriangleIcon className="h-4 w-4 shrink-0 text-amber-400" />
+        <p className="min-w-0 flex-1 py-1 text-sm leading-snug text-gray-200">
+            Not signed in: alerts only while Thalassa is open
+        </p>
+        {onOpenAccount && (
+            <button
+                type="button"
+                onClick={onOpenAccount}
+                aria-label="Sign in, in Account & Cloud"
+                className="-mr-2 inline-flex min-h-11 shrink-0 items-center gap-1 px-2 text-sm font-bold text-sky-300"
+            >
+                Sign in
+                <RowChevron className="h-3.5 w-3.5 text-sky-300" />
+            </button>
+        )}
+    </div>
+);
+
+interface AlertsTabProps extends SettingsTabProps {
+    /** Opens Settings → Account & Cloud, where the sign-in card is. */
+    onOpenAccount?: () => void;
+}
+
+export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAccount }) => {
     const idBase = React.useId();
+    // Only once the session check has answered, so a signed-in skipper never
+    // sees the notice flash while it runs.
+    const signedOut = useAuthStore((state) => state.authChecked && state.user === null);
     const [permission, setPermission] = useState<PermissionState>(null);
     const refreshPermission = useCallback(() => {
         void readNotificationPermission().then(setPermission);
@@ -362,6 +399,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     Checked about every 30 min at your home port or last known position, and sent as a notification.
                     Needs a data connection, and signing in for alerts while Thalassa is closed.
                 </p>
+                {signedOut && <SignedOutNotice onOpenAccount={onOpenAccount} />}
                 <PermissionStatus state={permission} />
                 {/* Plain rows, not buttons: the switch alone is the toggle, so the
                     number field and the switch are never nested inside another

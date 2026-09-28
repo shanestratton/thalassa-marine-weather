@@ -1358,7 +1358,14 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                         </div>
                     </SubSection>
 
-                    <SubSection title="Identity">
+                    {/* Named for its three fields, not a second 'Identity' under
+                        'Boat & identity'; the note that covers all three sits
+                        under the heading, not under Call sign alone (UX
+                        scorecard run 10). */}
+                    <SubSection title="Registration & radio">
+                        <p className="-mt-2 mb-3 text-xs text-gray-400">
+                            Used for AIS identification and vessel documentation
+                        </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
                             <div>
                                 <label htmlFor={`${fid}-registration`} className={FIELD_LABEL_CLASS}>
@@ -1425,9 +1432,6 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                                 />
                             </div>
                         </div>
-                        <p className="text-xs text-gray-400 mt-3">
-                            Used for AIS identification and vessel documentation
-                        </p>
                     </SubSection>
                 </Section>
 

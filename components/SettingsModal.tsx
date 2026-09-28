@@ -107,6 +107,8 @@ const SETTINGS_GROUPS: { id: SettingsGroup; label: string }[] = [
 const MENU_ITEMS: {
     id: SettingsTab;
     label: string;
+    /** The menu row's printed title, when it differs from `label` only in case. */
+    rowTitle?: string;
     description: string;
     /** Words the search matches but the row does not print, so a short
      *  subtitle costs no findability ("feedback", "freeze", "crew"). */
@@ -122,9 +124,13 @@ const MENU_ITEMS: {
     {
         id: 'general',
         label: 'Preferences',
-        // In the page's order: Display mode now leads it (UX scorecard run 9).
-        description: 'Display, home port, units & clock',
-        caption: 'Display, units & clock',
+        // Names what the page holds past the first screen too: the forecast
+        // model and the Legal / beta feedback rows were findable only by
+        // search (UX scorecard run 10). Two lines are fine on the row. The
+        // page's subtitle says the same in one line at 375 pt: it names what
+        // lies below the fold, since Display mode leads the page in view.
+        description: 'Display, units, clock, forecast model & support',
+        caption: 'Units, clock, forecast & support',
         // Satellite mode and Smart Polars live here now (UX scorecard run 8).
         keywords:
             'default port location time bells zone appearance ais sharing satellite iridium metered network smart polars offshore model legal feedback reset currents ocean',
@@ -182,6 +188,11 @@ const MENU_ITEMS: {
         // One name for the public follow page everywhere; 'Voyage Log'
         // collided with the LOG tab (UX scorecard run 9).
         label: 'Public voyage page',
+        // The menu row names pages in Title Case, like its siblings (Vessel
+        // Profile, Account & Cloud) and the hub's rows (UX scorecard run 10).
+        // Only the printed row title: the row's name, the crumb and the page
+        // title keep the one spelling.
+        rowTitle: 'Public Voyage Page',
         // Says who it is for, so it doesn't read as the LOG tab's ship's log
         // (UX scorecard run 7).
         description: 'Where followers ashore see your voyage',
@@ -250,7 +261,10 @@ const MENU_CARD = 'overflow-hidden rounded-2xl border border-white/6 bg-white/3 
  *  the sub-pages' Section, so the menu and its pages speak one heading style
  *  (UX scorecard run 6). */
 const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <h2 className="ui-section-heading text-label font-bold uppercase tracking-[0.15em] text-sky-300 flex items-center gap-2 px-2 pt-3 pb-1">
+    // pt-1, not pt-3: the list's own gap already sets the section apart, and
+    // at 375 x 667 the header stack left Account & Cloud below the fold (UX
+    // scorecard run 10).
+    <h2 className="ui-section-heading text-label font-bold uppercase tracking-[0.15em] text-sky-300 flex items-center gap-2 px-2 pt-1 pb-1">
         <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shadow-lg shadow-sky-500/50" aria-hidden="true" />
         {children}
     </h2>
@@ -374,7 +388,8 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     // cutting at the comma left a bare latitude.
                     const home = settings?.defaultLocation?.trim();
                     if (!home) return null;
-                    if (home === 'Current Location') return 'Home: follows you';
+                    // 'Home: follows you' took a second read (UX scorecard run 10).
+                    if (home === 'Current Location') return 'Home: your position';
                     if (/^(WP\s|[-+]?\d)/.test(home)) return `Home: ${home}`;
                     return `Home: ${home.split(',')[0].trim() || home}`;
                 }
@@ -438,7 +453,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-baseline justify-between gap-2">
-                            <p className="shrink-0 text-white font-bold text-sm tracking-wide">{item.label}</p>
+                            <p className="shrink-0 text-white font-bold text-sm tracking-wide">
+                                {item.rowTitle ?? item.label}
+                            </p>
                             {/* A long port or boat name ellipsises; the label never does. */}
                             {status && <p className="min-w-0 truncate text-xs font-semibold text-gray-300">{status}</p>}
                         </div>
@@ -793,10 +810,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
                         No .thalassa-scroll-fade here, unlike the menu: this scroller
                         holds position:fixed overlays of its own (Vessel's fleet sync
-                        bar and saved line, Preferences' 'Share what you hear' consent
-                        sheet), and a mask would fade and clip them to this box. The
-                        fade is a painted sibling instead (below), and the port ends at
-                        the tab bar's top edge.
+                        bar and saved line), and a mask would fade and clip them to
+                        this box. The fade is a painted sibling instead (below), and
+                        the port ends at the tab bar's top edge.
 
                         Vessel Profile adds its own reserve while its fleet sync bar is
                         showing (only VesselTab knows when it is).
@@ -843,7 +859,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 />
                             )}
 
-                            {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
+                            {activeTab === 'alerts' && (
+                                <AlertsTab
+                                    settings={settings}
+                                    onSave={onSave}
+                                    onOpenAccount={() => handleSelectTab('account')}
+                                />
+                            )}
 
                             {activeTab === 'voyageLog' && (
                                 <VoyageLogTab
