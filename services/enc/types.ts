@@ -613,8 +613,13 @@ export interface EncCell {
     id: string;
     /** Source hydrographic office (AHO, NOAA, UKHO, NZ, etc.). */
     sourceHO: string;
+    /** Original ENC identifier from the licensed o-charts mapping, if supplied. */
+    sourceCellId?: string;
     /** Edition number from S-57 DSID. */
     edition: number;
+    updateNumber?: number;
+    /** SHA-256 of the signed Pi response that supplied this revision. */
+    contentSha256?: string;
     /** S-57 issue date (ISO 8601). */
     issued: string;
     /** When the user imported this cell into the device. */
@@ -757,7 +762,9 @@ export interface BBoxEntry {
 export interface EncConversionResult {
     cellId: string;
     sourceHO: string;
+    sourceCellId?: string;
     edition: number;
+    updateNumber?: number;
     issued: string;
     bbox: [number, number, number, number];
     layers: {

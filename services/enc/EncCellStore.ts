@@ -276,6 +276,7 @@ function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number)
 export async function saveCellGeoJSON(
     cellId: string,
     blob: EncConversionResult,
+    assertAuthority?: () => void,
 ): Promise<{ path: string; sizeBytes: number }> {
     const normalizedBlob = normalizeBlobForCell(cellId, blob);
     if (!normalizedBlob) {
@@ -291,6 +292,7 @@ export async function saveCellGeoJSON(
                 `the per-cell limit is ${ENC_CELL_BLOB_MAX_BYTES / 1_048_576} MB.`,
         );
     }
+    assertAuthority?.();
     await Filesystem.writeFile({
         path,
         data,

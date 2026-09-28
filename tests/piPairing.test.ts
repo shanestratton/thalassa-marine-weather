@@ -49,6 +49,7 @@ import {
     verifyPairedPi,
     verifySignedResponse,
     pairWithPi,
+    fetchVerifiedFromPi,
     type PiPairingRecord,
 } from '../services/PiPairingService';
 
@@ -69,6 +70,45 @@ beforeEach(() => {
 });
 
 describe('PiPairingService — signed response verification', () => {
+    it('binds chart JSON to the exact signed-index revision, including wire formatting', async () => {
+        const pi = makeSigner();
+        savePairing(record({ publicKeySpki: pi.spkiB64 }));
+        const body = '{ "cells": [] }';
+        const path = '/api/enc/installed/FR466870/data';
+        const hash = createHash('sha256').update(body).digest('hex');
+        const time = String(Date.now());
+        tls.request.mockResolvedValue({
+            status: 200,
+            data: body,
+            headers: {
+                'X-Pi-Signature': pi.signFields(['payload', hash, path, time]),
+                'X-Pi-Signature-Time': time,
+            },
+        });
+        await expect(
+            fetchVerifiedFromPi({ url: `https://calypso.local${path}`, expectedSha256: hash }),
+        ).resolves.toEqual({ cells: [] });
+        const reformattedHash = createHash('sha256')
+            .update(JSON.stringify(JSON.parse(body)))
+            .digest('hex');
+        await expect(
+            fetchVerifiedFromPi({ url: `https://calypso.local${path}`, expectedSha256: reformattedHash }),
+        ).rejects.toThrow(/changed since its index/);
+    });
+
+    it('does not accept matching content hashes in place of a valid signature', async () => {
+        const pi = makeSigner();
+        savePairing(record({ publicKeySpki: pi.spkiB64 }));
+        const body = '{"cells":[]}';
+        tls.request.mockResolvedValue({ status: 200, data: body, headers: {} });
+        await expect(
+            fetchVerifiedFromPi({
+                url: 'https://calypso.local/api/enc/installed/FR466870/data',
+                expectedSha256: createHash('sha256').update(body).digest('hex'),
+            }),
+        ).rejects.toThrow(/signature check/);
+    });
+
     it('accepts a payload signature the Pi would produce', async () => {
         const pi = makeSigner();
         const body = JSON.stringify({ cells: [{ cellId: 'FR466870' }] });

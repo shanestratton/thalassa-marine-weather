@@ -19,8 +19,14 @@ import { generateIsobars, generateIsobarsFromGrid, FORECAST_HOURS } from '../../
 import {
     pressureFrameValidAt,
     pressureFrameForValidAt,
-    PRESSURE_REFRESH_MS,
+    pressureFrameWithinCoverage,
+    pressureCoverage,
+    pressureCoversTime,
+    pressureCacheIsFresh,
+    pressureReplacementError,
+    pressureWindValidAt,
 } from '../../services/weather/pressureProvenance';
+import { boundedPressureRequest, subscribePressureRefresh } from '../../services/weather/pressureRefresh';
 import { WindStore, useWindStore } from '../../stores/WindStore';
 import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
@@ -717,6 +723,14 @@ export function useWeatherLayers(
     const [pressureLoading, setPressureLoading] = useState(false);
     const [pressureError, setPressureError] = useState<string | null>(null);
     const [pressureClockMs, setPressureClockMs] = useState(Date.now());
+    const [pressureTimeUnavailable, setPressureTimeUnavailable] = useState<string | null>(null);
+    const pressureTimeUnavailableRef = useRef<string | null>(null);
+    const pressureFollowsWind =
+        activeLayers.has('pressure') && (activeLayers.has('wind') || activeLayers.has('velocity'));
+    const pressureFollowsWindRef = useRef(pressureFollowsWind);
+    pressureFollowsWindRef.current = pressureFollowsWind;
+    const pressureWindTimeRef = useRef<number | null>(null);
+    pressureWindTimeRef.current = pressureWindValidAt(windState.grid?.refTime, windForecastHours, windHour);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cachedFramesRef = useRef<any[]>([]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -751,8 +765,22 @@ export function useWeatherLayers(
     const applyFrame = useCallback((hour: number) => {
         const map = mapRef.current;
         const frames = cachedFramesRef.current;
-        if (!map || !frames[hour]) return;
-        const result = frames[hour];
+        if (!map) return;
+        // A missing/out-of-coverage frame must clear the previous image. It
+        // must never remain visible under the newly selected UTC timestamp.
+        const empty = { type: 'FeatureCollection', features: [] } as const;
+        const result =
+            !pressureTimeUnavailableRef.current && frames[hour]
+                ? frames[hour]
+                : {
+                      contours: empty,
+                      centers: empty,
+                      barbs: empty,
+                      arrows: empty,
+                      tracks: empty,
+                      heatmapDataUrl: null,
+                      heatmapBounds: null,
+                  };
         const contourSrc = map.getSource('isobar-contours') as mapboxgl.GeoJSONSource;
         const centersSrc = map.getSource('isobar-centers') as mapboxgl.GeoJSONSource;
         const barbsSrc = map.getSource('wind-barbs') as mapboxgl.GeoJSONSource;
@@ -821,6 +849,11 @@ export function useWeatherLayers(
             map.setLayoutProperty('pressure-heatmap-layer', 'visibility', 'none');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const setPressureAvailability = useCallback((reason: string | null) => {
+        pressureTimeUnavailableRef.current = reason;
+        setPressureTimeUnavailable(reason);
     }, []);
 
     // Pre-compute remaining isobar frames in background (frame 0 already shown).
@@ -893,19 +926,24 @@ export function useWeatherLayers(
 
     const updateIsobars = useCallback(
         async (map: mapboxgl.Map) => {
-            const cacheAgeMs = Date.now() - isobarFetchedAtRef.current;
             const cacheIsFresh =
-                cachedGridRef.current &&
                 cachedFramesRef.current.length > 0 &&
-                isobarFetchedAtRef.current > 0 &&
-                cacheAgeMs < PRESSURE_REFRESH_MS;
+                pressureCacheIsFresh(cachedGridRef.current, isobarFetchedAtRef.current);
 
             // The grid is global at 1° resolution, so pan/zoom can use the
             // same data. It must still be renewed for the next GFS cycle:
             // keeping an old run indefinitely makes a believable, stale chart.
             if (cacheIsFresh) {
                 const nowIdx = computePressureNowIndex(cachedGridRef.current);
-                const idx = Math.max(0, Math.min(forecastHourRef.current, cachedFramesRef.current.length - 1));
+                const windFrame = pressureFrameWithinCoverage(cachedGridRef.current, pressureWindTimeRef.current);
+                const idx = pressureFollowsWindRef.current
+                    ? (windFrame ?? nowIdx)
+                    : Math.max(0, Math.min(forecastHourRef.current, cachedFramesRef.current.length - 1));
+                setPressureAvailability(
+                    pressureFollowsWindRef.current && windFrame === null
+                        ? 'Pressure unavailable at the wind forecast time'
+                        : null,
+                );
                 pressureNowIdxRef.current = nowIdx;
                 // Re-applying a cached chart after another layer toggles must
                 // not erase the passage time the user deliberately selected.
@@ -917,7 +955,8 @@ export function useWeatherLayers(
             // Avoid competing full-globe requests when the main layer effect
             // and the periodic freshness check happen in the same render turn.
             if (isobarLoadingRef.current) return;
-            if (isobarAttemptAtRef.current && Date.now() - isobarAttemptAtRef.current < 60_000) return;
+            const attemptAge = Date.now() - isobarAttemptAtRef.current;
+            if (isobarAttemptAtRef.current && attemptAge >= 0 && attemptAge < 60_000) return;
             isobarLoadingRef.current = true;
             isobarAttemptAtRef.current = Date.now();
             setPressureLoading(true);
@@ -926,10 +965,15 @@ export function useWeatherLayers(
             // Fetch ONCE: fixed global grid. At 1° resolution this is only ~65K
             // points per frame (~320K total for 5 frames) — fast to fetch and process.
             try {
-                const data = await generateIsobars(85, -85, -180, 180, map.getZoom());
+                const data = await boundedPressureRequest(generateIsobars(85, -85, -180, 180, map.getZoom()));
                 if (token !== isobarFetchRef.current) return;
                 if (!data) {
                     setPressureError('Pressure refresh unavailable');
+                    return;
+                }
+                const replacementError = pressureReplacementError(data.grid, cachedGridRef.current);
+                if (replacementError) {
+                    setPressureError(replacementError);
                     return;
                 }
                 setPressureError(null);
@@ -946,7 +990,7 @@ export function useWeatherLayers(
                 // cycle refresh. Otherwise a user reading +6h can suddenly be
                 // shown a different meteorological instant simply because the
                 // model's reference clock advanced.
-                const preservedFrame = pressureFrameForValidAt(data.grid, previousValidAt);
+                const preservedFrame = pressureFrameWithinCoverage(data.grid, previousValidAt);
 
                 cachedGridRef.current = data.grid;
                 isobarFetchedAtRef.current = Date.now();
@@ -959,7 +1003,13 @@ export function useWeatherLayers(
                 // (e.g. 4h old) shows the +4h sub-frame labelled Now, not the
                 // cycle-0 sub-frame. Matches wind's computeNowIndex behaviour.
                 const nowIdx = computePressureNowIndex(data.grid);
-                const idx = preservedFrame ?? nowIdx;
+                const windFrame = pressureFrameWithinCoverage(data.grid, pressureWindTimeRef.current);
+                const idx = pressureFollowsWindRef.current ? (windFrame ?? nowIdx) : (preservedFrame ?? nowIdx);
+                setPressureAvailability(
+                    pressureFollowsWindRef.current && windFrame === null
+                        ? 'Pressure unavailable at the wind forecast time'
+                        : null,
+                );
                 pressureNowIdxRef.current = nowIdx;
 
                 // Seed the cached frames array with frame 0 (pre-computed as
@@ -986,7 +1036,7 @@ export function useWeatherLayers(
                 }
             }
         },
-        [applyFrame, precomputeFrames, computePressureNowIndex],
+        [applyFrame, precomputeFrames, computePressureNowIndex, setPressureAvailability],
     );
 
     // Isobar playback RAF. Gated on the layer being active AND standalone:
@@ -1035,39 +1085,31 @@ export function useWeatherLayers(
     useEffect(() => {
         if (activeLayers.has('pressure')) applyFrame(forecastHour);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [forecastHour, activeKey, applyFrame]);
+    }, [forecastHour, activeKey, framesReady, applyFrame]);
 
     // ── Wind + pressure overlay: ONE timeline ──
     // When isobars ride the wind layer, the wind scrubber is the single time
-    // authority and the isobar frame follows it. Both timelines are anchored
-    // to wall-clock Now (windNowIdx / pressureNowIdx), so the mapping is
-    // "hours from now" translated into pressure sub-frames and clamped to the
-    // coverage the pressure grid actually has.
+    // authority and the isobar frame follows its UTC valid time, only within
+    // the pressure grid's actual coverage. No endpoint substitution.
     useEffect(() => {
         if (!activeLayers.has('pressure')) return;
         if (!activeLayers.has('wind') && !activeLayers.has('velocity')) return;
         const grid = cachedGridRef.current;
         const frameCount = cachedFramesRef.current.length;
         if (!grid || frameCount === 0) return;
-        const offs = windForecastHours;
-        if (offs.length === 0) return;
-
-        // windHour is fractional during playback — interpolate its offset.
-        const i0 = Math.max(0, Math.min(Math.floor(windHour), offs.length - 1));
-        const i1 = Math.min(i0 + 1, offs.length - 1);
-        const t = Math.max(0, Math.min(windHour - i0, 1));
-        const windOffset = (offs[i0] ?? 0) * (1 - t) + (offs[i1] ?? 0) * t;
-        const hoursFromNow = windOffset - (offs[windNowIdx] ?? 0);
-
-        const stepHours = grid.subFrameStepHours || 1;
-        const target = pressureNowIdxRef.current + hoursFromNow / stepHours;
-        const windReference = Date.parse(windState.grid?.refTime ?? '');
-        // Prefer the wind field's actual UTC instant, not two independently
-        // rounded "Now" indexes that can disagree by an extra model step.
-        const sameUtcFrame = Number.isFinite(windReference)
-            ? pressureFrameForValidAt(grid, windReference + windOffset * 3_600_000)
-            : null;
-        const idx = Math.max(0, Math.min(sameUtcFrame ?? Math.round(target), frameCount - 1));
+        const validAt = pressureWindTimeRef.current;
+        const idx = pressureFrameWithinCoverage(grid, validAt);
+        setPressureAvailability(
+            idx === null
+                ? validAt === null
+                    ? 'Wind valid time unknown — pressure overlay unavailable'
+                    : 'Pressure unavailable at the wind forecast time'
+                : null,
+        );
+        if (idx === null) {
+            applyFrame(forecastHourRef.current);
+            return;
+        }
         if (idx !== forecastHourRef.current) {
             setForecastHour(idx);
         } else if (cachedFramesRef.current[idx]) {
@@ -1091,6 +1133,7 @@ export function useWeatherLayers(
         framesReady,
         pressureFrameStepHours,
         applyFrame,
+        setPressureAvailability,
     ]);
 
     // ── Wind scrubber: update GL engine on hour change ──
@@ -1775,7 +1818,6 @@ export function useWeatherLayers(
     useEffect(() => {
         if (!activeLayers.has('pressure')) return;
         const refresh = () => {
-            if (document.visibilityState === 'hidden') return;
             setPressureClockMs(Date.now());
             const grid = cachedGridRef.current;
 
@@ -1783,7 +1825,7 @@ export function useWeatherLayers(
             // stays valid across panning, but not indefinitely; refresh it on
             // a bounded cadence while retaining the currently visible valid
             // time through updateIsobars().
-            if (!grid || Date.now() - isobarFetchedAtRef.current >= PRESSURE_REFRESH_MS) {
+            if (!grid || !pressureCacheIsFresh(grid, isobarFetchedAtRef.current)) {
                 const map = mapRef.current;
                 if (map) void updateIsobars(map);
             }
@@ -1803,20 +1845,15 @@ export function useWeatherLayers(
             if (pressureUserScrubbedRef.current && manualAge < MANUAL_COOLDOWN_MS) return;
 
             pressureUserScrubbedRef.current = false;
+            setPressureAvailability(
+                pressureCoversTime(grid, Date.now()) ? null : 'Pressure forecast no longer covers now',
+            );
             setForecastHour((prev) => (prev !== newNowIdx ? newNowIdx : prev));
+            applyFrame(newNowIdx);
         };
-        const interval = setInterval(refresh, 60 * 1000);
-        window.addEventListener('focus', refresh);
-        window.addEventListener('online', refresh);
-        document.addEventListener('visibilitychange', refresh);
-        return () => {
-            clearInterval(interval);
-            window.removeEventListener('focus', refresh);
-            window.removeEventListener('online', refresh);
-            document.removeEventListener('visibilitychange', refresh);
-        };
+        return subscribePressureRefresh(refresh);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeKey, computePressureNowIndex, updateIsobars]);
+    }, [activeKey, computePressureNowIndex, updateIsobars, setPressureAvailability, applyFrame]);
 
     // ── Center map when switching layers + WIND GEOLOCK ──
     const prevLayerCountRef = useRef(0);
@@ -2116,6 +2153,7 @@ export function useWeatherLayers(
             setPressureRefTime(null);
             setPressureLoading(false);
             setPressureError(null);
+            setPressureAvailability(null);
             setFramesReady(0);
         }
 
@@ -3083,21 +3121,35 @@ export function useWeatherLayers(
             (valOrFn: number | ((prev: number) => number)) => {
                 pressureUserScrubbedRef.current = true;
                 pressureUserScrubbedTimeRef.current = Date.now();
-                setForecastHour(valOrFn);
+                if (!pressureFollowsWindRef.current) setPressureAvailability(null);
+                setForecastHour((previous) => {
+                    const requested = typeof valOrFn === 'function' ? valOrFn(previous) : valOrFn;
+                    const count = cachedGridRef.current?.totalHours ?? 1;
+                    return Number.isFinite(requested)
+                        ? Math.max(0, Math.min(Math.round(requested), count - 1))
+                        : previous;
+                });
             },
 
-            [],
+            [setPressureAvailability],
         ),
         /** Sub-frame index corresponding to wall-clock "Now". Consumed by
          *  MapHub's scrubber label so a 4h-old GFS cycle shows "Now" on
          *  the +4h sub-frame instead of mis-labelling cycle-0 as Now. */
         pressureNowIdx: pressureNowIdxRef.current,
-        /** Actual time represented by one pressure sub-frame. The GFS path is
-         *  hourly after interpolation; the fallback is already hourly. */
+        /** Actual hours per frame: GFS is 2h after interpolation, fallback 1h. */
         pressureFrameStepHours,
         pressureSource,
         pressureRefTime,
-        pressureValidTimeMs: pressureFrameValidAt(cachedGridRef.current, forecastHour),
+        pressureValidTimeMs:
+            pressureTimeUnavailable || !cachedFramesRef.current[forecastHour]
+                ? null
+                : pressureFrameValidAt(cachedGridRef.current, forecastHour),
+        pressureTimeUnavailable,
+        pressureFollowsWind,
+        pressureCoverageStartMs: pressureCoverage(cachedGridRef.current)?.startMs ?? null,
+        pressureCoverageEndMs: pressureCoverage(cachedGridRef.current)?.endMs ?? null,
+        pressureFetchedAtMs: isobarFetchedAtRef.current || null,
         pressureLoading,
         pressureError,
         pressureClockMs,

@@ -28,6 +28,8 @@ import { LIGHTNING_POLARITY, POLARITY_ORDER } from './lightningPalette';
 
 interface BlitzortungAttributionProps {
     visible: boolean;
+    /** The shared key holds the full legend; the chart keeps a small live credit. */
+    compact?: boolean;
 }
 
 const STATUS_STYLES: Record<
@@ -70,7 +72,7 @@ const STATUS_STYLES: Record<
     },
 };
 
-export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ visible }) => {
+export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ visible, compact = false }) => {
     const [status, setStatus] = useState<StatusSnapshot | null>(null);
 
     useEffect(() => {
@@ -113,35 +115,39 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
             {/* Vertical polarity legend — three rows, each showing a
                 miniature of the actual strike rendering (white ⚡ on
                 a dark polarity-tinted disc) plus its label. */}
-            <div className="flex flex-col gap-1">
-                {POLARITY_LEGEND.map(({ label: l, glow, rim, meaning }) => (
-                    <div key={l} className="flex items-center gap-1.5" title={meaning}>
-                        {/* A miniature of the mark on the map: scorched centre,
+            {!compact && (
+                <div className="flex flex-col gap-1">
+                    {POLARITY_LEGEND.map(({ label: l, glow, rim, meaning }) => (
+                        <div key={l} className="flex items-center gap-1.5" title={meaning}>
+                            {/* A miniature of the mark on the map: scorched centre,
                             ember rim, warm glow. */}
-                        <span
-                            className="inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] leading-none"
-                            style={{
-                                background: '#1a1005',
-                                border: `1.5px solid ${rim}`,
-                                boxShadow: `0 0 4px ${glow}`,
-                                color: '#fffbeb',
-                            }}
-                            aria-hidden
-                        >
-                            ⚡
-                        </span>
-                        <span className="flex flex-col leading-tight">
-                            <span className="text-[10px] font-semibold tracking-wide text-white/75">{l}</span>
-                            {/* `title` never shows on touch, so the plain-English
+                            <span
+                                className="inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] leading-none"
+                                style={{
+                                    background: '#1a1005',
+                                    border: `1.5px solid ${rim}`,
+                                    boxShadow: `0 0 4px ${glow}`,
+                                    color: '#fffbeb',
+                                }}
+                                aria-hidden
+                            >
+                                ⚡
+                            </span>
+                            <span className="flex flex-col leading-tight">
+                                <span className="text-[10px] font-semibold tracking-wide text-white/75">{l}</span>
+                                {/* `title` never shows on touch, so the plain-English
                                 meaning is printed, not hidden in a tooltip. */}
-                            <span className="max-w-[10rem] text-[10px] text-white/55">{meaning.split(' — ')[0]}</span>
-                        </span>
-                    </div>
-                ))}
-            </div>
+                                <span className="max-w-[10rem] text-[10px] text-white/55">
+                                    {meaning.split(' — ')[0]}
+                                </span>
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Vertical divider */}
-            <div className="self-stretch w-px bg-white/10" aria-hidden />
+            {!compact && <div className="self-stretch w-px bg-white/10" aria-hidden />}
 
             {/* Status + attribution stack */}
             <div className="flex flex-col gap-0.5">

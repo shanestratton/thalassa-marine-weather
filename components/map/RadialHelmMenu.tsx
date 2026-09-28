@@ -114,6 +114,8 @@ export interface RadialHelmMenuProps {
             iconKind: 'avnav' | 'noaa' | 'ecdis' | 'linz' | 'local' | 'generic';
             enabled: boolean;
             onToggle: () => void;
+            /** Clear a selected overlay without opening its picker sheet. */
+            onClear?: () => void;
             /**
              * This source's onToggle opens a SHEET rather than flipping a
              * layer. Sheet-openers must roll the menu up (dismissOnSelect):
@@ -892,7 +894,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (tacticalState?.mooringsVisible) tacticalState.onToggleMoorings?.();
             // Also clear any chart sources.
             chartsState?.sources?.forEach((s) => {
-                if (s.enabled) s.onToggle();
+                if (!s.enabled) return;
+                if (s.onClear) s.onClear();
+                else if (!s.opensSheet) s.onToggle();
             });
             triggerHaptic('medium');
         },
@@ -1083,13 +1087,12 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     return (
         <div
             ref={containerRef}
-            // z-700 already clears every marker layer (own-ship is z auto,
-            // cyclone/squall markers 500) while the storm card (760) stays on
-            // top as asked; what let the dot read through was the tiles'
-            // translucency, fixed below. The right rail clears a landscape notch.
+            // Above chart popups (10000), storm cards and the tracer, but below
+            // modal sheets (10050+). Every category must remain tappable even
+            // when another layer has an open popup. Clear the landscape notch.
             // radial-helm-open: the own-ship badge hides while the tiles are
             // up (useVesselTracker), or its tail showed beside them.
-            className={`radial-helm-menu absolute z-700 top-[192px] right-[max(16px,env(safe-area-inset-right))] ${isOpen ? 'radial-helm-open pointer-events-auto' : ''}`}
+            className={`radial-helm-menu absolute z-[10020] top-[192px] right-[max(16px,env(safe-area-inset-right))] ${isOpen ? 'radial-helm-open pointer-events-auto' : ''}`}
             onPointerDownCapture={() => {
                 noteTouch();
                 setKeyboardFocus(false);
@@ -1441,7 +1444,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 aria-controls={isOpen ? categoryMenuId : undefined}
                 onClick={handleTap}
                 onPointerDown={handlePointerDown}
-                className={`relative w-12 h-12 rounded-2xl backdrop-blur-xl border flex items-center justify-center shadow-2xl transition-colors active:scale-95 ${
+                className={`relative w-12 h-12 min-w-[44px] min-h-[44px] rounded-2xl backdrop-blur-xl border flex items-center justify-center shadow-2xl transition-colors active:scale-95 ${
                     isOpen ? 'bg-slate-800/90 border-white/20' : 'bg-slate-900/90 border-white/8 hover:bg-slate-800/90'
                 }`}
                 style={{ touchAction: 'none' }}

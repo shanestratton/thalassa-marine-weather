@@ -14,6 +14,52 @@ vi.mock('../components/map/cmemsFeatureAvailability', () => ({
 }));
 
 describe('RadialHelmMenu accessibility', () => {
+    it('clears selected routes and tracks without reopening their pickers', async () => {
+        const routePicker = vi.fn(),
+            trackPicker = vi.fn(),
+            clearRoute = vi.fn(),
+            clearTrack = vi.fn();
+        const clearChart = vi.fn(),
+            toggleLayer = vi.fn();
+        render(
+            <RadialHelmMenu
+                activeLayers={new Set<WeatherLayer>(['wind'])}
+                toggleLayer={toggleLayer}
+                selectInGroup={vi.fn()}
+                chartsState={{
+                    sources: [
+                        {
+                            id: 'routes',
+                            label: 'Routes',
+                            iconKind: 'generic',
+                            enabled: true,
+                            opensSheet: true,
+                            onToggle: routePicker,
+                            onClear: clearRoute,
+                        },
+                        {
+                            id: 'tracks',
+                            label: 'Tracks',
+                            iconKind: 'generic',
+                            enabled: true,
+                            opensSheet: true,
+                            onToggle: trackPicker,
+                            onClear: clearTrack,
+                        },
+                        { id: 'enc', label: 'ENC', iconKind: 'generic', enabled: true, onToggle: clearChart },
+                    ],
+                }}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Open layer menu' }));
+        fireEvent.click(await screen.findByRole('button', { name: /Clear all ·/i }));
+        expect(toggleLayer).toHaveBeenCalledWith('none');
+        expect(clearRoute).toHaveBeenCalledOnce();
+        expect(clearTrack).toHaveBeenCalledOnce();
+        expect(clearChart).toHaveBeenCalledOnce();
+        expect(routePicker).not.toHaveBeenCalled();
+        expect(trackPicker).not.toHaveBeenCalled();
+    });
     it('offers independent Moorings and Anchorages together under Sea and clears both', async () => {
         const onToggleMoorings = vi.fn(),
             onToggleAnchorage = vi.fn();

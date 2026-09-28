@@ -12,6 +12,7 @@
  * user sees on the chart matches what they see in the legend.
  */
 import React, { useEffect, useState } from 'react';
+import { squallStatusText, useSquallStatus } from '../../services/weather/squallStatus';
 
 interface SquallLegendProps {
     visible: boolean;
@@ -25,44 +26,33 @@ const TIERS: { label: string; color: string }[] = [
 ];
 
 export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
-    // Tick the live age indicator from the global module-level ref the
-    // squall hook stamps on every refresh. Updated once a minute — same
-    // cadence the squall hook itself uses.
-    const [ageMin, setAgeMin] = useState<number | null>(null);
+    const status = useSquallStatus();
+    const [now, setNow] = useState(Date.now());
     useEffect(() => {
         if (!visible) return;
-        const tick = () => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const last = (window as any).__thalassaSquallLastRefreshAt as number | undefined;
-            if (!last) {
-                setAgeMin(null);
-                return;
-            }
-            setAgeMin(Math.max(0, Math.round((Date.now() - last) / 60_000)));
-        };
+        const tick = () => setNow(Date.now());
         tick();
         const t = setInterval(tick, 60_000);
-        return () => clearInterval(t);
+        window.addEventListener('focus', tick);
+        document.addEventListener('visibilitychange', tick);
+        return () => {
+            clearInterval(t);
+            window.removeEventListener('focus', tick);
+            document.removeEventListener('visibilitychange', tick);
+        };
     }, [visible]);
 
     if (!visible) return null;
 
-    // Status dot + label match the lightning chip's vocabulary so the
-    // two legends feel like part of the same family.
+    const ageMin = status.snapshotTimeMs === null ? null : Math.floor((now - status.snapshotTimeMs) / 60_000);
     let dotClass = 'bg-emerald-400';
-    // Match the "Live" capitalisation used elsewhere on the chart
-    // (BlitzortungAttribution, scrubber sublabels). All-caps "LIVE"
-    // was visually shouty in a chip alongside lower-case body text.
-    let statusLabel = 'Live';
-    if (ageMin === null) {
-        dotClass = 'bg-amber-400 animate-pulse';
-        statusLabel = 'Loading…';
-    } else if (ageMin > 30) {
+    const statusLabel = squallStatusText(status, now);
+    if (status.error || (ageMin !== null && ageMin > 30)) {
         dotClass = 'bg-red-400';
-        statusLabel = ageMin >= 60 ? `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago` : `${ageMin}m ago`;
-    } else if (ageMin > 5) {
+    } else if (status.phase === 'loading' || !status.tilesReady) {
+        dotClass = 'bg-amber-400 animate-pulse';
+    } else if (ageMin === null || ageMin < 0 || ageMin > 10) {
         dotClass = 'bg-amber-400';
-        statusLabel = `${ageMin}m ago`;
     }
 
     // Inline in System Status: no chart entrance animation or map positioning.
@@ -101,12 +91,15 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
             <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2">
                     <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} aria-hidden />
-                    <span className="font-semibold">{statusLabel}</span>
+                    <span className="font-semibold" role={status.error ? 'alert' : undefined}>
+                        {statusLabel}
+                    </span>
                 </div>
                 <div className="flex items-center gap-1 text-[10px] opacity-80">
                     <span>⛈️</span>
                     <span className="font-bold text-white/85">Squall</span>
                 </div>
+                <span className="text-[10px] opacity-80">Heavy-rain proxy · Rainbow.ai</span>
             </div>
         </div>
     );

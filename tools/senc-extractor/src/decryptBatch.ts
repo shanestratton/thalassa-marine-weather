@@ -1,13 +1,18 @@
 #!/usr/bin/env node
-import { readdir, mkdir, readFile, stat } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { createReadStream } from 'node:fs';
+import { readdir, mkdir, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { basename, extname, join, resolve, isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { OexserverdClient } from './oexserverd.js';
-import { loadKeyFile } from './keyFile.js';
+import { loadKeyFileEntries } from './keyFile.js';
 import { parseSenc } from './featureParser.js';
 import { emitCell } from './geojsonEmitter.js';
 import { writeFileAtomic } from './atomicWrite.js';
+import { cellStoreRecord, loadPiCacheIndex, publishPiCacheCells } from './piCacheStore.js';
+import { loadChartSourceMetadata, resolveChartProducer } from './chartProvenance.js';
 
-interface Args {
+export interface Args {
     chartDir: string;
     outDir: string;
     keyFile?: string;
@@ -17,371 +22,305 @@ interface Args {
     skipExisting: boolean;
     sourceHO: string;
     fileExt: string;
-    /**
-     * When set, output is written in pi-cache's chart-store format:
-     *   <piCacheStore>/cells/<cellId>.json   wrapped as `{cells: [cell]}`
-     *   <piCacheStore>/index.json            updated with InstalledCellMeta
-     * That makes the cells immediately consumable by pi-cache's
-     * /api/enc/installed endpoints — and from there by the iOS app's
-     * existing `syncEncFromPi` UI flow.
-     */
     piCacheStore?: string;
+    reportPath?: string;
 }
 
-interface InstalledCellMeta {
-    cellId: string;
-    sourceHO: string;
-    edition: number;
-    issued: string;
-    bbox: [number, number, number, number];
-    featureCount: number;
-    sizeBytes: number;
-    installedAt: string;
-    source: 'phone-upload' | 'url' | 'pi-decrypt';
-    sourceUrl?: string;
-}
-
-interface InstalledIndex {
+export interface BatchReport {
     version: 1;
-    cells: InstalledCellMeta[];
+    expectedCellIds: string[];
+    processedCellIds: string[];
+    skippedCellIds: string[];
+    staleCellIds: string[];
+    failedCells: Array<{ cellId: string; error: string }>;
 }
 
-/**
- * Per-source-file record used by --skip-existing to decide whether to
- * re-decrypt. Keyed by absolute .oesu path; value records the file's mtime
- * at the time we last processed it, plus the cellId we wrote (for back-trace
- * during diagnostics). When o-charts pushes an updated edition the .oesu
- * file's mtime advances, so the next watcher fire re-decrypts automatically.
- */
 interface ProcessedFileEntry {
-    mtimeMs: number;
+    inputSha256: string;
     cellId: string;
-    edition: number;
+    contentSha256: string;
+    outputPath: string;
 }
 interface ProcessedFilesRecord {
-    version: 1;
+    version: 2;
     files: Record<string, ProcessedFileEntry>;
 }
 
-function parseArgs(argv: string[]): Args | null {
-    let chartDir = '';
-    let outDir = '';
-    let keyFile: string | undefined;
-    let binaryPath: string | undefined;
-    let onlyBboxStr: string | undefined;
-    let limit: number | undefined;
-    let skipExisting = false;
-    // No default HO. It used to be 'AU', which silently stamped every cell in a
-    // run with the wrong producer — a Noumea/Port Vila set (one FR cell, one
-    // GB) came out labelled AU, and the app's producer-code check compares
-    // sourceHO against the cell-id prefix. Left unset, each cell derives its
-    // own from its name below, exactly as extractS63 already does.
-    let sourceHO = '';
-    let fileExt = '.geojson';
-    let piCacheStore: string | undefined;
-
+export function parseArgs(argv: string[]): Args {
+    const args: Args = { chartDir: '', outDir: '', skipExisting: false, sourceHO: '', fileExt: '.geojson' };
     for (let i = 0; i < argv.length; i++) {
-        const a = argv[i];
-        if (a === '--charts' && i + 1 < argv.length) chartDir = argv[++i];
-        else if (a === '--out' && i + 1 < argv.length) outDir = argv[++i];
-        else if (a === '--key-file' && i + 1 < argv.length) keyFile = argv[++i];
-        else if (a === '--oexserverd' && i + 1 < argv.length) binaryPath = argv[++i];
-        else if (a === '--only-bbox' && i + 1 < argv.length) onlyBboxStr = argv[++i];
-        else if (a === '--limit' && i + 1 < argv.length) limit = Number(argv[++i]);
-        else if (a === '--skip-existing') skipExisting = true;
-        else if (a === '--source-ho' && i + 1 < argv.length) sourceHO = argv[++i];
-        else if (a === '--file-ext' && i + 1 < argv.length) fileExt = argv[++i];
-        else if (a === '--pi-cache-store' && i + 1 < argv.length) piCacheStore = argv[++i];
-    }
-    if (!chartDir) return null;
-    // In pi-cache-store mode, --out is implied (uses <store>/cells/).
-    if (!outDir && !piCacheStore) return null;
-    if (piCacheStore && !outDir) outDir = join(piCacheStore, 'cells');
-
-    let onlyBbox: Args['onlyBbox'];
-    if (onlyBboxStr) {
-        const parts = onlyBboxStr.split(',').map(Number);
-        if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
-            throw new Error('--only-bbox must be wLon,sLat,eLon,nLat');
+        const next = (): string => {
+            if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`Missing value for ${argv[i]}`);
+            return argv[++i];
+        };
+        switch (argv[i]) {
+            case '--charts':
+                args.chartDir = resolve(next());
+                break;
+            case '--out':
+                args.outDir = resolve(next());
+                break;
+            case '--key-file':
+                args.keyFile = resolve(next());
+                break;
+            case '--oexserverd':
+                args.binaryPath = resolve(next());
+                break;
+            case '--limit':
+                args.limit = Number(next());
+                break;
+            case '--skip-existing':
+                args.skipExisting = true;
+                break;
+            case '--source-ho':
+                args.sourceHO = next();
+                break;
+            case '--file-ext':
+                args.fileExt = next();
+                break;
+            case '--pi-cache-store':
+                args.piCacheStore = resolve(next());
+                break;
+            case '--report':
+                args.reportPath = next();
+                break;
+            case '--only-bbox': {
+                const parts = next().split(',').map(Number);
+                if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n)))
+                    throw new Error('--only-bbox must be wLon,sLat,eLon,nLat');
+                args.onlyBbox = { wLon: parts[0], sLat: parts[1], eLon: parts[2], nLat: parts[3] };
+                break;
+            }
+            default:
+                throw new Error(`Unknown option: ${argv[i]}`);
         }
-        onlyBbox = { wLon: parts[0], sLat: parts[1], eLon: parts[2], nLat: parts[3] };
     }
-
-    return { chartDir, outDir, keyFile, binaryPath, onlyBbox, limit, skipExisting, sourceHO, fileExt, piCacheStore };
-}
-
-function findKeyFile(dir: string, files: string[]): string | undefined {
-    const candidate = files.find((f) => /^oeuSENC-.*-sgl[0-9A-Fa-f]+\.XML$/i.test(f));
-    return candidate ? join(dir, candidate) : undefined;
-}
-
-function bboxIntersects(
-    a: { sLat: number; nLat: number; wLon: number; eLon: number },
-    b: { sLat: number; nLat: number; wLon: number; eLon: number },
-): boolean {
-    return !(a.eLon < b.wLon || a.wLon > b.eLon || a.nLat < b.sLat || a.sLat > b.nLat);
-}
-
-async function main() {
-    const args = parseArgs(process.argv.slice(2));
-    if (!args) {
-        console.error(
-            'usage: decrypt-batch --charts <dir> --out <dir> [--key-file <path>] [--limit N] [--only-bbox wLon,sLat,eLon,nLat] [--skip-existing] [--oexserverd <path>]',
+    if (!args.chartDir || (!args.outDir && !args.piCacheStore)) {
+        throw new Error(
+            'usage: decrypt-batch --charts <dir> (--out <dir> | --pi-cache-store <dir>) [--report <absolute-path>] [--skip-existing]',
         );
-        process.exit(1);
     }
+    if (args.limit !== undefined && (!Number.isSafeInteger(args.limit) || args.limit <= 0))
+        throw new Error('--limit must be a positive integer');
+    if (args.reportPath && !isAbsolute(args.reportPath)) throw new Error('--report must be an absolute path');
+    if (args.piCacheStore && !args.outDir) args.outDir = join(args.piCacheStore, 'cells');
+    return args;
+}
 
-    const files = await readdir(args.chartDir);
-    const oesuFiles = files.filter((f) => extname(f).toLowerCase() === '.oesu').sort();
+/** Content hashes catch same-mtime replacements and key-only updates. No raw keys are persisted. */
+export async function inputFingerprint(chartPath: string, keyDigest: string, sourceHO: string): Promise<string> {
+    const hash = createHash('sha256').update(`senc-extractor-v2\0${keyDigest}\0${sourceHO}\0`);
+    for await (const chunk of createReadStream(chartPath)) hash.update(chunk);
+    return hash.digest('hex');
+}
 
-    const keyFilePath = args.keyFile ?? findKeyFile(args.chartDir, files);
-    if (!keyFilePath) {
-        throw new Error(`no keyFile XML found in ${args.chartDir} (expected oeuSENC-*-sgl<serial>.XML)`);
-    }
-    const keys = await loadKeyFile(keyFilePath);
-    console.log(`Loaded ${keys.size} chart keys from ${basename(keyFilePath)}`);
-    console.log(`Found ${oesuFiles.length} .oesu files in ${args.chartDir}`);
+async function digestFile(path: string): Promise<string> {
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    return hash.digest('hex');
+}
 
-    await mkdir(args.outDir, { recursive: true });
-
-    const client = new OexserverdClient({ binaryPath: args.binaryPath, readTimeoutMs: 60000 });
-    await client.start();
-    console.log('oexserverd ready');
-
-    let processed = 0;
-    let skipped = 0;
-    let failed = 0;
-    let bboxFiltered = 0;
-    const summary: Array<{ file: string; cellId: string; layers: string[]; featureCount: number; bytes: number }> = [];
-
-    // Pi-cache mode: maintain the index across the run so the iOS app's
-    // `/api/enc/installed` call sees every successfully-converted cell.
-    const piCacheIndex: InstalledIndex = args.piCacheStore
-        ? await loadPiCacheIndex(args.piCacheStore).catch(() => ({ version: 1, cells: [] }))
-        : { version: 1, cells: [] };
-
-    // Edition-aware skip: track .oesu mtime so we re-decrypt when o-charts
-    // pushes an updated edition (or when the user manually re-imports). The
-    // record lives next to the chart store so all decryptBatch runs share it.
-    const processedStoreDir = args.piCacheStore ?? args.outDir;
-    const processedRecord: ProcessedFilesRecord = args.skipExisting
-        ? await loadProcessedFiles(processedStoreDir).catch(() => ({ version: 1, files: {} }))
-        : { version: 1, files: {} };
-
+async function loadProcessedFiles(storeDir: string): Promise<ProcessedFilesRecord> {
     try {
+        const parsed = JSON.parse(
+            await readFile(join(storeDir, 'processed-files.json'), 'utf8'),
+        ) as ProcessedFilesRecord;
+        if (parsed.version === 2 && parsed.files && typeof parsed.files === 'object') return parsed;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+    }
+    return { version: 2, files: {} };
+}
+
+export interface DecryptClient {
+    start(): Promise<void>;
+    decryptChart(chartPath: string, key: string): Promise<Buffer>;
+    stop(): Promise<void>;
+}
+
+/** Isolated dependency makes failure handling testable without chart licences or hardware. */
+export async function runDecryptBatch(args: Args, suppliedClient?: DecryptClient): Promise<BatchReport> {
+    const report: BatchReport = {
+        version: 1,
+        expectedCellIds: [],
+        processedCellIds: [],
+        skippedCellIds: [],
+        staleCellIds: [],
+        failedCells: [],
+    };
+    const fail = (cellId: string, error: unknown): void => {
+        const message = error instanceof Error ? error.message : String(error);
+        report.failedCells.push({ cellId, error: message });
+        console.error(`  ${cellId}: FAILED — ${message}`);
+    };
+    let client: DecryptClient | undefined;
+    try {
+        const files = await readdir(args.chartDir);
+        const oesuFiles = files
+            .filter((f) => extname(f).toLowerCase() === '.oesu')
+            .sort()
+            .slice(0, args.limit);
+        report.expectedCellIds = oesuFiles.map((file) => basename(file, extname(file)).toUpperCase());
+        if (oesuFiles.length === 0) throw new Error(`No .oesu chart cells found in ${args.chartDir}`);
+        const candidates = files.filter((f) => /^oeuSENC-.*-sgl[0-9A-Fa-f]+\.XML$/i.test(f));
+        if (!args.keyFile && candidates.length !== 1)
+            throw new Error(`Expected one key XML in ${args.chartDir}; found ${candidates.length}`);
+        const keyPath = args.keyFile ?? join(args.chartDir, candidates[0]);
+        const keys = await loadKeyFileEntries(keyPath);
+        const keyDigest = await digestFile(keyPath);
+        const provenance = await loadChartSourceMetadata(args.chartDir);
+        const processedStoreDir = args.piCacheStore ?? args.outDir;
+        const previous = args.skipExisting
+            ? await loadProcessedFiles(processedStoreDir)
+            : { version: 2 as const, files: {} as Record<string, ProcessedFileEntry> };
+        const installed = args.piCacheStore ? await loadPiCacheIndex(args.piCacheStore) : null;
+        const records: Array<ReturnType<typeof cellStoreRecord>> = [];
+        const pendingEntries: Record<string, ProcessedFileEntry> = {};
+        await mkdir(args.outDir, { recursive: true });
+
         for (const file of oesuFiles) {
-            if (args.limit && processed >= args.limit) break;
-
-            const baseName = basename(file, extname(file));
-            const installKey = keys.get(baseName);
-            // Pi-cache mode REQUIRES .json extension (pi-cache/src/routes/enc.ts:
-            // cellStorePath constructs <cellId>.json — files with .geojson are
-            // 404'd by the /api/enc/installed/:cellId/data endpoint). Other modes
-            // honour --file-ext (default .geojson) for human-readable dumps.
-            const effectiveExt = args.piCacheStore ? '.json' : args.fileExt;
-            const outPath = join(args.outDir, `${baseName}${effectiveExt}`);
-            const chartPath = join(args.chartDir, file);
-            const t0 = Date.now();
-
-            if (args.skipExisting) {
-                // Edition-aware skip: only skip when we've processed THIS file
-                // at its current mtime AND the output still exists. Any change
-                // — chart-update push, manual re-import, even a touch — bumps
-                // mtime and triggers re-decryption.
-                try {
-                    const sourceStat = await stat(chartPath);
-                    const recorded = processedRecord.files[chartPath];
-                    if (recorded && recorded.mtimeMs === sourceStat.mtimeMs) {
-                        // Belt-and-braces: also confirm the output is still there.
-                        try {
-                            await stat(outPath);
-                            skipped += 1;
-                            continue;
-                        } catch {
-                            // Output deleted out from under us — fall through and re-decrypt.
-                        }
-                    }
-                } catch {
-                    // Source file unreadable — let the decrypt attempt below produce the real error.
-                }
-            }
-
-            if (!installKey) {
-                console.warn(`  ${file}: NO KEY in keyFile — skipping`);
-                failed += 1;
-                continue;
-            }
-
+            const cellId = basename(file, extname(file)).toUpperCase();
+            const chartPath = resolve(args.chartDir, file);
             try {
-                const decrypted = await client.decryptChart(chartPath, installKey);
-                const { header, features, stats: pstats } = parseSenc(decrypted);
-
-                // Bbox filter — drop charts that don't overlap the requested region.
-                if (args.onlyBbox && header.cellExtent) {
-                    if (!bboxIntersects(args.onlyBbox, header.cellExtent)) {
-                        bboxFiltered += 1;
-                        const tParse = Date.now() - t0;
-                        console.log(`  ${file}: out-of-bbox (${tParse}ms), skipping write`);
+                const keyEntry = keys.get(basename(file, extname(file))) ?? keys.get(cellId);
+                if (!keyEntry) throw new Error('No matching chart key in key XML');
+                const { installKey, sourceCellId } = keyEntry;
+                const sourceHO = resolveChartProducer(cellId, args.sourceHO, provenance, sourceCellId);
+                const inputSha256 = await inputFingerprint(chartPath, keyDigest, sourceHO);
+                const recorded = previous.files[chartPath];
+                if (args.skipExisting && recorded?.inputSha256 === inputSha256) {
+                    const meta = installed?.cells.find((entry) => entry.cellId === cellId);
+                    const currentOutput =
+                        args.piCacheStore && meta
+                            ? join(args.piCacheStore, meta.blobPath ?? `cells/${cellId}.json`)
+                            : recorded.outputPath;
+                    const currentHash = await digestFile(currentOutput).catch(() => '');
+                    if (
+                        currentHash === recorded.contentSha256 &&
+                        (!installed || meta?.contentSha256 === recorded.contentSha256)
+                    ) {
+                        report.skippedCellIds.push(cellId);
                         continue;
                     }
                 }
-
-                // Per-cell, not per-run: one chart set legitimately holds cells from
-                // different producers. `--source-ho` still overrides when given.
-                const cell = emitCell(header, features, {
-                    cellId: baseName,
-                    sourceHO: args.sourceHO || baseName.slice(0, 2),
-                });
-                // Pi-cache mode wraps each cell in {cells: [single]} so the file
-                // matches the wire format `EncImportService.syncEncFromPi`
-                // already understands. Plain mode emits the raw cell.
-                const json = args.piCacheStore ? JSON.stringify({ cells: [cell] }) : JSON.stringify(cell);
-                await writeFileAtomic(outPath, json);
-                if (args.piCacheStore) {
-                    upsertIndexEntry(piCacheIndex, {
-                        cellId: cell.cellId,
-                        sourceHO: cell.sourceHO,
-                        edition: cell.edition,
-                        issued: cell.issued,
-                        bbox: cell.bbox,
-                        featureCount: cell.stats?.emittedFeatures ?? 0,
-                        sizeBytes: json.length,
-                        installedAt: new Date().toISOString(),
-                        source: 'pi-decrypt',
-                    });
+                if (!client) {
+                    client =
+                        suppliedClient ?? new OexserverdClient({ binaryPath: args.binaryPath, readTimeoutMs: 60_000 });
+                    await client.start();
                 }
-
-                // Record source mtime so a subsequent run with --skip-existing
-                // recognises this exact version as already processed. Updates
-                // bump mtime → re-decrypt on the next watcher fire.
-                try {
-                    const sourceStat = await stat(chartPath);
-                    processedRecord.files[chartPath] = {
-                        mtimeMs: sourceStat.mtimeMs,
-                        cellId: cell.cellId,
-                        edition: cell.edition,
-                    };
-                } catch {
-                    // Source file gone mid-run — rare; skip recording.
+                const decrypted = await client.decryptChart(chartPath, installKey);
+                const { header, features } = parseSenc(decrypted);
+                const extent = header.cellExtent;
+                if (
+                    !header.sencVersion ||
+                    !Number.isSafeInteger(header.cellEdition) ||
+                    !extent ||
+                    !Object.values(extent).every(Number.isFinite) ||
+                    extent.wLon >= extent.eLon ||
+                    extent.sLat >= extent.nLat
+                ) {
+                    throw new Error('Decrypted SENC is missing valid version, edition or chart extent');
                 }
-
-                const tParse = Date.now() - t0;
-                const layers = Object.keys(cell.layers);
-                summary.push({
-                    file,
-                    cellId: baseName,
-                    layers,
-                    featureCount: cell.stats?.emittedFeatures ?? 0,
-                    bytes: json.length,
-                });
-                processed += 1;
+                if ((await inputFingerprint(chartPath, await digestFile(keyPath), sourceHO)) !== inputSha256)
+                    throw new Error('Chart or keys changed during decryption; retry once download completes');
+                const filter = args.onlyBbox;
+                if (
+                    filter &&
+                    (extent.eLon < filter.wLon ||
+                        extent.wLon > filter.eLon ||
+                        extent.nLat < filter.sLat ||
+                        extent.sLat > filter.nLat)
+                ) {
+                    report.skippedCellIds.push(cellId);
+                    continue;
+                }
+                const cell = emitCell(header, features, { cellId, sourceHO, sourceCellId });
+                const record = cellStoreRecord(cell);
+                const outputPath = args.piCacheStore
+                    ? join(args.piCacheStore, record.meta.blobPath!)
+                    : join(args.outDir, `${cellId}${args.fileExt}`);
+                const json = args.piCacheStore ? record.json : JSON.stringify(cell);
+                if (args.piCacheStore) records.push(record);
+                else await writeFileAtomic(outputPath, json);
+                pendingEntries[chartPath] = {
+                    inputSha256,
+                    cellId,
+                    outputPath,
+                    contentSha256: createHash('sha256').update(json).digest('hex'),
+                };
+                report.processedCellIds.push(cellId);
                 console.log(
-                    `  ${file}: ${features.length} feats / ${cell.stats?.emittedFeatures ?? 0} routing  layers=[${layers.join(',')}]  bbox=${header.cellExtent ? `${header.cellExtent.wLon.toFixed(3)},${header.cellExtent.sLat.toFixed(3)}→${header.cellExtent.eLon.toFixed(3)},${header.cellExtent.nLat.toFixed(3)}` : '?'}  ${json.length.toLocaleString()}B  ${tParse}ms`,
+                    `  ${file}: ${features.length} features / ${cell.stats?.emittedFeatures ?? 0} emitted; edition=${cell.edition} update=${cell.updateNumber ?? 0}`,
                 );
-                if (pstats.unknownRecordCounts.size > 0) {
-                    const dropped = [...pstats.unknownRecordCounts.entries()]
-                        .sort((a, b) => a[0] - b[0])
-                        .map(([t, n]) => `${t}:${n}`)
-                        .join(' ');
-                    console.log(`    dropped record-types: ${dropped}`);
-                }
-                if (pstats.triPrimitiveTypes.size > 0) {
-                    const types = [...pstats.triPrimitiveTypes.entries()]
-                        .sort((a, b) => a[0] - b[0])
-                        .map(([t, n]) => {
-                            const name = t === 4 ? 'TRI' : t === 5 ? 'STRIP' : t === 6 ? 'FAN' : '?';
-                            return `${name}(${t}):${n}`;
-                        })
-                        .join(' ');
-                    console.log(`    triPrims: ${types}  SENCv${header.sencVersion}`);
-                }
-            } catch (err) {
-                failed += 1;
-                console.warn(`  ${file}: FAILED — ${err instanceof Error ? err.message : String(err)}`);
+            } catch (error) {
+                fail(cellId, error);
             }
         }
+        if (client) {
+            await client.stop();
+            client = undefined;
+        }
+        // A partial conversion never publishes over the live chart store.
+        if (report.failedCells.length === 0) {
+            if (args.piCacheStore && records.length > 0) {
+                const publication = await publishPiCacheCells(args.piCacheStore, records);
+                report.staleCellIds = publication.stale;
+                report.skippedCellIds.push(...publication.unchanged, ...publication.stale);
+                report.processedCellIds = publication.installed;
+                // Cache the selected blob for older/unchanged source sets too. A
+                // package rebuild may differ only in SENC creation date and must
+                // not force another decryption on every startup.
+                const retained = new Set([...publication.stale, ...publication.unchanged]);
+                if (retained.size > 0) {
+                    const current = await loadPiCacheIndex(args.piCacheStore);
+                    for (const entry of Object.values(pendingEntries)) {
+                        if (!retained.has(entry.cellId)) continue;
+                        const selected = current.cells.find((cell) => cell.cellId === entry.cellId);
+                        if (selected?.contentSha256) {
+                            entry.contentSha256 = selected.contentSha256;
+                            entry.outputPath = join(
+                                args.piCacheStore,
+                                selected.blobPath ?? `cells/${entry.cellId}.json`,
+                            );
+                        }
+                    }
+                }
+                console.log(
+                    `Wrote pi-cache index (${publication.installed.length} installed, ${publication.stale.length} older revisions preserved)`,
+                );
+            }
+            if (args.skipExisting) {
+                Object.assign(previous.files, pendingEntries);
+                await writeFileAtomic(
+                    join(processedStoreDir, 'processed-files.json'),
+                    JSON.stringify(previous, null, 2),
+                );
+            }
+        }
+    } catch (error) {
+        fail('__batch__', error);
     } finally {
-        await client.stop();
-        if (args.piCacheStore) {
+        if (client) {
             try {
-                await savePiCacheIndex(args.piCacheStore, piCacheIndex);
-                console.log(
-                    `Wrote pi-cache index → ${join(args.piCacheStore, 'index.json')} (${piCacheIndex.cells.length} cells)`,
-                );
-            } catch (err) {
-                console.warn(`Failed to write pi-cache index: ${err instanceof Error ? err.message : String(err)}`);
-            }
-        }
-        if (args.skipExisting) {
-            try {
-                await saveProcessedFiles(processedStoreDir, processedRecord);
-            } catch (err) {
-                console.warn(
-                    `Failed to write processed-files record: ${err instanceof Error ? err.message : String(err)}`,
-                );
+                await client.stop();
+            } catch (error) {
+                fail('__daemon__', error);
             }
         }
     }
-
-    console.log();
-    console.log(`Done. processed=${processed} skipped=${skipped} bboxFiltered=${bboxFiltered} failed=${failed}`);
-    if (summary.length > 0) {
-        const totalBytes = summary.reduce((acc, s) => acc + s.bytes, 0);
-        const totalFeats = summary.reduce((acc, s) => acc + s.featureCount, 0);
-        console.log(
-            `Total: ${totalFeats.toLocaleString()} routing features across ${summary.length} cells, ${(totalBytes / 1024 / 1024).toFixed(1)} MB`,
-        );
-    }
+    if (args.reportPath) await writeFileAtomic(args.reportPath, JSON.stringify(report, null, 2));
+    console.log(
+        `Done. processed=${report.processedCellIds.length} skipped=${report.skippedCellIds.length} failed=${report.failedCells.length}`,
+    );
+    return report;
 }
 
-// ── pi-cache store helpers ────────────────────────────────────────
-// Mirror the read/write semantics of pi-cache/src/routes/enc.ts so that
-// running this tool with --pi-cache-store populates an index pi-cache
-// can serve through its existing /api/enc/installed* endpoints.
-
-async function loadPiCacheIndex(storeDir: string): Promise<InstalledIndex> {
-    const path = join(storeDir, 'index.json');
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     try {
-        const raw = await readFile(path, 'utf8');
-        const parsed = JSON.parse(raw) as InstalledIndex;
-        if (parsed.version === 1 && Array.isArray(parsed.cells)) return parsed;
-    } catch {
-        /* fresh install or corrupt — fall through */
+        const report = await runDecryptBatch(parseArgs(process.argv.slice(2)));
+        if (report.failedCells.length > 0) process.exitCode = 1;
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+        process.exitCode = 1;
     }
-    return { version: 1, cells: [] };
 }
-
-async function savePiCacheIndex(storeDir: string, index: InstalledIndex): Promise<void> {
-    await mkdir(storeDir, { recursive: true });
-    await writeFileAtomic(join(storeDir, 'index.json'), JSON.stringify(index, null, 2));
-}
-
-function upsertIndexEntry(index: InstalledIndex, entry: InstalledCellMeta): void {
-    const existing = index.cells.findIndex((c) => c.cellId === entry.cellId);
-    if (existing >= 0) index.cells[existing] = entry;
-    else index.cells.push(entry);
-}
-
-// ── processed-files record (edition-aware skip) ───────────────────
-
-async function loadProcessedFiles(storeDir: string): Promise<ProcessedFilesRecord> {
-    const path = join(storeDir, 'processed-files.json');
-    try {
-        const raw = await readFile(path, 'utf8');
-        const parsed = JSON.parse(raw) as ProcessedFilesRecord;
-        if (parsed.version === 1 && parsed.files && typeof parsed.files === 'object') return parsed;
-    } catch {
-        /* fresh install or corrupt — fall through */
-    }
-    return { version: 1, files: {} };
-}
-
-async function saveProcessedFiles(storeDir: string, record: ProcessedFilesRecord): Promise<void> {
-    await mkdir(storeDir, { recursive: true });
-    await writeFileAtomic(join(storeDir, 'processed-files.json'), JSON.stringify(record, null, 2));
-}
-
-main().catch((e) => {
-    console.error(e);
-    process.exit(1);
-});

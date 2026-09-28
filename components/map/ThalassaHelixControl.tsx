@@ -56,8 +56,8 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
     wind: {
         icon: '💨',
         label: 'Wind',
-        lowLabel: 'Calm',
-        highLabel: 'Storm',
+        lowLabel: '0 kt',
+        highLabel: '60+ kt',
         gradient: WIND_GRADIENT,
         accentColor: '#38bdf8',
     },
@@ -68,16 +68,16 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
     velocity: {
         icon: '💨',
         label: 'Wind',
-        lowLabel: 'Calm',
-        highLabel: 'Storm',
+        lowLabel: '0 kt',
+        highLabel: '60+ kt',
         gradient: WIND_GRADIENT,
         accentColor: '#38bdf8',
     },
     currents: {
         icon: '🌊',
         label: 'Currents',
-        lowLabel: 'Slack',
-        highLabel: 'Rip',
+        lowLabel: '0 m/s',
+        highLabel: '1.5+ m/s',
         // Exact low-to-high stops from CurrentParticleLayer's shader.
         gradient: CURRENT_WAVE_GRADIENT,
         accentColor: '#06b6d4',
@@ -86,8 +86,8 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
     waves: {
         icon: '🌊',
         label: 'Waves',
-        lowLabel: 'Calm',
-        highLabel: 'Rough',
+        lowLabel: '0 m',
+        highLabel: '4+ m',
         // Exact low-to-high stops from WaveParticleLayer's shared palette.
         gradient: CURRENT_WAVE_GRADIENT,
         accentColor: '#06b6d4',
@@ -95,7 +95,7 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
     },
     sst: {
         icon: '🌡️',
-        label: 'SST',
+        label: 'Sea temperature',
         lowLabel: 'Cold',
         highLabel: 'Warm',
         // Matches the thermal ramp in SstRasterLayer.ts.
@@ -124,7 +124,7 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
     },
     mld: {
         icon: '📐',
-        label: 'MLD',
+        label: 'Mixed-layer depth',
         lowLabel: 'Shallow',
         highLabel: 'Deep',
         // Matches the plasma ramp in MldRasterLayer.ts: pale yellow at
@@ -144,26 +144,49 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
     },
     temperature: {
         icon: '🌡️',
-        label: 'Temp',
-        lowLabel: 'Cold',
-        highLabel: 'Hot',
-        gradient: 'linear-gradient(to top, #0000cd, #00bfff, #90ee90, #ffff00, #ff8c00, #ff0000)',
+        label: 'Air temperature',
+        lowLabel: '−40 °C',
+        highLabel: '30+ °C',
+        // OpenWeather temp_new default palette, not the unrelated SST ramp:
+        // https://docs.openweather.co.uk/map_legend (temperature, 2026-09-27).
+        gradient:
+            'linear-gradient(to top, #821692 0%, #8257db 14.29%, #208cec 28.57%, #20c4e8 42.86%, #23dddd 57.14%, #c2ff28 71.43%, #fff028 85.71%, #ffc228 92.86%, #fc8014 100%)',
         accentColor: '#fbbf24',
     },
     clouds: {
         icon: '☁️',
         label: 'Clouds',
-        lowLabel: 'Clear',
-        highLabel: 'Thick',
-        gradient: 'linear-gradient(to top, #1e3a5f, #4a7da8, #8bb8d0, #c0d8e8, #e8f0f4, #ffffff)',
+        lowLabel: '0%',
+        highLabel: '100%',
+        // clouds_new is a translucent white cloud-cover product, not blue cloud height.
+        gradient: 'linear-gradient(to top, rgba(255,255,255,0), rgba(247,247,255,0.5), rgba(240,240,255,1))',
         accentColor: '#94a3b8',
     },
     pressure: {
         icon: '📊',
-        label: 'Baro',
-        lowLabel: 'Low',
-        highLabel: 'High',
-        gradient: 'linear-gradient(to top, #6366f1, #38bdf8, #a7f3d0, #fbbf24, #ef4444)',
+        label: 'Pressure',
+        lowLabel: '≤960 hPa',
+        highLabel: '≥1042 hPa',
+        // Same pressure positions, RGB and alpha as generatePressureHeatmap
+        // in services/weather/isobars.ts; neutral pressure is nearly transparent.
+        gradient: `linear-gradient(to top, ${[
+            [960, 10, 20, 110, 235],
+            [975, 20, 50, 155, 225],
+            [985, 35, 85, 185, 210],
+            [995, 50, 125, 200, 190],
+            [1005, 80, 170, 205, 150],
+            [1010, 140, 195, 195, 100],
+            [1013, 200, 190, 170, 62],
+            [1016, 215, 170, 155, 100],
+            [1020, 225, 145, 130, 150],
+            [1025, 220, 115, 100, 180],
+            [1032, 210, 85, 75, 200],
+            [1042, 185, 60, 60, 215],
+        ]
+            .map(
+                ([pressure, r, g, b, alpha]) => `rgba(${r},${g},${b},${alpha / 255}) ${((pressure - 960) / 82) * 100}%`,
+            )
+            .join(', ')})`,
         accentColor: '#a78bfa',
     },
     traffic: {
@@ -179,6 +202,9 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
 // ── Props ──
 
 export interface ThalassaHelixControlProps {
+    /** Shared weather panel owns positioning and its combined key. */
+    inline?: boolean;
+    legendVisible?: boolean;
     /** Currently active weather/data layer */
     activeLayer: HelixLayer;
     /** Current scrubber frame index */
@@ -240,6 +266,8 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
         dualColor,
         forecastAccent = '#fbbf24',
         trailing,
+        inline = false,
+        legendVisible = true,
     }) => {
         // ── Refs for smooth DOM-direct drag ──
         const trackRef = useRef<HTMLDivElement>(null);
@@ -454,90 +482,103 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                     gap. Deliberately NOT in the bottom row with the scrubber:
                     that corner already carries the model chips and the
                     lightning stack. */}
-                <div
-                    // thalassa-helix-legend: the passage pane shares this column, and
-                    // index.css steps the legend right of it while the pane is open.
-                    className="thalassa-helix-legend absolute z-500"
-                    style={{ left: 12, bottom: embedded ? 12 : 'calc(50% + 28px)' }}
-                >
-                    {showLegend && (
-                        <div
-                            className="flex flex-col items-center gap-1 animate-in fade-in duration-200"
-                            style={{
-                                background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
-                                backdropFilter: 'blur(16px)',
-                                WebkitBackdropFilter: 'blur(16px)',
-                                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
-                                borderRadius: 14,
-                                padding: '8px 6px',
-                            }}
-                        >
-                            {/* High indicator */}
-                            <span className="text-[11px] font-black text-red-400/70 uppercase tracking-wider">↑</span>
-                            <span className="text-[10px] font-bold text-white/40 uppercase">{config.highLabel}</span>
-
-                            {/* Color bar */}
+                {legendVisible && (
+                    <div
+                        // thalassa-helix-legend: the passage pane shares this column, and
+                        // index.css steps the legend right of it while the pane is open.
+                        className="thalassa-helix-legend absolute z-500"
+                        style={{ left: 12, bottom: embedded ? 12 : 'calc(50% + 28px)' }}
+                    >
+                        {showLegend && (
                             <div
-                                className="rounded-full"
+                                className="flex flex-col items-center gap-1 animate-in fade-in duration-200"
                                 style={{
-                                    width: 6,
-                                    height: 64,
-                                    background: config.gradient,
+                                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
+                                    backdropFilter: 'blur(16px)',
+                                    WebkitBackdropFilter: 'blur(16px)',
+                                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
+                                    borderRadius: 14,
+                                    padding: '8px 6px',
                                 }}
-                            />
+                            >
+                                {/* High indicator */}
+                                <span className="text-[11px] font-black text-red-400/70 uppercase tracking-wider">
+                                    ↑
+                                </span>
+                                <span className="text-[10px] font-bold text-white/40 uppercase">
+                                    {config.highLabel}
+                                </span>
 
-                            {/* Low indicator */}
-                            <span className="text-[10px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
-                            <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
+                                {/* Color bar */}
+                                <div
+                                    className="rounded-full"
+                                    style={{
+                                        width: 6,
+                                        height: 64,
+                                        background: config.gradient,
+                                    }}
+                                />
 
-                            {/* Layer icon */}
+                                {/* Low indicator */}
+                                <span className="text-[10px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
+                                <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">
+                                    ↓
+                                </span>
+
+                                {/* Layer icon */}
+                                <button
+                                    onClick={() => setShowLegend(false)}
+                                    className="mt-1 w-12 h-12 flex items-center justify-center rounded-lg bg-white/4 hover:bg-white/8 transition-colors"
+                                    aria-label={`${config.label} layer`}
+                                >
+                                    <span className="text-sm">{config.icon}</span>
+                                </button>
+
+                                {config.honestyNote && (
+                                    <p className="w-36 px-1 text-center text-[11px] font-semibold leading-snug text-white/70">
+                                        {config.honestyNote}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Collapsed chip — same anchor, so hiding and showing the
+                        legend does not make it jump across the screen. */}
+                        {!showLegend && (
                             <button
-                                onClick={() => setShowLegend(false)}
-                                className="mt-1 w-12 h-12 flex items-center justify-center rounded-lg bg-white/4 hover:bg-white/8 transition-colors"
-                                aria-label={`${config.label} layer`}
+                                onClick={() => setShowLegend(true)}
+                                className="w-12 h-12 flex items-center justify-center rounded-xl transition-colors"
+                                style={{
+                                    background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
+                                    backdropFilter: 'blur(16px)',
+                                    WebkitBackdropFilter: 'blur(16px)',
+                                    border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
+                                }}
+                                aria-label="Show legend"
                             >
                                 <span className="text-sm">{config.icon}</span>
                             </button>
-
-                            {config.honestyNote && (
-                                <p className="w-36 px-1 text-center text-[11px] font-semibold leading-snug text-white/70">
-                                    {config.honestyNote}
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Collapsed chip — same anchor, so hiding and showing the
-                        legend does not make it jump across the screen. */}
-                    {!showLegend && (
-                        <button
-                            onClick={() => setShowLegend(true)}
-                            className="w-12 h-12 flex items-center justify-center rounded-xl transition-colors"
-                            style={{
-                                background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
-                                backdropFilter: 'blur(16px)',
-                                WebkitBackdropFilter: 'blur(16px)',
-                                border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
-                            }}
-                            aria-label="Show legend"
-                        >
-                            <span className="text-sm">{config.icon}</span>
-                        </button>
-                    )}
-                </div>
+                        )}
+                    </div>
+                )}
 
                 {/* ═══ MAIN CONTROL — SCRUBBER + TIME ═══ */}
                 <div
                     // items-stretch, not items-end: the trailing minimise
                     // button takes the pill's height, whatever that is.
-                    className="absolute z-500 flex items-stretch gap-2"
-                    style={{
-                        left: 12,
-                        bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
-                        maxWidth: '90vw',
-                    }}
+                    className={`${inline ? 'min-w-0 w-full' : 'absolute z-500'} flex items-stretch gap-2`}
+                    style={
+                        inline
+                            ? undefined
+                            : {
+                                  left: 12,
+                                  bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
+                                  maxWidth: '90vw',
+                              }
+                    }
                 >
                     <div
+                        className="min-w-0 flex-1"
                         style={{
                             background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.80))',
                             backdropFilter: 'blur(20px)',
@@ -545,8 +586,8 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
                             borderRadius: 16,
                             padding: hasScrubber ? '8px 12px' : '6px 12px',
-                            minWidth: hasScrubber ? 200 : 120,
-                            maxWidth: 280,
+                            minWidth: inline ? 0 : hasScrubber ? 200 : 120,
+                            maxWidth: inline ? undefined : 280,
                         }}
                     >
                         {/* Loading state */}
@@ -578,7 +619,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                         onPlayToggle();
                                         triggerHaptic('light');
                                     }}
-                                    className="w-12 h-12 flex items-center justify-center rounded-lg shrink-0 active:scale-90 transition-transform"
+                                    className="w-12 h-12 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg shrink-0 active:scale-90 transition-transform"
                                     style={{
                                         background: `${accent}20`,
                                         border: `1px solid ${accent}30`,
@@ -604,7 +645,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                     aria-valuemax={maxFrame}
                                     aria-valuenow={Math.round(frameIndex)}
                                     aria-valuetext={`${frameLabel} — ${sublabel}`}
-                                    className="flex-1 relative h-9 flex items-center cursor-pointer"
+                                    className="flex-1 min-w-[44px] min-h-[44px] relative h-12 flex items-center cursor-pointer"
                                     style={{ touchAction: 'none' }}
                                     onPointerDown={handlePointerDown}
                                     onPointerMove={handlePointerMove}
@@ -673,7 +714,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                                 {/* Time label */}
                                 <div className="shrink-0 text-right min-w-[44px]">
                                     <p className="text-[11px] font-black text-white leading-tight">{frameLabel}</p>
-                                    {activeLayer !== 'pressure' && (
+                                    {activeLayer !== 'pressure' && !inline && (
                                         <p
                                             className="text-[11px] font-bold uppercase tracking-widest leading-tight"
                                             style={{
@@ -693,9 +734,9 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             </div>
                         )}
 
-                        {hasScrubber && !isLoading && activeLayer === 'pressure' && (
+                        {hasScrubber && !isLoading && (activeLayer === 'pressure' || inline) && (
                             <p
-                                data-testid="pressure-time-provenance"
+                                data-testid={activeLayer === 'pressure' ? 'pressure-time-provenance' : undefined}
                                 className="mt-1.5 text-[11px] leading-snug break-words"
                                 style={{ color: 'var(--day-ui-muted, #c3d0df)', maxWidth: '100%' }}
                             >
@@ -705,15 +746,18 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
 
                         {/* No-scrubber mode: just show layer + live status */}
                         {!hasScrubber && !isLoading && (
-                            <div className="flex items-center gap-2 py-0.5">
-                                <span className="text-sm">{config.icon}</span>
-                                <span className="text-[11px] font-black text-white">{config.label}</span>
-                                <span
-                                    className="ml-auto text-[11px] font-bold uppercase tracking-widest"
-                                    style={{ color: daylightUiColor(`${accent}90`) }}
-                                >
-                                    {frameLabel === 'Live' ? '● Live' : frameLabel}
-                                </span>
+                            <div className="space-y-1 py-0.5">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm">{config.icon}</span>
+                                    <span className="text-[11px] font-black text-white">{config.label}</span>
+                                    <span
+                                        className="ml-auto text-[11px] font-bold uppercase tracking-widest"
+                                        style={{ color: daylightUiColor(`${accent}90`) }}
+                                    >
+                                        {frameLabel === 'Live' ? '● Live' : frameLabel}
+                                    </span>
+                                </div>
+                                <p className="text-[11px] leading-snug break-words text-slate-300">{sublabel}</p>
                             </div>
                         )}
                     </div>
@@ -726,96 +770,165 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
 
 ThalassaHelixControl.displayName = 'ThalassaHelixControl';
 
-// ── Multi-Legend Dock (2+ weather layers active → side-by-side legends, no scrubber) ──
+export function weatherLayerLabel(layer: HelixLayer): string {
+    return layer ? (LAYER_CONFIGS[layer]?.label ?? layer) : 'Weather';
+}
+
+const LAYER_UNITS: Record<string, string> = {
+    wind: 'Wind speed · kt',
+    velocity: 'Wind speed · kt',
+    rain: 'Precipitation intensity · qualitative',
+    pressure: 'Mean sea-level pressure · hPa',
+    temperature: 'Air temperature · °C',
+    clouds: 'Cloud cover · %',
+    currents: 'Current speed · m/s',
+    waves: 'Significant wave height · m',
+    sst: 'Sea-surface temperature · °C',
+    chl: 'Chlorophyll · mg/m³ (logarithmic)',
+    seaice: 'Sea-ice concentration · %',
+    mld: 'Mixed-layer depth · m (logarithmic)',
+};
+
+// One key, separate scales. The key never becomes the timeline: combining
+// layers must not remove playback or imply unrelated datasets share a clock.
 
 export interface LegendDockProps {
     layers: HelixLayer[];
     embedded?: boolean;
     /** Same contract as ThalassaHelixControl.trailing: the minimise square, at the dock's height. */
     trailing?: React.ReactNode;
+    inline?: boolean;
+    captions?: Partial<Record<NonNullable<HelixLayer>, string>>;
+    unavailableLayers?: HelixLayer[];
+    pressureOverlay?: boolean;
+    extraLegend?: React.ReactNode;
+    extraLegendCount?: number;
 }
 
-export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded, trailing }) => {
-    // Collapsed by default, matching ThalassaHelixControl's legend — and more
-    // important here, because this renders ONE ~160px bar PER LAYER. With two
-    // layers up it filled the bottom-left corner twice over, directly under
-    // the lightning/squall stack and beside the model selector. That is the
-    // pile-up reported on 2026-07-22.
-    const [expanded, setExpanded] = useState(false);
-    const validLayers = layers.filter((l): l is NonNullable<HelixLayer> => !!l && !!LAYER_CONFIGS[l]);
-    if (validLayers.length === 0) return null;
-
-    if (!expanded) {
+export const LegendDock: React.FC<LegendDockProps> = memo(
+    ({
+        layers,
+        embedded,
+        trailing,
+        inline = false,
+        captions = {},
+        unavailableLayers = [],
+        pressureOverlay = false,
+        extraLegend,
+        extraLegendCount,
+    }) => {
+        const [expanded, setExpanded] = useState(false);
+        const validLayers = [...new Set(layers)].filter((l): l is NonNullable<HelixLayer> => !!l && !!LAYER_CONFIGS[l]);
+        const hasExtraLegend = extraLegend != null && extraLegend !== false;
+        const extraCount = hasExtraLegend ? Math.max(1, Math.floor(extraLegendCount || 1)) : 0;
+        if (validLayers.length === 0 && !hasExtraLegend) return null;
         return (
             <div
-                className="absolute z-500 flex items-stretch gap-2 animate-in fade-in duration-200"
-                style={{ left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))' }}
+                className={
+                    inline
+                        ? 'min-w-0'
+                        : 'absolute z-500 max-w-[calc(100%-24px)] rounded-2xl border border-white/10 bg-slate-950/90 p-2'
+                }
+                style={
+                    inline
+                        ? undefined
+                        : { left: 12, bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))', width: 360 }
+                }
             >
-                {validLayers.map((layer) => (
+                <div className="flex items-stretch gap-2">
                     <button
-                        key={layer}
-                        onClick={() => setExpanded(true)}
-                        className="w-11 h-11 flex items-center justify-center rounded-xl transition-colors"
-                        style={{
-                            background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
-                            backdropFilter: 'blur(16px)',
-                            WebkitBackdropFilter: 'blur(16px)',
-                            border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
-                        }}
-                        aria-label={`Show ${LAYER_CONFIGS[layer]?.label ?? layer} legend`}
+                        type="button"
+                        onClick={() => setExpanded(!expanded)}
+                        aria-expanded={expanded}
+                        aria-label={
+                            hasExtraLegend
+                                ? expanded
+                                    ? 'Hide layer key'
+                                    : 'Show layer key'
+                                : expanded
+                                  ? 'Hide weather legends'
+                                  : 'Show weather legends'
+                        }
+                        className="flex min-h-[44px] min-w-[44px] flex-1 items-center justify-between gap-2 rounded-xl px-2 text-left text-xs font-bold text-slate-200"
                     >
-                        <span className="text-sm">{LAYER_CONFIGS[layer]?.icon}</span>
+                        <span>
+                            Layer key <span className="text-slate-400">· {validLayers.length + extraCount}</span>
+                        </span>
+                        <span aria-hidden="true">{expanded ? '−' : '+'}</span>
                     </button>
-                ))}
-                {trailing}
+                    {trailing}
+                </div>
+                {expanded && (
+                    <div
+                        className="max-h-56 space-y-3 overflow-y-auto overscroll-contain border-t border-white/10 pt-3"
+                        role="region"
+                        aria-label={hasExtraLegend ? 'Chart layer legends' : 'Weather layer legends'}
+                    >
+                        {validLayers.map((layer) => {
+                            const config = LAYER_CONFIGS[layer];
+                            const unavailable = unavailableLayers.includes(layer);
+                            return (
+                                <section
+                                    key={layer}
+                                    aria-label={`${config.label} legend`}
+                                    className="min-w-0 px-2 pb-1 text-[11px] leading-snug text-slate-300"
+                                >
+                                    <p className="font-bold text-slate-100">{LAYER_UNITS[layer] ?? config.label}</p>
+                                    {captions[layer] && <p className="mt-1 break-words">{captions[layer]}</p>}
+                                    {!unavailable && (
+                                        <>
+                                            {layer === 'pressure' && pressureOverlay ? (
+                                                <p className="mt-2">
+                                                    <span aria-hidden="true">━</span> Labelled isobars · H high / L low
+                                                    · no pressure colour fill
+                                                </p>
+                                            ) : (
+                                                <>
+                                                    <div
+                                                        data-weather-scale={layer}
+                                                        aria-hidden="true"
+                                                        className="mt-2 h-2 rounded-full border border-white/10"
+                                                        style={{
+                                                            background: config.gradient.replace('to top', 'to right'),
+                                                        }}
+                                                    />
+                                                    <div className="mt-1 flex justify-between gap-3">
+                                                        <span>{config.lowLabel}</span>
+                                                        <span>{config.highLabel}</span>
+                                                    </div>
+                                                </>
+                                            )}
+                                            {config.honestyNote && <p className="mt-1">{config.honestyNote}</p>}
+                                            {layer === 'rain' && (
+                                                <p className="mt-1">
+                                                    Light → heavy intensity; not a rainfall total or a mm/h conversion.
+                                                </p>
+                                            )}
+                                            {layer === 'pressure' && !pressureOverlay && (
+                                                <p className="mt-1">Read labelled isobars in hPa · H high / L low.</p>
+                                            )}
+                                            {layer === 'clouds' && (
+                                                <p className="mt-1">
+                                                    Transparent → white cloud cover; not satellite imagery.
+                                                </p>
+                                            )}
+                                        </>
+                                    )}
+                                </section>
+                            );
+                        })}
+                        {hasExtraLegend && <div className="min-w-0 px-2 pb-1">{extraLegend}</div>}
+                        {validLayers.length > 1 && (
+                            <p className="px-2 pb-2 text-[11px] text-slate-400">
+                                Separate layer scales and valid times. A shared key does not mean the datasets are
+                                synchronized.
+                            </p>
+                        )}
+                    </div>
+                )}
             </div>
         );
-    }
-
-    return (
-        <div
-            className="absolute z-500 flex items-end gap-2 animate-in fade-in duration-200"
-            style={{
-                left: 12,
-                bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
-            }}
-        >
-            {validLayers.map((layer) => {
-                const config = LAYER_CONFIGS[layer];
-                if (!config) return null;
-                return (
-                    <button
-                        key={layer}
-                        onClick={() => setExpanded(false)}
-                        aria-label={`Hide ${config.label} legend`}
-                        className="flex flex-col items-center gap-1"
-                        style={{
-                            background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.75))',
-                            backdropFilter: 'blur(16px)',
-                            WebkitBackdropFilter: 'blur(16px)',
-                            border: '1px solid var(--day-ui-border, rgba(255,255,255,0.08))',
-                            borderRadius: 14,
-                            padding: '8px 6px',
-                        }}
-                    >
-                        <span className="text-[11px] font-black text-red-400/70 uppercase tracking-wider">↑</span>
-                        <span className="text-[10px] font-bold text-white/40 uppercase">{config.highLabel}</span>
-                        <div className="rounded-full" style={{ width: 6, height: 64, background: config.gradient }} />
-                        <span className="text-[10px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
-                        <span className="text-[11px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
-                        <div className="mt-1 w-7 h-7 flex items-center justify-center rounded-lg bg-white/4">
-                            <span className="text-sm">{config.icon}</span>
-                        </div>
-                        {config.honestyNote && (
-                            <span className="w-36 px-1 text-center text-[11px] font-semibold normal-case leading-snug text-white/70">
-                                {config.honestyNote}
-                            </span>
-                        )}
-                    </button>
-                );
-            })}
-        </div>
-    );
-});
+    },
+);
 
 LegendDock.displayName = 'LegendDock';

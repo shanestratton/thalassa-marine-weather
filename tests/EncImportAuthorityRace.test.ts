@@ -44,6 +44,9 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
     putCell: (cell: EncCell) => {
         mocks.storedCell = { ...cell };
     },
+    removeCell: () => {
+        mocks.storedCell = null;
+    },
     subscribe: () => () => undefined,
     getVersion: () => 0,
 }));
@@ -110,6 +113,53 @@ describe('ENC cell import authority serialization', () => {
         );
         expect(mocks.saveCellGeoJSON).not.toHaveBeenCalled();
         expect(mocks.storedCell).toMatchObject({ edition: 6, usage: 'navigation' });
+    });
+
+    it('rechecks account/Pi authority after waiting for the same-cell mutation queue', async () => {
+        const pending = deferred<{ path: string; sizeBytes: number }>();
+        mocks.saveCellGeoJSON.mockReturnValueOnce(pending.promise);
+        const first = importCell(conversion(4));
+        await vi.waitFor(() => expect(mocks.saveCellGeoJSON).toHaveBeenCalledOnce());
+        let current = true;
+        const second = importCell(conversion(5), {
+            assertAuthority: () => {
+                if (!current) throw new Error('Paired Pi changed');
+            },
+        });
+        const rejected = expect(second).rejects.toThrow('Paired Pi changed');
+        current = false;
+        pending.resolve({ path: 'enc-cells/VU5PORT1.geojson', sizeBytes: 100 });
+        await first;
+        await rejected;
+        expect(mocks.saveCellGeoJSON).toHaveBeenCalledOnce();
+        expect(mocks.storedCell).toMatchObject({ edition: 4 });
+    });
+
+    it('does not register overwritten bytes when authority changes during native write', async () => {
+        const pending = deferred<{ path: string; sizeBytes: number }>();
+        mocks.saveCellGeoJSON.mockReturnValueOnce(pending.promise);
+        let current = true;
+        const importing = importCell(conversion(4), {
+            assertAuthority: () => {
+                if (!current) throw new Error('Account changed');
+            },
+        });
+        const rejected = expect(importing).rejects.toThrow('Account changed');
+        await vi.waitFor(() => expect(mocks.saveCellGeoJSON).toHaveBeenCalledOnce());
+        current = false;
+        pending.resolve({ path: 'enc-cells/VU5PORT1.geojson', sizeBytes: 100 });
+        await rejected;
+        expect(mocks.storedCell).toBeNull();
+        expect(mocks.deleteCellGeoJSON).toHaveBeenCalledWith('VU5PORT1');
+    });
+
+    it('rejects same-edition update rollback, and preserves a newer revision fingerprint', async () => {
+        mocks.saveCellGeoJSON.mockResolvedValue({ path: 'enc-cells/VU5PORT1.geojson', sizeBytes: 100 });
+        await importCell({ ...conversion(4), updateNumber: 7 }, { contentSha256: 'a'.repeat(64) });
+        await expect(importCell({ ...conversion(4), updateNumber: 6 })).rejects.toThrow(/update is older/);
+        await expect(importCell(conversion(4))).rejects.toThrow(/update is older or unknown/);
+        expect(mocks.saveCellGeoJSON).toHaveBeenCalledOnce();
+        expect(mocks.storedCell).toMatchObject({ updateNumber: 7, contentSha256: 'a'.repeat(64) });
     });
 
     it('allows trusted bytes to replace a self-asserted numerically newer reference', async () => {

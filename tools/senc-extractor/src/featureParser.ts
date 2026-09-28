@@ -156,6 +156,8 @@ export interface ParseResult {
         unknownAttrCodes: Set<number>;
         /** record-type code → count of records the parser had no case for */
         unknownRecordCounts: Map<number, number>;
+        /** Verified short zero tail after the complete terminal vector tables. */
+        trailingPaddingBytes?: number;
         linesResolved?: number;
         linesUnresolvable?: number;
         areasWithRings?: number;
@@ -193,6 +195,8 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
     const pendingAreaEdges = new Map<SencFeature, AreaEdgesRaw>();
 
     let current: SencFeature | null = null;
+    let lastRecordWasCompleteNodeTable = false;
+    let sawEdgeTable = false;
 
     const flush = () => {
         if (!current) return;
@@ -203,16 +207,36 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
         current = null;
     };
 
-    while (reader.remaining() >= RECORD_HEADER_SIZE) {
+    while (reader.remaining() > 0) {
         if (opts.limit && features.length >= opts.limit) break;
 
+        // Licensed oexserverd streams can finish with up to seven zero bytes
+        // after the final connected-node table. Accept only that bounded tail
+        // at a complete record boundary; never skip a zero header mid-stream.
+        if (
+            sawEdgeTable &&
+            lastRecordWasCompleteNodeTable &&
+            reader.remaining() <= 7 &&
+            buf.subarray(reader.position()).every((byte) => byte === 0)
+        ) {
+            stats.trailingPaddingBytes = reader.remaining();
+            reader.skip(reader.remaining());
+            break;
+        }
+        if (reader.remaining() < RECORD_HEADER_SIZE)
+            throw new Error(`Truncated SENC record header: ${reader.remaining()} trailing bytes`);
         const recHeader = readRecordHeader(reader);
-        if (recHeader.recordLength < RECORD_HEADER_SIZE) break;
+        if (recHeader.recordLength < RECORD_HEADER_SIZE)
+            throw new Error(`Invalid SENC record length: ${recHeader.recordLength}`);
         const payloadLen = recHeader.recordLength - RECORD_HEADER_SIZE;
-        if (payloadLen > reader.remaining()) break;
+        if (payloadLen > reader.remaining())
+            throw new Error(
+                `Truncated SENC record ${recHeader.type}: expected ${payloadLen} payload bytes, found ${reader.remaining()}`,
+            );
         const payload = buf.subarray(reader.position(), reader.position() + payloadLen);
         reader.skip(payloadLen);
         stats.totalRecords += 1;
+        lastRecordWasCompleteNodeTable = false;
 
         switch (recHeader.type) {
             case RecordType.HEADER_SENC_VERSION:
@@ -360,13 +384,19 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
             case RecordType.VECTOR_EDGE_NODE_TABLE_RECORD: {
                 if (!header.refMerc) break;
-                parseEdgeTable(payload, header.refMerc, edgeTable, 1, 0);
+                sawEdgeTable = parseEdgeTable(payload, header.refMerc, edgeTable, 1, 0);
                 break;
             }
 
             case RecordType.VECTOR_CONNECTED_NODE_TABLE_RECORD: {
                 if (!header.refMerc) break;
-                parseConnectedNodeTable(payload, header.refMerc, connectedNodeTable, 1, 0);
+                lastRecordWasCompleteNodeTable = parseConnectedNodeTable(
+                    payload,
+                    header.refMerc,
+                    connectedNodeTable,
+                    1,
+                    0,
+                );
                 break;
             }
 
@@ -376,14 +406,20 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
                 // 1/scaleFactor. See Osenc.h:OSENC_VectorTableExtRecordPayload.
                 if (!header.refMerc || payload.length < 12) break;
                 const scaleFactor = payload.readDoubleLE(0);
-                parseEdgeTable(payload, header.refMerc, edgeTable, scaleFactor, 8);
+                sawEdgeTable = parseEdgeTable(payload, header.refMerc, edgeTable, scaleFactor, 8);
                 break;
             }
 
             case RecordType.VECTOR_CONNECTED_NODE_TABLE_EXT_RECORD: {
                 if (!header.refMerc || payload.length < 12) break;
                 const scaleFactor = payload.readDoubleLE(0);
-                parseConnectedNodeTable(payload, header.refMerc, connectedNodeTable, scaleFactor, 8);
+                lastRecordWasCompleteNodeTable = parseConnectedNodeTable(
+                    payload,
+                    header.refMerc,
+                    connectedNodeTable,
+                    scaleFactor,
+                    8,
+                );
                 break;
             }
 
@@ -515,17 +551,17 @@ function parseEdgeTable(
     out: Map<number, EdgeEntry>,
     scaleFactor: number,
     headerStartOffset: number,
-): void {
-    if (payload.length < headerStartOffset + 4) return;
+): boolean {
+    if (payload.length < headerStartOffset + 4) return false;
     const numEntries = payload.readUInt32LE(headerStartOffset);
     const scale = scaleFactor > 0 ? scaleFactor : 1;
     let off = headerStartOffset + 4;
     for (let i = 0; i < numEntries; i++) {
-        if (off + 8 > payload.length) return;
+        if (off + 8 > payload.length) return false;
         const edgeIndex = payload.readInt32LE(off);
         const pointCount = payload.readInt32LE(off + 4);
         off += 8;
-        if (off + pointCount * 8 > payload.length) return;
+        if (pointCount < 0 || off + pointCount * 8 > payload.length) return false;
         const points: [number, number][] = [];
         for (let p = 0; p < pointCount; p++) {
             const x = payload.readFloatLE(off);
@@ -536,6 +572,7 @@ function parseEdgeTable(
         }
         out.set(edgeIndex, { points });
     }
+    return off === payload.length;
 }
 
 /**
@@ -552,13 +589,13 @@ function parseConnectedNodeTable(
     out: Map<number, ConnectedNodeEntry>,
     scaleFactor: number,
     headerStartOffset: number,
-): void {
-    if (payload.length < headerStartOffset + 4) return;
+): boolean {
+    if (payload.length < headerStartOffset + 4) return false;
     const numEntries = payload.readUInt32LE(headerStartOffset);
     const scale = scaleFactor > 0 ? scaleFactor : 1;
     let off = headerStartOffset + 4;
     for (let i = 0; i < numEntries; i++) {
-        if (off + 12 > payload.length) return;
+        if (off + 12 > payload.length) return false;
         const nodeIndex = payload.readInt32LE(off);
         const x = payload.readFloatLE(off + 4);
         const y = payload.readFloatLE(off + 8);
@@ -566,6 +603,7 @@ function parseConnectedNodeTable(
         const ll = smVertexToLatLon(x / scale, y / scale, refMerc);
         out.set(nodeIndex, { coord: [ll.lon, ll.lat] });
     }
+    return off === payload.length;
 }
 
 function resolveLineGeometry(

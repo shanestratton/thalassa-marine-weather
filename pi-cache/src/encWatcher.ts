@@ -29,8 +29,8 @@
  *   - 30-second debounce after the last fs activity — OpenCPN drops many files
  *     in quick succession during a chart-set download, no point firing
  *     decryptBatch per-file.
- *   - --skip-existing on decryptBatch means already-decrypted cells aren't
- *     re-run; only the actually-new ones get processed.
+ *   - Startup, chart updates and key/producer metadata changes reconcile sets.
+ *     --skip-existing checks input content hashes, including the key XML.
  *   - Spawned as a child process so a misbehaving decrypt run can't crash the
  *     main Express server. stdout/stderr piped to the pi-cache journal.
  *
@@ -40,7 +40,6 @@
  *   ENC_CHART_DIR             — pi-cache chart store (default: ./enc-charts)
  *   ENC_WATCHER_DEBOUNCE_MS   — debounce window after last fs event (default: 30000)
  *   ENC_WATCHER_ENABLED       — set to 'false' to disable entirely (default: enabled)
- *   ENC_DEFAULT_SOURCE_HO     — hydrographic-office code to tag cells with (default: AU)
  *   ENC_S63_SENC_DIR          — s63 plugin's eSENC cache (default: $HOME/.opencpn/s63/s63SENC)
  *   ENC_S63_CHART_DIR         — s63 plugin's cell/permit dir (default: $HOME/.opencpn/s63/s63charts)
  *   ENC_S63_CONF              — opencpn.conf holding the S-63 permits (default: $HOME/.opencpn/opencpn.conf)
@@ -72,7 +71,6 @@ const EXTRACTOR_DIR = process.env.ENC_EXTRACTOR_DIR || join(HOME, 'thalassa-mari
 const CHART_STORE_DIR = resolve(process.env.ENC_CHART_DIR || './enc-charts');
 const DEBOUNCE_MS = parseInt(process.env.ENC_WATCHER_DEBOUNCE_MS || '30000', 10);
 const ENABLED = process.env.ENC_WATCHER_ENABLED !== 'false';
-const DEFAULT_SOURCE_HO = process.env.ENC_DEFAULT_SOURCE_HO || 'AU';
 const EXTRACTOR_TIMEOUT_MS = 30 * 60 * 1000;
 
 const S63_SENC_DIR = process.env.ENC_S63_SENC_DIR || join(HOME, '.opencpn', 's63', 's63SENC');
@@ -84,6 +82,8 @@ let watcher: FSWatcher | null = null;
 let pendingTimer: NodeJS.Timeout | null = null;
 const pendingChartSets = new Set<string>();
 let currentDecryptRun: { chartSet: string; promise: Promise<void> } | null = null;
+let initialScanComplete = false;
+let lastDecryptResult: { chartSet: string; success: boolean; finishedAt: string; error?: string } | null = null;
 
 let s63Watcher: FSWatcher | null = null;
 let s63PendingTimer: NodeJS.Timeout | null = null;
@@ -91,7 +91,7 @@ const pendingS63Cells = new Set<string>();
 let currentS63Run: string | null = null;
 
 /**
- * Start watching for new .oesu files. Idempotent — calling twice is a no-op.
+ * Start watching chart sets, including installed files missed while offline.
  */
 export function startEncWatcher(): void {
     if (!ENABLED) {
@@ -115,16 +115,15 @@ export function startEncWatcher(): void {
         `[encWatcher] watching ${WATCH_DIR} for new .oesu files (debounce=${DEBOUNCE_MS}ms, store=${CHART_STORE_DIR})`,
     );
 
+    initialScanComplete = false;
     watcher = chokidar.watch(WATCH_DIR, {
-        // Match the .oesu chart files; ignore everything else.
-        // Future: also watch for .oernc / .oesenc legacy formats.
         ignored: (p: string, stats?: Stats) => {
             if (!stats) return false; // allow directories through so we can recurse
             if (stats.isDirectory()) return false;
-            return !p.toLowerCase().endsWith('.oesu');
+            return !isOChartsInput(p);
         },
         persistent: true,
-        ignoreInitial: true, // don't fire for files already on disk at startup
+        ignoreInitial: false,
         depth: 3, // ~/Charts/oeuSENC-AU/file.oesu — depth 3 is plenty
         awaitWriteFinish: {
             stabilityThreshold: 2000,
@@ -132,11 +131,18 @@ export function startEncWatcher(): void {
         },
     });
 
-    watcher.on('add', (filePath) => {
+    const queue = (filePath: string, kind: string): void => {
+        if (!isOChartsInput(filePath)) return;
         const chartSet = dirname(filePath);
-        console.log(`[encWatcher] new chart file: ${basename(filePath)} in ${chartSet}`);
+        console.log(`[encWatcher] chart input ${kind}: ${basename(filePath)} in ${chartSet}`);
         pendingChartSets.add(chartSet);
-        scheduleDecrypt();
+        if (initialScanComplete) scheduleDecrypt();
+    };
+    watcher.on('add', (filePath) => queue(filePath, 'added'));
+    watcher.on('change', (filePath) => queue(filePath, 'updated'));
+    watcher.on('ready', () => {
+        initialScanComplete = true;
+        if (pendingChartSets.size > 0) scheduleDecrypt();
     });
 
     watcher.on('error', (err) => {
@@ -318,6 +324,17 @@ export async function stopEncWatcher(): Promise<void> {
         watcher = null;
         console.log('[encWatcher] stopped');
     }
+    initialScanComplete = false;
+    pendingChartSets.clear();
+    pendingS63Cells.clear();
+}
+
+/** Key-only updates and verified provenance changes must invalidate input fingerprints. */
+export function isOChartsInput(filePath: string): boolean {
+    const file = basename(filePath);
+    return (
+        /\.oesu$/i.test(file) || /^oeuSENC-.*-sgl[0-9A-F]+\.xml$/i.test(file) || file === 'thalassa-chart-source.json'
+    );
 }
 
 function scheduleDecrypt(): void {
@@ -334,7 +351,14 @@ async function drainPending(): Promise<void> {
     for (const chartSet of sets) {
         try {
             await runDecryptForChartSet(chartSet);
+            lastDecryptResult = { chartSet, success: true, finishedAt: new Date().toISOString() };
         } catch (err) {
+            lastDecryptResult = {
+                chartSet,
+                success: false,
+                finishedAt: new Date().toISOString(),
+                error: err instanceof Error ? err.message : String(err),
+            };
             console.warn(`[encWatcher] decrypt failed for ${chartSet}:`, err);
             if (err instanceof PiWorkloadBusyError) {
                 pendingChartSets.add(chartSet);
@@ -358,8 +382,6 @@ async function runDecryptForChartSet(chartSet: string): Promise<void> {
                 join(EXTRACTOR_DIR, 'src', 'decryptBatch.ts'),
                 '--charts',
                 chartSet,
-                '--source-ho',
-                DEFAULT_SOURCE_HO,
                 '--pi-cache-store',
                 CHART_STORE_DIR,
                 '--skip-existing',
@@ -428,6 +450,7 @@ export function getWatcherStatus(): {
     extractorDir: string;
     pendingSets: string[];
     currentDecrypt: string | null;
+    lastDecryptResult: typeof lastDecryptResult;
     s63: {
         enabled: boolean;
         watching: boolean;
@@ -444,6 +467,7 @@ export function getWatcherStatus(): {
         extractorDir: EXTRACTOR_DIR,
         pendingSets: [...pendingChartSets],
         currentDecrypt: currentDecryptRun?.chartSet ?? null,
+        lastDecryptResult,
         s63: {
             enabled: S63_ENABLED,
             watching: s63Watcher !== null,

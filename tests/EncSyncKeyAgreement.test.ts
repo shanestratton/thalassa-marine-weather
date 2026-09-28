@@ -65,6 +65,12 @@ describe('ENC sync-key agreement', () => {
     it('keeps the service using the shared key too', () => {
         const service = codeOf('services/EncImportService.ts');
         const sync = service.slice(service.indexOf('export async function syncEncFromPi'));
-        expect(sync).toContain('encCellSyncKey(c.id, c.edition, c.sizeBytes)');
+        expect(sync).toContain('encCellSyncKey(c.id, c.edition, c.sizeBytes, c.contentSha256)');
+    });
+    it('detects same-size same-edition content changes', () => {
+        expect(encCellSyncKey('FR466870', 6, 100, 'a'.repeat(64))).not.toBe(
+            encCellSyncKey('FR466870', 6, 100, 'b'.repeat(64)),
+        );
+        expect(encCellSyncKey('FR466870', 6, 100)).not.toBe(encCellSyncKey('FR466870', 6, 100, 'a'.repeat(64)));
     });
 });

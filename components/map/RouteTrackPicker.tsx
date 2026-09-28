@@ -2,11 +2,10 @@
  * RouteTrackPicker — modal sheet listing the user's saved routes or
  * recorded tracks. Used twice in MapHub:
  *
- *   variant="route"  — green dashed lines, "Routes" picker
- *                      Source: ship_log entries with voyageId starting `planned_*`
+ *   variant="route"  — purple saved plans, same library as Plan
  *
  *   variant="track"  — amber solid lines, "Tracks" picker
- *                      Source: ship_log entries grouped by voyageId
+ *                      Source: whole-history voyage summaries; geometry on tap
  *
  * Picks one item → caller sets it as the active selection on its
  * matching useRouteTrackLayer hook → map renders + fits bounds.
@@ -18,7 +17,15 @@
  * translucent, blur, 16px radius, soft border.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
+import { fetchSeaVoyageChoices, fetchVoyageAsTrack, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
+import { loadSavedRouteLibrary } from '../../services/savedRouteLibrary';
+import { savedRouteToChartItem } from '../../services/obsSavedRoute';
+import {
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    subscribeAuthIdentityScope,
+} from '../../services/authIdentityScope';
+import { withTimeout } from '../../utils/deadline';
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -26,6 +33,8 @@ import { OverlayPortal } from '../ui/OverlayPortal';
 import { XIcon } from '../Icons';
 
 export type RouteTrackVariant = 'route' | 'track';
+type PickerItem = Pick<RouteOrTrack, 'id' | 'label' | 'sublabel' | 'isLocal'> & { route?: RouteOrTrack };
+const TRACK_PAGE_SIZE = 20;
 
 interface RouteTrackPickerProps {
     visible: boolean;
@@ -39,7 +48,7 @@ interface RouteTrackPickerProps {
 const VARIANT_META: Record<RouteTrackVariant, { title: string; emptyMsg: string; accent: string }> = {
     route: {
         title: 'Routes',
-        emptyMsg: 'No saved routes yet. Plan a passage in the Voyage page and tap Save to add it here.',
+        emptyMsg: 'No saved routes yet. Save a route in Plan to show it here—even after sailing it.',
         // Matches useRouteTrackLayer's violet — saved-plan colour kept
         // semantically separate from the sky-blue active follow-route.
         accent: '#a855f7',
@@ -59,10 +68,13 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
     onSelect,
     onClose,
 }) => {
-    const [items, setItems] = useState<RouteOrTrack[] | null>(null);
+    const [items, setItems] = useState<PickerItem[] | null>(null);
     const [loading, setLoading] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
+    const [trackLimit, setTrackLimit] = useState(TRACK_PAGE_SIZE);
+    const [selectingId, setSelectingId] = useState<string | null>(null);
+    const requestRef = useRef(0);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     const wrapRef = useFocusTrap<HTMLDivElement>(visible, {
         initialFocusRef: closeButtonRef,
@@ -76,30 +88,82 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
     const labelFontSize = pickByDevice(deviceClass, 12, 14);
     const sublabelFontSize = pickByDevice(deviceClass, 10, 12);
 
-    // Load when opened. Cached at the service layer (60s) so re-opening
-    // fast is essentially free.
+    // Plans remain reusable after sailing; tracks are recorded history, not
+    // old planned-log mirrors in a rolling GPS-entry window.
     useEffect(() => {
         if (!visible) return;
         let cancelled = false;
+        const scope = getAuthIdentityScope();
+        const requests = requestRef;
+        ++requests.current;
+        const current = () => !cancelled && isAuthIdentityScopeCurrent(scope);
         setLoading(true);
+        setItems(null);
+        setSelectingId(null);
         setLoadError(null);
-        fetchRoutesAndTracks()
-            .then((res) => {
-                if (cancelled) return;
-                setItems(variant === 'route' ? res.routes : res.tracks);
-            })
+        const acceptRoutes = (routes: Awaited<ReturnType<typeof loadSavedRouteLibrary>>) => {
+            if (!current()) return;
+            setItems(
+                routes.map((item) => {
+                    const route = savedRouteToChartItem(item);
+                    return { ...route, route };
+                }),
+            );
+            // Local routes are immediately usable while cloud sync finishes.
+            if (routes.length) setLoading(false);
+        };
+        const unsubscribe = subscribeAuthIdentityScope(() => {
+            cancelled = true;
+            ++requests.current;
+            setItems(null);
+            setSelectingId(null);
+            setReloadKey((value) => value + 1);
+        });
+        const acceptTracks = (choices: Awaited<ReturnType<typeof fetchSeaVoyageChoices>>) => {
+            if (!current()) return;
+            setItems(choices.map((choice) => ({ ...choice, id: choice.voyageId })));
+            setLoading(false);
+        };
+        const request =
+            variant === 'route'
+                ? loadSavedRouteLibrary(scope, acceptRoutes).then(acceptRoutes)
+                : fetchSeaVoyageChoices(trackLimit, acceptTracks).then(acceptTracks);
+        request
             .catch(() => {
-                if (cancelled) return;
+                if (!current()) return;
                 setItems(null);
                 setLoadError(`Couldn't load ${meta.title.toLowerCase()} right now. Check the connection and retry.`);
             })
             .finally(() => {
-                if (!cancelled) setLoading(false);
+                if (current()) setLoading(false);
             });
         return () => {
             cancelled = true;
+            ++requests.current;
+            unsubscribe();
         };
-    }, [visible, variant, reloadKey, meta.title]);
+    }, [visible, variant, reloadKey, meta.title, trackLimit]);
+
+    const selectItem = async (item: PickerItem) => {
+        const scope = getAuthIdentityScope();
+        const request = requestRef.current;
+        setSelectingId(item.id);
+        setLoadError(null);
+        try {
+            const route = item.route ?? (await withTimeout(fetchVoyageAsTrack(item.id), null, 12_000));
+            if (request !== requestRef.current || !isAuthIdentityScopeCurrent(scope)) return;
+            if (!route || route.points.length < 2) throw new Error('Track unavailable');
+            triggerHaptic('light');
+            onSelect(item.route ?? { ...route, label: item.label, sublabel: item.sublabel });
+            onClose();
+        } catch {
+            if (request === requestRef.current && isAuthIdentityScopeCurrent(scope)) {
+                setLoadError("Couldn't load this track. Check the connection and try again.");
+            }
+        } finally {
+            if (request === requestRef.current) setSelectingId(null);
+        }
+    };
 
     // Outside-tap close.
     useEffect(() => {
@@ -181,6 +245,11 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
 
                 {/* Body */}
                 <div style={{ overflowY: 'auto', padding: '4px 6px' }}>
+                    <p className="px-2 py-1 text-[11px]" style={{ color: 'var(--day-ui-muted, #94a3b8)' }}>
+                        {variant === 'route'
+                            ? 'Saved plans from Plan · reusable after sailing.'
+                            : 'Where you sailed · origin → destination.'}
+                    </p>
                     {loading && (
                         <div
                             className="text-[11px] opacity-70"
@@ -219,11 +288,8 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                             return (
                                 <button
                                     key={item.id}
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        onSelect(item);
-                                        onClose();
-                                    }}
+                                    onClick={() => void selectItem(item)}
+                                    disabled={selectingId !== null}
                                     className="w-full flex items-center gap-3 text-left transition-colors"
                                     style={{
                                         background: active ? `${meta.accent}22` : 'transparent',
@@ -238,7 +304,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                         style={{ color: 'var(--day-ui-text, rgba(255,255,255,0.9))' }}
                                     >
                                         <span
-                                            className="block font-semibold truncate"
+                                            className="block font-semibold whitespace-normal break-words"
                                             style={{
                                                 fontSize: labelFontSize,
                                                 color: active ? `var(--day-ui-accent, ${meta.accent})` : 'inherit',
@@ -269,7 +335,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                             className="block opacity-70 truncate"
                                             style={{ fontSize: sublabelFontSize, marginTop: 1 }}
                                         >
-                                            {item.sublabel}
+                                            {selectingId === item.id ? 'Loading track…' : item.sublabel}
                                         </span>
                                     </span>
                                     {active && (
@@ -283,6 +349,16 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                 </button>
                             );
                         })}
+                    {!loading && variant === 'track' && items?.length === trackLimit && (
+                        <button
+                            className="w-full min-h-[44px] text-sm"
+                            disabled={selectingId !== null}
+                            style={{ color: 'var(--day-ui-text, #fff)' }}
+                            onClick={() => setTrackLimit((limit) => limit + TRACK_PAGE_SIZE)}
+                        >
+                            Show older tracks
+                        </button>
+                    )}
                 </div>
 
                 {/* Footer — Clear button when something is selected */}

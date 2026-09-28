@@ -16,6 +16,7 @@ vi.mock('../utils/createLogger', () => ({
 }));
 
 import { useSquallMap } from '../components/map/useSquallMap';
+import { squallStatusStore, squallStatusText } from '../services/weather/squallStatus';
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -39,6 +40,7 @@ function makeMap() {
         addLayer: vi.fn((layer: { id: string }) => layers.add(layer.id)),
         removeLayer: vi.fn((id: string) => layers.delete(id)),
         getStyle: vi.fn(() => ({ layers: [] })),
+        isSourceLoaded: vi.fn(() => true),
         getContainer: vi.fn(() => document.createElement('div')),
         getMaxZoom: vi.fn(() => maxZoom),
         getMinZoom: vi.fn(() => minZoom),
@@ -51,10 +53,17 @@ function makeMap() {
         getZoom: vi.fn(() => 3),
         flyTo: vi.fn(),
         easeTo: vi.fn(),
-        on: vi.fn(),
+        on: vi.fn((_event: string, _callback: unknown) => undefined),
         off: vi.fn(),
     };
     return { map, sources, layers };
+}
+
+function emit(map: ReturnType<typeof makeMap>['map'], event: string, value: unknown) {
+    const listener = map.on.mock.calls.find((call: unknown[]) => call[0] === event)?.[1] as unknown as (
+        event: unknown,
+    ) => void;
+    listener?.(value);
 }
 
 describe('useSquallMap request lifecycle', () => {
@@ -102,6 +111,7 @@ describe('useSquallMap request lifecycle', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllEnvs();
         vi.unstubAllGlobals();
         vi.clearAllMocks();
@@ -151,5 +161,109 @@ describe('useSquallMap request lifecycle', () => {
         // leak painting cloud over the planning chart.
         expect(sources.has('squall-ir-source')).toBe(false);
         expect(layers.has('squall-ir-layer')).toBe(false);
+    });
+});
+
+describe('squall snapshot clock and actual tile readiness', () => {
+    const now = Date.parse('2026-09-27T06:00:00Z');
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(now);
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://thalassa.example');
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        mocks.passthroughJson.mockResolvedValue(null);
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => ({ ok: true, json: async () => ({ snapshot: (now - 15 * 60_000) / 1000 }) })),
+        );
+        squallStatusStore.reset();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllEnvs();
+        vi.unstubAllGlobals();
+        vi.clearAllMocks();
+    });
+
+    async function settle() {
+        await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+    }
+    const sourceReady = { sourceId: 'squall-rainbow-source', sourceDataType: 'content', isSourceLoaded: true };
+
+    it('uses the snapshot time, waits for tiles, and cannot renew an old snapshot age by fetching it again', async () => {
+        const { map } = makeMap();
+        const hook = renderHook(() => useSquallMap({ current: map as never }, true, true));
+        await settle();
+        expect(hook.result.current.snapshotTimeMs).toBe(now - 15 * 60_000);
+        expect(hook.result.current.fetchedAtMs).toBe(now);
+        expect(hook.result.current.phase).toBe('loading');
+        expect(hook.result.current.tilesReady).toBe(false);
+        act(() => emit(map, 'sourcedata', sourceReady));
+        expect(hook.result.current.phase).toBe('ready');
+        expect(squallStatusText(hook.result.current)).toBe('Snapshot 15m old');
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5 * 60_000);
+        });
+        expect(hook.result.current.fetchedAtMs).toBe(now + 5 * 60_000);
+        expect(squallStatusText(hook.result.current)).toBe('Snapshot 20m old');
+        expect(map.addSource.mock.calls.filter(([id]) => id === 'squall-rainbow-source')).toHaveLength(1);
+        hook.unmount();
+    });
+
+    it('keeps a tile failure visible even if Mapbox later reports failed requests as loaded', async () => {
+        const { map } = makeMap();
+        const hook = renderHook(() => useSquallMap({ current: map as never }, true, true));
+        await settle();
+        act(() => emit(map, 'error', { sourceId: 'another-source', error: new Error('unrelated') }));
+        expect(hook.result.current.error).toBeNull();
+        act(() => emit(map, 'error', { sourceId: 'squall-rainbow-source', error: new Error('404') }));
+        act(() => emit(map, 'sourcedata', sourceReady));
+        expect(hook.result.current.tilesReady).toBe(false);
+        expect(squallStatusText(hook.result.current)).toContain('tiles unavailable');
+        hook.unmount();
+        expect(squallStatusStore.get().phase).toBe('idle');
+    });
+
+    it('times out stalled tiles and retries after foregrounding without a made-up Live status', async () => {
+        const { map } = makeMap();
+        const hook = renderHook(() => useSquallMap({ current: map as never }, true, true));
+        await settle();
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(20_000);
+        });
+        expect(hook.result.current.error).toContain('tiles unavailable');
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden' });
+        vi.setSystemTime(now + 2 * 24 * 3_600_000);
+        act(() => window.dispatchEvent(new Event('focus')));
+        expect(fetch).toHaveBeenCalledTimes(1);
+        Object.defineProperty(document, 'visibilityState', { value: 'visible' });
+        act(() => window.dispatchEvent(new Event('focus')));
+        await settle();
+        expect(fetch).toHaveBeenCalledTimes(2);
+        act(() => emit(map, 'sourcedata', sourceReady));
+        expect(squallStatusText(hook.result.current)).toBe('Snapshot 48h 15m old');
+        hook.unmount();
+    });
+
+    it('retains unknown snapshot time for an opaque ID and reports refresh failures with the prior snapshot', async () => {
+        vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ snapshot: 123 }) } as Response);
+        const { map } = makeMap();
+        const hook = renderHook(() => useSquallMap({ current: map as never }, true, true));
+        await settle();
+        act(() => emit(map, 'sourcedata', sourceReady));
+        expect(hook.result.current.snapshotTimeMs).toBeNull();
+        expect(squallStatusText(hook.result.current)).toBe('Snapshot time unknown');
+        vi.mocked(fetch).mockResolvedValue({ ok: false } as Response);
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5 * 60_000);
+        });
+        expect(hook.result.current.error).toContain('refresh unavailable');
+        act(() => emit(map, 'sourcedata', sourceReady));
+        expect(hook.result.current.error).toContain('refresh unavailable');
+        expect(hook.result.current.fetchedAtMs).toBe(now);
+        hook.unmount();
     });
 });

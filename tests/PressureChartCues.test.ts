@@ -49,6 +49,41 @@ function synopticFixture() {
 }
 
 describe('pressure chart cues', () => {
+    it('compares actual +12h, not +12 indices, for GFS 2h-frame movement tracks', () => {
+        const side = 31;
+        const frames = Array.from({ length: 13 }, (_, hour) =>
+            Array.from({ length: side }, (_, row) =>
+                Array.from(
+                    { length: side },
+                    (_, col) => 1013 - 25 * Math.exp(-((row - 15) ** 2 + (col - (10 + hour / 3)) ** 2) / 18),
+                ),
+            ),
+        );
+        const zeros = frames.map((frame) => frame.map((row) => row.map(() => 0)));
+        const grid = {
+            allHourlyPressure: frames,
+            allHourlyWindSpeed: zeros,
+            allHourlyWindDir: zeros,
+            lats: Array.from({ length: side }, (_, i) => i),
+            lons: Array.from({ length: side }, (_, i) => i),
+            rows: side,
+            cols: side,
+            totalHours: 13,
+            refTime: null,
+            keyframeFhrs: [0, 6, 12, 18, 24],
+            subFrameStepHours: 2,
+            source: 'gfs' as const,
+        };
+        const result = generateIsobarsFromGrid(grid, 0, true);
+        const track = result.tracks.features.find((feature) => feature.properties?.type === 'L');
+        expect(track?.properties?.speed).toBe(19); // 2 degrees / 12h, not 4 degrees / 12h
+        expect((track?.geometry as GeoJSON.LineString).coordinates).toEqual([
+            [10, 15],
+            [12, 15],
+        ]);
+        expect(generateIsobarsFromGrid(grid, 7, true).tracks.features).toEqual([]);
+    });
+
     it('gives every retained centre four circulation arrows', () => {
         // The per-type cap was 3 GLOBALLY until 2026-08-21, which meant a
         // skipper panning to the Coral Sea routinely saw no centre at all —

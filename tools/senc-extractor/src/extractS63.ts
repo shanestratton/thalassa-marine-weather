@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-import { readdir, readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readdir, readFile, mkdir } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { decryptEsenc, S63Permits } from './s63Decrypt.js';
 import { parseS63Senc } from './s63SencParser.js';
 import { emitCell } from './geojsonEmitter.js';
-import { loadPiCacheIndex, savePiCacheIndex, upsertIndexEntry, cellStoreRecord } from './piCacheStore.js';
+import { publishPiCacheCells, cellStoreRecord } from './piCacheStore.js';
+import { resolveChartProducer } from './chartProvenance.js';
+import { writeFileAtomic } from './atomicWrite.js';
 
 /**
  * Extract GeoJSON from S-63 charts installed by OpenCPN's s63 plugin.
@@ -148,7 +150,7 @@ async function main(): Promise<void> {
         console.log(`Found ${esencFiles.length} eSENC file(s) in ${args.sencDir}`);
     }
     await mkdir(args.outDir, { recursive: true });
-    const piCacheIndex = args.piCacheStore ? await loadPiCacheIndex(args.piCacheStore) : null;
+    const piCacheRecords: Array<ReturnType<typeof cellStoreRecord>> = [];
 
     let written = 0;
     const failedCells: string[] = [];
@@ -180,16 +182,14 @@ async function main(): Promise<void> {
         // prefix when the caller hasn't named a source explicitly.
         const cell = emitCell(header, features, {
             cellId,
-            sourceHO: args.sourceHO || cellId.slice(0, 2),
+            sourceHO: resolveChartProducer(cellId, args.sourceHO),
             classes: args.allClasses ? 'all' : undefined,
         });
 
-        if (piCacheIndex) {
-            const { json, meta } = cellStoreRecord(cell);
-            await writeFile(join(args.outDir, `${cellId}.json`), json);
-            upsertIndexEntry(piCacheIndex, meta);
+        if (args.piCacheStore) {
+            piCacheRecords.push(cellStoreRecord(cell));
         } else {
-            await writeFile(join(args.outDir, `${cellId}.json`), JSON.stringify(cell));
+            await writeFileAtomic(join(args.outDir, `${cellId}.json`), JSON.stringify(cell));
         }
         written += 1;
 
@@ -242,10 +242,10 @@ async function main(): Promise<void> {
     }
 
     console.log(`Wrote ${written} cell(s) to ${args.outDir}`);
-    if (piCacheIndex && args.piCacheStore) {
-        await savePiCacheIndex(args.piCacheStore, piCacheIndex);
+    if (args.piCacheStore && failedCells.length === 0) {
+        const result = await publishPiCacheCells(args.piCacheStore, piCacheRecords);
         console.log(
-            `Wrote pi-cache index → ${join(args.piCacheStore, 'index.json')} (${piCacheIndex.cells.length} cells)`,
+            `Wrote pi-cache index → ${join(args.piCacheStore, 'index.json')} (${result.installed.length} installed, ${result.stale.length} older revisions preserved)`,
         );
     }
     if (failedCells.length > 0) {

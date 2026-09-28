@@ -8,24 +8,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AisGuardZone, type GuardZoneState } from '../../services/AisGuardZone';
 import { triggerHaptic } from '../../utils/system';
-
-const STATUS_ITEMS: { color: string; label: string }[] = [
-    { color: '#22c55e', label: 'Underway' },
-    { color: '#f59e0b', label: 'Anchored' },
-    { color: '#94a3b8', label: 'Moored' },
-    { color: '#06b6d4', label: 'Fishing' },
-    { color: '#38bdf8', label: 'Class B' },
-    { color: '#f97316', label: 'Restricted' },
-    { color: '#ef4444', label: 'NUC / Aground' },
-];
+import { AIS_LEGEND_ITEMS } from './aisPresentationPalette';
 
 const RADIUS_OPTIONS = [0.5, 1, 2, 5, 10];
 
 interface AisLegendProps {
     visible: boolean;
+    /** Inline in a shared chart key, retaining the same guard controls. */
+    embedded?: boolean;
 }
 
-export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
+export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false }) => {
     const [guardState, setGuardState] = useState<GuardZoneState>(AisGuardZone.getState());
     const [showRadiusPicker, setShowRadiusPicker] = useState(false);
 
@@ -47,13 +40,16 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
     return (
         <>
             <div
+                role="group"
+                aria-label="AIS vessel colours and guard controls"
                 style={{
-                    position: 'absolute',
-                    bottom: 'calc(28px + env(safe-area-inset-bottom, 0px))',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    zIndex: 400,
+                    position: embedded ? 'static' : 'absolute',
+                    bottom: embedded ? undefined : 'calc(28px + env(safe-area-inset-bottom, 0px))',
+                    left: embedded ? undefined : '50%',
+                    transform: embedded ? undefined : 'translateX(-50%)',
+                    zIndex: embedded ? undefined : 400,
                     display: 'flex',
+                    flexWrap: embedded ? 'wrap' : 'nowrap',
                     alignItems: 'center',
                     gap: 12,
                     padding: '6px 14px',
@@ -63,17 +59,18 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                     border: '1px solid var(--day-ui-border, rgba(255, 255, 255, 0.08))',
                     borderRadius: 20,
                     boxShadow: 'var(--day-ui-shadow, 0 4px 24px rgba(0, 0, 0, 0.4))',
-                    whiteSpace: 'nowrap',
-                    maxWidth: 'calc(100vw - 24px)',
-                    overflowX: 'auto',
+                    whiteSpace: embedded ? 'normal' : 'nowrap',
+                    maxWidth: embedded ? '100%' : 'calc(100vw - 24px)',
+                    overflowX: embedded ? undefined : 'auto',
                     overscrollBehaviorX: 'contain',
                     WebkitOverflowScrolling: 'touch',
                     scrollbarWidth: 'none',
-                    animation: 'aisLegendIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both',
+                    animation: embedded ? undefined : 'aisLegendIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both',
                 }}
             >
                 {/* Guard Zone Shield Toggle */}
                 <button
+                    type="button"
                     aria-label={`${guardState.enabled ? 'Disable' : 'Enable'} AIS guard zone`}
                     aria-pressed={guardState.enabled}
                     className="hit-target-44"
@@ -99,7 +96,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                         cursor: 'pointer',
                         transition: 'all 200ms ease',
                     }}
-                    title={`Guard Zone ${guardState.enabled ? 'ON' : 'OFF'} — ${guardState.radiusNm} NM (double-tap to change radius)`}
+                    title={`Guard Zone ${guardState.enabled ? 'ON' : 'OFF'} — ${guardState.radiusNm} NM. Use the arrow to change radius.`}
                 >
                     <span style={{ fontSize: 12 }}>🛡️</span>
                     <span
@@ -141,10 +138,11 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                     style={{ width: 1, height: 14, background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.08))' }}
                 />
 
-                {/* Status colour dots */}
-                {STATUS_ITEMS.map(({ color, label }) => (
+                {/* Type colours, plus the navigation-danger override. */}
+                {AIS_LEGEND_ITEMS.map(({ color, label }) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <div
+                            aria-hidden="true"
                             style={{
                                 width: 8,
                                 height: 8,
@@ -167,18 +165,22 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                         </span>
                     </div>
                 ))}
+                <span style={{ fontSize: 10, color: 'var(--day-ui-muted, #94a3b8)' }}>
+                    Boat: moving with known direction · Dot: stationary or direction unknown
+                </span>
             </div>
 
             {/* Radius picker popover */}
             {showRadiusPicker && (
                 <div
                     style={{
-                        position: 'absolute',
-                        bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))',
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        zIndex: 401,
+                        position: embedded ? 'static' : 'absolute',
+                        bottom: embedded ? undefined : 'calc(62px + env(safe-area-inset-bottom, 0px))',
+                        left: embedded ? undefined : '50%',
+                        transform: embedded ? undefined : 'translateX(-50%)',
+                        zIndex: embedded ? undefined : 401,
                         display: 'flex',
+                        flexWrap: embedded ? 'wrap' : 'nowrap',
                         gap: 6,
                         padding: '6px 10px',
                         background: 'var(--day-ui-surface, rgba(15, 23, 42, 0.95))',
@@ -187,7 +189,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                         border: '1px solid var(--day-ui-border, rgba(255, 255, 255, 0.1))',
                         borderRadius: 14,
                         boxShadow: 'var(--day-ui-shadow, 0 8px 32px rgba(0, 0, 0, 0.5))',
-                        animation: 'aisLegendIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
+                        animation: embedded ? undefined : 'aisLegendIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both',
                     }}
                     role="group"
                     aria-label="AIS guard zone radius"

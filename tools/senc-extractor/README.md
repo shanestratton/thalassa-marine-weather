@@ -16,7 +16,7 @@ Extract S-57 vector features from OpenCPN SENC binary files (decrypted o-charts 
     ↓ oexserverd (chart-load via o-charts plugin OR hornang/oesenc-export)
 SENC binary (~/.opencpn/SENC/*.S57)
     ↓ this tool
-GeoJSON cells (cells/<cellId>.json — keyed by chart cell name)
+GeoJSON cells (immutable cells/<cellId>-<sha256>.json, selected by index.json)
     ↓ ENC_CHART_DIR on the Bosun Pi
 inshoreRouterEngine.routeInshore({ from, to, draftM })
 ```
@@ -213,6 +213,49 @@ curl -o reference/s57objectclasses.csv \
 ```
 
 ## Usage
+
+The o-charts batch converter publishes only after every selected cell converts:
+
+```bash
+npx tsx src/decryptBatch.ts --charts /path/to/chart-set \
+    --pi-cache-store /path/to/enc-charts --skip-existing \
+    --report /absolute/path/to/conversion-report.json
+```
+
+The report lists expected, processed, skipped and failed cells. Missing keys,
+unknown producers, truncated records and output/index write errors return a
+nonzero exit code. Failed batches leave the published index unchanged.
+`--skip-existing` hashes chart content and key XML; touching a file alone does
+not require conversion, while a key-only change or same-mtime replacement does.
+
+Standard eight-character ENC names carry their producer prefix. Synthetic
+`OC-*` names use the licensed key XML's per-chart `<ID>` (for example,
+`OC-33-086174` maps to `FR471680`). The output retains the synthetic `cellId`,
+records the native `sourceCellId`, and derives `sourceHO` from that native ID.
+The Australia package includes AU, PG and SB producers; its region label is
+not producer evidence. Duplicate/conflicting identities are rejected.
+
+For older key files without native IDs, provide verified producer evidence via
+`--source-ho`, or place `thalassa-chart-source.json` beside the charts:
+
+```json
+{ "version": 1, "cells": { "OC-61-041834": { "sourceHO": "FR" } } }
+```
+
+This metadata must come from actual package/licence attribution. Do not derive
+producer from a region name or use a default country for a mixed package.
+The watcher reconciles startup files, chart modifications, key XML and this
+metadata file. `ENC_DEFAULT_SOURCE_HO` is no longer applied.
+
+Both extractors preserve SENC `updateNumber` and produce index `contentSha256`
+over exact UTF-8 wrapped-cell bytes. Index writers use `.index.lock`, immutable
+blobs and atomic index replacement. Older revisions are kept out of the store;
+equal revisions with different hashes require investigation unless their
+parsed content differs only in the cell's SENC build date (`sencCreateDate`).
+That date-only rebuild keeps the currently selected blob and its exact hash;
+geometry, attributes, issue/update dates, provenance and all other fields must
+still match. Stored raw bytes must pass their SHA-256 integrity check first. Legacy index
+entries without hashes remain readable and can migrate on conversion.
 
 ```bash
 npm install

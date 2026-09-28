@@ -98,7 +98,6 @@ describe('the passage pane on the Obs chart', () => {
         const flat = squash(css);
         for (const neighbour of [
             '.thalassa-helix-legend { left: calc(9.5rem + 12px) !important; bottom: calc(50% - 24px) !important; }',
-            '.fixed.left-2.z-140 { left: calc(9.5rem + 8px); }',
         ]) {
             expect(flat, neighbour).toContain(squash(`${shown} ${neighbour}`));
         }
@@ -108,9 +107,10 @@ describe('the passage pane on the Obs chart', () => {
         expect(readFileSync('components/map/ThalassaHelixControl.tsx', 'utf8')).toContain(
             'className="thalassa-helix-legend absolute z-500"',
         );
-        expect(readFileSync('components/map/MapHub.tsx', 'utf8')).toContain(
-            'className="fixed left-2 z-140 flex flex-col-reverse gap-2 pointer-events-none"',
-        );
+        const map = readFileSync('components/map/MapHub.tsx', 'utf8');
+        expect(map).toContain('<BlitzortungAttribution visible compact />');
+        expect(map).toContain('top: creditsStripTop(');
+        expect(map).toContain('<ObsLayerKey {...obsKeyProps} />');
     });
 
     it('the ENC notice states its own transform in every context it is moved in', () => {
@@ -192,7 +192,7 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
 
     it('the chart draws the ghost from ONE hook line, off on the planning surfaces', () => {
         expect(mapHub).toContain("import { useRouteGhostMarker } from './useRouteGhostMarker';");
-        expect(mapHub).toContain('useRouteGhostMarker(mapRef, mapReady && !planningSurface);');
+        expect(mapHub).toContain('useRouteGhostMarker(mapRef, mapReady && !planningSurface && passageOverlay);');
     });
 
     it('there is never a second time slider: the chart’s own controls stand down, and their credits do not', () => {
@@ -202,7 +202,7 @@ describe('the look-ahead scrubber, ghost and wind timeline', () => {
             controls.indexOf('if (!visible) return null;'),
         );
         expect(controls).toContain('const showTimeline = !controlsHidden && !lookingAhead;');
-        expect(controls).toContain('{lookingAhead ? null : controlsHidden ? (');
+        expect(controls).toContain('{!surfaceAvailable ? null : controlsHidden ? (');
         // The RainViewer credit is gated on the radar being shown — never on the timeline.
         expect(flat(controls)).toContain('{showRainViewerAttribution && (');
         expect(controls).not.toMatch(/showRainViewerAttribution\s*=[^;]*lookingAhead/);

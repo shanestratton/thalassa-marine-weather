@@ -9,21 +9,19 @@
  */
 import type { Feature, FeatureCollection } from 'geojson';
 import { clipFeatureOutsideBboxes, type CoverageGeom, type FineCoverage } from './clipDepareOverlap';
-import { cellScaleRank, featureBboxCached } from './scaleShadow';
+import { cellScaleRank, featureBboxCached, type CellExtent } from './scaleShadow';
 import { getGlazeCell, putGlazeCell, isGlazeInFlight } from './glazeCellCache';
 import { GLAZE_WORKER_ENABLED, isGeoWorkerBroken, type GlazeUpgradeItem } from './geometryUpgrades';
 import type { EncMergedVectorData } from './EncHazardService';
+import { encCellContentIdentity, type EncCellContentIdentityInput } from './cellContentIdentity';
 
 export interface GlazeBuildContext {
-    cell: {
-        id: string;
+    cell: EncCellContentIdentityInput & {
         bbox: [number, number, number, number];
-        edition?: number;
-        sizeBytes?: number;
         usage?: 'navigation' | 'reference' | 'pending' | 'demo';
     };
     blob: { layers: { DEPARE?: FeatureCollection; DRGARE?: FeatureCollection } };
-    glazeShadows: Array<{ id: string; bbox: [number, number, number, number] }>;
+    glazeShadows: CellExtent[];
     coverageFor: (cellId: string) => CoverageGeom | null;
     stripRectsFor: (cellId: string, extent: [number, number, number, number]) => [number, number, number, number][];
     glazeCoverageLib: Map<string, FineCoverage>;
@@ -48,17 +46,12 @@ export async function buildCellGlaze(ctx: GlazeBuildContext): Promise<void> {
         yieldIfNeeded,
     } = ctx;
     // Memo key: the glaze for this cell is fully determined by its
-    // own blob and the SHADOWING cells that clip it (their ids,
-    // sorted — same set for both grades). Keyed by CELL CONTENT
-    // (id@edition@sizeBytes — the established cell-identity triple),
-    // NOT the registry version: the old v{registryVersion} prefix
-    // wiped all cached glazes on ANY putCell (every hydration
-    // arrival, provenance patch, Pi sync), re-clipping the whole
-    // coast per arriving cell — the cold-boot cascade's biggest
-    // duplicated cost (z10-boot audit #3). A re-extracted cell
-    // still invalidates: same id, different sizeBytes.
-    const glazeKey = `${cell.id}@${cell.edition}@${cell.sizeBytes ?? 0}@${cell.usage ?? 'navigation'}:${glazeShadows
-        .map((s) => s.id)
+    // own content AND every shadowing cell's content. A same-sized update
+    // can move a shallow band without changing either cell id or edition.
+    // Bboxes also affect scale rank and clipping. Delivery metadata such as
+    // cloud manifest versions does not invalidate otherwise identical glazes.
+    const glazeKey = `${encCellContentIdentity(cell)}@${cell.usage ?? 'navigation'}@bbox-${cell.bbox.join(',')}:${glazeShadows
+        .map((s) => `${encCellContentIdentity(s)}@${s.authority ?? 'navigation'}@bbox-${s.bbox.join(',')}`)
         .sort()
         .join(',')}`;
     const cached = getGlazeCell(glazeKey);

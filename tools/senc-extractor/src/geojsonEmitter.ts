@@ -46,8 +46,12 @@ interface FeatureCollection {
  */
 export interface CellOutput {
     cellId: string;
+    /** Native ENC id from licensed package metadata when cellId is a synthetic o-charts name. */
+    sourceCellId?: string;
     sourceHO: string;
     edition: number;
+    /** SENC update within the edition, retained for revision comparisons. */
+    updateNumber?: number;
     issued: string;
     bbox: [number, number, number, number];
     layers: Record<string, FeatureCollection>;
@@ -65,6 +69,7 @@ export interface EmitOptions {
     classes?: Set<string> | 'all';
     /** Filename-derived cell id for the output (e.g. "US5GA22M"). */
     cellId: string;
+    sourceCellId?: string;
     /** Hydrographic-office code (e.g. "AU", "US"). Default "??" if unknown. */
     sourceHO?: string;
 }
@@ -98,8 +103,10 @@ export function emitCell(header: HeaderInfo, features: SencFeature[], opts: Emit
 
     return {
         cellId: opts.cellId,
+        ...(opts.sourceCellId ? { sourceCellId: opts.sourceCellId } : {}),
         sourceHO: opts.sourceHO ?? '??',
         edition: header.cellEdition ?? 0,
+        updateNumber: header.update,
         issued: issuedIso,
         bbox,
         layers,

@@ -226,6 +226,43 @@ describe('RoutesAndTracks identity isolation', () => {
         await expect(request).resolves.toEqual([]);
     });
 
+    it('paints incremental history before slow names and retains names after queue wait', async () => {
+        vi.useFakeTimers();
+        try {
+            const name = deferred<string>();
+            mocks.getVoyageSummaries.mockResolvedValue([
+                {
+                    voyageId: 'queued-name',
+                    isPlannedRoute: false,
+                    entryCount: 2,
+                    startedAt: '2026-09-21T00:00:00Z',
+                    totalDistanceNM: 12,
+                    firstLat: -21.1,
+                    firstLon: 149.2,
+                    lastLat: -20.2,
+                    lastLon: 148.8,
+                },
+            ]);
+            mocks.placeLabelFor.mockReturnValue(name.promise);
+            const onUpdate = vi.fn();
+            const request = fetchSeaVoyageChoices(20, onUpdate);
+            await vi.advanceTimersByTimeAsync(4_000);
+            expect(onUpdate).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    voyageId: 'queued-name',
+                    label: 'Unknown departure → Unknown arrival',
+                    sublabel: expect.stringContaining('12 NM'),
+                }),
+            ]);
+            name.resolve('Hamilton Island');
+            const choices = await request;
+            expect(choices[0].label).toBe('Hamilton Island → Hamilton Island');
+            expect(onUpdate).toHaveBeenLastCalledWith(choices);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('only geocodes visible choices and times out when the connection stalls', async () => {
         vi.useFakeTimers();
         try {

@@ -28,6 +28,10 @@ import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { satelliteModeBlocks } from '../../services/networkPolicy';
 import { publishInternetAisFeatures } from '../../services/AisGuardWatch';
 import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
+import { AIS_DANGER_COLOR, typeBucketColor } from './aisPresentationPalette';
+
+// Preserve the public helper exports used by callers and regression tests.
+export { AIS_DANGER_COLOR, typeBucketColor } from './aisPresentationPalette';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -606,32 +610,6 @@ function clipFeaturesToView(map: mapboxgl.Map, features: GeoJSON.Feature[]): Geo
     return { type: 'FeatureCollection', features: inView };
 }
 
-/**
- * Vessel-type colour buckets — the palette punters already read from every
- * AIS site (cargo green, tanker red, passenger blue, fishing orange,
- * sailing/pleasure purple), with an HONEST grey for unknown: the vessels
- * table defaults ship_type to 0 and many Class B never send statics, so
- * pretending a type would paint most small craft wrong.
- */
-export function typeBucketColor(shipType: number): string {
-    if (shipType >= 70 && shipType <= 79) return '#22c55e'; // cargo
-    if (shipType >= 80 && shipType <= 89) return '#ef4444'; // tanker
-    if (shipType >= 60 && shipType <= 69) return '#3b82f6'; // passenger
-    if (shipType === 30) return '#f97316'; // fishing
-    if (shipType === 36 || shipType === 37) return '#a855f7'; // sailing / pleasure
-    if ((shipType >= 31 && shipType <= 35) || (shipType >= 50 && shipType <= 58)) return '#eab308'; // tug/pilot/SAR/special
-    if (shipType >= 40 && shipType <= 49) return '#06b6d4'; // high-speed craft
-    return '#94a3b8'; // unknown — grey, honestly
-}
-
-/**
- * The one colour a hazard vessel wears — deliberately OUTSIDE the type
- * palette (no bucket is magenta), because "safety overrides type" is
- * meaningless if the override reuses tanker-red or fishing-orange. A NUC or
- * aground vessel must be unmistakable at a glance.
- */
-export const AIS_DANGER_COLOR = '#f5009b';
-
 /** Nav statuses that make a vessel a HAZARD regardless of what it is:
  *  2 not-under-command, 3 restricted manoeuvrability, 4 constrained by
  *  draught, 6 AGROUND (dropped from the first cut — the very state a
@@ -1085,8 +1063,12 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 if (!cancelled) mergeAndWrite();
             } catch (e) {
                 log.warn('[useAisStreamLayer] Ownship floor fetch failed:', e);
+            } finally {
+                // Satellite mode pauses network work, not this lifecycle.
+                // Keep checking the live policy so leaving that mode resumes
+                // ownship coverage without an AIS off/on toggle.
+                if (!cancelled) timer = setTimeout(tick, OWNSHIP_FETCH_INTERVAL_MS);
             }
-            if (!cancelled) timer = setTimeout(tick, OWNSHIP_FETCH_INTERVAL_MS);
         };
 
         void tick();

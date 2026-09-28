@@ -1,8 +1,70 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { MARINE_MOTION_HONESTY, ThalassaHelixControl, type HelixLayer } from '../components/map/ThalassaHelixControl';
+import { readFileSync } from 'node:fs';
+import {
+    LegendDock,
+    MARINE_MOTION_HONESTY,
+    ThalassaHelixControl,
+    type HelixLayer,
+} from '../components/map/ThalassaHelixControl';
 
 describe('ThalassaHelixControl', () => {
+    it('keeps standalone pressure fill positions and alpha aligned with the renderer', () => {
+        render(<LegendDock inline layers={['pressure']} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Show weather legends' }));
+        const legend = screen.getByRole('region', { name: 'Pressure legend' });
+        expect(legend).toHaveTextContent('≤960 hPa');
+        expect(legend).toHaveTextContent('≥1042 hPa');
+        const source = readFileSync('services/weather/isobars.ts', 'utf8');
+        const stops = source.slice(source.indexOf('const colorStops:'), source.indexOf('const colorStops:') + 2000);
+        const scale = legend.querySelector<HTMLElement>('[data-weather-scale]')!;
+        const gradient = scale.style.background.replace(/\s+/g, '');
+        const matches = [...stops.matchAll(/\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\]/g)];
+        expect(matches).toHaveLength(12);
+        for (const match of matches) {
+            const [pressure, r, g, b, alpha] = match.slice(1).map(Number);
+            expect(gradient).toContain(`rgba(${r},${g},${b},${alpha / 255})${((pressure - 960) / 82) * 100}%`);
+        }
+    });
+    it('keeps its trailing hide control when the combined key expands and preserves independent units', () => {
+        render(
+            <LegendDock
+                inline
+                layers={[
+                    'wind',
+                    'rain',
+                    'pressure',
+                    'temperature',
+                    'clouds',
+                    'currents',
+                    'waves',
+                    'sst',
+                    'chl',
+                    'seaice',
+                    'mld',
+                ]}
+                pressureOverlay
+                trailing={<button type="button">Hide weather controls</button>}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Show weather legends' }));
+        expect(screen.getByRole('button', { name: 'Hide weather controls' })).toBeVisible();
+        expect(screen.getByText('Wind speed · kt')).toBeVisible();
+        expect(screen.getByText('Current speed · m/s')).toBeVisible();
+        expect(screen.getByText('Significant wave height · m')).toBeVisible();
+        expect(screen.getByText('Sea-surface temperature · °C')).toBeVisible();
+        expect(screen.getByText('Chlorophyll · mg/m³ (logarithmic)')).toBeVisible();
+        expect(screen.getByText('Sea-ice concentration · %')).toBeVisible();
+        expect(screen.getByText('Mixed-layer depth · m (logarithmic)')).toBeVisible();
+        expect(screen.getByText(/not a rainfall total or a mm\/h conversion/)).toBeVisible();
+        const pressure = screen.getByRole('region', { name: 'Pressure legend' });
+        expect(pressure).toHaveTextContent('Mean sea-level pressure · hPa');
+        expect(pressure).toHaveTextContent('no pressure colour fill');
+        expect(pressure.querySelector('[data-weather-scale]')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Hide weather legends' }));
+        expect(screen.getByRole('button', { name: 'Hide weather controls' })).toBeVisible();
+        expect(screen.queryByRole('region', { name: 'Weather layer legends' })).not.toBeInTheDocument();
+    });
     it('puts the full pressure valid-time caption below the slider without changing wind layout', () => {
         const props = {
             frameIndex: 1,

@@ -96,14 +96,18 @@ export function useActiveVoyageChartSync(
         const next = overlayEnabled ? followedRoute : null;
         autoRouteRef.current = next;
         setActiveChartRoute((current) => next ?? (current === previous ? null : current));
-    }, [overlayEnabled, followedRoute, identityScope, setActiveChartRoute]);
+        if (next) setActiveChartTrack(null);
+    }, [overlayEnabled, followedRoute, identityScope, setActiveChartRoute, setActiveChartTrack]);
 
     const autoTrackRef = useRef<RouteOrTrack | null>(null);
+    // One chart selection at a time: the followed plan takes precedence;
+    // casual recording without a followed route shows the sailed track.
+    const showRecordedTrack = overlayEnabled && !followedRoute;
     useEffect(() => {
         const previous = autoTrackRef.current;
         autoTrackRef.current = null;
         setActiveChartTrack((current) => (current === previous ? null : current));
-        if (!overlayEnabled || !activeVoyageId) return;
+        if (!showRecordedTrack || !activeVoyageId) return;
         let cancelled = false;
         let requestGeneration = 0;
         // Only the sailed track needs a fetch. Keep it bounded to the active
@@ -131,6 +135,7 @@ export function useActiveVoyageChartSync(
                         ? previousTrack
                         : track;
                 autoTrackRef.current = next;
+                setActiveChartRoute(null);
                 setActiveChartTrack(next);
             } catch (e) {
                 log.warn('Active voyage trail refresh failed:', e);
@@ -148,7 +153,7 @@ export function useActiveVoyageChartSync(
             window.removeEventListener('thalassa:routes-and-tracks-changed', onRefresh);
             clearInterval(t);
         };
-    }, [overlayEnabled, activeVoyageId, identityScope, setActiveChartTrack]);
+    }, [showRecordedTrack, activeVoyageId, identityScope, setActiveChartTrack, setActiveChartRoute]);
 
     return { activeVoyageMode, activeVoyageId, activeVoyageName: null, hasRecording };
 }

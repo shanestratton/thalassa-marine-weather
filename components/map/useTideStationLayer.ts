@@ -11,6 +11,7 @@ import {
 } from '../../services/tides/stationDetails';
 import { TideStationCard, TideStationGauge } from './TideStationCard';
 import { tideGaugePresentation } from './tideStationPresentation';
+import { subscribeWeatherRefresh } from '../../services/weather/pressureRefresh';
 
 export type { TideStation } from '../../services/tides/stationDetails';
 export interface TideExtreme {
@@ -127,6 +128,7 @@ export function useTideStationLayer(
     const [stationCount, setStationCount] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
+    const [zoomRequired, setZoomRequired] = useState(false);
     const cache = useRef<{ center: { lat: number; lon: number }; at: number; stations: TideStation[] } | null>(null);
 
     useEffect(() => {
@@ -135,6 +137,7 @@ export function useTideStationLayer(
             setStationCount(0);
             setLoading(false);
             setError(false);
+            setZoomRequired(false);
             return;
         }
         let disposed = false;
@@ -341,17 +344,37 @@ export function useTideStationLayer(
                 /* style replacement can invalidate a source between checks */
             }
         };
+        const syncZoomStatus = () => {
+            const belowMinimum = map.getZoom() < MIN_ZOOM;
+            setZoomRequired(belowMinimum);
+            if (belowMinimum) {
+                // Report the zoom gate immediately, not after the debounced
+                // search. An in-flight result no longer belongs on this view.
+                if (moveTimer !== null) clearTimeout(moveTimer);
+                moveTimer = null;
+                searchGeneration++;
+                searchController?.abort();
+                searchController = null;
+                searchCenter = null;
+                setLoading(false);
+                setError(false);
+            }
+            return belowMinimum;
+        };
         const loadViewport = async () => {
-            if (disposed || map.getZoom() < MIN_ZOOM) return;
+            if (disposed || syncZoomStatus()) return;
             const at = map.getCenter();
             const center = { lat: at.lat, lon: ((at.lng + 540) % 360) - 180 };
             const previous = cache.current;
             if (
                 previous &&
+                Date.now() - previous.at >= 0 &&
                 Date.now() - previous.at < SEARCH_MAX_AGE_MS &&
                 distanceKm(previous.center, center) < SEARCH_MOVE_KM
-            )
+            ) {
+                setError(false);
                 return;
+            }
             if (searchController && searchCenter && distanceKm(searchCenter, center) < SEARCH_MOVE_KM) return;
             searchController?.abort();
             const controller = new AbortController();
@@ -379,11 +402,13 @@ export function useTideStationLayer(
         };
         const onMoveEnd = () => {
             if (moveTimer !== null) clearTimeout(moveTimer);
+            moveTimer = null;
+            if (syncZoomStatus()) return;
             const at = map.getCenter();
             if (
                 searchController &&
-                (map.getZoom() < MIN_ZOOM ||
-                    (searchCenter && distanceKm(searchCenter, { lat: at.lat, lon: at.lng }) >= SEARCH_MOVE_KM))
+                searchCenter &&
+                distanceKm(searchCenter, { lat: at.lat, lon: at.lng }) >= SEARCH_MOVE_KM
             ) {
                 searchGeneration++;
                 searchController.abort();
@@ -417,6 +442,12 @@ export function useTideStationLayer(
         setStationCount(stations.length);
         restore();
         void loadViewport();
+        // Revalidate a stationary chart and on browser/native resume. The
+        // viewport cache enforces the 5-minute TTL; predictions stay on tap.
+        const stopRefresh = subscribeWeatherRefresh(() => {
+            void loadViewport();
+        });
+        map.on('zoom', syncZoomStatus);
         map.on('moveend', onMoveEnd);
         map.on('style.load', restore);
         map.on('idle', restore);
@@ -430,8 +461,10 @@ export function useTideStationLayer(
             disposed = true;
             searchGeneration++;
             searchController?.abort();
+            stopRefresh();
             if (moveTimer !== null) clearTimeout(moveTimer);
             closeDetail();
+            map.off('zoom', syncZoomStatus);
             map.off('moveend', onMoveEnd);
             map.off('style.load', restore);
             map.off('idle', restore);
@@ -452,5 +485,5 @@ export function useTideStationLayer(
             }
         };
     }, [mapRef, mapReady, visible]);
-    return { stationCount, loading, error };
+    return { stationCount, loading, error, zoomRequired };
 }

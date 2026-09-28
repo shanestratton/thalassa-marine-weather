@@ -678,6 +678,23 @@ describe('LogPage', () => {
         expect(screen.getByRole('button', { name: /Archived voyages/i })).toHaveTextContent('1 voyage');
     });
 
+    it('keeps stats and archives in one free-scrolling history pane instead of snapping to voyage cards', () => {
+        render(<LogPage />);
+        const history = screen.getByRole('region', { name: 'Voyage history' });
+        const archive = screen.getByRole('button', { name: 'Archived voyages' });
+        expect(history).toContainElement(archive);
+        expect(history).toContainElement(screen.getByTestId('voyage-v1'));
+        const stats = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(history).toContainElement(stats);
+        expect(history).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'overscroll-y-contain');
+        expect(history.className).not.toMatch(/snap-(?:y|mandatory|proximity)/);
+        fireEvent.click(stats);
+        const statsPanel = document.getElementById(stats.getAttribute('aria-controls')!);
+        expect(statsPanel).not.toHaveClass('overflow-y-auto');
+        fireEvent.click(archive);
+        expect(archive).toHaveAttribute('aria-expanded', 'true');
+    });
+
     it('says a failed history read once, with one Retry that re-runs both loads (UX scorecard run 7)', () => {
         const reload = vi.fn().mockResolvedValue(undefined);
         Object.assign(logPageStateOverrides.hook, {
