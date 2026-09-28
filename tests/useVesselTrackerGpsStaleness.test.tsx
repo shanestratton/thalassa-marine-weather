@@ -27,7 +27,14 @@
  */
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useVesselTracker } from '../components/map/useVesselTracker';
+import {
+    isBasePlaceLabelLayer,
+    ownshipPlaceLabelWasReset,
+    spokenOwnshipBadge,
+    syncOwnshipPlaceLabel,
+    useVesselTracker,
+    withOwnshipLabelFade,
+} from '../components/map/useVesselTracker';
 import { GPS_STALE_LIMIT_MS, GPS_VERY_STALE_MS } from '../services/shiplog/PositionResolver';
 import { PHONE_LIVE_FIX_MAX_AGE_MS } from '../components/gpsFixState';
 import { boatGpsDiagnosticSource, presentGpsDiagnostics } from '../components/gpsDiagnosticsPresentation';
@@ -285,7 +292,8 @@ describe('useVesselTracker independent true-heading updates', () => {
     };
     const expectNeutral = (t: ReturnType<typeof mountTracker>) => {
         expect(t.marker().element.dataset.directionSource).toBe('unknown');
-        expect(t.marker().element.getAttribute('aria-label')).toBe('Position; heading unavailable');
+        // One img, one name: it carries the visible chip too (UX scorecard run 10).
+        expect(t.marker().element.getAttribute('aria-label')).toMatch(/^Own ship, .+; heading unavailable$/);
         expect(t.arrow().querySelector<SVGElement>('.vessel-directional-shape')!.style.display).toBe('none');
         expect(t.arrow().querySelector<SVGElement>('.vessel-neutral-shape')!.style.display).not.toBe('none');
     };
@@ -295,7 +303,7 @@ describe('useVesselTracker independent true-heading updates', () => {
         const t = mountTracker();
         expect(t.marker().element.dataset.source).toBe('vessel');
         expect(t.marker().element.dataset.directionSource).toBe('heading');
-        expect(t.marker().element.getAttribute('aria-label')).toBe('Bow heading 0° true');
+        expect(t.marker().element.getAttribute('aria-label')).toBe('Own ship, stopped; bow heading 0° true');
         expect(t.arrow().style.transform).toBe('rotate(0deg)');
         expect(t.arrow().querySelector<SVGElement>('.vessel-directional-shape')!.style.display).not.toBe('none');
         expect(t.arrow().querySelector<SVGElement>('.vessel-neutral-shape')!.style.display).toBe('none');
@@ -471,6 +479,11 @@ describe('useVesselTracker GPS-staleness clock', () => {
         tick(46_000);
         expectStale(t, '46 s');
         expect(t.status().textContent).not.toBe('Stopped');
+        // VoiceOver hears the stale fix too, not just 'Position' (UX scorecard run 10),
+        // in the chip's own words and no softer hedge of its own.
+        expect(t.marker().element.getAttribute('aria-label')).toBe(
+            'Own ship, last fix 46 seconds ago; heading unavailable',
+        );
     });
 
     it('greys the vessel with an amber badge past the gate and a red one at 5min once fixes stop', () => {
@@ -505,11 +518,18 @@ describe('useVesselTracker GPS-staleness clock', () => {
         expect(t.chip().textContent).toBe('Last fix 46 s');
         expect(t.chip().style.color).toBe(AMBER);
         expect(t.arrow().style.filter).toBe('grayscale(1) brightness(0.85)');
+        // The name carries the badge and the chip, in the chip's own words.
+        expect(t.marker().element.getAttribute('aria-label')).toBe(
+            'Own ship, anchored, last fix 46 seconds ago; heading unavailable',
+        );
 
         tick(GPS_VERY_STALE_MS - 46_000);
         expect(t.chip().textContent).toBe('Last fix 5 min');
         expect(t.chip().style.color).toBe(RED);
         expect(t.chip().style.borderColor).toBe('rgba(239, 68, 68, 0.6)');
+        expect(t.marker().element.getAttribute('aria-label')).toBe(
+            'Own ship, anchored, last fix 5 minutes ago; heading unavailable',
+        );
     });
 
     it("reads the boat's own lane gate for a vessel-fed marker, not the phone's", () => {
@@ -723,5 +743,113 @@ describe('useVesselTracker dates each receiver by its own fix', () => {
         mocks.nmeaState = piLan(undefined, 'device');
         const t = mountTracker();
         expect(t.status().textContent).toBe('Stopped');
+    });
+});
+
+describe('own-ship spoken name and the town name under the dot (UX scorecard run 10)', () => {
+    it("spells out the badge's units without changing its words", () => {
+        expect(spokenOwnshipBadge('Last fix 46 s')).toBe('last fix 46 seconds ago');
+        expect(spokenOwnshipBadge('Last fix 1 min')).toBe('last fix 1 minute ago');
+        expect(spokenOwnshipBadge('Last fix 2 h')).toBe('last fix 2 hours ago');
+        expect(spokenOwnshipBadge('3.2 kts')).toBe('3.2 knots');
+        expect(spokenOwnshipBadge('SOG —')).toBe('speed over ground unavailable');
+        expect(spokenOwnshipBadge('Stopped')).toBe('stopped');
+        expect(spokenOwnshipBadge('No fix')).toBe('no fix');
+    });
+
+    it("touches only the base style's settlement and place layers", () => {
+        expect(isBasePlaceLabelLayer({ id: 'settlement-major-label', type: 'symbol', source: 'composite' })).toBe(true);
+        expect(isBasePlaceLabelLayer({ id: 'place_town', type: 'symbol', source: 'openmaptiles' })).toBe(true);
+        expect(isBasePlaceLabelLayer({ id: 'country-label', type: 'symbol', source: 'composite' })).toBe(false);
+        expect(isBasePlaceLabelLayer({ id: 'poi-label', type: 'symbol', source: 'composite' })).toBe(false);
+        expect(isBasePlaceLabelLayer({ id: 'enc-vec-lndare-label', type: 'symbol', source: 'enc-vec' })).toBe(false);
+        expect(isBasePlaceLabelLayer({ id: 'settlement-major-label', type: 'fill', source: 'composite' })).toBe(false);
+    });
+
+    it('wraps opacity in a feature-state fade, keeping a zoom curve at the top', () => {
+        const hidden = ['boolean', ['feature-state', 'thalassaOwnshipHidden'], false];
+        expect(withOwnshipLabelFade(undefined)).toEqual(['case', hidden, 0, 1]);
+        expect(withOwnshipLabelFade(0.8)).toEqual(['case', hidden, 0, 0.8]);
+        expect(withOwnshipLabelFade(['interpolate', ['linear'], ['zoom'], 8, 0, 10, 1])).toEqual([
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            8,
+            ['case', hidden, 0, 0],
+            10,
+            ['case', hidden, 0, 1],
+        ]);
+        expect(withOwnshipLabelFade(['step', ['zoom'], 0, 9, 1])).toEqual([
+            'step',
+            ['zoom'],
+            ['case', hidden, 0, 0],
+            9,
+            ['case', hidden, 0, 1],
+        ]);
+        // Already armed: unchanged. A legacy stops function cannot be wrapped.
+        const armed = ['case', hidden, 0, 1];
+        expect(withOwnshipLabelFade(armed)).toBe(armed);
+        expect(withOwnshipLabelFade({ stops: [[8, 0]] })).toBeNull();
+    });
+
+    /** A style with one settlement layer and one town, 'Gladstone', drawn under the dot. */
+    function placeMap(textOpacity: unknown) {
+        const layers = [
+            { id: 'settlement-major-label', type: 'symbol', source: 'composite', 'source-layer': 'place_label' },
+        ];
+        const paint = new Map<string, unknown>([['settlement-major-label|text-opacity', textOpacity]]);
+        const state = new Map<string | number, Record<string, unknown>>();
+        const map = {
+            getStyle: () => ({ layers }),
+            getLayer: (id: string) => layers.find((layer) => layer.id === id),
+            getPaintProperty: (id: string, property: string) => paint.get(`${id}|${property}`),
+            setPaintProperty: vi.fn((id: string, property: string, value: unknown) => {
+                paint.set(`${id}|${property}`, value);
+            }),
+            project: ([x, y]: [number, number]) => ({ x, y }),
+            queryRenderedFeatures: vi.fn(() => [
+                {
+                    id: 7,
+                    source: 'composite',
+                    sourceLayer: 'place_label',
+                    layer: { id: 'settlement-major-label' },
+                    properties: { class: 'settlement', type: 'city', name: 'Gladstone' },
+                    geometry: { type: 'Point', coordinates: [101, 100] },
+                },
+            ]),
+            setFeatureState: vi.fn((target: { id: string | number }, value: Record<string, unknown>) => {
+                state.set(target.id, { ...state.get(target.id), ...value });
+            }),
+            removeFeatureState: vi.fn((target: { id: string | number }) => {
+                state.delete(target.id);
+            }),
+            getFeatureState: (target: { id: string | number }) => state.get(target.id) ?? {},
+        };
+        return { map, state, asMap: map as never };
+    }
+
+    it('fades the one town the dot sits on, writes the style once, and restores it', () => {
+        const { map, state, asMap } = placeMap(undefined);
+        syncOwnshipPlaceLabel(asMap, [100, 100]);
+        expect(state.get(7)).toEqual({ thalassaOwnshipHidden: true });
+        expect(map.setPaintProperty).toHaveBeenCalledTimes(2); // text and icon opacity, once
+        expect(ownshipPlaceLabelWasReset(asMap)).toBe(false);
+
+        // The same view again: nothing written.
+        syncOwnshipPlaceLabel(asMap, [100, 100]);
+        expect(map.setPaintProperty).toHaveBeenCalledTimes(2);
+        expect(map.setFeatureState).toHaveBeenCalledTimes(1);
+
+        // Own-ship gone: the name comes back.
+        syncOwnshipPlaceLabel(asMap, null);
+        expect(state.has(7)).toBe(false);
+    });
+
+    it('leaves a label whose opacity it cannot wrap, and records nothing for the ticker to retry', () => {
+        const { map, state, asMap } = placeMap({ stops: [[8, 0]] });
+        syncOwnshipPlaceLabel(asMap, [100, 100]);
+        expect(map.setFeatureState).not.toHaveBeenCalled();
+        expect(state.has(7)).toBe(false);
+        expect(ownshipPlaceLabelWasReset(asMap)).toBe(false);
     });
 });

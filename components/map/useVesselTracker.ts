@@ -39,6 +39,16 @@ import { AnchorWatchSyncService } from '../../services/AnchorWatchSyncService';
 import { ShoreWatchAlarmService } from '../../services/ShoreWatchAlarmService';
 import { ownshipStatusLabel } from './ownshipStatus';
 import { resolveOwnshipDirection } from './ownshipDirection';
+import {
+    isBasePlaceLabelLayer,
+    isSettlementPlaceFeature,
+    OWNSHIP_LABEL_STATE,
+    readsOwnshipFade,
+    withOwnshipLabelFade,
+    type LabelLayerIdentity,
+} from './ownshipLabelFade';
+
+export { isBasePlaceLabelLayer, isSettlementPlaceFeature, withOwnshipLabelFade } from './ownshipLabelFade';
 
 const log = createLogger('VesselTracker');
 
@@ -257,15 +267,20 @@ function applyGpsAgeTier(el: HTMLDivElement, tier: GpsAgeTier, chipText: string 
     chip.style.borderColor = tier === 'lost' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(245, 158, 11, 0.5)';
 }
 
-// ── Own-ship footprint: a label-collision obstacle ──
+// ── Own-ship footprint: a label-collision obstacle (NOT PLACED) ──
 //
 // The marker is a DOM element, and Mapbox's label placement cannot see DOM,
 // so at a marina the town's place label was drawn straight through the dot
 // and its chip: "Gla◯to Stopped" (UX scorecard run 8). An invisible symbol at
-// the fix, sized to the dot plus the chip beside it, is placed first (it sits
-// above the basemap's label layers) and takes that box in the collision
-// index, so a place label that would run under the boat is dropped or moved
-// instead. Nothing is drawn: the image is fully transparent.
+// the fix, sized to the dot plus the chip beside it, takes that box in the
+// collision index. Nothing is drawn: the image is fully transparent.
+//
+// The hook no longer places it. useMapInit runs crossSourceCollisions:false
+// (smooth panning, Shane 2026-07-14), so a symbol alone in its own source
+// collides with nothing at all, and its per-fix setData was a worker round
+// trip and a re-placement every second at a berth for no effect. The hook
+// only removes a leftover one; syncOwnshipPlaceLabel below does the job. This
+// stays for the day cross-source collisions come back.
 const OBSTACLE_SOURCE = 'vessel-ownship-obstacle';
 const OBSTACLE_LAYER = 'vessel-ownship-obstacle-symbol';
 const OBSTACLE_IMAGE = 'vessel-ownship-obstacle';
@@ -317,8 +332,8 @@ export function syncOwnshipObstacle(map: mapboxgl.Map, lngLat: [number, number] 
                     // source's symbols only with its own, so 'Gladstone' never
                     // sees this box however the layers are ordered (UX
                     // scorecard runs 8-10; layer raising was tried and backed
-                    // out). Clearing that label needs cross-source collisions
-                    // back on, which is Shane's call.
+                    // out). syncOwnshipPlaceLabel below is what clears that
+                    // label, without touching collisions or layer order.
                     'icon-allow-overlap': true,
                     'icon-ignore-placement': false,
                     // The marker turns and tilts with the map; so does its box.
@@ -330,6 +345,405 @@ export function syncOwnshipObstacle(map: mapboxgl.Map, lngLat: [number, number] 
     } catch {
         // Mid style swap: the next fix, or the staleness tick, puts it back.
     }
+}
+
+// ── Own-ship vs the base style's town name ──
+//
+// The obstacle above cannot move a base-style place name while the map runs
+// with crossSourceCollisions:false, and layer order does not help either (UX
+// scorecard runs 8-10: "Gla◯to Stopped" at a Gladstone berth). So the ONE
+// settlement label whose placed text or icon runs under the dot or its chip is
+// faded out, just that feature, and faded back in once own-ship is clear of
+// it. Collision settings and layer order stay exactly as they are.
+//
+// Only the base style's own settlement layers (Mapbox `composite`, MapTiler
+// `openmaptiles`) and only town and suburb names are ever touched: never ENC,
+// seamark, navaid, AIS, route, waypoint, MOB or hazard labels, and never an
+// island name (ownshipLabelFade). The fade is a feature-state switch on their
+// opacity, so the label keeps its placement: the next look still sees it under
+// the boat, and a name the dot merely sits near is left alone.
+//
+// The switch is written into those layers' opacity ONCE, when the map is ready
+// (armOwnshipPlaceLabels), whether or not own-ship is showing: turning a
+// constant into a feature-state value re-parses the whole base source in
+// mapbox-gl 3.x, so it happens at load and never mid-session. Nothing changes
+// it after that: the isobar code only ever hands it back to 1 through the same
+// wrapper (a no-op once there) and ghosts town names by their ink instead. A
+// fade or a release is then one feature's state, nothing else.
+//
+// NOT COVERED: the Hybrid base. satellite-streets is drawn from raster tiles,
+// so its town names are baked into the pixels, and MapHub hides the vector
+// settlement layers while Hybrid is on (they would print twice). There is
+// nothing here to fade; paint and feature state cannot remove raster pixels.
+// This covers the Map, Satellite and Ocean bases, where dark-v11's vector
+// names are the ones drawn.
+
+/** Glyph boxes this close to the dot or its chip count as printing through it. */
+const PLACE_LABEL_CLEAR_PAD_PX = 4;
+/**
+ * The faded name stays faded until its glyphs are this far clear. Leaving is
+ * harder than arriving: at a berth at z15-16 each fix's jitter moves the dot a
+ * pixel or two, and a box at the edge of the 4 px pad would otherwise blink on
+ * and off every second.
+ */
+const PLACE_LABEL_EXIT_PAD_PX = PLACE_LABEL_CLEAR_PAD_PX + 8;
+/** The dot plus its glow, each side of the fix. */
+const OWNSHIP_DOT_HALF_PX = GLOW_DIAMETER_PX / 2 + 2;
+/**
+ * The faded label stays faded while it still touches own-ship, unless another
+ * is nearer by more than this: GPS jitter must not swap two names back and
+ * forth under the chip.
+ */
+const PLACE_LABEL_SWITCH_MARGIN_PX = 12;
+
+export interface ScreenRect {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
+interface HiddenPlaceLabel {
+    source: string;
+    sourceLayer?: string;
+    id: string | number;
+    /** The layer it was found drawn on: its opacity must still read the state. */
+    layer: string;
+}
+
+const hiddenPlaceLabels = new WeakMap<object, HiddenPlaceLabel>();
+const placeLabelLayerCache = new WeakMap<object, { ids: string[]; at: number }>();
+
+function basePlaceLabelLayers(map: mapboxgl.Map): string[] {
+    const cached = placeLabelLayerCache.get(map);
+    // Reading the style is costly, so the list is kept until one of its
+    // layers goes (a style swap). An empty list is re-read at most every 10 s.
+    if (cached && (cached.ids.length ? cached.ids.every((id) => map.getLayer(id)) : Date.now() - cached.at < 10_000)) {
+        return cached.ids;
+    }
+    const ids = (map.getStyle()?.layers ?? [])
+        .filter((layer) => isBasePlaceLabelLayer(layer as LabelLayerIdentity))
+        .map((layer) => layer.id);
+    placeLabelLayerCache.set(map, { ids, at: Date.now() });
+    return ids;
+}
+
+/** Arm one layer's text and icon opacity for the fade. False when it can't be. */
+function armPlaceLabelLayer(map: mapboxgl.Map, id: string): boolean {
+    let armed = true;
+    for (const property of ['text-opacity', 'icon-opacity'] as const) {
+        const current = map.getPaintProperty(id, property);
+        if (readsOwnshipFade(current)) continue;
+        const next = withOwnshipLabelFade(current);
+        if (next === null) {
+            armed = false;
+            continue;
+        }
+        map.setPaintProperty(id, property, next as number);
+    }
+    return armed;
+}
+
+/**
+ * Write the fade switch into every base place layer, once. Called as soon as
+ * the map is ready, whether own-ship is showing or not, so the one
+ * constant-to-feature-state change (a full base-source re-parse in mapbox-gl
+ * 3.x) happens at load, not in the middle of a pan. A layer already armed is
+ * not written again. False only while the style is still loading: the visible
+ * tracker's ticker tries again.
+ */
+export function armOwnshipPlaceLabels(map: mapboxgl.Map): boolean {
+    if (
+        typeof map.getStyle !== 'function' ||
+        typeof map.getPaintProperty !== 'function' ||
+        typeof map.setPaintProperty !== 'function'
+    ) {
+        return true; // A map (or test double) with no style to arm.
+    }
+    try {
+        for (const id of basePlaceLabelLayers(map)) armPlaceLabelLayer(map, id);
+        return true;
+    } catch {
+        // "Style is not done loading": the staleness tick tries again.
+        placeLabelLayerCache.delete(map);
+        return false;
+    }
+}
+
+function setPlaceLabelHidden(map: mapboxgl.Map, label: HiddenPlaceLabel, hidden: boolean): void {
+    const target = { source: label.source, sourceLayer: label.sourceLayer, id: label.id };
+    if (hidden) map.setFeatureState(target, { [OWNSHIP_LABEL_STATE]: true });
+    else map.removeFeatureState(target, OWNSHIP_LABEL_STATE);
+}
+
+function placeLabelStillHidden(map: mapboxgl.Map, label: HiddenPlaceLabel): boolean {
+    const target = { source: label.source, sourceLayer: label.sourceLayer, id: label.id };
+    // A style swap can drop the state, or reset the opacity that reads it.
+    return (
+        map.getFeatureState(target)?.[OWNSHIP_LABEL_STATE] === true &&
+        !!map.getLayer(label.layer) &&
+        readsOwnshipFade(map.getPaintProperty(label.layer, 'text-opacity'))
+    );
+}
+
+const sameLabel = (a: Omit<HiddenPlaceLabel, 'layer'>, b: Omit<HiddenPlaceLabel, 'layer'>) =>
+    a.id === b.id && a.source === b.source && a.sourceLayer === b.sourceLayer;
+
+/**
+ * Fade out the one base-style town name that own-ship prints through, and
+ * bring it back once the boat is clear of it.
+ *
+ * `lngLat` is where the marker is DRAWN: the Marker's own smart-wrapped
+ * position, not the raw fix, or near the antimeridian the dot would project
+ * a world-width away from the chip. `footprint` is the dot and each chip it
+ * wears, in map pixels, one rect each: the empty corners of a box around all
+ * of them are not own-ship and must not hide a name. Without it, the dot
+ * alone. Null `lngLat` restores.
+ */
+export function syncOwnshipPlaceLabel(
+    map: mapboxgl.Map,
+    lngLat: [number, number] | null,
+    footprint: ScreenRect | readonly ScreenRect[] | null = null,
+): void {
+    try {
+        // A map (or a test double) that cannot query or hold feature state has no labels to clear.
+        if (
+            typeof map.queryRenderedFeatures !== 'function' ||
+            typeof map.setFeatureState !== 'function' ||
+            typeof map.removeFeatureState !== 'function' ||
+            typeof map.getFeatureState !== 'function' ||
+            typeof map.project !== 'function' ||
+            typeof map.getStyle !== 'function'
+        ) {
+            return;
+        }
+        const hidden = hiddenPlaceLabels.get(map);
+        const release = () => {
+            if (!hidden) return;
+            hiddenPlaceLabels.delete(map);
+            try {
+                setPlaceLabelHidden(map, hidden, false);
+            } catch {
+                // Its source went with a style swap: nothing left to restore.
+            }
+        };
+        if (!lngLat) {
+            release();
+            return;
+        }
+        const layers = basePlaceLabelLayers(map);
+        if (layers.length === 0) {
+            release();
+            return;
+        }
+
+        const dot = map.project(lngLat);
+        const dotRect: ScreenRect = {
+            left: dot.x - OWNSHIP_DOT_HALF_PX,
+            top: dot.y - OWNSHIP_DOT_HALF_PX,
+            right: dot.x + OWNSHIP_DOT_HALF_PX,
+            bottom: dot.y + OWNSHIP_DOT_HALF_PX,
+        };
+        const parts: readonly ScreenRect[] = !footprint ? [dotRect] : 'left' in footprint ? [footprint] : footprint;
+        // Symbol queries hit placed glyph and icon boxes, so this returns the
+        // labels actually drawn under the dot or a chip, the faded one included.
+        const collect = (pad: number) => {
+            const candidates: Array<HiddenPlaceLabel & { distance: number }> = [];
+            for (const part of parts) {
+                const features = map.queryRenderedFeatures(
+                    [
+                        [part.left - pad, part.top - pad],
+                        [part.right + pad, part.bottom + pad],
+                    ],
+                    { layers },
+                );
+                for (const feature of features) {
+                    const id = feature.id;
+                    if (id === undefined || id === null || typeof feature.source !== 'string') continue;
+                    // Town and suburb names only: never an island or islet.
+                    if (!isSettlementPlaceFeature(feature.properties as Record<string, unknown> | null)) continue;
+                    const raw = feature as unknown as { sourceLayer?: string; 'source-layer'?: string };
+                    const label = { source: feature.source, sourceLayer: raw.sourceLayer ?? raw['source-layer'], id };
+                    if (candidates.some((c) => sameLabel(c, label))) continue;
+                    const geometry = feature.geometry;
+                    let at = dot;
+                    if (geometry?.type === 'Point') {
+                        const [lon, lat] = geometry.coordinates as [number, number];
+                        // Into the marker's world copy before measuring.
+                        at = map.project([lon + 360 * Math.round((lngLat[0] - lon) / 360), lat]);
+                    }
+                    candidates.push({
+                        ...label,
+                        layer: feature.layer?.id ?? '',
+                        distance: Math.hypot(at.x - dot.x, at.y - dot.y),
+                    });
+                }
+            }
+            return candidates;
+        };
+        const candidates = collect(PLACE_LABEL_CLEAR_PAD_PX);
+        let current = hidden ? candidates.find((c) => sameLabel(c, hidden)) : undefined;
+        if (hidden && !current) {
+            // Out of the entry pad, but it keeps its fade inside the wider
+            // exit pad (only this one label is looked for there).
+            current = collect(PLACE_LABEL_EXIT_PAD_PX).find((c) => sameLabel(c, hidden));
+            if (current) candidates.push(current);
+        }
+        // The label anchored nearest the fix is the one the boat sits on. The
+        // one already faded keeps it while it still touches own-ship, unless
+        // another is clearly nearer: jitter never swaps them back and forth.
+        let best: (HiddenPlaceLabel & { distance: number }) | null = null;
+        for (const candidate of candidates) if (!best || candidate.distance < best.distance) best = candidate;
+        if (current && best && best.distance > current.distance - PLACE_LABEL_SWITCH_MARGIN_PX) best = current;
+
+        const same = !!hidden && !!best && sameLabel(best, hidden);
+        if (hidden && same && placeLabelStillHidden(map, hidden)) return;
+        if (!same) release();
+        if (!best) return;
+        // Armed at load (armOwnshipPlaceLabels); this only catches a layer
+        // that was not there then. Every place layer on that source layer,
+        // since a town moves between the minor and major layers with zoom.
+        for (const id of layers) {
+            const layer = map.getLayer(id) as unknown as { 'source-layer'?: string; sourceLayer?: string } | undefined;
+            const sourceLayer = layer?.['source-layer'] ?? layer?.sourceLayer;
+            if (best.sourceLayer && sourceLayer !== best.sourceLayer) continue;
+            if (!readsOwnshipFade(map.getPaintProperty(id, 'text-opacity'))) armPlaceLabelLayer(map, id);
+        }
+        // An opacity this cannot wrap keeps its label, and nothing is recorded:
+        // a hidden label on an unarmed layer reads as reset to the 1 s ticker,
+        // which would write its state again every second.
+        if (!readsOwnshipFade(map.getPaintProperty(best.layer, 'text-opacity'))) {
+            if (same) release();
+            return;
+        }
+        const label: HiddenPlaceLabel = {
+            source: best.source,
+            sourceLayer: best.sourceLayer,
+            id: best.id,
+            layer: best.layer,
+        };
+        setPlaceLabelHidden(map, label, true);
+        hiddenPlaceLabels.set(map, label);
+    } catch {
+        // Mid style swap: the next settle or fix tries again.
+    }
+}
+
+/** True when a label was faded but a style swap has since dropped its state. */
+export function ownshipPlaceLabelWasReset(map: mapboxgl.Map): boolean {
+    const hidden = hiddenPlaceLabels.get(map);
+    if (!hidden) return false;
+    try {
+        return !placeLabelStillHidden(map, hidden);
+    } catch {
+        return true;
+    }
+}
+
+/**
+ * What own-ship is wearing, from text alone: the badge's words, and the age
+ * chip's display and words. Reading text and inline style forces no layout,
+ * so the 1 s ticker can compare it every tick. Digits are rounded away ('Last
+ * fix 46 s' and 'Last fix 47 s' cover the same pixels), so a counting chip is
+ * one footprint until its length or its words change, not a new one a second.
+ */
+export function ownshipChipSignature(el: HTMLElement): string {
+    const badge = el.querySelector<HTMLElement>('.vessel-sog-badge');
+    const chip = el.querySelector<HTMLElement>('.vessel-age-chip');
+    const words = (text: string | null | undefined) => (text ?? '').replace(/\d/g, '0');
+    return `${words(badge?.textContent)}|${chip?.style.display ?? ''}|${words(chip?.textContent)}`;
+}
+
+/**
+ * The badge and a showing age chip, as rects relative to the marker's centre
+ * (which is the drawn fix). Measured only when what the chips say changes, or
+ * the camera settles, never per fix: that is a forced layout.
+ */
+function measureChipOffsets(el: HTMLElement): ScreenRect[] {
+    const origin = el.getBoundingClientRect();
+    const cx = origin.left + origin.width / 2;
+    const cy = origin.top + origin.height / 2;
+    const out: ScreenRect[] = [];
+    for (const part of el.querySelectorAll<HTMLElement>('.vessel-sog-badge, .vessel-age-chip')) {
+        const box = part.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0) continue;
+        out.push({ left: box.left - cx, top: box.top - cy, right: box.right - cx, bottom: box.bottom - cy });
+    }
+    return out;
+}
+
+/** The dot and each chip, in map pixels, around the drawn dot. */
+function ownshipFootprintParts(dot: { x: number; y: number }, chips: readonly ScreenRect[]): ScreenRect[] {
+    return [
+        {
+            left: dot.x - OWNSHIP_DOT_HALF_PX,
+            top: dot.y - OWNSHIP_DOT_HALF_PX,
+            right: dot.x + OWNSHIP_DOT_HALF_PX,
+            bottom: dot.y + OWNSHIP_DOT_HALF_PX,
+        },
+        ...chips.map((c) => ({
+            left: dot.x + c.left,
+            top: dot.y + c.top,
+            right: dot.x + c.right,
+            bottom: dot.y + c.bottom,
+        })),
+    ];
+}
+
+/**
+ * MapHub's base imagery. Showing Satellite lifts the settlement layers above
+ * it and Hybrid hides them, with no camera move and no fix; this is how the
+ * ticker notices without reading the whole style.
+ */
+const BASE_IMAGERY_LAYERS = ['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer'] as const;
+
+/** Which base place layers and which imagery are showing, cheaply. */
+function basePlaceLabelViewSignature(map: mapboxgl.Map): string {
+    try {
+        if (typeof map.getLayoutProperty !== 'function' || typeof map.getStyle !== 'function') return '';
+        const visibility = (id: string) =>
+            map.getLayer(id) ? ((map.getLayoutProperty(id, 'visibility') as string | undefined) ?? 'visible') : '-';
+        return [...basePlaceLabelLayers(map), ...BASE_IMAGERY_LAYERS].map(visibility).join(',');
+    } catch {
+        return '';
+    }
+}
+
+/** True once the base style's label tiles for this view have arrived. */
+function basePlaceLabelTilesLoaded(map: mapboxgl.Map): boolean {
+    try {
+        if (typeof map.isSourceLoaded !== 'function' || typeof map.getSource !== 'function') return true;
+        return ['composite', 'openmaptiles'].every((id) => !map.getSource(id) || map.isSourceLoaded(id));
+    } catch {
+        return true;
+    }
+}
+
+// ── The marker's spoken name ──
+
+/**
+ * The badge's words as VoiceOver should hear them. The marker is one img, so
+ * its visible chip is not read unless its name carries it (UX scorecard run
+ * 10): 'Last fix 54 s' becomes 'last fix 54 seconds ago'. The words themselves
+ * come from the badge (gpsFixState's one wording); this only spells out units.
+ */
+export function spokenOwnshipBadge(label: string): string {
+    const unit = (n: string, one: string, many: string) => `${n} ${n === '1' ? one : many}`;
+    const age = /^Last fix (\d+) (s|min|h)$/.exec(label);
+    if (age) {
+        const [, n, u] = age;
+        const words =
+            u === 's'
+                ? unit(n, 'second', 'seconds')
+                : u === 'min'
+                  ? unit(n, 'minute', 'minutes')
+                  : unit(n, 'hour', 'hours');
+        return `last fix ${words} ago`;
+    }
+    const speed = /^(\d+(?:\.\d+)?) kts$/.exec(label);
+    if (speed) return `${speed[1]} knots`;
+    if (label === 'SOG —') return 'speed over ground unavailable';
+    return label.charAt(0).toLowerCase() + label.slice(1);
 }
 
 // ── Trail layer setup ──
@@ -509,6 +923,24 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     // phone position must not borrow the boat's 'Stopped').
     const lastFixAtRef = useRef<Record<'vessel' | 'phone', number | null>>({ vessel: null, phone: null });
     const lastMarkerPositionRef = useRef<{ position: TrackerPosition; viaVessel: boolean } | null>(null);
+    /** The two halves of the marker's spoken name: what its chip says, and which way she points. */
+    const spokenStatusRef = useRef('');
+    const spokenDirectionRef = useRef('heading unavailable');
+    /** Set by the effect: re-checks the one place label own-ship would print through. */
+    const placeLabelSyncRef = useRef<(() => void) | null>(null);
+
+    // One img, one name: its status chip is a child the name must carry, or
+    // VoiceOver never hears 'Stopped' or that the fix is 54 s old (UX scorecard
+    // run 10). 'Own ship, last fix 54 seconds ago; heading unavailable': the
+    // chip's own words and nothing more, so the name can never say something
+    // the chip and gpsFixState do not.
+    const nameMarker = useCallback((el: HTMLElement) => {
+        const status = spokenStatusRef.current;
+        const label = `Own ship${status ? `, ${status}` : ''}; ${spokenDirectionRef.current}`;
+        el.setAttribute('role', 'img');
+        el.setAttribute('aria-label', label);
+        el.title = label;
+    }, []);
 
     const updateDirection = useCallback(() => {
         const last = lastMarkerPositionRef.current;
@@ -517,21 +949,19 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         if (!last || !el || !arrow) return;
         const direction = resolveOwnshipDirection(last.position, last.viaVessel, NmeaStore.getState());
         el.dataset.directionSource = direction.source;
-        const label =
+        spokenDirectionRef.current =
             direction.source === 'heading'
-                ? `Bow heading ${Math.round(direction.degrees)}° true`
+                ? `bow heading ${Math.round(direction.degrees)}° true`
                 : direction.source === 'course'
-                  ? `Course over ground ${Math.round(direction.degrees)}° true; bow heading unavailable`
-                  : 'Position; heading unavailable';
-        el.setAttribute('role', 'img');
-        el.setAttribute('aria-label', label);
-        el.title = label;
+                  ? `course over ground ${Math.round(direction.degrees)}° true; bow heading unavailable`
+                  : 'heading unavailable';
+        nameMarker(el);
         arrow.style.transform = `rotate(${direction.degrees ?? 0}deg)`;
         const shape = arrow.querySelector('.vessel-directional-shape') as SVGElement;
         const dot = arrow.querySelector('.vessel-neutral-shape') as SVGElement;
         shape.style.display = direction.degrees === null ? 'none' : '';
         dot.style.display = direction.degrees === null ? '' : 'none';
-    }, []);
+    }, [nameMarker]);
 
     // The badge's words, its colour and the marker's grey all come from ONE
     // fix state: lastFixAtRef through the receiver's live gate — the gates the
@@ -564,8 +994,16 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             label === 'Anchor alarm' ? 'alarm' : label === 'Anchored' ? 'anchored' : tier === 'locked' ? 'live' : tier;
         badge.classList.remove(...Object.values(STATUS_TONE_CLASS));
         badge.classList.add(STATUS_TONE_CLASS[tone]);
-        applyGpsAgeTier(el, tier, anchorLabel ? ownshipFixLabel(fix) : null);
-    }, []);
+        const chipText = anchorLabel ? ownshipFixLabel(fix) : null;
+        applyGpsAgeTier(el, tier, chipText);
+        // What the badge and chip show, in their own words: 'Last fix 46 s'
+        // already says the position is old, and a softer hedge on top ('may
+        // be stale') would be a second wording for the one fix state.
+        const spoken = [spokenOwnshipBadge(label)];
+        if (chipText) spoken.push(spokenOwnshipBadge(chipText));
+        spokenStatusRef.current = spoken.join(', ');
+        nameMarker(el);
+    }, [nameMarker]);
 
     const updateMarker = useCallback(
         (pos: TrackerPosition, viaVessel = false, fixAt: number | null = pos.timestamp) => {
@@ -607,8 +1045,6 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             } else {
                 markerRef.current.setLngLat([longitude, latitude]);
             }
-            // The footprint moves with the marker, so place labels step aside.
-            syncOwnshipObstacle(map, [longitude, latitude]);
             // A quiet tell for anyone debugging which truth the arrow is on.
             if (elementRef.current) elementRef.current.dataset.source = viaVessel ? 'vessel' : 'phone';
 
@@ -616,6 +1052,8 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             lastMarkerPositionRef.current = { position: pos, viaVessel };
             updateDirection();
             updateStatusBadge();
+            // After the badge: its width is part of what a town name must clear.
+            placeLabelSyncRef.current?.();
 
             // ── One receiver per trail ──
             // The wake trail and the swing envelope are a RECEIVER's story.
@@ -704,11 +1142,138 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 removeTrailLayers(map);
                 removeSwingLayers(map);
                 syncOwnshipObstacle(map, null);
+                syncOwnshipPlaceLabel(map, null);
+                // Armed at load even with own-ship hidden (turned off, or the
+                // Plan page / a passage up at launch), so the one base-source
+                // re-parse lands with the load, not the moment the chart
+                // appears and the skipper starts panning. Idempotent; if the
+                // style is still loading, the visible path's ticker retries.
+                if (mapReady) armOwnshipPlaceLabels(map);
             }
             // Keep trail coords in memory so they reappear on re-toggle
             return;
         }
         const map = mapRef.current;
+
+        // ── The one town name own-ship sits on (see syncOwnshipPlaceLabel) ──
+        // Looked at when what own-ship covers on screen changes (the fix moved
+        // a pixel, a chip changed its words, the base changed) or the camera
+        // settles; never per frame, and never mid-gesture. Only a change of
+        // faded label writes anything, and that is one feature's state.
+        let disposed = false;
+        const canLook = !!map && typeof map.project === 'function' && typeof map.queryRenderedFeatures === 'function';
+        // The switch goes into the place layers' opacity now, at load, so the
+        // one base-source re-parse it costs never lands mid-pan.
+        let placeLabelsArmed = !map || armOwnshipPlaceLabels(map);
+        /** Chip words + drawn dot pixel + zoom at the last look; null before the first. */
+        let lastLookKey: string | null = null;
+        /** The chips' rects around the dot, and the chip words they were measured for. */
+        let chipOffsets: { signature: string; rects: ScreenRect[] } | null = null;
+        /** Which base place layers and imagery were showing at the last look. */
+        let baseViewSignature: string | null = null;
+        const isMoving = () => !!map && typeof map.isMoving === 'function' && map.isMoving();
+        /** Where the marker is DRAWN: its own smart-wrapped position, not the raw fix. */
+        const drawnLngLat = (): [number, number] | null => {
+            const marker = markerRef.current as (mapboxgl.Marker & { getLngLat?: () => mapboxgl.LngLat }) | null;
+            const wrapped = marker && typeof marker.getLngLat === 'function' ? marker.getLngLat() : null;
+            if (wrapped && Number.isFinite(wrapped.lng) && Number.isFinite(wrapped.lat))
+                return [wrapped.lng, wrapped.lat];
+            const last = lastMarkerPositionRef.current;
+            return last ? [last.position.longitude, last.position.latitude] : null;
+        };
+        /**
+         * One look. `settled` re-measures the chips and looks again even when
+         * nothing on screen moved, because the labels under the boat may have
+         * been placed since; otherwise an unchanged footprint costs one
+         * project() and nothing else.
+         */
+        const lookAtPlaceLabel = (settled: boolean) => {
+            const el = elementRef.current;
+            if (disposed || !map || !el || typeof map.project !== 'function') return;
+            const lngLat = drawnLngLat();
+            if (!lngLat) return;
+            const signature = ownshipChipSignature(el);
+            const dot = map.project(lngLat);
+            const zoom = typeof map.getZoom === 'function' ? map.getZoom().toFixed(2) : '';
+            // Whole pixels: GPS jitter under a pixel is not a change on screen.
+            const key = `${signature}|${Math.round(dot.x)}|${Math.round(dot.y)}|${zoom}`;
+            if (!settled && key === lastLookKey) return;
+            lastLookKey = key;
+            baseViewSignature = basePlaceLabelViewSignature(map);
+            if (settled || !chipOffsets || chipOffsets.signature !== signature) {
+                chipOffsets = { signature, rects: measureChipOffsets(el) };
+            }
+            syncOwnshipPlaceLabel(map, lngLat, ownshipFootprintParts(dot, chipOffsets.rects));
+        };
+
+        // After the camera settles, a first fix, a base change or a style swap
+        // that put the label back: look once the map has drawn the new view and
+        // placed its labels (at moveend itself it has not). ONE idle listener
+        // at most, kept until idle comes, and a 1.5 s fallback for when it
+        // does not: mapbox fires 'idle' at the end of a drawn frame, so a
+        // static map that already idled before the listener went on draws no
+        // more frames and never fires it (while tiles keep loading it does not
+        // either). The fallback's look is provisional: it never cancels the
+        // idle look, and if the base label tiles were still loading it looks
+        // once more when they arrive.
+        let settlePending = false;
+        let confirmAtIdle = false;
+        let recheckWhenTilesLoad = false;
+        let labelSettleTimer: number | null = null;
+        let labelIdleRun: (() => void) | null = null;
+        const clearSettleTimer = () => {
+            if (labelSettleTimer !== null) window.clearTimeout(labelSettleTimer);
+            labelSettleTimer = null;
+        };
+        const dropLabelIdleRun = () => {
+            if (labelIdleRun && map && typeof map.off === 'function') map.off('idle', labelIdleRun);
+            labelIdleRun = null;
+        };
+        const onLabelIdle = () => {
+            labelIdleRun = null; // once: it is gone
+            if (!settlePending && !confirmAtIdle && !recheckWhenTilesLoad) return;
+            if (isMoving()) return; // its moveend asks again
+            settlePending = confirmAtIdle = recheckWhenTilesLoad = false;
+            clearSettleTimer();
+            lookAtPlaceLabel(true);
+        };
+        const onLabelSettleTimer = () => {
+            labelSettleTimer = null;
+            // Mid-gesture: the gesture's own moveend restarts this, and the
+            // idle listener stays where it is.
+            if (!settlePending || isMoving()) return;
+            settlePending = false;
+            confirmAtIdle = true;
+            recheckWhenTilesLoad = !!map && !basePlaceLabelTilesLoaded(map);
+            lookAtPlaceLabel(true);
+        };
+        /**
+         * `restart` (a camera settle, a first fix): the fallback runs 1.5 s
+         * after the LAST settle, not the first. The 1 s ticker passes false:
+         * it only starts a fallback when none is pending, or a condition it
+         * re-notices every second (a reset label) would push the fallback
+         * back forever on a map that never idles.
+         */
+        const syncPlaceLabelWhenIdle = (restart = true) => {
+            if (!map || !canLook || disposed) return;
+            settlePending = true;
+            if (!labelIdleRun && typeof map.once === 'function') {
+                labelIdleRun = onLabelIdle;
+                map.once('idle', onLabelIdle);
+            }
+            if (!restart && labelSettleTimer !== null) return;
+            clearSettleTimer();
+            labelSettleTimer = window.setTimeout(onLabelSettleTimer, 1500);
+        };
+        placeLabelSyncRef.current = () => {
+            // Mid-gesture, the moveend after it does the work once.
+            if (!map || !canLook || isMoving()) return;
+            const first = lastLookKey === null;
+            lookAtPlaceLabel(false);
+            if (first) syncPlaceLabelWhenIdle();
+        };
+        const onMoveEnd = () => syncPlaceLabelWhenIdle();
+        if (map && typeof map.on === 'function') map.on('moveend', onMoveEnd);
 
         // The NMEA store only ingests once something starts it. Boot claims
         // it when a gateway is saved, but this marker must not depend on that
@@ -802,14 +1367,36 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             if (!elementRef.current || !lastMarkerPositionRef.current) return;
             updateStatusBadge();
             updateDirection();
-            // A base-map swap wipes custom layers; with no new fix arriving,
-            // this is what puts the label obstacle back under the marker.
-            const { latitude, longitude } = lastMarkerPositionRef.current.position;
-            if (map) syncOwnshipObstacle(map, [longitude, latitude], true);
+            if (!map || !canLook) return;
+            // The style was still loading at mount: arm as soon as it is not.
+            if (!placeLabelsArmed) placeLabelsArmed = armOwnshipPlaceLabels(map);
+            // What own-ship covers, and what is drawn under it, can change with
+            // no fix and no camera move: the base changed (Hybrid hides the
+            // town names, Satellite lifts them), a style swap put the hidden
+            // name back, the label tiles arrived after a provisional look, or
+            // a chip changed its words ('Anchored' gains 'Last fix 46 s' above
+            // the dot). Each is a cheap check here; only a change looks.
+            const view = basePlaceLabelViewSignature(map);
+            if (baseViewSignature !== null && view !== baseViewSignature) {
+                baseViewSignature = view;
+                syncPlaceLabelWhenIdle(false);
+            } else if (ownshipPlaceLabelWasReset(map)) {
+                syncPlaceLabelWhenIdle(false);
+            } else if (recheckWhenTilesLoad && !isMoving() && basePlaceLabelTilesLoaded(map)) {
+                recheckWhenTilesLoad = false;
+                lookAtPlaceLabel(true);
+            } else {
+                placeLabelSyncRef.current?.();
+            }
         }, 1000);
 
         return () => {
             window.clearInterval(staleTicker);
+            disposed = true;
+            clearSettleTimer();
+            dropLabelIdleRun();
+            placeLabelSyncRef.current = null;
+            if (map && typeof map.off === 'function') map.off('moveend', onMoveEnd);
             unsub?.();
             unsubNmea();
             unsubDirection();
@@ -825,6 +1412,7 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 removeTrailLayers(map);
                 removeSwingLayers(map);
                 syncOwnshipObstacle(map, null);
+                syncOwnshipPlaceLabel(map, null);
             }
         };
     }, [mapReady, visible, updateMarker, updateStatusBadge, updateDirection, mapRef]);

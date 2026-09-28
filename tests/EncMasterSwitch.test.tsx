@@ -139,8 +139,14 @@ describe('the ENC master switch', () => {
         openMenu();
         // Named for the layer and its state, which aria-checked carries: not
         // 'Turn ENC charts on, unchecked' (UX scorecard run 9).
-        const row = screen.getByRole('menuitemcheckbox', { name: 'ENC charts, none installed yet' });
+        // With nothing installed it offers the next step, not an OFF for
+        // charts that don't exist (UX scorecard run 10).
+        const row = screen.getByRole('menuitemcheckbox', {
+            name: 'ENC charts, none installed yet, tap to add charts',
+        });
         expect(row).toHaveAttribute('aria-checked', 'false');
         expect(row).toHaveTextContent('None installed yet');
+        expect(row).toHaveTextContent('Add ›');
+        expect(row).not.toHaveTextContent('OFF');
     });
 });
