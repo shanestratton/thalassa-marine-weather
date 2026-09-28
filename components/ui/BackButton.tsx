@@ -23,21 +23,27 @@ interface BackButtonProps {
     label?: string;
     /** Extra classes for layout only — do not restyle the chrome here. */
     className?: string;
+    /** Visible parent name beside the chevron ('‹ VESSEL'). The accessible
+     *  name stays `label`, which contains it ('Back to Vessel'). */
+    text?: string;
 }
 
 /** Ref-forwarding, because overlay callers focus this button as the first
  *  focusable element in a focus trap. */
 export const BackButton = React.forwardRef<HTMLButtonElement, BackButtonProps>(
-    ({ onClick, label = 'Go back', className = '' }, ref) => (
+    ({ onClick, label = 'Go back', className = '', text }, ref) => (
         <button
             ref={ref}
             type="button"
             onClick={onClick}
             aria-label={label}
-            className={`press flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-white/5 p-2 transition-colors hover:bg-white/10 ${className}`}
+            className={`press flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl bg-white/5 ${
+                text ? 'px-2' : 'p-2'
+            } transition-colors hover:bg-white/10 ${className}`}
         >
             <svg
-                className="h-5 w-5 text-gray-400"
+                aria-hidden="true"
+                className="h-5 w-5 shrink-0 text-gray-400"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -45,6 +51,11 @@ export const BackButton = React.forwardRef<HTMLButtonElement, BackButtonProps>(
             >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
+            {text && (
+                <span className="ml-1 pr-1 whitespace-nowrap text-xs font-bold uppercase tracking-widest text-gray-400">
+                    {text}
+                </span>
+            )}
         </button>
     ),
 );

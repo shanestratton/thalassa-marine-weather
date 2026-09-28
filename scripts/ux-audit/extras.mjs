@@ -188,7 +188,9 @@ if (SECTIONS.includes('A')) {
         await capture(p, 'glass-rain-detail');
         await dismiss(p);
     }
-    if (await tap(p, /^Temperature.*Tap to pin/)) {
+    // The hero's name is its reading ('Temperature 20 degrees Celsius', or
+    // 'Pinned metric …'); the tap hint moved to aria-describedby in run 10.
+    if (await tap(p, /^(Temperature|Pinned metric)\b/)) {
         await capture(p, 'glass-pin-sheet');
         await dismiss(p);
     }

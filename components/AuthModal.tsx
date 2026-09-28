@@ -5,6 +5,7 @@ import { getErrorMessage } from '../utils/createLogger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { OverlayPortal, type OverlayLayer } from './ui/OverlayPortal';
+import { Button } from './ui/Button';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 
 import { createLogger } from '../utils/createLogger';
@@ -260,9 +261,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                 ref={panelRef}
                 className={`relative modal-panel-enter bg-slate-900 w-full min-h-0 max-h-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95`}
             >
+                {/* A 44 px target: the root font scales with the phone
+                    (clamp on 4vw), so p-3 around the glyph alone came to 43 px
+                    at 393 and 41 px at 375; the px minimum holds it at 44 with
+                    the glyph centred. top/right-3 keeps the glyph where p-2 at
+                    top/right-4 drew it. */}
                 <button
+                    type="button"
                     onClick={onClose}
-                    className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20"
+                    className="absolute top-3 right-3 flex min-h-[44px] min-w-[44px] items-center justify-center p-3 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20"
                     aria-label="Close authentication dialog"
                 >
                     <XIcon className="w-5 h-5" />
@@ -291,7 +298,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                         </div>
 
                         <h2 id="auth-title" className="text-2xl font-bold text-white mb-2">
-                            {step === 'success' ? 'Welcome Aboard!' : 'Sync Your Logs'}
+                            {step === 'success' ? 'Welcome aboard' : 'Sync your logs'}
                         </h2>
                         <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
                             {step === 'input' &&
@@ -304,7 +311,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                     {/* Compact title shown when keyboard is open */}
                     {keyboardHeight > 0 && step !== 'success' && (
                         <h2 className="text-lg font-bold text-white mb-3">
-                            {step === 'input' ? 'Sign In' : `Code sent to ${email}`}
+                            {step === 'input' ? 'Sign in' : `Code sent to ${email}`}
                         </h2>
                     )}
 
@@ -314,8 +321,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                             <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg shadow-emerald-500/20">
                                 <CheckIcon className="w-6 h-6 text-white" />
                             </div>
-                            <h3 className="text-white font-bold mb-1">Signed In Successfully</h3>
-                            <p className="text-sm text-emerald-200/80">Your logs are now syncing...</p>
+                            <h3 className="text-white font-bold mb-1">Signed in</h3>
+                            <p className="text-sm text-emerald-200/80">Your logs are now syncing…</p>
                         </div>
                     )}
 
@@ -327,7 +334,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                     htmlFor="auth-email"
                                     className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block"
                                 >
-                                    Email Address
+                                    Email address
                                 </label>
                                 <input
                                     id="auth-email"
@@ -359,20 +366,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                 </div>
                             )}
 
-                            <button
-                                aria-label="Send verification code"
+                            {/* The house dialog primary (<Button variant="primary">),
+                                the same sky fill as the sheet's 'Sign in with email'
+                                and every SignInButton; a white slab was a fifth
+                                primary shape. The visible words are the name, and
+                                they stay beside the spinner while busy (UX scorecard
+                                run 10: a bare spinner left the button wordless), as
+                                ConfirmDialog does. */}
+                            <Button
+                                variant="primary"
                                 type="submit"
                                 disabled={loading || !supabase || resendCooldown > 0}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!supabase || resendCooldown > 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                                aria-busy={loading || undefined}
+                                className="w-full"
                             >
                                 {loading ? (
-                                    <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                                    <>
+                                        <span
+                                            aria-hidden="true"
+                                            className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                                        />
+                                        Sending code…
+                                    </>
                                 ) : resendCooldown > 0 ? (
                                     `Try again in ${resendCooldown}s`
                                 ) : (
-                                    'Send Code'
+                                    'Send code'
                                 )}
-                            </button>
+                            </Button>
 
                             {!supabase && (
                                 <p className="text-sm text-red-400 mt-2">Database not configured. Keys missing.</p>
@@ -388,7 +409,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                     htmlFor="auth-otp"
                                     className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block"
                                 >
-                                    Verification Code
+                                    Verification code
                                 </label>
                                 <input
                                     id="auth-otp"
@@ -417,30 +438,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
                                 </div>
                             )}
 
-                            <button
-                                aria-label="Verify email code"
+                            <Button
+                                variant="primary"
                                 type="submit"
                                 disabled={loading || otp.length < 6}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length < 6 ? 'opacity-50' : 'hover:bg-gray-100'}`}
+                                aria-busy={loading || undefined}
+                                className="w-full"
                             >
                                 {loading ? (
-                                    <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                                    <>
+                                        <span
+                                            aria-hidden="true"
+                                            className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                                        />
+                                        Verifying code…
+                                    </>
                                 ) : (
-                                    'Verify Code'
+                                    // The name screen readers already heard, now on
+                                    // screen too (the beta gate pins it).
+                                    'Verify email code'
                                 )}
-                            </button>
+                            </Button>
 
                             <div className="flex items-center justify-between text-sm">
                                 <button
                                     type="button"
                                     onClick={handleChangeInput}
-                                    className="min-h-[44px] inline-flex items-center px-2 text-gray-400 hover:text-white transition-colors"
-                                    aria-label="Change Email"
+                                    className="min-h-[44px] inline-flex items-center gap-1 px-2 text-gray-400 hover:text-white transition-colors"
                                 >
-                                    ← Change email
+                                    <span aria-hidden="true">←</span> Change email
                                 </button>
                                 <button
-                                    aria-label="Send verification email"
                                     type="button"
                                     onClick={handleResendCode}
                                     disabled={resendCooldown > 0 || loading}
@@ -455,10 +483,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, layer = '
 
                 <div className="bg-black/20 p-4 border-t border-white/5 flex items-center justify-center gap-6">
                     <div className="flex items-center gap-2 text-sm text-gray-400 font-medium">
-                        <DiamondIcon className="w-3 h-3 text-sky-400" /> Pro Sync
+                        <DiamondIcon className="w-3 h-3 text-sky-400" /> Pro sync
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-400 font-medium">
-                        <BoatIcon className="w-3 h-3 text-sky-400" /> Crew Sharing
+                        <BoatIcon className="w-3 h-3 text-sky-400" /> Crew sharing
                     </div>
                 </div>
             </div>

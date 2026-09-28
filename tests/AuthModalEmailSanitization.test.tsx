@@ -42,4 +42,28 @@ describe('AuthModal email canonicalization', () => {
             }),
         );
     });
+
+    it('keeps words beside the spinner while a code is sending', async () => {
+        let finishSend!: (value: { error: null }) => void;
+        auth.signInWithOtp.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishSend = resolve;
+                }),
+        );
+        render(<AuthModal isOpen onClose={vi.fn()} />);
+
+        const email = screen.getByRole('textbox', { name: /email address/i });
+        fireEvent.change(email, { target: { value: 'captain@example.com' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Send code' }));
+
+        // Not a bare spinner: the button keeps a visible name and says it is busy
+        // (UX scorecard run 10).
+        const busy = await screen.findByRole('button', { name: 'Sending code…' });
+        expect(busy).toHaveAttribute('aria-busy', 'true');
+        expect(busy).toBeDisabled();
+
+        finishSend({ error: null });
+        expect(await screen.findByRole('textbox', { name: /verification code/i })).toBeInTheDocument();
+    });
 });

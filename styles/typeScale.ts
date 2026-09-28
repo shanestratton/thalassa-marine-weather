@@ -1,22 +1,31 @@
 /**
- * Thalassa Type Scale — Single Source of Truth
+ * Thalassa Type Scale — the inline-style mirror of index.css's type tokens
+ *
+ * The CSS custom properties in index.css `:root` are the source of truth
+ * (--text-micro 12, --text-label 13, --text-body 14, --text-title 18,
+ * --text-hero 24). This file carries the same numbers for inline styles and
+ * canvas/SVG code that cannot read a CSS variable, and names which token each
+ * size mirrors. It used to disagree with them (xs 11, title 16) under an
+ * "11px floor" comment, a second source of truth that let new components
+ * inline 11 px (UX scorecard run 10).
  *
  * 2 font families:
  *   - Inter: All UI text (labels, headers, body, buttons)
  *   - JetBrains Mono: Data values and technical readouts only
  *
- * ACCESSIBILITY: 11px floor for all text (WCAG 1.4.4 Resize Text).
- * The only exception is SVG <text> inside fixed viewBox elements
- * where the viewBox itself scales with the container.
+ * LEGIBILITY: 12px floor for all text, the same floor as --text-micro (raised
+ * from 11 on 2026-09-02: this app is read on a wet phone on a heeling deck in
+ * sunlight, not at a desk). The only exception is SVG <text> inside fixed
+ * viewBox elements where the viewBox itself scales with the container.
  *
- * Named sizes (mobile-first, px-based for inline styles):
- *   - xs:      11px — unit suffixes, tertiary annotations
- *   - caption: 12px — labels, status pills, captions
- *   - body:    13px — default body text
- *   - subhead: 14px — card subheadings, data values
- *   - title:   16px — section titles, prominent data
- *   - display: 20px — hero numbers, large headings
- *   - hero:    24px — single focal numbers (cost score, etc.)
+ * Named sizes (px, for inline styles):
+ *   - xs:      12px — unit suffixes, tertiary annotations (--text-micro)
+ *   - caption: 12px — labels, status pills, captions   (--text-micro)
+ *   - body:    13px — default body text                (--text-label)
+ *   - subhead: 14px — card subheadings, data values    (--text-body)
+ *   - title:   18px — section titles, prominent data   (--text-title)
+ *   - display: 20px — hero numbers, large headings     (Tailwind text-xl)
+ *   - hero:    24px — single focal numbers             (--text-hero)
  */
 
 // ── Font Stacks ────────────────────────────────────────────────────
@@ -28,15 +37,15 @@ export const FONT = {
 } as const;
 
 // ── Type Scale ─────────────────────────────────────────────────────
-// Floor: 11px. No text below this for accessibility.
+// Floor: 12px (--text-micro). No text below this.
 export const SIZE = {
-    xs: 11, // Unit suffixes ("NM", "kts"), tertiary info
-    caption: 12, // Labels, status pills
-    body: 13, // Default body text
-    subhead: 14, // Card subheadings, data values
-    title: 16, // Section titles, prominent data
-    display: 20, // Hero numbers, large headings
-    hero: 24, // Single focal numbers (cost score, etc.)
+    xs: 12, // --text-micro: unit suffixes ("NM", "kts"), tertiary info
+    caption: 12, // --text-micro: labels, status pills
+    body: 13, // --text-label: default body text
+    subhead: 14, // --text-body: card subheadings, data values
+    title: 18, // --text-title: section titles, prominent data
+    display: 20, // text-xl: hero numbers, large headings
+    hero: 24, // --text-hero: single focal numbers (cost score, etc.)
 } as const;
 
 // ── Minimum tap target ─────────────────────────────────────────────
