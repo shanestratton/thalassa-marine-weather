@@ -256,6 +256,22 @@ CREATE POLICY cruising_catalogue_entries_read ON public.cruising_catalogue_entri
 CREATE POLICY cruising_catalogue_versions_read ON public.cruising_catalogue_versions
     FOR SELECT TO authenticated USING (public.cruising_catalogue_is_readable(entry_id, version));
 
+-- This bounded shared-catalogue read uses owner authority so ST_DWithin can
+-- use GiST before the eligibility check. Invoker/RLS spatial predicates force
+-- a sequential scan on the tested PostgreSQL/PostGIS combination. Keep the
+-- explicit shared eligibility filter: this function intentionally bypasses
+-- table RLS, and must never return private, stale or unpublished content.
+-- pg_temp is last so caller-created temporary types cannot shadow geography.
+-- Resolve only the validated extension schema at migration time; the RPC has
+-- no dynamic SQL. Qualify spatial objects and use their full exact signatures
+-- so public-schema shadows/overloads cannot execute with the function owner.
+DO $catalogue_nearby$
+DECLARE postgis_schema name;
+BEGIN
+    SELECT n.nspname INTO STRICT postgis_schema
+    FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+    WHERE e.extname = 'postgis' AND n.nspname IN ('public', 'extensions');
+    EXECUTE format($definition$
 CREATE FUNCTION public.nearby_cruising_catalogue(
     p_latitude double precision, p_longitude double precision,
     p_radius_nm double precision DEFAULT 30, p_limit integer DEFAULT 24
@@ -264,8 +280,8 @@ CREATE FUNCTION public.nearby_cruising_catalogue(
     latitude double precision, longitude double precision, distance_nm double precision,
     reviewed_at timestamptz, review_due_at timestamptz, status text, review_status text
 )
-LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = pg_catalog, public, extensions AS $$
-DECLARE query_location geography;
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, extensions, pg_temp AS $$
+DECLARE query_location %1$I.geography;
 BEGIN
     IF p_latitude IS NULL OR NOT (p_latitude BETWEEN -90 AND 90)
         OR p_longitude IS NULL OR NOT (p_longitude BETWEEN -180 AND 180)
@@ -273,17 +289,20 @@ BEGIN
         OR p_limit IS NULL OR p_limit NOT BETWEEN 1 AND 50 THEN
         RAISE EXCEPTION 'Invalid catalogue search bounds' USING ERRCODE = '22023';
     END IF;
-    query_location := ST_SetSRID(ST_MakePoint(p_longitude, p_latitude), 4326)::geography;
+    query_location := %1$I.ST_SetSRID(%1$I.ST_MakePoint(p_longitude, p_latitude), 4326)::%1$I.geography;
     RETURN QUERY SELECT v.entry_id, v.version, v.kind, v.name, v.summary, v.latitude, v.longitude,
-        ST_Distance(v.location, query_location) / 1852.0, v.reviewed_at, v.review_due_at, 'published'::text, v.review_status
+        %1$I.ST_Distance(v.location, query_location, true) / 1852.0, v.reviewed_at, v.review_due_at, 'published'::text, v.review_status
     FROM public.cruising_catalogue_versions v
     WHERE v.kind IN ('destination', 'trip')
-        AND ST_DWithin(v.location, query_location, p_radius_nm * 1852.0)
+        AND %1$I.ST_DWithin(v.location, query_location, p_radius_nm * 1852.0, true)
         AND public.cruising_catalogue_is_readable(v.entry_id, v.version)
-    ORDER BY ST_Distance(v.location, query_location), v.entry_id
+    ORDER BY %1$I.ST_Distance(v.location, query_location, true), v.entry_id
     LIMIT p_limit;
 END;
 $$;
+    $definition$, postgis_schema);
+END;
+$catalogue_nearby$;
 REVOKE ALL ON FUNCTION public.nearby_cruising_catalogue(double precision, double precision, double precision, integer) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.nearby_cruising_catalogue(double precision, double precision, double precision, integer) TO authenticated, service_role;
 
