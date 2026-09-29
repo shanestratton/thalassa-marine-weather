@@ -32,6 +32,8 @@ import { GpsDiagnosticsCards } from './GpsDiagnosticsCards';
 import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
 import { AnchorWatchSyncService } from '../services/AnchorWatchSyncService';
 import { presentShoreWatchStatus, type ShoreWatchStatusPresentation } from './anchor-watch/shoreWatchStatus';
+import { presentAnchorWatchRow, type AnchorWatchRowPresentation } from './anchor-watch/anchorWatchStatusRow';
+import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
 import {
     boatGpsDiagnosticSource,
     presentWeatherPositionBox,
@@ -53,12 +55,7 @@ interface SystemState {
         isRapidMode: boolean;
         gpsStatus: string;
     };
-    anchorWatch: {
-        active: boolean;
-        state: 'idle' | 'holding' | 'drifting' | 'alarm';
-        distance: number;
-        swingRadius: number;
-    };
+    anchorWatch: AnchorWatchRowPresentation;
     nmea: {
         active: boolean;
         detail: string;
@@ -96,6 +93,13 @@ interface SystemState {
 }
 
 // ── Helpers ──
+
+/** One watch is one active system. When the Pi (or another device) keeps the
+ *  watch, this phone's Shore Watch row is already counted for it, so the
+ *  Anchor watch row does not add a second. */
+function countsAnchorWatch(state: Pick<SystemState, 'anchorWatch' | 'shoreWatch'>): boolean {
+    return state.anchorWatch.active && (state.anchorWatch.keeper === 'phone' || !state.shoreWatch.active);
+}
 
 function formatIntervalLabel(ms: number): string {
     if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
@@ -221,7 +225,7 @@ const SystemStatusModal: React.FC<{
     const activeCount = [
         state.shoreWatch.active,
         state.gpsTracking.active,
-        state.anchorWatch.active,
+        countsAnchorWatch(state),
         state.nmea.active,
         state.extGps.active,
         state.followRoute.active,
@@ -425,19 +429,16 @@ const SystemStatusModal: React.FC<{
                             icon={<AnchorIcon className="w-4 h-4" />}
                             label="Anchor watch"
                             active={state.anchorWatch.active}
-                            detail={
-                                state.anchorWatch.active
-                                    ? `${state.anchorWatch.state === 'alarm' ? 'ALARM' : state.anchorWatch.state === 'drifting' ? 'Drifting' : 'Holding'} · ${Math.round(state.anchorWatch.distance)}m / ${Math.round(state.anchorWatch.swingRadius)}m radius`
-                                    : 'Not deployed'
-                            }
+                            detail={state.anchorWatch.detail}
                             dotColor={
-                                state.anchorWatch.active
-                                    ? state.anchorWatch.state === 'holding'
-                                        ? 'bg-emerald-400'
-                                        : 'bg-red-400'
-                                    : 'bg-slate-600'
+                                {
+                                    green: 'bg-emerald-400',
+                                    amber: 'bg-amber-400',
+                                    red: 'bg-red-400',
+                                    off: 'bg-slate-600',
+                                }[state.anchorWatch.tone]
                             }
-                            pulse={state.anchorWatch.active && state.anchorWatch.state !== 'holding'}
+                            pulse={state.anchorWatch.urgent}
                             action={state.anchorWatch.active ? { label: 'View', onClick: onNavigateAnchor } : undefined}
                         />
 
@@ -546,7 +547,19 @@ const SystemStatusModal: React.FC<{
                                 active={state.piCache.active}
                                 detail={
                                     state.piCache.active
-                                        ? `${state.piCache.host} · ${state.piCache.latencyMs}ms${state.piCache.cacheStats ? ` · ${state.piCache.cacheStats.kvEntries} weather + ${state.piCache.cacheStats.tileEntries} tiles cached` : ''}`
+                                        ? // The host is only known when this launch discovered
+                                          // the Pi; a saved host left it empty and the line
+                                          // opened on a stray '· 25ms' (Shane's screenshot,
+                                          // 2026-09-29).
+                                          [
+                                              state.piCache.host,
+                                              `${state.piCache.latencyMs}ms`,
+                                              state.piCache.cacheStats
+                                                  ? `${state.piCache.cacheStats.kvEntries} weather + ${state.piCache.cacheStats.tileEntries} tiles cached`
+                                                  : '',
+                                          ]
+                                              .filter(Boolean)
+                                              .join(' · ')
                                         : 'Not connected'
                                 }
                                 dotColor={state.piCache.active ? 'bg-emerald-400' : 'bg-slate-600'}
@@ -772,6 +785,17 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
 
     // ── Anchor Watch state ──
     const [anchorSnapshot, setAnchorSnapshot] = useState<AnchorWatchSnapshot | null>(null);
+    // The session this phone handed to the boat's Pi, if it did. With the Pi
+    // on watch this phone's own watch is idle, so the row needs this to know
+    // the anchor is still down. The keeper has no listener of its own, so it
+    // is read on every render: a hand-off stops the local watch and joins
+    // the shore session, and each of those re-renders this with the keeper
+    // already set. It used to be read only by the 5 s poll, so a hand-off
+    // read "Not deployed" and then "watched from another device" until the
+    // next poll. The poll still stores the code so a keeper change with no
+    // other news re-renders the row.
+    const [, setPiWatchSession] = useState<string | null>(() => AnchorPiWatchKeeper.keepingSessionCode());
+    const piWatchSession = AnchorPiWatchKeeper.keepingSessionCode();
 
     // ── NMEA state ──
     const [nmeaStatus, setNmeaStatus] = useState(readNmeaBackboneStatus);
@@ -889,6 +913,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             // NMEA
             refreshNmea();
 
+            // Anchor watch kept by the Pi (a string, so an unchanged code is
+            // an unchanged state and does not re-render).
+            setPiWatchSession(AnchorPiWatchKeeper.keepingSessionCode());
+
             // GPS receiver / accessory identity. This reads the native
             // Transistorsoft location cache; it does not wake GPS or scan
             // Bluetooth. Check staleness before resolving the precision
@@ -945,20 +973,11 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
                 isRapidMode: gpsTracking.isRapidMode || false,
                 gpsStatus: ShipLogService.getGpsStatus(),
             },
-            anchorWatch: {
-                active: !!anchorSnapshot && anchorSnapshot.state !== 'idle' && currentView !== 'compass',
-                state: anchorSnapshot
-                    ? anchorSnapshot.state === 'alarm' || !!anchorSnapshot.alarmTriggeredAt
-                        ? 'alarm'
-                        : (anchorSnapshot.distanceFromAnchor ?? 0) > (anchorSnapshot.swingRadius ?? 50)
-                          ? 'drifting'
-                          : anchorSnapshot.state === 'idle'
-                            ? 'idle'
-                            : 'holding'
-                    : 'idle',
-                distance: anchorSnapshot?.distanceFromAnchor ?? 0,
-                swingRadius: anchorSnapshot?.swingRadius ?? 0,
-            },
+            // The row tells the truth on every page, the Anchor watch page
+            // included: it used to go 'Not deployed' there so the header would
+            // not repeat the page. Only the header's alert tone stands down
+            // on that page now (hasUrgent below).
+            anchorWatch: presentAnchorWatchRow(anchorSnapshot, shoreWatch, piWatchSession),
             nmea: nmeaStatus,
             extGps: gpsReceiver,
             followRoute: {
@@ -1000,7 +1019,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             gpsTracking,
             isMoving,
             anchorSnapshot,
-            currentView,
+            piWatchSession,
             nmeaStatus,
             gpsReceiver,
             isFollowing,
@@ -1016,7 +1035,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     const activeCount = [
         systemState.shoreWatch.active,
         systemState.gpsTracking.active,
-        systemState.anchorWatch.active,
+        countsAnchorWatch(systemState),
         systemState.nmea.active,
         systemState.extGps.active,
         systemState.followRoute.active,
@@ -1035,9 +1054,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
     // looked identical to none while the name announced "1 active".
     void alwaysShow;
 
-    // Has urgent status (anchor alarm, route changed)?
+    // Has urgent status (anchor alarm, route changed)? On the Anchor watch page
+    // the page itself is saying it, so the header does not repeat the anchor.
     const hasUrgent =
-        (systemState.anchorWatch.active && systemState.anchorWatch.state !== 'holding') ||
+        (systemState.anchorWatch.urgent && currentView !== 'compass') ||
         (systemState.followRoute.active && systemState.followRoute.routeChanged);
     // Fresh boat data gets a gentle blue heartbeat, waiting is amber, and a
     // lost link/GPS or drag alarm is red. Existing urgent systems still take

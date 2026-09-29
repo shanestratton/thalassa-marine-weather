@@ -30,6 +30,7 @@ import { triggerHaptic } from '../utils/system';
 import { SwingCircleCanvas } from './anchor-watch/SwingCircleCanvas';
 import { ScopeRadar } from './anchor-watch/ScopeRadar';
 import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
+import { ShoreWeighAnchorBar } from './anchor-watch/ShoreWeighAnchorBar';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { ShoreWatchReadings } from './anchor-watch/ShoreWatchReadings';
 import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
@@ -556,6 +557,38 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             toast.error('Could not stop the anchor watch — it may still be armed. Try again.');
         }
     }, [viewMode]);
+
+    /**
+     * Weigh anchor from Shore Watch, when the watch is this phone's own Pi's.
+     *
+     * After a hand-off the phone sits in shore view, whose only control was
+     * Leave, and Leave does not end the Pi's watch: the keeper went on renewing
+     * it every hour, so the Pi was still watching after the anchor came up and
+     * could raise a drag alarm as the boat motored off. Shane 2026-09-29 chose
+     * two buttons: this one gives the watch back (the explicit act the
+     * hand-off notes above ask for), Leave keeps today's meaning.
+     *
+     * end() stops the renewals before it asks the Pi to stop, so a Pi that
+     * cannot be reached right now still lets go when its six-hour
+     * authorisation lapses. Leaving the session follows either way.
+     */
+    const handleWeighAnchorFromShore = useCallback(async () => {
+        try {
+            await AnchorPiWatchKeeper.end();
+        } catch (e) {
+            log.warn('Could not tell the Pi to stop watching', e);
+        }
+        try {
+            await AnchorWatchSyncService.leaveSession();
+        } catch (e) {
+            log.warn('leaveSession (shore, weigh anchor) failed', e);
+        }
+        setPiKeepingWatch(false);
+        setViewMode('setup');
+        setShoreData(null);
+        setShoreDataReceivedAt(null);
+        void triggerHaptic('medium');
+    }, []);
 
     const handleMuteShoreAlarm = useCallback(async () => {
         try {
@@ -1315,6 +1348,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // ---- RENDER: SHORE MODE ----
     if (viewMode === 'shore') {
+        // This phone handed THIS session to its own Pi, so it can also give
+        // the watch back. A session joined from someone else's boat cannot.
+        const ownPiWatch =
+            !!syncState?.sessionCode && AnchorPiWatchKeeper.keepingSessionCode() === syncState.sessionCode;
         const shoreDataAgeMs = shoreDataReceivedAt === null ? null : Math.max(0, Date.now() - shoreDataReceivedAt);
         // LIVENESS COMES FROM DATA ARRIVING, NOT FROM PRESENCE.
         //
@@ -1502,6 +1539,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="mt-2 text-sm text-slate-400">Session: {syncState?.sessionCode}</div>
                             </div>
                         )}
+                        {ownPiWatch && <ShoreWeighAnchorBar onWeighAnchor={() => void handleWeighAnchorFromShore()} />}
                     </div>
                 </div>
             </div>

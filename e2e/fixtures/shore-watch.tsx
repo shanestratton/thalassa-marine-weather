@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ShoreWatchReadings } from '../../components/anchor-watch/ShoreWatchReadings';
+import { ShoreWeighAnchorBar } from '../../components/anchor-watch/ShoreWeighAnchorBar';
 import { PageHeader } from '../../components/ui/PageHeader';
 import type { PositionBroadcast } from '../../services/AnchorWatchSyncService';
 import '../../index.css';
@@ -27,6 +28,7 @@ const data: PositionBroadcast = {
 function Fixture() {
     const [muted, setMuted] = useState(false);
     const [checkingNotifications, setCheckingNotifications] = useState(false);
+    const [weighed, setWeighed] = useState(false);
     return (
         <main className="flex h-dvh w-full flex-col overflow-hidden bg-slate-950 font-sans text-white">
             <header
@@ -121,8 +123,10 @@ function Fixture() {
                                 muted={muted}
                                 onMute={() => setMuted(true)}
                             />
+                            {params.has('ownPi') && <ShoreWeighAnchorBar onWeighAnchor={() => setWeighed(true)} />}
                         </div>
                     </div>
+                    {weighed && <p role="alert">Weigh anchor pressed</p>}
                 </div>
             </div>
             <nav

@@ -123,6 +123,38 @@ for (const scenario of ['stale', 'alarm']) {
     });
 }
 
+// Shane 2026-09-29: on this phone's own Pi watch, Weigh Anchor ends the
+// readings column, beside the header's Leave. The readings keep the region
+// (pinned under it, compact landscape had a 40 px sliver of readings), and the
+// button scrolls into reach whole, tappable and clear of the tab bar on the
+// smallest phone, in landscape and at large text.
+for (const size of [
+    { label: 'small phone', width: 320, height: 568, query: '?ownPi=true' },
+    { label: 'short phone', width: 375, height: 667, query: '?ownPi=true' },
+    { label: 'compact landscape', width: 844, height: 430, query: '?ownPi=true' },
+    { label: 'large text', width: 390, height: 844, query: '?ownPi=true&largeText=true' },
+]) {
+    test(`Shore Watch Weigh Anchor stays reachable above navigation on a ${size.label}`, async ({ page }) => {
+        // The bar takes no room from the readings: same region, same start.
+        const readings = page.getByTestId('shore-readings-scroll');
+        await openFixture(page, size.width, size.height, size.query.replace(/ownPi=true&?/, '').replace(/\?$/, ''));
+        const without = await readings.evaluate((el) => ({ height: el.clientHeight, top: el.scrollTop }));
+        await openFixture(page, size.width, size.height, size.query);
+        expect(await readings.evaluate((el) => ({ height: el.clientHeight, top: el.scrollTop }))).toEqual(without);
+        await expect(page.getByRole('button', { name: 'Leave Shore Watch' })).toBeInViewport();
+        const weigh = page.getByRole('button', { name: '⏏ Weigh Anchor' });
+        await expect(weigh).toHaveAccessibleDescription('Stops the Pi’s watch. Leave keeps the Pi watching.');
+        const note = page.getByText('Stops the Pi’s watch. Leave keeps the Pi watching.');
+        await note.scrollIntoViewIfNeeded();
+        await assertInsideReadings(weigh);
+        await assertInsideReadings(note);
+        expect(await weigh.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+        await assertNoHorizontalOverflow(page);
+        await weigh.click();
+        await expect(page.getByRole('alert')).toHaveText('Weigh anchor pressed');
+    });
+}
+
 for (const size of [
     { label: 'compact landscape', width: 844, height: 430, query: '' },
     { label: 'large text', width: 390, height: 844, query: '?largeText=true' },

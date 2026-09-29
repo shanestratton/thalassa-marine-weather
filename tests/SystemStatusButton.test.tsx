@@ -26,6 +26,11 @@ const instruments = vi.hoisted(() => ({
     release: vi.fn(),
     phoneCallback: null as null | ((position: GpsPosition) => void),
     receiver: {} as GpsReceiverStatus,
+    piStatus: null as null | Record<string, unknown>,
+    piWatchSession: null as string | null,
+}));
+vi.mock('../services/anchorPiWatchKeeper', () => ({
+    AnchorPiWatchKeeper: { keepingSessionCode: () => instruments.piWatchSession },
 }));
 const shore = vi.hoisted(() => ({
     watch: {} as ShoreAlarmSnapshot,
@@ -86,7 +91,7 @@ vi.mock('../services/PiCacheService', () => ({
         get viaRemoteAccess() {
             return instruments.viaRemoteAccess;
         },
-        getStatus: () => ({ reachable: instruments.piReachable }),
+        getStatus: () => instruments.piStatus ?? { reachable: instruments.piReachable },
         onStatusChange: () => () => {},
         ping: vi.fn().mockResolvedValue(undefined),
     },
@@ -163,6 +168,7 @@ vi.mock('../stores/followRouteStore', () => ({
 }));
 
 import { SystemStatusButton, plainBuildLabel } from '../components/SystemStatusButton';
+import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 
 describe('SystemStatusButton', () => {
     beforeEach(() => {
@@ -187,6 +193,8 @@ describe('SystemStatusButton', () => {
         instruments.lastError = null;
         instruments.viaRemoteAccess = false;
         instruments.piReachable = false;
+        instruments.piStatus = null;
+        instruments.piWatchSession = null;
         instruments.phoneCallback = null;
         instruments.receiver = {
             active: false,
@@ -735,6 +743,90 @@ describe('SystemStatusButton', () => {
         expect(within(list).getByText('GPS tracking')).toBeInTheDocument();
         fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
         expect(screen.queryByRole('dialog', { name: 'System status' })).not.toBeInTheDocument();
+    });
+
+    // Shane 2026-09-29: anchor down, the Pi keeping the watch, and the box said
+    // "Anchor watch · Not deployed" under a live Shore Watch.
+    it('shows the anchor as down while the Pi keeps the watch, counting that watch once', () => {
+        seedShoreWatch();
+        instruments.piWatchSession = 'WATCHSESSION';
+        render(<SystemStatusButton currentView="map" onNavigateAnchor={vi.fn()} />);
+        const opener = screen.getByRole('button', { name: /^System status: 1 active/ });
+        fireEvent.click(opener);
+        const row = screen.getByText('Anchor watch').closest('li')!;
+        expect(row).toHaveTextContent('Holding · 10m / 50m radius · watched by the Pi');
+        expect(row).not.toHaveTextContent('Not deployed');
+        expect(within(row).getByRole('button', { name: 'View Anchor watch' })).toBeInTheDocument();
+    });
+
+    // The keeper has no listener, and the row used to read it only from the
+    // 5 s poll. Handing the watch to the Pi stops the phone's own watch first,
+    // so the row said "Not deployed", then "watched from another device" once
+    // the shore session landed, until the next poll.
+    it('follows a hand-off to the Pi at once, without waiting for the 5 s poll', () => {
+        vi.useFakeTimers();
+        let pushLocal: ((snapshot: AnchorWatchSnapshot) => void) | null = null;
+        vi.mocked(AnchorWatchService.subscribe).mockImplementationOnce((listener) => {
+            pushLocal = listener;
+            listener({
+                state: 'watching',
+                distanceFromAnchor: 14,
+                swingRadius: 40,
+                alarmTriggeredAt: null,
+                alarmCause: null,
+            } as AnchorWatchSnapshot);
+            return vi.fn();
+        });
+        render(<SystemStatusButton currentView="map" onNavigateAnchor={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /^System status: 1 active/ }));
+        const row = () => screen.getByText('Anchor watch').closest('li')!;
+        expect(row()).toHaveTextContent('Holding · 14m / 40m radius');
+
+        // handleAcceptPiWatch: the keeper takes the session, then the phone's
+        // own watch stops.
+        instruments.piWatchSession = 'WATCHSESSION';
+        act(() =>
+            pushLocal!({
+                state: 'idle',
+                distanceFromAnchor: null,
+                swingRadius: 40,
+                alarmTriggeredAt: null,
+                alarmCause: null,
+            } as unknown as AnchorWatchSnapshot),
+        );
+        expect(row()).toHaveTextContent('Down · watched by the Pi · no updates on this phone');
+
+        // Then the phone joins the Pi's session as Shore Watch.
+        emitShoreWatch({ sessionCode: 'WATCHSESSION' });
+        expect(row()).toHaveTextContent('Down · watched by the Pi · waiting for data');
+        expect(row()).not.toHaveTextContent('another device');
+    });
+
+    it("keeps this phone's own watch in the row on the Anchor watch page, where it used to read Not deployed", () => {
+        vi.mocked(AnchorWatchService.subscribe).mockImplementationOnce((listener) => {
+            listener({
+                state: 'watching',
+                distanceFromAnchor: 14,
+                swingRadius: 40,
+                alarmTriggeredAt: null,
+                alarmCause: null,
+            } as AnchorWatchSnapshot);
+            return vi.fn();
+        });
+        render(<SystemStatusButton currentView="compass" onNavigateAnchor={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: /^System status: 1 active/ }));
+        expect(screen.getByText('Anchor watch').closest('li')).toHaveTextContent('Holding · 14m / 40m radius');
+    });
+
+    it('opens the Pi cache line on the latency when this launch never learned the host', () => {
+        instruments.piStatus = {
+            reachable: true,
+            latencyMs: 25,
+            cacheStats: { kvEntries: 615, tileEntries: 988, dbSizeMB: 40 },
+        };
+        openStatus();
+        const detail = within(screen.getByText('Pi cache').closest('li')!).getByText(/25ms/);
+        expect(detail).toHaveTextContent(/^25ms · 615 weather \+ 988 tiles cached$/);
     });
 
     it('words the version line for a skipper, keeping the build that tells two builds apart', () => {

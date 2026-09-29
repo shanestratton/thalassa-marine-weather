@@ -15,9 +15,17 @@
  * Recipe Library has moved to the Galley; keeping it in two places
  * confused users and the Galley is the natural home for it.
  */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AnchorWatchSyncService } from '../services/AnchorWatchSyncService';
-import { AnchorWatchService } from '../services/AnchorWatchService';
+import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
+import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
+import { ShoreWatchAlarmService } from '../services/ShoreWatchAlarmService';
+import { AnchorPiWatchKeeper } from '../services/anchorPiWatchKeeper';
+import {
+    anchorSwingGeometry,
+    presentAnchorTile,
+    presentAnchorWatchRow,
+    shoreSwingKey,
+    shoreWatchTileKey,
+} from './anchor-watch/anchorWatchStatusRow';
 import { useSettings } from '../context/SettingsContext';
 import { buildClaim, claimAgeLabel, getDeviceId, holdsClaim, type SkipperClaim } from '../services/skipperDevice';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
@@ -209,16 +217,36 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         (ctx as { skipperDevice?: import('../services/skipperDevice').SkipperClaim })?.skipperDevice ?? null;
 
     // ── Anchor state ──
-    const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
-    // Whether something OTHER than this phone is keeping the watch.
-    //
-    // The card used to read AnchorWatchService alone, which is this device's
-    // OWN watch. When the Pi takes the watch, handleAcceptPiWatch stops the
-    // local one — that is the point of going ashore — so the local state goes
-    // idle and this card reported "Off" while the boat was being watched all
-    // night. Wrong, and wrong in the reassuring direction: a glance at the
-    // Vessel page said nothing was guarding the anchor.
-    const [anchorWatchedRemotely, setAnchorWatchedRemotely] = useState(false);
+    // This phone's own watch. The card used to read it alone: when the Pi
+    // takes the watch, handleAcceptPiWatch stops the local one (that is the
+    // point of going ashore), so the card said "Off" while the boat was
+    // watched all night. Wrong in the reassuring direction. The tile now reads
+    // the same three sources as the System status box (below).
+    // Seeded from the service so a page opened mid-watch does not paint "Up"
+    // for one frame before the subscription below lands. (Test doubles that
+    // mock only subscribe() throw here, and start from null as before.)
+    const [anchorLocal, setAnchorLocal] = useState<AnchorWatchSnapshot | null>(() => {
+        try {
+            return AnchorWatchService.getSnapshot();
+        } catch {
+            return null;
+        }
+    });
+    // The keeper has no listener. It is read on every render (a hand-off stops
+    // the local watch and joins shore, each of which re-renders this), and a
+    // slow poll catches a keeper change that arrives with no other news, such
+    // as the restore after a relaunch.
+    const [, setAnchorPiPoll] = useState<string | null>(null);
+    const anchorPiSession = AnchorPiWatchKeeper.keepingSessionCode();
+    // Re-render when the shore watch changes in a way the tile or the hero's
+    // swing arc shows (whole metres, 5° steps), not on every identical report
+    // the Pi sends; the snapshot itself is read at render.
+    useSyncExternalStore(ShoreWatchAlarmService.subscribe, () => {
+        const shore = ShoreWatchAlarmService.getSnapshot();
+        const keeper = AnchorPiWatchKeeper.keepingSessionCode();
+        return `${shoreWatchTileKey(shore, keeper)}|${shoreSwingKey(shore, keeper)}`;
+    });
+    const shoreWatch = ShoreWatchAlarmService.getSnapshot();
     const [anchorRadius, setAnchorRadius] = useState(0);
     // The daily operational tiles, the Diary/Scuttlebutt pair and the Boat
     // Binder + Settings card are permanently visible. Only the low-priority
@@ -449,9 +477,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snapshot) => {
             setAnchorRadius(snapshot.swingRadius || 0);
-            setAnchorStatus(
-                snapshot.state === 'alarm' ? 'alarm' : snapshot.state === 'watching' ? 'armed' : 'disarmed',
-            );
+            setAnchorLocal(snapshot);
             // Extended snapshot for the relative swing viz — keeps the
             // hero arc showing the boat's actual offset/bearing from
             // the anchor point, not just a static radius circle.
@@ -461,13 +487,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         return unsub;
     }, []);
 
-    useEffect(
-        () =>
-            AnchorWatchSyncService.onStateChange((state) =>
-                setAnchorWatchedRemotely(state.role === 'shore' && !!state.sessionCode),
-            ),
-        [],
-    );
+    useEffect(() => {
+        const id = setInterval(() => setAnchorPiPoll(AnchorPiWatchKeeper.keepingSessionCode()), 5_000);
+        return () => clearInterval(id);
+    }, []);
 
     // Subscribe to PassageStore for the active planned route's
     // destination coords + total distance. Populated when the user
@@ -625,36 +648,43 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // the remote case is named outright so it is never mistaken for this phone
     // watching (Shane 2026-09-04: "the anchor card says anchor off, maybe it
     // should say anchor on??? or down?????").
-    const anchorEffectivelyArmed = anchorStatus === 'armed' || anchorWatchedRemotely;
-    const anchorLabelShort: string =
-        anchorStatus === 'alarm'
-            ? 'DRAGGING'
-            : anchorStatus === 'armed'
-              ? 'Down'
-              : anchorWatchedRemotely
-                ? 'Down · Pi'
-                : 'Up';
-    const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorEffectivelyArmed ? '#22d3ee' : IDLE_GLYPH_INK;
+    //
+    // Derived from the System status box's row (presentAnchorWatchRow), so the
+    // two surfaces share one truth table. The tile used to know only this
+    // phone's watch and "a shore session exists": a watch only the Pi kept
+    // read "Up", a paused watch read "Up", a drag alarm from the Pi stayed a
+    // calm "Down · Pi", and another phone's session was credited to the Pi.
+    const anchorRow = presentAnchorWatchRow(anchorLocal, shoreWatch, anchorPiSession);
+    const anchorTile = presentAnchorTile(anchorRow);
+    // The hero's swing arc comes from whichever device keeps the watch.
+    const anchorSwing = anchorSwingGeometry(
+        anchorRow,
+        { radiusM: anchorRadius, offsetM: anchorOffset, bearingDeg: anchorBearing },
+        shoreWatch,
+    );
+    const anchorStatus = anchorTile.status;
+    const anchorEffectivelyArmed = anchorTile.tone !== 'off';
+    const anchorLabelShort = anchorTile.label;
+    const anchorColor =
+        anchorTile.tone === 'red'
+            ? '#ef4444'
+            : anchorTile.tone === 'amber'
+              ? '#f59e0b'
+              : anchorTile.tone === 'cyan'
+                ? '#22d3ee'
+                : IDLE_GLYPH_INK;
     // The tile's second line is a STATE here, so it is inked as one: the
     // descriptors (MOB's "Overboard", Radio's "Position") are the dim slate
     // words, and a grey "Up" read as one of them (UX scorecard run 6). The
     // glyph keeps the grey; only the word moves to full ink.
-    const anchorWordColor = anchorStatus === 'alarm' || anchorEffectivelyArmed ? anchorColor : IDLE_STATE_INK;
+    const anchorWordColor = anchorEffectivelyArmed ? anchorColor : IDLE_STATE_INK;
     // What VoiceOver hears. The tile's aria-label used to be a fixed "Anchor
     // Watch", which overrode the visible state entirely.
-    const anchorSpoken =
-        anchorStatus === 'alarm'
-            ? 'dragging'
-            : anchorStatus === 'armed'
-              ? 'down'
-              : anchorWatchedRemotely
-                ? 'down, watched by the Pi'
-                : 'up';
+    const anchorSpoken = anchorTile.spoken;
     // The hero card asks the same question ("At Anchor" vs "Underway"), so it
-    // must get the same answer. A boat whose anchor is watched by the Pi is at
-    // anchor; only this phone's involvement changed.
-    const anchorStatusEffective: 'armed' | 'disarmed' | 'alarm' =
-        anchorStatus === 'alarm' ? 'alarm' : anchorEffectivelyArmed ? 'armed' : 'disarmed';
+    // gets the same answer: anchorStatus above is the tile's. A boat whose
+    // anchor is watched by the Pi is at anchor; only this phone's involvement
+    // changed.
 
     const navigateFromBinder = useCallback(
         (page: string) => {
@@ -918,10 +948,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         voyage={activeVoyage}
                         tripLogActive={tripLogActive}
                         position={position}
-                        anchorStatus={anchorStatusEffective}
-                        anchorRadius={anchorRadius}
-                        anchorOffset={anchorOffset}
-                        anchorBearing={anchorBearing}
+                        anchorStatus={anchorStatus}
+                        anchorRadius={anchorSwing.radiusM}
+                        anchorOffset={anchorSwing.offsetM}
+                        anchorBearing={anchorSwing.bearingDeg}
                         windSpeed={windSpeed}
                         windDir={windDir}
                         waveHeight={waveHeight}
