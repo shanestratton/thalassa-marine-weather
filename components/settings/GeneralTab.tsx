@@ -376,6 +376,36 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </Row>
             </Section>
 
+            {/* Chart overlays live here, off by default (Shane 2026-09-29: new
+                chart overlays start off; switches live in Preferences). The
+                first is the inshore router's lead graph (Phase 1), drawn from
+                the charts on this phone. Auto routing does not follow it yet
+                (Phase 2), so the switch does not claim it does. Nor does it
+                promise solid 'clear' lines: no chart on a phone carries
+                bridges or overhead cables yet, so nothing is drawn clear
+                until the cells are re-extracted with them (Phase 1 review,
+                2026-09-29). */}
+            <Section title="Chart">
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">Show charted leads</p>
+                        <p className="text-xs text-gray-400">
+                            Leads (pink) and buoyed channels (indigo) from the charts on this phone, checked against
+                            your draft. Solid would mean charted deep enough with nothing on the line, but none is solid
+                            yet: these charts do not show bridges or overhead cables, so the app cannot tell whether one
+                            crosses a line. Amber on a dark edge: needs tide, or something to check — the label says
+                            what. Grey dots: no charted depth. Auto routing does not follow these yet. Not for
+                            navigation.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="Show charted leads"
+                        checked={settings.showChartLeads === true}
+                        onChange={(on) => onSave({ showChartLeads: on })}
+                    />
+                </Row>
+            </Section>
+
             {/* Satellite mode, moved here from Account & Cloud, which keeps a
                 line that points here (UX scorecard run 8; Shane 2026-09-09:
                 switches live in Preferences). Same setting, same effect. The

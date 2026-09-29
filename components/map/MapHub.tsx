@@ -119,6 +119,7 @@ import {
 } from './EncVectorLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { useBuoyageDirectionLayer } from './useBuoyageDirectionLayer';
+import { useChartLeadsLayer } from './useChartLeadsLayer';
 import { submitTracedRoute, listPendingRoutes, reviewRoute, type PendingRoute } from '../../services/communityRoutes';
 import {
     fetchSeaVoyageChoices,
@@ -3244,6 +3245,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // arrows at numbered laterals. OBS stays uncluttered, and a picker must
     // remain a pure location-selection surface.
     useBuoyageDirectionLayer(mapRef, mapReady, cleanPlanningMap && !pickerMode);
+    // "Show charted leads" (Settings → Preferences → Chart, off by default):
+    // the inshore router's compiled lead graph from the installed navigation
+    // cells in view, classed against this boat's draft. An assumed draft (a
+    // fallback or onboarding's estimate) draws nothing clear. Never on a
+    // picker, which must stay a pure location-selection surface.
+    useChartLeadsLayer(
+        mapRef,
+        mapReady,
+        settings.showChartLeads === true && !pickerMode,
+        vesselDraftMetres(settings.vessel),
+        vesselDraftIsAssumed(settings.vessel),
+    );
     // Tracer chart floors — the WYSIWYG mark re-assert and the plotting keel
     // floor, in components/map/mapHub/useTracerChartFloors.ts. Called here, below
     // useEncVectorLayer, because that is what mounts the layers they re-assert.

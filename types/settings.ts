@@ -202,6 +202,16 @@ export interface UserSettings {
      * Stream timing-critical, exiting an Atlantic trade wind zone).
      */
     currentNrtEnabled?: boolean;
+    /**
+     * Settings → Preferences → Chart: "Show charted leads". Draws the
+     * compiled lead graph (services/routing/leadCompiler.ts) from the
+     * installed navigation cells in view — charted recommended tracks, the
+     * on-water spans of leading lines, buoyed channels — classed against the
+     * vessel's draft + 0.5 m and the chart's hazards, structures and survey
+     * quality. Off by default (owner rule for new chart overlays). Chart
+     * furniture only: it routes nothing, and Auto does not follow it yet.
+     */
+    showChartLeads?: boolean;
     gribMode?: 'direct' | 'iridium';
     satelliteMode?: boolean;
     cloudSyncSettings?: boolean;

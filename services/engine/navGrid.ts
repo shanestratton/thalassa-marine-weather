@@ -215,6 +215,50 @@ export function buildNavGridCached(
 }
 
 /**
+ * Which coastline parts lie on a CLOSED RING — an island. A part whose two
+ * ends meet is one; so is every part of a chain whose ends all meet exactly
+ * one other end (Overpass returns a large island's coastline as several ways
+ * joined end to end at shared nodes, so the coordinates match exactly). Any
+ * chain with a loose end is open: a stretch of mainland shore, or a closing
+ * line across a river mouth.
+ */
+export function coastlineRingParts(parts: readonly Position[][]): boolean[] {
+    const onRing = new Array<boolean>(parts.length).fill(false);
+    const parent = parts.map((_, i) => i);
+    const find = (i: number): number => {
+        while (parent[i] !== i) {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        return i;
+    };
+    const ends = new Map<string, number[]>();
+    const key = (p: Position): string => `${p[0]},${p[1]}`;
+    parts.forEach((coords, i) => {
+        const k0 = key(coords[0]);
+        const k1 = key(coords[coords.length - 1]);
+        if (k0 === k1) {
+            onRing[i] = true;
+            return;
+        }
+        for (const k of [k0, k1]) {
+            const list = ends.get(k);
+            if (list) list.push(i);
+            else ends.set(k, [i]);
+        }
+    });
+    for (const list of ends.values()) {
+        for (let j = 1; j < list.length; j++) parent[find(list[j])] = find(list[0]);
+    }
+    const openChains = new Set<number>();
+    for (const list of ends.values()) if (list.length !== 2) openChains.add(find(list[0]));
+    parts.forEach((_, i) => {
+        if (!onRing[i] && !openChains.has(find(i))) onRing[i] = true;
+    });
+    return onRing;
+}
+
+/**
  * Build a navigability grid for the given bbox, draft, and resolution.
  * Time complexity is roughly O(featureCount × cellsPerFeatureBbox).
  * Polygons rasterize in their bbox slice rather than the whole grid.
@@ -367,6 +411,10 @@ export function buildNavGrid(
     // LAND-only subset of hardBlocked (LNDARE / coastline / coastal buffer —
     // never point-hazard buffers). See NavGrid.landBlocked.
     const landBlocked = new Uint8Array(width * height);
+    // Land paint the relax zones (or the grid-wide relaxedLndare retry) let
+    // through as CAUTION instead of blocking — still land for a lead (Pass
+    // 5b). Allocated only when something can relax.
+    const relaxedLand = relaxedLndare || relaxZones.length > 0 ? new Uint8Array(width * height) : null;
     const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred, landBlocked };
 
     // Capture grid-build setup time separately. Anything north of a
@@ -734,6 +782,7 @@ export function buildNavGrid(
                 // CAUTION-mode: A* can traverse at 500× cost. Don't set
                 // hardBlocked so FAIRWY/DRGARE rescue still applies.
                 if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+                if (relaxedLand) relaxedLand[idx] = 1;
             } else {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
@@ -759,35 +808,312 @@ export function buildNavGrid(
     // (leisure=marina, waterway=dock/canal) stays passable across a
     // coastline alignment mistake. Same relaxedLndare bypass so the
     // disconnected-destination retry isn't choked by coastline gaps.
+    //
+    // THE CLOSING-LINE EXEMPTION (Phase 1 review, then two final-review
+    // passes, 2026-09-29). A coastline cell over an S-57 band that is WET at
+    // chart datum (DRVAL1 > 0) gets Pass 2's doctrine — the layers
+    // disagreeing, not land: it keeps the CAUTION the DEPARE pass set and is
+    // protected, so a river-mouth or creek closing line cannot sever a charted
+    // channel. Only a real closing line qualifies, and the test is the LINE'S
+    // SHAPE, never the band under it: coastline-only land (a cay the overview
+    // cell leaves out, a spit or mole, a pad reclaimed after the chart was
+    // drawn) sits on the same band, so the band reads wet on both sides of the
+    // land's own outline. Exempting those made them routable — 1.5x under
+    // tideDirect, and 5 m preferred under any lead across them. A closing line
+    // is all of:
+    //   • an OSM natural=coastline line (a breakwater is a structure, always),
+    //     NOT on a closed ring — a way whose ends meet, or ways that chain end
+    //     to end back to the start, draw an island;
+    //   • a STRETCH of it that leaves chart land and comes STRAIGHT back to
+    //     chart land: the cells either side of the stretch along the line are
+    //     LNDARE, every cell between is water Pass 2b would not block (the wet
+    //     band, or water already protected), and no vertex strays more than a
+    //     cell from the chord between the stretch's ends. A spit, a mole or a
+    //     reclaimed pad drawn off the mainland is a U out and back, never
+    //     straight; a coastline that leaves the grid or runs out onto uncharted
+    //     or drying ground is not anchored;
+    //   • with charted water on BOTH sides at every cell: the neighbours square
+    //     to the line's own direction, found by walking the line a fixed
+    //     distance either side (so vertex spacing cannot skew it), stepping
+    //     over this stretch's own staircase only — never over another stretch
+    //     of coastline, such as the far side of a spit.
+    // A cell is exempt only when every line that touches it agrees; any other
+    // cell blocks (or relaxes in a relax zone) exactly as before. Drying bands
+    // never claim, so a coastline over one still blocks. An exempt cell stays
+    // honest 40x CAUTION for good: no lead prefers it or rescues its depth
+    // (Pass 5b, coastConflict).
     const coastline = layers.COASTLINE?.features ?? [];
     const tPassCoast = Date.now();
-    for (const f of coastline) {
-        const g = f.geometry;
-        if (!g) continue;
-        let lineRings: Position[][] = [];
-        if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
-        else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
-        else continue;
-        for (const coords of lineRings) {
+    // Pass 2b closing-line cells, allocated on the first one.
+    let coastConflict: Uint8Array | null = null;
+    if (coastline.length > 0) {
+        const coastParts: Position[][] = [];
+        const coastIsShore: boolean[] = [];
+        for (const f of coastline) {
+            const g = f.geometry;
+            if (!g) continue;
+            let lineRings: Position[][] = [];
+            if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
+            else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
+            else continue;
+            const shore = (f.properties as { natural?: unknown } | null)?.natural === 'coastline';
+            for (const coords of lineRings) {
+                if (coords.length < 2) continue;
+                coastParts.push(coords);
+                coastIsShore.push(shore);
+            }
+        }
+        // Rings are chained from the shoreline ways only.
+        const shoreIdx: number[] = [];
+        coastParts.forEach((_, p) => {
+            if (coastIsShore[p]) shoreIdx.push(p);
+        });
+        const shoreOnRing = coastlineRingParts(shoreIdx.map((p) => coastParts[p]));
+        const mayClose = new Array<boolean>(coastParts.length).fill(false);
+        shoreIdx.forEach((p, k) => {
+            mayClose[p] = !shoreOnRing[k];
+        });
+
+        const COAST_HIT = 1;
+        const COAST_CLOSING = 2;
+        const COAST_LAND = 4;
+        const coastFlag = new Uint8Array(width * height);
+        const inGrid = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < width && y < height;
+        const partCells = (coords: Position[], i: number) =>
+            bresenhamCells(
+                Math.floor((coords[i][0] - minLon) / dLon),
+                Math.floor((coords[i][1] - minLat) / dLat),
+                Math.floor((coords[i + 1][0] - minLon) / dLon),
+                Math.floor((coords[i + 1][1] - minLat) / dLat),
+            );
+        for (const coords of coastParts) {
             for (let i = 0; i < coords.length - 1; i++) {
-                const [lon0, lat0] = coords[i];
-                const [lon1, lat1] = coords[i + 1];
-                const gx0 = Math.floor((lon0 - minLon) / dLon);
-                const gy0 = Math.floor((lat0 - minLat) / dLat);
-                const gx1 = Math.floor((lon1 - minLon) / dLon);
-                const gy1 = Math.floor((lat1 - minLat) / dLat);
-                for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
-                    if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
-                    const idx = c.y * width + c.x;
-                    if (protectedCells[idx]) continue;
-                    if (relaxedLndare || relaxMask[idx] === 1) {
-                        if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
-                    } else {
-                        cells[idx] = BLOCKED;
-                        hardBlocked[idx] = 1;
-                        landBlocked[idx] = 1;
+                for (const c of partCells(coords, i)) {
+                    if (inGrid(c.x, c.y)) coastFlag[c.y * width + c.x] |= COAST_HIT;
+                }
+            }
+        }
+
+        // Every verdict below reads Pass 1/2 state only, so it does not depend
+        // on the order the lines are drawn in.
+        const chartLand = (idx: number): boolean => landBlocked[idx] === 1 || relaxedLand?.[idx] === 1;
+        const overWetBand = (idx: number): boolean => wetChartClaim[idx] === 1 && protectedCells[idx] !== 1;
+        const openWater = (idx: number): boolean => overWetBand(idx) || protectedCells[idx] === 1;
+
+        // Line geometry in metres from the grid origin (a cell is resolutionM
+        // on both axes), with the distance along the line at each vertex.
+        interface CoastWalk {
+            xs: Float64Array;
+            ys: Float64Array;
+            cum: Float64Array;
+        }
+        const walkOf = (coords: Position[]): CoastWalk => {
+            const n = coords.length;
+            const xs = new Float64Array(n);
+            const ys = new Float64Array(n);
+            const cum = new Float64Array(n);
+            for (let v = 0; v < n; v++) {
+                xs[v] = (coords[v][0] - minLon) * mPerLon;
+                ys[v] = (coords[v][1] - minLat) * M_PER_DEG_LAT;
+                if (v > 0) cum[v] = cum[v - 1] + Math.hypot(xs[v] - xs[v - 1], ys[v] - ys[v - 1]);
+            }
+            return { xs, ys, cum };
+        };
+        // The point `s` metres along the line, clamped to its ends.
+        const pointAt = (w: CoastWalk, s: number): [number, number] => {
+            const last = w.cum.length - 1;
+            if (s <= 0) return [w.xs[0], w.ys[0]];
+            if (s >= w.cum[last]) return [w.xs[last], w.ys[last]];
+            let lo = 0;
+            let hi = last;
+            while (hi - lo > 1) {
+                const mid = (lo + hi) >> 1;
+                if (w.cum[mid] <= s) lo = mid;
+                else hi = mid;
+            }
+            const len = w.cum[hi] - w.cum[lo];
+            const t = len > 0 ? (s - w.cum[lo]) / len : 0;
+            return [w.xs[lo] + (w.xs[hi] - w.xs[lo]) * t, w.ys[lo] + (w.ys[hi] - w.ys[lo]) * t];
+        };
+        const distToChord = (px: number, py: number, ax: number, ay: number, bx: number, by: number): number => {
+            const dx = bx - ax;
+            const dy = by - ay;
+            const l2 = dx * dx + dy * dy;
+            const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+            return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+        };
+
+        // Each candidate line's cells in order along it (consecutive repeats
+        // dropped), with the distance along the line at each and the stretch
+        // (run) it belongs to.
+        interface CoastStep {
+            x: number;
+            y: number;
+            s: number;
+            seg: number;
+            run: number;
+        }
+        const NO_RUN = -1;
+        // Which stretch owns each coastline cell: a closing stretch's id, or
+        // OWNER_OTHER once anything else touches it (another stretch or line).
+        const OWNER_OTHER = -2;
+        const cellOwner = new Map<number, number>();
+        const own = (idx: number, owner: number): void => {
+            const held = cellOwner.get(idx);
+            if (held === undefined) cellOwner.set(idx, owner);
+            else if (held !== owner) cellOwner.set(idx, OWNER_OTHER);
+        };
+        const runs: Array<{ s0: number; s1: number }> = [];
+        const walks: Array<CoastWalk | null> = coastParts.map(() => null);
+        const seqs: Array<CoastStep[] | null> = coastParts.map(() => null);
+        const stepIdx = (st: CoastStep | undefined): number => (st && inGrid(st.x, st.y) ? st.y * width + st.x : -1);
+        for (let p = 0; p < coastParts.length; p++) {
+            const coords = coastParts[p];
+            if (!mayClose[p]) {
+                for (let i = 0; i < coords.length - 1; i++) {
+                    for (const c of partCells(coords, i)) {
+                        if (inGrid(c.x, c.y)) own(c.y * width + c.x, OWNER_OTHER);
                     }
                 }
+                continue;
+            }
+            const w = walkOf(coords);
+            const seq: CoastStep[] = [];
+            for (let i = 0; i < coords.length - 1; i++) {
+                const ax = w.xs[i];
+                const ay = w.ys[i];
+                const dx = w.xs[i + 1] - ax;
+                const dy = w.ys[i + 1] - ay;
+                const l2 = dx * dx + dy * dy;
+                for (const c of partCells(coords, i)) {
+                    const prev = seq[seq.length - 1];
+                    if (prev && prev.x === c.x && prev.y === c.y) continue;
+                    // Distance along the line: the cell centre projected onto
+                    // this segment.
+                    const cx = (c.x + 0.5) * resolutionM;
+                    const cy = (c.y + 0.5) * resolutionM;
+                    const t = l2 > 0 ? Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / l2)) : 0;
+                    seq.push({ x: c.x, y: c.y, s: w.cum[i] + t * Math.sqrt(l2), seg: i, run: NO_RUN });
+                }
+            }
+            for (let k = 0; k < seq.length; ) {
+                const first = stepIdx(seq[k]);
+                if (first < 0 || !openWater(first)) {
+                    k++;
+                    continue;
+                }
+                let e = k;
+                while (e + 1 < seq.length) {
+                    const next = stepIdx(seq[e + 1]);
+                    if (next < 0 || !openWater(next)) break;
+                    e++;
+                }
+                // From chart land, straight back to chart land.
+                const before = stepIdx(seq[k - 1]);
+                const after = stepIdx(seq[e + 1]);
+                let closing = before >= 0 && after >= 0 && chartLand(before) && chartLand(after);
+                if (closing) {
+                    const [ax, ay] = pointAt(w, seq[k].s);
+                    const [bx, by] = pointAt(w, seq[e].s);
+                    for (let v = seq[k].seg + 1; closing && v <= seq[e].seg; v++) {
+                        if (w.cum[v] <= seq[k].s || w.cum[v] >= seq[e].s) continue;
+                        if (distToChord(w.xs[v], w.ys[v], ax, ay, bx, by) > resolutionM) closing = false;
+                    }
+                }
+                if (closing) {
+                    const id = runs.length;
+                    runs.push({ s0: seq[k].s, s1: seq[e].s });
+                    for (let j = k; j <= e; j++) seq[j].run = id;
+                }
+                k = e + 1;
+            }
+            for (const st of seq) {
+                const idx = stepIdx(st);
+                if (idx >= 0) own(idx, st.run >= 0 ? st.run : OWNER_OTHER);
+            }
+            walks[p] = w;
+            seqs[p] = seq;
+        }
+
+        // Charted water on this side: the first cell within two steps along
+        // (ox, oy) that is not this stretch's own coastline.
+        const wetSide = (x: number, y: number, ox: number, oy: number, run: number): boolean => {
+            for (let k = 1; k <= 2; k++) {
+                const sx = x + ox * k;
+                const sy = y + oy * k;
+                if (!inGrid(sx, sy)) return false;
+                const s = sy * width + sx;
+                if (coastFlag[s] & COAST_HIT) {
+                    if (cellOwner.get(s) !== run) return false; // another stretch of coastline
+                    continue;
+                }
+                if (chartLand(s)) return false;
+                return wetChartClaim[s] === 1 || depareVerdict[s] > 0 || osmWaterCells[s] === 1;
+            }
+            return false;
+        };
+        for (let p = 0; p < coastParts.length; p++) {
+            const seq = seqs[p];
+            const w = walks[p];
+            if (!seq || !w) {
+                const coords = coastParts[p];
+                for (let i = 0; i < coords.length - 1; i++) {
+                    for (const c of partCells(coords, i)) {
+                        if (inGrid(c.x, c.y)) coastFlag[c.y * width + c.x] |= COAST_LAND;
+                    }
+                }
+                continue;
+            }
+            for (const st of seq) {
+                const idx = stepIdx(st);
+                if (idx < 0) continue;
+                let closing = false;
+                if (st.run >= 0 && cellOwner.get(idx) === st.run && overWetBand(idx)) {
+                    // The line's own direction, walked a cell either side of
+                    // this point and kept to the stretch (a stretch shorter
+                    // than that takes the line either side of it).
+                    const { s0, s1 } = runs[st.run];
+                    let lo = Math.max(s0, st.s - resolutionM);
+                    let hi = Math.min(s1, st.s + resolutionM);
+                    if (hi - lo < resolutionM / 2) {
+                        lo = st.s - resolutionM;
+                        hi = st.s + resolutionM;
+                    }
+                    const [ax, ay] = pointAt(w, lo);
+                    const [bx, by] = pointAt(w, hi);
+                    const len = Math.hypot(bx - ax, by - ay);
+                    if (len > 1e-6) {
+                        // Cells are square in metres, so the unit normal
+                        // rounds straight to a neighbour offset.
+                        const ox = Math.round(-(by - ay) / len);
+                        const oy = Math.round((bx - ax) / len);
+                        closing =
+                            (ox !== 0 || oy !== 0) &&
+                            wetSide(st.x, st.y, ox, oy, st.run) &&
+                            wetSide(st.x, st.y, -ox, -oy, st.run);
+                    }
+                }
+                coastFlag[idx] |= closing ? COAST_CLOSING : COAST_LAND;
+            }
+        }
+        for (let idx = 0; idx < coastFlag.length; idx++) {
+            const flag = coastFlag[idx];
+            if ((flag & COAST_HIT) === 0) continue;
+            if (protectedCells[idx]) continue;
+            if ((flag & COAST_LAND) === 0 && (flag & COAST_CLOSING) !== 0) {
+                // A closing line across charted wet water: caution, protected.
+                protectedCells[idx] = 1;
+                wetConflict[idx] = 1;
+                (coastConflict ??= new Uint8Array(width * height))[idx] = 1;
+                continue;
+            }
+            if (relaxedLndare || relaxMask[idx] === 1) {
+                if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+                if (relaxedLand) relaxedLand[idx] = 1;
+            } else {
+                cells[idx] = BLOCKED;
+                hardBlocked[idx] = 1;
+                landBlocked[idx] = 1;
             }
         }
     }
@@ -869,8 +1195,9 @@ export function buildNavGrid(
 
     // ── Pass 3: point obstructions — block radius around each ──────
     // obstnBlocked marks every cell a hazard (OBSTRN/WRECKS/UWTROC) claimed,
-    // INDEPENDENTLY of landBlocked — the land-conflict reopens (NTM survey
-    // zones, chart transits) key off "landBlocked ∧ DEPARE claim" and must
+    // INDEPENDENTLY of landBlocked — the land-conflict reopen (NTM survey
+    // zones; chart transits did too until the Phase 1 review) keys off
+    // "landBlocked ∧ DEPARE claim" and must
     // never resurrect a cell that is ALSO a wreck buffer just because land
     // paint and a depth band overlap it too (adversarial-review finding #7).
     const obstnBlocked = new Uint8Array(width * height);
@@ -1146,44 +1473,77 @@ export function buildNavGrid(
     // neither may be preferred, rescue depth or reopen land here. Filtered
     // again at this pass so a direct grid build (the tracer) can never
     // stamp one, whatever assembled the layers.
+    //
+    // ON-WATER SPANS ONLY (Phase 1): a leading line is drawn on to its
+    // leading marks, usually ashore (Newport NAVLNE 2379 runs ~1.1 km over
+    // LNDARE). Only the stretch over water is a lead; the land extension no
+    // longer stamps a corridor, rescues depth or reopens land-painted cells.
+    // The depth rescue on the on-water span is unchanged here (Phase 4, with
+    // the 'needs tide' review).
+    //
+    // "Over water" is THIS GRID's verdict, cell by cell (Phase 1 review,
+    // 2026-09-29), not the S-57-only vector clip (leadLandClip) this pass
+    // used first. The grid already decides land against more evidence than
+    // the chart's own layers: the OSM canal carve (Pass 1b), OSM-vouched
+    // water under LNDARE (Passes 1/2), wet chart claims under LNDARE or an
+    // OSM coastline (Passes 2/2b). The vector clip ignored the OSM evidence
+    // and cut the Newport entrance lead (NAVLNE 406/3035) with a ~590 m gap
+    // exactly in the entrance channel — LNDARE, no S-57 DEPARE, but water in
+    // the grid through the canal carve — and the production-shape routes
+    // (chart leads + OSM overlay) were refused or crossed ~1 km of land. A
+    // line cell is ashore when land paint still blocks it (landBlocked and
+    // not since rescued — a chart FAIRWY/DRGARE or the mark ribbon keeps
+    // landBlocked but restores a depth), or when a relax zone let land paint
+    // through as CAUTION: no corridor is stamped around it.
     const navlineFeatures = navLineLeads(layers.NAVLINE?.features ?? []);
+    const leadCellAshore = (x: number, y: number): boolean => {
+        if (x < 0 || y < 0 || x >= width || y >= height) return false;
+        const idx = y * width + x;
+        return (landBlocked[idx] === 1 && Number.isNaN(cells[idx])) || relaxedLand?.[idx] === 1;
+    };
     const tPassNavline = Date.now();
     const navDepth = Math.max(draftM + safetyM, 5.0);
     const NAVLINE_BRUSH_CELLS = 1; // 1-cell Chebyshev radius → ~3-cell (≈150 m) wide corridor
     let navlineCellsMarked = 0;
-    let transitReopened = 0;
-    const stampNavlineCell = (cx: number, cy: number, chartTransit: boolean): void => {
+    const stampNavlineCell = (cx: number, cy: number): void => {
         for (let dy = -NAVLINE_BRUSH_CELLS; dy <= NAVLINE_BRUSH_CELLS; dy++) {
             for (let dx = -NAVLINE_BRUSH_CELLS; dx <= NAVLINE_BRUSH_CELLS; dx++) {
                 const nx = cx + dx;
                 const ny = cy + dy;
                 if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
                 const idx = ny * width + nx;
-                if (hardBlocked[idx] === 1) {
-                    // OSM/community navigation lines never carve blocked cells
-                    // (the Dart Harbour community-edit lesson). A CHART transit
-                    // (S-57 NAVLNE, acronym-gated — the hydrographer's own
-                    // leading line) resolves the familiar LNDARE-vs-charted-
-                    // water conflict: the 1:90k landmask paints the Tangalooma
-                    // sand bar over the same chart's (0-2 m) band AND its own
-                    // 072.5°/031° dog-leg transit through it — the official
-                    // "line up the leads" approach (IALA pilotage). Land paint
-                    // loses to the transit ONLY where a DEPARE band claims the
-                    // cell; DEPARE-less real land, obstructions/wrecks (no
-                    // landBlocked) and air-draft bridge bars stay shut.
-                    const landConflict =
-                        chartTransit &&
-                        landBlocked[idx] === 1 &&
-                        clearanceBarred[idx] !== 1 &&
-                        obstnBlocked[idx] !== 1 && // a wreck under land paint stays a wreck
-                        !Number.isNaN(depareVerdict[idx]);
-                    if (!landConflict) continue;
-                    hardBlocked[idx] = 0;
-                    landBlocked[idx] = 0;
-                    cells[idx] = CAUTION; // rescued below like any corridor cell
-                    protectedCells[idx] = 1; // Pass 6 must not re-seal the transit
-                    transitReopened++;
-                }
+                // A lead NEVER reopens a blocked cell — land paint, a hazard
+                // buffer or a clearance bar (the Dart Harbour community-edit
+                // lesson, and "leads never override land").
+                //
+                // Phase 1 review (2026-09-29): chart NAVLNE used to reopen
+                // "land paint over a DEPARE band" cells here, for the
+                // Tangalooma sand-bar transit. Clipping the line to water was
+                // not enough: this 1-cell brush around each on-water cell
+                // still reopened land-painted cells past the clip point and to
+                // each side of it (+37.5 m at 25 m, +75 m at 50 m, +150 m at
+                // 100 m), so a lead across a land-painted drying spit up to
+                // 150 m wide (50 m grid) was reopened all the way across as
+                // 5 m preferred water — and on the real newport-shane cells
+                // 115 of the 126 cells it still reopened at 50 m had a
+                // hard-land centre. The on-water span is already on water,
+                // so the reopen is gone. Whether LNDARE painted over a 0 m
+                // band is land or 'needs tide' is an owner question for
+                // Phase 4, not a brush side effect.
+                //
+                // Land a relax zone let through as CAUTION (hardBlocked 0) is
+                // still land to every brush cell, not only the centre (final
+                // review 2026-09-29): a lead on water beside the canal carve's
+                // relaxed banks stamped them 5 m preferred.
+                //
+                // A Pass 2b closing-line cell (an OSM coastline over a charted
+                // wet band) is the two sources disagreeing, never a charted
+                // channel: it stays the 40x red CAUTION it is without a lead,
+                // neither preferred nor rescued to depth (final review, second
+                // pass, 2026-09-29 — a lead across coastline-only land that
+                // slipped through stamped it 5 m preferred, and tideDirect
+                // crossed it with 0 caution legs).
+                if (hardBlocked[idx] === 1 || leadCellAshore(nx, ny) || coastConflict?.[idx] === 1) continue;
                 preferred[idx] = 1; // attract A* onto the marked channel
                 if (cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
                     // Rescue a shallow-reading (CAUTION) or unknown cell on
@@ -1198,11 +1558,6 @@ export function buildNavGrid(
     for (const f of navlineFeatures) {
         const g = f.geometry;
         if (!g) continue;
-        // Chart S-57 NAVLNE carries the extractor's acronym; OSM seamark
-        // navigation lines don't. Only a chart leading line (after
-        // navLineLeads, every chart NAVLNE left is CATNAV 3) may reopen land
-        // conflicts above.
-        const chartTransit = (f.properties as { acronym?: string } | null)?.acronym === 'NAVLNE';
         let lineRings: Position[][] = [];
         if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
         else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
@@ -1216,7 +1571,8 @@ export function buildNavGrid(
                 const gx1 = Math.floor((lon1 - minLon) / dLon);
                 const gy1 = Math.floor((lat1 - minLat) / dLat);
                 for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
-                    stampNavlineCell(c.x, c.y, chartTransit);
+                    if (leadCellAshore(c.x, c.y)) continue; // the land extension stamps nothing
+                    stampNavlineCell(c.x, c.y);
                 }
             }
         }
@@ -1224,7 +1580,7 @@ export function buildNavGrid(
     markPass('pass5b-navline', tPassNavline, navlineFeatures.length);
     if (ENGINE_DEBUG && navlineFeatures.length > 0) {
         console.warn(
-            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred${transitReopened > 0 ? ` (${transitReopened} land-conflict cells reopened by chart transits)` : ''}`,
+            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred`,
         );
     }
 
@@ -1523,7 +1879,10 @@ export function buildNavGrid(
         const ta = new Uint8Array(width * height);
         let assistCells = 0;
         for (let i = 0; i < cells.length; i++) {
-            if (cells[i] < 0) {
+            // A land-vs-wet-chart conflict cell (Pass 2/2b) is land paint over
+            // the band: it stays at the full caution price, never a tide
+            // crossing (final review 2026-09-29).
+            if (cells[i] < 0 && wetConflict[i] !== 1) {
                 const s = shallowDepthM[i];
                 if (!Number.isNaN(s) && s > 0 && floorM - s <= TIDE_ASSIST_MAX_RISE_M) {
                     ta[i] = 1;

@@ -11,6 +11,7 @@ import type { FeatureCollection, LineString, MultiLineString, MultiPolygon, Poly
 import type { InshoreLayers } from './types';
 import { geometryBbox, haversineM, pointInGeometry } from './geometry';
 import { navLineLeads } from '../leadingLine';
+import { navLinesOnWater } from '../routing/leadLandClip';
 
 type AreaGeometry = Polygon | MultiPolygon;
 
@@ -139,10 +140,22 @@ export function auditUnvouchedHardLand(
     // A clearing line (NAVLNE CATNAV 1) is the edge of a danger and a transit
     // (CATNAV 2) is a bearing: neither is evidence of water, so only leads
     // (navLineLeads) vouch here.
+    // And a lead vouches only where it is ON WATER (Phase 1): a leading line's
+    // extension over land towards its marks ashore — or any lead drawn over
+    // LNDARE with no chart water under it — is not evidence that the land
+    // beside it is water. Leads (NAVLINE, RECTRC) are cut to their on-water
+    // spans with the lead compiler's rule (chart water only). The grid clips
+    // against its own cell verdict instead (navGrid Pass 5b), which also
+    // counts the OSM canal carve and OSM-vouched water; this audit vouches
+    // those on its own (DEPARE polygons above, CANAL lines below), so a route
+    // through such a channel passes without the lead's help.
     const navLeads = layers.NAVLINE
-        ? { ...layers.NAVLINE, features: navLineLeads(layers.NAVLINE.features) }
+        ? { ...layers.NAVLINE, features: navLinesOnWater(navLineLeads(layers.NAVLINE.features), layers) }
         : undefined;
-    const wetLines = indexLines([layers.CANAL, navLeads, layers.RECTRC, layers.NTMBAR]);
+    const tracks = layers.RECTRC
+        ? { ...layers.RECTRC, features: navLinesOnWater(layers.RECTRC.features, layers) }
+        : undefined;
+    const wetLines = indexLines([layers.CANAL, navLeads, tracks, layers.NTMBAR]);
     const stepM = Math.max(5, sampleStepM);
     let runM = 0;
     let maxRunM = 0;
