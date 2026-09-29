@@ -77,6 +77,13 @@ export interface InshoreLayers {
      * 2026-05-20 for the Brisbane River mouth bar (the dredged cut isn't
      * in chart FAIRWY and the lateral markers are too sparse to stitch,
      * but OSM has it as navigation_line).
+     *
+     * LEADS ONLY: chart NAVLNE enters here only as a CATNAV 3 leading line.
+     * Clearing lines (CATNAV 1) and transits (CATNAV 2) are removed by
+     * navLineLeads (services/leadingLine.ts) at the merge, at routeInshore
+     * entry and again in the grid, the land audit and the tracer. An OSM
+     * line that redraws one of them is removed too (osmNavLineLeads at the
+     * merge, navLineLeads on a mixed layer): the chart's category decides.
      */
     NAVLINE?: FeatureCollection;
     /**

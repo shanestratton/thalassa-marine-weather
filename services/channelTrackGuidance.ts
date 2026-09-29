@@ -7,6 +7,7 @@ import { AUTOROUTING_TRIAL_MAX_POINTS } from '../types/autorouting';
 import { isVerifiedCanalExitProfileCurrent } from './automaticCanalExit';
 import { NEWPORT_CANAL_EXIT_PROFILE } from './newportCanalExitProfile';
 import type { EncCell, EncConversionResult } from './enc/types';
+import type { CuratedRetirement } from './curatedDataLifecycle';
 
 export type ChannelCoordinate = readonly [number, number];
 export const NEWPORT_CHANNEL_TRACK_ID = 'newport-rectrc-407-v1';
@@ -36,6 +37,8 @@ export interface ReviewedChannelTrackPolicy {
     reviewedAt: string;
     validUntil: string;
     span: readonly [ChannelCoordinate, ChannelCoordinate];
+    /** A retired policy never yields a candidate again, whatever the clock says. */
+    retirement?: CuratedRetirement;
 }
 
 export interface ChannelTrackProvenance {
@@ -192,6 +195,7 @@ export function createNewportChannelTrackCandidate({
         !metadata ||
         !chart ||
         !policy ||
+        policy.retirement !== undefined ||
         !Number.isFinite(now) ||
         !isVerifiedCanalExitProfileCurrent(NEWPORT_CANAL_EXIT_PROFILE, now) ||
         metadata.id !== evidence.cellId ||

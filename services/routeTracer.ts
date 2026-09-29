@@ -37,6 +37,8 @@ import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { parseLateralMarks, distM, type LatLon, type LateralMark } from './fairlead';
 import { parseCardinalDiscs, type CardinalDisc } from './tier3/cardinalClamp';
 import {
+    isChartNavLine,
+    navLineLeads,
     parseLeadingLines,
     parseChartTrackLines,
     chartTrackOffsetForLeg,
@@ -138,7 +140,15 @@ export interface TracerContext {
     markHazards: MarkHazard[];
     cardinals: CardinalDisc[];
     gatePairs: GatePair[];
+    /** CHART leads only: RECTRC and chart NAVLNE leading lines (CATNAV 3).
+     *  They catch a fat-fingered tap (snapTraceTapToLead) and hold the lead's
+     *  authority over a cardinal's side rule (ridingLeadAt). */
     leads: LeadingLine[];
+    /** OSM seamark navigation lines that passed the lead gate. Lower trust than
+     *  the chart: they catch a tap but never waive a cardinal's side rule, so a
+     *  "wrong side of the cardinal" DANGER is never downgraded on OSM's word.
+     *  Optional so hand-built contexts stay valid; absent = none. */
+    osmLeads?: LeadingLine[];
     /** Typed review lines. Kept separate so revised warning relevance cannot
      * alter the legacy cardinal suppression, depth grid or manual pin snap. */
     chartTracks?: ChartTrackLine[];
@@ -444,13 +454,19 @@ export function tracerContextFromLayers(
     const soloLaterals = laterals.filter((m) => !inPair(m));
     const markHazards = parseMarkHazards((merged.OBSTRN?.features ?? []) as never[]);
     const cardinals = parseCardinalDiscs((merged.OBSTRN?.features ?? []) as never);
+    // Leads snap taps and can override the cardinal-side rule (ridingLeadAt),
+    // so only real leads count: a clearing or transit NAVLNE never does, nor
+    // an OSM way that redraws one (navLineLeads on the mixed layer). Of those,
+    // only CHART leads carry the cardinal override; OSM lines are tap-snap only.
+    const navLeads = navLineLeads(merged.NAVLINE?.features ?? []);
     const leads = parseLeadingLines([
         ...((merged.RECTRC?.features ?? []) as never[]),
-        ...((merged.NAVLINE?.features ?? []) as never[]),
+        ...navLeads.filter((feature) => isChartNavLine(feature)),
     ]);
+    const osmLeads = parseLeadingLines(navLeads.filter((feature) => !isChartNavLine(feature)));
     const chartTracks = [
         ...parseChartTrackLines((merged.RECTRC?.features ?? []) as never[], 'RECTRC'),
-        ...parseChartTrackLines((merged.NAVLINE?.features ?? []) as never[], 'NAVLNE'),
+        ...parseChartTrackLines(navLeads, 'NAVLNE'),
     ];
     const canalLanes = parseLeadingLines((merged.CANAL?.features ?? []) as never[]);
 
@@ -461,6 +477,7 @@ export function tracerContextFromLayers(
         cardinals,
         gatePairs,
         leads,
+        osmLeads,
         chartTracks,
         canalLanes,
         draftM,
@@ -716,7 +733,7 @@ async function buildTracerContextInner(
     ctx.supplementalChecksUnavailable = bundle.supplementalChecksUnavailable;
     if (opts.chartedDepthOnly) ctx.canalLanes = [];
     log.warn(
-        `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}`,
+        `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}+osm${ctx.osmLeads?.length ?? 0}`,
     );
     crumb(
         'tracer:ctx-ready',
@@ -788,6 +805,11 @@ const DIR_WORD: Record<CardinalDisc['dir'], string> = { n: 'north', e: 'east', s
  * false red on surveyed water). Preserve this legacy 40 m cardinal rule
  * separately from the typed track-review advisories below; changing warning
  * relevance must not silently change cardinal/depth/hazard treatment.
+ *
+ * Callers pass ctx.leads, which holds CHART leads only (RECTRC and NAVLNE
+ * CATNAV 3). OSM lines (ctx.osmLeads) never hold this authority: a lead must
+ * not override a hazard on lower-trust data, and the message calls it "the
+ * charted lead".
  */
 function ridingLeadAt(p: TracePoint, legBrgRad: number, leads: LeadingLine[]): boolean {
     for (const lead of leads) {
@@ -1430,7 +1452,7 @@ export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'be
  */
 export function snapTraceTapToLead(ctx: TracerContext, p: TracePoint, maxM = 120): TracePoint | null {
     let best: { point: TracePoint; dist: number } | null = null;
-    for (const lead of ctx.leads) {
+    for (const lead of [...ctx.leads, ...(ctx.osmLeads ?? [])]) {
         if (lead.pts.length < 2) continue;
         const proj = projectToLine(p, lead.pts);
         if (proj.dist <= maxM && (!best || proj.dist < best.dist)) best = proj;

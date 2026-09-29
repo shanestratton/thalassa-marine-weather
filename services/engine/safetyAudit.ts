@@ -10,6 +10,7 @@
 import type { FeatureCollection, LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
 import type { InshoreLayers } from './types';
 import { geometryBbox, haversineM, pointInGeometry } from './geometry';
+import { navLineLeads } from '../leadingLine';
 
 type AreaGeometry = Polygon | MultiPolygon;
 
@@ -135,7 +136,13 @@ export function auditUnvouchedHardLand(
     // prefers a narrow corridor around them, so the independent vector audit
     // must honour the same physical-water claim without treating all relaxed
     // land nearby as water.
-    const wetLines = indexLines([layers.CANAL, layers.NAVLINE, layers.RECTRC, layers.NTMBAR]);
+    // A clearing line (NAVLNE CATNAV 1) is the edge of a danger and a transit
+    // (CATNAV 2) is a bearing: neither is evidence of water, so only leads
+    // (navLineLeads) vouch here.
+    const navLeads = layers.NAVLINE
+        ? { ...layers.NAVLINE, features: navLineLeads(layers.NAVLINE.features) }
+        : undefined;
+    const wetLines = indexLines([layers.CANAL, navLeads, layers.RECTRC, layers.NTMBAR]);
     const stepM = Math.max(5, sampleStepM);
     let runM = 0;
     let maxRunM = 0;

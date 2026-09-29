@@ -57,7 +57,7 @@ import { fetchMapboxWater } from './mapboxWater';
 import { fetchSatelliteWater } from './satelliteWater';
 import { pairWingFeatures } from './pairWings';
 import { createLogger } from '../utils/createLogger';
-import { withChartTrackSource } from './leadingLine';
+import { navLineLeads, osmNavLineLeads, withChartTrackSource } from './leadingLine';
 
 const log = createLogger('InshoreRouter');
 
@@ -469,11 +469,16 @@ async function tryInshoreRouteInner(
         // RECTRC — the hydrographer's OFFICIAL recommended track. The engine
         // snaps the route onto it first (authoritative > derived buoy follow).
         RECTRC: { type: 'FeatureCollection', features: [] },
-        // NAVLINE is the engine's internal leading-line layer. It receives both
-        // chart NAVLNE and OSM seamark navigation lines below.
+        // NAVLINE is the engine's internal leading-line layer. It receives chart
+        // NAVLNE leading lines (CATNAV 3 only, via navLineLeads) and OSM seamark
+        // navigation lines below (osmNavLineLeads: never an OSM redraw of a
+        // chart clearing or transit line).
         NAVLINE: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
+    // Every chart NAVLNE, BEFORE the lead gate: the OSM merge below needs the
+    // dropped clearing and transit lines to spot OSM ways that redraw them.
+    const chartNavLines: GeoJSON.Feature[] = [];
     // ENC cardinal marks (BOYCAR/BCNCAR) ride the blob but the layer-merge below omits them,
     // so they're display-only and never reach routing — an East cardinal could end up on the
     // WRONG side of the track. Collect them here, then feed them (with CATCAM direction) into
@@ -536,7 +541,17 @@ async function tryInshoreRouteInner(
             log.warn(`[scaleShadow] ${cell.id}: dropped ${shadowDropped} overview feature(s) shadowed by finer cells`);
         const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
         if (navlne?.features && Array.isArray(navlne.features)) {
-            (merged.NAVLINE!.features as unknown[]).push(...navlne.features);
+            // Only CATNAV 3 leading lines may lead. Clearing lines (CATNAV 1)
+            // mark the edge of a danger and transits (CATNAV 2) are bearings;
+            // both used to be ridden as deep channels. MIRRORED in
+            // assembleTracerLayers.
+            chartNavLines.push(...navlne.features);
+            const leads = navLineLeads(navlne.features, 'NAVLNE');
+            (merged.NAVLINE!.features as unknown[]).push(...leads);
+            if (ROUTE_DEBUG && leads.length < navlne.features.length)
+                log.warn(
+                    `STAGE: ${cell.id}: kept ${leads.length}/${navlne.features.length} NAVLNE as leads (clearing/transit/uncategorised lines excluded)`,
+                );
         }
         for (const cl of ['BOYCAR', 'BCNCAR'] as const) {
             const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[cl];
@@ -828,13 +843,24 @@ async function tryInshoreRouteInner(
         // marked channel, weaving the markers like a real chartplotter.
         if (osmOverlay.navLines.features.length > 0) {
             const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.navLines.features) {
+            // The Pi and cloud overlay already drop clearing lines; a stray
+            // one (an old disk copy) must still never lead. And where the
+            // chart has drawn the same line, the chart's category decides: an
+            // OSM "transit" lying on a chart CATNAV 2 is that bearing line
+            // again, not a lead; only that stretch is cut. RECTRC counts as a
+            // chart lead in that weighing. MIRRORED in assembleTracerLayers.
+            const osmLeads = osmNavLineLeads(
+                osmOverlay.navLines.features,
+                chartNavLines,
+                merged.RECTRC?.features ?? [],
+            );
+            for (const f of osmLeads) {
                 (navline.features as unknown[]).push(f);
             }
             merged.NAVLINE = navline;
             if (ROUTE_DEBUG)
                 log.warn(
-                    `STAGE: injected ${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
+                    `STAGE: injected ${osmLeads.length}/${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
                 );
         }
         // NOTE (2026-05-20): a DRGARE dredged-area "channel connector" lived
@@ -3482,6 +3508,8 @@ export async function assembleTracerLayers(
         NAVLINE: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
+    // MIRROR of the engine merge: every chart NAVLNE before the lead gate.
+    const chartNavLines: GeoJSON.Feature[] = [];
     const encCardinalSrc: {
         geometry?: { type?: string; coordinates?: [number, number] } | null;
         properties?: Record<string, unknown> | null;
@@ -3524,8 +3552,10 @@ export async function assembleTracerLayers(
         }
         const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
         if (navlne?.features && Array.isArray(navlne.features)) {
+            // MIRROR of the engine merge: only CATNAV 3 leading lines lead.
+            chartNavLines.push(...navlne.features);
             (merged.NAVLINE!.features as unknown[]).push(
-                ...navlne.features.map((feature) => withChartTrackSource(feature, cell.id)),
+                ...navLineLeads(navlne.features, 'NAVLNE').map((feature) => withChartTrackSource(feature, cell.id)),
             );
         }
         for (const cl of ['BOYCAR', 'BCNCAR'] as const) {
@@ -3627,7 +3657,9 @@ export async function assembleTracerLayers(
         }
         if (osmOverlay.navLines.features.length > 0) {
             const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of osmOverlay.navLines.features) (navline.features as unknown[]).push(f);
+            // MIRROR of the engine merge: the chart's category decides twins.
+            for (const f of osmNavLineLeads(osmOverlay.navLines.features, chartNavLines, merged.RECTRC?.features ?? []))
+                (navline.features as unknown[]).push(f);
             merged.NAVLINE = navline;
         }
     } catch (err) {

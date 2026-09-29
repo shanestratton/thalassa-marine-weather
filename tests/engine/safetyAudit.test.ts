@@ -93,6 +93,40 @@ describe('auditUnvouchedHardLand', () => {
         },
     );
 
+    it.each([
+        ['clearing line', 1],
+        ['transit', 2],
+        ['uncategorised chart line', undefined],
+    ])('never takes a chart NAVLNE %s as water evidence', (_name, CATNAV) => {
+        const layers: InshoreLayers = {
+            LNDARE: collection(polygon(0, 0, 0.02, 0.01)),
+            NAVLINE: collection({
+                ...line([
+                    [0, 0.005],
+                    [0.02, 0.005],
+                ]),
+                properties: { acronym: 'NAVLNE', CATNAV },
+            }),
+        };
+
+        expect(auditUnvouchedHardLand(layers, crossing).maxRunM).toBeGreaterThan(MAX_UNVOUCHED_HARD_LAND_RUN_M);
+    });
+
+    it('still honours a charted leading line (NAVLNE CATNAV 3)', () => {
+        const layers: InshoreLayers = {
+            LNDARE: collection(polygon(0, 0, 0.02, 0.01)),
+            NAVLINE: collection({
+                ...line([
+                    [0, 0.005],
+                    [0.02, 0.005],
+                ]),
+                properties: { acronym: 'NAVLNE', CATNAV: 3 },
+            }),
+        };
+
+        expect(auditUnvouchedHardLand(layers, crossing).maxRunM).toBe(0);
+    });
+
     it('resets the continuous run when a wet corridor separates two land sections', () => {
         const result = auditUnvouchedHardLand(
             {

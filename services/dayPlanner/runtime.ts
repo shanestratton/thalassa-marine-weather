@@ -7,7 +7,11 @@ import { autoroutingVesselWarnings } from '../../supabase/functions/_shared/auto
 import { AnchorageService } from '../anchorages/AnchorageService';
 import { cachedConditionsForecast, loadPlaceConditions } from '../anchorages/PlaceConditionsService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentityScope } from '../authIdentityScope';
-import { resolveAutomaticCanalExit, VERIFIED_CANAL_EXIT_PROFILES } from '../automaticCanalExit';
+import {
+    resolveAutomaticCanalExit,
+    VERIFIED_CANAL_EXIT_PROFILES,
+    type AutomaticCanalExitResolution,
+} from '../automaticCanalExit';
 import { autoroutingProposalGeometryKey } from '../autoroutingProposalEvidence';
 import { reviewAutoroutingProposal } from '../autoroutingReview';
 import { calculateAutoroutingTrial, getAutoroutingTrialStatus } from '../autoroutingTrial';
@@ -39,6 +43,32 @@ import {
 } from './engine';
 
 export const DAY_PLANNER_TIMEOUT_MS = 240_000;
+
+/** What the skipper can do from Plan My Day, which has no Canal exit control. */
+const DAY_PLANNER_CANAL_NEXT_STEP =
+    'Move the departure to open water outside the canal entrance, or set the canal exit by hand in Auto routing, under Canal / marina.';
+/** The resolver's closing instruction, which points at a control that only
+ * Auto routing has. */
+const CHOOSE_ON_CHART = /\s*Choose Canal exit on the chart\.\s*$/i;
+
+/** Plan My Day cannot place a canal exit itself, so no manual-required result
+ * from an applicable profile may send the skipper to the chart for one. A
+ * retired or out-of-date exit gets its own wording. Any other reason that
+ * ends with the resolver's "Choose Canal exit on the chart." (an ambiguous
+ * area boundary, conflicting records, a malformed record) keeps its first
+ * sentence and gets the Plan My Day next step instead. A reason without that
+ * instruction (invalid positions) is passed through. Always still a refusal. */
+export function dayPlannerCanalExitRefusal(
+    exit: Extract<AutomaticCanalExitResolution, { status: 'manual-required' }>,
+): string {
+    const place = exit.profileLabel ? `${exit.profileLabel} ` : '';
+    if (exit.code === 'retired') return `The automatic ${place}canal exit is retired. ${DAY_PLANNER_CANAL_NEXT_STEP}`;
+    if (exit.code === 'out-of-date')
+        return `The reviewed ${place}canal exit is out of date. ${DAY_PLANNER_CANAL_NEXT_STEP}`;
+    if (!CHOOSE_ON_CHART.test(exit.reason)) return exit.reason;
+    const reason = exit.reason.replace(CHOOSE_ON_CHART, '').trim();
+    return reason ? `${reason} ${DAY_PLANNER_CANAL_NEXT_STEP}` : DAY_PLANNER_CANAL_NEXT_STEP;
+}
 export interface DayPlannerRunOptions {
     signal: AbortSignal;
     mapboxToken: string;
@@ -418,7 +448,7 @@ export async function runDayPlanner(
                 // through to an ordinary provider route.
                 const applicable = VERIFIED_CANAL_EXIT_PROFILES.filter((entry) => contains(entry.departureArea, from));
                 const exit = applicable.length ? resolveAutomaticCanalExit(from, to, applicable) : undefined;
-                if (exit?.status === 'manual-required') throw new Error(exit.reason);
+                if (exit?.status === 'manual-required') throw new Error(dayPlannerCanalExitRefusal(exit));
                 if (constraint && exit?.status === 'resolved')
                     throw new Error(
                         'Required catalogue checkpoints cannot be combined with this automatic canal exit. Plot and review this departure separately.',

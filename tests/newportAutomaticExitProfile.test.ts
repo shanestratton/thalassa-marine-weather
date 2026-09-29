@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import type { FeatureCollection, Polygon, MultiPolygon } from 'geojson';
 import { resolveAutomaticCanalExit, VERIFIED_CANAL_EXIT_PROFILES } from '../services/automaticCanalExit';
 import { NEWPORT_CANAL_EXIT_PROFILE as profile } from '../services/newportCanalExitProfile';
 import { encLayer } from './helpers/encCells';
+
+// The shipped Newport profile is RETIRED (owner, 2026-09-29). This suite keeps
+// the reviewed geometry under test as renewal evidence, so it sees the record
+// unretired; tests/newportRetirement.test.ts pins the shipped, retired state.
+vi.mock('../services/newportCanalExitProfile', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/newportCanalExitProfile')>();
+    const { retirement: _retired, ...reviewed } = actual.NEWPORT_CANAL_EXIT_PROFILE;
+    return { ...actual, NEWPORT_CANAL_EXIT_PROFILE: reviewed };
+});
 
 const now = Date.parse('2026-09-13T00:00:00Z');
 const offshore = { lat: -27.44, lon: 153.1 };

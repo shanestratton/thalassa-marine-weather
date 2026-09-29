@@ -94,8 +94,26 @@ import {
     tupleDistM,
     tupleLineCrossesHardLand,
 } from './engine/tierPipeline';
+import { navLineLeads } from './leadingLine';
 
 // ── Public API ──────────────────────────────────────────────────────
+
+/**
+ * The engine's single lead gate. Every NAVLINE consumer downstream (grid
+ * corridor + depth rescue, lead snaps, the egress splice, the land audit's
+ * vouched water) reads layers.NAVLINE, so a clearing (CATNAV 1), transit
+ * (CATNAV 2) or uncategorised chart NAVLNE — and any OSM line that redraws
+ * one of those (withoutChartNonLeadTwins) — is removed here once, whatever
+ * assembled the layers (the device merge, a fixture, a test). Returns the
+ * same object when nothing is dropped, so layer identity is kept.
+ */
+export function withNavLineLeadsOnly(layers: InshoreLayers): InshoreLayers {
+    const features = layers.NAVLINE?.features;
+    if (!features || features.length === 0) return layers;
+    const leads = navLineLeads(features);
+    if (leads === features) return layers;
+    return { ...layers, NAVLINE: { ...layers.NAVLINE!, features: leads } };
+}
 
 /**
  * Compute an inshore route through one or more ENC cells.
@@ -238,7 +256,8 @@ function routeInshoreMain(
 /** Coarse pre-check resolution (reply 19 fix 3). */
 const COARSE_PRECHECK_RES_M = 400;
 
-export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    const layers = withNavLineLeadsOnly(rawLayers);
     const spanDeg = Math.max(Math.abs(req.toLat - req.fromLat), Math.abs(req.toLon - req.fromLon));
 
     // ── Strict coarse pre-check (field hang 2026-06-12, reply 19) ────

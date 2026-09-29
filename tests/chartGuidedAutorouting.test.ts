@@ -2,6 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../services/autoroutingTrial', () => ({ calculateAutoroutingTrial: vi.fn() }));
 vi.mock('../services/enc/EncCellMetadata', () => ({ getCell: vi.fn() }));
 vi.mock('../services/enc/EncCellStore', () => ({ loadCellGeoJSON: vi.fn() }));
+// The shipped Newport profile is RETIRED (owner, 2026-09-29). This suite keeps
+// the reviewed geometry under test as renewal evidence, so it sees the record
+// unretired; tests/newportRetirement.test.ts pins the shipped, retired state.
+vi.mock('../services/newportCanalExitProfile', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/newportCanalExitProfile')>();
+    const { retirement: _retired, ...reviewed } = actual.NEWPORT_CANAL_EXIT_PROFILE;
+    return { ...actual, NEWPORT_CANAL_EXIT_PROFILE: reviewed };
+});
 import {
     createChartGuidedTrialCalculator,
     CHART_GUIDANCE_LOAD_TIMEOUT_MS,
@@ -71,7 +79,10 @@ const harness = () => {
         .mockResolvedValue(second);
     const getCell = vi.fn<ChartGuidedTrialDependencies['getCell']>().mockImplementation(() => cell);
     const loadCell = vi.fn<ChartGuidedTrialDependencies['loadCell']>().mockImplementation(async () => chart);
-    const policy = structuredClone(NEWPORT_CHANNEL_TRACK_POLICY);
+    // The shipped policy is retired with its parent review; exercise the
+    // reviewed policy as it stood (tests/newportRetirement.test.ts pins the
+    // retired record itself).
+    const { retirement: _retired, ...policy } = structuredClone(NEWPORT_CHANNEL_TRACK_POLICY);
     const dependencies = { calculate, getCell, loadCell, policy, now: () => Date.now() };
     return {
         first,
@@ -360,6 +371,23 @@ describe('one-shot reviewed channel-track recalculation', () => {
             input(),
         );
         expect(onProgress).toHaveBeenCalledWith(expect.stringContaining('Recalculating once'));
+    });
+
+    it('a RETIRED policy falls back at once: no "checking" message, no chart load, one provider call', async () => {
+        const h = harness(),
+            onProgress = vi.fn();
+        const result = await createChartGuidedTrialCalculator({
+            channelGuidance: true,
+            dependencies: { ...h.dependencies, policy: NEWPORT_CHANNEL_TRACK_POLICY },
+            onProgress,
+        })(input());
+        expect(NEWPORT_CHANNEL_TRACK_POLICY.retirement).toBeDefined();
+        expect(result.id).toBe('original');
+        expect(result.warnings.join(' ')).toMatch(/guidance unavailable.*original proposal is unchanged/);
+        expect(onProgress).not.toHaveBeenCalledWith(expect.stringContaining('Checking reviewed'));
+        expect(h.getCell).not.toHaveBeenCalled();
+        expect(h.loadCell).not.toHaveBeenCalled();
+        expect(h.calculate).toHaveBeenCalledTimes(1);
     });
 
     it('rejects an initial failure rather than inventing a fallback proposal', async () => {

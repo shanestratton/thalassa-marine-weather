@@ -1,7 +1,20 @@
 /** Newport Waterways' chart-matched departure proposal, not a navigation clearance.
  * See docs/NEWPORT_AUTOMATIC_EXIT_REVIEW_2026-09-13.md for source review and
  * conservative tidal-canal boundary derivation. Never substitute OSM markers.
- * Runtime must match the installed chart evidence before using these gates. */
+ * Runtime must match the installed chart evidence before using these gates.
+ *
+ * RETIRED 2026-09-29 (see `retirement`): the review lapsed and Newport stays on
+ * a hand-placed canal exit until the new inshore router lands. The reviewed
+ * geometry is kept as evidence. Renewing means a new reviewed record that
+ * REPLACES this one: a retired and a current profile over the same water are
+ * ambiguous and fail closed.
+ *
+ * Renewal is also BLOCKED on the Phase 1 lead compiler: chart NAVLNE CATNAV 3
+ * lines still carry their landward extensions into the grid (preferred, depth
+ * rescued to 5 m, land-conflict cells reopened) and into the land audit's
+ * 125 m vouched water. The worst remaining Newport cases are 2379 (1,111 m
+ * over land) and 2387 (949 m); 2368 was a clearing line and is already gone.
+ * Clip NAVLNE 3 to its RECTRC / on-water span first (questionsForShane #2). */
 import type { VerifiedCanalExitProfile } from './automaticCanalExit';
 
 export const NEWPORT_CANAL_EXIT_PROFILE: VerifiedCanalExitProfile = {
@@ -17,6 +30,13 @@ export const NEWPORT_CANAL_EXIT_PROFILE: VerifiedCanalExitProfile = {
     chartEvidence: [{ cellId: 'OC-61-10RCS5', edition: 1, issued: '2022-03-07' }],
     reviewedAt: '2026-09-12T21:12:59Z',
     validUntil: '2026-09-19T21:12:59Z',
+    retirement: Object.freeze({
+        retiredOn: '2026-09-29',
+        decidedBy: 'Shane (owner), Phase 0 approval 2026-09-29',
+        reason: 'The seven-day review lapsed at 2026-09-19T21:12:59Z. Renewing it needs a fresh review of OC-61-10RCS5 against the MSQ channel map; the owner chose to keep Newport on a manual canal exit until the new inshore router lands.',
+        fallback:
+            'Manual canal exit. Auto (Canal / marina) asks the skipper to place Canal exit on the chart; Plan My Day refuses departures inside Newport Waterways and tells the skipper how to plan them.',
+    }),
     terminalVerified: true,
     rule: 'centreline-permitted',
     outboundBearingDeg: 2.134563276085032,

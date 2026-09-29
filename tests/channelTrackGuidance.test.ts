@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     createNewportChannelTrackCandidate,
     selectChannelTrackGuidance,
@@ -10,6 +10,15 @@ import {
 import { NEWPORT_CANAL_EXIT_PROFILE } from '../services/newportCanalExitProfile';
 import type { EncCell, EncConversionResult } from '../services/enc/types';
 import { encCell } from './helpers/encCells';
+
+// The shipped Newport profile is RETIRED (owner, 2026-09-29). This suite keeps
+// the reviewed geometry under test as renewal evidence, so it sees the record
+// unretired; tests/newportRetirement.test.ts pins the shipped, retired state.
+vi.mock('../services/newportCanalExitProfile', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/newportCanalExitProfile')>();
+    const { retirement: _retired, ...reviewed } = actual.NEWPORT_CANAL_EXIT_PROFILE;
+    return { ...actual, NEWPORT_CANAL_EXIT_PROFILE: reviewed };
+});
 
 const NOW = Date.parse('2026-09-13T01:00:00Z');
 const CELL = 'OC-61-10RCS5';
