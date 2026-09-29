@@ -74,3 +74,35 @@ export function resolveEffectiveVessel(vessel: VesselProfile | null | undefined)
 export function isUsingDefaultVessel(vessel: VesselProfile | null | undefined): boolean {
     return !vessel;
 }
+
+/**
+ * The figures Settings → Vessel starts a boat with when the skipper saves a
+ * field and has no profile yet (FEET, knots and lbs, like every profile
+ * figure). Shared so the draft modal (services/draftConfirmation.ts,
+ * draftSaveProfilePatch) starts the same boat the Vessel tab would, instead
+ * of a boat of zeros (review 2026-09-29).
+ *
+ * Not DEFAULT_VESSEL: that one is what routing assumes while there is NO
+ * profile; this one becomes the profile. Its `draft` is the Vessel tab's
+ * historic placeholder — the draft modal never uses it.
+ */
+export const VESSEL_SETTINGS_SEED: Readonly<VesselProfile> = Object.freeze<VesselProfile>({
+    name: 'My Boat',
+    type: 'sail',
+    length: 30,
+    beam: 10,
+    draft: 5,
+    displacement: 10000,
+    maxWaveHeight: 6,
+    cruisingSpeed: 6,
+    fuelCapacity: 0,
+    waterCapacity: 0,
+});
+
+/** The Vessel tab's save shape: the seed, under the saved profile, under the edit. */
+export function vesselWithSettingsDefaults(
+    vessel: Partial<VesselProfile> | null | undefined,
+    patch: Partial<VesselProfile> = {},
+): VesselProfile {
+    return { ...VESSEL_SETTINGS_SEED, ...(vessel || {}), ...patch };
+}

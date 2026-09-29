@@ -243,8 +243,27 @@ describe('Settings → Preferences → Chart — the switch, off by default', ()
         // Vite's build-time define, absent under vitest.
         vi.stubGlobal('__BUILD_STAMP__', '2026-09-29 00:00Z');
         const { GeneralTab } = await import('../components/settings/GeneralTab');
-        const { DEFAULT_SETTINGS } = await import('../stores/settingsStore');
+        const { DEFAULT_SETTINGS, awaitSettingsLoaded, useSettingsStore } = await import('../stores/settingsStore');
         expect(DEFAULT_SETTINGS.showChartLeads).not.toBe(true);
+        // A confirmed draft: the switch then turns on at once. An unconfirmed
+        // one asks first (tests/DraftConfirmGates.test.tsx).
+        await awaitSettingsLoaded();
+        useSettingsStore.setState({
+            settings: {
+                ...useSettingsStore.getState().settings,
+                vessel: {
+                    name: 'Leads boat',
+                    type: 'sail',
+                    length: 40,
+                    beam: 13,
+                    draft: 7.87,
+                    draftConfirmedFt: 7.87,
+                    displacement: 20000,
+                    maxWaveHeight: 10,
+                    cruisingSpeed: 6,
+                },
+            },
+        });
         const onSave = vi.fn();
         render(
             React.createElement(GeneralTab, {

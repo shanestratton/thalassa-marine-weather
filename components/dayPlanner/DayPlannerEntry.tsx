@@ -2,6 +2,7 @@ import React, { Suspense, useCallback, useState, useSyncExternalStore } from 're
 import type { VesselProfile } from '../../types/vessel';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
+import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
 import './DayPlanner.css';
 
 const DayPlannerSheet = lazyRetry(() => import('./DayPlannerSheet'));
@@ -32,7 +33,9 @@ export function DayPlannerEntry({
                 className="day-plan-entry"
                 aria-haspopup="dialog"
                 aria-expanded={open}
-                onClick={() => setOpen(true)}
+                // Every plan is worked out against the draft: it opens once the
+                // skipper has confirmed it (Shane 2026-09-29), at once if so.
+                onClick={() => runWithConfirmedDraft('day-plan', () => setOpen(true))}
             >
                 <span className="day-plan-entry-icon" aria-hidden="true">
                     ☀
