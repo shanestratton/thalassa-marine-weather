@@ -60,6 +60,15 @@ const TANGALOOMA: RouteRequest = {
     obstructionBufferM: 60,
 };
 
+/**
+ * These tests route inside the test body (the goldens route at file load,
+ * outside any per-test limit). A strict refusal tries every fallback before
+ * it gives up: 9.6 s on the 8 GB Mac with v8 coverage on, and CI's runners
+ * with coverage went past the global 20 s limit (CI 36623741291). A time
+ * limit is not an assertion: the pins below are unchanged.
+ */
+const ROUTE_TEST_TIMEOUT_MS = 90_000;
+
 function run(req: RouteRequest, strict: boolean, osm: typeof fx.osm = fx.osm) {
     const layers = productionLayers(osm);
     const r = routeInshore(layers, strict ? { ...req, unchartedPolicy: 'strict' } : req);
@@ -78,52 +87,56 @@ const within = (value: number | undefined, pin: number, frac: number): void => {
     expect(value).toBeLessThan(pin * (1 + frac));
 };
 
-describe('CHARACTERISATION: chart CATNAV 3 leads in the production shape (newport-shane cells)', () => {
-    it('the fixture carries the chart leads this file is about', () => {
-        const leads = navLineLeads(fx.cells.NAVLNE?.features ?? [], 'NAVLNE');
-        expect(leads.length).toBe(31);
-        expect(leads.every((f) => f.properties?.CATNAV === 3)).toBe(true);
-    });
+describe(
+    'CHARACTERISATION: chart CATNAV 3 leads in the production shape (newport-shane cells)',
+    { timeout: ROUTE_TEST_TIMEOUT_MS },
+    () => {
+        it('the fixture carries the chart leads this file is about', () => {
+            const leads = navLineLeads(fx.cells.NAVLNE?.features ?? [], 'NAVLNE');
+            expect(leads.length).toBe(31);
+            expect(leads.every((f) => f.properties?.CATNAV === 3)).toBe(true);
+        });
 
-    it('newport-shane, strict (the production policy): refuses — the only candidate crosses ~2.6 km of charted land', () => {
-        const r = run(fx.request, true);
-        expect(r.refused).toBe(true);
-        if (!r.refused) return;
-        expect(r.code).toBe('hard-land-crossing');
-        within(r.hardLandMaxRunM, 2_590, 0.05);
-    });
+        it('newport-shane, strict (the production policy): refuses — the only candidate crosses ~2.6 km of charted land', () => {
+            const r = run(fx.request, true);
+            expect(r.refused).toBe(true);
+            if (!r.refused) return;
+            expect(r.code).toBe('hard-land-crossing');
+            within(r.hardLandMaxRunM, 2_590, 0.05);
+        });
 
-    it('newport-shane, permissive: 19.62 NM with a ~2.6 km audit land run (known bad, pinned as is)', () => {
-        const r = run(fx.request, false);
-        expect(r.refused).toBe(false);
-        if (r.refused) return;
-        within(r.distanceNM, 19.622, 0.02);
-        within(r.auditMaxRunM, 2_590, 0.05);
-        expect(r.caution).toBeLessThanOrEqual(9);
-    });
+        it('newport-shane, permissive: 19.62 NM with a ~2.6 km audit land run (known bad, pinned as is)', () => {
+            const r = run(fx.request, false);
+            expect(r.refused).toBe(false);
+            if (r.refused) return;
+            within(r.distanceNM, 19.622, 0.02);
+            within(r.auditMaxRunM, 2_590, 0.05);
+            expect(r.caution).toBeLessThanOrEqual(9);
+        });
 
-    it('Newport → Tangalooma, strict: refuses — ~0.7 km of charted land', () => {
-        const r = run(TANGALOOMA, true);
-        expect(r.refused).toBe(true);
-        if (!r.refused) return;
-        expect(r.code).toBe('hard-land-crossing');
-        within(r.hardLandMaxRunM, 742, 0.05);
-    });
+        it('Newport → Tangalooma, strict: refuses — ~0.7 km of charted land', () => {
+            const r = run(TANGALOOMA, true);
+            expect(r.refused).toBe(true);
+            if (!r.refused) return;
+            expect(r.code).toBe('hard-land-crossing');
+            within(r.hardLandMaxRunM, 742, 0.05);
+        });
 
-    it('Newport → Tangalooma, permissive: 20.32 NM with a ~2.0 km audit land run (known bad, pinned as is)', () => {
-        const r = run(TANGALOOMA, false);
-        expect(r.refused).toBe(false);
-        if (r.refused) return;
-        within(r.distanceNM, 20.321, 0.02);
-        within(r.auditMaxRunM, 1_993, 0.05);
-        // Re-pinned 5 → 6 (final review 2026-09-29, on purpose): the lead
-        // brush no longer stamps relax-zone land beside a lead 5 m preferred,
-        // so that stretch of the crossing near the Newport origin is drawn red
-        // now — one more caution leg (measured 5 without the fix, 6 with it;
-        // 20.345 → 20.322 NM, audit land run 1998 → 1991 m).
-        expect(r.caution).toBeLessThanOrEqual(6);
-    });
-});
+        it('Newport → Tangalooma, permissive: 20.32 NM with a ~2.0 km audit land run (known bad, pinned as is)', () => {
+            const r = run(TANGALOOMA, false);
+            expect(r.refused).toBe(false);
+            if (r.refused) return;
+            within(r.distanceNM, 20.321, 0.02);
+            within(r.auditMaxRunM, 1_993, 0.05);
+            // Re-pinned 5 → 6 (final review 2026-09-29, on purpose): the lead
+            // brush no longer stamps relax-zone land beside a lead 5 m preferred,
+            // so that stretch of the crossing near the Newport origin is drawn red
+            // now — one more caution leg (measured 5 without the fix, 6 with it;
+            // 20.345 → 20.322 NM, audit land run 1998 → 1991 m).
+            expect(r.caution).toBeLessThanOrEqual(6);
+        });
+    },
+);
 
 // GOLDEN — the production shape: the newport-shane cells (with their chart
 // NAVLNE leads) PLUS the OSM overlay, strict, 60 m obstruction buffer.
@@ -146,7 +159,7 @@ describe('CHARACTERISATION: chart CATNAV 3 leads in the production shape (newpor
 //   Newport -> Rivergate   23.93 NM, caution 9, audit 0 m  [23.95 NM, 4, 0 m]
 // The extra caution segments are the land-conflict cells HEAD's reopen used
 // to paint as 5 m water, now honest CAUTION.
-describe('GOLDEN: chart leads + OSM overlay (the production shape), strict', () => {
+describe('GOLDEN: chart leads + OSM overlay (the production shape), strict', { timeout: ROUTE_TEST_TIMEOUT_MS }, () => {
     it.each([
         ['newport-shane', { ...fx.request, obstructionBufferM: 60 }, 24.54, 6],
         ['Newport -> Rivergate', osmRivergate.request, 23.93, 9],
