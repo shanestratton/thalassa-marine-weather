@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => ({
     },
     settings: {} as {
         defaultLocationCoords?: { lat: number; lon: number };
-        vessel?: { draft: number; cruisingSpeed: number };
+        vessel?: { draft: number; draftConfirmedFt?: number; cruisingSpeed: number };
     },
     location: { lat: -27.47, lon: 153.02, source: 'initial' },
     maps: [] as Array<{
@@ -267,7 +267,9 @@ function tapWaypoint(number: number) {
 beforeEach(() => {
     vi.clearAllMocks();
     mocks.maps.length = 0;
-    mocks.settings = { vessel: { draft: 1.6 / 0.3048, cruisingSpeed: 6 } };
+    // Confirmed drafts throughout: an unconfirmed one is asked about before
+    // Auto opens (tests/DraftConfirmGates.test.tsx).
+    mocks.settings = { vessel: { draft: 1.6 / 0.3048, draftConfirmedFt: 1.6 / 0.3048, cruisingSpeed: 6 } };
     mocks.encInventory = {
         encCellCount: 2,
         encReferenceCellCount: 0,
@@ -1851,7 +1853,7 @@ describe('explicit routing mode choice', () => {
         const pending = deferred<{ enabled: boolean; ready: boolean }>();
         mocks.status.mockReturnValueOnce(pending.promise);
         mocks.location = { lat: -26.7, lon: 153.2, source: 'map_pin' };
-        mocks.settings = { vessel: { draft: 6, cruisingSpeed: 7 } };
+        mocks.settings = { vessel: { draft: 6, draftConfirmedFt: 6, cruisingSpeed: 7 } };
         render(<RoutingFlow />);
         openChoice();
         expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
@@ -1861,7 +1863,7 @@ describe('explicit routing mode choice', () => {
         expect(mocks.maps[0].options.center).toEqual([153.2, -26.7]);
         expect(features()).toEqual([]);
         expect(screen.getByLabelText('departure latitude')).toHaveValue(null);
-        expect(mocks.settings.vessel).toEqual({ draft: 6, cruisingSpeed: 7 });
+        expect(mocks.settings.vessel).toEqual({ draft: 6, draftConfirmedFt: 6, cruisingSpeed: 7 });
         expect(mocks.location).toEqual({ lat: -26.7, lon: 153.2, source: 'map_pin' });
         fillRequest();
         fireEvent.click(calculateButton());
@@ -1873,13 +1875,14 @@ describe('explicit routing mode choice', () => {
     });
 
     it('uses saved location only when the location store is initial and never moves the shared location', async () => {
-        mocks.settings = { defaultLocationCoords: { lat: -23.9, lon: 152.4 } };
+        const vessel = { draft: 5.9, draftConfirmedFt: 5.9, cruisingSpeed: 6 };
+        mocks.settings = { defaultLocationCoords: { lat: -23.9, lon: 152.4 }, vessel };
         render(<RoutingFlow />);
         openChoice();
         await chooseAuto();
         expect(mocks.maps[0].options.center).toEqual([152.4, -23.9]);
         expect(mocks.location).toEqual({ lat: -27.47, lon: 153.02, source: 'initial' });
-        expect(mocks.settings).toEqual({ defaultLocationCoords: { lat: -23.9, lon: 152.4 } });
+        expect(mocks.settings).toEqual({ defaultLocationCoords: { lat: -23.9, lon: 152.4 }, vessel });
     });
 
     it('lets an authorized but unready user open Auto without enabling Calculate', async () => {
@@ -2023,7 +2026,7 @@ describe('explicit routing mode choice', () => {
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(mocks.maps[0].remove).toHaveBeenCalledTimes(1);
         mocks.location = { lat: -23.9, lon: 152.4, source: 'map_pin' };
-        mocks.settings = { vessel: { draft: 5, cruisingSpeed: 8 } };
+        mocks.settings = { vessel: { draft: 5, draftConfirmedFt: 5, cruisingSpeed: 8 } };
         openChoice();
         await chooseAuto();
         expect(mocks.maps).toHaveLength(2);

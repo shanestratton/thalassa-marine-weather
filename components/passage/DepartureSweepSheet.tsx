@@ -38,6 +38,9 @@ import {
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { isDraftConfirmed } from '../../services/draftConfirmation';
+import { requireConfirmedDraft } from '../../stores/draftConfirmStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { OverlayPortal } from '../ui/OverlayPortal';
 
 const log = createLogger('DepartureSweepSheet');
@@ -155,8 +158,28 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
     );
     const tideAnchor = useMemo(() => tideAnchorForShallowRuns(persistedShallowRuns), [persistedShallowRuns]);
 
+    // Every option is gated on the draft, so the sweep waits for the skipper
+    // to confirm it (Shane 2026-09-29): the shared modal asks over this sheet,
+    // the sweep starts the moment the draft is confirmed, and closing the
+    // modal closes the sheet with nothing run. Already confirmed: no ask.
+    const draftConfirmed = useSettingsStore((state) => isDraftConfirmed(state.settings.vessel));
+    const hasRoute = polyline !== null;
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
     useEffect(() => {
-        if (!open || !polyline) return;
+        if (!open || !hasRoute || draftConfirmed) return;
+        let cancelled = false;
+        void requireConfirmedDraft('departure-sweep').then((confirmed) => {
+            if (!confirmed && !cancelled) onCloseRef.current();
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, hasRoute, draftConfirmed]);
+    const waitingForDraft = open && hasRoute && !draftConfirmed;
+
+    useEffect(() => {
+        if (!open || !polyline || !draftConfirmed) return;
         let cancelled = false;
         const currentSequenceAbort = new AbortController();
         setLoading(true);
@@ -226,10 +249,11 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
             cancelled = true;
             currentSequenceAbort.abort(new Error('departure sweep closed or superseded'));
         };
-    }, [open, polyline, shallowSpots, tideAnchor, vessel]);
+    }, [open, polyline, shallowSpots, tideAnchor, vessel, draftConfirmed]);
 
     if (!open) return null;
 
+    const busy = loading || waitingForDraft;
     const options = sweep?.options ?? [];
     const best = sweep?.best ?? null;
     const bestIdx = best ? options.findIndex((o) => o.departMs === best.departMs) : -1;
@@ -284,21 +308,23 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                             </svg>
                         </button>
                     </div>
-                    {loading && (
+                    {busy && (
                         <div className="mt-3 flex items-center gap-2 text-[11px] text-sky-400">
                             <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" />
-                            <span className="font-mono tracking-wide">Loading tide data…</span>
+                            <span className="font-mono tracking-wide">
+                                {waitingForDraft ? 'Waiting for your draft…' : 'Loading tide data…'}
+                            </span>
                         </div>
                     )}
-                    {!loading && tideProvenance === 'EXTREMES_INTERP' && (
+                    {!busy && tideProvenance === 'EXTREMES_INTERP' && (
                         <p className="mt-2 text-xs text-amber-300/80">Tide approx ±0.3 m (interpolated extremes)</p>
                     )}
-                    {!loading && tideProvenance === 'NONE' && (
+                    {!busy && tideProvenance === 'NONE' && (
                         <p className="mt-2 text-xs text-slate-400">
                             Tide data unavailable here — times shown without tidal gating.
                         </p>
                     )}
-                    {!loading && (
+                    {!busy && (
                         <p className="mt-2 text-xs text-slate-400">
                             Current refinement is held for public beta — ETAs are not adjusted for currents.
                         </p>
@@ -306,7 +332,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 </div>
 
                 {/* Best pick + sparkline */}
-                {!loading && best && (
+                {!busy && best && (
                     <div className="shrink-0 px-5 pt-3 pb-1">
                         <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
                             <div className="flex items-center justify-between gap-2 mb-1">
@@ -346,7 +372,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                     className="flex-1 min-h-0 overflow-y-auto px-3 pt-2"
                     style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
                 >
-                    {loading && (
+                    {busy && (
                         <ul className="space-y-2">
                             {Array.from({ length: 5 }, (_, i) => (
                                 <li key={i}>
@@ -355,7 +381,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                             ))}
                         </ul>
                     )}
-                    {!loading && options.length === 0 && (
+                    {!busy && options.length === 0 && (
                         <div className="px-3 py-12 text-center text-xs text-slate-500">
                             No inshore route to sweep — plan a route first.
                         </div>

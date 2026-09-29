@@ -34,6 +34,7 @@ import { JoinVessel } from '../crew/JoinVessel';
 import type { ReleaseReason, ReleaseVesselResult, UndoReleaseResult } from '../../services/VesselFleetService';
 import { ReleaseVesselDialog } from './ReleaseVesselDialog';
 import { ReleaseResultDialog, type ReleaseOutcome } from './ReleaseResultDialog';
+import { vesselWithSettingsDefaults } from '../../utils/defaultVessel';
 
 /**
  * The fleet store is deliberately read through this small compatibility
@@ -405,19 +406,9 @@ function fleetStatusDisplay(value: unknown, fleetAvailable: boolean): FleetStatu
     return { label: 'Fleet status unknown', detail: syncedDetail, tone: 'slate', busy: false };
 }
 
+/** A new fleet boat starts from the Vessel tab's shared figures (utils/defaultVessel.ts). */
 function defaultFleetVessel(index: number): VesselProfile {
-    return {
-        name: `Vessel ${index}`,
-        type: 'sail',
-        length: 30,
-        beam: 10,
-        draft: 5,
-        displacement: 10000,
-        maxWaveHeight: 6,
-        cruisingSpeed: 6,
-        fuelCapacity: 0,
-        waterCapacity: 0,
-    };
+    return vesselWithSettingsDefaults(null, { name: `Vessel ${index}` });
 }
 
 // Pure constant — module scope so the ~8 MetricInputs on this tab don't each
@@ -810,21 +801,10 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
         [saveLocally, settings.comfortParams, updateActiveFleetProfile],
     );
 
+    // The starting figures are shared with the draft modal, so both start
+    // the same boat (utils/defaultVessel.ts).
     const vesselWithDefaults = useCallback(
-        (patch: Partial<VesselProfile> = {}): VesselProfile => ({
-            name: 'My Boat',
-            type: 'sail',
-            length: 30,
-            beam: 10,
-            draft: 5,
-            displacement: 10000,
-            maxWaveHeight: 6,
-            cruisingSpeed: 6,
-            fuelCapacity: 0,
-            waterCapacity: 0,
-            ...(vessel || {}),
-            ...patch,
-        }),
+        (patch: Partial<VesselProfile> = {}): VesselProfile => vesselWithSettingsDefaults(vessel, patch),
         [vessel],
     );
 

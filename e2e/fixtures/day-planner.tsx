@@ -216,6 +216,9 @@ const vessel: VesselProfile = {
     length: 40,
     beam: 12,
     draft: 1.8 * 3.28084,
+    // Confirmed, so Plan Your Day opens at once; the ask itself is
+    // browser-tested in draft-confirm-layout.spec.ts.
+    draftConfirmedFt: 1.8 * 3.28084,
     airDraft: 50,
     displacement: 12000,
     cruisingSpeed: 6,
@@ -251,11 +254,22 @@ if (frontDoor) {
     });
     useUIStore.setState({ isOffline: true });
     setAuthIdentityScope(signedOut ? null : 'day-planner-synthetic-fixture');
+    // That scope switch reloads settings and drops the seeded vessel, so the
+    // front door ran on no profile at all. Plan Your Day now asks for a draft
+    // when there is none, so put the synthetic (confirmed) vessel back.
+    await awaitSettingsLoaded();
+    useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, vessel } });
     planFrontDoor = (
         <WeatherProvider>
             <RoutePlanner onTriggerUpgrade={() => undefined} />
         </WeatherProvider>
     );
+} else {
+    // Plan Your Day opens once the ACTIVE profile's draft is confirmed, so the
+    // in-memory store carries the same synthetic (confirmed) vessel.
+    const { awaitSettingsLoaded, useSettingsStore } = await import('../../stores/settingsStore');
+    await awaitSettingsLoaded();
+    useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, vessel } });
 }
 
 function Fixture() {

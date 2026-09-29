@@ -24,6 +24,7 @@ import { canAccess } from '../../services/SubscriptionService';
 import { SATELLITE_MODE_ENFORCED } from '../../services/networkPolicy';
 import { OFFSHORE_MODELS } from '../../services/weather/forecastModels';
 import { offshoreModelHelper } from '../dashboard/ModelPickerSheet';
+import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
 
 /** The Settings menu row's icon tile (SettingsModal's MENU_ICON_TILE): the soft
  *  surface with the one sky accent on the glyph, in both display modes. */
@@ -398,10 +399,17 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             navigation.
                         </p>
                     </div>
+                    {/* The leads are classed against the draft, so switching them
+                        on waits for the skipper to confirm it (Shane 2026-09-29).
+                        Switching off never asks. */}
                     <Toggle
                         label="Show charted leads"
                         checked={settings.showChartLeads === true}
-                        onChange={(on) => onSave({ showChartLeads: on })}
+                        onChange={(on) =>
+                            on
+                                ? runWithConfirmedDraft('charted-leads', () => onSave({ showChartLeads: true }))
+                                : onSave({ showChartLeads: false })
+                        }
                     />
                 </Row>
             </Section>

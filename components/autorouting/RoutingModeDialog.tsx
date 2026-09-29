@@ -8,6 +8,7 @@ import {
 import { lazyRetry } from '../../utils/lazyRetry';
 import { LocationStore } from '../../stores/LocationStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
 import { vesselDraftMetres } from '../../services/units';
 import { snapshotAutoroutingVesselProfile } from '../../services/autoroutingVesselProfile';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -126,9 +127,8 @@ export function RoutingModeDialog({
         setPhase('closed');
         onManual();
     };
-    const chooseAuto = () => {
-        if (finished.current || phase !== 'choice' || !status?.enabled || !isAuthIdentityScopeCurrent(scope.current))
-            return;
+    const openAuto = () => {
+        if (finished.current || !isAuthIdentityScopeCurrent(scope.current)) return;
         const location = LocationStore.getState();
         const settings = useSettingsStore.getState().settings;
         const center = location.source === 'initial' ? settings.defaultLocationCoords : location;
@@ -139,6 +139,15 @@ export function RoutingModeDialog({
             initialVesselProfile: snapshotAutoroutingVesselProfile(settings.vessel),
         };
         setPhase('auto');
+    };
+    const chooseAuto = () => {
+        if (finished.current || phase !== 'choice' || !status?.enabled || !isAuthIdentityScopeCurrent(scope.current))
+            return;
+        // Every trial Calculate uses the draft snapshotted here, so the trial
+        // opens only on a confirmed draft (Shane 2026-09-29) — at once when it
+        // already is — and the snapshot is taken after the confirmation, so a
+        // draft corrected in the modal is the one the trial routes on.
+        runWithConfirmedDraft('autorouting-trial', openAuto);
     };
 
     if (phase === 'closed') return null;

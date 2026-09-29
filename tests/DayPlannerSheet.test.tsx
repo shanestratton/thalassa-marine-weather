@@ -14,6 +14,7 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { dayPlanInputTime, dayPlanTime, parseDayPlanInput } from '../services/dayPlanner/presentation';
 import DayPlannerSheet from '../components/dayPlanner/DayPlannerSheet';
 import { DayPlannerEntry } from '../components/dayPlanner/DayPlannerEntry';
+import { awaitSettingsLoaded, useSettingsStore } from '../stores/settingsStore';
 
 const mock = vi.hoisted(() => ({
     run: vi.fn(),
@@ -841,6 +842,18 @@ describe('DayPlannerSheet review and planned-only save', () => {
 });
 
 describe('DayPlannerEntry lifecycle', () => {
+    // The entry opens the planner at once on a confirmed draft; an
+    // unconfirmed one is asked about first (tests/DraftConfirmGates.test.tsx).
+    beforeEach(async () => {
+        await awaitSettingsLoaded();
+        useSettingsStore.setState({
+            settings: {
+                ...useSettingsStore.getState().settings,
+                vessel: { ...vessel, draftConfirmedFt: vessel.draft },
+            },
+        });
+    });
+
     it('keeps a pending calculation alive through an unrelated entry rerender', async () => {
         mock.run.mockReturnValue(new Promise(() => {}));
         const onOpenSaved = vi.fn();

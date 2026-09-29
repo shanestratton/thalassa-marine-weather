@@ -24,6 +24,8 @@ export default defineConfig({
         'shore-watch-layout.spec.ts',
         'passage-log-layout.spec.ts',
         'passage-recording-layout.spec.ts',
+        // "Your draft is set at 2.40 m. Please confirm." (e2e/fixtures/draft-confirm.tsx).
+        'draft-confirm-layout.spec.ts',
         // A fixture page (e2e/fixtures/navigation-marker-anchoring.html): it needs
         // the dev server, not the production preview the e2e suite runs on.
         'ownship-label-layout.spec.ts',

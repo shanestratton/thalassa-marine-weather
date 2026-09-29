@@ -68,6 +68,14 @@ export interface VesselProfile {
     customIconUrl?: string;
     estimatedFields?: string[];
     /**
+     * The draft (FEET, like `draft`) the skipper last confirmed in "Your
+     * draft is set at 2.40 m. Please confirm." (Shane 2026-09-29). Confirmed
+     * only while it equals `draft` within 0.01 ft and 'draft' is not in
+     * estimatedFields, so any later change to the draft unconfirms it without
+     * anything clearing this. Read it through services/draftConfirmation.ts.
+     */
+    draftConfirmedFt?: number;
+    /**
      * SAR-relevant gear, entered ONCE on the vessel rather than per voyage.
      * These exist for the float plan: the beacon's registered hex ID is what
      * lets a shore contact tie a distress alert to this boat, and raft

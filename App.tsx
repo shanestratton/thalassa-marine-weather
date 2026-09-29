@@ -37,6 +37,7 @@ import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { BuilderDeepLink } from './components/BuilderDeepLink';
 import { PlanSignOutButton } from './components/PlanSignOutButton';
+import { DraftConfirmModal } from './components/vessel/DraftConfirmModal';
 import { useAuthStore } from './stores/authStore';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
@@ -956,6 +957,12 @@ const App: React.FC = () => {
             <Suspense fallback={null}>
                 <SettingsRestoredModal />
             </Suspense>
+            {/* "Your draft is set at 2.40 m. Please confirm." — the ONE box that
+                asks, for every draft-dependent action (⚡ Auto route, Plan Your
+                Day, the Auto routing trial, the departure sweep, charted
+                leads). Renders nothing until stores/draftConfirmStore asks.
+                Not lazy: an ask must never wait on a chunk download. */}
+            <DraftConfirmModal />
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
             {/* Active-route status and stop controls live in SystemStatusButton

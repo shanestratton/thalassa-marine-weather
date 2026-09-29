@@ -99,6 +99,7 @@ import {
 } from '../services/deepLink';
 import { clearPassageRequest, peekPassageRequest } from '../services/passageHandoff';
 import { useUIStore } from '../stores/uiStore';
+import { awaitSettingsLoaded, useSettingsStore } from '../stores/settingsStore';
 
 const actualBootView = useUIStore.getState().currentView;
 
@@ -212,6 +213,25 @@ describe('/plan autorouting entry', () => {
         async (ready) => {
             mocks.status.mockResolvedValue({ enabled: true, ready });
             setSession('plan-skipper');
+            // A confirmed draft opens the trial at once; an unconfirmed one is
+            // asked about first (tests/DraftConfirmGates.test.tsx).
+            await awaitSettingsLoaded();
+            useSettingsStore.setState({
+                settings: {
+                    ...useSettingsStore.getState().settings,
+                    vessel: {
+                        name: 'Plan boat',
+                        type: 'sail',
+                        length: 40,
+                        beam: 13,
+                        draft: 7.87,
+                        draftConfirmedFt: 7.87,
+                        displacement: 20000,
+                        maxWaveHeight: 10,
+                        cruisingSpeed: 6,
+                    },
+                },
+            });
             render(<PlanEntry />);
             startPlotting();
             const auto = screen.getByRole('button', { name: 'Auto routing' });

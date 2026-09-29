@@ -34,6 +34,9 @@ const settingsReady = awaitSettingsLoaded().then(() =>
                 beam: 11,
                 airDraft: 50,
                 draft: 1.5 / 0.3048,
+                // Confirmed, so Auto opens at once; the ask itself is
+                // browser-tested in draft-confirm-layout.spec.ts.
+                draftConfirmedFt: 1.5 / 0.3048,
                 displacement: 12000,
                 maxWaveHeight: 2,
                 cruisingSpeed: 6,
