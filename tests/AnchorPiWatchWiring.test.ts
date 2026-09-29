@@ -262,9 +262,19 @@ describe('the Pi can actually be handed the shore watch', () => {
         const page = read('components/AnchorWatchPage.tsx');
         // No bare unmount-cleanup effect calling end().
         expect(page).not.toMatch(/\(\) => \(\) => \{\s*void AnchorPiWatchKeeper\.end\(\);\s*\},\s*\[\],/);
-        // Exactly one end() call, and it is the weigh-anchor one.
+        // Exactly two end() calls, both explicit weigh-anchor handlers: the
+        // vessel view's, and Shore Watch's for this phone's own Pi (Shane
+        // 2026-09-29: Leave alone left the Pi watching after the anchor came
+        // up). Checked below: each sits in its handler, never in an effect.
         const calls = page.match(/AnchorPiWatchKeeper\.end\(\)/g) ?? [];
-        expect(calls).toHaveLength(1);
+        expect(calls).toHaveLength(2);
+        const shoreAt = page.indexOf('const handleWeighAnchorFromShore');
+        expect(shoreAt).toBeGreaterThan(-1);
+        const shoreWeigh = page.slice(shoreAt, page.indexOf('}, []);', shoreAt));
+        expect(shoreWeigh).toMatch(/await AnchorPiWatchKeeper\.end\(\);\s*\} catch/);
+        // It runs only from the Weigh Anchor button, not from any effect.
+        expect(page.match(/handleWeighAnchorFromShore\b/g)).toHaveLength(2);
+        expect(page).toMatch(/<ShoreWeighAnchorBar onWeighAnchor=\{\(\) => void handleWeighAnchorFromShore\(\)\} \/>/);
         // …and it is in the WEIGH-ANCHOR handler, not an effect. Deriving it
         // from viewMode failed three times: an unmount cleanup (leaving the
         // page stopped the Pi), `viewMode === 'setup'` (coming back stopped
