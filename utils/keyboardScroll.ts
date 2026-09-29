@@ -291,8 +291,16 @@ export function keepEditableAboveKeyboard(target: EventTarget | null, center = f
     // Centre in the measured usable band, including the panel's actual
     // sticky header. Large textareas are capped above so their caret can
     // scroll within the editor instead of disappearing behind the keyboard.
+    // A single-line field is always centred, even in a band shorter than the
+    // field: its text sits on its middle line. Top-aligning it in a squeezed
+    // panel (the autorouting Tracer at a 1024 split, 2026-09-29, where the
+    // band was 8 px) parked that line on the edge of the sticky Calculate row,
+    // and whether the tap landed on the field or the button was a coin toss.
+    const multiLine = element instanceof HTMLTextAreaElement || element.isContentEditable;
     const preferredTop =
-        field.height >= viewport.height ? viewport.top : viewport.top + (viewport.height - field.height) / 2;
+        multiLine && field.height >= viewport.height
+            ? viewport.top
+            : viewport.top + (viewport.height - field.height) / 2;
     const desiredDelta = field.top - preferredTop;
     const scrollParent = findScrollParent(element);
 

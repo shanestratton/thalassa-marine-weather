@@ -1584,6 +1584,7 @@ for (const size of sizes)
                                 __trialFixture: {
                                     mapsCreated: number;
                                     map: {
+                                        isStyleLoaded: () => boolean;
                                         getStyle: () => {
                                             sources: {
                                                 trial?: {
@@ -1599,6 +1600,11 @@ for (const size of sizes)
                                 };
                             }
                         ).__trialFixture;
+                        // Dark and night themes reload the style; getStyle()
+                        // throws "Style is not done loading" mid-reload, which
+                        // failed the poll instead of letting it retry (CI
+                        // 36511842433, WebKit 390 dark and 430 night).
+                        if (!fixture.map.isStyleLoaded()) return null;
                         const features = fixture.map.getStyle().sources.trial?.data?.features || [];
                         return {
                             maps: fixture.mapsCreated,
