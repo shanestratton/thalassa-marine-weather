@@ -158,6 +158,9 @@ describe('handover carriage', () => {
         const { resolve } = require('node:path') as typeof import('node:path');
         const src = readFileSync(resolve(process.cwd(), 'services/sailing/sereneSailing.ts'), 'utf8');
         expect(src).toContain('CHECK ON THE FIRST BEAT');
-        expect(src).toContain('DEPTH_MEASURED_OFFSET = -1.46');
+        // Shane 2026-09-29: depth needs the draft from the vessel profile and
+        // nothing else. No tape/transducer offset and no hard-coded draft.
+        expect(src).toContain("the sounder's own figure and the DRAFT from the\n *    vessel profile, nothing else");
+        expect(src).not.toMatch(/DEPTH_MEASURED_OFFSET|DEPTH_FALLBACK_OFFSET|export const DRAFT_M/);
     });
 });

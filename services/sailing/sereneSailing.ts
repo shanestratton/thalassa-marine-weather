@@ -4,7 +4,8 @@
  * see /HANDOVER.md in that package for the full reasoning).
  *
  * NONE OF THIS IS GENERIC. It encodes Serene Summer specifically:
- * 1991 Tayana 55 cutter, 26 tonnes weighed, 2.00 m draft, in-boom furling
+ * 1991 Tayana 55 cutter, 26 tonnes weighed, 2.4 m draft (Shane 2026-09-29;
+ * the draft itself is read from the vessel profile, never from here), in-boom furling
  * main (Leisure Furl — reef to a batten, boom at 87° on the vang), high-cut
  * yankee on a furler, staysail on a furler (NOT club-footed — no staysail
  * boom), and RUNNING BACKSTAYS that must be set before the staysail loads
@@ -19,10 +20,14 @@
  *    reference reads ~1.2° ashore with the blade straight. Tightening them
  *    raises alarms from a sensor zero error.
  * 3. HEEL_POSITIVE_IS_STBD is UNVERIFIED under sail — carry the comment.
- * 4. DEPTH_MEASURED_OFFSET is a tape measurement; the sounder is configured
- *    with 1.79 so the instrument reads 0.33 m SHALLOWER than reality — the
- *    safe direction, deliberate. Do not "correct" the app to match the
- *    instrument; the instrument is the thing that is wrong.
+ * 4. DEPTH: the app uses the sounder's own figure and the DRAFT from the
+ *    vessel profile, nothing else (Shane 2026-09-29, replacing the handover's
+ *    tape offset: "we should not need the offset for the transducer. just
+ *    the draft … lets not make it too complicated for the punter"). Serene
+ *    Summer's sounder has its keel offset set (1.8 m vs 1.46 m taped), so it
+ *    reads under the keel about 0.33 m SHALLOW, the safe way ("0 = crash").
+ *    Do not add a transducer or tape figure back, and do not hard-code a
+ *    draft here.
  * 5. CAR has three discrete positions, set-and-forget. There is a perfect
  *    car position for every puff and chasing it is not practical sailing.
  * 6. Anything that brings the staysail in MUST say the runners go on first.
@@ -52,16 +57,8 @@ export interface SailingWind {
     helm: HelmWindow | null;
 }
 
-export const DRAFT_M = 2.0; /* Tayana 55, from the ship's particulars */
-
 /* --- COMFORT_M --- */
 export const COMFORT_M = 1.0;
-
-/* --- DEPTH_MEASURED_OFFSET --- */
-export const DEPTH_MEASURED_OFFSET = -1.46; /* main transducer, tape, 21 Aug 2026 */
-
-/* --- DEPTH_FALLBACK_OFFSET --- */
-export const DEPTH_FALLBACK_OFFSET = DEPTH_MEASURED_OFFSET;
 
 /* --- BAND_TWA --- */
 export const BAND_TWA = { Beating: 42, 'Close reach': 67, 'Beam reach': 95, 'Broad reach': 127, Running: 163 };

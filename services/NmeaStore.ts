@@ -164,6 +164,10 @@ export interface RemoteInstrumentSnapshot {
     /** Signed, negative to port. */
     awaDeg: number | null;
     depthM: number | null;
+    /** What depthM is measured from. Absent from an older Pi: its raw depth is below the transducer. */
+    depthReference?: NmeaDepthReference;
+    /** The signed transducer offset behind a referenced depth (negative reaches the keel). */
+    depthOffsetM?: number;
     heelDeg: number | null;
     pitchDeg: number | null;
     waterTempC: number | null;
@@ -361,6 +365,14 @@ class NmeaStoreClass {
         put(this.state.heading, snapshot.headingDeg);
         this.ingestTrueHeading(snapshot.headingTrueDeg, snapshot.headingTrueAt, now);
         put(this.state.depth, snapshot.depthM);
+        if (snapshot.depthM !== null && Number.isFinite(snapshot.depthM)) {
+            // The Pi's depth is the boat display's (below the keel on Serene
+            // Summer) and says so. Without the reference, an older Pi's raw
+            // reading is below the transducer, as it always was.
+            this.state.depthSource = null;
+            this.state.depthReference = snapshot.depthReference ?? 'below-transducer';
+            this.state.depthOffsetM = snapshot.depthOffsetM ?? null;
+        }
         put(this.state.sog, snapshot.sogKts);
         put(this.state.cog, snapshot.cogDeg);
         put(this.state.waterTemp, snapshot.waterTempC);

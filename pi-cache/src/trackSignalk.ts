@@ -17,8 +17,10 @@
  *            carried as XDR Roll/Pitch on the existing localhost passthrough.
  *            onboardSensors supplements this reader from the existing decoder's
  *            timestamped export, without opening another gateway connection.
- *   ABSENT   environment.depth.* — the transducer is dry with the boat on the
- *            hard. This one fills itself in the moment she floats.
+ *   present  environment.depth.* since she floated (measured 2026-09-29, in a
+ *            marina berth): belowTransducer (DBT), belowKeel and transducerToKeel
+ *            (DPT, 1.8 m offset set in the sounder), belowSurface (DBS, which
+ *            this sounder fills with the KEEL figure). See readDepth.
  *   ABSENT   environment.outside.pressure — Serene Summer's MDA carries empty
  *            pressure fields. Other boats will have it.
  */
@@ -80,6 +82,123 @@ export function timestampAt(doc: unknown, path: string, inherit = true): number 
         node = record[key];
     }
     return stamp !== null && Number.isFinite(stamp) ? stamp : null;
+}
+
+export type DepthReference = 'below-keel' | 'below-transducer' | 'below-waterline';
+
+/** A keel reading this much older than the raw transducer reading has stopped updating. */
+export const DEPTH_REFERENCE_MAX_LAG_MS = 10_000;
+/** A depth reading older than this has stopped updating: the phones get none. */
+export const DEPTH_MAX_AGE_MS = 20_000;
+/** A reading stamped further ahead of the Pi's clock than this is not live either. */
+const DEPTH_FUTURE_SKEW_MS = 5_000;
+/** The deepest a keel is taken to sit under its transducer when the sounder
+ * gives no offset — and the cloud relay's depth_m floor. */
+const MAX_TRANSDUCER_TO_KEEL_M = 5;
+/** How long after the keel figure stops the sounder's keel offset is still
+ * trusted on its own (a DPT gap, not a change of display mode). */
+export const KEEL_OFFSET_HOLD_MS = 180_000;
+
+/**
+ * The depth to send the phones: the one the skipper's own display shows.
+ *
+ * Serene Summer's sounder has its keel offset set, so her display reads depth
+ * UNDER THE KEEL ("0 = crash, 0.1 = ok", Shane 2026-09-29). Signal K keeps
+ * both: belowTransducer is the raw reading and belowKeel applies the DPT
+ * offset (measured live that day: 4.76 raw, transducerToKeel 1.8, belowKeel
+ * 2.96). This reader used to send belowTransducer, and the phones labelled it
+ * "Below transducer", so the app showed 1.8 m MORE water under the keel than
+ * the boat's own display. Wrong in the reassuring direction.
+ *
+ * Order: belowKeel; then the raw reading minus the keel offset, still below
+ * the keel, when belowKeel has stopped updating while the raw reading carries
+ * on (the offset is an installation constant); then the raw reading as below
+ * the transducer when no CURRENT offset is known; then belowSurface. The
+ * reference and the transducer offset travel with it in `extra`, so the
+ * phones label it honestly; a phone too old to read them still shows the keel
+ * number, which is the cautious one.
+ *
+ * Final review 2026-09-29: Signal K's DPT hook writes transducerToKeel and
+ * belowKeel only for a NEGATIVE offset and keeps the old values for ever, so
+ * a sounder switched to show depth below the transducer (offset 0) or below
+ * the waterline leaves a stale 1.8 m behind while DBT carries on. The offset
+ * counts only while its own timestamp keeps up with the raw reading, or the
+ * keel figure stopped less than KEEL_OFFSET_HOLD_MS ago (a DPT gap); past
+ * that the raw reading goes out as what it is, below the transducer. And
+ * this sounder fills DBS with the KEEL figure, so a belowSurface equal to
+ * belowKeel is never sent as a waterline depth.
+ *
+ * DBS (belowSurface) on a sounder set to show the keel figure: it carries
+ * that LIVE keel figure, not a depth below the waterline, and once DBT and
+ * DPT go quiet there is no way to tell which it is. Two attempts to guess
+ * (an exact-repeat check, then a margin against the last raw reading) each
+ * let a wrong figure out: a keel number as "below waterline", or a genuine
+ * waterline number as "below keel", i.e. MORE water than the boat's display
+ * (final review 2026-09-29). So when the document shows a keel setting at all
+ * (belowKeel or transducerToKeel present), DBS is never sent: no depth goes
+ * out until DBT or DPT return. Unknown is never green. A sounder with no keel
+ * setting reports DBS as the depth below the waterline, and that still goes.
+ *
+ * Review 2026-09-29:
+ *   • A NEGATIVE keel figure is kept. Signal K derives belowKeel as raw minus
+ *     transducerToKeel, so it goes below zero whenever the raw reading is
+ *     under 1.8 m — while she is still afloat (the keel is 1.46 m down by the
+ *     tape; the sounder is set pessimistic on purpose). Refusing it sent the
+ *     raw 1.6 m "below transducer" at the very moment the keel touched.
+ *   • Nothing older than DEPTH_MAX_AGE_MS goes out: Signal K keeps a silent
+ *     sounder's last values for ever, and the phones stamp what arrives with
+ *     the receipt time, so a switched-off sounder read "live" at anchor while
+ *     the tide fell. A reading with no timestamp at all is taken as it is (a
+ *     Signal K server always stamps; hand-built documents may not).
+ */
+export function readDepth(
+    selfDocument: unknown,
+    nowMs: number = Date.now(),
+): {
+    depthM: number | null;
+    reference: DepthReference | null;
+    offsetM: number | null;
+} {
+    const keel = num(selfDocument, 'environment.depth.belowKeel');
+    const raw = num(selfDocument, 'environment.depth.belowTransducer');
+    const surface = num(selfDocument, 'environment.depth.belowSurface');
+    const toKeelRaw = num(selfDocument, 'environment.depth.transducerToKeel');
+    // Signal K's transducerToKeel is positive (DPT's negative offset, turned
+    // round); the offset sent on is signed the DPT way: negative reaches the keel.
+    const toKeel = toKeelRaw !== null && toKeelRaw > 0 && toKeelRaw <= MAX_TRANSDUCER_TO_KEEL_M ? toKeelRaw : null;
+    const offsetM = toKeel !== null ? -toKeel : null;
+    const keelAt = timestampAt(selfDocument, 'environment.depth.belowKeel', false);
+    const rawAt = timestampAt(selfDocument, 'environment.depth.belowTransducer', false);
+    const surfaceAt = timestampAt(selfDocument, 'environment.depth.belowSurface', false);
+    const toKeelAt = timestampAt(selfDocument, 'environment.depth.transducerToKeel', false);
+    const live = (at: number | null): boolean =>
+        at === null || (at <= nowMs + DEPTH_FUTURE_SKEW_MS && nowMs - at <= DEPTH_MAX_AGE_MS);
+
+    const rawLive = raw !== null && raw >= 0 && live(rawAt);
+    // Below zero is the keel in the mud, not a bad reading — down to the
+    // transducer itself (a raw reading of 0).
+    const keelLive = keel !== null && keel >= -(toKeel ?? MAX_TRANSDUCER_TO_KEEL_M) && live(keelAt);
+    const keelCurrent = keelAt === null || rawAt === null || !rawLive || rawAt - keelAt <= DEPTH_REFERENCE_MAX_LAG_MS;
+    if (keelLive && keelCurrent) return { depthM: keel, reference: 'below-keel', offsetM };
+    const keelJustStopped =
+        keelAt !== null && keelAt <= nowMs + DEPTH_FUTURE_SKEW_MS && nowMs - keelAt <= KEEL_OFFSET_HOLD_MS;
+    if (rawLive) {
+        // DPT stopped (or never sent a keel figure) while DBT carries on. The
+        // offset is fixed at installation, so the keel figure is still known —
+        // while the sounder is still set to show it: the offset keeps up with
+        // the raw reading, or the keel figure stopped only just now.
+        const offsetCurrent = toKeelAt === null || rawAt === null || rawAt - toKeelAt <= DEPTH_REFERENCE_MAX_LAG_MS;
+        if (toKeel !== null && (offsetCurrent || keelJustStopped)) {
+            return { depthM: Math.round((raw - toKeel) * 1000) / 1000, reference: 'below-keel', offsetM };
+        }
+        return { depthM: raw, reference: 'below-transducer', offsetM: null };
+    }
+    const none = { depthM: null, reference: null, offsetM: null };
+    if (surface === null || !live(surfaceAt)) return none;
+    // A sounder with a keel setting fills DBS with its keel figure: never send
+    // it (see above). Only a sounder with no keel setting reports a waterline.
+    if (keel !== null || toKeelRaw !== null) return none;
+    return surface >= 0 ? { depthM: surface, reference: 'below-waterline', offsetM: null } : none;
 }
 
 export const knots = (msValue: number | null): number | null => (msValue === null ? null : msValue * MS_TO_KNOTS);
@@ -171,6 +290,9 @@ export function readTrackFix(selfDocument: unknown): TrackFix | null {
         gpsTimeMs,
         sogKts,
         cogDeg,
+        // The recorded track keeps the RAW transducer depth on purpose: the
+        // log's history is one consistent measure. The live display depth
+        // (below the keel) is readDepth's, for the phones.
         depthM: num(selfDocument, 'environment.depth.belowTransducer'),
         twsKts: knots(num(selfDocument, 'environment.wind.speedTrue')),
         twdDeg: degrees(num(selfDocument, 'environment.wind.directionTrue')),
@@ -364,6 +486,10 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
     const waterK = num(selfDocument, 'environment.water.temperature');
     const pressurePa = num(selfDocument, 'environment.outside.pressure');
     const revolutionsHz = firstChildNumber(selfDocument, 'propulsion', 'revolutions');
+    // The depth the boat's own display shows, and what it is measured from.
+    const depth = readDepth(selfDocument, nowMs);
+    if (depth.reference) extra.depth_reference = depth.reference;
+    if (depth.offsetM !== null) extra.depth_offset_m = depth.offsetM;
 
     const snapshot: TelemetrySnapshot = {
         reportedAt,
@@ -380,9 +506,7 @@ export function readTelemetrySnapshot(selfDocument: unknown, now: () => number =
         twdDeg: degrees(num(selfDocument, 'environment.wind.directionTrue')),
         awsKts: knots(num(selfDocument, 'environment.wind.speedApparent')),
         awaDeg: signedDegrees(num(selfDocument, 'environment.wind.angleApparent')),
-        depthM:
-            num(selfDocument, 'environment.depth.belowTransducer') ??
-            num(selfDocument, 'environment.depth.belowSurface'),
+        depthM: depth.depthM,
         heelDeg: attitude('roll', 'heel_at'),
         pitchDeg: attitude('pitch', 'pitch_at'),
         waterTempC: waterK === null ? null : waterK - KELVIN_OFFSET,
