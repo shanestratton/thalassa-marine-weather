@@ -386,6 +386,35 @@ describe('keyboard positioning regressions', () => {
         expect(scrollBy).toHaveBeenCalledWith({ top: 254, behavior: 'auto' });
     });
 
+    // CI 36511842433 (2026-09-29): the Tracer's Setup scroller squeezed to
+    // 32 px between its tabs and the sticky Calculate row. The field was
+    // top-aligned in the 8 px band, so its text line sat on the button's edge.
+    it('centres a one-line field in a panel shorter than the field, keeping its text line inside the panel', () => {
+        setViewport({ height: 500 });
+        const { form, scrollBy } = scrollableForm();
+        vi.spyOn(form, 'getBoundingClientRect').mockReturnValue(rect(305, 32));
+        const input = document.createElement('input');
+        form.append(input);
+        vi.spyOn(input, 'getBoundingClientRect').mockReturnValue(rect(330, 38));
+        keepEditableAboveKeyboard(input, true);
+        // Band [317, 325]: the field's top belongs at 302, its middle at 321.
+        expect(scrollBy).toHaveBeenCalledWith({ top: 28, behavior: 'auto' });
+        const middle = 330 - 28 + 38 / 2;
+        expect(middle).toBeGreaterThan(305);
+        expect(middle).toBeLessThan(305 + 32);
+    });
+
+    it('still top-aligns a textarea taller than the band, so its first line stays in view', () => {
+        setViewport({ height: 500 });
+        const { form, scrollBy } = scrollableForm();
+        vi.spyOn(form, 'getBoundingClientRect').mockReturnValue(rect(305, 32));
+        const textarea = document.createElement('textarea');
+        form.append(textarea);
+        vi.spyOn(textarea, 'getBoundingClientRect').mockReturnValue(rect(330, 38));
+        keepEditableAboveKeyboard(textarea, true);
+        expect(scrollBy).toHaveBeenCalledWith({ top: 13, behavior: 'auto' });
+    });
+
     it('adds only missing scroll travel to a short form and restores its padding when the keyboard closes', () => {
         setViewport({ height: 500 });
         const viewport = new EventTarget();
