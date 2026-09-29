@@ -22,6 +22,7 @@ import {
     clearCastOffHandoff,
     ensureActiveVoyageLogging,
     peekCastOffHandoff,
+    retryPublicPublish,
     startHandoffGps,
     subscribeCastOffHandoff,
     updateCastOffHandoff,
@@ -357,10 +358,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (castOffHandoff.publishState !== 'skipped' && castOffHandoff.publishState !== 'failed') return;
         if (publishRetryRef.current === castOffHandoff.voyageId) return;
         publishRetryRef.current = castOffHandoff.voyageId;
-        void (async () => {
-            const { retryPublicPublish } = await import('../services/castOffHandoff');
-            await retryPublicPublish();
-        })();
+        // Called directly (the module is already imported above), so the retry
+        // is tracked from the first tick and castOffHandoffIdle sees it.
+        void retryPublicPublish();
     }, [castOffHandoff, state.isTracking]);
 
     const activeFollowArmRef = useRef<string | null>(null);

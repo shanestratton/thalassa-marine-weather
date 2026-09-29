@@ -58,7 +58,7 @@ vi.mock('../../services/ChatService', () => ({
 }));
 
 import { CastOffPanel } from '../../components/vessel/CastOffPanel';
-import { clearCastOffHandoff, peekCastOffHandoff } from '../../services/castOffHandoff';
+import { castOffHandoffIdle, clearCastOffHandoff, peekCastOffHandoff } from '../../services/castOffHandoff';
 
 describe('CastOffPanel', () => {
     beforeEach(() => {
@@ -80,7 +80,14 @@ describe('CastOffPanel', () => {
         localStorage.clear();
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        // Cast Off's GPS / route-line / publish work is fire-and-forget by
+        // design, and each chain walks several dynamic imports. Drain it so
+        // no chain outlives its test: an undrained Open Ship's Log chain
+        // overlapped the next test's, pulled in the REAL ShipLogService, and
+        // its import graph then failed after teardown — an unhandled
+        // EnvironmentTeardownError that failed an otherwise green run.
+        await castOffHandoffIdle();
         setAuthIdentityScope(null);
     });
 

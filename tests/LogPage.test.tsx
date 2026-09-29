@@ -495,6 +495,7 @@ vi.mock('../hooks/useLogPageState', () => ({
 import { LogPage, resetFollowPromptGuardsForTest } from '../pages/LogPage';
 import { useLogPageState } from '../hooks/useLogPageState';
 import {
+    castOffHandoffIdle,
     clearCastOffHandoff,
     peekCastOffHandoff,
     stashCastOffHandoff,
@@ -1580,7 +1581,14 @@ describe('LogPage — Cast Off handoff', () => {
         traceDirectUseBlockReasonMock.mockReturnValue(null);
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        // The page's auto-retry, Retry button and publish retry start Cast
+        // Off background work nobody awaits; let it settle inside this test
+        // (the page is still mounted, hence act) so it cannot overlap the
+        // next test's chains or run on past teardown.
+        await act(async () => {
+            await castOffHandoffIdle();
+        });
         clearCastOffHandoff();
     });
 

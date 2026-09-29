@@ -153,6 +153,84 @@ export function subscribeCastOffHandoff(listener: () => void): () => void {
 }
 
 /**
+ * The background work in flight — every GPS start, Open Ship's Log door and
+ * publish retry, including the ones callers fire and forget.
+ *
+ * Those callers never await on purpose (the work must outlive the panel that
+ * started it), and each chain walks several sequential dynamic imports. A
+ * test that finished mid-chain left those imports running into the next
+ * test and past its environment's teardown: overlapping chains made Vitest
+ * hand out the REAL ShipLogService instead of the test's mock, and its
+ * import graph then failed after teardown — an unhandled
+ * EnvironmentTeardownError that turned a fully green run red. Tracking
+ * changes nothing for callers: each entry point returns the same promise,
+ * which still never rejects.
+ *
+ * Each entry carries a label naming the call that started it, so a drain
+ * that gives up can say WHICH work is stuck.
+ */
+const inFlight = new Map<Promise<unknown>, string>();
+
+function track<T>(work: Promise<T>, label: string): Promise<T> {
+    inFlight.set(work, label);
+    const settle = () => {
+        inFlight.delete(work);
+    };
+    // Settling must not swallow a failure: callers fire and forget, so a
+    // rejection used to reach the global unhandledrejection handler (and
+    // Sentry). A fresh rejected promise, left unhandled, keeps it that way.
+    work.then(settle, (error: unknown) => {
+        settle();
+        void Promise.reject(error);
+    });
+    return work;
+}
+
+/**
+ * The drain's deadline clock, captured when this module loads. A test that
+ * installs fake timers afterwards replaces the global setTimeout, and a
+ * deadline built on the fake one would never fire: the drain would hang
+ * exactly as if it had no bound at all.
+ */
+const deadlineSetTimeout = globalThis.setTimeout.bind(globalThis);
+const deadlineClearTimeout = globalThis.clearTimeout.bind(globalThis);
+
+const DRAIN_TIMED_OUT = Symbol('castOffHandoffIdle timed out');
+
+/**
+ * Resolves once no Cast Off background work is in flight — work spawned
+ * while waiting included. A pending auto-retry TIMER is not work in flight:
+ * it is waited for only if it fires before the drain completes.
+ *
+ * Bounded: when the work has not settled within `timeoutMs` (a mocked
+ * startTracking that never resolves, an await stalled under fake timers),
+ * rejects with an Error listing the work still in flight, instead of waiting
+ * until a test runner's generic hook timeout says nothing useful. The work
+ * itself is left running; the bound only reports it.
+ */
+export async function castOffHandoffIdle({ timeoutMs = 5_000 }: { timeoutMs?: number } = {}): Promise<void> {
+    if (inFlight.size === 0) return;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<typeof DRAIN_TIMED_OUT>((resolve) => {
+        deadlineTimer = deadlineSetTimeout(() => resolve(DRAIN_TIMED_OUT), timeoutMs);
+    });
+    try {
+        // Loop, not one pass: a chain can start more work before it settles
+        // (the retry ladder re-entering startHandoffGps, the door starting
+        // GPS). One deadline covers every pass.
+        while (inFlight.size > 0) {
+            const outcome = await Promise.race([Promise.allSettled([...inFlight.keys()]), deadline]);
+            if (outcome === DRAIN_TIMED_OUT) {
+                const stuck = [...inFlight.values()].join(', ');
+                throw new Error(`Cast Off background work still in flight after ${timeoutMs} ms: ${stuck}`);
+            }
+        }
+    } finally {
+        deadlineClearTimeout(deadlineTimer);
+    }
+}
+
+/**
  * Start (or retry) background GPS logging for the handed-off voyage.
  *
  * Shared by CastOffPanel's fire-and-forget start and the Log page's retry
@@ -160,7 +238,11 @@ export function subscribeCastOffHandoff(listener: () => void): () => void {
  * reported through the handoff's gps state, which is the UI's single source
  * of truth.
  */
-export async function startHandoffGps(retry = false): Promise<void> {
+export function startHandoffGps(retry = false): Promise<void> {
+    return track(runHandoffGps(retry), `startHandoffGps(retry=${retry})`);
+}
+
+async function runHandoffGps(retry: boolean): Promise<void> {
     const handoff = current;
     if (!handoff) return;
     const scope = getAuthIdentityScope();
@@ -335,7 +417,15 @@ async function resolvePlannedMirrorId(
  * Open Ship's Log door; safe to call when everything is already running
  * (every step checks before acting). Never throws.
  */
-export async function ensureActiveVoyageLogging(voyage: {
+export function ensureActiveVoyageLogging(voyage: {
+    id: string;
+    voyage_name: string;
+    saved_route_id?: string | null;
+}): Promise<void> {
+    return track(runEnsureActiveVoyageLogging(voyage), `ensureActiveVoyageLogging(${voyage.id})`);
+}
+
+async function runEnsureActiveVoyageLogging(voyage: {
     id: string;
     voyage_name: string;
     saved_route_id?: string | null;
@@ -399,7 +489,11 @@ export async function ensureActiveVoyageLogging(voyage: {
  * exact trace (savedRouteId linkage from a fresh re-save), persist that
  * link and publish it. Never throws; reports through publishState.
  */
-export async function retryPublicPublish(): Promise<void> {
+export function retryPublicPublish(): Promise<void> {
+    return track(runRetryPublicPublish(), 'retryPublicPublish');
+}
+
+async function runRetryPublicPublish(): Promise<void> {
     const handoff = current;
     if (!handoff || handoff.publishRoute === false) return;
     try {
