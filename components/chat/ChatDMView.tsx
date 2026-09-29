@@ -50,7 +50,9 @@ function renderMessageContent(message: string, isMine: boolean): React.ReactNode
     }
     // Channel messages render at text-lg (ChatMessageList). A private message
     // is the same kind of content and was reading two sizes smaller.
-    return <p className="text-base text-white/70 leading-relaxed">{message}</p>;
+    // select-text: the page is unselectable, and a berth code or a phone
+    // number in a message is exactly what a skipper long-presses to copy.
+    return <p className="text-base text-white/70 leading-relaxed select-text">{message}</p>;
 }
 
 function getConversationPreview(message: string): string {

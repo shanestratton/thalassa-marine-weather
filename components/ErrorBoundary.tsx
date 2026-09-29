@@ -52,7 +52,9 @@ const DefaultErrorFallback: React.FC<{
         <p className="text-sm text-gray-400 mb-4 max-w-md">
             {boundaryName ? `Error in ${boundaryName}` : 'An unexpected error occurred'}
             {error?.message && (
-                <span className="block mt-2 text-sm text-red-400/70 font-mono">{error.message.slice(0, 100)}</span>
+                <span className="block mt-2 text-sm text-red-400/70 font-mono select-text">
+                    {error.message.slice(0, 100)}
+                </span>
             )}
         </p>
         {onRetry && (

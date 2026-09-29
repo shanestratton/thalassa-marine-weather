@@ -88,6 +88,13 @@ textarea,
     -webkit-user-select: text;
     user-select: text;
 }
+/* Tailwind's select-all / select-text opt-ins (a crew invite code, a Pi setup
+   address, radio text) keep their own user-select; they only need the
+   callout back, or their Copy never appears under the global none. */
+.select-all,
+.select-text {
+    -webkit-touch-callout: default;
+}
 
 /* ── Dual Theme System: CSS Custom Property Overrides ───────────
    When .theme-onshore is on the root element, all slate colors
@@ -190,13 +197,22 @@ input[type='range'] {
     transform: translate(-50%, -50%);
 }
 
-/* Long-form content should remain copyable; controls and map gestures retain
-   the global long-press protection above. */
-p:not(button p),
-article,
-[role='article'],
-.prose,
-dd {
+/* No text selection outside the opt-ins above (Shane 2026-09-29: "can we
+   block all messages from apple that are not necessary"). Every paragraph,
+   article, .prose block and dd used to be selectable, so a long press on the
+   header's "THE SAILOR'S ASSISTANT" raised Copy / Look Up / Translate, and a
+   long press on a tile's words could too. What a skipper genuinely copies
+   opts in by itself: fields, and codes and links marked select-all /
+   select-text / .allow-text-select (crew invite code, Pi setup, radio text,
+   chat messages, the crash text).
+   The web build (the /plan planner) keeps the old paragraph selection: the
+   menus were an iPhone app problem, and index.tsx puts .native on <html>
+   there before React renders. */
+html:not(.native) p:not(button p),
+html:not(.native) article,
+html:not(.native) [role='article'],
+html:not(.native) .prose,
+html:not(.native) dd {
     -webkit-touch-callout: default;
     -webkit-user-select: text;
     user-select: text;

@@ -186,7 +186,7 @@ export const CrewListConversation: React.FC<CrewListConversationProps> = React.m
                                                     : 'rounded-bl-md border border-white/8 bg-white/4.5 text-white/80'
                                             }`}
                                         >
-                                            <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">
+                                            <p className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed select-text">
                                                 {message.message}
                                             </p>
                                             {sentAt && (

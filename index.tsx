@@ -6,6 +6,7 @@ import { Capacitor } from '@capacitor/core';
 import { getAuthIdentityScope } from './services/authIdentityScope';
 import { writeScopedNativeDiagnostic } from './services/nativeDiagnostic';
 import { safeConsoleArgument } from './utils/consoleSafety';
+import { lockNativeViewportScale } from './utils/nativeViewportScale';
 
 // JS BUILD-MARKER — landed via Preferences so it appears in Xcode
 // console (console.warn from WKWebView is invisible to Xcode's
@@ -120,6 +121,16 @@ if (Capacitor.isNativePlatform()) {
         .catch(() => {
             /* Keyboard API unavailable on web */
         });
+}
+
+// ── iPhone app: the page itself never zooms (utils/nativeViewportScale) ──
+// The pinch blocker below could not stop iOS zooming to a focused field under
+// 16 px, and then it blocked the pinch back out, so the screen stayed big.
+if (Capacitor.isNativePlatform() && typeof document !== 'undefined') {
+    lockNativeViewportScale(document, window);
+    // Marks the root so index.css can keep the web build's paragraphs
+    // selectable while the app raises no Copy / Look Up menu on them.
+    document.documentElement.classList.add('native');
 }
 
 // ── Block whole-page pinch-zoom everywhere except the chart map ──

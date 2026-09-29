@@ -574,7 +574,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         }
                                                         return (
                                                             <div className="flex items-end gap-1">
-                                                                <p className="text-lg text-white/70 leading-relaxed wrap-break-word">
+                                                                <p className="text-lg text-white/70 leading-relaxed wrap-break-word select-text">
                                                                     {msg.message}
                                                                 </p>
                                                                 {isSelf && (
