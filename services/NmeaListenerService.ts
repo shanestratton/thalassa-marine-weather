@@ -360,12 +360,17 @@ class NmeaListenerServiceClass {
      * memory was in a plain JS string nothing was watching.
      */
     private registerCensusProbes(): void {
-        void import('./memoryCensus').then(({ registerCensusProbe }) => {
-            registerCensusProbe('nmeaBufferKB', () => Math.round(this.tcpLineBuffer.length / 1024));
-            registerCensusProbe('nmeaDiscardedKB', () => Math.round(this.tcpBufferDiscardedBytes / 1024));
-            registerCensusProbe('nmeaReadCallsK', () => Math.round(this.tcpReadCalls / 1000));
-            registerCensusProbe('nmeaBacklogReads', () => this.tcpBacklogReads);
-        });
+        void import('./memoryCensus')
+            .then(({ registerCensusProbe }) => {
+                registerCensusProbe('nmeaBufferKB', () => Math.round(this.tcpLineBuffer.length / 1024));
+                registerCensusProbe('nmeaDiscardedKB', () => Math.round(this.tcpBufferDiscardedBytes / 1024));
+                registerCensusProbe('nmeaReadCallsK', () => Math.round(this.tcpReadCalls / 1000));
+                registerCensusProbe('nmeaBacklogReads', () => this.tcpBacklogReads);
+            })
+            // The census is diagnostics only: a failed load (or, in tests, a
+            // load after the environment was torn down) must never surface as
+            // an unhandled rejection that fails an otherwise green run.
+            .catch((error: unknown) => log.warn('census probes not registered', error));
     }
     /** Last error message for UI display */
     private lastError: string | null = null;
