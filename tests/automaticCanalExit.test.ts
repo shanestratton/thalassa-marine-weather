@@ -297,6 +297,78 @@ describe('reviewed automatic canal exits', () => {
         expect(resolve([value], p(0, 290)).status).toBe('manual-required');
     });
 
+    describe('a lapsed profile only affects departures inside its own area', () => {
+        const elsewhere = (): VerifiedCanalExitProfile => ({
+            ...profile(),
+            id: 'elsewhere-channel',
+            label: 'Elsewhere channel',
+            departureArea: { type: 'Polygon', coordinates: [ring(1000, -100, 1200, 100)] },
+            gates: [gate('elsewhere-inner', 1100, 200), gate('elsewhere-terminal', 1100, 300)],
+        });
+        const expired = () =>
+            mutated((v) => {
+                v.validUntil = '2026-09-12T12:00:00Z';
+            });
+        const retired = (): VerifiedCanalExitProfile => ({
+            ...profile(),
+            retirement: {
+                retiredOn: '2026-09-12',
+                decidedBy: 'Synthetic owner decision',
+                reason: 'Synthetic retirement for the scoping test',
+                fallback: 'Synthetic manual canal exit fallback',
+            },
+        });
+
+        it('an expired profile does not force a manual exit for a departure elsewhere', () => {
+            const result = resolve([expired(), elsewhere()], p(1100, 0), p(1100, 1000));
+            expect(result.status).toBe('resolved');
+            if (result.status === 'resolved') expect(result.profileId).toBe('elsewhere-channel');
+            expect(resolve([expired(), elsewhere()], p(5000, 0), p(5000, 1000))).toEqual({
+                status: 'manual-required',
+                reason: 'No reviewed channel exit covers this departure. Choose Canal Exit on the chart.',
+            });
+        });
+
+        it('an expired profile still refuses a departure inside its own area, and says it is out of date', () => {
+            expect(resolve([expired(), elsewhere()])).toEqual({
+                status: 'manual-required',
+                reason: 'Reviewed channel-exit data is unavailable or out of date. Choose Canal Exit on the chart.',
+                code: 'out-of-date',
+                profileLabel: 'Synthetic channel',
+            });
+        });
+
+        it('a retired profile never resolves, even inside its review window, and names itself', () => {
+            expect(resolve([retired(), elsewhere()])).toEqual({
+                status: 'manual-required',
+                reason: 'The automatic Synthetic channel canal exit is retired. Choose Canal exit on the chart.',
+                code: 'retired',
+                profileLabel: 'Synthetic channel',
+            });
+            expect(resolve([retired(), elsewhere()], p(1100, 0), p(1100, 1000)).status).toBe('resolved');
+        });
+
+        it('a malformed record with a readable area is confined to that area', () => {
+            const broken = { ...profile(), gates: [] } as unknown as VerifiedCanalExitProfile;
+            expect(resolve([broken, elsewhere()], p(1100, 0), p(1100, 1000)).status).toBe('resolved');
+            expect(resolve([broken, elsewhere()])).toEqual({
+                status: 'manual-required',
+                reason: 'Reviewed channel-exit data is unavailable or out of date. Choose Canal Exit on the chart.',
+            });
+        });
+
+        it('a record whose area cannot be read still fails closed for every departure', () => {
+            const unreadable = mutated((v) => {
+                v.departureArea = { type: 'Polygon', coordinates: [null] } as unknown as Polygon;
+            });
+            expect(resolve([unreadable, elsewhere()], p(1100, 0), p(1100, 1000)).status).toBe('manual-required');
+        });
+
+        it('a retired and a current profile over the same water are ambiguous, not a silent pick', () => {
+            expect(resolve([retired(), { ...profile(), id: 'renewed-channel' }]).status).toBe('manual-required');
+        });
+    });
+
     it('fails closed for invalid inputs without throwing', () => {
         expect(resolve([profile()], { lat: NaN, lon: 153 }).status).toBe('manual-required');
         expect(resolve([profile()], p(0, 0), { lat: 91, lon: 153 }).status).toBe('manual-required');

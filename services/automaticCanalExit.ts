@@ -3,6 +3,7 @@
  * A resolved exit is a plotting proposal, not a depth/traffic clearance. */
 import type { Polygon, Position } from 'geojson';
 import type { CanalPoint } from './canalDepartureGeometry';
+import type { CuratedRetirement } from './curatedDataLifecycle';
 import { NEWPORT_CANAL_EXIT_PROFILE } from './newportCanalExitProfile';
 
 export interface VerifiedLateralMarker extends CanalPoint {
@@ -29,7 +30,14 @@ export interface VerifiedCanalExitProfile {
     gates: readonly { port: VerifiedLateralMarker; starboard: VerifiedLateralMarker }[];
     /** Reviewed outward direction at the final gate, in true degrees. */
     outboundBearingDeg: number;
+    /** Set when the owner takes the profile out of service. A retired profile
+     * never resolves again, whatever the clock says; renewal is a new record. */
+    retirement?: CuratedRetirement;
 }
+
+/** Why an applicable reviewed exit did not resolve, for callers that word
+ * their own refusal (Plan My Day). The reason text stays authoritative. */
+export type CanalExitManualCode = 'retired' | 'out-of-date';
 
 export type AutomaticCanalExitResolution =
     | {
@@ -42,7 +50,7 @@ export type AutomaticCanalExitResolution =
           outboundBearingDeg: number;
           exit: CanalPoint;
       }
-    | { status: 'manual-required'; reason: string };
+    | { status: 'manual-required'; reason: string; code?: CanalExitManualCode; profileLabel?: string };
 
 /** Explicit source review, never the old guessed exit or regional marker file.
  * Runtime chart matching is additionally required by verifyCanalExitChart.
@@ -53,6 +61,7 @@ export const VERIFIED_CANAL_EXIT_PROFILES: readonly VerifiedCanalExitProfile[] =
 
 const manual = (reason: string): AutomaticCanalExitResolution => ({ status: 'manual-required', reason });
 const NO_REVIEWED_EXIT = 'No reviewed channel exit covers this departure. Choose Canal Exit on the chart.';
+const OUT_OF_DATE = 'Reviewed channel-exit data is unavailable or out of date. Choose Canal Exit on the chart.';
 const EPS = 1e-10;
 const M_LAT = 111_320;
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -160,12 +169,27 @@ function timestamp(value: unknown): number {
     return result;
 }
 
+export type CanalExitProfileState = 'current' | 'retired' | 'out-of-date' | 'invalid';
+
 export function isVerifiedCanalExitProfileCurrent(
     profile: unknown,
     now = Date.now(),
 ): profile is VerifiedCanalExitProfile {
+    return canalExitProfileState(profile, now) === 'current';
+}
+
+/** 'invalid' = the record itself is malformed; 'retired' = taken out of service
+ * (never current again); 'out-of-date' = a sound record outside its review
+ * window (expired, or reviewed in the future of this clock). */
+export function canalExitProfileState(profile: unknown, now = Date.now()): CanalExitProfileState {
+    if (!Number.isFinite(now) || !isReviewedProfileRecord(profile)) return 'invalid';
+    if (profile.retirement !== undefined) return 'retired';
+    return timestamp(profile.reviewedAt) <= now && now < timestamp(profile.validUntil) ? 'current' : 'out-of-date';
+}
+
+/** Everything about a reviewed profile that does not depend on the clock. */
+function isReviewedProfileRecord(profile: unknown): profile is VerifiedCanalExitProfile {
     if (
-        !Number.isFinite(now) ||
         !isRecord(profile) ||
         !text(profile.id) ||
         !text(profile.label) ||
@@ -213,12 +237,7 @@ export function isVerifiedCanalExitProfileCurrent(
     const published = timestamp(profile.source.publishedAt),
         reviewed = timestamp(profile.reviewedAt),
         expires = timestamp(profile.validUntil);
-    if (
-        ![published, reviewed, expires].every(Number.isFinite) ||
-        published > reviewed ||
-        reviewed > now ||
-        expires <= now
-    )
+    if (![published, reviewed, expires].every(Number.isFinite) || published > reviewed || expires <= reviewed)
         return false;
     const ids = new Set<string>();
     const positions = new Set<string>();
@@ -282,15 +301,24 @@ export function resolveAutomaticCanalExit(
 ): AutomaticCanalExitResolution {
     if (!validPoint(start) || (destination !== null && !validPoint(destination)) || !Number.isFinite(now))
         return manual('Choose valid departure and destination positions before selecting a channel exit.');
+    // A record whose geofence cannot be read cannot be confined to its own
+    // area, so it still fails closed for every departure. Any other lapse —
+    // expired, retired or malformed provenance/gates — is confined to
+    // departures inside that record's own area: an expired profile elsewhere
+    // must not force a manual exit here.
     if (
         !Array.isArray(profiles as unknown) ||
         profiles.length > 128 ||
-        profiles.some((p) => !isVerifiedCanalExitProfileCurrent(p, now))
+        profiles.some((p) => !isRecord(p) || !validArea(p.departureArea))
     )
-        return manual('Reviewed channel-exit data is unavailable or out of date. Choose Canal Exit on the chart.');
+        return manual(OUT_OF_DATE);
+    const states = profiles.map((p) => canalExitProfileState(p, now));
+    const current = profiles.filter((_, i) => states[i] === 'current');
+    // Identity checks across the records that could resolve, exactly as before
+    // when every record had to be current.
     const profileIds = new Set<string>();
     const markers = new Map<string, VerifiedLateralMarker>();
-    for (const profile of profiles) {
+    for (const profile of current) {
         if (profileIds.has(profile.id)) return manual('Channel-exit records conflict. Choose Canal Exit on the chart.');
         profileIds.add(profile.id);
         for (const gate of profile.gates)
@@ -307,11 +335,29 @@ export function resolveAutomaticCanalExit(
                 markers.set(mark.id, mark);
             }
     }
-    const matches = profiles.filter((p) => inArea(start, p.departureArea) === 1);
-    if (profiles.some((p) => inArea(start, p.departureArea) === 0) || matches.length > 1)
+    const hits = profiles.map((p) => inArea(start, p.departureArea));
+    if (hits.includes(0) || hits.filter((hit) => hit === 1).length > 1)
         return manual('Departure is on an ambiguous channel-area boundary. Choose Canal Exit on the chart.');
-    if (matches.length === 0) return manual(NO_REVIEWED_EXIT);
-    const profile = matches[0];
+    const index = hits.indexOf(1);
+    if (index < 0) return manual(NO_REVIEWED_EXIT);
+    if (states[index] === 'retired') {
+        const { label } = profiles[index];
+        return {
+            status: 'manual-required',
+            reason: `The automatic ${label} canal exit is retired. Choose Canal exit on the chart.`,
+            code: 'retired',
+            profileLabel: label,
+        };
+    }
+    if (states[index] === 'out-of-date')
+        return {
+            status: 'manual-required',
+            reason: OUT_OF_DATE,
+            code: 'out-of-date',
+            profileLabel: profiles[index].label,
+        };
+    if (states[index] !== 'current') return manual(OUT_OF_DATE);
+    const profile = profiles[index];
     const gateCentres = profile.gates.map(({ port, starboard }) => ({
         lat: (port.lat + starboard.lat) / 2,
         lon: (port.lon + starboard.lon) / 2,

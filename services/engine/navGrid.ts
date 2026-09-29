@@ -7,6 +7,7 @@ import { M_PER_DEG_LAT, BLOCKED, UNKNOWN_OPEN, CAUTION, ENGINE_DEBUG, engineLog 
 import type { InshoreLayers, RelaxZone, NavGrid } from './types';
 import { mPerDegLon, haversineM, rasterizePolygonCells, bresenhamCells, latLonToGrid } from './geometry';
 import { computeCentreFactor } from './aStar';
+import { navLineLeads } from '../leadingLine';
 
 /**
  * Process-wide cache for buildNavGrid output. Keyed by the inputs that
@@ -1139,7 +1140,13 @@ export function buildNavGrid(
     // lateral markers are too sparse to stitch, but OSM has it as
     // navigation_line — without this the route cut a red CAUTION diagonal
     // straight across the bar instead of riding the channel.
-    const navlineFeatures = layers.NAVLINE?.features ?? [];
+    //
+    // LEADS ONLY (navLineLeads): a chart clearing line (NAVLNE CATNAV 1)
+    // marks the edge of a danger and a transit (CATNAV 2) is a bearing —
+    // neither may be preferred, rescue depth or reopen land here. Filtered
+    // again at this pass so a direct grid build (the tracer) can never
+    // stamp one, whatever assembled the layers.
+    const navlineFeatures = navLineLeads(layers.NAVLINE?.features ?? []);
     const tPassNavline = Date.now();
     const navDepth = Math.max(draftM + safetyM, 5.0);
     const NAVLINE_BRUSH_CELLS = 1; // 1-cell Chebyshev radius → ~3-cell (≈150 m) wide corridor
@@ -1192,7 +1199,8 @@ export function buildNavGrid(
         const g = f.geometry;
         if (!g) continue;
         // Chart S-57 NAVLNE carries the extractor's acronym; OSM seamark
-        // navigation lines don't. Only the chart transit may reopen land
+        // navigation lines don't. Only a chart leading line (after
+        // navLineLeads, every chart NAVLNE left is CATNAV 3) may reopen land
         // conflicts above.
         const chartTransit = (f.properties as { acronym?: string } | null)?.acronym === 'NAVLNE';
         let lineRings: Position[][] = [];

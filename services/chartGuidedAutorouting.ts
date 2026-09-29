@@ -215,6 +215,9 @@ export async function calculateChartGuidedTrial(
             return withNotice(initial, notice);
         };
         try {
+            // A retired policy never yields a candidate: say so at once, with
+            // no "checking" message and no chart load.
+            if (deps.policy.retirement !== undefined) return fallback(UNAVAILABLE);
             progress('Checking reviewed Newport chart-track evidence…');
             const policySnapshot = structuredClone(deps.policy),
                 policyKey = JSON.stringify(deps.policy);

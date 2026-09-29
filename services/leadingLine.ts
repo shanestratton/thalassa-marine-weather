@@ -158,9 +158,11 @@ function runLengthM(poly: LatLon[], from: number, to: number): number {
 }
 
 /**
- * Parse OSM NAVLINE features (LineString/MultiLineString) into leading lines.
- * The Pi already filters out `category=clearing` at emission, so every NAVLINE
- * feature reaching the engine is a leading/transit line we can snap onto.
+ * Parse NAVLINE features (LineString/MultiLineString) into bare lead geometry.
+ * This parser does NOT judge categories: chart NAVLNE of every CATNAV and OSM
+ * lines alike come out as geometry. Callers that use the result as a lead must
+ * pass the features through navLineLeads first (the merge, the engine entry,
+ * the grid and the tracer all do), so clearing and transit lines never lead.
  */
 export function parseLeadingLines(features: LineFeatureLike[]): LeadingLine[] {
     const out: LeadingLine[] = [];
@@ -298,6 +300,313 @@ export function parseChartTrackLines(features: LineFeatureLike[], layerClass?: '
         }
     }
     return out;
+}
+
+/**
+ * The ONE gate between a navigation line and every lead path — the grid's
+ * preferred corridor and depth rescue, the snappers, the egress splice, the
+ * tracer's lead snap and the land audit's "vouched water".
+ *
+ * A chart line (the NAVLNE layer, a declared S-57 acronym, or any CATNAV)
+ * leads only when parseChartTrackLines types it as a leading line, which
+ * means CATNAV exactly 3 on valid geometry:
+ *   • CATNAV 1, a clearing line, marks the EDGE of a danger. It must never
+ *     attract a route or vouch for depth. It stays NEUTRAL rather than
+ *     becoming a keep-out boundary because the extracted chart gives no
+ *     reliable safe side: the NAVLNE carries only CATNAV and ORIENT (the
+ *     bearing towards the marks, which says nothing about which side is
+ *     clear), and the S-57 associations to the danger it clears are not
+ *     extracted. Guessing a side would invent a boundary.
+ *   • CATNAV 2, a transit or bearing line, is not a track.
+ *   • Missing, list-valued or unknown categories are not leads either.
+ * RECTRC is not a navigation line and is not filtered here.
+ *
+ * OSM seamark navigation lines have no CATNAV. The Pi and the cloud overlay
+ * already drop category=clearing; a clearing line that reaches here anyway is
+ * dropped too. Other OSM categories keep their existing behaviour, EXCEPT
+ * where the chart has drawn the same line: see withoutChartNonLeadTwins.
+ */
+export function isNavLineLead(feature: LineFeatureLike, layerClass?: 'NAVLNE'): boolean {
+    const p = feature.properties ?? {};
+    if (isChartNavLine(feature, layerClass)) {
+        return parseChartTrackLines([feature], 'NAVLNE').some(
+            (line) => line.chartTrack.objectClass === 'NAVLNE' && line.chartTrack.kind === 'leading-line',
+        );
+    }
+    const osmCategory = p['seamark:navigation_line:category'];
+    return !(
+        typeof osmCategory === 'string' &&
+        osmCategory
+            .split(';')
+            .map((c) => c.trim().toLowerCase())
+            .includes('clearing')
+    );
+}
+
+/**
+ * True when a navigation line comes from an S-57 chart rather than OSM: the
+ * NAVLNE layer, a declared acronym, a CATNAV, or S-57 record structure (a
+ * classCode or OBJL, or an rcid). The structural test means a chart NAVLNE
+ * whose extractor left out the acronym and CATNAV is still judged as a chart
+ * line — and an uncategorised chart line never leads — whoever assembled the
+ * layers. OSM lines carry `_osmId` and `seamark:*`, never these. Leaning to
+ * "chart" is the safe side: a chart line leads only as CATNAV 3.
+ */
+export function isChartNavLine(feature: LineFeatureLike, layerClass?: 'NAVLNE'): boolean {
+    if (layerClass === 'NAVLNE') return true;
+    const p = feature.properties ?? {};
+    return (
+        shortText(readS57(p, 'ACRONYM')) !== undefined ||
+        readS57(p, 'CATNAV') !== undefined ||
+        readS57(p, 'classCode') !== undefined ||
+        readS57(p, 'OBJL') !== undefined ||
+        p.rcid !== undefined
+    );
+}
+
+/** The navigation lines that may act as leads (see isNavLineLead). In a mixed
+ * list (no layerClass), the stretch of an OSM line that is the chart's own
+ * clearing or transit line drawn again is cut out as well
+ * (withoutChartNonLeadTwins). Returns the input array itself when nothing is
+ * dropped or cut, so callers can keep identity. */
+export function navLineLeads<T extends LineFeatureLike>(features: readonly T[], layerClass?: 'NAVLNE'): T[] {
+    const kept = features.filter((feature) => isNavLineLead(feature, layerClass));
+    const out =
+        layerClass === 'NAVLNE'
+            ? kept
+            : withoutChartNonLeadTwins(
+                  kept,
+                  features.filter((feature) => isChartNavLine(feature)),
+              );
+    // By identity, not length: a cut line keeps its place but is a new object.
+    return out.length === features.length && out.every((feature, i) => feature === features[i])
+        ? (features as T[])
+        : out;
+}
+
+/** An OSM line within this distance of a chart NAVLNE, and parallel to it
+ * within TWIN_DEG, is read as the same charted line. */
+const TWIN_M = 30;
+const TWIN_DEG = 10;
+/** Sampling step along the OSM line; coarsened so no line takes more than
+ * TWIN_MAX_SAMPLES samples. */
+const TWIN_STEP_M = 10;
+const TWIN_MAX_SAMPLES = 5_000;
+/** How much of an OSM line (or half of it, if shorter) must be claimed by a
+ * chart non-lead before the claimed stretch is cut out, and the shortest
+ * piece left over that still leads. One 50 m engine cell. */
+const TWIN_MIN_M = 50;
+/** On a (near) tie the non-lead claims the sample: the safe side. */
+const TWIN_TIE_M = 0.5;
+
+interface ChartTwinCandidate {
+    rings: LatLon[][];
+    lead: boolean;
+    /** Bbox grown by TWIN_M: [minLon, minLat, maxLon, maxLat]. */
+    box: [number, number, number, number];
+}
+
+function chartTwinCandidates(
+    chartNavLines: readonly LineFeatureLike[],
+    chartLeadTracks: readonly LineFeatureLike[],
+): ChartTwinCandidate[] {
+    const out: ChartTwinCandidate[] = [];
+    for (const [feature, isLeadTrack] of [
+        ...chartNavLines.map((f) => [f, false] as const),
+        ...chartLeadTracks.map((f) => [f, true] as const),
+    ]) {
+        const rings = parseLeadingLines([feature]).map((line) => line.pts);
+        if (rings.length === 0) continue;
+        let minLon = Infinity,
+            minLat = Infinity,
+            maxLon = -Infinity,
+            maxLat = -Infinity;
+        for (const ring of rings)
+            for (const p of ring) {
+                minLon = Math.min(minLon, p.lon);
+                minLat = Math.min(minLat, p.lat);
+                maxLon = Math.max(maxLon, p.lon);
+                maxLat = Math.max(maxLat, p.lat);
+            }
+        const padLat = TWIN_M / 110_540;
+        const cosLat = Math.cos((Math.max(Math.abs(minLat), Math.abs(maxLat)) * Math.PI) / 180);
+        const padLon = TWIN_M / (111_320 * Math.max(0.01, cosLat));
+        out.push({
+            rings,
+            lead: isLeadTrack || isNavLineLead(feature, 'NAVLNE'),
+            box: [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat],
+        });
+    }
+    return out;
+}
+
+/** One sampled step along an OSM line: its span and whether a chart non-lead
+ * claims it. `vertexEnd` marks a step that ends on one of the line's own
+ * vertices, so a cut line keeps its shape without the sample points. */
+interface ClaimStep {
+    from: LatLon;
+    to: LatLon;
+    lengthM: number;
+    claimed: boolean;
+    vertexEnd: boolean;
+}
+
+/** Metres of `rings` that lie nearer — within TWIN_M and TWIN_DEG — to a
+ * chart NAVLNE that is not a lead than to any chart lead, the length, and the
+ * sampled steps (per ring) that say where. */
+function chartNonLeadClaim(
+    rings: LatLon[][],
+    chart: readonly ChartTwinCandidate[],
+): { claimedM: number; lengthM: number; steps: ClaimStep[][] } {
+    let lengthM = 0;
+    for (const ring of rings) for (let i = 1; i < ring.length; i++) lengthM += distM(ring[i - 1], ring[i]);
+    const stepM = Math.max(TWIN_STEP_M, lengthM / TWIN_MAX_SAMPLES);
+    let claimedM = 0;
+    const steps: ClaimStep[][] = [];
+    for (const ring of rings) {
+        const ringSteps: ClaimStep[] = [];
+        steps.push(ringSteps);
+        for (let i = 1; i < ring.length; i++) {
+            const a = ring[i - 1],
+                b = ring[i];
+            const segM = distM(a, b);
+            if (!(segM >= 1)) {
+                ringSteps.push({ from: a, to: b, lengthM: 0, claimed: false, vertexEnd: true });
+                continue;
+            }
+            const bearing = bearingDeg(a, b);
+            const k = Math.max(1, Math.ceil(segM / stepM));
+            const along = (t: number) => ({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t });
+            for (let s = 0; s < k; s++) {
+                const t = (s + 0.5) / k;
+                const p = along(t);
+                let nearestLead = Infinity,
+                    nearestOther = Infinity;
+                for (const c of chart) {
+                    if (p.lon < c.box[0] || p.lat < c.box[1] || p.lon > c.box[2] || p.lat > c.box[3]) continue;
+                    for (const cRing of c.rings)
+                        for (let j = 1; j < cRing.length; j++) {
+                            if (distM(cRing[j - 1], cRing[j]) < 1) continue;
+                            const d = projectToSegment(p, cRing[j - 1], cRing[j]).dist;
+                            if (d > TWIN_M || lineAngleDiffDeg(bearing, bearingDeg(cRing[j - 1], cRing[j])) > TWIN_DEG)
+                                continue;
+                            if (c.lead) nearestLead = Math.min(nearestLead, d);
+                            else nearestOther = Math.min(nearestOther, d);
+                        }
+                }
+                const claimed = nearestOther <= TWIN_M && nearestOther <= nearestLead + TWIN_TIE_M;
+                if (claimed) claimedM += segM / k;
+                ringSteps.push({
+                    from: s === 0 ? a : along(s / k),
+                    to: s === k - 1 ? b : along((s + 1) / k),
+                    lengthM: segM / k,
+                    claimed,
+                    vertexEnd: s === k - 1,
+                });
+            }
+        }
+    }
+    return { claimedM, lengthM, steps };
+}
+
+/** The unclaimed runs of a sampled line, each as a polyline and its length. */
+function unclaimedPieces(steps: readonly ClaimStep[][]): { pts: LatLon[]; lengthM: number }[] {
+    const out: { pts: LatLon[]; lengthM: number }[] = [];
+    for (const ring of steps) {
+        let piece: { pts: LatLon[]; lengthM: number } | null = null;
+        for (let i = 0; i < ring.length; i++) {
+            const step = ring[i];
+            if (step.claimed) {
+                if (piece) out.push(piece);
+                piece = null;
+                continue;
+            }
+            if (!piece) piece = { pts: [step.from], lengthM: 0 };
+            piece.lengthM += step.lengthM;
+            const next = ring[i + 1];
+            if (step.vertexEnd || !next || next.claimed) piece.pts.push(step.to);
+        }
+        if (piece) out.push(piece);
+    }
+    return out;
+}
+
+/**
+ * Let the chart win where it has drawn the same line. OSM tags some chart
+ * transits (CATNAV 2) as `category=transit` and keeps them as leads, so the
+ * bearing lines dropped from the chart came straight back through the overlay
+ * (Hamilton Reach: OSM 1050662196/1050662408 lie 1–12 m along NAVLNE 2383,
+ * 1050662194/1050662407 along 3454). Where at least TWIN_MIN_M of an OSM line
+ * (or half of it, if shorter) runs within TWIN_M of, and parallel within
+ * TWIN_DEG to, a chart NAVLNE that is not a leading line — nearer to that
+ * line than to any chart lead — that stretch is cut out of it. The chart's
+ * own category then decides there. What is left keeps leading where it is at
+ * least TWIN_MIN_M long; a line with nothing left goes.
+ *
+ * It used to drop the WHOLE line once 50 m of it was claimed, so a 60 m
+ * clearing stub beside a 3 km OSM lead cost the lead all 3 km (review
+ * 2026-09-29). An OSM line that is a chart LEADING line drawn again is kept
+ * (unchanged behaviour); the chart lead is there either way.
+ *
+ * `chartNavLines` is every chart NAVLNE in play, BEFORE the lead gate, so the
+ * dropped clearing and transit lines still count here. `chartLeadTracks` are
+ * chart tracks that lead without being NAVLNE (RECTRC): they weigh against a
+ * clearing or transit line like a chart NAVLNE lead, so an OSM redraw of a
+ * RECTRC-only lead is not cut for a clearing line 25 m away. Chart lines
+ * inside `lines` are left to isNavLineLead. A cut line is a new feature with
+ * the same properties and MultiLineString geometry; the input is never
+ * edited. Returns the input array itself when nothing is dropped or cut.
+ */
+export function withoutChartNonLeadTwins<T extends LineFeatureLike>(
+    lines: readonly T[],
+    chartNavLines: readonly LineFeatureLike[],
+    chartLeadTracks: readonly LineFeatureLike[] = [],
+): T[] {
+    if (lines.length === 0 || !chartNavLines.some((f) => !isNavLineLead(f, 'NAVLNE'))) return lines as T[];
+    const chart = chartTwinCandidates(chartNavLines, chartLeadTracks);
+    if (!chart.some((c) => !c.lead)) return lines as T[];
+    let changed = false;
+    const out: T[] = [];
+    for (const line of lines) {
+        if (isChartNavLine(line)) {
+            out.push(line);
+            continue;
+        }
+        const rings = parseLeadingLines([line]).map((l) => l.pts);
+        if (rings.length === 0) {
+            out.push(line);
+            continue;
+        }
+        const { claimedM, lengthM, steps } = chartNonLeadClaim(rings, chart);
+        if (!(claimedM > 0 && claimedM >= Math.min(TWIN_MIN_M, lengthM / 2))) {
+            out.push(line);
+            continue;
+        }
+        changed = true;
+        const pieces = unclaimedPieces(steps).filter((piece) => piece.lengthM >= TWIN_MIN_M);
+        if (pieces.length === 0) continue;
+        out.push({
+            ...line,
+            geometry: {
+                type: 'MultiLineString',
+                coordinates: pieces.map((piece) => piece.pts.map((p) => [p.lon, p.lat])),
+            },
+        });
+    }
+    return changed ? out : (lines as T[]);
+}
+
+/** The OSM overlay's navigation lines that may join NAVLINE: never a clearing
+ * line, and never the stretch of one that is a chart clearing or transit line
+ * drawn again. Pass every chart NAVLNE merged for the same area, before the
+ * lead gate, and the merged RECTRC as `chartLeadTracks`. Both device merges
+ * (the engine's and the tracer's) use this. */
+export function osmNavLineLeads<T extends LineFeatureLike>(
+    osmLines: readonly T[],
+    chartNavLines: readonly LineFeatureLike[],
+    chartLeadTracks: readonly LineFeatureLike[] = [],
+): T[] {
+    return withoutChartNonLeadTwins(navLineLeads(osmLines), chartNavLines, chartLeadTracks);
 }
 
 export interface ChartTrackOffset {

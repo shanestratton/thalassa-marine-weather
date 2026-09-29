@@ -69,9 +69,16 @@ vi.mock('../services/dayPlanner/engine', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/dayPlanner/engine')>()),
     buildFlexibleDayPlan: api.build,
 }));
-import { DAY_PLANNER_TIMEOUT_MS, dayPlannerVesselInputs, runDayPlanner } from '../services/dayPlanner/runtime';
+import {
+    DAY_PLANNER_TIMEOUT_MS,
+    dayPlannerCanalExitRefusal,
+    dayPlannerVesselInputs,
+    runDayPlanner,
+} from '../services/dayPlanner/runtime';
 
 const now = Date.UTC(2026, 8, 27, 0);
+const NEXT_STEP =
+    'Move the departure to open water outside the canal entrance, or set the canal exit by hand in Auto routing, under Canal / marina.';
 const vessel = (): VesselProfile => ({
     name: 'Test vessel',
     type: 'sail',
@@ -824,6 +831,90 @@ describe('Day planner live adapter', () => {
         api.resolveExit.mockReturnValue({ status: 'manual-required', reason: 'Reviewed channel exit is out of date.' });
         await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow('out of date');
         expect(api.calculate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a departure inside a RETIRED exit with a reason the skipper can act on in Plan My Day', async () => {
+        withRoute();
+        api.profiles.push({
+            departureArea: {
+                type: 'Polygon',
+                coordinates: [
+                    [
+                        [148.7, -20.3],
+                        [148.9, -20.3],
+                        [148.9, -20.2],
+                        [148.7, -20.2],
+                        [148.7, -20.3],
+                    ],
+                ],
+            },
+        });
+        api.resolveExit.mockReturnValue({
+            status: 'manual-required',
+            reason: 'The automatic Newport Waterways canal exit is retired. Choose Canal exit on the chart.',
+            code: 'retired',
+            profileLabel: 'Newport Waterways',
+        });
+        const refusal = await runDayPlanner(request(), vessel(), options()).catch((error: unknown) => error);
+        // Plan My Day has no "Canal exit on the chart"; it must not send the skipper looking for one.
+        expect((refusal as Error).message).toBe(`The automatic Newport Waterways canal exit is retired. ${NEXT_STEP}`);
+        expect(api.calculate).not.toHaveBeenCalled();
+    });
+
+    it('words an out-of-date exit the same way', () => {
+        expect(
+            dayPlannerCanalExitRefusal({
+                status: 'manual-required',
+                reason: 'x',
+                code: 'out-of-date',
+                profileLabel: 'Newport Waterways',
+            }),
+        ).toBe(`The reviewed Newport Waterways canal exit is out of date. ${NEXT_STEP}`);
+    });
+
+    // Every other manual-required result from an applicable profile also used
+    // to end "Choose Canal Exit on the chart." — a control Plan My Day lacks.
+    it.each([
+        ['an ambiguous area boundary', 'Departure is on an ambiguous channel-area boundary.'],
+        ['conflicting exit records', 'Channel-exit records conflict.'],
+        ['conflicting marker records', 'Channel-marker records conflict.'],
+        ['a malformed in-area record', 'Reviewed channel-exit data is unavailable or out of date.'],
+        ['no reviewed exit', 'No reviewed channel exit covers this departure.'],
+    ])('never points Plan My Day at the chart control for %s', (_name, first) => {
+        for (const control of ['Choose Canal Exit on the chart.', 'Choose Canal exit on the chart.']) {
+            const refusal = dayPlannerCanalExitRefusal({ status: 'manual-required', reason: `${first} ${control}` });
+            expect(refusal).toBe(`${first} ${NEXT_STEP}`);
+            expect(refusal).not.toMatch(/on the chart/i);
+        }
+    });
+
+    it('passes a reason with no chart instruction through unchanged', () => {
+        const reason = 'Choose valid departure and destination positions before selecting a channel exit.';
+        expect(dayPlannerCanalExitRefusal({ status: 'manual-required', reason })).toBe(reason);
+    });
+
+    it('rewords a real boundary refusal from the resolver (departure exactly on the area edge)', async () => {
+        const edge = { lat: -20.3, lon: 148.8 };
+        const { resolveAutomaticCanalExit } = await vi.importActual<typeof import('../services/automaticCanalExit')>(
+            '../services/automaticCanalExit',
+        );
+        const area = {
+            type: 'Polygon' as const,
+            coordinates: [
+                [
+                    [148.7, -20.3],
+                    [148.9, -20.3],
+                    [148.9, -20.2],
+                    [148.7, -20.2],
+                    [148.7, -20.3],
+                ],
+            ],
+        };
+        const exit = resolveAutomaticCanalExit(edge, { lat: -20.1, lon: 149 }, [{ departureArea: area } as never]);
+        expect(exit.status).toBe('manual-required');
+        if (exit.status !== 'manual-required') return;
+        expect(exit.reason).toMatch(/Choose Canal Exit on the chart\.$/);
+        expect(dayPlannerCanalExitRefusal(exit)).not.toMatch(/on the chart/i);
     });
 
     it.each(invalidRings)(
