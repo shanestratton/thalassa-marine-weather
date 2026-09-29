@@ -61,14 +61,9 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { diagnosePanel, missingInstruments } from '../../utils/instrumentPanelStatus';
 import { useSettingsStore } from '../../stores/settingsStore';
-import {
-    COMFORT_M,
-    DEPTH_FALLBACK_OFFSET,
-    helmBalance,
-    helmVerdict,
-    shoalRate,
-    type SailingWind,
-} from '../../services/sailing/sereneSailing';
+import { vesselDraftIsAssumed, vesselDraftMetres } from '../../services/units';
+import { COMFORT_M, helmBalance, helmVerdict, type SailingWind } from '../../services/sailing/sereneSailing';
+import { depthTrendFor, newDepthTrack, recordDepth } from './depthTrend';
 import { useWeatherOptional } from '../../context/WeatherContext';
 import { CloudTelemetryService } from '../../services/CloudTelemetryService';
 import { WindHistoryStats } from './WindHistoryStats';
@@ -621,24 +616,36 @@ const HeroArcGaugeComponent: React.FC<HeroArcGaugeProps> = ({
 const HeroArcGauge = React.memo(HeroArcGaugeComponent);
 
 // ── Helper: track real-data history per metric ──
-function useMetricHistory(metric: TimestampedMetric): { history: number[]; max: number; min: number } {
+function useMetricHistory(
+    metric: TimestampedMetric,
+    /** A change of this key (a depth's reference) starts the history afresh
+     *  at the next reading. */
+    resetKey: string | null = null,
+): { history: number[]; max: number; min: number } {
     const [history, setHistory] = useState<number[]>([]);
     const lastRef = useRef<number>(0);
     const maxRef = useRef<number>(-Infinity);
     const minRef = useRef<number>(Infinity);
+    const keyRef = useRef<string | null>(resetKey);
 
     useEffect(() => {
         if (metric.value !== null && metric.lastUpdated !== lastRef.current) {
             lastRef.current = metric.lastUpdated;
             const v = metric.value;
+            const restart = keyRef.current !== resetKey;
+            keyRef.current = resetKey;
+            if (restart) {
+                maxRef.current = -Infinity;
+                minRef.current = Infinity;
+            }
             if (v > maxRef.current) maxRef.current = v;
             if (v < minRef.current) minRef.current = v;
             setHistory((prev) => {
-                const next = [...prev, v];
+                const next = [...(restart ? [] : prev), v];
                 return next.length > HISTORY_SIZE ? next.slice(-HISTORY_SIZE) : next;
             });
         }
-    }, [metric.value, metric.lastUpdated]);
+    }, [metric.value, metric.lastUpdated, resetKey]);
 
     return { history, max: maxRef.current, min: minRef.current };
 }
@@ -812,16 +819,21 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
 
     // Depth track with real timestamps for the shoaling trend — the sparkline
     // history has no clock, and shoalRate least-squares against minutes.
-    const depthTrackRef = useRef<Array<{ t: number; d: number }>>([]);
+    // One reference per trace, and the keel offset that reference needs
+    // (components/nmea/depthTrend.ts): the Pi's depth is already under the
+    // keel, and a switch of feed restarts the trace rather than reading as
+    // the bottom moving (review 2026-09-29).
+    const depthTrackRef = useRef(newDepthTrack());
     useEffect(() => {
         if (state.depth.value !== null && state.depth.freshness === 'live') {
-            const now = Date.now() / 1000;
-            depthTrackRef.current.push({ t: now, d: state.depth.value });
-            while (depthTrackRef.current.length > 0 && now - depthTrackRef.current[0].t > 900)
-                depthTrackRef.current.shift();
+            recordDepth(depthTrackRef.current, { t: Date.now() / 1000, d: state.depth.value }, state.depthReference);
         }
-    }, [state.depth.value, state.depth.freshness, state.depth.lastUpdated]);
-    const depthTrend = shoalRate(depthTrackRef.current, DEPTH_FALLBACK_OFFSET);
+    }, [state.depth.value, state.depth.freshness, state.depth.lastUpdated, state.depthReference]);
+    // The draft from the vessel profile is the one boat figure the trend needs.
+    const draftM = useSettingsStore((store) => vesselDraftMetres(store.settings.vessel));
+    // A fallback draft gives no keel time on a feed not measured from the keel.
+    const draftAssumed = useSettingsStore((store) => vesselDraftIsAssumed(store.settings.vessel));
+    const depthTrend = depthTrendFor(depthTrackRef.current, draftM, Date.now(), draftAssumed);
 
     // Recorded by the feed/Pi, not by this page. The Pi's preceding hour can
     // arrive on first open; direct gateways keep a bounded app-wide record.
@@ -890,7 +902,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
 
     // Real-data sparkline histories.
     const sogReal = useMetricHistory(state.sog);
-    const depthReal = useMetricHistory(state.depth);
+    // Restarted when the depth's reference changes: a keel figure and a
+    // transducer figure 1.8 m apart are not one trace.
+    const depthReal = useMetricHistory(state.depth, state.depthReference);
     const waterTempReal = useMetricHistory(state.waterTemp);
     const tempUnit = useSettingsStore((store) => (store.settings.units?.temp === 'F' ? 'F' : 'C'));
     const seaTrend = useMemo(() => seaTempTrend(waterTempReal.history, tempUnit), [waterTempReal.history, tempUnit]);

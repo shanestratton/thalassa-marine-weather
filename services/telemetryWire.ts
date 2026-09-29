@@ -7,6 +7,7 @@
  * wire a reading came down, and NmeaStore ranks the LAN above the cloud.
  */
 import type { RemoteInstrumentSnapshot, RemoteVia } from './NmeaStore';
+import type { NmeaDepthReference } from '../types/navigation';
 import { parseWindHistorySummary } from '../utils/windHistory';
 import { readGnssDiagnostics } from './nmea/gnssDiagnostics';
 
@@ -53,6 +54,16 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
         headingTrueAt !== null &&
         headingTrueAt > 0 &&
         headingTrueAt <= Date.now() + 1_000;
+    // What depth_m is measured from. A Pi since 2026-09-29 sends the boat's
+    // display depth (below the keel on Serene Summer) and says so; an older Pi
+    // sends none, and its raw depth is below the transducer.
+    const depthReference: NmeaDepthReference | undefined =
+        extra.depth_reference === 'below-keel' ||
+        extra.depth_reference === 'below-transducer' ||
+        extra.depth_reference === 'below-waterline'
+            ? extra.depth_reference
+            : undefined;
+    const depthOffset = wireNumber(extra.depth_offset_m);
     const lat = wireNumber(wire.lat);
     const lon = wireNumber(wire.lon);
     const hasPositionTime =
@@ -92,6 +103,10 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             awsKts: wireNumber(wire.aws_kts),
             awaDeg: wireNumber(wire.awa_deg),
             depthM: wireNumber(wire.depth_m),
+            ...(depthReference ? { depthReference } : {}),
+            ...(depthReference && depthOffset !== null && Math.abs(depthOffset) <= 10
+                ? { depthOffsetM: depthOffset }
+                : {}),
             heelDeg: wireNumber(wire.heel_deg),
             pitchDeg: wireNumber(wire.pitch_deg),
             waterTempC: wireNumber(wire.water_temp_c),
