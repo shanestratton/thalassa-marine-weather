@@ -88,8 +88,9 @@ links simulator and unsigned physical-iPhone targets serially. All output stays
 outside the primary Thalassa app; no Capacitor sync or app integration occurs.
 
 The optional simulator run installs a randomly named research app and launches
-six separate process phases: `prepare`, `receive`, `reply`, `verify`, `replay`,
-and `cleanup`. Phase receipts must match the run ID, phase and launched PID.
+the original six separate process phases: `prepare`, `receive`, `reply`, `verify`,
+`replay`, and `cleanup`, then six `dm-`-prefixed phases for the typed coordinator.
+Phase receipts must match the run ID, phase and launched PID.
 The final replay attempt reopens the receiver's committed state in another
 process and then verifies those sessions can still exchange a new message.
 A successful run cleans up its synthetic stores, Keychain items and app;
@@ -130,6 +131,62 @@ The disposable app uses scene-based UIKit lifecycle and the normal simulator
 entitlement sections, not iOS entitlements in the host macOS signature. See
 [Apple's build-system separation of simulated and signed entitlements](https://github.com/swiftlang/swift-build/blob/main/Sources/SWBTaskExecution/TaskActions/ProcessProductEntitlementsTaskAction.swift)
 and [Apple's file-protection attribute contract](https://developer.apple.com/documentation/foundation/fileattributekey/protectionkey).
+
+## Bounded native message coordinator
+
+`VodozemacDmCoordinator.swift` owns a typed snapshot rather than treating an
+opaque pickle as a complete app protocol. It is still research-only: no Capacitor
+registration, live credentials, network call, database migration or chat badge.
+
+- Prepare commits the ratchet and immutable exact-ciphertext outbox together.
+  A matching retry returns saved bytes without re-encryption; changed content
+  under an existing message ID conflicts. Terminal receipts retain tombstones.
+- Acceptance compares the complete record and current native owner/trust
+  generations. Rejection compares the exact record and current owner, allowing
+  cancellation after a peer block or a new owner generation. Receipt authenticity
+  is a caller contract exercised with trusted fixtures, **not proved here**.
+- Receive stages decryption, checks all authenticated context, then commits
+  prekey/account/session changes, local message and dedup state together. Invalid
+  context or a failed commit exposes no plaintext and consumes no durable key.
+  Only an exact already-committed envelope is a duplicate, never new plaintext.
+- Whole-snapshot revision CAS also covers native owner/trust changes. A test-only
+  interference hook injects a competing durable lifecycle update before commit;
+  it is not a JavaScript guard or plugin input.
+
+`VodozemacDmFrame.swift` matches TypeScript envelope field order and canonical
+padded Base64 byte for byte. It rejects alternate/duplicate JSON framing and uses
+the Rust 65 KiB wire ceiling. The provider-authenticated plaintext is a fixed
+17-field array: domain, inner schema version, envelope version, suite, content
+type, conversation/message IDs, both owner/device IDs, both identity references,
+both pinned public keys, provider session ID and text. No plaintext metadata is
+trusted merely because it arrived in an outer envelope. This is a Thalassa
+research payload, not a Matrix event or a provider protocol modification.
+
+Deliberate bounds and unfinished work:
+
+- One owner/device and one peer/conversation/session per store. Only the lower
+  ASCII device ID may start the initial session; the other side returns
+  `unavailable` until its first valid receive. This prevents simultaneous initial
+  sends from creating irreconcilable sessions; it is **not** a complete messaging
+  UX or session arbitration/recovery protocol. No automatic session reset.
+- At most 16 outbox entries (including terminal tombstones), 16 received messages,
+  16 KiB UTF-8 text, and 1 MiB encoded snapshot. Escaping and state sizes can hit
+  the byte budget sooner. Fail closed; no silent history/outbox/tombstone eviction.
+  A production store needs bounded pagination and reviewed retention, not these
+  prototype capacity limits.
+- Native fixture-only account/peer setup, one-time-key lifecycle and generation
+  changes are not production ownership, logout, revocation, key rotation or
+  server-response authentication. Structured messages, attachments, groups and
+  browser support remain excluded. No secure memory erasure, whole-DB rollback
+  detection, phone-lock/SIGKILL/power-loss or independent security claim.
+
+The `replay` phase runs the frame/coordinator assertions, including wrong-context
+valid ciphertext, repeated prekey messages, commit failure, Unicode-equivalent
+receipt substitution, trust/owner races and capacity refusal. The six `dm-`
+phases reopen the actual coordinator across independent processes and verify
+saved sends, replies, history, exact retries, dedup and terminal receipts. The
+runner records the executed coordinator assertion count. Consult the checkpoint
+for actual executed results; this contract alone is not a passing test.
 
 ## Dependency licence inventory
 

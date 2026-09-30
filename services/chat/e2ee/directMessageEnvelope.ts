@@ -8,8 +8,9 @@
 export const DM_ENVELOPE_VERSION = 2 as const;
 export const DM_ENVELOPE_PROTOCOL = 'olm-v1' as const;
 
-// Provisional abuse bounds. Confirm against the selected provider before rollout.
-export const MAX_DM_CIPHERTEXT_BYTES = 256 * 1024;
+// Match the isolated Olm native boundary: 64 KiB provider plaintext + 1 KiB wire
+// overhead. The text-only native pilot has a smaller body/context budget.
+export const MAX_DM_CIPHERTEXT_BYTES = 65 * 1024;
 const MAX_BASE64_CHARS = 4 * Math.ceil(MAX_DM_CIPHERTEXT_BYTES / 3);
 // Three bounded ASCII IDs plus ample JSON framing room; also bound parser input.
 export const MAX_DM_ENVELOPE_CHARS = MAX_BASE64_CHARS + 3 * 128 + 1024;
