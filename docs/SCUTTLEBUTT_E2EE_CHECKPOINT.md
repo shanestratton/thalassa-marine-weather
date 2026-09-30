@@ -26,7 +26,8 @@ On 30 September the owner accepted the recommendation not to build a homemade
 third ratchet. This authorizes the isolated provider transition, not production
 release, a post-quantum claim, or changing Thalassa's source licence. libsignal is
 not the adoption candidate; its earlier probes below remain historical research.
-No Keychain operations, relay migration, app linking, signing changes or
+Keychain operations and ad-hoc simulator signing are confined to a disposable
+research app. No relay migration, Thalassa app linking/signing changes or
 distribution were started. Dependency/licence review, two real phones and an
 independent security review still gate release. An off-by-default switch is not
 a substitute for those checks or a way around a bundled dependency's licence.
@@ -136,6 +137,68 @@ resolved registry packages for this host reported permissive licence expressions
 and no missing licence fields; this is not legal review or a notice-generation
 step. The temporary toolchain/cache was kept outside the app and no shell
 profiles or system toolchain defaults were changed.
+
+### Native Apache-provider bridge and sealed-store checkpoint — 1 October
+
+`experiments/scuttlebutt-e2ee/vodozemac-native/` adds a pinned, stateless UniFFI
+0.29.4 boundary around unchanged vodozemac 0.11.0 Olm v1. Generated Swift bindings
+and binaries remain external build outputs, not dependencies of the app. The
+boundary checks sizes, pinned sender identity, restored session version and
+prekey outer-header/session-key matching; errors omit provider inputs/details.
+
+`VodozemacSealedStore.swift` uses an actual UUID-scoped research Keychain item
+(`WhenUnlockedThisDeviceOnly`, nonsynchronizing). CryptoKit AES-GCM seals the
+whole account/session/outbox/receive snapshot before SQLite sees it; a separately
+derived key protects upstream pickles. Store identity and revision are bound to
+the ciphertext. Transactions compare revisions and authenticate prior state.
+If rollback fails, the handle is poisoned/closed until authenticated reopen.
+
+Verified with the offline single-worker native runner, Rust 1.89.0, Node 24.19.0
+and Xcode's iOS 27 SDK:
+
+- **10 real-provider Rust boundary tests passed**, including malformed inputs,
+  tampering, replay, out-of-order delivery, one-time-key consumption, wrong keys
+  and a regression proving prekey outer-header validation is necessary.
+- Swift/generated UniFFI/Rust static libraries **compile and link for simulator
+  and physical-iPhone targets**. The physical binary is unsigned and was not run.
+- **All six process phases passed in the iOS 26.5 simulator**: prepare, receive,
+  reply, verify, durable replay rejection, and exact cleanup. Both peers' keys,
+  account/session state and exact pending ciphertext survive independent app
+  launches. After replay refusal, the restored sessions exchange another valid
+  message, so unreadable state cannot masquerade as replay protection.
+- The storage probe passed ciphertext/revision/store-ID tamper rejection,
+  two-connection stale-writer refusal, injected pre-commit rollback and failed
+  rollback/poisoning, wrong/missing keys, weaker Keychain policy refusal, backup
+  exclusion, payload bounds and absence of fixture plaintext in DB/WAL files.
+- **All six process phases also passed in a clean iOS 27 simulator run**, including
+  automatic exact cleanup/uninstall. An earlier `simctl launch` exceeded the
+  former 60-second deadline, but its sanitized receipt subsequently proved
+  `prepare` completed. The remaining five phases also passed against that exact
+  recovered run before the fresh full-run confirmation. That initial timeout was
+  incomplete observation, not an app assertion failure. The runner now allows
+  180 seconds for launch and distinguishes incomplete observation from an explicit
+  app-reported failure; it never blindly retries `prepare`.
+
+**Not verified:** hardware file protection and locked-device behaviour. The
+simulator omitted the file-protection attribute; this is explicitly recorded as
+unverified rather than passed. Physical iOS probes retain the strict policy
+assertion. Keychain errors remain failures on every platform, never mock
+fallbacks. Orderly process exits and synthetic faults are not SIGKILL, power-loss,
+actual SQLite I/O-failure or whole-database rollback evidence. No complete memory
+erasure or secure-deletion claim is made.
+
+Initial attempts exposed harness packaging and assertion issues: simulator
+entitlements must be in simulated linker sections, separate from the host
+signature; scene lifecycle and sanitized stage receipts now make launch failures
+visible. No user keys, messages, phone app, production signing or Supabase data
+were accessed. Failed test namespaces are cleaned up only by their exact receipts.
+
+The licence inventory is not blanket Apache clearance: the provider is Apache-2.0,
+but UniFFI runtime/tooling is MPL-2.0. Metadata has no missing third-party licence
+or AGPL/GPL-only dependency; generated-code treatment and all applicable source/
+notice obligations still require review before distribution. See the native
+README for reproduction, inventory and limitations. Agent review found concrete
+issues but is **not** the planned independent security review.
 
 ### Historical Signal experiment — not evidence for the new provider
 
@@ -254,7 +317,9 @@ copy Signal's implementation into the app or modify the ratchet cryptography.
    room workflow uses Megolm. The official `vodozemac-bindings` repository is
    unmaintained. A small maintained-tooling bridge (for example UniFFI) needs
    independent review, state ownership, bounds, error handling and Swift tests.
-   No Swift bridge or new iOS provider binary is included in this checkpoint.
+   The isolated UniFFI/Swift research bridge now exists; generated bindings and
+   iOS binaries stay outside the repository. It is not an app plugin or proof
+   of physical-phone execution.
 4. Bare Olm accepts keys, not an authenticated app device directory. Verify
    signed device/prekey material and bind ownership, identities, conversation
    context, freshness and recipient identity before accepting/decrypting data.
@@ -336,8 +401,10 @@ about supported payload sizes. It does not authorize attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: a narrow native vodozemac bridge and protected, atomic account/session store,
-then authenticated device/prekey relay tests in an isolated database. No new
+Next: turn the isolated native bridge/store proof into a bounded app adapter,
+add lifecycle/lock/crash tests on real phones, then authenticated device/prekey
+relay tests in an isolated database. The synthetic single-prekey fixture is not
+a production registration or replenishment design. No new
 Supabase schema should inherit Signal/Kyber bundle fields from the earlier relay
 notes. Single-device pilot first; existing app messages remain untouched. Use
 the reproduction instructions in `experiments/scuttlebutt-e2ee/vodozemac-probe/README.md`.
