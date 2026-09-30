@@ -127,11 +127,35 @@ export function buildBasemapUrl(view: RadarView, token: string, extraZoom = 0): 
     const w = Math.min(1280, view.wCss);
     const h = Math.min(1280, view.hCss);
     return (
-        `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/` +
+        `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/` +
         `${view.lon.toFixed(4)},${view.lat.toFixed(4)},${zStatic},0/${w}x${h}@2x` +
-        `?access_token=${token}&attribution=false&logo=false`
+        `?access_token=${token}&attribution=false&logo=false&addlayer=${TOWN_LABELS_LAYER}`
     );
 }
+
+/**
+ * Town names only, over plain satellite imagery. The labelled style
+ * (satellite-streets) also printed state and sea names into the picture:
+ * "QUEENSLAND" poked out from under the wind badge as "…ND", and the italic
+ * "C" of "Coral Sea" sat cut off on the card's right edge (Shane 2026-09-30,
+ * "can we fix the overruns"). Settlements keep the frame readable (Cairns,
+ * Townsville, Mackay); nothing else is lettered on the picture.
+ */
+const TOWN_LABELS_LAYER = encodeURIComponent(
+    JSON.stringify({
+        id: 'thalassa-towns',
+        type: 'symbol',
+        source: { type: 'vector', url: 'mapbox://mapbox.mapbox-streets-v8' },
+        'source-layer': 'place_label',
+        filter: ['all', ['==', ['get', 'class'], 'settlement'], ['<=', ['get', 'symbolrank'], 11]],
+        layout: {
+            'text-field': ['get', 'name'],
+            'text-size': 12,
+            'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        },
+        paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.75)', 'text-halo-width': 1.2 },
+    }),
+);
 
 // ── Frame planning ────────────────────────────────────────────
 

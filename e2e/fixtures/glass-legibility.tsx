@@ -6,6 +6,7 @@ import { HeroWidgets } from '../../components/dashboard/HeroWidgets';
 import { MetricGridPanel, type MetricWidget } from '../../components/dashboard/hero/MetricGridPanel';
 import { DailySummaryCard } from '../../components/dashboard/hero/DailySummaryCard';
 import { CompactHeaderRow } from '../../components/dashboard/CompactHeaderRow';
+import { CurrentConditionsCard } from '../../components/dashboard/CurrentConditionsCard';
 import { TideGraph } from '../../components/dashboard/tide/TideGraph';
 import { ThermometerIcon, GaugeIcon, CompassIcon, CloudIcon, WaveIcon } from '../../components/Icons';
 import type { UnitPreferences, WeatherMetrics } from '../../types';
@@ -89,6 +90,24 @@ function Fixture() {
                 <DndContext>
                     <HeroWidgets data={weather} units={units} locationType="coastal" />
                 </DndContext>
+                {/* The compact conditions row with the readings that overran it
+                    (Shane 2026-09-30: 'TRACE mm' ran into HUM), plus the inch
+                    figures a Fahrenheit skipper sees. */}
+                <section data-testid="conditions-trace-mm">
+                    <CurrentConditionsCard data={{ ...weather, humidity: 100, precipitation: 0.1 }} units={units} />
+                </section>
+                <section data-testid="conditions-inch-small">
+                    <CurrentConditionsCard
+                        data={{ ...weather, humidity: 100, precipitation: 0.25 }}
+                        units={{ ...units, temp: 'F' }}
+                    />
+                </section>
+                <section data-testid="conditions-inch">
+                    <CurrentConditionsCard
+                        data={{ ...weather, humidity: 100, precipitation: 12.7 }}
+                        units={{ ...units, temp: 'F' }}
+                    />
+                </section>
                 <section
                     data-testid="secondary-metrics"
                     className="relative w-full rounded-xl overflow-hidden bg-white/8 border border-white/15 flex flex-col"

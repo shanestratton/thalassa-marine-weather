@@ -8,6 +8,8 @@ export default defineConfig({
     testMatch: [
         'keyboard-layout.spec.ts',
         'daylight-layout.spec.ts',
+        // The Glass's compact conditions row: 'Trace' and inch readings stay in their cells.
+        'glass-conditions-row-layout.spec.ts',
         'ui-legibility.spec.ts',
         'split-pane-layout.spec.ts',
         'nmea-daylight.spec.ts',
