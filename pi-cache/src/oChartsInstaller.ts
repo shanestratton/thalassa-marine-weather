@@ -2,16 +2,22 @@ import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, type Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
     ChartInstallError,
     chartBlobPath,
     publishChartDelivery,
     readChartIndex,
+    writeChartFileAtomic,
     type InstalledCellMeta,
     type PackageSummary,
     type StagedChartCell,
 } from './encChartStore.js';
+// Namespace import on purpose: CHART_REFRESH_SUPPORTED is read at run time, so
+// an older encChartStore.js without it fails the re-conversion closed instead
+// of failing this module (and the whole server) at link time.
+import * as chartStore from './encChartStore.js';
 import { chartBlobExtractorSchema } from './encLayerContract.js';
 
 const EXTRACTOR_TIMEOUT_MS = 30 * 60 * 1000;
@@ -30,6 +36,14 @@ export interface OChartsExtractorRequest {
     storeDir: string;
     reportPath: string;
     extractorDir: string;
+    /** Stops the converter (its whole process group); the run fails with ocharts-conversion-stopped. */
+    signal?: AbortSignal;
+    /**
+     * Scheduling niceness (absolute, os.setPriority) for the converter. The
+     * service runs at Nice=-5, above Signal K and the anchor watch; background
+     * work asks for less. Raising niceness needs no privilege.
+     */
+    niceness?: number;
 }
 
 interface ExtractorReport {
@@ -149,6 +163,11 @@ export async function runOChartsExtractor(request: OChartsExtractorRequest): Pro
             'The o-charts converter is not installed on this Pi. Existing charts were preserved.',
         );
     }
+    if (request.signal?.aborted)
+        throw new ChartInstallError(
+            'ocharts-conversion-stopped',
+            'Chart conversion was stopped. Existing charts were preserved.',
+        );
     await new Promise<void>((resolve, reject) => {
         // No download URLs or installation keys ever enter argv or captured logs.
         // Load tsx in this Node process, so the timeout owns the actual worker
@@ -175,17 +194,44 @@ export async function runOChartsExtractor(request: OChartsExtractorRequest): Pro
                 detached: process.platform !== 'win32',
             },
         );
-        const timeout = setTimeout(() => {
+        if (request.niceness !== undefined && child.pid) {
+            // Set before the converter starts its own children (oexserverd),
+            // which inherit it. Best effort: never a reason to fail a conversion.
+            try {
+                os.setPriority(child.pid, request.niceness);
+            } catch {
+                // Already lower priority than asked (EACCES), or already gone.
+            }
+        }
+        const killGroup = (signal: NodeJS.Signals) => {
             if (!child.pid) return;
             try {
-                if (process.platform === 'win32') child.kill('SIGKILL');
-                else process.kill(-child.pid, 'SIGKILL');
+                if (process.platform === 'win32') child.kill(signal);
+                else process.kill(-child.pid, signal);
             } catch {
-                // The group may have completed just before the timeout.
+                // The group may have completed just before.
             }
+        };
+        let timedOut = false;
+        let stopped = false;
+        let forceKill: NodeJS.Timeout | undefined;
+        const timeout = setTimeout(() => {
+            timedOut = true;
+            killGroup('SIGKILL');
         }, EXTRACTOR_TIMEOUT_MS);
-        child.once('error', () => {
+        const onAbort = () => {
+            stopped = true;
+            killGroup('SIGTERM');
+            forceKill = setTimeout(() => killGroup('SIGKILL'), 5_000);
+        };
+        request.signal?.addEventListener('abort', onAbort, { once: true });
+        const settled = () => {
             clearTimeout(timeout);
+            clearTimeout(forceKill);
+            request.signal?.removeEventListener('abort', onAbort);
+        };
+        child.once('error', () => {
+            settled();
             reject(
                 new ChartInstallError(
                     'ocharts-extractor-unavailable',
@@ -194,15 +240,36 @@ export async function runOChartsExtractor(request: OChartsExtractorRequest): Pro
             );
         });
         child.once('close', (code, signal) => {
-            clearTimeout(timeout);
+            settled();
             if (code === 0 && !signal) resolve();
+            else if (stopped)
+                reject(
+                    new ChartInstallError(
+                        'ocharts-conversion-stopped',
+                        'Chart conversion was stopped. Existing charts were preserved.',
+                    ),
+                );
+            else if (timedOut)
+                reject(
+                    new ChartInstallError(
+                        'ocharts-conversion-timeout',
+                        'Chart conversion did not finish in time. Existing charts were preserved.',
+                    ),
+                );
+            else if (signal)
+                // Killed from outside (a service stop signals the whole unit, the
+                // kernel's OOM killer): not a verdict on the charts or the dongle.
+                reject(
+                    new ChartInstallError(
+                        'ocharts-conversion-interrupted',
+                        'Chart conversion was interrupted before it finished. Existing charts were preserved.',
+                    ),
+                );
             else
                 reject(
                     new ChartInstallError(
-                        signal ? 'ocharts-conversion-timeout' : 'ocharts-conversion-failed',
-                        signal
-                            ? 'Chart conversion did not finish in time. Existing charts were preserved.'
-                            : 'The licensed o-charts converter could not process the complete set. Check that the registered dongle is connected and the download belongs to this boat. Existing charts were preserved.',
+                        'ocharts-conversion-failed',
+                        'The licensed o-charts converter could not process the complete set. Check that the registered dongle is connected and the download belongs to this boat. Existing charts were preserved.',
                     ),
                 );
         });
@@ -338,6 +405,9 @@ export async function convertAndVerifyOChartsSets(options: {
     archiveHash: string;
     runExtractor?: (request: OChartsExtractorRequest) => Promise<void>;
     onProgress?: (step: string, completed: number, total: number) => void;
+    /** Re-conversion only (installs pass neither): see OChartsExtractorRequest. */
+    signal?: AbortSignal;
+    niceness?: number;
 }): Promise<ConvertedOChartsDelivery> {
     const sets = await inspectOChartsSets(options.extractedDir);
     if (sets.length === 0)
@@ -352,11 +422,18 @@ export async function convertAndVerifyOChartsSets(options: {
         const storeDir = path.join(options.workDir, 'converted-ocharts', String(setIndex));
         const reportPath = path.join(options.workDir, `ocharts-report-${setIndex}.json`);
         options.onProgress?.(`Converting o-charts set ${setIndex + 1} of ${sets.length}`, completed, total);
+        if (options.signal?.aborted)
+            throw new ChartInstallError(
+                'ocharts-conversion-stopped',
+                'Chart conversion was stopped. Existing charts were preserved.',
+            );
         await (options.runExtractor ?? runOChartsExtractor)({
             chartSet,
             storeDir,
             reportPath,
             extractorDir: options.extractorDir,
+            ...(options.signal ? { signal: options.signal } : {}),
+            ...(options.niceness !== undefined ? { niceness: options.niceness } : {}),
         });
         let report: ExtractorReport;
         try {
@@ -624,13 +701,27 @@ export async function assessRetainedOChartsSource(
 }
 
 /**
+ * Does the chart store module this process loaded understand a package
+ * refresh (encChartStore.CHART_REFRESH_SUPPORTED)? Read from the namespace at
+ * run time: Pi files are copied into /opt one by one, and an encChartStore.js
+ * from an older build ignores `refreshPackageId`, so a refresh would publish
+ * as an ordinary delivery (bringing back removed cells, or failing
+ * chart-downgrade for the whole source on every start).
+ */
+export function chartStoreSupportsRefresh(store: object = chartStore): boolean {
+    return (store as Record<string, unknown>).CHART_REFRESH_SUPPORTED === true;
+}
+
+/**
  * Convert one retained source again and publish it as a refresh of its own
  * package: the same conversion and verification as an install
  * (convertAndVerifyOChartsSets), then publishChartDelivery with the same
  * packageId and source 'pi-decrypt'. It replaces only cells the package still
  * owns (encChartStore refreshPackageId); cells another package or the watcher
  * now supplies stay exactly as installed. All or nothing: any failure throws
- * before the index changes. No second source copy is retained.
+ * before the index changes. No second source copy is retained. `signal` is
+ * honoured up to the publication, never inside it: a publication cut off
+ * half-way would leave the store's index lock behind.
  */
 export async function reconvertRetainedOChartsSource(options: {
     chartStoreDir: string;
@@ -640,12 +731,20 @@ export async function reconvertRetainedOChartsSource(options: {
     targetSchema: number;
     runExtractor?: (request: OChartsExtractorRequest) => Promise<void>;
     onProgress?: (step: string, completed: number, total: number) => void;
+    signal?: AbortSignal;
+    niceness?: number;
+    supportsRefresh?: () => boolean;
 }): Promise<{
     packageSummary: PackageSummary;
     changedCellIds: string[];
     retainedCellIds: string[];
     featureCount: number;
 }> {
+    if (!(options.supportsRefresh ?? chartStoreSupportsRefresh)())
+        throw new ChartInstallError(
+            'reconvert-store-unsupported',
+            'The chart store on this Pi predates package refreshes. Existing charts were preserved.',
+        );
     const converted = await convertAndVerifyOChartsSets({
         extractedDir: options.source.directory,
         workDir: options.workDir,
@@ -653,6 +752,8 @@ export async function reconvertRetainedOChartsSource(options: {
         archiveHash: options.source.packageId,
         runExtractor: options.runExtractor,
         onProgress: options.onProgress,
+        signal: options.signal,
+        niceness: options.niceness,
     });
     // The converter must produce the schema it declares; otherwise the same
     // cells stay behind and this would run again on every start.
@@ -662,6 +763,8 @@ export async function reconvertRetainedOChartsSource(options: {
             'reconvert-schema-mismatch',
             `The converter declares schema ${options.targetSchema} but produced another for ${off.length} chart(s). Existing charts were preserved.`,
         );
+    if (options.signal?.aborted)
+        throw new ChartInstallError('reconvert-stopped', 'Stopped before publishing. Existing charts were preserved.');
     options.onProgress?.('Publishing re-converted charts', converted.total, converted.total);
     const published = await publishChartDelivery(options.chartStoreDir, converted.candidates, {
         refreshPackageId: options.source.packageId,
@@ -677,13 +780,23 @@ export async function reconvertRetainedOChartsSource(options: {
 export interface SourceReconvertOutcome {
     /** First 12 hex of the package id — never a path. */
     source: string;
-    outcome: 'current' | 'reconverted' | 'failed' | 'not-installed';
+    /**
+     * held: failed RECONVERT_MAX_ATTEMPTS starts in a row with the same code at
+     * this converter schema, so it is not tried again (see reconvertFailuresPath).
+     * stopped: the service was stopping; nothing changed, the next start tries again.
+     */
+    outcome: 'current' | 'reconverted' | 'failed' | 'held' | 'stopped' | 'not-installed';
     owned: number;
     stale: number;
     updated?: number;
     retained?: number;
     code?: string;
+    /** A ChartInstallError's own sentence only; never a raw error message (those carry paths). */
     message?: string;
+    /** For an unexpected error: its errno code (ENOENT, EACCES, ...), if any. */
+    errno?: string;
+    /** Consecutive failed starts with this code at this converter schema. */
+    attempts?: number;
     finishedAt: string;
 }
 
@@ -697,11 +810,103 @@ export interface SourceReconvertProgress {
 }
 
 /**
+ * A source that failed this many starts in a row with the same code, at the
+ * same converter schema, is held: later starts skip it with one warning
+ * instead of spending ~80 s of converter time (and ~1.7 GB) on the same
+ * failure every boot. Two, not one, so a one-off (a busy store, a dongle
+ * reseated late) gets one more try on its own.
+ */
+export const RECONVERT_MAX_ATTEMPTS = 2;
+
+/** Stopped by us or killed from outside: says nothing about the charts, never counted. */
+const UNCOUNTED_RECONVERT_CODES = new Set([
+    'reconvert-stopped',
+    'ocharts-conversion-stopped',
+    'ocharts-conversion-interrupted',
+]);
+
+interface ReconvertFailureRecord {
+    targetSchema: number;
+    code: string;
+    attempts: number;
+    lastFailedAt: string;
+}
+
+/**
+ * Where failed re-conversions are counted, per retained source directory.
+ * Removing the file (then restarting) is the manual retry.
+ */
+export function reconvertFailuresPath(chartStoreDir: string): string {
+    return path.join(chartStoreDir, '.reconvert-failures.json');
+}
+
+async function readReconvertFailures(
+    chartStoreDir: string,
+    logger: Pick<Console, 'log' | 'warn'>,
+): Promise<Record<string, ReconvertFailureRecord>> {
+    let text: string;
+    try {
+        text = await fs.readFile(reconvertFailuresPath(chartStoreDir), 'utf8');
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+        logger.warn(
+            `[encReconvert] reconvert-failures-unreadable: ${(error as NodeJS.ErrnoException).code ?? 'error'}; counting from zero.`,
+        );
+        return {};
+    }
+    const records: Record<string, ReconvertFailureRecord> = {};
+    try {
+        const parsed = JSON.parse(text) as {
+            version?: unknown;
+            sources?: Record<string, Partial<ReconvertFailureRecord>>;
+        };
+        if (parsed.version !== 1 || !parsed.sources || typeof parsed.sources !== 'object') throw new Error('shape');
+        for (const [name, record] of Object.entries(parsed.sources)) {
+            if (
+                RETAINED_SOURCE_NAME.test(name) &&
+                Number.isSafeInteger(record?.targetSchema) &&
+                typeof record?.code === 'string' &&
+                Number.isSafeInteger(record?.attempts) &&
+                typeof record?.lastFailedAt === 'string'
+            )
+                records[name] = record as ReconvertFailureRecord;
+        }
+    } catch {
+        logger.warn('[encReconvert] reconvert-failures-unreadable: not a failure record; counting from zero.');
+        return {};
+    }
+    return records;
+}
+
+async function writeReconvertFailures(
+    chartStoreDir: string,
+    records: Record<string, ReconvertFailureRecord>,
+    logger: Pick<Console, 'log' | 'warn'>,
+): Promise<void> {
+    try {
+        if (Object.keys(records).length === 0) await fs.rm(reconvertFailuresPath(chartStoreDir), { force: true });
+        else
+            await writeChartFileAtomic(
+                reconvertFailuresPath(chartStoreDir),
+                JSON.stringify({ version: 1, sources: records }, null, 2),
+            );
+    } catch (error) {
+        logger.warn(
+            `[encReconvert] could not record re-conversion failures (${(error as NodeJS.ErrnoException).code ?? 'error'}); the next start tries again.`,
+        );
+    }
+}
+
+/**
  * Every retained source, one at a time, each under its own lease (so an
  * install the skipper starts can run between two sources). Never throws for a
  * source: a failure is logged as a warning with its code and leaves every
- * installed chart as it was; the next start tries again. A second run after a
- * successful one finds every owned cell current and converts nothing.
+ * installed chart as it was. The next start tries again, up to
+ * RECONVERT_MAX_ATTEMPTS starts with the same failure; then the source is held
+ * until the converter schema changes or the failure record is removed. A
+ * second run after a successful one finds every owned cell current and
+ * converts nothing. `signal` stops the pass between sources and before any
+ * publication (never inside one).
  */
 export async function reconvertRetainedOChartsSources(options: {
     chartStoreDir: string;
@@ -711,25 +916,56 @@ export async function reconvertRetainedOChartsSources(options: {
     acquireLease?: () => Promise<{ release(): void }>;
     onProgress?: (progress: SourceReconvertProgress) => void;
     logger?: Pick<Console, 'log' | 'warn'>;
-}): Promise<{ targetSchema: number | null; outcomes: SourceReconvertOutcome[] }> {
+    signal?: AbortSignal;
+    niceness?: number;
+    supportsRefresh?: () => boolean;
+}): Promise<{ targetSchema: number | null; outcomes: SourceReconvertOutcome[]; code?: string }> {
     const logger = options.logger ?? console;
     const sources = await listRetainedOChartsSources(options.chartStoreDir);
     if (sources.length === 0) return { targetSchema: null, outcomes: [] };
+    const supportsRefresh = options.supportsRefresh ?? chartStoreSupportsRefresh;
+    if (!supportsRefresh()) {
+        logger.warn(
+            `[encReconvert] reconvert-store-unsupported: this Pi's encChartStore.js predates package refreshes (no CHART_REFRESH_SUPPORTED); ${sources.length} installed source(s) left as they are. Deploy it from the same build as oChartsInstaller.js.`,
+        );
+        return { targetSchema: null, outcomes: [], code: 'reconvert-store-unsupported' };
+    }
     const targetSchema = await readExtractorSchema(options.extractorDir);
     if (targetSchema === null) {
         logger.warn(
             `[encReconvert] reconvert-schema-unknown: no single EXTRACTOR_SCHEMA declaration in ${path.join(options.extractorDir, 'src', 's57Classes.ts')}; ${sources.length} installed source(s) left as they are.`,
         );
-        return { targetSchema, outcomes: [] };
+        return { targetSchema, outcomes: [], code: 'reconvert-schema-unknown' };
     }
+    const failures = await readReconvertFailures(options.chartStoreDir, logger);
     const outcomes: SourceReconvertOutcome[] = [];
+    const stopped = (id: string, owned: number, stale: number) => {
+        logger.log(
+            `[encReconvert] ${id}: stopped (the service is stopping); existing charts were preserved, the next start tries again.`,
+        );
+        outcomes.push({ source: id, outcome: 'stopped', owned, stale, finishedAt: new Date().toISOString() });
+    };
     for (let i = 0; i < sources.length; i++) {
         const source = sources[i];
         const id = source.packageId.slice(0, 12);
-        const lease = options.acquireLease ? await options.acquireLease() : null;
+        if (options.signal?.aborted) {
+            stopped(id, 0, 0);
+            break;
+        }
+        let lease: { release(): void } | null = null;
+        try {
+            lease = options.acquireLease ? await options.acquireLease() : null;
+        } catch (error) {
+            if (!options.signal?.aborted) throw error;
+            stopped(id, 0, 0);
+            break;
+        }
         const workDir = path.join(options.workRoot, `${id}-${randomUUID()}`);
+        const previous = failures[source.name];
+        let record: ReconvertFailureRecord | undefined = previous;
         let owned = 0;
         let stale = 0;
+        let stop = false;
         try {
             const assessment = await assessRetainedOChartsSource(options.chartStoreDir, source, targetSchema);
             owned = assessment.ownedCellIds.length;
@@ -743,11 +979,27 @@ export async function reconvertRetainedOChartsSources(options: {
                     `[encReconvert] reconvert-cell-not-in-source ${id}: ${assessment.notInSourceCellIds.length} older chart(s) of this package are not in its retained source (${assessment.notInSourceCellIds.slice(0, 5).join(', ')}); left as they are.`,
                 );
             if (owned === 0 || stale === 0) {
+                record = undefined;
                 outcomes.push({
                     source: id,
                     outcome: owned === 0 ? 'not-installed' : 'current',
                     owned,
                     stale,
+                    finishedAt: new Date().toISOString(),
+                });
+                continue;
+            }
+            if (previous && previous.targetSchema === targetSchema && previous.attempts >= RECONVERT_MAX_ATTEMPTS) {
+                logger.warn(
+                    `[encReconvert] reconvert-held ${id}: ${stale} older chart(s) stay as installed; the last ${previous.attempts} starts failed with ${previous.code} at converter schema ${targetSchema}. Not tried again until the converter schema changes. To retry now: rm ${reconvertFailuresPath(options.chartStoreDir)} and restart.`,
+                );
+                outcomes.push({
+                    source: id,
+                    outcome: 'held',
+                    owned,
+                    stale,
+                    code: previous.code,
+                    attempts: previous.attempts,
                     finishedAt: new Date().toISOString(),
                 });
                 continue;
@@ -765,7 +1017,11 @@ export async function reconvertRetainedOChartsSources(options: {
                 runExtractor: options.runExtractor,
                 onProgress: (step, completed, cells) =>
                     options.onProgress?.({ source: id, index: i, total: sources.length, step, completed, cells }),
+                signal: options.signal,
+                niceness: options.niceness,
+                supportsRefresh,
             });
+            record = undefined;
             logger.log(
                 `[encReconvert] ${id}: replaced ${result.changedCellIds.length} chart(s) with schema ${targetSchema}; left ${result.retainedCellIds.length} as installed (supplied by another package, the ~/Charts watcher, or removed)`,
             );
@@ -779,24 +1035,54 @@ export async function reconvertRetainedOChartsSources(options: {
                 finishedAt: new Date().toISOString(),
             });
         } catch (error) {
-            const code = error instanceof ChartInstallError ? error.code : 'reconvert-unexpected';
-            const message = error instanceof Error ? error.message : String(error);
-            logger.warn(
-                `[encReconvert] reconvert-failed ${id}: ${code} — ${message} Existing charts were preserved; the next start tries again.`,
-            );
-            outcomes.push({
-                source: id,
-                outcome: 'failed',
-                owned,
-                stale,
-                code,
-                message,
-                finishedAt: new Date().toISOString(),
-            });
+            if (options.signal?.aborted) {
+                stopped(id, owned, stale);
+                stop = true;
+            } else {
+                const known = error instanceof ChartInstallError;
+                const code = known ? error.code : 'reconvert-unexpected';
+                const errno = known ? undefined : (error as NodeJS.ErrnoException | undefined)?.code;
+                const counted = !UNCOUNTED_RECONVERT_CODES.has(code);
+                if (counted)
+                    record = {
+                        targetSchema,
+                        code,
+                        attempts:
+                            previous && previous.targetSchema === targetSchema && previous.code === code
+                                ? previous.attempts + 1
+                                : 1,
+                        lastFailedAt: new Date().toISOString(),
+                    };
+                const next =
+                    counted && record && record.attempts >= RECONVERT_MAX_ATTEMPTS
+                        ? `held from now on (${record.attempts} starts in a row); to retry: rm ${reconvertFailuresPath(options.chartStoreDir)} and restart.`
+                        : 'the next start tries again.';
+                // The journal gets the whole error; the health status only codes.
+                logger.warn(
+                    `[encReconvert] reconvert-failed ${id}: ${code} — ${error instanceof Error ? error.message : String(error)} Existing charts were preserved; ${next}`,
+                );
+                outcomes.push({
+                    source: id,
+                    outcome: 'failed',
+                    owned,
+                    stale,
+                    code,
+                    ...(known ? { message: error.message } : {}),
+                    ...(typeof errno === 'string' ? { errno } : {}),
+                    ...(counted && record ? { attempts: record.attempts } : {}),
+                    finishedAt: new Date().toISOString(),
+                });
+            }
         } finally {
             await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
             lease?.release();
+            if (record !== previous) {
+                if (record) failures[source.name] = record;
+                else delete failures[source.name];
+                await writeReconvertFailures(options.chartStoreDir, failures, logger);
+            }
         }
+        if (stop) break;
     }
     return { targetSchema, outcomes };
 }

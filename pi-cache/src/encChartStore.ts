@@ -199,6 +199,17 @@ export interface StagedChartCell {
 }
 
 /**
+ * This store understands publishChartDelivery's `refreshPackageId`. A build
+ * without it would silently ignore the option and publish a refresh as an
+ * ordinary delivery (resurrecting removed cells, or failing chart-downgrade),
+ * so oChartsInstaller's re-conversion reads this through a namespace import,
+ * where a missing name is `undefined` rather than a module-link failure, and
+ * refuses to run without it. Pi files are deployed one by one, so a stale
+ * encChartStore.js next to a newer installer is a real possibility.
+ */
+export const CHART_REFRESH_SUPPORTED = true;
+
+/**
  * Publish a complete validated delivery with one atomic index replacement.
  * Existing blobs are immutable and retained: readers holding the old index
  * continue seeing exactly that edition, even across updates and deletions.
