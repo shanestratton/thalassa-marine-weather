@@ -12,6 +12,7 @@ const governorSource = readFileSync(new URL('./workloadGovernor.ts', import.meta
 const resourceBoundarySource = readFileSync(new URL('./resourceBoundary.ts', import.meta.url), 'utf8');
 const watcherSource = readFileSync(new URL('./encWatcher.ts', import.meta.url), 'utf8');
 const chartworldSource = readFileSync(new URL('./chartworldSync.ts', import.meta.url), 'utf8');
+const reconvertSource = readFileSync(new URL('./encSourceReconvert.ts', import.meta.url), 'utf8');
 
 test('server binds through the loopback-default policy and restricts CORS', () => {
     assert.match(source, /server\.listen\(PORT, BIND_HOST/);
@@ -194,6 +195,11 @@ test('all Pi chart conversion, installation, download and routing entry points s
     assert.match(chartRouteSource.slice(chartRouteSource.indexOf("router.post('/download'")), /submit\('conversion'/);
     assert.equal(watcherSource.match(/admit\('conversion'\)/g)?.length, 2);
     assert.match(chartworldSource, /admit\('conversion'\)/);
+    // The re-conversion of installer-retained sources takes the same lane,
+    // and only after the watcher's own startup reconcile.
+    assert.match(reconvertSource, /governor\.admit\('conversion'\)/);
+    assert.match(reconvertSource, /whenInitialReconcileSettled/);
+    assert.ok(source.indexOf('startSourceReconvert()') > source.indexOf('startEncWatcher();'));
 });
 
 test('downloads and ZIP extraction cross centralized streaming resource boundaries', () => {

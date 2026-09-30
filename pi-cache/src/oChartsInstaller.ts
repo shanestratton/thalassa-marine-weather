@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, type Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -12,6 +12,7 @@ import {
     type PackageSummary,
     type StagedChartCell,
 } from './encChartStore.js';
+import { chartBlobExtractorSchema } from './encLayerContract.js';
 
 const EXTRACTOR_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_CONVERTED_CELL_BYTES = 256 * 1024 * 1024;
@@ -312,25 +313,38 @@ function validateConvertedCell(value: unknown, expected: InstalledCellMeta): num
     return features;
 }
 
-export async function installOChartsDelivery(options: {
+export interface ConvertedOChartsDelivery {
+    /** Verified, staged cells (in the work dir), stamped with the package identity. */
+    candidates: StagedChartCell[];
+    /** Converter schema of each staged cell (encLayerContract.chartBlobExtractorSchema). */
+    extractorSchemas: Record<string, number | null>;
+    featureCount: number;
+    total: number;
+}
+
+/**
+ * Convert every o-charts set under `extractedDir` into isolated work stores
+ * and verify each result: the converter's completion report, the cell list
+ * against the licensed key XML, native identity, file size, checksum and the
+ * converted content itself (validateConvertedCell). Nothing touches the live
+ * chart store here. Shared by a fresh install (installOChartsDelivery) and a
+ * re-conversion of a retained source (reconvertRetainedOChartsSource), so both
+ * apply exactly the same checks.
+ */
+export async function convertAndVerifyOChartsSets(options: {
     extractedDir: string;
     workDir: string;
-    chartStoreDir: string;
     extractorDir: string;
     archiveHash: string;
     runExtractor?: (request: OChartsExtractorRequest) => Promise<void>;
     onProgress?: (step: string, completed: number, total: number) => void;
-}): Promise<{
-    persistedCellIds: string[];
-    packageSummary: PackageSummary;
-    featureCount: number;
-    sourceArchiveId: string;
-}> {
+}): Promise<ConvertedOChartsDelivery> {
     const sets = await inspectOChartsSets(options.extractedDir);
     if (sets.length === 0)
         throw new ChartInstallError('ocharts-no-cells', 'No o-charts cells were found in this archive.');
     const total = sets.reduce((sum, set) => sum + set.cellIds.length, 0);
     const candidates: StagedChartCell[] = [];
+    const extractorSchemas: Record<string, number | null> = {};
     let featureCount = 0;
     let completed = 0;
     for (let setIndex = 0; setIndex < sets.length; setIndex++) {
@@ -412,6 +426,7 @@ export async function installOChartsDelivery(options: {
                     `${meta.cellId} contains an invalid converted result.`,
                 );
             featureCount += validateConvertedCell(blob.cells[0], meta);
+            extractorSchemas[meta.cellId] = chartBlobExtractorSchema(bytes);
             candidates.push({
                 filename,
                 meta: {
@@ -426,6 +441,24 @@ export async function installOChartsDelivery(options: {
         completed += chartSet.cellIds.length;
         options.onProgress?.('Verifying converted charts', completed, total);
     }
+    return { candidates, extractorSchemas, featureCount, total };
+}
+
+export async function installOChartsDelivery(options: {
+    extractedDir: string;
+    workDir: string;
+    chartStoreDir: string;
+    extractorDir: string;
+    archiveHash: string;
+    runExtractor?: (request: OChartsExtractorRequest) => Promise<void>;
+    onProgress?: (step: string, completed: number, total: number) => void;
+}): Promise<{
+    persistedCellIds: string[];
+    packageSummary: PackageSummary;
+    featureCount: number;
+    sourceArchiveId: string;
+}> {
+    const { candidates, featureCount, total } = await convertAndVerifyOChartsSets(options);
     // Retain a private immutable source copy outside ENC_WATCH_DIR. It cannot
     // trigger a second watcher conversion and is not exposed by installed APIs.
     const sourceRoot = path.join(options.chartStoreDir, 'sources');
@@ -447,4 +480,323 @@ export async function installOChartsDelivery(options: {
     } finally {
         if (!committed) await fs.rm(retainedSource, { recursive: true, force: true }).catch(() => {});
     }
+}
+
+// ── Re-converting retained sources when the converter schema moves ────────
+//
+// An install keeps a private copy of its o-charts source under
+// <chart store>/sources/<archive sha256>-<uuid>/ and publishes its cells with
+// packageId = that archive hash. The ~/Charts watcher re-extracts its own sets
+// when the extractor's schema moves (the schema salts decryptBatch's skip
+// fingerprint); nothing re-read these retained sources, so charts installed
+// through the app kept the old conversion (no bridge / overhead-clearance
+// layers) for good. This does for them what the watcher does for ~/Charts,
+// through the installer's own conversion and checks.
+
+const RETAINED_SOURCE_NAME = /^([0-9a-f]{64})-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export interface RetainedOChartsSource {
+    /** Directory name under <chart store>/sources. */
+    name: string;
+    directory: string;
+    /** The installing archive's SHA-256: the packageId its cells were published with. */
+    packageId: string;
+}
+
+/**
+ * The converter schema the Pi's extractor will actually produce: its own
+ * declaration, `export const EXTRACTOR_SCHEMA = N` in src/s57Classes.ts.
+ *
+ * Read from the extractor on disk rather than compiled into pi-cache
+ * (encLayerContract.ENC_CONVERSION_SCHEMA) because the two deploy separately
+ * (the extractor is a git checkout, pi-cache is copied into /opt): a target
+ * the converter cannot reach would re-convert every source on every start,
+ * forever, and one it has already passed would never re-convert anything.
+ * A missing or ambiguous declaration yields null and nothing is converted.
+ */
+export async function readExtractorSchema(extractorDir: string): Promise<number | null> {
+    let source: string;
+    try {
+        source = await fs.readFile(path.join(extractorDir, 'src', 's57Classes.ts'), 'utf8');
+    } catch {
+        return null;
+    }
+    const declarations = [...source.matchAll(/^export const EXTRACTOR_SCHEMA\s*=\s*(\d+)\s*;/gm)];
+    if (declarations.length !== 1) return null;
+    const schema = Number(declarations[0][1]);
+    return Number.isSafeInteger(schema) && schema >= 1 ? schema : null;
+}
+
+const SCHEMA_KEY = Buffer.from(',"extractorSchema":');
+
+/**
+ * Cheap reading of a blob's `extractorSchema`: the extractor writes it on the
+ * cell after the layers (geojsonEmitter.emitCell), so it is the last
+ * occurrence of the key. Inside a JSON string that quote would be escaped, so
+ * a match is structural. null when absent or unreadable — never "schema 1".
+ */
+export function trailingExtractorSchema(bytes: Buffer): number | null {
+    const at = bytes.lastIndexOf(SCHEMA_KEY);
+    if (at < 0) return null;
+    const match = /^,"extractorSchema":([1-9]\d{0,8})[,}]/.exec(bytes.subarray(at, at + 32).toString('latin1'));
+    return match ? Number(match[1]) : null;
+}
+
+/**
+ * An installed blob's converter schema as the store's same-revision rule
+ * reads it (chartBlobExtractorSchema). Only an at-least-current answer comes
+ * from the cheap trailing read; anything that would start a conversion is
+ * confirmed by the full parse. Keeps a second start cheap: ~1 s of reading
+ * for the 187 installed cells measured on the boat, not ~7 s of parsing.
+ */
+async function installedBlobSchema(filename: string, targetSchema: number): Promise<number | null> {
+    const bytes = await fs.readFile(filename);
+    const trailing = trailingExtractorSchema(bytes);
+    if (trailing !== null && trailing >= targetSchema) return trailing;
+    return chartBlobExtractorSchema(bytes);
+}
+
+export async function listRetainedOChartsSources(chartStoreDir: string): Promise<RetainedOChartsSource[]> {
+    const root = path.join(chartStoreDir, 'sources');
+    let entries: Dirent[];
+    try {
+        entries = await fs.readdir(root, { withFileTypes: true });
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+    }
+    return entries
+        .filter((entry) => entry.isDirectory() && RETAINED_SOURCE_NAME.test(entry.name))
+        .map((entry) => ({
+            name: entry.name,
+            directory: path.join(root, entry.name),
+            packageId: RETAINED_SOURCE_NAME.exec(entry.name)![1],
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export interface RetainedSourceAssessment {
+    /** Live cells published by this source's package. */
+    ownedCellIds: string[];
+    /** Owned cells converted by an older schema that this source can re-convert. */
+    staleCellIds: string[];
+    /** Owned cells whose blob could not be read or carries no valid schema. */
+    unreadableCellIds: string[];
+    /** Owned, older-schema cells that are not in the retained source (left alone). */
+    notInSourceCellIds: string[];
+}
+
+/** Does this retained source need converting again? Reads only; changes nothing. */
+export async function assessRetainedOChartsSource(
+    chartStoreDir: string,
+    source: RetainedOChartsSource,
+    targetSchema: number,
+): Promise<RetainedSourceAssessment> {
+    const index = await readChartIndex(chartStoreDir);
+    const owned = index.cells.filter((cell) => cell.packageId === source.packageId);
+    const older: string[] = [];
+    const unreadableCellIds: string[] = [];
+    for (const cell of owned) {
+        let schema: number | null;
+        try {
+            schema = await installedBlobSchema(chartBlobPath(chartStoreDir, cell), targetSchema);
+        } catch {
+            schema = null;
+        }
+        if (schema === null) unreadableCellIds.push(cell.cellId);
+        else if (schema < targetSchema) older.push(cell.cellId);
+    }
+    let staleCellIds = older;
+    let notInSourceCellIds: string[] = [];
+    if (older.length > 0) {
+        // Only what this source can produce: anything else would stay behind
+        // after a successful run and start the same conversion on every start.
+        const produced = new Set((await inspectOChartsSets(source.directory)).flatMap((set) => set.cellIds));
+        staleCellIds = older.filter((id) => produced.has(id));
+        notInSourceCellIds = older.filter((id) => !produced.has(id));
+    }
+    return {
+        ownedCellIds: owned.map((cell) => cell.cellId),
+        staleCellIds,
+        unreadableCellIds,
+        notInSourceCellIds,
+    };
+}
+
+/**
+ * Convert one retained source again and publish it as a refresh of its own
+ * package: the same conversion and verification as an install
+ * (convertAndVerifyOChartsSets), then publishChartDelivery with the same
+ * packageId and source 'pi-decrypt'. It replaces only cells the package still
+ * owns (encChartStore refreshPackageId); cells another package or the watcher
+ * now supplies stay exactly as installed. All or nothing: any failure throws
+ * before the index changes. No second source copy is retained.
+ */
+export async function reconvertRetainedOChartsSource(options: {
+    chartStoreDir: string;
+    source: RetainedOChartsSource;
+    workDir: string;
+    extractorDir: string;
+    targetSchema: number;
+    runExtractor?: (request: OChartsExtractorRequest) => Promise<void>;
+    onProgress?: (step: string, completed: number, total: number) => void;
+}): Promise<{
+    packageSummary: PackageSummary;
+    changedCellIds: string[];
+    retainedCellIds: string[];
+    featureCount: number;
+}> {
+    const converted = await convertAndVerifyOChartsSets({
+        extractedDir: options.source.directory,
+        workDir: options.workDir,
+        extractorDir: options.extractorDir,
+        archiveHash: options.source.packageId,
+        runExtractor: options.runExtractor,
+        onProgress: options.onProgress,
+    });
+    // The converter must produce the schema it declares; otherwise the same
+    // cells stay behind and this would run again on every start.
+    const off = Object.values(converted.extractorSchemas).filter((schema) => schema !== options.targetSchema);
+    if (off.length > 0)
+        throw new ChartInstallError(
+            'reconvert-schema-mismatch',
+            `The converter declares schema ${options.targetSchema} but produced another for ${off.length} chart(s). Existing charts were preserved.`,
+        );
+    options.onProgress?.('Publishing re-converted charts', converted.total, converted.total);
+    const published = await publishChartDelivery(options.chartStoreDir, converted.candidates, {
+        refreshPackageId: options.source.packageId,
+    });
+    return {
+        packageSummary: published.packageSummary,
+        changedCellIds: published.changedCellIds,
+        retainedCellIds: published.retainedCellIds,
+        featureCount: converted.featureCount,
+    };
+}
+
+export interface SourceReconvertOutcome {
+    /** First 12 hex of the package id — never a path. */
+    source: string;
+    outcome: 'current' | 'reconverted' | 'failed' | 'not-installed';
+    owned: number;
+    stale: number;
+    updated?: number;
+    retained?: number;
+    code?: string;
+    message?: string;
+    finishedAt: string;
+}
+
+export interface SourceReconvertProgress {
+    source: string;
+    index: number;
+    total: number;
+    step: string;
+    completed: number;
+    cells: number;
+}
+
+/**
+ * Every retained source, one at a time, each under its own lease (so an
+ * install the skipper starts can run between two sources). Never throws for a
+ * source: a failure is logged as a warning with its code and leaves every
+ * installed chart as it was; the next start tries again. A second run after a
+ * successful one finds every owned cell current and converts nothing.
+ */
+export async function reconvertRetainedOChartsSources(options: {
+    chartStoreDir: string;
+    extractorDir: string;
+    workRoot: string;
+    runExtractor?: (request: OChartsExtractorRequest) => Promise<void>;
+    acquireLease?: () => Promise<{ release(): void }>;
+    onProgress?: (progress: SourceReconvertProgress) => void;
+    logger?: Pick<Console, 'log' | 'warn'>;
+}): Promise<{ targetSchema: number | null; outcomes: SourceReconvertOutcome[] }> {
+    const logger = options.logger ?? console;
+    const sources = await listRetainedOChartsSources(options.chartStoreDir);
+    if (sources.length === 0) return { targetSchema: null, outcomes: [] };
+    const targetSchema = await readExtractorSchema(options.extractorDir);
+    if (targetSchema === null) {
+        logger.warn(
+            `[encReconvert] reconvert-schema-unknown: no single EXTRACTOR_SCHEMA declaration in ${path.join(options.extractorDir, 'src', 's57Classes.ts')}; ${sources.length} installed source(s) left as they are.`,
+        );
+        return { targetSchema, outcomes: [] };
+    }
+    const outcomes: SourceReconvertOutcome[] = [];
+    for (let i = 0; i < sources.length; i++) {
+        const source = sources[i];
+        const id = source.packageId.slice(0, 12);
+        const lease = options.acquireLease ? await options.acquireLease() : null;
+        const workDir = path.join(options.workRoot, `${id}-${randomUUID()}`);
+        let owned = 0;
+        let stale = 0;
+        try {
+            const assessment = await assessRetainedOChartsSource(options.chartStoreDir, source, targetSchema);
+            owned = assessment.ownedCellIds.length;
+            stale = assessment.staleCellIds.length;
+            if (assessment.unreadableCellIds.length > 0)
+                logger.warn(
+                    `[encReconvert] reconvert-unreadable-schema ${id}: ${assessment.unreadableCellIds.length} installed chart(s) carry no readable converter schema (${assessment.unreadableCellIds.slice(0, 5).join(', ')}); left as they are.`,
+                );
+            if (assessment.notInSourceCellIds.length > 0)
+                logger.warn(
+                    `[encReconvert] reconvert-cell-not-in-source ${id}: ${assessment.notInSourceCellIds.length} older chart(s) of this package are not in its retained source (${assessment.notInSourceCellIds.slice(0, 5).join(', ')}); left as they are.`,
+                );
+            if (owned === 0 || stale === 0) {
+                outcomes.push({
+                    source: id,
+                    outcome: owned === 0 ? 'not-installed' : 'current',
+                    owned,
+                    stale,
+                    finishedAt: new Date().toISOString(),
+                });
+                continue;
+            }
+            logger.log(
+                `[encReconvert] ${id}: ${stale} of ${owned} installed chart(s) predate converter schema ${targetSchema}; re-converting the retained source`,
+            );
+            await fs.mkdir(workDir, { recursive: true, mode: 0o700 });
+            const result = await reconvertRetainedOChartsSource({
+                chartStoreDir: options.chartStoreDir,
+                source,
+                workDir,
+                extractorDir: options.extractorDir,
+                targetSchema,
+                runExtractor: options.runExtractor,
+                onProgress: (step, completed, cells) =>
+                    options.onProgress?.({ source: id, index: i, total: sources.length, step, completed, cells }),
+            });
+            logger.log(
+                `[encReconvert] ${id}: replaced ${result.changedCellIds.length} chart(s) with schema ${targetSchema}; left ${result.retainedCellIds.length} as installed (supplied by another package, the ~/Charts watcher, or removed)`,
+            );
+            outcomes.push({
+                source: id,
+                outcome: 'reconverted',
+                owned,
+                stale,
+                updated: result.changedCellIds.length,
+                retained: result.retainedCellIds.length,
+                finishedAt: new Date().toISOString(),
+            });
+        } catch (error) {
+            const code = error instanceof ChartInstallError ? error.code : 'reconvert-unexpected';
+            const message = error instanceof Error ? error.message : String(error);
+            logger.warn(
+                `[encReconvert] reconvert-failed ${id}: ${code} — ${message} Existing charts were preserved; the next start tries again.`,
+            );
+            outcomes.push({
+                source: id,
+                outcome: 'failed',
+                owned,
+                stale,
+                code,
+                message,
+                finishedAt: new Date().toISOString(),
+            });
+        } finally {
+            await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+            lease?.release();
+        }
+    }
+    return { targetSchema, outcomes };
 }

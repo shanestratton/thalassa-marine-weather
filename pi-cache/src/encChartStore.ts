@@ -202,18 +202,44 @@ export interface StagedChartCell {
  * Publish a complete validated delivery with one atomic index replacement.
  * Existing blobs are immutable and retained: readers holding the old index
  * continue seeing exactly that edition, even across updates and deletions.
+ *
+ * `refreshPackageId` makes this a REFRESH of an installed package (the
+ * re-conversion of a retained o-charts source when the converter schema
+ * moves, oChartsInstaller.reconvertRetainedOChartsSource), not a delivery.
+ * A refresh replaces only the cells that package currently owns
+ * (`packageId` equal to it). Every other candidate is left exactly as
+ * installed and listed in `retainedCellIds`: a cell another package or the
+ * ~/Charts watcher now supplies (typically a base set at the same revision,
+ * or a newer edition), and a cell the skipper removed (never resurrected).
+ * The rules are decided here, under the index lock, so a concurrent
+ * install cannot change ownership between the decision and the commit. The
+ * owned cells then pass every ordinary rule below unchanged — identity,
+ * producer, downgrade, and the same-revision rule (a newer converter schema
+ * replaces, an older one never does, equal schemas with different content
+ * still fail closed). A normal delivery (no `refreshPackageId`) is untouched.
  */
 export async function publishChartDelivery(
     storeDir: string,
     cells: StagedChartCell[],
-    options: { beforeCommit?: () => Promise<void> } = {},
-): Promise<{ cells: InstalledCellMeta[]; packageSummary: PackageSummary }> {
+    options: { beforeCommit?: () => Promise<void>; refreshPackageId?: string } = {},
+): Promise<{
+    cells: InstalledCellMeta[];
+    packageSummary: PackageSummary;
+    /** Cells this publication replaced or added. */
+    changedCellIds: string[];
+    /** Refresh only: candidates left as installed (see refreshPackageId). */
+    retainedCellIds: string[];
+}> {
     return withChartIndexLock(storeDir, async () => {
         const index = await readChartIndex(storeDir);
         const byId = new Map(index.cells.map((cell) => [cell.cellId, cell]));
         const summary: PackageSummary = { new: 0, updated: 0, unchanged: 0, total: cells.length };
         const prepared: { source: string; meta: InstalledCellMeta; changed: boolean }[] = [];
+        const retainedCellIds: string[] = [];
         const seen = new Set<string>();
+        const refresh = options.refreshPackageId;
+        if (refresh !== undefined && !/^[0-9a-f]{64}$/.test(refresh))
+            throw new ChartInstallError('invalid-chart-refresh', 'A chart refresh needs a verified package identity.');
         for (const candidate of cells) {
             if (seen.has(candidate.meta.cellId))
                 throw new ChartInstallError('duplicate-chart-cell', 'This delivery contains duplicate chart cells.');
@@ -235,6 +261,20 @@ export async function publishChartDelivery(
                 blobPath: `cells/${safeId}-${hash}.json`,
             };
             const previous = byId.get(meta.cellId);
+            if (refresh !== undefined) {
+                if (meta.packageId !== refresh)
+                    throw new ChartInstallError(
+                        'invalid-chart-refresh',
+                        `${meta.cellId} does not belong to the package being refreshed.`,
+                    );
+                if (previous?.packageId !== refresh) {
+                    // Not this package's cell (any more): leave it as installed.
+                    retainedCellIds.push(meta.cellId);
+                    summary.unchanged++;
+                    if (previous) prepared.push({ source: candidate.filename, meta: previous, changed: false });
+                    continue;
+                }
+            }
             if (previous) {
                 if (previous.sourceCellId && previous.sourceCellId !== meta.sourceCellId) {
                     throw new ChartInstallError(
@@ -355,7 +395,12 @@ export async function publishChartDelivery(
                 JSON.stringify({ version: 1, cells: [...byId.values()] }, null, 2),
             );
         }
-        return { cells: prepared.map((item) => item.meta), packageSummary: summary };
+        return {
+            cells: prepared.map((item) => item.meta),
+            packageSummary: summary,
+            changedCellIds: prepared.filter((item) => item.changed).map((item) => item.meta.cellId),
+            retainedCellIds,
+        };
     });
 }
 

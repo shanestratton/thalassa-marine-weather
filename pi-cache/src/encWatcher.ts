@@ -85,6 +85,23 @@ let currentDecryptRun: { chartSet: string; promise: Promise<void> } | null = nul
 let initialScanComplete = false;
 let lastDecryptResult: { chartSet: string; success: boolean; finishedAt: string; error?: string } | null = null;
 
+/**
+ * Settles once the startup reconcile of WATCH_DIR is over: the initial scan
+ * found nothing to reconcile, or the drain that followed it finished with
+ * nothing left pending. Background work that must follow it (the re-conversion
+ * of installer-retained sources, encSourceReconvert) waits on this.
+ */
+let initialReconcile: { promise: Promise<void>; settle: () => void } | null = null;
+
+function settleInitialReconcile(): void {
+    initialReconcile?.settle();
+}
+
+/** Resolves at once when the watcher is not running. */
+export function whenInitialReconcileSettled(): Promise<void> {
+    return initialReconcile?.promise ?? Promise.resolve();
+}
+
 let s63Watcher: FSWatcher | null = null;
 let s63PendingTimer: NodeJS.Timeout | null = null;
 const pendingS63Cells = new Set<string>();
@@ -116,6 +133,11 @@ export function startEncWatcher(): void {
     );
 
     initialScanComplete = false;
+    let settle!: () => void;
+    const promise = new Promise<void>((resolve) => {
+        settle = resolve;
+    });
+    initialReconcile = { promise, settle };
     watcher = chokidar.watch(WATCH_DIR, {
         ignored: (p: string, stats?: Stats) => {
             if (!stats) return false; // allow directories through so we can recurse
@@ -143,6 +165,7 @@ export function startEncWatcher(): void {
     watcher.on('ready', () => {
         initialScanComplete = true;
         if (pendingChartSets.size > 0) scheduleDecrypt();
+        else settleInitialReconcile();
     });
 
     watcher.on('error', (err) => {
@@ -327,6 +350,7 @@ export async function stopEncWatcher(): Promise<void> {
     initialScanComplete = false;
     pendingChartSets.clear();
     pendingS63Cells.clear();
+    settleInitialReconcile();
 }
 
 /** Key-only updates and verified provenance changes must invalidate input fingerprints. */
@@ -366,6 +390,7 @@ async function drainPending(): Promise<void> {
             }
         }
     }
+    if (initialScanComplete && pendingChartSets.size === 0 && !pendingTimer) settleInitialReconcile();
 }
 
 /**
