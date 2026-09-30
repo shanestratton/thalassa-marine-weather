@@ -10,6 +10,7 @@ import { chartBlobExtractorSchema } from './encLayerContract.js';
 import {
     assessRetainedOChartsSource,
     chartStoreSupportsRefresh,
+    convertAndVerifyOChartsSets,
     installOChartsDelivery,
     listRetainedOChartsSources,
     readExtractorSchema,
@@ -502,6 +503,27 @@ test('a stop that arrives after the conversion still publishes nothing', async (
     );
     assert.equal(await b.indexBytes(), index);
     await assert.rejects(fs.access(reconvertFailuresPath(b.chartStoreDir)));
+});
+
+test('a stop while the converted charts are being verified ends the verification at once', async (t) => {
+    const b = await boat(t);
+    const [au] = await listRetainedOChartsSources(b.chartStoreDir);
+    const controller = new AbortController();
+    const workDir = await fs.mkdtemp(path.join(b.root, 'verify-'));
+    await assert.rejects(
+        convertAndVerifyOChartsSets({
+            extractedDir: au.directory,
+            workDir,
+            extractorDir: b.extractorDir,
+            archiveHash: au.packageId,
+            signal: controller.signal,
+            runExtractor: async (request) => {
+                await b.runExtractor(request);
+                controller.abort(); // the converter finished; verification is next
+            },
+        }),
+        { code: 'ocharts-conversion-stopped' },
+    );
 });
 
 test('a publication already under way is never cut off; the pass stops after it', async (t) => {

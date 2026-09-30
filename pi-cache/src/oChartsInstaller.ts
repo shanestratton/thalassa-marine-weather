@@ -24,6 +24,14 @@ const EXTRACTOR_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_CONVERTED_CELL_BYTES = 256 * 1024 * 1024;
 const S57_CELL_NAME = /^[A-Z]{2}\d[A-Z0-9]{2,5}$/;
 
+function throwIfConversionStopped(signal: AbortSignal | undefined): void {
+    if (signal?.aborted)
+        throw new ChartInstallError(
+            'ocharts-conversion-stopped',
+            'Chart conversion was stopped. Existing charts were preserved.',
+        );
+}
+
 export interface OChartsSet {
     directory: string;
     keyFile: string;
@@ -163,11 +171,7 @@ export async function runOChartsExtractor(request: OChartsExtractorRequest): Pro
             'The o-charts converter is not installed on this Pi. Existing charts were preserved.',
         );
     }
-    if (request.signal?.aborted)
-        throw new ChartInstallError(
-            'ocharts-conversion-stopped',
-            'Chart conversion was stopped. Existing charts were preserved.',
-        );
+    throwIfConversionStopped(request.signal);
     await new Promise<void>((resolve, reject) => {
         // No download URLs or installation keys ever enter argv or captured logs.
         // Load tsx in this Node process, so the timeout owns the actual worker
@@ -422,11 +426,7 @@ export async function convertAndVerifyOChartsSets(options: {
         const storeDir = path.join(options.workDir, 'converted-ocharts', String(setIndex));
         const reportPath = path.join(options.workDir, `ocharts-report-${setIndex}.json`);
         options.onProgress?.(`Converting o-charts set ${setIndex + 1} of ${sets.length}`, completed, total);
-        if (options.signal?.aborted)
-            throw new ChartInstallError(
-                'ocharts-conversion-stopped',
-                'Chart conversion was stopped. Existing charts were preserved.',
-            );
+        throwIfConversionStopped(options.signal);
         await (options.runExtractor ?? runOChartsExtractor)({
             chartSet,
             storeDir,
@@ -476,6 +476,9 @@ export async function convertAndVerifyOChartsSets(options: {
                 'The converted chart list does not match the downloaded set.',
             );
         for (const meta of index.cells) {
+            // Verifying a large set takes a while (~45 s for the 934-cell AU set
+            // on the boat); a service stop should not have to wait for it.
+            throwIfConversionStopped(options.signal);
             if (meta.sourceCellId !== chartSet.sourceCellIds[meta.cellId]) {
                 throw new ChartInstallError(
                     'invalid-converted-chart',
