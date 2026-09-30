@@ -1,6 +1,25 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 30 September 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 1 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+
+## Shared-Mac workflow — owner's 1 October rules
+
+- Commit and push this branch freely from its own worktree. Stage named files
+  only and inspect `git diff --cached --name-only` before each commit.
+- One heavy build at a time on the 8 GB Mac. Immediately before each `tsc`, Vite
+  build or Vitest run, execute `pgrep -fl "vite build|tsc|vitest"`; wait when a
+  competing job is running. If sandbox process enumeration fails, obtain the
+  read-only process check outside the sandbox rather than assuming the slot is
+  free. Treat CocoaPods/Xcode sync and Rust/native builds as heavy jobs too.
+- Capacitor sync is permitted only inside this managed worktree, never the
+  primary `/Users/shanestratton/Projects/thalassa-marine-weather/ios` project used
+  for Shane's phone. Check native realpaths first. Shared `node_modules` is for
+  reading dependencies only: no installation/patching there. Vite's default
+  config/result caches also follow that symlink, so use the runner config loader
+  and a separate temporary cache. Focused Vitest uses no app config or cache.
+- `master` is for work intended to ship and deploys the website. Before any
+  master push, fetch, rebase and tell Shane. Current E2EE research is not meant
+  to ship; side-branch build/sync does not authorize production activation.
 
 **Owner decision: proceed with Apache-2.0 vodozemac, unchanged Olm Double Ratchet.**
 On 30 September the owner accepted the recommendation not to build a homemade
@@ -50,8 +69,37 @@ Server acceptance does not mean recipient delivery or reading.
 
 - **146 focused tests passed**: 42 framing tests and 104 mocked delivery tests,
   with one worker and no app setup. Isolated strict TypeScript checking passed.
-  Run only these files while other agents are building; no full app suite is
+  Wait for the shared build slot and run only these files; no full app suite is
   needed for this unwired checkpoint.
+
+### 1 October branch build and sync verification
+
+Verified against code checkpoint `3dc83241`, using Node 24.19.0 and the shared
+dependencies read-only. Each heavy job ran separately after the process check;
+native sync waited for Claude's intervening Vitest run to finish.
+
+- The same **146 focused tests passed again**, with one worker, no app config
+  and cache disabled. The full app `tsc` check also exited successfully.
+- Vite 7.3.6 built the web bundle successfully (2,559 modules). Its runner config
+  loader and a temporary cache avoided writes through shared `node_modules`.
+  Existing large-chunk warnings remain; this was not a bundle-size cleanup.
+- `npm run cap:sync` completed only in this worktree. Capacitor followed the
+  shared dependency realpaths and rewrote the Podfile/lock, also updating
+  IONFilesystemLib to 1.1.2. Those generated changes were discarded. A subsequent
+  `bundle exec pod install --deployment` succeeded with the original relative
+  paths and pinned IONFilesystemLib 1.1.1. `Pods/Manifest.lock` exactly matches
+  the unchanged tracked lockfile. No native configuration changes are committed.
+- The source, dist and synced-artifact forbidden-secret-name checks passed.
+  No provider protocol identifiers or libsignal/vodozemac references were found
+  in the generated web assets or app dependency/project manifests. This is an
+  isolation check, not a security audit.
+- The primary checkout's `ios` remained clean and was not synced. No master push,
+  website deployment, Xcode app compilation, device install or phone test was
+  performed. No production runtime configuration was copied into this worktree;
+  the generated bundle is compile/sync evidence, not a phone-release artifact.
+
+Only the side branch is pushed. None of these checks advances the E2EE release
+gates or changes the fact that live private messages are not yet encrypted.
 
 ### Current Apache provider experiment
 
