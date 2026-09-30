@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DM_ENVELOPE_PROTOCOL, encodeDirectMessageEnvelope } from '../services/chat/e2ee/directMessageEnvelope';
+import {
+    DM_ENVELOPE_PROTOCOL,
+    DM_ENVELOPE_VERSION,
+    encodeDirectMessageEnvelope,
+} from '../services/chat/e2ee/directMessageEnvelope';
 import {
     createEncryptedDmDeliveryCoordinator,
     type EncryptedDmDeliveryDependencies,
@@ -11,7 +15,7 @@ import {
 
 // Mock framing bytes only: these tests prove no cryptographic or native guarantees.
 const frame = {
-    version: 1 as const,
+    version: DM_ENVELOPE_VERSION,
     protocol: DM_ENVELOPE_PROTOCOL,
     messageType: 'prekey' as const,
     clientMessageId: 'message-1',
@@ -73,6 +77,21 @@ function harness(timeoutMs = 1000) {
 afterEach(() => vi.useRealTimers());
 
 describe('isolated ciphertext outbox delivery (mock adapters, not functioning E2EE)', () => {
+    it.each([
+        { version: 1, protocol: 'signal-triple-ratchet' },
+        { version: 2, protocol: 'signal-triple-ratchet' },
+        { version: 1, protocol: 'olm-v1' },
+        { version: 2, protocol: 'olm-v2' },
+        { version: 2, protocol: 'megolm-v1' },
+    ])('never uploads or acknowledges an incompatible stored envelope: %j', async (patch) => {
+        const h = harness();
+        const item = { ...record(), serializedEnvelope: JSON.stringify({ ...frame, ...patch }) };
+        expect(await h.coordinator.deliver(item, session)).toBe('invalid-record');
+        expect(h.send).not.toHaveBeenCalled();
+        expect(h.confirm).not.toHaveBeenCalled();
+        expect(h.confirmRejection).not.toHaveBeenCalled();
+    });
+
     it('confirms only an exact server acknowledgement and passes frozen ciphertext-only copies', async () => {
         const h = harness();
         const item = record();

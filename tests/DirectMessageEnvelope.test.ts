@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     decodeDirectMessageEnvelope,
     DM_ENVELOPE_PROTOCOL,
+    DM_ENVELOPE_VERSION,
     encodeDirectMessageEnvelope,
     InvalidDirectMessageEnvelopeError,
     MAX_DM_CIPHERTEXT_BYTES,
@@ -11,7 +12,7 @@ import {
 
 // Framing fixture only. These bytes are NOT encrypted by a real provider.
 const frame: DirectMessageEnvelope = {
-    version: 1,
+    version: DM_ENVELOPE_VERSION,
     protocol: DM_ENVELOPE_PROTOCOL,
     messageType: 'prekey',
     clientMessageId: 'message-1',
@@ -34,9 +35,13 @@ describe('experimental encrypted DM transport framing (not cryptography)', () =>
     );
 
     it.each([
-        { version: 2 },
+        { version: 1 },
+        { version: 3 },
         { version: '1' },
         { protocol: 'double-ratchet' },
+        { protocol: 'signal-triple-ratchet' },
+        { protocol: 'olm-v2' },
+        { protocol: 'megolm-v1' },
         { protocol: 'plaintext' },
         { protocol: null },
         { messageType: 'plaintext' },
@@ -89,6 +94,16 @@ describe('experimental encrypted DM transport framing (not cryptography)', () =>
     it('preserves the session-message dispatch type', () => {
         const sessionFrame = { ...frame, messageType: 'session' as const };
         expect(decodeDirectMessageEnvelope(encodeDirectMessageEnvelope(sessionFrame))).toEqual(sessionFrame);
+    });
+
+    it('does not relabel or migrate old Signal research frames into Olm', () => {
+        const retired = { ...frame, version: 1, protocol: 'signal-triple-ratchet' };
+        expect(() => decodeDirectMessageEnvelope(JSON.stringify(retired))).toThrow(InvalidDirectMessageEnvelopeError);
+        expect(() => encodeDirectMessageEnvelope(retired as DirectMessageEnvelope)).toThrow(
+            InvalidDirectMessageEnvelopeError,
+        );
+        expect(DM_ENVELOPE_VERSION).toBe(2);
+        expect(DM_ENVELOPE_PROTOCOL).toBe('olm-v1');
     });
 
     it('bounds decoded size even when padded base64 lengths match', () => {
