@@ -38,7 +38,7 @@ export interface TracerLegFixDeps {
     capturedCoords: { lat: number; lon: number }[];
     setCapturedCoords: (pins: { lat: number; lon: number }[]) => void;
     /** The keel the CURRENT verdicts were graded against — not settings. */
-    gradedDraftRef: { current: { d: number; assumed: boolean } | null };
+    gradedDraftRef: { current: { d: number; assumed: boolean; air?: number | null } | null };
     tracerCtxFromLru: (pts: ReadonlyArray<{ lat: number; lon: number }>) => TracerContext | null;
     tracerCtxHold: (ctx: TracerContext) => void;
     legVerdicts: Array<TraceLegVerdict | null>;
@@ -90,6 +90,8 @@ export function useTracerLegFixes(deps: TracerLegFixDeps): TracerLegFixes {
                     try {
                         const built = await buildTracerContext(traceBboxPadded([pins[i], pins[i + 1]]), draft.d, {
                             draftAssumed: draft.assumed,
+                            // The mast the verdict was graded for, as with the keel.
+                            ...(draft.air !== undefined ? { airDraftM: draft.air } : {}),
                         });
                         if (built.status === 'ready') {
                             ctx = built.ctx;

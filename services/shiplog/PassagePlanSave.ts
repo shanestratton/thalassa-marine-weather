@@ -167,6 +167,26 @@ function dayKey(iso: string | number | Date): string {
  */
 export const ROUTE_GEOMETRY_NOTES_PREFIX = '__route_geometry__::';
 
+/**
+ * Each of an inshore route's CAVEATS (bridges not checked, a pin off the
+ * water, survey quality — VoyagePlan.__inshoreRouting.caveats) is kept on
+ * the first entry's notes, after the summary, as a line of its own starting
+ * with this (round-3 review, 2026-09-30): readable where the logbook shows
+ * the notes, and parsed back by RoutesAndTracks (RouteOrTrack.caveats).
+ */
+export const ROUTE_CAVEAT_LINE_PREFIX = '⚠ ';
+
+/** The caveat lines a plan's notes carry (none: ''). */
+export function routeCaveatNotes(plan: { __inshoreRouting?: { caveats?: unknown } | null }): string {
+    const raw = plan.__inshoreRouting?.caveats;
+    if (!Array.isArray(raw)) return '';
+    const lines = raw
+        .filter((c): c is string => typeof c === 'string')
+        .map((c) => c.replace(/\s+/g, ' ').trim())
+        .filter((c) => c !== '');
+    return lines.map((c) => `\n${ROUTE_CAVEAT_LINE_PREFIX}${c}`).join('');
+}
+
 /** Short, deterministic namespace component; uniqueness comes from the UUID. */
 function scopeFingerprint(scope: AuthIdentityScope): string {
     let hash = 2166136261;
@@ -456,7 +476,7 @@ export async function savePassagePlanToLogbookWithLinks(
             // useful.
             let firstNote: string | undefined;
             if (i === 0) {
-                const summary = `Planned: ${plan.origin} → ${plan.destination}`;
+                const summary = `Planned: ${plan.origin} → ${plan.destination}${routeCaveatNotes(plan)}`;
                 if (plan.routeGeoJSON?.geometry?.coordinates) {
                     firstNote =
                         ROUTE_GEOMETRY_NOTES_PREFIX +

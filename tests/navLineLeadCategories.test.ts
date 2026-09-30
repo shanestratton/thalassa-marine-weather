@@ -163,15 +163,15 @@ describe('navGrid Pass 5b — clearing and transit lines neither attract nor res
         });
     });
 
-    // CHARACTERISATION of a KNOWN GAP, kept as the control that proves the
-    // CATNAV 1/2 tests above can tell the difference. A CATNAV 3 lead still
-    // rescues a 1 m band to 5 m preferred water, which breaks "leads never
-    // override depth". Waiting on Shane (questionsForShane #2: refuse, needs
-    // tide, or predicted tide at a dredged bar such as the Brisbane bar and
-    // Tangalooma). When that lands, FLIP this assertion rather than keep it —
-    // a change here is the fix, not a regression.
-    it('a CATNAV 3 leading line keeps its existing corridor (unchanged behaviour)', () => {
-        expect(centre({ ...shallow(), NAVLINE: fc(chartNav(3)) })).toMatchObject({ depth: 5, preferred: 1 });
+    // FLIPPED (Phase 2a review, 2026-09-30; was the characterisation of a
+    // known gap — a CATNAV 3 lead rescued this 1 m band to 5 m preferred
+    // water, breaking "leads never override depth"). Owner decisions: a
+    // charted lead shallower than draft + 0.5 m is 'needs tide', and unknown
+    // is never green. The lead still PREFERS its corridor (A* rides it at
+    // 1.0x), which is also the control that proves the CATNAV 1/2 tests above
+    // can tell the difference — but the band stays the 1 m it is charted.
+    it('a CATNAV 3 leading line prefers its corridor and never deepens it', () => {
+        expect(centre({ ...shallow(), NAVLINE: fc(chartNav(3)) })).toMatchObject({ depth: CAUTION, preferred: 1 });
     });
 
     const landOverBand = (): InshoreLayers => ({
@@ -195,8 +195,8 @@ describe('navGrid Pass 5b — clearing and transit lines neither attract nor res
     });
 
     // The same lead running from charted water on to that land: the water
-    // span keeps its Phase 0 corridor (depth rescue is Phase 4's decision),
-    // the land span stays land.
+    // span keeps its corridor (preferred, at its charted depth — no rescue
+    // since the Phase 2a review), the land span stays land.
     it('a CATNAV 3 lead keeps its corridor on water and stops at the land', () => {
         const eastHalfLand: Feature = {
             ...box({ acronym: 'LNDARE' }),
@@ -224,8 +224,10 @@ describe('navGrid Pass 5b — clearing and transit lines neither attract nor res
             const i = y * grid.width + x;
             return { depth: grid.cells[i], preferred: grid.preferred[i], landBlocked: grid.landBlocked?.[i] ?? 0 };
         };
-        // On water, west of the land (drying band, no land paint): rescued as before.
-        expect(at(W + 0.001)).toMatchObject({ depth: 5, preferred: 1, landBlocked: 0 });
+        // On water, west of the land (drying band, no land paint): preferred,
+        // and still the drying band it is charted as (it read 5 m before the
+        // Phase 2a review).
+        expect(at(W + 0.001)).toMatchObject({ depth: CAUTION, preferred: 1, landBlocked: 0 });
         // Over the land, east of its edge: before Phase 1 this read 5 m, preferred, reopened.
         const land = at(W + 0.003);
         expect(land.landBlocked).toBe(1);

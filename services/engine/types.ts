@@ -84,8 +84,24 @@ export interface InshoreLayers {
      * entry and again in the grid, the land audit and the tracer. An OSM
      * line that redraws one of them is removed too (osmNavLineLeads at the
      * merge, navLineLeads on a mixed layer): the chart's category decides.
+     *
+     * ON-WATER SPANS ONLY past routeInshore entry (withNavLineLeadsOnly): a
+     * lead is drawn on to its marks, usually ashore, and the land extension is
+     * cut off there once (services/routing/leadLandClip navLinesOnWater, the
+     * lead compiler's S-57 land rule), so the lead snaps, the approach, the
+     * egress splice and the land audit never ride a lead over land. The grid
+     * reads NAVLINE_GRID instead.
      */
     NAVLINE?: FeatureCollection;
+    /**
+     * Engine-internal: the leads as they were BEFORE the entry clip, for the
+     * grid's Pass 5b only. The grid clips a lead against its OWN land verdict,
+     * cell by cell, which also counts the OSM canal carve and OSM-vouched
+     * water the S-57-only clip does not (the Newport entrance channel, Phase 1
+     * review 2026-09-29) — and never stamps a corridor, a depth rescue or a
+     * preference on a cell it holds as land. Absent: the grid reads NAVLINE.
+     */
+    NAVLINE_GRID?: FeatureCollection;
     /**
      * S-57 RECTRC (Recommended Track) LineStrings — the hydrographer's OFFICIAL
      * recommended route through a channel/approach, drawn on the chart (with
@@ -94,6 +110,10 @@ export interface InshoreLayers {
      * derived buoy/leading-line follow. The "definitive set of routes out of
      * the marina" — it ships inside the ENC, we just plumb it through. Added
      * 2026-06-18 (Newport carries 43 RECTRC segments we were ignoring).
+     *
+     * Cut to its on-water spans at routeInshore entry, like NAVLINE: a track
+     * the chart draws over land paint (the Moreton corridor's RECTRC 2655
+     * lies wholly on it) is never snapped to.
      */
     RECTRC?: FeatureCollection;
     /**
@@ -132,6 +152,24 @@ export interface InshoreLayers {
      * disconnection. Added 2026-07-05 (Mooloolaba drove over the marina).
      */
     BERTH?: FeatureCollection;
+    /**
+     * S-57 M_QUAL survey-quality zones (CATZOC), stamped with their cell's
+     * fineness rank (`_scaleRank`) like the depth bands. Never read by the
+     * grid or the path cost: the route's survey disclosure only (owner
+     * decision 9, 2026-09-30; services/engine/shallowRuns collectSurveyRuns).
+     */
+    M_QUAL?: FeatureCollection;
+}
+
+/** A cell merged for a route whose data carries NO M_QUAL layer at all —
+ * "not extracted", unlike a cell whose zones simply leave a spot uncovered
+ * ("ungraded"). Where one owns a spot, the route says its survey quality was
+ * not checked (owner decision 9, 2026-09-30, read like decision 8). */
+export interface SurveyUncheckedCell {
+    id: string;
+    bbox: readonly [number, number, number, number];
+    /** Its fineness rank (services/enc/scaleShadow cellFinenessRank), or null. */
+    rank: number | null;
 }
 
 export interface RouteRequest {
@@ -188,6 +226,8 @@ export interface RouteRequest {
      * it never crosses those). Part of the grid cache key.
      */
     routeProfile?: 'safest' | 'tideAssist' | 'tideDirect';
+    /** Cells merged for this route with no M_QUAL layer (SurveyUncheckedCell). */
+    surveyUncheckedCells?: readonly SurveyUncheckedCell[];
 }
 
 /**
@@ -217,6 +257,29 @@ export interface RouteDebug {
      *  charted dry land (suburb-centroid class) — the route ends at the
      *  water's edge instead of crawling up the bank. */
     destinationInlandTrimM?: number;
+    /** Owner decision 7 (round 2, 2026-09-30): the pin sat in charted caution
+     *  water (NavGrid.chartedShallow) and the route runs all the way to it —
+     *  the stretch past the last deep-enough water is a 'needs tide' tail. */
+    originChartedPin?: boolean;
+    destinationChartedPin?: boolean;
+    /** Why a charted-end attempt (decision 7) was re-run with today's
+     *  endpoints (fix-up, 2026-09-30): its tail crossed hard land, a drying
+     *  band or a structure bar at the vector check, the pin's deep water lay
+     *  in a component the route did not use, or the finished geometry reached
+     *  the pin through other water. Absent when no re-run happened. */
+    chartedEndRejected?: string;
+    /** Metres cut off an end whose pin is off the water (pinOffWater, round 3
+     *  2026-09-30): the route stops at the edge of the drying bank or land
+     *  instead of running on across it to the pin. */
+    pinEdgeTrimM?: { origin?: number; destination?: number };
+    /** Segments the final hazard audit flagged caution: within the
+     *  obstruction buffer of a charted hazard of unknown or too-shallow depth
+     *  (round-3 review, 2026-09-30; safetyAudit hazardBufferSegments). */
+    hazardBufferSegs?: number;
+    /** Vertices the scaffold collapse dropped from the four-tier route:
+     *  near-collinear points (within 2.5 m) inside runs of one state (round
+     *  4, 2026-09-30; engine/geometry collapseStateRuns). */
+    scaffoldCollapsed?: number;
     /** True when the marina-centerline pipeline refined a clean-water route
      *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
     marinaCenterline?: boolean;
@@ -272,12 +335,47 @@ export interface RouteDebug {
  * substrate for the Phase 7 tide-window annotation ("clears 09:40–15:10").
  * Display/annotation only: tide changes feasibility AND timing, never geometry.
  */
+/** A stretch of the route between two exact points: segment + fraction. */
+export interface ChartedShallowSpan {
+    startSeg: number;
+    startT: number;
+    endSeg: number;
+    endT: number;
+    /** The shallowest charted depth under it (m below LAT). */
+    minDepthM: number;
+    /**
+     * Its charted depth alone makes it red, so a tide may draw it amber
+     * (owner decision 10; round-4 review, 2026-09-30): not in a charted
+     * hazard's buffer, not over decision-1 water, and the router sent a
+     * hazard mask. Absent: red whatever the tide (fail-safe — older and cloud
+     * results too).
+     */
+    tideLiftable?: boolean;
+}
+
 export interface ShallowRunInfo {
     /** First segment index of the run (segment i = polyline[i] → polyline[i+1]). */
     startSeg: number;
     /** Last segment index of the run (inclusive). */
     endSeg: number;
+    /**
+     * Where the run starts in startSeg / ends in endSeg, as a fraction of the
+     * segment — present only when the run does not cover that segment whole:
+     * a stretch of charted-shallow water on a segment the grid did not flag
+     * caution (the renderer backstop, round-3 review, 2026-09-30; see
+     * RouteResult.chartedShallowSpans). Absent: the whole segment.
+     */
+    startT?: number;
+    endT?: number;
     lengthM: number;
+    /**
+     * Set when this run is an ENDPOINT TAIL (owner decision 7, round 2,
+     * 2026-09-30): the pin sits in charted-shallow water, and the run is the
+     * stretch between it and the last water deep enough for the keel — amber
+     * 'needs tide', saveable. Emitted whatever its length (other runs only
+     * from 200 m).
+     */
+    endpointTail?: 'origin' | 'destination';
     /**
      * Shallowest REAL charted DRVAL1 (m below LAT) sampled along the run — the
      * depth the CAUTION sentinel in grid.cells erases. NULL when nothing charted
@@ -297,7 +395,76 @@ export interface ShallowRunInfo {
      * can then say "surveyed" instead of "charted".
      */
     ntmSurveyed?: boolean;
+    /**
+     * An endpoint tail through decision-1 water (fix-up, 2026-09-30): caution
+     * only because a COARSER chart paints land over a finer survey that
+     * charts it deep enough (finestDepthM, the shallowest finest-survey depth
+     * along the tail). minDepthM stays null — there is no tide to wait for —
+     * so the chip names the land paint instead of a window.
+     */
+    coarserLandPaint?: boolean;
+    finestDepthM?: number;
+    /**
+     * Some of the run is decision-1 water — a finer never-drying band under a
+     * coarser chart's land paint — whatever its depth (round 4, 2026-09-30).
+     * That water stays red whatever the tide (owner decision 10), so a run
+     * whose tide window is all over it gets a 'charts disagree' chip, not a
+     * window over a red line (tideWindowChips tideRunChips).
+     */
+    chartsDisagree?: boolean;
+    /** Some of the run lies in a charted hazard's buffer (round-4 review,
+     * 2026-09-30): that red is not the tide's to lift, and its chip says so. */
+    nearHazard?: boolean;
+    /** Some of the run has no chart depth at all (round-4 review, 2026-09-30):
+     * red whatever the tide, and its chip says so. */
+    partUncharted?: boolean;
 }
+
+/**
+ * Why a stretch of the route is disclosed for its SURVEY quality (owner
+ * decision 9, 2026-09-30, "Yes, amber on the route"; decisions 3 and 4 read
+ * on the route as on the leads — leadReview surveyVerdict):
+ *   • 'survey-poor' — CATZOC D or U: no stated accuracy (amber);
+ *   • 'survey-margin' — the charted depth less the grade's vertical error is
+ *     below draft + UKC (amber);
+ *   • 'survey-ungraded' — the finest survey there carries no CATZOC (amber);
+ *   • 'survey-unchecked' — the finest survey there is a cell whose data has
+ *     no M_QUAL layer at all: not checked, said as a caveat (decision 8's
+ *     way), never amber.
+ */
+export type SurveyRunReason = 'survey-poor' | 'survey-margin' | 'survey-ungraded' | 'survey-unchecked';
+
+/** One survey stretch of the finished route. Disclosure only: it never moves
+ * the route or its cost, and never refuses it. */
+export interface SurveyRunInfo {
+    reason: SurveyRunReason;
+    /** Where it starts: segment index and the fraction along that segment. */
+    startSeg: number;
+    startT: number;
+    /** Where it ends: segment index and the fraction along that segment. */
+    endSeg: number;
+    endT: number;
+    lengthM: number;
+    /** The worst CATZOC of the finest survey owning it (null: none). */
+    catzoc: number | null;
+    /** 'survey-margin': the largest vertical error along it (m). */
+    errorM?: number;
+    /** The shallowest finest-survey charted depth along it (m), when charted. */
+    minDepthM?: number;
+    /** Stretch midpoint (by along-track length) — where its chip anchors. */
+    midLat: number;
+    midLon: number;
+    /** 'survey-unchecked': the cells with no M_QUAL layer. */
+    cellIds?: string[];
+}
+
+/** The reasons that draw a stretch amber (all but 'survey-unchecked') — in
+ *  dashes since owner decision 10 (2026-09-30): solid amber is needs-tide. */
+export const AMBER_SURVEY_REASONS: ReadonlySet<SurveyRunReason> = new Set([
+    'survey-poor',
+    'survey-margin',
+    'survey-ungraded',
+]);
 
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
@@ -344,14 +511,84 @@ export interface RouteResult {
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
     /**
-     * Contiguous charted-shallow caution runs ≥200 m on the final polyline,
-     * with the real charted min depth where the chart vouches one — the input
-     * to the tide-window annotation. Absent on cloud/legacy results.
+     * Contiguous caution runs on the final polyline — ≥200 m, or an endpoint
+     * tail of any length — with the real charted min depth where the chart
+     * vouches one: the input to the tide-window annotation. Since the round-3
+     * review (2026-09-30) a run also takes in any stretch the finest S-57
+     * survey charts shallower than draft + safety on a segment the grid did
+     * NOT flag caution (chartedShallowSpans), so that water always gets its
+     * chip. Absent on cloud/legacy results.
      */
     shallowRuns?: ShallowRunInfo[];
+    /**
+     * The renderer's BACKSTOP (round-3 review, 2026-09-30): exact stretches of
+     * segments the grid did NOT flag caution where the finest S-57 survey (or
+     * a current NtM survey) charts water shallower than draft + safety — cut
+     * at the depth bands' own edges. A 50 m cell, an off-grid splice (a lead
+     * or RECTRC snap, a canal egress, a tap-to-water bridge) or a coarser
+     * source's claim over the cell can leave such water uncautioned; the
+     * planner draws it red ('danger') whatever else the segment is. Absent on
+     * cloud/legacy results.
+     */
+    chartedShallowSpans?: ChartedShallowSpan[];
+    /**
+     * Per-segment flag, length `polyline.length - 1`: the segment is caution
+     * over decision-1 water (owner decision 1: a finer never-drying band under
+     * a coarser chart's land paint — shallow water, never deep). The renderer
+     * lets it beat a marked channel's yellow, as charted-shallow water does
+     * (round-3 review, 2026-09-30). Absent on cloud/legacy results.
+     */
+    landPaintConflictMask?: boolean[];
     /** Metres of overland tail trimmed off an inland destination pin —
      *  present only when the trim fired (route ends at the water's edge). */
     destinationInlandTrimM?: number;
+    /**
+     * Per-segment flag, length `polyline.length - 1`: the segment is caution
+     * AND the chart (its finest survey, or a current NtM survey) charts water
+     * shallower than draft + safety on it — charted-shallow water, as opposed
+     * to uncharted or conflict caution (fix-up, 2026-09-30). The renderer lets
+     * it beat a marked channel's yellow: marks say where the channel is, not
+     * how deep it is. Absent on cloud/legacy results.
+     */
+    chartedShallowMask?: boolean[];
+    /**
+     * Per segment: the charted depth (m below LAT) a tide must lift for the
+     * route to clear draft + UKC there — the shallowest charted depth under a
+     * caution segment red for its depth ALONE (owner decision 10, Shane
+     * 2026-09-30: "Amber if a tide clears it"). The planner draws that
+     * segment amber when some tide gives draft + UKC over it, red when none
+     * does. Null where a tide cannot change the red: not charted-shallow, a
+     * charted hazard's buffer, a sample no chart covers, decision-1 water.
+     * Absent on cloud/legacy results (all red, as before).
+     */
+    tideDepthM?: (number | null)[];
+    /**
+     * Draft + UKC (m) the router judged tideDepthM and the charted-shallow
+     * water against (round-4 review, 2026-09-30): the planner colours the tide
+     * against the same sum, not a second copy of the UKC that could drift.
+     */
+    tideNeedM?: number;
+    /**
+     * A pin that is NOT water a route can reach it through (owner decision 7,
+     * round 2, 2026-09-30): on charted land, or on a drying bank (DRVAL1 < 0).
+     * No charted 'needs tide' tail: the route stops at the EDGE — the last
+     * water the chart paints neither drying nor land, nearest the pin (round
+     * 3, 2026-09-30; it used to run on across the drying bank to the cell the
+     * pin snapped to, red with its drying depth). debug.pinEdgeTrimM says how
+     * much was cut. The planner's route notice says which. Absent when both
+     * pins are water.
+     */
+    pinOffWater?: { origin?: 'land' | 'drying'; destination?: 'land' | 'drying' };
+    /**
+     * The route's survey-quality stretches (owner decision 9, 2026-09-30;
+     * SurveyRunInfo): amber for CATZOC D/U, a grade whose error eats the keel
+     * margin, or no grade; 'survey-unchecked' where the chart data carries no
+     * M_QUAL. Disclosure only. Absent on cloud/legacy results.
+     */
+    surveyRuns?: SurveyRunInfo[];
+    /** Cells with no M_QUAL layer that own some of the route: its survey
+     * quality was not checked there (said as a caveat, never amber). */
+    surveyUncheckedCells?: string[];
     debug?: RouteDebug;
     /**
      * Per-phase timing in ms. Useful for finding the bottleneck during
@@ -376,6 +613,10 @@ export interface RouteFailure {
         /** The final emitted geometry would sustain a run across exact charted
          * land with no overlapping water evidence. */
         | 'hard-land-crossing'
+        /** INTERNAL (decision 7, round 2): an attempt that ran a route to a pin
+         * in charted-shallow water reached it through other water. The engine
+         * re-runs it with today's endpoints; routeInshore never returns it. */
+        | 'charted-end-rejected'
         /** A fixed bridge with insufficient clearance for this vessel's air
          *  draft severs the only channel — the honest verdict is "no
          *  mast-safe route", never a cross-country workaround. */
@@ -438,6 +679,16 @@ export interface NavGrid {
      */
     markDiscBlocked?: Uint8Array;
     /**
+     * Per-cell HAZARD flag (1 = blocked by an OBSTRN / WRECKS / UWTROC buffer
+     * or area — charted, or a mark-inference disc, which markDiscBlocked
+     * tells apart). Exported (round-3 review, 2026-09-30) so the endpoint
+     * carve and the component-bridge carve refuse to tunnel a charted hazard's
+     * buffer, as they refuse clearanceBarred: a 60 m origin bubble re-opened
+     * a wreck's buffer and the route passed 35 m from it. Optional for
+     * cached-grid back-compat.
+     */
+    obstnBlocked?: Uint8Array;
+    /**
      * Per-cell NO-WATER-EVIDENCE flag (1 = at the end of the grid build the
      * cell was still UNKNOWN_OPEN with no DEPARE verdict, no FAIRWY/DRGARE
      * preference, no OSM water and no protection — nothing in any source
@@ -448,8 +699,20 @@ export interface NavGrid {
      * crossed and long runs refuse the route. A post-build rescue (endpoint
      * carve, bridges) clears the flag implicitly: readers must pair it with
      * `cells[idx] === UNKNOWN_OPEN`. Optional for cached-grid back-compat.
+     * A lead's or a mark pair's preference (Pass 5b / 5) is not evidence:
+     * see leadOnlyPreferred.
      */
     unvouched?: Uint8Array;
+    /**
+     * Per-cell flag: 1 = the cell is preferred ONLY because a lead's corridor
+     * (Pass 5b) or a paired lateral mark's gate disc (Pass 5, round 2) stamped
+     * it. A lead or a pair of marks says where to steer, not how deep it is:
+     * such a cell over uncharted water is still unvouched (never green under
+     * the strict policy), so readers that treat `preferred` as evidence must
+     * except these. Absent when no lead or mark pair preferred a cell (Phase
+     * 2a review, 2026-09-30).
+     */
+    leadOnlyPreferred?: Uint8Array;
     /**
      * Per-cell REAL charted depth (shallowest DRVAL1, m below LAT) for cells a
      * shallow-for-draft DEPARE claimed in Pass 1 — the depth the CAUTION
@@ -486,6 +749,22 @@ export interface NavGrid {
      * Baked into the grid at build time and part of the profile cache key.
      */
     assistCostMul?: number;
+    /**
+     * Per-cell CHARTED CAUTION WATER flag (owner decision 7, round 2,
+     * 2026-09-30): 1 = a CAUTION cell that is honest chart water shallower
+     * than the keel needs — an S-57 band that never dries (charted DRVAL1 ≥
+     * 0) owns it at its finest survey with no land paint over it, or it is
+     * decision-1 water (a finer never-drying band beats a coarser chart's
+     * land paint) whose finest band is itself deep enough for the keel (owner
+     * decision 2 keeps a shallow canal band under land paint out: fix-up,
+     * 2026-09-30), or a current Notice-to-Mariners survey charts it. Never land, relaxed land, a drying
+     * band, a hazard / berth buffer, a structure bar or uncharted water. The
+     * ONLY caution a route endpoint may sit in: the engine runs the route to a
+     * pin there, the stretch past the last deep-enough water flagged 'needs
+     * tide'. Readers pair it with `cells[idx] < 0` (a later carve clears it
+     * implicitly). Absent when no cell qualifies.
+     */
+    chartedShallow?: Uint8Array;
     /**
      * Per-cell wet-chart-land-conflict flag (1 = a coarse LNDARE painted over
      * a finer cell's wet DEPARE band and the wet claim won — the cell is

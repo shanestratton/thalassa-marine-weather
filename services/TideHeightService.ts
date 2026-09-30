@@ -72,6 +72,16 @@ export interface TideCurve {
     heightAt(timeMs: number): number | null;
     /** [start, end] inclusive in millis. */
     rangeMs: [number, number];
+    /**
+     * The highest height the curve reaches over its whole span, m above LAT
+     * (owner decision 10, 2026-09-30: the route draws a shallow stretch amber
+     * when some tide clears it). The top station height, or the top HW
+     * extreme — the half-cosine between extremes never overshoots them.
+     * WorldTides sends no highest astronomical tide, so this is the best
+     * "highest tide" the app knows. Absent on hand-built curves: callers
+     * sweep heightAt instead (tideWindowChips curveHighestM).
+     */
+    maxHeightM?: number;
     /** Source station name for the attribution chip. */
     stationName?: string;
     /** Source lat/lon (the station's actual position). */
@@ -89,14 +99,22 @@ interface CachedCurve {
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h — tides predicted hours ahead don't change.
 const cache = new Map<string, CachedCurve>();
 
+/**
+ * The cache's spatial bucket for a spot: 0.25° of latitude and longitude, so
+ * adjacent route midpoints share the same fetch. Exported so a caller that
+ * needs a curve per place (tideWindowChips, owner decision 10's route colour;
+ * round-4 review, 2026-09-30) fetches once per bucket and reads each spot
+ * from its own bucket's curve.
+ */
+export function tideCurveBucket(lat: number, lon: number): string {
+    return `${Math.round(lat * 4) / 4},${Math.round(lon * 4) / 4}`;
+}
+
 function cacheKey(lat: number, lon: number, startMs: number, endMs: number): string {
-    // Round to 0.25° spatial buckets and 6h temporal buckets so
-    // adjacent route midpoints share the same fetch.
-    const latBucket = Math.round(lat * 4) / 4;
-    const lonBucket = Math.round(lon * 4) / 4;
+    // 0.25° spatial buckets and 6h temporal buckets.
     const startBucket = Math.floor(startMs / (6 * 60 * 60 * 1000));
     const endBucket = Math.floor(endMs / (6 * 60 * 60 * 1000));
-    return `${latBucket},${lonBucket},${startBucket},${endBucket}`;
+    return `${tideCurveBucket(lat, lon)},${startBucket},${endBucket}`;
 }
 
 // ── Interpolation ─────────────────────────────────────────────────
@@ -164,6 +182,7 @@ export function buildTideCurve(response: WorldTidesResponse): TideCurve | null {
             provenance: 'STATION_HEIGHTS',
             heightAt: buildHeightsLookup(heights),
             rangeMs: [heights[0].dt * 1000, heights[heights.length - 1].dt * 1000],
+            maxHeightM: heights.reduce((m, h) => Math.max(m, h.height), -Infinity),
             ...station,
         };
     }
@@ -178,6 +197,7 @@ export function buildTideCurve(response: WorldTidesResponse): TideCurve | null {
             provenance: 'EXTREMES_INTERP',
             heightAt: buildExtremesLookup(points),
             rangeMs: [points[0].timeMs, points[points.length - 1].timeMs],
+            maxHeightM: points.reduce((m, p) => Math.max(m, p.heightM), -Infinity),
             ...station,
         };
     }
@@ -188,6 +208,10 @@ export function buildTideCurve(response: WorldTidesResponse): TideCurve | null {
 // ── Public API ─────────────────────────────────────────────────────
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The days every other tide consumer asks WorldTides for (weather/api/tides)
+ *  — and the most this service ever asks for. */
+export const TIDE_CURVE_MAX_DAYS = 14;
 
 /**
  * Fetch (or cached-return) a tide curve covering the requested
@@ -201,17 +225,27 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Returns null when no tide data is available at all (failed
  * upstream, no station nearby, non-LAT datum). Caller should fall
  * back to the static tideOffsetM in HazardQueryOptions.
+ *
+ * `opts.days` asks WorldTides for that many days whatever the range
+ * (clamped to TIDE_CURVE_MAX_DAYS): the route colour's "highest tide"
+ * (owner decision 10) reads the whole 14 days the rest of the app loads,
+ * not the 3 a departure today would fetch (round-4 review, 2026-09-30).
  */
 export async function fetchTideCurve(
     lat: number,
     lon: number,
     startMs: number,
     endMs: number,
+    opts: { days?: number } = {},
 ): Promise<TideCurve | null> {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+    const daysAsked =
+        typeof opts.days === 'number' && Number.isFinite(opts.days)
+            ? Math.min(TIDE_CURVE_MAX_DAYS, Math.max(1, Math.round(opts.days)))
+            : undefined;
 
-    const key = cacheKey(lat, lon, startMs, endMs);
+    const key = cacheKey(lat, lon, startMs, endMs) + (daysAsked !== undefined ? `,${daysAsked}d` : '');
     const hit = cache.get(key);
     if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) {
         return hit.curve;
@@ -224,7 +258,7 @@ export async function fetchTideCurve(
     // instead of racing the rate-limited WorldTides proxy.
     const pending = inflight.get(key);
     if (pending) return pending;
-    const p = fetchTideCurveUpstream(lat, lon, key, endMs).finally(() => inflight.delete(key));
+    const p = fetchTideCurveUpstream(lat, lon, key, endMs, daysAsked).finally(() => inflight.delete(key));
     inflight.set(key, p);
     return p;
 }
@@ -238,7 +272,13 @@ const inflight = new Map<string, Promise<TideCurve | null>>();
 const NEGATIVE_TTL_MS = 60 * 1000;
 const failedUpstreamAt = new Map<string, number>();
 
-async function fetchTideCurveUpstream(lat: number, lon: number, key: string, endMs: number): Promise<TideCurve | null> {
+async function fetchTideCurveUpstream(
+    lat: number,
+    lon: number,
+    key: string,
+    endMs: number,
+    daysAsked?: number,
+): Promise<TideCurve | null> {
     // The proxy anchors the WorldTides window at yesterday 00:00, so
     // coverage must be measured from *now*, not from startMs — a
     // passage departing in 3 days needs 3 + duration days of window,
@@ -246,7 +286,7 @@ async function fetchTideCurveUpstream(lat: number, lon: number, key: string, end
     // partial-day rounding; clamp to the 14-day window the rest of
     // the app requests.
     const daysAhead = Math.ceil((endMs - Date.now()) / DAY_MS) + 2;
-    const days = Math.min(14, Math.max(1, daysAhead));
+    const days = daysAsked ?? Math.min(TIDE_CURVE_MAX_DAYS, Math.max(1, daysAhead));
 
     const response = await fetchWorldTides(lat, lon, days);
     if (!response) {

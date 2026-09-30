@@ -34,6 +34,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
+import { inshoreRouteCaveats } from './inshoreRouteNotice';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
 import { MapBaseSelector, mapBaseVisibility } from './MapBaseSelector';
@@ -128,7 +129,7 @@ import {
     type SeaVoyageChoice,
 } from '../../services/shiplog/RoutesAndTracks';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
-import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
+import { vesselAirDraftMetres, vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 import { hazardDepthForDraft } from '../../services/HazardQueryService';
 import {
@@ -471,7 +472,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     /** Draft the caches were graded with — invalidation must key on THIS,
      *  not on tracerCtxRef (Done nulls the ctx but keeps the cache; draft
      *  edits between Done and reopen used to serve stale-keel verdicts). */
-    const gradedDraftRef = useRef<{ d: number; assumed: boolean } | null>(null);
+    const gradedDraftRef = useRef<{ d: number; assumed: boolean; air?: number | null } | null>(null);
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
     // AUTO-NAME (Shane 2026-07-16): "Newport - Scarborough" from the first +
     // last pins, live as the route grows; coords when no place is nearby.
@@ -2479,6 +2480,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 { lat: start.lat, lon: start.lon },
                 { lat: dest.lat, lon: dest.lon },
                 vesselDraftMetres(settings.vessel),
+                // The mast, so a bridge it clears is not refused as "air draft
+                // not set" (Part B: with none, every bridge blocks).
+                vesselAirDraftMetres(settings.vessel),
             );
             if (res && 'polyline' in res) {
                 const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
@@ -2502,7 +2506,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // Fly to the ARRIVAL end for "take her in" review — most
                     // routes end in a marina and that end needs eyes on it.
                     mapRef.current?.flyTo({ center: [dest.lon, dest.lat], zoom: 13.5, duration: 1400 });
-                    flashTraceFeedback('Auto-routed — check the arrival end, drag pins to adjust');
+                    // What the route must say (owner decision 8: bridges not
+                    // checked on a schema-1 chart; a pin off the water) — the
+                    // pins lose it otherwise (fix-up, 2026-09-30). The traced
+                    // legs then carry the bridge caveat themselves (routeTracer).
+                    const caveats = inshoreRouteCaveats({
+                        structuresUnknownCells: res.structuresUnknownCells,
+                        pinOffWater: res.pinOffWater,
+                        surveyRuns: res.surveyRuns,
+                        surveyUncheckedCells: res.surveyUncheckedCells,
+                    });
+                    flashTraceFeedback('Auto-routed — check the arrival end, drag pins to adjust.');
+                    // On the tracer panel's persistent line, not only in the
+                    // 1.8 s flash (round-3 review, 2026-09-30): the traced
+                    // legs carry the bridge caveat alone, so the pin and
+                    // survey words were gone once the flash cleared.
+                    if (caveats.length > 0) setAutoRouteDiag(caveats.join(' '));
                 } else {
                     flashTraceFeedback('Already at the destination');
                 }
@@ -2526,6 +2545,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         settings.vessel,
         flashTraceFeedback,
         setCapturedCoords,
+        setAutoRouteDiag,
     ]);
 
     // One route source: Passage now draws the exact followed Log route via
@@ -3249,13 +3269,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the inshore router's compiled lead graph from the installed navigation
     // cells in view, classed against this boat's draft. An assumed draft (a
     // fallback or onboarding's estimate) draws nothing clear. Never on a
-    // picker, which must stay a pure location-selection surface.
+    // picker, which must stay a pure location-selection surface. Bridges and
+    // overhead lines on a lead are read against the mast (air draft, Part B).
     useChartLeadsLayer(
         mapRef,
         mapReady,
         settings.showChartLeads === true && !pickerMode,
         vesselDraftMetres(settings.vessel),
         vesselDraftIsAssumed(settings.vessel),
+        vesselAirDraftMetres(settings.vessel),
     );
     // Tracer chart floors — the WYSIWYG mark re-assert and the plotting keel
     // floor, in components/map/mapHub/useTracerChartFloors.ts. Called here, below

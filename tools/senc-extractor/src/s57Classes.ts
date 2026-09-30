@@ -65,6 +65,30 @@ export function classRecord(code: number): S57Class | undefined {
     return loadS57Classes().get(code);
 }
 
+/**
+ * The output schema of THIS extractor. Bump it whenever the emitted cell
+ * content changes for an unchanged chart (a class added, an attribute
+ * normalised): decryptBatch folds it into every input fingerprint, so the
+ * Pi's --skip-existing reconcile re-extracts each chart once, and the chart
+ * stores (piCacheStore here, pi-cache/src/encChartStore.ts on the Pi) let a
+ * NEWER schema replace an older one at the same chart revision — and never
+ * the reverse. Absent on a cell: schema 1 (everything before this field).
+ *   2 — BRIDGE / PONTON / CBLOHD / PIPOHD / CONVYR, always emitted (Part B,
+ *       2026-09-30; CONVYR joined in round 2 before anything deployed, so the
+ *       schema stays 2).
+ */
+export const EXTRACTOR_SCHEMA = 2;
+
+/**
+ * Classes every cell carries even when it charts none of them — as an EMPTY
+ * FeatureCollection, the "extracted, none charted" contract. The app's lead
+ * review (services/routing/leadReview.ts LEAD_REQUIRED_STRUCTURE_LAYERS)
+ * reads a missing key as "not extracted": no lead there is ever clear, since
+ * a bridge the owner said must BLOCK when its clearance is unknown could be
+ * on it. Mirrored in pi-cache/src/encLayerContract.ts for the ogr2ogr path.
+ */
+export const ALWAYS_EMITTED_CLASSES: ReadonlySet<string> = new Set(['BRIDGE', 'PONTON', 'CBLOHD', 'PIPOHD', 'CONVYR']);
+
 // NOTE: pi-cache/src/routes/enc.ts duplicates this list as ENC_LAYERS for
 // the ogr2ogr (.000 upload) path — pi-cache deploys standalone to the Pi so
 // it can't import from here. When you change this Set, mirror it there.
@@ -150,11 +174,26 @@ export const ROUTING_CLASSES = new Set([
     'SLCONS', // Shoreline construction — training walls / breakwaters / groynes
     'DAMCON', // Dam
     'PILPNT', // Pile / dolphin / post
+    // Bridges and overhead clearance (Part B, inshore router, 2026-09-30) —
+    // extracted for ROUTING, not rendered: the router blocks a bridge or an
+    // overhead cable / pipe whose clearance (VERCLR / VERCCL / VERCSA; an
+    // opening bridge's CATBRG and VERCOP ride along) is below the mast's air
+    // draft + margin, or unknown; the lead overlay reviews leads against them.
+    // Always emitted, empty when none is charted (ALWAYS_EMITTED_CLASSES).
+    // Sparse (a handful per harbour cell), so the memory cost is small.
+    // Existing cells pick them up by re-extraction: EXTRACTOR_SCHEMA 2.
+    'BRIDGE', // Bridge (CATBRG, VERCLR, VERCCL, VERCOP, HORCLR)
+    'PONTON', // Pontoon
+    'CBLOHD', // Cable, overhead (VERCLR, VERCSA)
+    'PIPOHD', // Pipeline, overhead (VERCLR)
+    // An overhead conveyor (a loading gantry over a wharf approach) is a
+    // span a mast passes under like any bridge (round 2, 2026-09-30).
+    'CONVYR', // Conveyor (VERCLR, VERCSA)
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
     // imported cell's full vector data into memory at once). Re-add here
     // the moment EncVectorLayer draws them. Next visual batch: TOPMAR/DAYMAR
-    // (topmark glyphs), PONTON/BRIDGE/MORFAC/HRBFAC (harbour
-    // structures), LNDRGN/BUAARE/LAKARE (named areas), ACHARE/ACHBRT
-    // (anchorages), CBLSUB/PIPSOL/DMPGRD (submarine cable/pipeline LINES). ──
+    // (topmark glyphs), MORFAC/HRBFAC (harbour structures), LNDRGN/BUAARE/
+    // LAKARE (named areas), ACHBRT (anchor berths), CBLSUB/PIPSOL/DMPGRD
+    // (submarine cable/pipeline LINES). ──
 ]);

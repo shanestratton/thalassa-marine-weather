@@ -619,15 +619,37 @@ export function setAutoPublishEnabled(enabled: boolean): void {
 }
 
 /**
+ * The most an unconfirmed auto-publish may send. "Incremental runs are a few
+ * cells" stopped being true the day a converter schema changed: schema 2
+ * re-extracts every chart (bridge and overhead-line layers), every cell's
+ * size changes, and every one "needs publish" again — the whole ~400 MB
+ * library, fire-and-forget, over Starlink or 4G under way (Phase 2a review,
+ * 2026-09-30). Past either bound the auto-publish waits for the manual
+ * publish, which shows the size and asks first.
+ */
+export const AUTO_PUBLISH_MAX_BYTES = 25 * 1024 * 1024;
+export const AUTO_PUBLISH_MAX_CELLS = 20;
+
+/**
  * Publish anything new, but only once the skipper has opted in by completing a
  * first publish. Fire-and-forget from the end of a Pi sync.
  *
  * Deliberately NOT a first-run trigger: the opt-in exists because run one is
- * ~400 MB on an unknown connection. Incremental runs are a few cells.
+ * ~400 MB on an unknown connection. Incremental runs are a few cells — and a
+ * run that is not (AUTO_PUBLISH_MAX_BYTES / _CELLS) is left for the manual
+ * publish and its confirmation.
  */
 export async function publishNewCellsIfEnabled(): Promise<void> {
     if (!isAutoPublishEnabled()) return;
     try {
+        const plan = await getPublishPlan();
+        if (!plan.available || plan.candidates.length === 0) return;
+        if (plan.candidates.length > AUTO_PUBLISH_MAX_CELLS || plan.bytes > AUTO_PUBLISH_MAX_BYTES) {
+            log.warn(
+                `auto-publish held: ${plan.candidates.length} cells, ${(plan.bytes / 1048576).toFixed(1)} MB is past the unconfirmed budget — publish from Charts to confirm`,
+            );
+            return;
+        }
         const result = await publishPersonalCells();
         if (result.uploaded > 0) log.warn(`auto-published ${result.uploaded} newly imported cells`);
     } catch (err) {

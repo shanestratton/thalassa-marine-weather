@@ -334,3 +334,31 @@ test('a legacy synthetic producer is corrected only with matching native ENC ide
     assert.equal(current.sourceHO, 'PG');
     assert.equal(current.sourceCellId, 'PG300001');
 });
+
+// Part B (2026-09-30): the converters now emit the bridge / overhead-clearance
+// layers for charts whose revision has not changed. A re-install at the same
+// revision from a NEWER converter schema replaces the older conversion (how
+// installed cells gain the layers); an older one never replaces a newer one;
+// equal schemas with different content still fail closed.
+test('same revision from a newer converter schema replaces the older conversion, never the reverse', async (t) => {
+    const f = await fixture(t);
+    const at = async (schema: number | undefined, marker: string) => {
+        const c = await f.cell('FR466870', 2, 2);
+        const cell: Record<string, unknown> = { cellId: 'FR466870', edition: 2, updateNumber: 2, marker };
+        if (schema !== undefined) cell.extractorSchema = schema;
+        await rewriteCandidate(c, { cells: [cell] });
+        return c;
+    };
+    await publishChartDelivery(f.storeDir, [await at(undefined, 'legacy-conversion')]);
+    const upgraded = await publishChartDelivery(f.storeDir, [await at(2, 'with-structure-layers')]);
+    assert.deepEqual(upgraded.packageSummary, { new: 0, updated: 1, unchanged: 0, total: 1 });
+    const selected = (await readChartIndex(f.storeDir)).cells[0];
+    assert.match(await fs.readFile(chartBlobPath(f.storeDir, selected), 'utf8'), /with-structure-layers/);
+    const before = await fs.readFile(path.join(f.storeDir, 'index.json'), 'utf8');
+    const older = await publishChartDelivery(f.storeDir, [await at(undefined, 'legacy-again')]);
+    assert.deepEqual(older.packageSummary, { new: 0, updated: 0, unchanged: 1, total: 1 });
+    assert.equal(await fs.readFile(path.join(f.storeDir, 'index.json'), 'utf8'), before);
+    await assert.rejects(publishChartDelivery(f.storeDir, [await at(2, 'same-schema-different-bytes')]), {
+        code: 'chart-revision-conflict',
+    });
+});

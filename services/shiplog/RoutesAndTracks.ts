@@ -23,7 +23,7 @@ import { getLogEntries } from './EntryCrud';
 import { getOfflineEntries } from './OfflineQueue';
 import { isTrackworthyEntry } from './helpers';
 import { formatPlannedRouteLabel } from './plannedRouteNaming';
-import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
+import { ROUTE_CAVEAT_LINE_PREFIX, ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
 import { getVoyageSummaries, getVoyageEntries, isLandVoyage, type VoyageSummary } from './VoyageSummary';
 import type { ShipLogEntry } from '../../types/navigation';
 import { withTimeout } from '../../utils/deadline';
@@ -90,6 +90,10 @@ export interface RouteOrTrack {
     linkedPlanId?: string;
     /** Canonical Route Tracer id, when this planned route is its mirror. */
     savedRouteId?: string;
+    /** What the planned route must say wherever it is shown again — its
+     *  caveats as saved (PassagePlanSave ROUTE_CAVEAT_LINE_PREFIX; round-3
+     *  review, 2026-09-30). Absent when it has none. */
+    caveats?: string[];
 }
 
 export interface RoutesAndTracksResult {
@@ -189,6 +193,16 @@ function recoverRouteGeometry(firstEntryNotes: string | null | undefined): Array
     } catch {
         return null;
     }
+}
+
+/** A planned route's saved caveat lines (PassagePlanSave routeCaveatNotes). */
+export function recoverRouteCaveats(firstEntryNotes: string | null | undefined): string[] {
+    if (typeof firstEntryNotes !== 'string') return [];
+    return firstEntryNotes
+        .split('\n')
+        .filter((line) => line.startsWith(ROUTE_CAVEAT_LINE_PREFIX))
+        .map((line) => line.slice(ROUTE_CAVEAT_LINE_PREFIX.length).trim())
+        .filter((line) => line !== '');
 }
 
 /** Equirectangular distance in NM — picker-scale accuracy is plenty. */
@@ -359,6 +373,9 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
             kind,
             linkedPlanId,
             savedRouteId,
+            ...(isPlanned(id) && recoverRouteCaveats(sorted[0].notes).length > 0
+                ? { caveats: recoverRouteCaveats(sorted[0].notes) }
+                : {}),
         });
     }
 

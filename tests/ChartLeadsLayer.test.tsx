@@ -23,6 +23,7 @@ const cells = vi.hoisted(() => ({ unsubscribe: vi.fn(), subscribe: vi.fn() }));
 vi.mock('../services/enc/EncCellMetadata', () => ({ subscribe: cells.subscribe }));
 
 import {
+    BLOCKED_INK,
     CHART_LEADS_LAYER_IDS,
     CHART_LEADS_MIN_ZOOM,
     CHART_LEADS_SOURCE_ID,
@@ -61,6 +62,9 @@ const track = (x0: number, x1: number, rcid: number): Feature => ({
 });
 const chart: LeadCompilerLayers = {
     DEPARE: { features: [band(-0.01, 0.01, 5), band(0.01, 0.03, 1)] },
+    // An A1 survey zone over both: without a graded M_QUAL nothing is clear
+    // ('survey not graded', owner decision 4, 2026-09-30).
+    M_QUAL: { features: [{ ...band(-0.01, 0.03, 0), properties: { acronym: 'M_QUAL', CATZOC: 1 } }] },
     RECTRC: { features: [track(0, 0.009, 1), track(0.011, 0.02, 2)] },
     // Carried empty, as a re-extracted cell will ("extracted, none charted");
     // without them nothing is clear (tests/leadCompiler.test.ts, the end).
@@ -68,6 +72,7 @@ const chart: LeadCompilerLayers = {
     PONTON: { features: [] },
     CBLOHD: { features: [] },
     PIPOHD: { features: [] },
+    CONVYR: { features: [] },
 };
 const graph: LeadGraph = compileLeadGraph(chart, 2);
 
@@ -76,7 +81,7 @@ function makeMap(zoom = 13) {
         string,
         { data: GeoJSON.FeatureCollection; setData: (d: GeoJSON.FeatureCollection) => void }
     >();
-    const layers = new Map<string, { id: string; type: string; paint?: Record<string, unknown> }>();
+    const layers = new Map<string, { id: string; type: string; paint?: Record<string, unknown>; filter?: unknown }>();
     const order: string[] = [];
     const handlers = new Map<string, Set<() => void>>();
     const map = {
@@ -139,13 +144,20 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         expect(cells.subscribe).not.toHaveBeenCalled();
     });
 
+    it('passes the air draft to the classifier, so bridges are read against this mast (Part B)', async () => {
+        const m = makeMap();
+        renderHook(() => useChartLeadsLayer(m.ref, true, true, 2.4, false, 18));
+        await waitFor(() => expect(data.leadGraphForView).toHaveBeenCalled());
+        expect(data.leadGraphForView).toHaveBeenCalledWith([W - 0.02, S - 0.02, W + 0.04, S + 0.02], 2.4, false, 18);
+    });
+
     it('on draws the compiled leads: one source, four layers, one line per span', async () => {
         const m = makeMap();
         renderHook(() => useChartLeadsLayer(m.ref, true, true, 2));
         expect(m.sources.has(CHART_LEADS_SOURCE_ID)).toBe(true);
         expect([...m.layers.keys()].sort()).toEqual(Object.values(CHART_LEADS_LAYER_IDS).sort());
         await waitFor(() => expect(m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features).toHaveLength(2));
-        expect(data.leadGraphForView).toHaveBeenCalledWith([W - 0.02, S - 0.02, W + 0.04, S + 0.02], 2, false);
+        expect(data.leadGraphForView).toHaveBeenCalledWith([W - 0.02, S - 0.02, W + 0.04, S + 0.02], 2, false, null);
         const props = m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features.map((f) => f.properties);
         expect(props).toEqual(
             expect.arrayContaining([
@@ -182,7 +194,9 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         });
         await waitFor(() => expect(data.leadGraphForView).toHaveBeenCalledTimes(1));
         hook.rerender({ draft: 3.5 });
-        await waitFor(() => expect(data.leadGraphForView).toHaveBeenLastCalledWith(expect.any(Array), 3.5, false));
+        await waitFor(() =>
+            expect(data.leadGraphForView).toHaveBeenLastCalledWith(expect.any(Array), 3.5, false, null),
+        );
     });
 
     // Phase 1 review (medium): with no draft entered, MapHub's
@@ -197,7 +211,7 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         const m = makeMap();
         renderHook(() => useChartLeadsLayer(m.ref, true, true, 2.5, true));
         await waitFor(() => expect(m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features).toHaveLength(2));
-        expect(data.leadGraphForView).toHaveBeenCalledWith(expect.any(Array), 2.5, true);
+        expect(data.leadGraphForView).toHaveBeenCalledWith(expect.any(Array), 2.5, true, null);
         const props = m.sources.get(CHART_LEADS_SOURCE_ID)!.data.features.map((f) => f.properties);
         expect(props.some((p) => p?.depthClass === 'clear')).toBe(false);
         expect(props.map((p) => p?.label).sort()).toEqual([
@@ -234,6 +248,28 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         const order = m.map.getStyle().layers.map((l) => l.id);
         expect(order.indexOf(CHART_LEADS_LAYER_IDS.amberCasing)).toBeLessThan(
             order.indexOf(CHART_LEADS_LAYER_IDS.amber),
+        );
+    });
+
+    // Owner decision 5 (round 2, 2026-09-30): a lead under a structure the
+    // mast cannot clear is 'blocked' — red dashes on the same dark casing,
+    // never the amber "check this".
+    it('a blocked lead is its own red dash on the dark casing, never amber', () => {
+        const m = makeMap();
+        renderHook(() => useChartLeadsLayer(m.ref, true, true, 2));
+        const blocked = m.layers.get(CHART_LEADS_LAYER_IDS.blocked)!;
+        const amber = m.layers.get(CHART_LEADS_LAYER_IDS.amber)!;
+        const casing = m.layers.get(CHART_LEADS_LAYER_IDS.amberCasing)!;
+        expect(blocked).toBeDefined();
+        expect(blocked.filter).toEqual(['==', ['get', 'depthClass'], 'blocked']);
+        expect(String(blocked.paint?.['line-color']).toLowerCase()).toBe(BLOCKED_INK);
+        expect(blocked.paint?.['line-color']).not.toBe(amber.paint?.['line-color']);
+        expect(blocked.paint?.['line-dasharray']).toBeDefined();
+        expect(JSON.stringify(amber.filter)).not.toContain('blocked');
+        expect(JSON.stringify(casing.filter)).toContain('blocked');
+        const order = m.map.getStyle().layers.map((l) => l.id);
+        expect(order.indexOf(CHART_LEADS_LAYER_IDS.amberCasing)).toBeLessThan(
+            order.indexOf(CHART_LEADS_LAYER_IDS.blocked),
         );
     });
 });
@@ -287,12 +323,24 @@ describe('Settings → Preferences → Chart — the switch, off by default', ()
         expect(legend).toMatch(/grey dots/i);
         expect(legend).toMatch(/Auto routing does not follow/i);
         expect(legend).not.toMatch(/Dashed amber/i);
-        // Phase 1 review (medium, 2026-09-29): no cell carries bridges,
-        // pontoons or overhead cables yet, so the legend no longer promises
-        // solid "nothing charted on the line" ink, and says why.
+        // Phase 1 review (medium, 2026-09-29): a chart without its bridges,
+        // pontoons and overhead lines is never solid, and the legend says why.
+        // Round 2 (2026-09-30): true before AND after the Pi re-reads the
+        // charts with them — it no longer says no chart shows them.
         expect(legend).not.toMatch(/charted deep enough, nothing charted on the line/i);
-        expect(legend).toMatch(/none is solid yet/i);
-        expect(legend).toMatch(/bridges or overhead cables/i);
+        expect(legend).not.toMatch(/none is solid yet/i);
+        expect(legend).not.toMatch(/these charts do not show bridges/i);
+        expect(legend).toMatch(/not yet re-read with its\s+bridges and power lines is never solid/i);
+        expect(legend).toMatch(/bridges not in chart data/i);
+        // Owner decision 5: a structure the mast cannot clear blocks the line.
+        expect(legend).toMatch(/red dashes: blocked/i);
+        expect(legend).toMatch(/mast cannot clear/i);
+        // Owner decisions 1, 3 and 4 (2026-09-30), in plain words: solid
+        // allows for the survey's accuracy; a rough or ungraded survey, or a
+        // coarser chart's land, is something the label names.
+        expect(legend).toMatch(/allowing for how accurate the chart's survey is/i);
+        expect(legend).toMatch(/rough or\s+ungraded survey/i);
+        expect(legend).toMatch(/coarser chart that shows land/i);
         expect(toggle.getAttribute('aria-checked')).toBe('false');
         expect(screen.getByText('Chart')).toBeTruthy();
         fireEvent.click(toggle);
@@ -303,7 +351,7 @@ describe('Settings → Preferences → Chart — the switch, off by default', ()
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(hub).toContain("import { useChartLeadsLayer } from './useChartLeadsLayer';");
         expect(hub.replace(/\s+/g, '')).toContain(
-            'useChartLeadsLayer(mapRef,mapReady,settings.showChartLeads===true&&!pickerMode,vesselDraftMetres(settings.vessel),vesselDraftIsAssumed(settings.vessel),);',
+            'useChartLeadsLayer(mapRef,mapReady,settings.showChartLeads===true&&!pickerMode,vesselDraftMetres(settings.vessel),vesselDraftIsAssumed(settings.vessel),vesselAirDraftMetres(settings.vessel),);',
         );
         const hook = readFileSync('components/map/useChartLeadsLayer.ts', 'utf8');
         expect(hook).not.toMatch(/mapboxgl-ctrl-(attrib|logo)/);

@@ -385,6 +385,20 @@ export function connectToTargets(
             const cellDepth = grid.cells[nIdx];
             if (Number.isNaN(cellDepth)) continue; // blocked
             if (blockedIdx !== undefined && blockedIdx.has(nIdx)) continue; // Phase 13 re-solve exclusion
+            // No corner squeeze (fix-up, 2026-09-30): a diagonal step may
+            // not pass BETWEEN two blocked cells. A low-clearance bar
+            // rasterises as a one-cell diagonal staircase, and a connector
+            // stepping diagonally between two of its cells passed under a
+            // 10 m cable with an 18 m mast — and the PROMOTED route skipped
+            // the engine's exact mast gate. Cutting past ONE blocked corner
+            // stays allowed, as in the engine's A* (the cost-parity contract
+            // above; a land corner is not a line to cross).
+            if (dx !== 0 && dy !== 0) {
+                const sideA = cy * w + nx;
+                const sideB = ny * w + cx;
+                const shut = (i: number): boolean => Number.isNaN(grid.cells[i]) || blockedIdx?.has(i) === true;
+                if (shut(sideA) && shut(sideB)) continue;
+            }
             const cellPreferred = grid.preferred[nIdx] === 1;
             const exitPenalty = curPreferred && !cellPreferred ? EXIT_PENALTY_M : 0;
             const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) + exitPenalty;

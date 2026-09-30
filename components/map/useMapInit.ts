@@ -27,6 +27,7 @@ import { installScaleBarLabel } from './scaleBarLabel';
 import { registerChartMap } from './chartMapRegistry';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
+import { NEEDS_TIDE_AMBER, surveyDashLayers } from './inshoreRouteState';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -865,6 +866,17 @@ export function useMapInit(opts: UseMapInitOptions) {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] },
             });
+            // Owner decision 10 (2026-09-30): 'tide' — shallow water some tide
+            // clears — is the ONE needs-tide amber, solid; decision 9's
+            // 'survey' stretches are that amber in dots on a dark casing
+            // (surveyDashLayers), so the solid layers leave them out. The dead
+            // NtM-lock grey went too (round 4, 2026-09-30: nothing has
+            // produced that state since the lock UI was removed on 2026-07-02).
+            const ROUTE_SOLID_FILTER: mapboxgl.FilterSpecification = [
+                'all',
+                ['!=', ['get', 'dashed'], true],
+                ['!=', ['get', 'safety'], 'survey'],
+            ];
 
             map.addLayer({
                 id: 'route-glow',
@@ -879,6 +891,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#00e676',
                         'caution',
                         '#ff9100',
+                        'tide',
+                        NEEDS_TIDE_AMBER,
                         'danger',
                         '#ff1744',
                         'unverified',
@@ -889,15 +903,13 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#38bdf8',
                         'offshore',
                         '#1e40af',
-                        'ntmlock',
-                        '#64748b',
                         '#2dd4bf',
                     ],
                     'line-width': 12,
                     'line-blur': 10,
                     'line-opacity': ['match', ['get', 'safety'], 'harbour', 0.3, 0.6],
                 },
-                filter: ['!=', ['get', 'dashed'], true],
+                filter: ROUTE_SOLID_FILTER,
             });
 
             map.addLayer({
@@ -913,6 +925,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#00e676',
                         'caution',
                         '#ff9100',
+                        'tide',
+                        NEEDS_TIDE_AMBER,
                         'danger',
                         '#ff1744',
                         'unverified',
@@ -923,14 +937,12 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#38bdf8',
                         'offshore',
                         '#1e40af',
-                        'ntmlock',
-                        '#64748b',
                         '#2dd4bf',
                     ],
                     'line-width': 3,
                     'line-opacity': 0.9,
                 },
-                filter: ['!=', ['get', 'dashed'], true],
+                filter: ROUTE_SOLID_FILTER,
             });
 
             map.addLayer({
@@ -946,6 +958,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#b9f6ca',
                         'caution',
                         '#ffe0b2',
+                        'tide',
+                        '#ffe0b2',
                         'danger',
                         '#ffcdd2',
                         'unverified',
@@ -956,14 +970,14 @@ export function useMapInit(opts: UseMapInitOptions) {
                         '#bae6fd',
                         'offshore',
                         '#93c5fd',
-                        'ntmlock',
-                        '#cbd5e1',
                         '#99f6e4',
                     ],
                     'line-width': 1.5,
                 },
-                filter: ['!=', ['get', 'dashed'], true],
+                filter: ROUTE_SOLID_FILTER,
             });
+
+            for (const spec of surveyDashLayers('route-line')) map.addLayer(spec as mapboxgl.AnyLayer);
 
             // route-hit-area layer removed 2026-05-05 — was a wide invisible
             // touch padding for the route-nudge long-press-drag interaction,

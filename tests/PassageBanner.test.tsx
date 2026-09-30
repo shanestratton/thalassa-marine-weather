@@ -5,7 +5,7 @@
  * This is the newly extracted component from MapHub.
  */
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../utils/createLogger', () => ({
@@ -25,6 +25,9 @@ vi.mock('../services/passageGpxExport', () => ({
 vi.mock('../services/gpxService', () => ({
     shareGPXFile: vi.fn().mockResolvedValue(undefined),
 }));
+
+const shipLog = vi.hoisted(() => ({ savePassagePlanToLogbook: vi.fn() }));
+vi.mock('../services/ShipLogService', () => ({ ShipLogService: shipLog }));
 
 import { PassageBanner } from '../components/map/PassageBanner';
 import { clearPassageRequest, peekPassageRequest, stagePassageRequest } from '../services/passageHandoff';
@@ -182,6 +185,24 @@ describe('PassageBanner', () => {
         expect(screen.queryByRole('button', { name: 'Export GPX' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Share Brief' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Save to Log' })).not.toBeInTheDocument();
+    });
+
+    // Round-3 review (2026-09-30): saving from the map dropped the route's
+    // caveats (bridges not checked, a pin off the water, survey quality).
+    it('Save to Log keeps the drawn route’s caveats with the plan', async () => {
+        shipLog.savePassagePlanToLogbook.mockResolvedValue('voyage-1');
+        const caveats = ['Bridges and power lines not checked on this chart — known bridges are.'];
+        render(
+            <PassageBanner
+                {...baseProps}
+                passage={{ ...baseProps.passage, routeCaveats: caveats }}
+                isoProgress={null}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Save to Log' }));
+        await waitFor(() => expect(shipLog.savePassagePlanToLogbook).toHaveBeenCalledTimes(1));
+        const plan = shipLog.savePassagePlanToLogbook.mock.calls[0][0];
+        expect(plan.__inshoreRouting).toEqual({ status: 'success', caveats });
     });
 
     it('shows route actions only for the exact geometry marked verified', () => {

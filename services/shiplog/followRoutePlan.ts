@@ -57,11 +57,15 @@ export function buildFollowRoutePlan(input: FollowRoutePlanInput): VoyagePlan | 
 }
 
 export function buildFollowRoutePlanFromRoute(route: RouteOrTrack): VoyagePlan | null {
-    return buildFollowRoutePlan({
+    const plan = buildFollowRoutePlan({
         label: route.label,
         points: route.points,
         distanceNm: route.distanceNm,
         durationHours: route.durationHours,
         timestamp: route.timestamp,
     });
+    // A planned inshore route's caveats ride the followed plan (round-3
+    // review, 2026-09-30), where savedInshoreRouteCaveats reads them.
+    if (plan && route.caveats?.length) plan.__inshoreRouting = { status: 'success', caveats: [...route.caveats] };
+    return plan;
 }

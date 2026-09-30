@@ -5,6 +5,7 @@ import { validateRouteSegments } from '../services/isochrone/landAvoidance';
 
 const read = (path: string): string => readFileSync(resolve(process.cwd(), path), 'utf8');
 const plannerSource = read('components/map/usePassagePlanner.ts');
+const stateSource = read('components/map/inshoreRouteState.ts');
 const mapInitSource = read('components/map/useMapInit.ts');
 const routerEventsSource = read('components/map/usePassageRouterEvents.ts');
 const bannerSource = read('components/map/PassageBanner.tsx');
@@ -36,11 +37,15 @@ describe('Passage Planner fail-closed route verification contract', () => {
     it('renders previews and missing/mismatched inshore masks as explicit unverified dashes', () => {
         expect(plannerSource).toContain("safety: 'unverified'");
         expect(plannerSource).toContain('dashed: true');
-        expect(plannerSource).toContain('inshoreMasksVerified');
-        expect(plannerSource).toContain('hasMask(cautionMask) &&');
-        expect(plannerSource).toContain('hasMask(canalMask) &&');
-        expect(plannerSource).toContain('hasMask(channelMask) &&');
-        expect(plannerSource).toContain('hasMask(offshoreMask)');
+        // The per-segment classification moved to a pure module (fix-up,
+        // 2026-09-30: charted-shallow water beats a channel's yellow); the
+        // planner draws its null as the unverified dashes.
+        expect(plannerSource).toContain('const stateMask = inshoreSegmentStates(inshoreRes);');
+        expect(stateSource).toContain('inshoreMasksVerified');
+        expect(stateSource).toContain('hasMask(cautionMask) &&');
+        expect(stateSource).toContain('hasMask(canalMask) &&');
+        expect(stateSource).toContain('hasMask(channelMask) &&');
+        expect(stateSource).toContain('hasMask(offshoreMask)');
         expect(plannerSource).not.toContain('No (or mismatched) safety data — single green line');
         expect(plannerSource).not.toContain("properties: { safety: 'green', source: 'inshore-router' }");
     });

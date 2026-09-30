@@ -54,6 +54,16 @@ import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
 import { vesselDraftMetres, vesselAirDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { peekPassageRequest, clearPassageRequest } from '../../services/passageHandoff';
+import { inshoreRouteCaveats, inshoreRouteNotice } from './inshoreRouteNotice';
+import {
+    inshoreRouteFeatures,
+    inshoreRoutePieces,
+    inshoreSegmentStates,
+    routeTideDepths,
+    tideLiftablePieces,
+    surveyAmberMetres,
+} from './inshoreRouteState';
+import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -210,6 +220,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         status: 'idle',
         geometryKey: null,
     });
+    // What the drawn route itself must say, whatever notice is showing
+    // (inshoreRouteCaveats: bridges not checked on schema-1 charts — owner
+    // decision 8 — and a pin off the water). Its own line in PassageBanner:
+    // no later notice replaces it (fix-up, 2026-09-30). Cleared with the route.
+    const [routeCaveats, setRouteCaveats] = useState<string[]>([]);
     const [settingPoint, setSettingPoint] = useState<'departure' | 'arrival' | null>(null);
     // A RoutePlanner handoff is staged before the tab changes. Read it during
     // initial render (not in the mount effect) so the destination MapHub never
@@ -465,6 +480,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // return — the rest of the deep-water pipeline is irrelevant
         // for a 6-NM trip up the Savannah River.
         dispatchPassageNotice(null); // fresh compute, clear any stale band
+        setRouteCaveats([]); // …and the last route's caveats
         clearTideChips(); // stale window chips must not ride over the new route
         try {
             const { tryInshoreRoute } = await import('../../services/InshoreRouter');
@@ -495,7 +511,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     { lat: departure.lat, lon: departure.lon },
                     { lat: arrival.lat, lon: arrival.lon },
                     vesselDraftM,
-                    // Air draft (mast height) — null = no bridge gating.
+                    // Air draft (mast height, incl. antennas). Null = not set:
+                    // every charted bridge and overhead line then BLOCKS (it
+                    // cannot be checked — owner decision 5, 2026-09-30); the
+                    // curated bridges-au.json list blocks as well.
                     vesselAirDraftMetres(useSettingsStore.getState().settings.vessel),
                     // ALWAYS SAFEST (Shane 2026-07-02: no punter-facing profile
                     // option). The engine's tideAssist profile remains for
@@ -617,36 +636,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // safety:'danger' so the route-line layer draws it red.
                     // The skipper verifies depth on those red stretches.
                     const inshorePoly = inshoreRes.polyline;
-                    const segCount = inshorePoly.length - 1;
-                    const hasMask = (m?: boolean[]): m is boolean[] => !!m && m.length === segCount;
-                    // Per-segment colour, Shane's INNER→OUTER scheme. Precedence:
-                    //   1. tier-2 marked channel → YELLOW ('channel') — and this BEATS red:
-                    //      a buoyed channel is pilotage water, the marks ARE the depth authority,
-                    //      so it must read yellow even where the 50 m grid calls it shallow/
-                    //      uncharted (d-1). (Was caution>channel, which reddened the marked
-                    //      channel wherever it crossed an uncharted cell — the "red not yellow"
-                    //      bug.) The cautionMask is still computed for the safety scorecard.
-                    //   2. canal centre-line → RED ('danger') — the marina basin.
-                    //   3. caution (shallow/uncharted OPEN water, NOT a marked channel) → RED.
-                    //   4. offshore → DARK BLUE; else inshore A* → TEAL ('green' default).
+                    // Per-segment colour (components/map/inshoreRouteState.ts):
+                    // charted-shallow caution RED even in a marked channel, a
+                    // marked channel YELLOW over any other caution, canal and
+                    // open-water caution RED, offshore DARK BLUE, else TEAL.
+                    // Charted-shallow water a tide clears is AMBER once the
+                    // tide curve is in (owner decision 10, 2026-09-30).
+                    // Missing or index-desynchronised masks are not an "all
+                    // normal" verdict; they make the whole line unverified.
                     const cautionMask = inshoreRes.cautionMask;
-                    const canalMask = inshoreRes.canalMask;
-                    const offshoreMask = inshoreRes.offshoreMask;
-                    const channelMask = hasMask(inshoreRes.channelMask) ? inshoreRes.channelMask : inshoreRes.tier4Mask;
-                    // Every colour mask is part of the renderer's safety
-                    // contract. Missing or index-desynchronised data is not an
-                    // "all normal" verdict; it makes the whole line unverified.
-                    const inshoreMasksVerified =
-                        hasMask(cautionMask) && hasMask(canalMask) && hasMask(channelMask) && hasMask(offshoreMask);
-                    const stateMask: ('danger' | 'channel' | 'offshore' | 'green' | 'ntmlock')[] | null =
-                        inshorePoly.length < 2 || !inshoreMasksVerified
-                            ? null
-                            : Array.from({ length: segCount }, (_, i) => {
-                                  if (channelMask?.[i]) return 'channel'; // marked channel YELLOW (beats caution)
-                                  if (canalMask?.[i] ?? false) return 'danger'; // canal/marina RED
-                                  if (cautionMask?.[i] ?? false) return 'danger'; // shallow OPEN water RED
-                                  return offshoreMask?.[i] ? 'offshore' : 'green';
-                              });
+                    const stateMask = inshoreSegmentStates(inshoreRes);
                     // NtM lock UI removed (owner call 2026-07-02): CURRENT notice
                     // packs apply to routing AUTOMATICALLY — the engine already
                     // routed on the surveyed depths and the promulgated transit,
@@ -687,6 +686,36 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         );
                     }
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+                    // Owner decision 10 (Shane, 2026-09-30: "Amber if a tide
+                    // clears it"): a stretch red for its charted depth alone is
+                    // amber where some tide gives draft + UKC over it.
+                    // `highestAt` is the highest tide the app knows at a spot
+                    // (the curve loaded for its own 0.25° bucket); null (no
+                    // tide data yet, or none) draws it red. The need is the
+                    // router's own draft + UKC (RouteResult.tideNeedM; round-4
+                    // review, 2026-09-30), not a second copy of the UKC.
+                    const tideDepths = stateMask ? routeTideDepths(inshoreRes) : null;
+                    const tideNeedM =
+                        typeof inshoreRes.tideNeedM === 'number' && Number.isFinite(inshoreRes.tideNeedM)
+                            ? inshoreRes.tideNeedM
+                            : vesselDraftM + DEFAULT_TIDE_SAFETY_M;
+                    const piecesFor = (highestAt: ((lon: number, lat: number) => number | null) | null) =>
+                        stateMask
+                            ? inshoreRoutePieces(
+                                  inshorePoly,
+                                  stateMask,
+                                  inshoreRes.surveyRuns,
+                                  inshoreRes.chartedShallowSpans,
+                                  {
+                                      depthM: tideDepths,
+                                      needM: tideNeedM,
+                                      highestM: null,
+                                      ...(highestAt ? { highestAt } : {}),
+                                  },
+                              )
+                            : [];
+                    const drawInshore = (): GeoJSON.Feature<GeoJSON.LineString>[] =>
+                        inshoreRouteFeatures(piecesFor(null));
                     if (!stateMask) {
                         // No or mismatched safety data: keep the useful
                         // geometry visible, but never imply it was classified.
@@ -701,26 +730,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             geometry: { type: 'LineString', coordinates: inshorePoly },
                         });
                     } else {
-                        let runStart = 0;
-                        for (let i = 0; i <= stateMask.length; i++) {
-                            const atEnd = i === stateMask.length;
-                            if (atEnd || stateMask[i] !== stateMask[runStart]) {
-                                inshoreFeatures.push({
-                                    type: 'Feature',
-                                    properties: {
-                                        safety: stateMask[runStart],
-                                        source: 'inshore-router',
-                                        verification: 'verified',
-                                    },
-                                    // run = segments [runStart, i) → points [runStart, i]
-                                    geometry: {
-                                        type: 'LineString',
-                                        coordinates: inshorePoly.slice(runStart, i + 1),
-                                    },
-                                });
-                                runStart = i;
-                            }
-                        }
+                        // Runs of one state, with decision 9's survey stretches
+                        // cut at their exact ends (inshoreRoutePieces; owner
+                        // decision 9, 2026-09-30) — amber dashes — and the
+                        // backstop's charted-shallow stretches over everything
+                        // (round-3 review, 2026-09-30). Drawn first with NO
+                        // tide: every shallow stretch red. The tide chips'
+                        // curve redraws it (owner decision 10) — amber where a
+                        // tide clears it — once it arrives.
+                        inshoreFeatures.push(...drawInshore());
                     }
                     if (gen !== computeGenRef.current) return;
                     // Bind every downstream action to the exact classified
@@ -819,24 +837,25 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                     // Route rendered — clear the computing band, or explain the trimmed
                     // tail when the pin geocoded to dry land (suburb-centroid class).
-                    if (!stateMask) {
-                        dispatchPassageNotice({
-                            severity: 'warn',
-                            title: 'Route shown — verification incomplete',
-                            message:
-                                'The inshore router returned missing or mismatched safety classifications. The dashed amber line cannot be saved, exported or shared; retry after charts are synced.',
-                        });
-                    } else if (inshoreRes.destinationInlandTrimM) {
-                        dispatchPassageNotice({
-                            severity: 'warn',
-                            title: 'Destination is inland',
-                            message: `The pin sits ~${Math.round(inshoreRes.destinationInlandTrimM)} m onto charted land — the route ends at the nearest navigable water. Drop the pin on the waterway for a berth-accurate route.`,
-                        });
-                    } else if (ntmLockBanner) {
-                        dispatchPassageNotice(ntmLockBanner);
-                    } else {
-                        dispatchPassageNotice(null);
-                    }
+                    const noticeInput = {
+                        stateMaskOk: !!stateMask,
+                        destinationInlandTrimM: inshoreRes.destinationInlandTrimM,
+                        structuresUnknownCells: inshoreRes.structuresUnknownCells,
+                        pinOffWater: inshoreRes.pinOffWater,
+                        surveyRuns: inshoreRes.surveyRuns,
+                        surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
+                        // What this map actually draws as survey dashes (round-3 review,
+                        // 2026-09-30): the caveat's colour words follow it.
+                        surveyAmber: surveyAmberMetres(
+                            inshoreRes.polyline,
+                            stateMask,
+                            inshoreRes.surveyRuns,
+                            inshoreRes.chartedShallowSpans,
+                        ),
+                        ntmLockBanner,
+                    };
+                    dispatchPassageNotice(inshoreRouteNotice(noticeInput));
+                    setRouteCaveats(inshoreRouteCaveats(noticeInput));
                     // [BAYLEG] render-truth (2026-06-23): fires ONLY when the inshore route survives
                     // the land backstop and is actually drawn — teal/tier-coloured, with the
                     // Scarborough OBSTRN half-disc rounding the mark + the river-follow active. If
@@ -855,21 +874,50 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         const braidSrc = map.getSource(braidId) as mapboxgl.GeoJSONSource;
                         if (braidSrc) braidSrc.setData({ type: 'FeatureCollection', features: [] });
                     }
-                    // ── Phase 7: tide-window chips on the red runs (display-only —
-                    // tide changes feasibility AND timing, never geometry). Fire-and-
-                    // forget AFTER the route paints; stale computes are gen-guarded
-                    // inside, and the markers land in tideChipMarkersRef so every
-                    // compute/clear path tears them down.
-                    if (stateMask && inshoreRes.shallowRuns?.length) {
+                    // ── Phase 7: tide-window chips on the needs-tide runs (display-
+                    // only — tide changes feasibility AND timing, never geometry).
+                    // Fire-and-forget AFTER the route paints; stale computes are
+                    // gen-guarded inside, and the markers land in tideChipMarkersRef
+                    // so every compute/clear path tears them down.
+                    // The stretches some tide could draw amber — known before
+                    // any curve: where the curves are fetched, and which runs
+                    // are red whatever the tide (round-4 review, 2026-09-30).
+                    const liftable = stateMask
+                        ? tideLiftablePieces(
+                              inshorePoly,
+                              stateMask,
+                              inshoreRes.chartedShallowSpans,
+                              tideDepths,
+                              tideNeedM,
+                          )
+                        : [];
+                    if (
+                        stateMask &&
+                        (inshoreRes.shallowRuns?.length || inshoreRes.surveyRuns?.length || liftable.length > 0)
+                    ) {
+                        // Keyed on the charted-shallow runs, not the rendered colour
+                        // (tideWindowChips tideChipRuns, fix-up 2026-09-30), and the
+                        // survey stretches — one chip per stretch (owner decision 9).
+                        // The curves' tops redraw the line (decision 10): the
+                        // geometry is unchanged, so Save / GPX stay bound to it.
                         const { annotateTideWindows } = await import('./tideWindowChips');
                         void annotateTideWindows({
                             map,
-                            runs: inshoreRes.shallowRuns,
-                            stateMask,
+                            runs: inshoreRes.shallowRuns ?? [],
+                            surveyRuns: inshoreRes.surveyRuns,
                             draftM: vesselDraftM,
+                            needM: tideNeedM,
                             departureMs: departureDate.getTime(),
                             isStale: () => gen !== computeGenRef.current,
                             markers: tideChipMarkersRef.current,
+                            liftable,
+                            ...(inshoreRes.canalMask ? { canalMask: inshoreRes.canalMask } : {}),
+                            onTide: (highestAt) => {
+                                if (gen !== computeGenRef.current) return;
+                                const pieces = piecesFor(highestAt);
+                                commitDisplayedRoute(map, inshoreRouteFeatures(pieces), 'verified');
+                                return pieces;
+                            },
                         });
                     }
                     // ── Notices to Mariners crossed by this route (advisory only —
@@ -913,7 +961,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     log.warn(`[Passage][BAYLEG] REFUSED (air-draft-blocked) — no fallback drawn`);
                     dispatchPassageNotice({
                         severity: 'warn',
-                        title: 'Route not possible — fixed bridge',
+                        // Structure-neutral: the refusal is also for a cable, a
+                        // conveyor, an opening span and an unset air draft; the
+                        // message names which (fix-up, 2026-09-30).
+                        title: 'Route not possible — overhead clearance',
                         message: inshoreRes.error,
                     });
                     setRouteAnalysis(null);
@@ -2865,6 +2916,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setArrival(null);
         setRouteAnalysis(null);
         setRouteVerification({ status: 'idle', geometryKey: null });
+        setRouteCaveats([]);
         displayedRouteGeometryKeyRef.current = null;
         setDepartureTime('');
         isoResultRef.current = null;
@@ -2913,6 +2965,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setRouteAnalysis,
         routeVerification,
         routeActionsAvailable,
+        routeCaveats,
         settingPoint,
         setSettingPoint,
         showPassage,

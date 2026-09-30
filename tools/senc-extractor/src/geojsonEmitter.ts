@@ -1,5 +1,5 @@
 import { HeaderInfo, SencFeature } from './featureParser.js';
-import { ROUTING_CLASSES } from './s57Classes.js';
+import { ALWAYS_EMITTED_CLASSES, EXTRACTOR_SCHEMA, ROUTING_CLASSES } from './s57Classes.js';
 
 /**
  * Round lat/lon to 6 decimal places (~10 cm precision). 15-digit IEEE-754 output
@@ -61,6 +61,10 @@ export interface CellOutput {
     sencCreateDate?: string;
     /** Vertical datum for soundings (SENC header) — required attribution once SOUNDG displays. */
     soundingDatum?: string;
+    /** The extractor output schema that produced this cell (s57Classes
+     * EXTRACTOR_SCHEMA; absent = 1). Lets a store replace an older
+     * extraction of the same chart revision with a newer one. */
+    extractorSchema?: number;
     stats?: { totalFeatures: number; emittedFeatures: number; classes: Record<string, number> };
 }
 
@@ -95,6 +99,27 @@ export function emitCell(header: HeaderInfo, features: SencFeature[], opts: Emit
         emittedFeatures += 1;
     }
 
+    // "Extracted, none charted": a wanted always-emitted class the chart has
+    // NO feature of is carried as an empty collection. One the chart has but
+    // whose geometry could not all be built stays absent — unknown, not
+    // "none" and not a shorter "complete" list (Phase 2a review, 2026-09-30:
+    // three bridges with one unbuildable emitted a BRIDGE layer of two, which
+    // the router and the lead review read as every bridge in the cell). The
+    // app then treats the cell's structures as not extracted: its leads are
+    // never clear and its routes carry the "not checked" caveat.
+    for (const c of ALWAYS_EMITTED_CLASSES) {
+        if (wanted && !wanted.has(c)) continue;
+        const charted = classCounts[c] ?? 0;
+        if (charted === 0) {
+            if (!layers[c]) layers[c] = { type: 'FeatureCollection', features: [] };
+        } else if ((layers[c]?.features.length ?? 0) < charted) {
+            if (layers[c]) {
+                emittedFeatures -= layers[c].features.length;
+                delete layers[c];
+            }
+        }
+    }
+
     // Canonical fields the iOS app needs.
     const bbox: [number, number, number, number] = header.cellExtent
         ? [header.cellExtent.wLon, header.cellExtent.sLat, header.cellExtent.eLon, header.cellExtent.nLat]
@@ -114,6 +139,7 @@ export function emitCell(header: HeaderInfo, features: SencFeature[], opts: Emit
         nativeScale: header.nativeScale,
         sencCreateDate: header.sencCreateDate,
         soundingDatum: header.soundingDatum,
+        extractorSchema: EXTRACTOR_SCHEMA,
         stats: {
             totalFeatures: features.length,
             emittedFeatures,

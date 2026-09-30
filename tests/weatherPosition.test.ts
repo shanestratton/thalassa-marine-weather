@@ -158,7 +158,12 @@ describe('where the weather is for', () => {
     it('remembers a live boat fix under the account-scoped key', async () => {
         chain.busFix.mockImplementation(() => bus());
         await boatOrHeldFix(T0);
-        const keys = Object.keys(localStorage).filter((k) => k.startsWith('thalassa_weather_last_boat_fix'));
+        // Through the Storage API (length / key), not Object.keys (2026-09-30):
+        // under Node 26 the suite runs on tests/setup.ts's in-memory Storage
+        // shim, whose keys are not own properties, so Object.keys listed none
+        // and this failed while Node 24 (CI) passed on jsdom's own storage.
+        const stored = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+        const keys = stored.filter((k): k is string => !!k && k.startsWith('thalassa_weather_last_boat_fix'));
         expect(keys).toHaveLength(1);
         expect(keys[0]).toContain('::');
         expect(heldBoatFix()).toMatchObject({ kind: 'held', timestamp: T0, rung: 'bus' });

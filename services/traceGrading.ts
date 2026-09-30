@@ -57,6 +57,9 @@ export interface GradeLeg {
 export interface GradeLegsOptions {
     draftM: number;
     draftAssumed: boolean;
+    /** The mast's air draft (m; null = not set) for the bridge / overhead-line
+     *  check. Omitted: the vessel profile's (buildTracerContext). */
+    airDraftM?: number | null;
     /** Trial proposals must never turn an OSM water outline into a sounding. */
     chartedDepthOnly?: boolean;
     /** Build-cost ceiling for one window, in metres of tight-bbox span. */
@@ -241,6 +244,7 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
             try {
                 const built = await buildTracerContext(traceBboxPadded(pts), opts.draftM, {
                     draftAssumed: opts.draftAssumed,
+                    ...(opts.airDraftM !== undefined ? { airDraftM: opts.airDraftM } : {}),
                     ...(opts.chartedDepthOnly ? { chartedDepthOnly: true } : {}),
                 });
                 if (superseded()) return { status: 'ready', superseded: true };

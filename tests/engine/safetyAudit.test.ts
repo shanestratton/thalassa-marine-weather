@@ -64,16 +64,107 @@ describe('auditUnvouchedHardLand', () => {
         expect(result.maxRunEnd?.[0]).toBeLessThanOrEqual(0.02);
     });
 
-    it('does not call overlapping charted water hard land', () => {
-        const land = collection(polygon(0, 0, 0.02, 0.01));
-        const result = auditUnvouchedHardLand(
-            { LNDARE: land, DEPARE: collection(polygon(0, 0, 0.02, 0.01)) },
-            crossing,
-        );
+    // Phase 2a review (2026-09-30): the audit's water test is the grid's
+    // (services/engine/chartWaterEvidence.ts). It used to vouch ANY DEPARE,
+    // DRGARE or FAIRWY overlap — drying, coarser, unranked, a bare
+    // bathymetry-derived band, a route area — so it could never catch the
+    // land the grid's old Pass 4 rescue reopened under a chart fairway or
+    // dredged area.
+    describe('water evidence under land paint follows the grid (owner decision 1)', () => {
+        const land = (props: Record<string, unknown> = {}) => ({ ...polygon(0, 0, 0.02, 0.01), properties: props });
+        const band = (props: Record<string, unknown>) => ({ ...polygon(0, 0, 0.02, 0.01), properties: props });
+        const COARSE = 100;
+        const FINE = 200;
 
-        expect(result.maxRunM).toBe(0);
-        expect(result.totalM).toBe(0);
-        expect(result.sampledIntervals).toBeGreaterThan(0);
+        it.each([
+            [
+                'OSM-vouched water (natural=water)',
+                { LNDARE: collection(land()), DEPARE: collection(band({ natural: 'water', DRVAL1: 10 })) },
+            ],
+            [
+                'an OSM marina basin',
+                { LNDARE: collection(land()), DEPARE: collection(band({ leisure: 'marina', DRVAL1: 5 })) },
+            ],
+            [
+                'a finer never-drying S-57 DEPARE',
+                {
+                    LNDARE: collection(land({ _scaleRank: COARSE })),
+                    DEPARE: collection(band({ acronym: 'DEPARE', DRVAL1: 1, _scaleRank: FINE })),
+                },
+            ],
+            [
+                'a finer never-drying S-57 DRGARE',
+                {
+                    LNDARE: collection(land({ _scaleRank: COARSE })),
+                    DRGARE: collection(band({ acronym: 'DRGARE', DRVAL1: 3, _scaleRank: FINE })),
+                },
+            ],
+        ] as [string, InshoreLayers][])('%s vouches the land it overlaps', (_name, layers) => {
+            const result = auditUnvouchedHardLand(layers, crossing);
+            expect(result.maxRunM).toBe(0);
+            expect(result.totalM).toBe(0);
+            expect(result.sampledIntervals).toBeGreaterThan(0);
+        });
+
+        it.each([
+            [
+                'an equal-rank DRGARE',
+                {
+                    LNDARE: collection(land({ _scaleRank: FINE })),
+                    DRGARE: collection(band({ acronym: 'DRGARE', DRVAL1: 3, _scaleRank: FINE })),
+                },
+            ],
+            [
+                'a coarser DEPARE',
+                {
+                    LNDARE: collection(land({ _scaleRank: FINE })),
+                    DEPARE: collection(band({ acronym: 'DEPARE', DRVAL1: 5, _scaleRank: COARSE })),
+                },
+            ],
+            [
+                'a finer DRYING band',
+                {
+                    LNDARE: collection(land({ _scaleRank: COARSE })),
+                    DEPARE: collection(band({ acronym: 'DEPARE', DRVAL1: -1, _scaleRank: FINE })),
+                },
+            ],
+            [
+                'an unranked S-57 band',
+                {
+                    LNDARE: collection(land({ _scaleRank: COARSE })),
+                    DEPARE: collection(band({ acronym: 'DEPARE', DRVAL1: 5 })),
+                },
+            ],
+            [
+                'unranked land paint',
+                {
+                    LNDARE: collection(land()),
+                    DEPARE: collection(band({ acronym: 'DEPARE', DRVAL1: 5, _scaleRank: FINE })),
+                },
+            ],
+            [
+                'a bare (bathymetry-derived, untagged) DEPARE',
+                { LNDARE: collection(land()), DEPARE: collection(band({ DRVAL1: 10 })) },
+            ],
+            [
+                'a chart FAIRWY (a route area, not a depth)',
+                { LNDARE: collection(land()), FAIRWY: collection(band({ acronym: 'FAIRWY' })) },
+            ],
+            [
+                'a synthetic mark ribbon',
+                { LNDARE: collection(land()), FAIRWY: collection(band({ _class: 'synthetic-channel-segment' })) },
+            ],
+        ] as [string, InshoreLayers][])('%s does not vouch the land it overlaps', (_name, layers) => {
+            expect(auditUnvouchedHardLand(layers, crossing).maxRunM).toBeGreaterThan(MAX_UNVOUCHED_HARD_LAND_RUN_M);
+        });
+
+        it('the FINEST land paint is the one a band must beat', () => {
+            const layers: InshoreLayers = {
+                LNDARE: collection(land({ _scaleRank: COARSE }), land({ _scaleRank: 250 })),
+                DEPARE: collection(band({ acronym: 'DEPARE', DRVAL1: 5, _scaleRank: FINE })),
+            };
+            expect(auditUnvouchedHardLand(layers, crossing).maxRunM).toBeGreaterThan(MAX_UNVOUCHED_HARD_LAND_RUN_M);
+        });
     });
 
     it.each(['CANAL', 'NTMBAR'] as const)('honours %s navigation-line evidence through conflicting land', (layer) => {
@@ -148,9 +239,15 @@ describe('auditUnvouchedHardLand', () => {
         // The west half of the lead lies over a charted 3 m band inside the
         // land paint (the chart's own water: the lead's on-water span); the
         // east half runs on over bare LNDARE towards its marks ashore.
-        const water = { ...polygon(0, 0.0049, 0.01, 0.0051), properties: { acronym: 'DEPARE', DRVAL1: 3 } };
+        // Owner decision 1 (2026-09-30): the band beats the land paint only
+        // when charted at a FINER scale, so the fixture carries the ranks the
+        // router's merge stamps (land: a coarse cell's; band: a finer one's).
+        const water = {
+            ...polygon(0, 0.0049, 0.01, 0.0051),
+            properties: { acronym: 'DEPARE', DRVAL1: 3, _scaleRank: 200 },
+        };
         const layers = (): InshoreLayers => ({
-            LNDARE: collection(polygon(0, 0, 0.02, 0.01)),
+            LNDARE: collection({ ...polygon(0, 0, 0.02, 0.01), properties: { _scaleRank: 100 } }),
             DEPARE: collection(water),
             NAVLINE: collection({
                 ...line([
@@ -179,13 +276,28 @@ describe('auditUnvouchedHardLand', () => {
             expect(result.maxRunM).toBeLessThan(1_100);
             expect(result.maxRunStart?.[0]).toBeGreaterThan(0.01);
         });
+
+        it('with no ranks the band cannot beat the land paint (decision 1 fails safe): nothing is vouched', () => {
+            const bare = layers();
+            const unranked: InshoreLayers = {
+                ...bare,
+                LNDARE: collection(polygon(0, 0, 0.02, 0.01)),
+                DEPARE: collection({ ...water, properties: { acronym: 'DEPARE', DRVAL1: 3 } }),
+            };
+            // Neither the band nor the lead over it vouches anything: the
+            // band cannot beat unranked land paint, so the lead is on land
+            // and the 55 m strip beside it is not vouched.
+            expect(auditUnvouchedHardLand(unranked, beside(0.0095)).maxRunM).toBeGreaterThan(
+                MAX_UNVOUCHED_HARD_LAND_RUN_M,
+            );
+        });
     });
 
     it('resets the continuous run when a wet corridor separates two land sections', () => {
         const result = auditUnvouchedHardLand(
             {
                 LNDARE: collection(polygon(0, 0, 0.02, 0.01)),
-                FAIRWY: collection(polygon(0.009, 0, 0.011, 0.01)),
+                DEPARE: collection({ ...polygon(0.009, 0, 0.011, 0.01), properties: { waterway: 'canal' } }),
             },
             crossing,
             20,

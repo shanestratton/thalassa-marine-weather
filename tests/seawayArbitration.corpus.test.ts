@@ -272,6 +272,53 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
             console.warn(`[arbitration] baseline regenerated → ${BASELINE_PATH}`);
             return;
         }
+        // RE-PIN directNM (2026-09-30, Phase 2a rounds 1 and 2; every shadow
+        // outcome unchanged), each measured in its own process:
+        //   • newport-rivergate 22.61 → 22.47 (round 1): Pass 4 and the Pass
+        //     5b lead brush no longer paint 5 m, and owner decision 1 decides
+        //     the land paint (reverting all three: 22.61 again).
+        //   • newport-tangalooma 18.38 → 19.38 (round 1, the same three,
+        //     jointly — see the golden's re-pin) → 19.48 (round 2, owner
+        //     decision 7: the route runs on to the pin in decision-1 water).
+        //   • newport-rivergate-marks 19.21 → 18.33 (round 1: the two rescue
+        //     removals and decision 1; reverting them gives 19.26 — the last
+        //     0.05 NM, by round 2's own ablation, is round 1's DRGARE depth
+        //     pass and Pass-1 protection reset, which read a dredged area's
+        //     own DRVAL1 and drop a coarser band's protection under a finer
+        //     claim; reverting those too gives 19.21) → 27.88
+        //     (round 2, owner decision 7, symmetric at both ends): this
+        //     capture has no OSM overlay, so the Newport pin sits in charted
+        //     decision-1 water and the Rivergate pin in the river's charted
+        //     water. The route now leaves and arrives through that charted
+        //     water — 5.9 km and 9.4 km 'needs tide' tails, the nearest water
+        //     deep enough for a 2.4 m keel through it — instead of relaxing
+        //     1.6 km of charted land across the Newport peninsula (audit
+        //     1590 → 71 m). Production merges the OSM overlay, where both
+        //     pins are OSM water and nothing changes (the chartLeads goldens).
+        // RE-PIN directNM again (2026-09-30, Phase 2a round-2 fix-up; every
+        // shadow outcome unchanged; each measured in its own process):
+        //   • newport-rivergate 22.47 → 23.22 and newport-tangalooma 19.48 →
+        //     19.91 → 20.35: see the goldens' re-pins (a charted shallow S-57
+        //     band stands against the capture's later GMRT deep bands; the
+        //     Tangalooma tail avoids 0 m decision-1 water).
+        //   • newport-rivergate-marks 27.88 → 17.85: owner decision 2 — the
+        //     Newport pin's water is the harbour cell's 0–2 m canal band under
+        //     every cell's land paint, which is no charted pin now (decision-1
+        //     water qualifies only when its finest band is deep enough), so
+        //     this permissive run departs as in round 1, relaxing the charted
+        //     peninsula (audit 1729 m; the strict production policy refuses
+        //     it, tests/inshoreRouter.chartLeads). Reverting that rule alone:
+        //     21.48 NM. The Rivergate end keeps its decision-7 tail through
+        //     the river's deep-finest decision-1 water — 9.5 → 11.3 km with
+        //     depth-weighted tail steps and decision 2 (never through its 0 m
+        //     cells), labelled for the coarser land paint (finest survey 5 m).
+        // RE-PIN directNM (round-3 review fix-up, 2026-09-30; every shadow
+        // outcome unchanged; regenerated, and each golden measured in its own
+        // process): newport-rivergate 23.22 → 23.24, newport-tangalooma
+        // 20.35 → 20.36 — OSM water no longer outranks the chart's own S-57
+        // bands nor beats land paint over a drying band (navGrid Pass 1/2;
+        // see the goldens' re-pins). newport-rivergate-marks and dog-leg:
+        // unchanged.
         const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as { rows: ArbitrationRow[] };
         expect(rows).toEqual(baseline.rows);
     });
