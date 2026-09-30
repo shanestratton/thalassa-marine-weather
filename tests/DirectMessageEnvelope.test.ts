@@ -13,6 +13,7 @@ import {
 const frame: DirectMessageEnvelope = {
     version: 1,
     protocol: DM_ENVELOPE_PROTOCOL,
+    messageType: 'prekey',
     clientMessageId: 'message-1',
     senderDeviceId: 'sender-ios',
     recipientDeviceId: 'recipient-ios',
@@ -38,6 +39,9 @@ describe('experimental encrypted DM transport framing (not cryptography)', () =>
         { protocol: 'double-ratchet' },
         { protocol: 'plaintext' },
         { protocol: null },
+        { messageType: 'plaintext' },
+        { messageType: 'senderKey' },
+        { messageType: null },
         { clientMessageId: '' },
         { clientMessageId: 'x'.repeat(129) },
         { senderDeviceId: 'sender\nsecret' },
@@ -80,6 +84,11 @@ describe('experimental encrypted DM transport framing (not cryptography)', () =>
                 InvalidDirectMessageEnvelopeError,
             );
         }
+    });
+
+    it('preserves the session-message dispatch type', () => {
+        const sessionFrame = { ...frame, messageType: 'session' as const };
+        expect(decodeDirectMessageEnvelope(encodeDirectMessageEnvelope(sessionFrame))).toEqual(sessionFrame);
     });
 
     it('bounds decoded size even when padded base64 lengths match', () => {

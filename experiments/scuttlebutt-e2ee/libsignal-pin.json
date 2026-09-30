@@ -1,0 +1,11 @@
+{
+    "version": "0.103.1",
+    "sourceCommit": "e8cc2dddd578859b4a029c9c94670b24ce2b616a",
+    "sourceRepository": "https://github.com/signalapp/libsignal",
+    "prebuildFile": "libsignal-client-ios-build-v0.103.1.tar.gz",
+    "prebuildSha256": "db25764598c9171a2c8eac3199a0d881611e493bbae3ab1355e5fb88927271cf",
+    "prebuildUrl": "https://build-artifacts.signal.org/libraries/libsignal-client-ios-build-v0.103.1.tar.gz",
+    "checksumSource": "https://github.com/signalapp/libsignal/releases/download/v0.103.1/libsignal-client-ios-build-v0.103.1.tar.gz.sha256",
+    "license": "AGPL-3.0-only",
+    "shippingApproved": false
+}
