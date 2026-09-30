@@ -2,6 +2,14 @@
 
 Updated: 30 September 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
+**Provider integration on hold pending product/licensing decision.** The owner
+raised the libsignal distribution implications and a possible vodozemac/Matrix
+alternative. No Keychain vault files or operations, relay migration, app linking,
+signing changes or distribution were started. Preserve this research; do not
+silently switch protocol, declare Thalassa open source, or add libsignal to an
+app build. A disabled feature flag would not remove a bundled dependency's
+licensing obligations. Legal suitability needs qualified review before shipping.
+
 ## What exists today
 
 This is an isolated framing/delivery prototype plus a real-library research
@@ -52,24 +60,79 @@ Server acceptance does not mean recipient delivery or reading.
   commit `e8cc2dddd578859b4a029c9c94670b24ce2b616a`, and official iOS prebuild
   SHA-256. `native-api-probe.mjs` verifies source revision, clean Swift sources
   and archive hash, then compiles/links with one compiler worker in a temporary
-  directory. That compile/link passed for arm64 iOS Simulator with this Mac's
-  Xcode toolchain. **The Swift executable was not run; no simulator was booted.**
-  `NativeApiProbe.swift` is an executable test candidate, not runtime evidence.
-- No two-iPhone test, crash/persistence test, negotiated-suite assertion,
-  full-app build, interoperability test or independent cryptographic audit has
-  been completed. Agent review found retry races and added regression cases;
-  it is not a substitute for the planned security review.
+  directory. Compile/link **and execution** of `NativeApiProbe.swift` passed in
+  the arm64 iPhone 18 Pro simulator (iOS 27.0). Real Swift calls exchanged messages
+  and rejected replay, tampering and changed identities, including 40 subsequent
+  bidirectional rounds. This is simulator evidence, not a physical iPhone test.
+- `native-store-probe.mjs` compiles/runs only two small Swift files on macOS,
+  with one worker. **Six real SQLite groups passed**, independently rerun:
+  exact retries/conflicts/reopen, injected transaction rollback, durable
+  identity/account generations and logout cancellation, input bounds, SIGKILL
+  immediately before/after COMMIT, and simultaneous two-process writer exclusion
+  with bounded busy timeout and stale-revision rejection. WAL and synchronous
+  FULL are checked at runtime. SIGKILL proves process-crash recovery for these
+  cases, not host power-loss, disk failure or backup-rollback protection.
+- **Three combined real-provider/storage groups passed in the iOS simulator**:
+  prekey output survives database reopen and a reconstructed sender session
+  produces a decryptable successor; injected pre-commit rollback permits safe
+  discard/reprepare; two stale real provider preparations permit one commit and
+  the loser can reprepare from the new state. Both prekey and session wire types
+  were exercised. The simulator started for these tests was then shut down.
+- No two-iPhone test, negotiated-suite assertion, full-app build,
+  interoperability test or independent cryptographic audit has been completed.
+  Agent review found retry races and added regression cases; it is not a
+  substitute for the planned security review.
 
 Commands (use external dependency/source/archive paths, not the app's packages):
 
 ```sh
 node experiments/scuttlebutt-e2ee/host-proof.mjs /absolute/external/node_modules/@signalapp/libsignal-client/dist/index.js
 node experiments/scuttlebutt-e2ee/native-api-probe.mjs /absolute/pinned/libsignal /absolute/verified/libsignal-client-ios-build-v0.103.1.tar.gz
+node experiments/scuttlebutt-e2ee/native-store-probe.mjs
 ```
 
 The host script includes the exact external install command. The Swift probe is
 network-free, does not build Rust, and never starts a simulator. Supplying an
 already-booted simulator UDID explicitly opts into executing the probe there.
+
+## Native persistence experiment — not secure storage
+
+`AtomicOutboxStore.swift` uses plain SQLite with fresh synthetic state only.
+Do not put real account keys, real session state or user messages into this store.
+It is not linked into the app and is not a replacement for a reviewed encrypted
+database, Keychain key custody, iOS file protection or a backup policy.
+
+Its send transaction validates the durable account/device and peer-identity
+generations, compare-and-swaps the session revision, and inserts the exact output
+bytes together. Retrying an existing message never rewrites the ratchet state.
+Conflicting bytes/context reject. Logout, account/device changes and explicit
+identity acceptance cancel old pending output; an identity changing A → B → A
+cannot restore an old generation. Enumeration is bounded. These are local
+guards, not authenticated device membership or server authorization.
+
+`NativeProviderStoreProbe.swift` joins real libsignal sending-session callbacks
+to that transaction in a separate test executable. Loads deserialize fresh
+provider handles, writes stage serialized state, and dispatch bytes are returned
+only after a successful commit. The probe exercises prekey and session messages,
+database reopen with exact output retry, injected rollback/discard/reprepare, and
+two stale provider preparations where only one revision may commit. Its temporary
+SQLite files contain freshly generated **test** ratchet secrets, not user data;
+they remain outside the repository. Identities, prekeys and receiving state are
+still in memory, so this is not process-restart recovery of complete identities.
+
+Production work still includes:
+
+- A reviewed encrypted store/key lifecycle with protection for DB, WAL, SHM and
+  temporary files; locked-device policy, reinstall and backup/restore behaviour.
+  Plain SQLite and private-directory permissions do not establish key secrecy.
+- Atomic native server-acceptance/rejection receipt commits; receiving-session,
+  consumed-prekey, message and replay/dedup commits; authenticated account/trust
+  sources. The experiment does not implement these paths.
+- Bounded retention/pagination and secure deletion analysis. Old ratchet states
+  are not copied into outbox rows, but WAL/backup copies still require review.
+- Capturing and checking metadata inside the encrypted payload. This experiment's
+  one-byte wire tag and the app's proposed outer JSON are not authenticated by
+  framing alone and do not establish negotiated-suite support.
 
 ## Direction and unresolved provider gate
 
@@ -174,8 +237,23 @@ about supported payload sizes. It does not authorize attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: execute the isolated Swift probe when shared Mac resources permit; settle
-licensing/distribution and the native negotiated-suite boundary, then design the
-atomic secure store and two-device spike. Before any integration merge, update
+Next: obtain the owner's product/provider decision and licensing review before
+further provider integration. A vodozemac switch is not a library-name change:
+its Olm/Megolm protocol and Matrix device/key-management requirements need a
+fresh integration and threat-model review, and cannot retain the experimental
+`signal-triple-ratchet` label. Much of the exact-retry, ownership and atomic-store
+test strategy can transfer. The existing Signal probes remain research evidence
+about Signal only. Before any integration merge, update
 from current master and coordinate deployment with the other agent. Do not merge
 or deploy this branch as completed E2EE.
+
+Primary sources checked for the provider decision (not legal clearance):
+
+- [libsignal licence](https://github.com/signalapp/libsignal/blob/main/LICENSE)
+  and [GNU linking guidance](https://www.gnu.org/licenses/gpl-faq.html#LinkingWithGPL).
+- [vodozemac package licence](https://github.com/matrix-org/vodozemac/blob/main/Cargo.toml),
+  [protocols and audit reference](https://github.com/matrix-org/vodozemac), and
+  [Matrix Rust SDK / Swift binding direction](https://github.com/matrix-org/matrix-rust-sdk).
+- [Matrix security team's February 2026 analysis](https://matrix.org/blog/2026/02/analysis-of-reported-issues-in-vodozemac/)
+  highlights authenticated key-distribution assumptions. Its account of those
+  issues is not a new audit of our proposed non-Matrix/Supabase integration.

@@ -1,4 +1,4 @@
-/** Network-free serial iOS-simulator API/link probe; never modifies the app.
+/** Network-free serial iOS-simulator API/link and durable-send probes; never modifies the app.
  * node native-api-probe.mjs SOURCE PREBUILD_ARCHIVE [ALREADY_BOOTED_SIMULATOR_UDID]
  * No implicit downloads, simulator boots, pod install, or app key storage.
  */
@@ -12,7 +12,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const pin = JSON.parse(readFileSync(join(here, 'libsignal-pin.json'), 'utf8'));
 
 function run(command, args, options = {}) {
-    const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, ...options });
+    const result = spawnSync(command, args, {
+        encoding: 'utf8',
+        maxBuffer: 8 * 1024 * 1024,
+        timeout: 180_000,
+        ...options,
+    });
     if (result.error || result.status !== 0) {
         if (result.stderr) process.stderr.write(result.stderr);
         throw new Error(`${command} failed; no encryption capability is approved`);
@@ -103,25 +108,35 @@ async function main() {
         join(scratch, 'libLibSignalClient.dylib'),
         ...sources,
     ]);
-    run('xcrun', [
-        ...baseArgs,
-        '-parse-as-library',
-        '-I',
-        scratch,
-        '-L',
-        scratch,
-        '-lLibSignalClient',
-        '-Xlinker',
-        '-rpath',
-        '-Xlinker',
-        '@executable_path',
-        '-o',
-        join(scratch, 'NativeApiProbe'),
-        join(here, 'NativeApiProbe.swift'),
-    ]);
+    const probes = [
+        { name: 'NativeApiProbe', sources: ['NativeApiProbe.swift'] },
+        { name: 'NativeProviderStoreProbe', sources: ['AtomicOutboxStore.swift', 'NativeProviderStoreProbe.swift'] },
+    ];
+    for (const probe of probes) {
+        run('xcrun', [
+            ...baseArgs,
+            '-parse-as-library',
+            '-I',
+            scratch,
+            '-L',
+            scratch,
+            '-lLibSignalClient',
+            '-lsqlite3',
+            '-Xlinker',
+            '-rpath',
+            '-Xlinker',
+            '@executable_path',
+            '-o',
+            join(scratch, probe.name),
+            ...probe.sources.map((file) => join(here, file)),
+        ]);
+    }
     console.log('PASS Swift iOS-simulator API compilation and native linking');
-    if (simulator) console.log(run('xcrun', ['simctl', 'spawn', simulator, join(scratch, 'NativeApiProbe')]));
-    else console.log('NOT RUN: no booted simulator requested. Compilation does not prove message exchange.');
+    if (simulator) {
+        for (const probe of probes) {
+            console.log(run('xcrun', ['simctl', 'spawn', simulator, join(scratch, probe.name)]));
+        }
+    } else console.log('NOT RUN: no booted simulator requested. Compilation does not prove message exchange.');
 }
 main().catch((error) => {
     console.error(error.message);
