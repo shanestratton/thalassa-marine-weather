@@ -38,6 +38,11 @@ private func commit(_ store: VodozemacSealedStore, _ revision: Int64, _ state: P
 }
 
 private func runPhase(_ phase: String, runID: UUID, aliceID: UUID, bobID: UUID) throws {
+    if phase.hasPrefix("dm-") {
+        try ProbeProgress.write("dm-restart")
+        try runDmCoordinatorPhase(phase, runID: runID, aliceID: aliceID, bobID: bobID)
+        return
+    }
     let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     let root = documents.appendingPathComponent("e2ee-research-\(runID.uuidString)")
     try ProbeProgress.write("storage")
@@ -139,6 +144,10 @@ private func runPhase(_ phase: String, runID: UUID, aliceID: UUID, bobID: UUID) 
             try commit(bob, br, nextB)
             try ProbeProgress.write("storage-probes")
             try runSealedStoreProbe(root: root)
+            try ProbeProgress.write("dm-frame-probes")
+            try runDmFrameProbe()
+            try ProbeProgress.write("dm-coordinator-probes")
+            ProbeProgress.coordinatorAssertions = try runDmCoordinatorProbe(root: root)
         case "cleanup":
             try alice.destroyForTesting()
             try bob.destroyForTesting()
@@ -154,10 +163,12 @@ private func runPhase(_ phase: String, runID: UUID, aliceID: UUID, bobID: UUID) 
 // Sanitized lifecycle receipts distinguish launch failures from failed checks.
 // Never include keys, provider error descriptions, snapshots or message bytes.
 private enum ProbeProgress {
+    static var coordinatorAssertions: Int?
     static func arguments() throws -> (phase: String, run: UUID, alice: UUID, bob: UUID) {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--probe"), args.count == i + 5,
-              ["prepare", "receive", "reply", "verify", "replay", "cleanup"].contains(args[i + 1]),
+              ["prepare", "receive", "reply", "verify", "replay", "cleanup",
+               "dm-prepare", "dm-receive", "dm-reply", "dm-verify", "dm-replay", "dm-cleanup"].contains(args[i + 1]),
               let run = UUID(uuidString: args[i + 2]), let alice = UUID(uuidString: args[i + 3]),
               let bob = UUID(uuidString: args[i + 4]), alice != bob else { throw ProbeFailure.check }
         return (args[i + 1], run, alice, bob)
@@ -167,9 +178,10 @@ private enum ProbeProgress {
         let args = try arguments()
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let path = documents.appendingPathComponent("probe-status-\(args.run.uuidString.lowercased()).json")
-        let value: [String: Any] = ["phase": args.phase, "stage": stage, "status": status,
+        var value: [String: Any] = ["phase": args.phase, "stage": stage, "status": status,
                                      "runID": args.run.uuidString.lowercased(), "pid": ProcessInfo.processInfo.processIdentifier,
                                      "physicalDeviceProtectionVerified": false]
+        if let coordinatorAssertions { value["coordinatorAssertions"] = coordinatorAssertions }
         try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]).write(to: path, options: [.atomic])
     }
 }
@@ -218,6 +230,7 @@ private final class ProbeScene: UIResponder, UIWindowSceneDelegate {
                 // error codes, never provider/localized descriptions or inputs.
                 let failure: String
                 switch error {
+                case DmCoordinatorProbeError.assertion(let label): failure = "dm-check: " + label
                 case SealedProbeError.assertion(let label): failure = "storage-check: " + label
                 case ProbeFailure.assertion(let line): failure = "check-line-\(line)"
                 case let storeError as VodozemacSealedStoreError: failure = "store: \(storeError)"
