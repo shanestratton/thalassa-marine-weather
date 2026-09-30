@@ -3,16 +3,21 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ChartInstallError, chartBlobPath, publishChartDelivery, readChartIndex } from './encChartStore.js';
 import { chartBlobExtractorSchema } from './encLayerContract.js';
 import {
     assessRetainedOChartsSource,
+    chartStoreSupportsRefresh,
     installOChartsDelivery,
     listRetainedOChartsSources,
     readExtractorSchema,
+    reconvertFailuresPath,
     reconvertRetainedOChartsSources,
+    runOChartsExtractor,
     trailingExtractorSchema,
+    RECONVERT_MAX_ATTEMPTS,
     type OChartsExtractorRequest,
 } from './oChartsInstaller.js';
 import { acquireIdleConversionLease, getSourceReconvertStatus, startSourceReconvert } from './encSourceReconvert.js';
@@ -177,8 +182,8 @@ async function boat(t: TestContext) {
     const indexBytes = () => fs.readFile(path.join(chartStoreDir, 'index.json'), 'utf8');
     const warnings: string[] = [];
     const logger = { log: () => {}, warn: (message: string) => warnings.push(message) };
-    const reconvert = () =>
-        reconvertRetainedOChartsSources({ chartStoreDir, extractorDir, workRoot, runExtractor, logger });
+    const reconvert = (extra: Partial<Parameters<typeof reconvertRetainedOChartsSources>[0]> = {}) =>
+        reconvertRetainedOChartsSources({ chartStoreDir, extractorDir, workRoot, runExtractor, logger, ...extra });
 
     // Build the boat's state.
     schema = undefined;
@@ -189,6 +194,7 @@ async function boat(t: TestContext) {
     schema = 2;
     conversions = [];
     return {
+        root,
         chartStoreDir,
         extractorDir,
         workRoot,
@@ -354,11 +360,18 @@ test('the cheap trailing schema read agrees with the store’s own reading', () 
     assert.equal(trailingExtractorSchema(Buffer.from('{"cells":[{"extractorSchema":"2"}]}')), null);
 });
 
+// The lease polls on an unref'd timer (a waiting pass must never hold the
+// service open). In a test that timer can be the only thing left in the event
+// loop, and node:test then cancels the test ('Promise resolution is still
+// pending but the event loop has already resolved'): 3 of 3 combined runs on
+// the Pi, 2026-10-01. The tests poll on a ref'd timer instead.
+const refWait = (ms: number, signal?: AbortSignal) => delay(ms, undefined, { signal });
+
 test('the idle-only lease never takes a queue slot from an install', async () => {
     const governor = new PiWorkloadGovernor();
     const install = await governor.admit('conversion').lease;
     let acquired = false;
-    const pending = acquireIdleConversionLease(governor, 5).then((lease) => {
+    const pending = acquireIdleConversionLease({ governor, pollMs: 5, wait: refWait }).then((lease) => {
         acquired = true;
         return lease;
     });
@@ -369,6 +382,18 @@ test('the idle-only lease never takes a queue slot from an install', async () =>
     const lease = await pending;
     assert.equal(governor.snapshot('conversion').active, 1);
     lease.release();
+});
+
+test('waiting for the idle lease ends when the service stops', async () => {
+    const governor = new PiWorkloadGovernor();
+    const install = await governor.admit('conversion').lease;
+    const controller = new AbortController();
+    const pending = acquireIdleConversionLease({ governor, pollMs: 5, wait: refWait, signal: controller.signal });
+    await delay(20);
+    controller.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+    assert.equal(governor.snapshot('conversion').active, 1, 'only the install holds the lane');
+    install.release();
 });
 
 test('the startup pass waits for the watcher’s reconcile, holds a lease per source and reports its outcome', async (t) => {
@@ -411,3 +436,305 @@ test('the startup pass waits for the watcher’s reconcile, holds a lease per so
     assert.equal(held, 0);
     assert.equal(startSourceReconvert(), run, 'once per start');
 });
+
+test('an older chart store module without refresh support fails the pass closed before any conversion', async (t) => {
+    const b = await boat(t);
+    assert.equal(chartStoreSupportsRefresh(), true);
+    // A namespace import of an encChartStore.js from before refreshes: the
+    // marker is simply undefined (a named import would fail module linking).
+    const older = path.join(b.root, 'older-encChartStore.mjs');
+    await fs.writeFile(older, 'export async function publishChartDelivery() { return { cells: [] }; }\n');
+    const namespace = (await import(pathToFileURL(older).href)) as object;
+    assert.equal(chartStoreSupportsRefresh(namespace), false);
+    const index = await b.indexBytes();
+    const result = await b.reconvert({ supportsRefresh: () => chartStoreSupportsRefresh(namespace) });
+    assert.equal(result.code, 'reconvert-store-unsupported');
+    assert.deepEqual(result.outcomes, []);
+    assert.equal(b.conversions().length, 0, 'no converter time spent');
+    assert.equal(b.warnings.length, 1);
+    assert.match(b.warnings[0], /^\[encReconvert\] reconvert-store-unsupported/);
+    assert.equal(await b.indexBytes(), index);
+});
+
+test('a stop during the conversion publishes nothing, counts nothing and ends the pass', async (t) => {
+    const b = await boat(t);
+    const index = await b.indexBytes();
+    const controller = new AbortController();
+    const requests: OChartsExtractorRequest[] = [];
+    const result = await b.reconvert({
+        signal: controller.signal,
+        niceness: 10,
+        runExtractor: async (request) => {
+            requests.push(request);
+            controller.abort(); // the service is stopping; the converter is killed
+            throw new ChartInstallError('ocharts-conversion-stopped', 'Chart conversion was stopped.');
+        },
+    });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].signal, controller.signal, 'the converter is handed the stop signal');
+    assert.equal(requests[0].niceness, 10, 'and the lower priority');
+    assert.deepEqual(
+        result.outcomes.map((o) => [o.source, o.outcome]),
+        [[AU.slice(0, 12), 'stopped']],
+        'the next source is not started',
+    );
+    assert.equal(await b.indexBytes(), index);
+    await assert.rejects(fs.access(reconvertFailuresPath(b.chartStoreDir)), 'a stop is not a failure');
+    await assert.rejects(fs.access(path.join(b.chartStoreDir, '.index.lock')));
+    assert.deepEqual(await fs.readdir(b.workRoot), []);
+    assert.deepEqual(b.warnings, []);
+});
+
+test('a stop that arrives after the conversion still publishes nothing', async (t) => {
+    const b = await boat(t);
+    const index = await b.indexBytes();
+    const controller = new AbortController();
+    const result = await b.reconvert({
+        signal: controller.signal,
+        runExtractor: async (request) => {
+            await b.runExtractor(request);
+            controller.abort();
+        },
+    });
+    assert.deepEqual(
+        result.outcomes.map((o) => o.outcome),
+        ['stopped'],
+    );
+    assert.equal(await b.indexBytes(), index);
+    await assert.rejects(fs.access(reconvertFailuresPath(b.chartStoreDir)));
+});
+
+test('a publication already under way is never cut off; the pass stops after it', async (t) => {
+    const b = await boat(t);
+    const controller = new AbortController();
+    const result = await b.reconvert({
+        signal: controller.signal,
+        onProgress: (progress) => {
+            if (progress.step === 'Publishing re-converted charts') controller.abort();
+        },
+    });
+    assert.deepEqual(
+        result.outcomes.map((o) => [o.source, o.outcome]),
+        [
+            [AU.slice(0, 12), 'reconverted'],
+            [NC.slice(0, 12), 'stopped'],
+        ],
+    );
+    assert.equal(await b.schemaOf('AU530151'), 2);
+    assert.equal(await b.schemaOf('FR466870'), 1);
+    await assert.rejects(fs.access(path.join(b.chartStoreDir, '.index.lock')), 'the index lock was released');
+});
+
+test(`a source failing the same way on ${RECONVERT_MAX_ATTEMPTS} starts is held until the schema moves or its record is removed`, async (t) => {
+    const b = await boat(t);
+    b.setFail((request) => request.chartSet.directory.endsWith('oeuSENC-FRnc-b'));
+    const first = await b.reconvert();
+    assert.deepEqual(
+        first.outcomes.map((o) => [o.outcome, o.attempts]),
+        [
+            ['reconverted', undefined],
+            ['failed', 1],
+        ],
+    );
+    assert.match(b.warnings.at(-1)!, /the next start tries again\.$/);
+    const second = await b.reconvert();
+    assert.deepEqual(
+        second.outcomes.map((o) => [o.outcome, o.attempts]),
+        [
+            ['current', undefined],
+            ['failed', 2],
+        ],
+    );
+    assert.match(b.warnings.at(-1)!, /held from now on \(2 starts in a row\)/);
+    const record = JSON.parse(await fs.readFile(reconvertFailuresPath(b.chartStoreDir), 'utf8')) as {
+        sources: Record<string, { targetSchema: number; code: string; attempts: number }>;
+    };
+    assert.deepEqual(
+        Object.entries(record.sources).map(([name, r]) => [name.slice(0, 64), r.targetSchema, r.code, r.attempts]),
+        [[NC, 2, 'ocharts-conversion-failed', 2]],
+    );
+    // Third start: no converter time for it, one warning that says how to retry.
+    const converted = b.conversions().length;
+    b.warnings.length = 0;
+    const third = await b.reconvert();
+    assert.deepEqual(
+        third.outcomes.map((o) => [o.outcome, o.code]),
+        [
+            ['current', undefined],
+            ['held', 'ocharts-conversion-failed'],
+        ],
+    );
+    assert.equal(b.conversions().length, converted, 'the converter was not started');
+    assert.equal(b.warnings.length, 1);
+    assert.match(
+        b.warnings[0],
+        /^\[encReconvert\] reconvert-held bbbbbbbbbbbb: .*rm \S+\.reconvert-failures\.json and restart\.$/,
+    );
+    // Manual retry: remove the record. Still failing, so counted from one again.
+    await fs.rm(reconvertFailuresPath(b.chartStoreDir));
+    assert.deepEqual(
+        (await b.reconvert()).outcomes.map((o) => [o.outcome, o.attempts]),
+        [
+            ['current', undefined],
+            ['failed', 1],
+        ],
+    );
+    // A new converter schema retries whatever was held; success clears the record.
+    b.setFail(null);
+    await b.declare(3);
+    b.setSchema(3);
+    assert.deepEqual(
+        (await b.reconvert()).outcomes.map((o) => o.outcome),
+        ['reconverted', 'reconverted'],
+    );
+    await assert.rejects(fs.access(reconvertFailuresPath(b.chartStoreDir)), 'nothing left to record');
+});
+
+test('a conversion killed from outside is reported but never counted towards holding a source', async (t) => {
+    const b = await boat(t);
+    const interrupted = async () => {
+        throw new ChartInstallError('ocharts-conversion-interrupted', 'Chart conversion was interrupted.');
+    };
+    for (let start = 0; start <= RECONVERT_MAX_ATTEMPTS; start++) {
+        const result = await b.reconvert({ runExtractor: interrupted });
+        assert.deepEqual(
+            result.outcomes.map((o) => [o.outcome, o.code, o.attempts]),
+            [
+                ['failed', 'ocharts-conversion-interrupted', undefined],
+                ['failed', 'ocharts-conversion-interrupted', undefined],
+            ],
+        );
+    }
+    await assert.rejects(fs.access(reconvertFailuresPath(b.chartStoreDir)));
+});
+
+test('an unexpected error reaches the journal in full but the health status only as codes', async (t) => {
+    const b = await boat(t);
+    const where = path.join(b.chartStoreDir, 'sources', `${AU}-00000000-0000-0000-0000-000000000000`, 'x.oesu');
+    const result = await b.reconvert({
+        runExtractor: async () => {
+            throw Object.assign(new Error(`ENOENT: no such file or directory, open '${where}'`), { code: 'ENOENT' });
+        },
+    });
+    assert.equal(result.outcomes.length, 2);
+    for (const outcome of result.outcomes) {
+        assert.equal(outcome.code, 'reconvert-unexpected');
+        assert.equal(outcome.errno, 'ENOENT');
+        assert.equal(outcome.message, undefined);
+    }
+    assert.ok(!JSON.stringify(result.outcomes).includes(b.root), 'no path in the status');
+    assert.ok(b.warnings[0].includes(where), 'the journal keeps the whole error');
+});
+
+/**
+ * A stand-in converter run through the real runOChartsExtractor: a real child
+ * process in its own process group, entry point src/decryptBatch.ts loaded
+ * with `--import tsx` from the extractor directory (a no-op `tsx` here; the
+ * entry point is plain JavaScript that Node runs as TypeScript).
+ */
+async function fakeConverter(t: TestContext) {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'enc-fake-converter-'));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    await fs.mkdir(path.join(dir, 'node_modules', 'tsx'), { recursive: true });
+    await fs.writeFile(
+        path.join(dir, 'node_modules', 'tsx', 'package.json'),
+        JSON.stringify({ name: 'tsx', type: 'module', exports: './noop.mjs' }),
+    );
+    await fs.writeFile(path.join(dir, 'node_modules', 'tsx', 'noop.mjs'), '');
+    await fs.mkdir(path.join(dir, 'src'));
+    await fs.writeFile(
+        path.join(dir, 'src', 'decryptBatch.ts'),
+        [
+            "const { spawn } = require('node:child_process');",
+            "const fs = require('node:fs');",
+            "const os = require('node:os');",
+            "const path = require('node:path');",
+            'const arg = (name) => process.argv[process.argv.indexOf(name) + 1];',
+            "const mode = path.basename(arg('--charts'));",
+            "const report = arg('--report');",
+            "if (mode === 'nice') fs.writeFileSync(report + '.nice', String(os.getPriority()));",
+            "if (mode === 'self-kill') process.kill(process.pid, 'SIGTERM');",
+            "if (mode === 'hang') {",
+            "    const helper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });",
+            "    fs.writeFileSync(report + '.pid', String(helper.pid));",
+            '    setTimeout(() => {}, 60000);',
+            '}',
+            '',
+        ].join('\n'),
+    );
+    const request = (mode: string, extra: Partial<OChartsExtractorRequest> = {}): OChartsExtractorRequest => ({
+        chartSet: {
+            directory: path.join(dir, mode),
+            keyFile: path.join(dir, 'key.xml'),
+            cellIds: [],
+            sourceCellIds: {},
+        },
+        storeDir: path.join(dir, 'store'),
+        reportPath: path.join(dir, `${mode}-report.json`),
+        extractorDir: dir,
+        ...extra,
+    });
+    return { dir, request };
+}
+
+const typeStripping = Boolean((process.features as { typescript?: unknown }).typescript);
+
+test(
+    'the converter runs at the niceness it is given',
+    { skip: !typeStripping && 'needs Node type stripping' },
+    async (t) => {
+        const converter = await fakeConverter(t);
+        const request = converter.request('nice', { niceness: 10 });
+        await runOChartsExtractor(request);
+        const nice = Number(await fs.readFile(`${request.reportPath}.nice`, 'utf8'));
+        // Raising niceness needs no privilege; lowering it does (so never below ours).
+        assert.equal(nice, Math.max(10, os.getPriority()));
+    },
+);
+
+test(
+    'stopping the converter ends its whole process group, and says it was stopped',
+    { skip: !typeStripping && 'needs Node type stripping' },
+    async (t) => {
+        const converter = await fakeConverter(t);
+        const controller = new AbortController();
+        const request = converter.request('hang', { signal: controller.signal });
+        const running = runOChartsExtractor(request);
+        let helper = 0;
+        for (let i = 0; i < 200 && !helper; i++) {
+            await delay(25);
+            helper = Number(await fs.readFile(`${request.reportPath}.pid`, 'utf8').catch(() => '0'));
+        }
+        assert.ok(helper > 0, 'the converter started its helper');
+        const stoppedAt = Date.now();
+        controller.abort();
+        await assert.rejects(running, { code: 'ocharts-conversion-stopped' });
+        assert.ok(Date.now() - stoppedAt < 5_000, 'stopped promptly');
+        let alive = true;
+        for (let i = 0; i < 80 && alive; i++) {
+            try {
+                process.kill(helper, 0);
+                await delay(25);
+            } catch {
+                alive = false;
+            }
+        }
+        assert.equal(alive, false, 'the converter’s own child (oexserverd in real life) went with it');
+        // Already stopped: nothing is started at all.
+        await assert.rejects(runOChartsExtractor(converter.request('nice', { signal: controller.signal })), {
+            code: 'ocharts-conversion-stopped',
+        });
+        await assert.rejects(fs.access(`${converter.request('nice').reportPath}.nice`));
+    },
+);
+
+test(
+    'a converter killed from outside is "interrupted", not a timeout or a verdict on the charts',
+    { skip: !typeStripping && 'needs Node type stripping' },
+    async (t) => {
+        const converter = await fakeConverter(t);
+        await assert.rejects(runOChartsExtractor(converter.request('self-kill')), {
+            code: 'ocharts-conversion-interrupted',
+        });
+    },
+);

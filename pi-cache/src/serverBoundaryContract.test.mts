@@ -13,6 +13,7 @@ const resourceBoundarySource = readFileSync(new URL('./resourceBoundary.ts', imp
 const watcherSource = readFileSync(new URL('./encWatcher.ts', import.meta.url), 'utf8');
 const chartworldSource = readFileSync(new URL('./chartworldSync.ts', import.meta.url), 'utf8');
 const reconvertSource = readFileSync(new URL('./encSourceReconvert.ts', import.meta.url), 'utf8');
+const installerSource = readFileSync(new URL('./oChartsInstaller.ts', import.meta.url), 'utf8');
 
 test('server binds through the loopback-default policy and restricts CORS', () => {
     assert.match(source, /server\.listen\(PORT, BIND_HOST/);
@@ -200,6 +201,30 @@ test('all Pi chart conversion, installation, download and routing entry points s
     assert.match(reconvertSource, /governor\.admit\('conversion'\)/);
     assert.match(reconvertSource, /whenInitialReconcileSettled/);
     assert.ok(source.indexOf('startSourceReconvert()') > source.indexOf('startEncWatcher();'));
+});
+
+test('a service stop never cuts a chart re-conversion off inside a publication', () => {
+    // An exit inside publishChartDelivery leaves enc-charts/.index.lock behind,
+    // which the store never reclaims: every later chart write fails
+    // chart-store-busy until someone removes it by hand.
+    const shutdown = source.slice(source.indexOf('function shutdown()'));
+    assert.match(shutdown, /const reconvertStopped = stopSourceReconvert\(SOURCE_RECONVERT_STOP_WAIT_MS\)/);
+    assert.ok(shutdown.indexOf('reconvertStopped.finally') > 0);
+    assert.ok(shutdown.indexOf('reconvertStopped.finally') < shutdown.indexOf('process.exit(0)'));
+    const bound = Number(/const SOURCE_RECONVERT_STOP_WAIT_MS = ([\d_]+);/.exec(source)?.[1].replace(/_/g, ''));
+    assert.ok(bound > 0 && bound <= 60_000, 'well inside systemd’s 90 s TimeoutStopSec');
+});
+
+test('the re-conversion survives a partial Pi deploy instead of failing module linking', () => {
+    // Pi files are copied into /opt one by one. A named import of an export an
+    // older file lacks is a link error that takes the whole service down.
+    assert.doesNotMatch(reconvertSource, /import \{[^}]*\} from '\.\/(encWatcher|oChartsInstaller)\.js'/);
+    assert.match(reconvertSource, /import \* as watcher from '\.\/encWatcher\.js'/);
+    assert.match(reconvertSource, /import \* as installer from '\.\/oChartsInstaller\.js'/);
+    // The store's refresh marker is read through a namespace, never named.
+    assert.match(installerSource, /import \* as chartStore from '\.\/encChartStore\.js'/);
+    const named = /import \{([^}]*)\} from '\.\/encChartStore\.js'/.exec(installerSource)?.[1] ?? '';
+    assert.doesNotMatch(named, /CHART_REFRESH_SUPPORTED/);
 });
 
 test('downloads and ZIP extraction cross centralized streaming resource boundaries', () => {

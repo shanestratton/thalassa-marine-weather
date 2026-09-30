@@ -41,7 +41,7 @@ import { TELEMETRY_RELAY_PATH, TelemetryPublisher } from './telemetryPublisher.j
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
-import { startSourceReconvert } from './encSourceReconvert.js';
+import { startSourceReconvert, stopSourceReconvert } from './encSourceReconvert.js';
 import {
     canonicalAnchorRelayEndpoint,
     DiaryRelayOutbox,
@@ -890,17 +890,35 @@ plaintextSignpost.listen(PORT + 1, BIND_HOST, () => {
 
 // ── Graceful Shutdown ──
 
+/**
+ * How long a stop waits for the background chart re-conversion to leave a
+ * chart-store publication (~19 s measured on the boat for the AU set). Well
+ * inside systemd's 90 s stop timeout, after which everything is SIGKILLed.
+ */
+const SOURCE_RECONVERT_STOP_WAIT_MS = 60_000;
+
 function shutdown() {
     console.log('\n🛑 Shutting down...');
+    // First, so it stops converting at once; awaited before exit below. Exiting
+    // inside a publication would leave enc-charts/.index.lock behind, and the
+    // store never reclaims that lock by itself.
+    const reconvertStopped = stopSourceReconvert(SOURCE_RECONVERT_STOP_WAIT_MS).then((outcome) => {
+        if (outcome === 'timed-out')
+            console.warn(
+                `[encReconvert] still busy after ${SOURCE_RECONVERT_STOP_WAIT_MS / 1000} s; exiting anyway. If chart writes then fail chart-store-busy, check enc-charts/.index.lock.`,
+            );
+    });
     windHistory.stop();
     anchorWatch.close();
     stopScheduler();
     void stopEncWatcher();
     plaintextSignpost.close();
     server.close(() => {
-        diaryRelayOutbox.close();
-        cache.close();
-        process.exit(0);
+        void reconvertStopped.finally(() => {
+            diaryRelayOutbox.close();
+            cache.close();
+            process.exit(0);
+        });
     });
 }
 
