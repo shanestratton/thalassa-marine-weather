@@ -1,0 +1,153 @@
+# Isolated native Olm boundary
+
+Research only: not imported or registered by Thalassa, not an enabled private-message
+feature, and not independently reviewed. Uses unchanged vodozemac **0.11.0 Olm v1**
+with all optional provider features disabled. No custom third or post-quantum
+ratchet. Olm v1's 64-bit truncated MAC remains an explicit review trade-off.
+
+UniFFI **0.29.4** generates the typed Swift bridge. No handwritten unsafe FFI.
+`tooling` enables UniFFI's bindgen CLI on the host only; it is not needed by the
+iOS static library. There are no application/server dependencies in this crate.
+
+## Contract
+
+Every call is stateless and throwing. Encrypted upstream pickles go in; new
+encrypted upstream pickles come out only on success. No file, Keychain, network,
+directory, trust-on-first-use or durable mutation exists here.
+
+- `new_account`: generate one synthetic account and one public one-time key;
+  mark that key published before returning the encrypted account snapshot.
+- `start_session`: caller-authenticated peer identity and prekey establish Olm v1.
+- `encrypt`: return advanced encrypted session plus exact type-0/type-1 wire.
+- `open_session`: explicitly pinned sender identity is required; return consumed
+  account, new session, plaintext and session ID together.
+- `decrypt`: restore only Olm v1 and verify any prekey's outer session keys match
+  before upstream decryption; return advanced encrypted session plus plaintext.
+
+The native caller must authenticate and bind owner, peer identity and session ID
+to its snapshot, reject mismatches in the returned session ID, serialize access,
+and atomically commit account/session/replay/outbox state before reporting success.
+Retry delivery with persisted exact ciphertext, not a second encryption call.
+Pickle encryption alone is **not rollback protection** or a complete storage design.
+The returned Ed25519 key is public metadata, not evidence of authenticated device
+registration. This one-prekey API is deliberately not a production key lifecycle.
+
+## Bounds and memory
+
+Keys must be exactly 32 bytes. Public curve keys must be canonical 43-character
+unpadded base64. Plaintext is at most 64 KiB; wire at most 64 KiB + 1024 bytes;
+encrypted pickle at most 256 KiB (within the 1 MiB whole-snapshot budget).
+The native caller should reject oversized inbound
+data before crossing UniFFI, whose argument conversion can allocate before these
+Rust checks. Generic errors contain no raw provider details or caller inputs.
+
+Owned Rust key inputs and intermediate plaintext use `Zeroizing`. This does not
+erase every copy: generated FFI, Swift, upstream serialization and returned
+plaintext allocations remain outside this guarantee. No complete-memory-zero or
+secure-enclave claim is made.
+
+## Verification boundary
+
+`tests/native_boundary.rs` uses real generated provider accounts for round trips,
+restores, tamper/replay rejection, out-of-order messages, pinned identity, one-time
+key consumption, prekey-header matching and bounds. These are host boundary tests,
+not actual two-phone, crash-durability, server-authentication or independent-audit
+evidence. The native harness must separately prove its atomic storage contract.
+
+Root coordinator runs builds serially on the shared 8 GB Mac and uses a temporary
+target/cache outside the primary app. Do not add this library to the shipping
+Xcode project or claim that compiling its iOS target proves phone execution.
+
+## Reproduce the native research harness
+
+Run the sibling `vodozemac-native-proof.mjs` on an Apple Silicon Mac with Xcode.
+Supply absolute paths to the isolated Cargo executable, its populated
+`CARGO_HOME`, and an existing temporary scratch directory. Set the matching
+isolated `RUSTUP_HOME`; the toolchain/cache must already contain the pinned crates
+and both `aarch64-apple-ios-sim` and `aarch64-apple-ios` targets. The runner does
+not download dependencies or boot a simulator.
+
+```sh
+export RUSTUP_HOME=/absolute/isolated-research/rustup
+researchScratch="$(mktemp -d /private/tmp/thalassa-native-proof.XXXXXX)"
+node /absolute/e2ee-worktree/experiments/scuttlebutt-e2ee/vodozemac-native-proof.mjs \
+  /absolute/isolated-research/cargo/bin/cargo \
+  /absolute/isolated-research/cargo \
+  "$researchScratch"
+```
+
+Replace the example paths. To execute the synthetic test, append the UDID of an
+explicitly selected, already booted iPhone simulator. Omitting that argument is
+compile-only: it cannot establish Keychain or process-restart behaviour.
+
+The runner checks manifest/lockfile hashes against `vodozemac-native-pin.json`
+and the provider archive/source against `vodozemac-pin.json`; it uses locked,
+offline Cargo commands, one worker and the agreed shared-Mac build-slot guard.
+It builds the host tests/generator, generates Swift bindings, then compiles and
+links simulator and unsigned physical-iPhone targets serially. All output stays
+outside the primary Thalassa app; no Capacitor sync or app integration occurs.
+
+The optional simulator run installs a randomly named research app and launches
+six separate process phases: `prepare`, `receive`, `reply`, `verify`, `replay`,
+and `cleanup`. Phase receipts must match the run ID, phase and launched PID.
+The final replay attempt reopens the receiver's committed state in another
+process and then verifies those sessions can still exchange a new message.
+A successful run cleans up its synthetic stores, Keychain items and app;
+an unsuccessful run may retain the exact research app and preserves a nonsecret
+cleanup receipt for investigation. Launches have a bounded 180-second deadline; a timeout or
+missing observation is **incomplete**, not an app assertion failure. The app can
+finish after the launcher times out. Reconcile its sanitized run/phase/PID receipt
+and saved completed phases before continuing or cleaning up; never blindly replay
+`prepare`. This document does not assert that a simulator run has passed.
+
+## Swift storage proof and limits
+
+The sibling `VodozemacSealedStore.swift` is a research caller, not part of this
+Rust library. It stores a 32-byte master key in the research app's Keychain with
+`WhenUnlockedThisDeviceOnly`, no synchronisation and no interactive fallback.
+CryptoKit AES-GCM seals the complete opaque snapshot; a separate HKDF-derived
+key encrypts provider pickles. SQLite compare-and-swap transactions persist only
+the sealed snapshot, binding its store ID and revision. Failed rollback poisons
+and closes that store instance rather than exposing uncertain pending state.
+
+The probes cover synthetic round trips, persisted ciphertext/replay state,
+tamper and stale-writer rejection, missing/wrong keys, weaker Keychain policy
+rejection, and injected commit/rollback faults. Process relaunches and injected
+faults are **not** sudden-power-loss, actual SQLite I/O-failure, locked-phone,
+two-physical-device or whole-database rollback evidence. Provider key generation
+and transport/device authentication are not a production lifecycle here. There
+is no backend, user traffic or independently reviewed shipping integration.
+
+The simulator may omit `FileAttributeKey.protectionKey`, so absent simulator
+metadata is reported as **not verified**, not evidence of hardware protection.
+If supplied, a different policy fails the assertion. Physical iOS builds require
+the reported policy to be `complete`; actual lock/reboot tests are still needed.
+Every run receipt explicitly records `physicalDeviceProtectionVerified: false`.
+Keychain errors and weaker Keychain policies remain hard failures on simulator
+as well as device; there is no in-memory or file-key fallback.
+
+The disposable app uses scene-based UIKit lifecycle and the normal simulator
+entitlement sections, not iOS entitlements in the host macOS signature. See
+[Apple's build-system separation of simulated and signed entitlements](https://github.com/swiftlang/swift-build/blob/main/Sources/SWBTaskExecution/TaskActions/ProcessProductEntitlementsTaskAction.swift)
+and [Apple's file-protection attribute contract](https://developer.apple.com/documentation/foundation/fileattributekey/protectionkey).
+
+## Dependency licence inventory
+
+Offline Cargo metadata for the pinned lock resolves 102 packages for the runtime
+configuration and 131 with host `tooling`, including this local crate. These are
+metadata/all-target resolution sets, not a shipped-binary SBOM.
+
+- vodozemac 0.11.0 declares **Apache-2.0**.
+- UniFFI 0.29.4 runtime/scaffolding crates declare **MPL-2.0**; the optional host
+  `uniffi_bindgen` and `uniffi_udl` tooling also declares MPL-2.0.
+- No third-party package has missing licence metadata, an AGPL declaration or a
+  GPL-only declaration. `r-efi` offers `MIT OR Apache-2.0 OR LGPL-2.1-or-later`;
+  it is not LGPL-only. This unpublished local research crate has no licence field.
+
+This is a metadata inventory, **not legal clearance**. The complete bridge must
+not be described as wholly Apache-licensed. Mozilla's [MPL FAQ](https://www.mozilla.org/en-US/MPL/2.0/FAQ/)
+describes file-level obligations, including source availability for covered code
+distributed in binaries. The generated Swift/header output contains UniFFI
+template code; no generated-output licence exception was established in this
+review. Before any release, confirm the generated-code treatment and applicable
+source/notice obligations against the pinned licences with qualified counsel.

@@ -1,0 +1,10 @@
+{
+    "provider": "vodozemac",
+    "version": "0.11.0",
+    "uniffiVersion": "0.29.4",
+    "manifestSha256": "8cef57a4b945989302db94361bb03df46157e9c305862232dd9d59379ed610d9",
+    "lockfileSha256": "5788c45d3bd629c4640f88c5b533484c89d39029674a02bce0301597e6fe50f7",
+    "protocol": "olm-v1",
+    "iosMinimum": "17.0",
+    "shippingApproved": false
+}
