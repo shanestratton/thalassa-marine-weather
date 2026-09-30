@@ -41,6 +41,7 @@ import { TELEMETRY_RELAY_PATH, TelemetryPublisher } from './telemetryPublisher.j
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
+import { startSourceReconvert } from './encSourceReconvert.js';
 import {
     canonicalAnchorRelayEndpoint,
     DiaryRelayOutbox,
@@ -856,6 +857,12 @@ server.listen(PORT, BIND_HOST, () => {
     if (process.env.ENC_WATCHER_ENABLED === 'true') {
         startEncWatcher();
     }
+
+    // Charts installed through the app keep their source under
+    // enc-charts/sources/; when the extractor's output schema moves, convert
+    // those again too (after the watcher's own startup reconcile, one source
+    // at a time on the conversion lane). Detached: never delays startup.
+    void startSourceReconvert();
 });
 
 // ── Plaintext port: a signpost, never a data path ──────────────────

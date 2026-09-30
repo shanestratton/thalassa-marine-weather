@@ -362,3 +362,114 @@ test('same revision from a newer converter schema replaces the older conversion,
         code: 'chart-revision-conflict',
     });
 });
+
+// A REFRESH (refreshPackageId) re-publishes an installed package after its
+// retained source was converted again (oChartsInstaller reconvert). It may
+// only replace what that package still owns. The real case, 2026-10-01: the
+// AU 1-34 source also holds 839 cells the ~/Charts base set supplies at the
+// same revision (converted again at the same schema, different bytes) and
+// the skipper can have removed or superseded others.
+test('a refresh replaces only cells its package owns, never another package’s or a removed cell', async (t) => {
+    const f = await fixture(t);
+    const P = 'a'.repeat(64);
+    const Q = 'b'.repeat(64);
+    const at = async (cellId: string, edition: number, schema: number | undefined, marker: string, pkg?: string) => {
+        const c = await f.cell(cellId, edition, 0);
+        const cell: Record<string, unknown> = { cellId, edition, updateNumber: 0, marker };
+        if (schema !== undefined) cell.extractorSchema = schema;
+        await rewriteCandidate(c, { cells: [cell] });
+        if (pkg) c.meta.packageId = pkg;
+        return c;
+    };
+    // P installed three cells at schema 1; Q later supplied a newer edition
+    // of one; the skipper removed another.
+    await publishChartDelivery(f.storeDir, [
+        await at('AU530150', 2, undefined, 'p-old', P),
+        await at('AU530151', 2, undefined, 'p-old', P),
+        await at('AU530152', 2, undefined, 'p-old', P),
+    ]);
+    await publishChartDelivery(f.storeDir, [await at('AU530152', 3, 2, 'q', Q)]);
+    assert.equal(await removeChartCell(f.storeDir, 'AU530151'), true);
+    const q = (await readChartIndex(f.storeDir)).cells.find((c) => c.cellId === 'AU530152')!;
+
+    const refresh = [
+        await at('AU530150', 2, 2, 'p-new', P),
+        await at('AU530151', 2, 2, 'p-new', P),
+        await at('AU530152', 2, 2, 'p-new', P),
+    ];
+    // As an ordinary delivery the older AU530152 is a downgrade: all refused.
+    await assert.rejects(publishChartDelivery(f.storeDir, refresh), { code: 'chart-downgrade' });
+    const result = await publishChartDelivery(f.storeDir, refresh, { refreshPackageId: P });
+    assert.deepEqual(result.packageSummary, { new: 0, updated: 1, unchanged: 2, total: 3 });
+    assert.deepEqual(result.changedCellIds, ['AU530150']);
+    assert.deepEqual(result.retainedCellIds, ['AU530151', 'AU530152']);
+    const after = await readChartIndex(f.storeDir);
+    assert.deepEqual(after.cells.map((c) => c.cellId).sort(), ['AU530150', 'AU530152']);
+    const upgraded = after.cells.find((c) => c.cellId === 'AU530150')!;
+    assert.equal(upgraded.packageId, P);
+    assert.match(await fs.readFile(chartBlobPath(f.storeDir, upgraded), 'utf8'), /p-new/);
+    assert.deepEqual(
+        after.cells.find((c) => c.cellId === 'AU530152'),
+        q,
+        'the newer edition from another package is never downgraded',
+    );
+
+    // Every candidate must belong to the package being refreshed.
+    await assert.rejects(
+        publishChartDelivery(f.storeDir, [await at('AU530150', 2, 2, 'stray', Q)], { refreshPackageId: P }),
+        { code: 'invalid-chart-refresh' },
+    );
+    await assert.rejects(publishChartDelivery(f.storeDir, refresh, { refreshPackageId: 'not-a-hash' }), {
+        code: 'invalid-chart-refresh',
+    });
+});
+
+test('same revision, same schema, different bytes from another package: a refresh keeps the installed blob, a delivery still fails closed', async (t) => {
+    const f = await fixture(t);
+    const P = 'c'.repeat(64);
+    const at = async (marker: string, pkg?: string) => {
+        const c = await f.cell('AU530150', 2, 0);
+        await rewriteCandidate(c, {
+            cells: [{ cellId: 'AU530150', edition: 2, updateNumber: 0, marker, extractorSchema: 2 }],
+        });
+        if (pkg) c.meta.packageId = pkg;
+        return c;
+    };
+    // The ~/Charts watcher's base-set conversion (no packageId) is installed.
+    await publishChartDelivery(f.storeDir, [await at('base-set')]);
+    const before = await fs.readFile(path.join(f.storeDir, 'index.json'), 'utf8');
+    const candidate = await at('app-installed-set', P);
+    await assert.rejects(publishChartDelivery(f.storeDir, [candidate]), { code: 'chart-revision-conflict' });
+    const result = await publishChartDelivery(f.storeDir, [candidate], { refreshPackageId: P });
+    assert.deepEqual(result.packageSummary, { new: 0, updated: 0, unchanged: 1, total: 1 });
+    assert.deepEqual(result.retainedCellIds, ['AU530150']);
+    assert.equal(await fs.readFile(path.join(f.storeDir, 'index.json'), 'utf8'), before);
+});
+
+test('a refresh of owned cells keeps every ordinary same-revision rule', async (t) => {
+    const f = await fixture(t);
+    const P = 'd'.repeat(64);
+    const at = async (schema: number | undefined, marker: string) => {
+        const c = await f.cell('FR466870', 2, 0);
+        const cell: Record<string, unknown> = { cellId: 'FR466870', edition: 2, updateNumber: 0, marker };
+        if (schema !== undefined) cell.extractorSchema = schema;
+        await rewriteCandidate(c, { cells: [cell] });
+        c.meta.packageId = P;
+        return c;
+    };
+    await publishChartDelivery(f.storeDir, [await at(undefined, 'schema-1')]);
+    const upgraded = await publishChartDelivery(f.storeDir, [await at(2, 'schema-2')], { refreshPackageId: P });
+    assert.deepEqual(upgraded.changedCellIds, ['FR466870']);
+    const selected = (await readChartIndex(f.storeDir)).cells[0];
+    assert.equal(selected.packageId, P);
+    assert.match(await fs.readFile(chartBlobPath(f.storeDir, selected), 'utf8'), /schema-2/);
+    // Its own cell at the same schema with different bytes is still a conflict.
+    await assert.rejects(publishChartDelivery(f.storeDir, [await at(2, 'drifted')], { refreshPackageId: P }), {
+        code: 'chart-revision-conflict',
+    });
+    // An older schema never replaces a newer one.
+    const older = await publishChartDelivery(f.storeDir, [await at(undefined, 'schema-1-again')], {
+        refreshPackageId: P,
+    });
+    assert.deepEqual(older.changedCellIds, []);
+});

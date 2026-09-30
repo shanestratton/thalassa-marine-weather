@@ -67,6 +67,7 @@ import {
     type PackageSummary,
 } from '../encChartStore.js';
 import { installOChartsDelivery, verifyArchiveSha256 } from '../oChartsInstaller.js';
+import { getSourceReconvertStatus } from '../encSourceReconvert.js';
 import { listEncJobReceipts, restoredEncJobReceipt, saveEncJobReceipt, type EncJobReceipt } from '../encJobJournal.js';
 import { pollChartworldOnce } from '../chartworldSync.js';
 import { generateFingerprint, s63Status, savePermits } from '../s63Setup.js';
@@ -1908,7 +1909,8 @@ export function createEncRoutes(
         }
     });
 
-    /** GET /api/enc/health — quick sanity check for whether GDAL is installed. */
+    /** GET /api/enc/health — quick sanity check for whether GDAL is installed, plus the
+     * state of the background re-conversion of installed chart sources. */
     router.get('/health', async (_req: Request, res: Response) => {
         try {
             const version = await new Promise<string>((resolve, reject) => {
@@ -1920,12 +1922,13 @@ export function createEncRoutes(
                 proc.on('error', reject);
                 proc.on('close', (code) => (code === 0 ? resolve(buf.trim()) : reject(new Error(`exit ${code}`))));
             });
-            return res.json({ ok: true, gdal: version });
+            return res.json({ ok: true, gdal: version, sourceReconvert: getSourceReconvertStatus() });
         } catch (err) {
             return res.status(500).json({
                 ok: false,
                 error: 'GDAL/ogr2ogr not installed. Run: sudo apt install gdal-bin',
                 detail: err instanceof Error ? err.message : String(err),
+                sourceReconvert: getSourceReconvertStatus(),
             });
         }
     });

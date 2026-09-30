@@ -48,13 +48,19 @@ test('watcher reconciles startup, rewritten charts and key-only updates without 
         await rm(directory, { recursive: true, force: true });
     });
     watcher.startEncWatcher();
+    let reconciled = false;
+    void watcher.whenInitialReconcileSettled().then(() => {
+        reconciled = true;
+    });
     assert.equal(options?.ignoreInitial, false);
     fakeWatcher.emit('add', join(directory, 'set', 'AU530150.oesu'));
     await delay(20);
     assert.equal(calls.length, 0, 'initial files are coalesced until the initial scan completes');
+    assert.equal(reconciled, false);
     fakeWatcher.emit('ready');
     await delay(30);
     assert.equal(calls.length, 1);
+    assert.equal(reconciled, true, 'the startup reconcile is over once its drain finishes');
     assert.ok(!calls[0].includes('--source-ho'));
     assert.ok(calls[0].includes('--skip-existing'));
     fakeWatcher.emit('change', join(directory, 'set', 'AU530150.oesu'));
