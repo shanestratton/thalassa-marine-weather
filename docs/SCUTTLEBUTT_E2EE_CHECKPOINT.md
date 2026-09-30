@@ -1,24 +1,75 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Date: 28 September 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 30 September 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
 ## What exists today
 
-This is a transport-format prototype and implementation plan, **not functioning
-E2EE**. Nothing is wired into live chat. No dependency, native plugin, database,
-UI badge, production deployment or message deletion is included.
+This is an isolated framing/delivery prototype plus a real-library research
+spike, **not functioning E2EE in Thalassa**. Nothing is wired into live chat.
+No app dependency, native plugin, database change, UI badge, production deployment
+or message deletion is included. Research dependencies and build artifacts stay
+outside the repository; no third-party library binaries are committed.
 
 `services/chat/e2ee/directMessageEnvelope.ts` proposes bounded, versioned,
 per-device framing for opaque provider bytes. It rejects legacy text, unknown
 protocols and extra fields (including plaintext previews and keys). Its tests
 prove framing behaviour only. Anyone can base64-encode plaintext and put it in
 the ciphertext field: passing validation proves neither encryption nor sender
-authenticity. Do not use this validator to display a security badge.
+authenticity. Do not use this validator to display a security badge. A required
+`prekey`/`session` message discriminator selects the provider's decrypt API;
+libsignal serialization alone does not provide that dispatch value. Like other
+outer fields, the discriminator is not independently authenticated by framing.
 
-Checkpoint validation: 33 focused framing tests passed; isolated strict TypeScript
-checking of the module and tests passed. A read-only review caught and corrected
-the maximum-size round-trip boundary. No full app build, real-device exchange or
-cryptographic security audit was performed for this checkpoint.
+`services/chat/e2ee/encryptedDmDelivery.ts` models exact-ciphertext retries,
+owner/device isolation, identity changes, timeouts and terminal refusals. It does
+not encrypt or persist anything. Native atomic ratchet/outbox commits and server
+authorization/idempotency are explicit external contracts, not implemented
+guarantees. Delivery tests use mocked adapters; they cannot prove those contracts.
+
+Owner/device and peer-trust generations are captured when preparing an outbox
+record, never rewritten at retry. Restart may resume the same durable generation;
+logout/relogin, revocation or changed device ownership cannot revive old pending
+ciphertext. Authenticated terminal refusals cancel only the exact stored record.
+Server acceptance does not mean recipient delivery or reading.
+
+## Reproducible research evidence
+
+- **136 focused tests passed**: 37 framing tests and 99 mocked delivery tests,
+  with one worker and no app setup. Isolated strict TypeScript checking passed.
+  Run only these files while other agents are building; no full app suite is
+  needed for this unwired checkpoint.
+- `experiments/scuttlebutt-e2ee/host-proof.mjs` executed eight real native-library
+  check groups: synthetic-peer round trips, prekey/session replay rejection,
+  tamper rejection without changing committed receiving state, out-of-order
+  delivery, changed identity rejection and subsequent bidirectional exchanges.
+  It passed on this Apple Silicon Mac with Node 24 and Node 26.5. Its stores are
+  in-memory test stores, not production secure storage.
+- The host proof uses **npm 0.103.0**, gitHead
+  `ba133bd3457f556fbf56db0a5ab985de0af79da6`, with the Darwin arm64 native hash
+  checked before import. The script records the registry tarball integrity.
+  npm 0.103.1 was unavailable when checked; do not describe these as 0.103.1 tests.
+- `libsignal-pin.json` separately pins the **0.103.1 Swift candidate**, source
+  commit `e8cc2dddd578859b4a029c9c94670b24ce2b616a`, and official iOS prebuild
+  SHA-256. `native-api-probe.mjs` verifies source revision, clean Swift sources
+  and archive hash, then compiles/links with one compiler worker in a temporary
+  directory. That compile/link passed for arm64 iOS Simulator with this Mac's
+  Xcode toolchain. **The Swift executable was not run; no simulator was booted.**
+  `NativeApiProbe.swift` is an executable test candidate, not runtime evidence.
+- No two-iPhone test, crash/persistence test, negotiated-suite assertion,
+  full-app build, interoperability test or independent cryptographic audit has
+  been completed. Agent review found retry races and added regression cases;
+  it is not a substitute for the planned security review.
+
+Commands (use external dependency/source/archive paths, not the app's packages):
+
+```sh
+node experiments/scuttlebutt-e2ee/host-proof.mjs /absolute/external/node_modules/@signalapp/libsignal-client/dist/index.js
+node experiments/scuttlebutt-e2ee/native-api-probe.mjs /absolute/pinned/libsignal /absolute/verified/libsignal-client-ios-build-v0.103.1.tar.gz
+```
+
+The host script includes the exact external install command. The Swift probe is
+network-free, does not build Rust, and never starts a simulator. Supplying an
+already-booted simulator UDID explicitly opts into executing the probe there.
 
 ## Direction and unresolved provider gate
 
@@ -33,13 +84,19 @@ not implement the ratchets or select replacement primitives ourselves.
 Candidate: [libsignal](https://github.com/signalapp/libsignal), whose Rust core
 has Swift, Java and TypeScript wrappers. Its repository lists AGPL-3.0 and says
 external use is unsupported. Its npm distribution uses native Node libraries,
-not a drop-in browser/WebView implementation. **Do not add it yet.** First:
+not a drop-in browser/WebView implementation. **Do not add it to the app yet.**
+Temporary, isolated research does not resolve these adoption gates:
 
 1. Resolve licensing/distribution suitability before adoption; this document is
    not a legal conclusion or permission to change Thalassa's licensing.
-2. Pin and inspect a release; prove its Swift API actually exposes the required
-   Triple Ratchet negotiation and message processing on our supported iPhones.
-   A protocol document or npm package name does not prove adapter capability.
+2. Prove the pinned Swift API's required Triple Ratchet negotiation and message
+   processing on supported iPhones. Reviewed source initializes fresh sessions
+   with SPQR V1 minimum V1, but Swift's `hasCurrentState` is not a negotiated-suite
+   getter: it can accept an unacknowledged outgoing session. Do not infer a green
+   security badge from it or from message version 4. A reviewed native capability
+   boundary and executable negotiation tests are still needed. The upstream
+   Swift README recommends CocoaPods for consumers; SwiftPM consumer support is
+   not an established integration path.
 3. Decide browser support through a maintained, reviewed implementation. Never
    move private-key operations to a server to make the website work. Unsupported
    clients must not fall back to plaintext or silently downgrade the protocol.
@@ -117,5 +174,8 @@ about supported payload sizes. It does not authorize attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next session: resolve the provider/license/platform gate and build the smallest
-native two-device spike. Do not merge or deploy this branch as completed E2EE.
+Next: execute the isolated Swift probe when shared Mac resources permit; settle
+licensing/distribution and the native negotiated-suite boundary, then design the
+atomic secure store and two-device spike. Before any integration merge, update
+from current master and coordinate deployment with the other agent. Do not merge
+or deploy this branch as completed E2EE.
