@@ -12,12 +12,22 @@ const MAX_BASE64_CHARS = 4 * Math.ceil(MAX_DM_CIPHERTEXT_BYTES / 3);
 export const MAX_DM_ENVELOPE_CHARS = MAX_BASE64_CHARS + 3 * 128 + 1024;
 const DEVICE_OR_MESSAGE_ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
-const FIELDS = ['version', 'protocol', 'clientMessageId', 'senderDeviceId', 'recipientDeviceId', 'ciphertext'];
+const FIELDS = [
+    'version',
+    'protocol',
+    'messageType',
+    'clientMessageId',
+    'senderDeviceId',
+    'recipientDeviceId',
+    'ciphertext',
+];
 
 /** Thalassa framing proposal, not Signal's own wire format. No key material. */
 export interface DirectMessageEnvelope {
     readonly version: 1;
     readonly protocol: typeof DM_ENVELOPE_PROTOCOL;
+    /** Selects the provider's authenticated decoder. Never accepts plaintext/group payload types. */
+    readonly messageType: 'prekey' | 'session';
     /** Stable across retries of this logical message; server uniqueness is per recipient device. */
     readonly clientMessageId: string;
     readonly senderDeviceId: string;
@@ -48,6 +58,7 @@ function validate(value: unknown): DirectMessageEnvelope {
     if (
         frame.version !== 1 ||
         frame.protocol !== DM_ENVELOPE_PROTOCOL ||
+        (frame.messageType !== 'prekey' && frame.messageType !== 'session') ||
         !isIdentifier(frame.clientMessageId) ||
         !isIdentifier(frame.senderDeviceId) ||
         !isIdentifier(frame.recipientDeviceId) ||
@@ -66,6 +77,7 @@ function validate(value: unknown): DirectMessageEnvelope {
     return {
         version: 1,
         protocol: DM_ENVELOPE_PROTOCOL,
+        messageType: frame.messageType,
         clientMessageId: frame.clientMessageId,
         senderDeviceId: frame.senderDeviceId,
         recipientDeviceId: frame.recipientDeviceId,
