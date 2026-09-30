@@ -22,6 +22,14 @@ const frame: DirectMessageEnvelope = {
 };
 
 describe('experimental encrypted DM transport framing (not cryptography)', () => {
+    it('matches the native Swift framing golden fixture and wire ceiling', () => {
+        // Same noncryptographic fixture as runDmFrameProbe: escaping/order and
+        // padding must not diverge across the TypeScript/native boundary.
+        const native =
+            '{"version":2,"protocol":"olm-v1","messageType":"prekey","clientMessageId":"msg.1:retry-0","senderDeviceId":"alice_1","recipientDeviceId":"bob-1","ciphertext":"++//AQ=="}';
+        expect(encodeDirectMessageEnvelope(decodeDirectMessageEnvelope(native))).toBe(native);
+        expect(MAX_DM_CIPHERTEXT_BYTES).toBe(65 * 1024);
+    });
     it('round trips opaque provider bytes and preserves retry identity', () => {
         expect(decodeDirectMessageEnvelope(encodeDirectMessageEnvelope(frame))).toEqual(frame);
         expect(encodeDirectMessageEnvelope(frame)).toBe(encodeDirectMessageEnvelope({ ...frame }));

@@ -193,9 +193,16 @@ writeFileSync(
 run('xcrun', ['derq', 'query', '-f', 'xml', '-i', entitlements, '-o', derEntitlements, '--raw']);
 const sources = [
     join(bindings, swiftBindings[0]),
-    ...['VodozemacSealedStore.swift', 'VodozemacSealedStoreProbe.swift', 'VodozemacNativeProbe.swift'].map((name) =>
-        join(here, name),
-    ),
+    ...[
+        'VodozemacSealedStore.swift',
+        'VodozemacSealedStoreProbe.swift',
+        'VodozemacDmFrame.swift',
+        'VodozemacDmFrameProbe.swift',
+        'VodozemacDmCoordinator.swift',
+        'VodozemacDmCoordinatorProbe.swift',
+        'VodozemacDmRestartProbe.swift',
+        'VodozemacNativeProbe.swift',
+    ].map((name) => join(here, name)),
 ];
 for (const [sdkName, target, rustTarget, output] of [
     ['iphonesimulator', 'arm64-apple-ios17.0-simulator', 'aarch64-apple-ios-sim', join(app, 'NativeResearch')],
@@ -291,7 +298,20 @@ if (simulator) {
         assert(isAbsolute(container), 'Expected the exact installed research app container');
         const statusPath = join(container, 'Documents', `probe-status-${ids[0]}.json`);
         receipt.container = container;
-        for (const phase of ['prepare', 'receive', 'reply', 'verify', 'replay', 'cleanup']) {
+        for (const phase of [
+            'prepare',
+            'receive',
+            'reply',
+            'verify',
+            'replay',
+            'cleanup',
+            'dm-prepare',
+            'dm-receive',
+            'dm-reply',
+            'dm-verify',
+            'dm-replay',
+            'dm-cleanup',
+        ]) {
             receipt.phase = phase;
             receipt.observation = 'launch-outcome-unknown';
             delete receipt.pid;
@@ -335,6 +355,14 @@ if (simulator) {
                 `Native ${phase} did not pass; last stage: ${lastStage ?? 'no app receipt'}`,
             );
             receipt.completedPhases.push({ phase, pid });
+            if (phase === 'replay') {
+                assert(
+                    Number.isSafeInteger(status.coordinatorAssertions) && status.coordinatorAssertions > 0,
+                    'Missing native coordinator assertion count',
+                );
+                receipt.coordinatorAssertions = status.coordinatorAssertions;
+                console.log(`PASS native DM coordinator: ${status.coordinatorAssertions} assertions`);
+            }
             receipt.observation = 'app-reported-pass';
             saveReceipt();
             console.log(`PASS native research phase: ${phase}`);

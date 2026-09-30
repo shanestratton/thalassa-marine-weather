@@ -34,8 +34,8 @@ a substitute for those checks or a way around a bundled dependency's licence.
 
 ## What exists today
 
-This is an isolated framing/delivery prototype plus real-library research
-spikes, **not functioning E2EE in Thalassa**. Nothing is wired into live chat.
+This is an isolated framing/delivery prototype plus a real-provider native
+message coordinator, **not functioning E2EE in Thalassa**. Nothing is wired into live chat.
 No app dependency, native plugin, database change, UI badge, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
@@ -68,7 +68,7 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
-- **146 focused tests passed**: 42 framing tests and 104 mocked delivery tests,
+- **147 focused tests passed**: 43 framing tests and 104 mocked delivery tests,
   with one worker and no app setup. Isolated strict TypeScript checking passed.
   Wait for the shared build slot and run only these files; no full app suite is
   needed for this unwired checkpoint.
@@ -199,6 +199,61 @@ or AGPL/GPL-only dependency; generated-code treatment and all applicable source/
 notice obligations still require review before distribution. See the native
 README for reproduction, inventory and limitations. Agent review found concrete
 issues but is **not** the planned independent security review.
+
+### Bounded native message-coordinator checkpoint — 1 October
+
+`VodozemacDmCoordinator.swift` now makes the storage contract concrete for a
+single native owner/device, peer and conversation. It atomically commits real Olm
+ratchet state and exact ciphertext outbox records; repeat preparation returns
+the committed bytes. Exact acceptance/refusal records become durable terminal
+tombstones. Receive binds the provider-authenticated content to the expected
+conversation, message, users, devices, identity references, actual public keys
+and session before persisting either plaintext or ratchet/prekey changes.
+An exact committed receive retry returns `duplicate`, not another plaintext.
+
+The coordinator owns persisted owner/trust generations and checks them against
+scalar expected context. Its entire state is revision-CASed, so a lifecycle
+update racing an encryption/receipt invalidates the stale commit. A native-only
+research hook injects that interference; it is not a JavaScript guard. No key,
+pickle or internal request digest is exposed as a transport result.
+
+Verified on iOS 27 simulator with the unchanged pinned provider/toolchain:
+
+- **112 coordinator assertions passed**, covering exact retries/reopen, changed
+  content conflicts, failed prepare/receive/receipt commits, repeated prekey
+  messages, normal replies, terminal receipts, wrong-account/trust guards,
+  deterministic concurrent lifecycle updates, real decryptable wrong-conversation
+  content, outer-ID substitution, receive dedup and both capacity limits.
+- Native frame assertions passed: exact TypeScript-compatible JSON and Base64,
+  duplicate/unknown/alternate outer fields, every authenticated inner-context
+  substitution, Unicode and size bounds. A matching TypeScript golden-fixture
+  test passed; the TypeScript wire ceiling now matches the native **65 KiB** cap.
+- The runner passed **12 separate app-process phases**: the previous provider/
+  storage six, followed by six for the actual coordinator. Coordinator sends,
+  replies, history, exact retries, dedup and acceptance receipts survive those
+  launches. Exact research Keychain/store cleanup and app uninstall passed.
+- The **10 real-provider Rust tests** passed again; simulator and unsigned
+  physical-iPhone targets compiled/linked. The physical binary was not executed.
+- **147 focused TypeScript tests** passed, with no application setup or shared
+  cache writes. No full app build or Capacitor sync is required for these unwired
+  research files, and none is claimed for this checkpoint.
+
+Review found and fixed two concrete traps. Swift's Unicode-equivalent string
+comparison was unsuitable for exact receipts: incoming fields are now strictly
+validated and compared as UTF-8 bytes. Two initial outgoing sessions would also
+collide in a one-session store: the lower ASCII device ID alone may initiate;
+the responder fails closed until its first valid receive. Tests cover both fixes.
+This deterministic research role is **not** a complete messaging UX or session
+arbitration/recovery implementation. Do not turn it into a shipping switch.
+
+Scope remains deliberately bounded: 16 outbox items including terminal tombstones,
+16 receives, 16 KiB UTF-8 text and a 1 MiB complete snapshot. The byte budget can
+be hit before the item count. No eviction, pagination or production retention
+policy is implied. Account setup, direct peer pinning and server receipts are
+trusted synthetic fixtures; no directory ownership or response authentication has
+been implemented. No live relay, app plugin/UI, attachments, group chat, browser
+support, physical-lock/crash tests or independent security audit. Previous
+licence, whole-database rollback and memory-erasure limitations still apply.
 
 ### Historical Signal experiment — not evidence for the new provider
 
@@ -342,8 +397,10 @@ copy Signal's implementation into the app or modify the ratchet cryptography.
 
 Existing 4,000-character text limits are not suitable ciphertext limits. Keep the
 new format separate from the legacy `DirectMessage.message` field. The proposed
-256 KiB ciphertext cap is an abuse bound pending provider measurement, not a promise
-about supported payload sizes. It does not authorize attachments or uploads.
+65 KiB ciphertext cap now matches the native provider boundary, not a promise
+about supported body sizes. The native text-only prototype also bounds the
+authenticated inner payload and complete sealed store. This does not authorize
+attachments or uploads.
 
 ## Session, delivery and privacy invariants
 
@@ -401,8 +458,9 @@ about supported payload sizes. It does not authorize attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: turn the isolated native bridge/store proof into a bounded app adapter,
-add lifecycle/lock/crash tests on real phones, then authenticated device/prekey
+Next: integrate the bounded native coordinator with a reviewed authenticated
+account/device lifecycle and an off-by-default app adapter, add lock/crash tests
+on real phones, then authenticated device/prekey
 relay tests in an isolated database. The synthetic single-prekey fixture is not
 a production registration or replenishment design. No new
 Supabase schema should inherit Signal/Kyber bundle fields from the earlier relay
