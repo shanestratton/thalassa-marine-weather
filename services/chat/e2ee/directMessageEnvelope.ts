@@ -3,7 +3,10 @@
  * This validates framing, not encryption, authenticity or ratchet negotiation.
  * Only a reviewed crypto provider may supply ciphertext or consume this frame.
  */
-export const DM_ENVELOPE_PROTOCOL = 'signal-triple-ratchet' as const;
+// This is a new, incompatible research envelope, NOT a renamed Signal session.
+// v1 / signal-triple-ratchet frames must never be retried through the Olm provider.
+export const DM_ENVELOPE_VERSION = 2 as const;
+export const DM_ENVELOPE_PROTOCOL = 'olm-v1' as const;
 
 // Provisional abuse bounds. Confirm against the selected provider before rollout.
 export const MAX_DM_CIPHERTEXT_BYTES = 256 * 1024;
@@ -22,11 +25,11 @@ const FIELDS = [
     'ciphertext',
 ];
 
-/** Thalassa framing proposal, not Signal's own wire format. No key material. */
+/** Thalassa framing proposal, not a Matrix event or provider wire format. No key material. */
 export interface DirectMessageEnvelope {
-    readonly version: 1;
+    readonly version: typeof DM_ENVELOPE_VERSION;
     readonly protocol: typeof DM_ENVELOPE_PROTOCOL;
-    /** Selects the provider's authenticated decoder. Never accepts plaintext/group payload types. */
+    /** Olm's 0=prekey / 1=normal-session dispatch. This outer value is not authenticated here. */
     readonly messageType: 'prekey' | 'session';
     /** Stable across retries of this logical message; server uniqueness is per recipient device. */
     readonly clientMessageId: string;
@@ -56,7 +59,7 @@ function validate(value: unknown): DirectMessageEnvelope {
         throw new InvalidDirectMessageEnvelopeError();
     }
     if (
-        frame.version !== 1 ||
+        frame.version !== DM_ENVELOPE_VERSION ||
         frame.protocol !== DM_ENVELOPE_PROTOCOL ||
         (frame.messageType !== 'prekey' && frame.messageType !== 'session') ||
         !isIdentifier(frame.clientMessageId) ||
@@ -75,7 +78,7 @@ function validate(value: unknown): DirectMessageEnvelope {
     }
     // Copy only approved fields. A valid frame is NOT evidence of valid encryption.
     return {
-        version: 1,
+        version: DM_ENVELOPE_VERSION,
         protocol: DM_ENVELOPE_PROTOCOL,
         messageType: frame.messageType,
         clientMessageId: frame.clientMessageId,

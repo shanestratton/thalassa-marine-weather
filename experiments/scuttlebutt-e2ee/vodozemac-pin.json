@@ -1,0 +1,17 @@
+{
+    "version": "0.11.0",
+    "sourceRepository": "https://github.com/matrix-org/vodozemac",
+    "sourceCommit": "db1b34820f3102307284e762f335b3f72c735bf0",
+    "crateUrl": "https://static.crates.io/crates/vodozemac/vodozemac-0.11.0.crate",
+    "crateSha256": "ba935af014ca0ae5fb468daa51da81a8a0df7daad23c052c878b7c690cdf2574",
+    "checksumSource": "https://index.crates.io/vo/do/vodozemac",
+    "manifestSha256": "bd6a8d0f0d616e9fd48ad00164eca5b14babcd5fe1b5f21b6bdb66fa5c452f5e",
+    "lockfileSha256": "b7a9dc0460841e3b33451e8ed89443217c2aa8db6b979c936b7eea7544d04358",
+    "license": "Apache-2.0",
+    "minimumRustVersion": "1.89.0",
+    "protocol": "olm-v1",
+    "envelopeVersion": 2,
+    "providerFeatures": [],
+    "postQuantum": false,
+    "shippingApproved": false
+}

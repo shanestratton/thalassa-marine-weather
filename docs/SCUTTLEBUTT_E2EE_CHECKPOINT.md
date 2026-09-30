@@ -2,18 +2,20 @@
 
 Updated: 30 September 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
-**Provider integration on hold pending product/licensing decision.** The owner
-raised the libsignal distribution implications and a possible vodozemac/Matrix
-alternative. No Keychain vault files or operations, relay migration, app linking,
-signing changes or distribution were started. Preserve this research; do not
-silently switch protocol, declare Thalassa open source, or add libsignal to an
-app build. A disabled feature flag would not remove a bundled dependency's
-licensing obligations. Legal suitability needs qualified review before shipping.
+**Owner decision: proceed with Apache-2.0 vodozemac, unchanged Olm Double Ratchet.**
+On 30 September the owner accepted the recommendation not to build a homemade
+third ratchet. This authorizes the isolated provider transition, not production
+release, a post-quantum claim, or changing Thalassa's source licence. libsignal is
+not the adoption candidate; its earlier probes below remain historical research.
+No Keychain operations, relay migration, app linking, signing changes or
+distribution were started. Dependency/licence review, two real phones and an
+independent security review still gate release. An off-by-default switch is not
+a substitute for those checks or a way around a bundled dependency's licence.
 
 ## What exists today
 
-This is an isolated framing/delivery prototype plus a real-library research
-spike, **not functioning E2EE in Thalassa**. Nothing is wired into live chat.
+This is an isolated framing/delivery prototype plus real-library research
+spikes, **not functioning E2EE in Thalassa**. Nothing is wired into live chat.
 No app dependency, native plugin, database change, UI badge, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
@@ -24,9 +26,13 @@ protocols and extra fields (including plaintext previews and keys). Its tests
 prove framing behaviour only. Anyone can base64-encode plaintext and put it in
 the ciphertext field: passing validation proves neither encryption nor sender
 authenticity. Do not use this validator to display a security badge. A required
-`prekey`/`session` message discriminator selects the provider's decrypt API;
-libsignal serialization alone does not provide that dispatch value. Like other
-outer fields, the discriminator is not independently authenticated by framing.
+`prekey`/`session` discriminator maps to Olm's numeric 0/1 message type. Thalassa's
+envelope v2 / `olm-v1` is deliberately incompatible with the retired envelope v1 /
+`signal-triple-ratchet`; old records reject without upload or relabelling. It is
+not a Matrix event format. Upstream Olm JSON uses numeric types and unpadded
+Base64; Thalassa framing requires a string type and canonical padded Base64.
+Like other outer fields, the discriminator is not independently authenticated
+by framing. No automatic provider downgrade, migration or plaintext fallback.
 
 `services/chat/e2ee/encryptedDmDelivery.ts` models exact-ciphertext retries,
 owner/device isolation, identity changes, timeouts and terminal refusals. It does
@@ -42,10 +48,52 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
-- **136 focused tests passed**: 37 framing tests and 99 mocked delivery tests,
+- **146 focused tests passed**: 42 framing tests and 104 mocked delivery tests,
   with one worker and no app setup. Isolated strict TypeScript checking passed.
   Run only these files while other agents are building; no full app suite is
   needed for this unwired checkpoint.
+
+### Current Apache provider experiment
+
+`experiments/scuttlebutt-e2ee/vodozemac-probe/` pins the published vodozemac
+**0.11.0**, source `db1b34820f3102307284e762f335b3f72c735bf0`. The archive hash was
+checked against the public Cargo registry index. `vodozemac-pin.json` also pins
+the complete experiment lockfile and manifest. All provider optional/default
+features are disabled: no libolm compatibility, experimental session config,
+low-level handshake bypass, or insecure key-backup encryption.
+
+The real Rust tests use fresh synthetic peers, explicit `SessionConfig::version_1()`,
+and upstream encryption/signature/pickle APIs only. They cover bidirectional
+exchanges, dispatch types, tamper/replay rejection, staged receive snapshots,
+out-of-order delivery, session/account restoration, encrypted-pickle wrong-key
+and tamper rejection, non-contributory peer keys, and caller-pinned identity and
+signature checks. The signed-key fixture is test-only: it is not a reviewed
+production bundle format or proof of directory ownership. Pickles and keys stay
+in test memory. Existing SQLite crash tests are NOT yet joined to this provider.
+
+`vodozemac-host-proof.mjs` runs offline with a separately provisioned Cargo cache,
+one compiler/test worker, debug info and incremental builds disabled. It verifies
+the resolved provider version/features, archive, source revision and cached
+source files against a fresh extraction of that archive before running tests.
+Build products stay in a temporary directory, outside the app tree. It does not
+install dependencies, start a simulator, access real accounts, or change Xcode.
+
+**Twelve real-library tests passed on Apple Silicon macOS**, Rust 1.89.0 and
+Node 24.19.0. This includes correctly addressed initial-message tampering without
+prekey consumption, plus real prekey/normal messages passing through the actual
+TypeScript envelope validator and decrypting successfully afterward. These are
+host tests, not iOS or two-phone evidence. Focused TypeScript checking, ESLint,
+format checks and `git diff --check` also passed. A metadata inventory of the 76
+resolved registry packages for this host reported permissive licence expressions
+and no missing licence fields; this is not legal review or a notice-generation
+step. The temporary toolchain/cache was kept outside the app and no shell
+profiles or system toolchain defaults were changed.
+
+### Historical Signal experiment — not evidence for the new provider
+
+The following results remain useful architectural research, but they do not
+establish vodozemac iOS support, interoperability, negotiation or secure custody:
+
 - `experiments/scuttlebutt-e2ee/host-proof.mjs` executed eight real native-library
   check groups: synthetic-peer round trips, prekey/session replay rejection,
   tamper rejection without changing committed receiving state, out-of-order
@@ -83,7 +131,7 @@ Server acceptance does not mean recipient delivery or reading.
   Agent review found retry races and added regression cases; it is not a
   substitute for the planned security review.
 
-Commands (use external dependency/source/archive paths, not the app's packages):
+Historical commands (use external dependency/source/archive paths, not the app's packages):
 
 ```sh
 node experiments/scuttlebutt-e2ee/host-proof.mjs /absolute/external/node_modules/@signalapp/libsignal-client/dist/index.js
@@ -134,33 +182,36 @@ Production work still includes:
   one-byte wire tag and the app's proposed outer JSON are not authenticated by
   framing alone and do not establish negotiated-suite support.
 
-## Direction and unresolved provider gate
+## Approved direction and remaining provider gates
 
 Target private DMs first, encrypted by default once released. Public Scuttlebutt
 channels remain public; private groups need a separate group-protocol decision.
 
-Signal's [Triple Ratchet specification](https://signal.org/docs/specifications/doubleratchet/)
-combines its classical Double Ratchet with a Sparse Post-Quantum Ratchet. PQXDH
-can establish the initial session. AES-256 alone is not that protocol; we will
-not implement the ratchets or select replacement primitives ourselves.
+Candidate: [vodozemac](https://github.com/matrix-org/vodozemac/tree/0.11.0), Apache-2.0,
+using unchanged Olm v1. It offers the classical Double Ratchet, not Signal's Triple
+Ratchet or post-quantum messaging. Future suite/version changes require explicit
+review and migration; versioning alone does not make an upgrade secure. Do not
+copy Signal's implementation into the app or modify the ratchet cryptography.
 
-Candidate: [libsignal](https://github.com/signalapp/libsignal), whose Rust core
-has Swift, Java and TypeScript wrappers. Its repository lists AGPL-3.0 and says
-external use is unsupported. Its npm distribution uses native Node libraries,
-not a drop-in browser/WebView implementation. **Do not add it to the app yet.**
-Temporary, isolated research does not resolve these adoption gates:
-
-1. Resolve licensing/distribution suitability before adoption; this document is
-   not a legal conclusion or permission to change Thalassa's licensing.
-2. Prove the pinned Swift API's required Triple Ratchet negotiation and message
-   processing on supported iPhones. Reviewed source initializes fresh sessions
-   with SPQR V1 minimum V1, but Swift's `hasCurrentState` is not a negotiated-suite
-   getter: it can accept an unacknowledged outgoing session. Do not infer a green
-   security badge from it or from message version 4. A reviewed native capability
-   boundary and executable negotiation tests are still needed. The upstream
-   Swift README recommends CocoaPods for consumers; SwiftPM consumer support is
-   not an established integration path.
-3. Decide browser support through a maintained, reviewed implementation. Never
+1. Review all resolved dependency licences/notices before distribution; the
+   provider's Apache licence is not blanket legal clearance for every component.
+2. Olm v1 uses an 8-byte / 64-bit truncated message MAC. The full-MAC v2 remains
+   behind upstream's experimental flag. Do not quietly opt into it or describe
+   Olm v1 as identical to Signal's protocol. Have the security review evaluate
+   authentication bounds, rate limits and this trade-off. Earlier audits of the
+   library do not cover this release plus Thalassa's integration automatically.
+3. Prove a narrow native bridge around the unchanged Rust provider on simulator
+   and supported real iPhones. The maintained `matrix-rust-components-swift`
+   package is a full Matrix SDK, not a bare Olm/Supabase replacement; its normal
+   room workflow uses Megolm. The official `vodozemac-bindings` repository is
+   unmaintained. A small maintained-tooling bridge (for example UniFFI) needs
+   independent review, state ownership, bounds, error handling and Swift tests.
+   No Swift bridge or new iOS provider binary is included in this checkpoint.
+4. Bare Olm accepts keys, not an authenticated app device directory. Verify
+   signed device/prekey material and bind ownership, identities, conversation
+   context, freshness and recipient identity before accepting/decrypting data.
+   A valid self-signature cannot prove the first signing key belongs to a user.
+5. Decide browser support through a maintained, reviewed implementation. Never
    move private-key operations to a server to make the website work. Unsupported
    clients must not fall back to plaintext or silently downgrade the protocol.
 
@@ -237,13 +288,12 @@ about supported payload sizes. It does not authorize attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: obtain the owner's product/provider decision and licensing review before
-further provider integration. A vodozemac switch is not a library-name change:
-its Olm/Megolm protocol and Matrix device/key-management requirements need a
-fresh integration and threat-model review, and cannot retain the experimental
-`signal-triple-ratchet` label. Much of the exact-retry, ownership and atomic-store
-test strategy can transfer. The existing Signal probes remain research evidence
-about Signal only. Before any integration merge, update
+Next: a narrow native vodozemac bridge and protected, atomic account/session store,
+then authenticated device/prekey relay tests in an isolated database. No new
+Supabase schema should inherit Signal/Kyber bundle fields from the earlier relay
+notes. Single-device pilot first; existing app messages remain untouched. Use
+the reproduction instructions in `experiments/scuttlebutt-e2ee/vodozemac-probe/README.md`.
+Before any integration merge, update
 from current master and coordinate deployment with the other agent. Do not merge
 or deploy this branch as completed E2EE.
 
