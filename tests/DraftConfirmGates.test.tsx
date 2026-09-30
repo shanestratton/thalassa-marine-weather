@@ -361,6 +361,40 @@ describe('Inshore departure sweep', () => {
         expect(screen.queryByRole('dialog', { name: 'Check your draft' })).toBeNull();
         expect(mocks.sweep.mock.calls[0][0].draftM).toBeCloseTo(DRAFT_FT / FEET_PER_METRE, 10);
     });
+
+    // Round 3 (2026-09-30): a saved plan kept its route's caveats (decision
+    // 8's bridges, decision 9's survey quality) but nothing showed them again.
+    it('a reopened inshore plan says its route caveats again', async () => {
+        seed(CONFIRMED);
+        const saved = {
+            ...plan,
+            routeGeoJSON: {
+                ...plan.routeGeoJSON,
+                properties: {
+                    source: 'inshore-router',
+                    structuresUnknownCells: ['OC-61-10ENB5'],
+                    surveyRuns: [
+                        {
+                            reason: 'survey-poor',
+                            startSeg: 0,
+                            startT: 0,
+                            endSeg: 0,
+                            endT: 0.5,
+                            lengthM: 900,
+                            catzoc: 5,
+                            midLat: -27.19,
+                            midLon: 153.15,
+                        },
+                    ],
+                },
+            },
+        } as unknown as VoyagePlan;
+        render(<DepartureSweepSheet open onClose={vi.fn()} voyagePlan={saved} vessel={CONFIRMED} onAccept={vi.fn()} />);
+        const note = await screen.findByTestId('sweep-route-caveats');
+        expect(note.textContent).toMatch(/Bridges and power lines not checked on this chart/);
+        expect(note.textContent).toMatch(/Old or ungraded survey on 900 m of this route/);
+        await settle();
+    });
 });
 
 // ── 5. Settings → Preferences → Chart → "Show charted leads" ────────────

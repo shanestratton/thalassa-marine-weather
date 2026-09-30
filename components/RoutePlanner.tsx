@@ -26,6 +26,7 @@ import { Button } from './ui/Button';
 import { toast } from './Toast';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { DepartureSweepSheet } from './passage/DepartureSweepSheet';
+import { savedInshoreRouteCaveats } from './map/inshoreRouteNotice';
 import { ComfortQuickConfig } from './passage/ComfortQuickConfig';
 import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
@@ -167,6 +168,10 @@ export const RoutePlanner: React.FC<{
     const [showSweepSheet, setShowSweepSheet] = useState(false);
     const inshoreSweepAvailable =
         (voyagePlan as { __inshoreRouting?: { status?: string } } | null)?.__inshoreRouting?.status === 'success';
+    // What the plan's inshore route must say wherever it is shown (decision
+    // 8's bridges, a pin off the water, decision 9's survey quality): kept
+    // with the plan, said again under its summary (round 3, 2026-09-30).
+    const planRouteCaveats = React.useMemo(() => savedInshoreRouteCaveats(voyagePlan), [voyagePlan]);
     const acceptSweepDeparture = useCallback(
         (departMs: number) => {
             // Mirror acceptWindowScenario: the form carries a DATE; the
@@ -1292,6 +1297,19 @@ export const RoutePlanner: React.FC<{
                                     <MapIcon className="w-4 h-4" />
                                 </button>
                             </div>
+                            {planRouteCaveats.length > 0 && (
+                                <div
+                                    className="pointer-events-auto mt-1.5 w-full px-4 py-2 rounded-xl bg-slate-900/90 border border-amber-500/20 backdrop-blur-xs"
+                                    role="note"
+                                    data-testid="plan-route-caveats"
+                                >
+                                    {planRouteCaveats.map((c) => (
+                                        <p key={c} className="text-[11px] leading-snug text-amber-100/90">
+                                            {c}
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         {/* Inline route map */}

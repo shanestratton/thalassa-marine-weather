@@ -382,21 +382,28 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 first is the inshore router's lead graph (Phase 1), drawn from
                 the charts on this phone. Auto routing does not follow it yet
                 (Phase 2), so the switch does not claim it does. Nor does it
-                promise solid 'clear' lines: no chart on a phone carries
-                bridges or overhead cables yet, so nothing is drawn clear
-                until the cells are re-extracted with them (Phase 1 review,
-                2026-09-29). */}
+                promise solid 'clear' lines: a chart the Pi has not re-read
+                with its bridges and power lines is never drawn clear (Phase
+                1 review, 2026-09-29) — and the legend stays true before and
+                after that re-read (round 2, 2026-09-30: it used to say no
+                chart shows them). Clear also needs a graded survey whose
+                vertical error still leaves draft + 0.5 m, and no coarser
+                chart's land paint under the line (owner decisions 1, 3 and
+                4, 2026-09-30). A bridge or power line the mast cannot clear
+                makes the line red: blocked (owner decision 5). */}
             <Section title="Chart">
                 <Row>
                     <div className="flex-1 min-w-0">
                         <p className="text-sm text-white font-medium">Show charted leads</p>
                         <p className="text-xs text-gray-400">
                             Leads (pink) and buoyed channels (indigo) from the charts on this phone, checked against
-                            your draft. Solid would mean charted deep enough with nothing on the line, but none is solid
-                            yet: these charts do not show bridges or overhead cables, so the app cannot tell whether one
-                            crosses a line. Amber on a dark edge: needs tide, or something to check — the label says
-                            what. Grey dots: no charted depth. Auto routing does not follow these yet. Not for
-                            navigation.
+                            your draft and air draft. Solid means deep enough for your draft even allowing for how
+                            accurate the chart's survey is, with nothing on the line. A chart not yet re-read with its
+                            bridges and power lines is never solid — its label says bridges not in chart data. Amber on
+                            a dark edge: needs tide, or something to check — the label says what, such as a rough or
+                            ungraded survey, or a coarser chart that shows land there. Red dashes: blocked — a bridge or
+                            power line your mast cannot clear, or no air draft set. Grey dots: no charted depth. Auto
+                            routing does not follow these yet. Not for navigation.
                         </p>
                     </div>
                     {/* The leads are classed against the draft, so switching them

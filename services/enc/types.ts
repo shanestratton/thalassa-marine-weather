@@ -125,6 +125,20 @@ export function isStructureClass(layer: string): boolean {
     return (S57_STRUCTURE_CLASSES as readonly string[]).includes(layer);
 }
 
+/**
+ * Bridges, pontoons and overhead cables / pipes (Part B, inshore router,
+ * 2026-09-30): the layers both converters ALWAYS emit from schema 2 on — an
+ * empty collection is "extracted, none charted", a missing key "not
+ * extracted" (tools/senc-extractor ALWAYS_EMITTED_CLASSES, pi-cache
+ * ENC_ALWAYS_EMITTED_LAYERS). The lead review requires them
+ * (services/routing/leadReview.ts LEAD_REQUIRED_STRUCTURE_LAYERS) and the
+ * router gates overhead clearance on BRIDGE / CBLOHD / PIPOHD / CONVYR. The phone's
+ * import allowlist (localEncPackImport LOCAL_ENC_PACK_LAYER_NAMES) must carry
+ * every one: it fails closed, so a missing entry rejects every re-extracted
+ * cell (tests/structureLayerContract.test.ts).
+ */
+export const S57_CLEARANCE_STRUCTURE_CLASSES = ['BRIDGE', 'PONTON', 'CBLOHD', 'PIPOHD', 'CONVYR'] as const;
+
 /** Lights + buoys/beacons → the merged NAVAIDS source (each _kind-tagged). */
 /**
  * A genuine S-57 cell name: two-letter producer code, scale digit, then the
@@ -326,6 +340,26 @@ export function lateralMarkColour(catlam: number | null | undefined, region: Ial
 export function readS57(props: Record<string, unknown> | null | undefined, key: string): unknown {
     if (!props) return undefined;
     return props[key] ?? props[key.toLowerCase()];
+}
+
+/**
+ * An S-57 CHART feature, whichever converter wrote it: the SENC extractor
+ * stamps an `acronym` (and `classCode`); the Pi's ogr2ogr .000 upload path
+ * carries the object class code OBJL and no acronym. Injected OSM / Mapbox
+ * water and curated features carry none of them. The ONE test the nav grid,
+ * the final land audit, the lead land clip and the overhead-clearance bars
+ * share (Phase 2a round 2, 2026-09-30: the grid matched the acronym only, so
+ * an ogr2ogr cell's depth bands were not chart bands to it while the lead
+ * overlay read them as chart bands).
+ */
+export function isS57ChartProps(props: Record<string, unknown> | null | undefined): boolean {
+    if (!props) return false;
+    const acronym = readS57(props, 'acronym') ?? props.ACRONYM;
+    return (
+        (typeof acronym === 'string' && acronym.trim() !== '') ||
+        props.classCode !== undefined ||
+        readS57(props, 'OBJL') !== undefined
+    );
 }
 
 export function encNavaidIconId(
@@ -763,6 +797,11 @@ export interface EncConversionResult {
     cellId: string;
     sourceHO: string;
     sourceCellId?: string;
+    /** Compilation scale denominator (S-57 DSPM CSCL: the SENC header's native
+     * scale, or the Pi's ogr2ogr DSID read). The router's survey fineness
+     * (services/enc/scaleShadow.ts cellFinenessRank); absent on conversions
+     * that did not record it. */
+    nativeScale?: number;
     edition: number;
     updateNumber?: number;
     issued: string;
@@ -779,6 +818,19 @@ export interface EncConversionResult {
         SLCONS?: GeoJSON.FeatureCollection;
         DAMCON?: GeoJSON.FeatureCollection;
         PILPNT?: GeoJSON.FeatureCollection;
+        // Bridges, pontoons, overhead cables and pipes (converter schema 2,
+        // S57_CLEARANCE_STRUCTURE_CLASSES). Always present from schema 2 on,
+        // empty when the cell charts none; absent on older conversions.
+        /** Bridges (CATBRG, VERCLR, VERCCL, VERCOP, HORCLR). */
+        BRIDGE?: GeoJSON.FeatureCollection;
+        /** Pontoons. */
+        PONTON?: GeoJSON.FeatureCollection;
+        /** Overhead cables (VERCLR, VERCSA). */
+        CBLOHD?: GeoJSON.FeatureCollection;
+        /** Overhead pipelines (VERCLR). */
+        PIPOHD?: GeoJSON.FeatureCollection;
+        /** Overhead conveyors (VERCLR, VERCSA). */
+        CONVYR?: GeoJSON.FeatureCollection;
         /** Coastline LineStrings — used for proximity warnings only. */
         COALNE?: GeoJSON.FeatureCollection;
         /** Lights / lighthouses (point features). Display only. */

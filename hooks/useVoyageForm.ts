@@ -18,6 +18,7 @@ import { DeepAnalysisReport } from '../types';
 import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/createLogger';
 import { withTimeout } from '../utils/deadline';
+import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
@@ -794,6 +795,17 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                             status: 'success',
                                             cellsUsed: inshoreRes.cellsUsed,
                                             distanceNM: inshoreRes.distanceNM,
+                                            // Kept with the plan (fix-up, 2026-09-30):
+                                            // decision 8's bridge caveat, a pin off
+                                            // the water and decision 9's survey
+                                            // quality — the routeGeoJSON carries
+                                            // the facts too.
+                                            caveats: inshoreRouteCaveats({
+                                                structuresUnknownCells: inshoreRes.structuresUnknownCells,
+                                                pinOffWater: inshoreRes.pinOffWater,
+                                                surveyRuns: inshoreRes.surveyRuns,
+                                                surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
+                                            }),
                                         },
                                     };
                                     inshoreSucceeded = true;

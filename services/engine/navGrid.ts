@@ -8,6 +8,15 @@ import type { InshoreLayers, RelaxZone, NavGrid } from './types';
 import { mPerDegLon, haversineM, rasterizePolygonCells, bresenhamCells, latLonToGrid } from './geometry';
 import { computeCentreFactor } from './aStar';
 import { navLineLeads } from '../leadingLine';
+import {
+    bandNeverDries,
+    compareSurveyRanks,
+    finerBandBeatsLand,
+    landRankKey,
+    tiedSurveyRank,
+} from '../enc/scaleShadow';
+import { isS57ChartProps, readS57 } from '../enc/types';
+import { isAuthoritativeOsmWater } from './chartWaterEvidence';
 
 /**
  * Process-wide cache for buildNavGrid output. Keyed by the inputs that
@@ -103,8 +112,24 @@ export function navGridCacheKey(
         layers.BCNLAT?.features.length ?? 0,
         layers.COASTLINE?.features.length ?? 0,
         layers.CANAL?.features.length ?? 0,
-        layers.NAVLINE?.features.length ?? 0,
+        // The leads the grid reads: the pre-clip set when routeInshore's
+        // entry clip left one (NAVLINE_GRID), so a caller holding the merged
+        // layers (the seaway shadow's read-only lookup) keys the same grid.
+        (layers.NAVLINE_GRID ?? layers.NAVLINE)?.features.length ?? 0,
     ].join(',');
+    // Survey ranks need more than a count too (Phase 2a round-2 review,
+    // 2026-09-30): a cell re-imported with its compilation scale — or ranked
+    // and unranked copies of one layer set — has the same feature counts, and
+    // the cached grid kept the old decision-1 verdicts for the session. An
+    // order-sensitive hash of every land and depth band's `_scaleRank`.
+    let rankSig = 0;
+    for (const collection of [layers.LNDARE, layers.DEPARE, layers.DRGARE]) {
+        for (const f of collection?.features ?? []) {
+            const r = (f.properties as { _scaleRank?: unknown } | null)?._scaleRank;
+            rankSig = (Math.imul(rankSig, 31) + (typeof r === 'number' ? r + 1 : 0)) | 0;
+        }
+        rankSig = (Math.imul(rankSig, 31) + 7) | 0;
+    }
     // NTM zones need more than a count: a superseding notice can ship the same
     // number of zones with different surveyed depths, and acking toggles the
     // set — key on count + notice keys + depth sum so no stale grid survives.
@@ -118,7 +143,7 @@ export function navGridCacheKey(
                       return `${p?._noticeKey ?? '?'}@${p?.depthM ?? '?'}`;
                   })
                   .join('|')}`;
-    return `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${routeProfile}_${sig}_ntm${ntmSig}`;
+    return `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${routeProfile}_${sig}_r${rankSig}_ntm${ntmSig}`;
 }
 
 /**
@@ -352,13 +377,22 @@ export function buildNavGrid(
     const protectedCells = new Uint8Array(width * height);
     // Per-cell "wet-at-LAT chart claim": 1 = an S-57 DEPARE band with
     // DRVAL1 > 0 covered this cell — shallow for this keel (CAUTION) but
-    // genuinely WATER at chart datum. Pass 2 uses it to resolve
-    // LNDARE-vs-wet-chart-water conflicts (generalised overview-band
-    // coastline painted over a finer cell's charted river — the Mooloolah
-    // wharf→bar mile): conflict cells stay CAUTION and become protected so
-    // the Pass-6 buffer can't seal the river shut. Never set by drying
-    // bands (DRVAL1 ≤ 0) — a charted drying spit defers to land paint.
+    // genuinely WATER at chart datum. Pass 2b's closing-line test reads it.
+    // Under chart land paint Pass 2 decides by scale instead (owner decision
+    // 1, bandRank/bandState below: the Mooloolah wharf→bar mile is a finer
+    // cell's river under the overview's coastline) and withdraws the claim
+    // wherever the land paint stands. Never set by drying bands
+    // (DRVAL1 ≤ 0) — a charted drying spit defers to land paint.
     const wetChartClaim = new Uint8Array(width * height);
+    // Per-cell "CHARTED shallow water" claim (owner decision 7, round 2,
+    // 2026-09-30): 1 = an S-57 band (DEPARE / DRGARE) shallower than
+    // draft + safety but NEVER drying (charted DRVAL1 ≥ 0 — decision 1's
+    // test, so a 0 m band counts where wetChartClaim's > 0 does not) owns the
+    // cell at its finest survey. With decision-1 water it is the only caution
+    // an ENDPOINT may sit in (grid.chartedShallow below): the route runs to a
+    // pin there instead of stopping short at the last deep water. Reset with
+    // the other depth claims when a finer survey claims the cell.
+    const s57ShallowClaim = new Uint8Array(width * height);
     // Per-cell FINENESS RANK of the finest ranked DEPARE that claimed the
     // cell (see cellScaleRank). Whole-bbox scale-shadowing can't drop a
     // huge coarse polygon that pokes outside finer coverage; it then
@@ -372,6 +406,119 @@ export function buildNavGrid(
     // RANK_UNCLAIMED = no ranked feature has touched the cell yet.
     const RANK_UNCLAIMED = -32768;
     const depareRank = new Int16Array(width * height).fill(RANK_UNCLAIMED);
+    // THE SHALLOWEST WINS at a survey tie (Phase 2a round-2 review,
+    // 2026-09-30). Per cell, which S-57 surveys at the owning rank made a
+    // shallow claim (s57ShallowAt) and which protected the cell as deep
+    // (s57DeepAt): 0 none, S57_UNRANKED an unranked band, S57_RANKED a ranked
+    // one. Two same-rank bands over the same ground, 6 m and 1 m, read 6 m in
+    // either order: the deep band's own protection outranked a same-rank
+    // shallow survey, and a deep band upgraded the shallow one's CAUTION. At a
+    // RANKED tie (the same rank, or tied ranks) only a STRICTLY finer survey
+    // protects a cell against a ranked shallow S-57 band now (OSM-vouched
+    // water no longer does — round-3 review, below); the shallower band's
+    // CAUTION stands. Reset with the other depth claims when a finer survey
+    // claims the cell.
+    //
+    // It also ends an order-dependent hole: a later non-S-57, non-OSM deep
+    // band — the GMRT public-bathymetry bands (grade D) the corridor captures
+    // carry — upgraded a charted shallow S-57 band's CAUTION to deep (the
+    // other order kept the CAUTION). It no longer does. That is what moves the
+    // goldens (each measured in its own process): Newport → Rivergate
+    // 22.47 → 23.22 NM, Newport → Tangalooma 19.91 → 20.35 NM, caution 13 → 18.
+    //
+    // Two UNRANKED S-57 bands (cells that do not say their scale) that
+    // disagree: the SHALLOWEST wins too (Claude's call, round 3, told Shane
+    // 2026-09-30 — not an owner decision) — the safe side: it only ever makes
+    // water caution ('needs tide', amber on the leads), never blocks. The
+    // round-2 fix-up had kept the old rule (a deep claim won) as a question
+    // for him.
+    //
+    // A RANKED and an UNRANKED band that disagree: the shallowest wins as well
+    // (round-3 review, 2026-09-30; the same call, told Shane). A ranked band used
+    // to out-survey an unranked one either way, so a coarse 1:1.5M overview's
+    // 0–30 m band upgraded a cell whose scale is unknown — which may be a
+    // harbour survey — from its charted 1 m shoal to deep. Unknown fineness
+    // already fails safe for land (decision 1); now it does for depth too. A
+    // finer ranked band's reset (below) never wipes an unranked shallow claim
+    // (unrankedShallow).
+    //
+    // OSM-vouched water is WATER, never DEPTH (round-3 review, 2026-09-30): it
+    // still beats chart LAND paint (Pass 2 — the LNDARE-bleed case it is
+    // trusted for), but never an S-57 band's shallow or drying claim. Its
+    // synthetic 10 m (InshoreRouter's OSM injection) used to outrank the ENC
+    // harbour cell's DEPARE -2.2..0 at the Brisbane River mouth in both feature
+    // orders: ~2.9 km of every Newport → river route drew a yellow 'marked
+    // channel' over ground that dries 2.2 m, with no red and no tide chip.
+    const S57_UNRANKED = 1;
+    const S57_RANKED = 2;
+    const s57ShallowAt = new Uint8Array(width * height);
+    const s57DeepAt = new Uint8Array(width * height);
+    // Unranked S-57 shallow claims, kept through a finer ranked band's reset
+    // (no rank to be out-surveyed by): their shallowest DRVAL1, and whether
+    // any of them is wet at LAT (> 0) or never dries (≥ 0) — the wet and
+    // decision-7 claims the reset also clears. Allocated on the first one.
+    let unrankedShallowM: Float32Array | null = null;
+    let unrankedShallowBits: Uint8Array | null = null;
+    const UNRANKED_CLAIM = 1;
+    const UNRANKED_WET = 2;
+    const UNRANKED_NEVER_DRIES = 4;
+    const UNRANKED_DRIES = 8;
+    // An S-57 band at the owning survey charts the cell DRYING (DRVAL1 < 0) —
+    // the chart's own claim, apart from shallowDepthM, which also takes in
+    // non-chart bands (public bathymetry). Pass 2 reads it against OSM water
+    // under land paint. Reset and restored with the other depth claims.
+    const s57DryingAt = new Uint8Array(width * height);
+    // CHART WATER UNDER LAND PAINT (owner decision 1, 2026-09-30;
+    // services/enc/scaleShadow.ts finerBandBeatsLand). Per cell, the finest
+    // S-57 depth band (DEPARE or DRGARE) that covers it — `bandRank` — and
+    // whether every band at that rank never dries (charted DRVAL1 ≥ 0):
+    // BAND_WET, else BAND_NO. Pass 2 reads it against the finest land paint
+    // on the cell: only a strictly FINER never-drying band beats it (shallow
+    // water: CAUTION, never deep); a drying, undepthed, equal or coarser band
+    // — or an unknown rank on either side — leaves the land paint standing.
+    // Unranked S-57 bands sit below every ranked one, as in leadLandClip:
+    // they own a cell only when no ranked band covers it, and then the rank
+    // is unknown (RANK_UNRANKED) and cannot beat anything. Allocated only
+    // when there is land paint to read it against.
+    const RANK_UNRANKED = -32767;
+    const BAND_WET = 1;
+    const BAND_NO = 2;
+    const hasLandPaint = (layers.LNDARE?.features.length ?? 0) > 0;
+    const bandRank = hasLandPaint ? new Int16Array(width * height).fill(RANK_UNCLAIMED) : null;
+    const bandState = hasLandPaint ? new Uint8Array(width * height) : null;
+    const claimBand = (idx: number, rank: number | null, neverDries: boolean): void => {
+        if (!bandRank || !bandState) return;
+        const held = bandRank[idx];
+        if (rank === null) {
+            // Unranked: owns the cell only if nothing else claimed it.
+            if (held === RANK_UNCLAIMED) {
+                bandRank[idx] = RANK_UNRANKED;
+                bandState[idx] = BAND_NO;
+            }
+            return;
+        }
+        const cmp = held === RANK_UNCLAIMED || held === RANK_UNRANKED ? 1 : compareSurveyRanks(rank, held);
+        if (cmp > 0) {
+            bandRank[idx] = rank;
+            bandState[idx] = neverDries ? BAND_WET : BAND_NO;
+        } else if (cmp === 0) {
+            // A TIE (the same rank, or one usage band where either rank is
+            // known by its band alone — scaleShadow surveyRanksTie): both own
+            // the cell, so a drying one makes it drying, and the rank kept is
+            // the weaker claim (round-2 review, 2026-09-30: a CSCL-stamped
+            // 2 m band outranked a name-only band-4 chart that dries there,
+            // and the coarser land paint became water).
+            bandRank[idx] = tiedSurveyRank(rank, held);
+            if (!neverDries) bandState[idx] = BAND_NO;
+        }
+    };
+    /** Decision 1: a finer never-drying band beats the land paint here. */
+    const finerBandBeatsLandAt = (idx: number, landRank: number | null): boolean =>
+        !!bandRank &&
+        !!bandState &&
+        bandState[idx] === BAND_WET &&
+        bandRank[idx] !== RANK_UNRANKED &&
+        finerBandBeatsLand(bandRank[idx], landRank);
     // Cells where the wet claim actually RESOLVED a land conflict (a subset
     // of wetChartClaim). Exposed as grid.wetConflict: routable mid-route at
     // 40× caution, but endpoint snapping must PREFER honest water — a
@@ -402,11 +549,10 @@ export function buildNavGrid(
     const injectedCanalCells = new Uint8Array(width * height);
     // Per-cell "hard blocked" flag: 1 = blocked by LNDARE (land) or a
     // point obstruction (OBSTRN / WRECKS / UWTROC). A cell merely
-    // blocked by a shallow DEPARE band has hardBlocked = 0. Pass 4
-    // (FAIRWY) and Pass 5 (paired channel midpoints) are allowed to
-    // RESCUE a shallow-blocked cell back to navigable — a marked
-    // channel is navigable water by definition — but must never
-    // override a hard-blocked cell (actual land / charted hazard).
+    // blocked by a shallow DEPARE band has hardBlocked = 0. No channel
+    // pass rescues a cell any more: Pass 4 (FAIRWY / DRGARE), Pass 5
+    // (paired channel midpoints) and Pass 5b (leads) only prefer (Phase 2a
+    // review and round 2, 2026-09-30).
     const hardBlocked = new Uint8Array(width * height);
     // LAND-only subset of hardBlocked (LNDARE / coastline / coastal buffer —
     // never point-hazard buffers). See NavGrid.landBlocked.
@@ -460,49 +606,25 @@ export function buildNavGrid(
     // bathymetry-derived LNDARE polygon happens to cover them. Generic
     // `natural=water` and plain bathymetry-derived DEPARE bands do NOT
     // get protection; if LNDARE says it's land, they get blocked.
-    const isAuthoritativeDepare = (props: Record<string, unknown> | null): boolean => {
-        if (!props) return false;
-        const leisure = props['leisure'];
-        // `landuse=basin` and `water=basin` REMOVED from the authoritative
-        // whitelist (2026-05-14). Suburban OSM tags inland stormwater
-        // retention ponds and drainage basins with these tags; on the
-        // Redcliffe Peninsula (Newport→Brisbane bbox) there are dozens
-        // of them, each unblocking a phantom 3-4 m DEPARE corridor across
-        // land. Real marina basins are tagged `leisure=marina` (kept).
-        // Real navigable canals are tagged `waterway=canal` (also kept).
-        const waterway = props['waterway'];
-        const water = props['water'];
-        const natural = props['natural'];
-        const harbour = props['harbour'];
-        return (
-            leisure === 'marina' ||
-            waterway === 'dock' ||
-            waterway === 'canal' ||
-            waterway === 'fairway' ||
-            waterway === 'river' ||
-            waterway === 'riverbank' ||
-            // `water=*` subtags for marina contexts (Newport canals use
-            // these for the side arms branching off the main basin)
-            water === 'canal' ||
-            water === 'harbour' ||
-            water === 'marina' ||
-            water === 'dock' ||
-            water === 'river' ||
-            water === 'lake' ||
-            // OsmRouteOverlayService injects natural=water polygons into
-            // DEPARE for rivers / harbours / basins. They're OSM-derived
-            // navigable water — authoritative to override LNDARE-bleed.
-            natural === 'water' ||
-            harbour === 'yes'
-        );
-    };
-    const depare = layers.DEPARE?.features ?? [];
+    // The authoritative-OSM-water test is shared with the final-route land
+    // audit (services/engine/chartWaterEvidence.ts), so the two agree.
+    //
+    // S-57 DRGARE bands run through this pass too (Phase 2a review,
+    // 2026-09-30): a dredged area's DRVAL1 IS its charted depth, so it is a
+    // depth band like any DEPARE — finest survey wins, shallow reads CAUTION
+    // with its real depth kept for the tide window, deep reads its own depth.
+    // Pass 4 used to paint a 5 m "rescue depth" over every dredged area and
+    // fairway instead (a 1.3 m DRGARE read 5 m for a 2.4 m keel); now it only
+    // prefers them.
+    const depare = [...(layers.DEPARE?.features ?? []), ...(layers.DRGARE?.features ?? [])];
     const tPassDepare = Date.now();
     for (const f of depare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
         const props = f.properties as Record<string, unknown> | null;
-        const drval1 = props?.['DRVAL1'];
+        // Case-defensive (readS57): extractor cells carry DRVAL1, some ogr2ogr
+        // conversions drval1.
+        const drval1 = readS57(props, 'DRVAL1');
         // S-57 DRVAL1 is positive depth in meters.
         // A malformed/missing depth is not evidence of safe water. Treat the
         // polygon as chart-datum caution (0 m) so attacker-controlled or
@@ -517,12 +639,17 @@ export function buildNavGrid(
         // chart has a tiny DEPARE inside a chunky mainland LNDARE).
         // OSM-derived DEPARE (no acronym) still uses the old OSM-tag gate
         // (Scarborough peninsula safeguard).
-        const isS57Depare = typeof props?.acronym === 'string';
+        // …and so are the Pi's ogr2ogr .000 cells, which carry OBJL and no
+        // acronym: one S-57 test for the grid, the land audit and the lead
+        // land clip (services/enc/types.ts isS57ChartProps; Phase 2a round 2,
+        // 2026-09-30 — matching the acronym alone made an ogr2ogr cell's bands
+        // OSM-grade water here while the overlay read them as chart bands).
+        const isS57Depare = isS57ChartProps(props);
         // OSM-vouched = authoritative water that is NOT a chart S-57 DEPARE
         // (marina/canal/dock/river injected by OsmRouteOverlayService). These
         // keep clean navigable even under a chunky LNDARE; chart-DEPARE-only
         // protection that collides with chart LNDARE is flagged CAUTION instead.
-        const osmVouched = !isS57Depare && isAuthoritativeDepare(props);
+        const osmVouched = !isS57Depare && isAuthoritativeOsmWater(props);
         const authoritative = isS57Depare || osmVouched;
         const shallow = drval1Num < draftM + safetyM;
         // Fineness rank stamped at merge time (stampScaleRank) — undefined
@@ -533,6 +660,7 @@ export function buildNavGrid(
         // branch so a deep-draft vessel (where 5 m reads shallow) still marks
         // the canal — it's a canal either way, just caution-flagged if shallow.
         const isMapboxWater = props?.['_source'] === 'mapbox-water';
+        const neverDries = bandNeverDries(typeof drval1 === 'number' ? drval1 : null);
 
         // Scanline-rasterize the polygon and apply cell updates inside
         // the per-cell callback. ~25× faster than the old "per cell,
@@ -545,6 +673,10 @@ export function buildNavGrid(
             // Narrowed to the actual channel after the LNDARE passes (see below).
             if (isMapboxWater) injectedCanalCells[idx] = 1;
 
+            // Decision 1's band claim (S-57 bands only; the raw DRVAL1, so a
+            // missing or malformed depth never counts as never-drying).
+            if (isS57Depare) claimBand(idx, rank, neverDries);
+
             // Finest-survey-wins (ranked features only): a coarser ranked
             // feature never writes into a cell a finer one owns; the first
             // strictly-finer claim resets the coarser DEPARE accumulation
@@ -553,23 +685,61 @@ export function buildNavGrid(
             // resets only fire when superseding a RANKED claim.
             if (rank !== null) {
                 const held = depareRank[idx];
+                // A tie (scaleShadow surveyRanksTie) is neither finer nor
+                // coarser: both bands own the cell, the shallowest wins below,
+                // and the rank kept is the weaker claim (round 2, 2026-09-30).
+                const cmp = held === RANK_UNCLAIMED ? 0 : compareSurveyRanks(rank, held);
                 if (held !== RANK_UNCLAIMED) {
-                    if (rank < held) return; // finer survey owns this cell
-                    if (rank > held) {
+                    if (cmp < 0) return; // finer survey owns this cell
+                    if (cmp > 0) {
                         depareVerdict[idx] = NaN;
                         shallowDepthM[idx] = NaN;
                         wetChartClaim[idx] = 0;
+                        s57ShallowClaim[idx] = 0;
+                        s57ShallowAt[idx] = 0;
+                        s57DeepAt[idx] = 0;
+                        s57DryingAt[idx] = 0;
+                        // A coarser S-57 band's own protection goes with its
+                        // claim: kept, it let a coarse deep band outrank a
+                        // finer shallow one whenever the coarse one came
+                        // first — finest-survey-wins held in only one order
+                        // (Phase 2a review, 2026-09-30). OSM-vouched water
+                        // (osmWaterCells) is another source's claim and
+                        // keeps its protection.
+                        if (protectedCells[idx] === 1 && osmWaterCells[idx] !== 1) protectedCells[idx] = 0;
                         // Reset only DEPARE-derived navigability state;
-                        // NaN (hard-block), protection flags and PROTECTED
-                        // cell values (authoritative injected water) belong
-                        // to other sources and stay.
+                        // NaN (hard-block) and PROTECTED cell values
+                        // (authoritative injected water) belong to other
+                        // sources and stay.
                         if (!Number.isNaN(cells[idx]) && protectedCells[idx] !== 1) {
                             cells[idx] = UNKNOWN_OPEN;
                         }
+                        // An unranked shallow claim is not out-surveyed by a
+                        // finer RANKED band (its scale is unknown): it stands.
+                        const bits = unrankedShallowBits?.[idx] ?? 0;
+                        if (bits !== 0 && unrankedShallowM) {
+                            s57ShallowAt[idx] = S57_UNRANKED;
+                            shallowDepthM[idx] = unrankedShallowM[idx];
+                            depareVerdict[idx] = CAUTION;
+                            if (bits & UNRANKED_WET) wetChartClaim[idx] = 1;
+                            if (bits & UNRANKED_NEVER_DRIES) s57ShallowClaim[idx] = 1;
+                            if (bits & UNRANKED_DRIES) s57DryingAt[idx] = 1;
+                            if (!Number.isNaN(cells[idx])) cells[idx] = CAUTION;
+                        }
                     }
                 }
-                depareRank[idx] = rank;
+                depareRank[idx] = held === RANK_UNCLAIMED || cmp > 0 ? rank : tiedSurveyRank(rank, held);
             }
+            // This band's S-57 tier (0: not an S-57 band) — see s57ShallowAt.
+            const s57Tier = !isS57Depare ? 0 : rank === null ? S57_UNRANKED : S57_RANKED;
+            // An S-57 shallow claim already here stands against every deeper
+            // band that does not strictly out-survey it (a strictly finer
+            // ranked band resets it above; a coarser one never gets this far):
+            // an equal or tied ranked band, a ranked band against an unranked
+            // claim or the reverse (either side unranked: the shallowest wins),
+            // a non-S-57 band, and OSM-vouched water — which has no depth to
+            // offer (round-3 review, 2026-09-30, above).
+            const shallowStands = s57ShallowAt[idx] !== 0;
 
             // Record the DEPARE-only verdict (independent of any later LNDARE
             // hard-block), tracking the shallowest real depth or CAUTION — so
@@ -577,7 +747,9 @@ export function buildNavGrid(
             // channel without fabricating depth.
             const prevV = depareVerdict[idx];
             if (shallow) {
-                if (Number.isNaN(prevV)) depareVerdict[idx] = CAUTION;
+                // An S-57 shallow claim is CAUTION whatever deeper claim was
+                // here (the shallowest wins, as in `cells` below).
+                if (Number.isNaN(prevV) || isS57Depare) depareVerdict[idx] = CAUTION;
                 // Keep the REAL charted depth the CAUTION sentinel erases
                 // (shallowest wins) — the tide-window annotator's requiredRise
                 // input. Recorded regardless of protectedCells: the chart's
@@ -585,7 +757,7 @@ export function buildNavGrid(
                 if (Number.isNaN(shallowDepthM[idx]) || drval1Num < shallowDepthM[idx]) {
                     shallowDepthM[idx] = drval1Num;
                 }
-            } else if (Number.isNaN(prevV) || prevV === CAUTION || drval1Num < prevV) {
+            } else if (Number.isNaN(prevV) || (prevV === CAUTION && !shallowStands) || drval1Num < prevV) {
                 depareVerdict[idx] = drval1Num;
             }
 
@@ -604,9 +776,29 @@ export function buildNavGrid(
                 // kilometres to the nearest surveyed-deep water.
                 // protectedCells guard keeps the outcome order-
                 // independent: once authoritative water claims a
-                // cell, no shallow band downgrades it.
-                if (protectedCells[idx] !== 1) {
+                // cell, no NON-chart shallow band downgrades it.
+                // An S-57 shallow band always does (round-3 review,
+                // 2026-09-30): no protection here outranks it — a strictly
+                // finer ranked band would have returned above, so what is
+                // here is a same-rank or tied band (the shallowest wins), a
+                // band whose scale is unknown on either side (the shallowest
+                // wins), or OSM-vouched water, which vouches for WATER against
+                // land paint but has no depth. The protection itself stays, so
+                // chart land paint still cannot block the cell (Pass 2).
+                if (isS57Depare || protectedCells[idx] !== 1) {
                     cells[idx] = CAUTION;
+                }
+                if (s57Tier > s57ShallowAt[idx]) s57ShallowAt[idx] = s57Tier;
+                if (isS57Depare && drval1Num < 0) s57DryingAt[idx] = 1;
+                if (s57Tier === S57_UNRANKED) {
+                    const m = (unrankedShallowM ??= new Float32Array(width * height).fill(NaN));
+                    const b = (unrankedShallowBits ??= new Uint8Array(width * height));
+                    if (Number.isNaN(m[idx]) || drval1Num < m[idx]) m[idx] = drval1Num;
+                    b[idx] |=
+                        UNRANKED_CLAIM |
+                        (drval1Num > 0 ? UNRANKED_WET : 0) |
+                        (neverDries ? UNRANKED_NEVER_DRIES : 0) |
+                        (drval1Num < 0 ? UNRANKED_DRIES : 0);
                 }
                 // Wet-at-LAT S-57 cells (DRVAL1 > 0: shallow for this keel but
                 // genuinely WATER at chart datum) are recorded in wetChartClaim
@@ -621,6 +813,9 @@ export function buildNavGrid(
                 // the chart says the bottom dries, land paint keeps authority
                 // — the Mooloolaba beach spit stays a spit.
                 if (isS57Depare && drval1Num > 0) wetChartClaim[idx] = 1;
+                // The endpoint's charted-shallow claim (decision 7): the raw
+                // DRVAL1, so an undepthed band never counts as never-drying.
+                if (isS57Depare && neverDries) s57ShallowClaim[idx] = 1;
             } else {
                 // Deep enough for this vessel.
                 const prior = cells[idx];
@@ -628,13 +823,16 @@ export function buildNavGrid(
                     // Cell hard-blocked by an earlier pass — only an
                     // authoritative DEPARE un-blocks it.
                     if (authoritative) cells[idx] = drval1Num;
-                } else if (prior === UNKNOWN_OPEN || prior === CAUTION || drval1Num < prior) {
+                } else if (prior === UNKNOWN_OPEN || (prior === CAUTION && !shallowStands) || drval1Num < prior) {
                     // Upgrade an unknown / caution cell to real depth,
-                    // or track the shallowest known real depth.
+                    // or track the shallowest known real depth — but never
+                    // over a shallow S-57 claim this band does not strictly
+                    // out-survey: at a tie the shallowest wins.
                     cells[idx] = drval1Num;
                 }
                 if (authoritative) protectedCells[idx] = 1;
                 if (osmVouched) osmWaterCells[idx] = 1;
+                if (s57Tier > s57DeepAt[idx]) s57DeepAt[idx] = s57Tier;
             }
         });
     }
@@ -684,8 +882,15 @@ export function buildNavGrid(
                     if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
                     const idx = c.y * width + c.x;
                     // Carve to a safe navigable depth unless an earlier
-                    // pass already claimed real (deeper) water here.
-                    if (Number.isNaN(cells[idx]) || cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
+                    // pass already claimed real (deeper) water here — or an
+                    // S-57 band charts it shallow or drying: the canal line
+                    // says where the water is, not how deep (round-3 review,
+                    // 2026-09-30, as for OSM water in Pass 1). It still
+                    // protects the cell against land paint below.
+                    if (
+                        s57ShallowAt[idx] === 0 &&
+                        (Number.isNaN(cells[idx]) || cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN)
+                    ) {
                         cells[idx] = canalDepth;
                     }
                     protectedCells[idx] = 1;
@@ -722,11 +927,51 @@ export function buildNavGrid(
     // water polygons stop creating phantom navigable land. The right
     // long-term fix is OSM coastline as LNDARE so the land polygons
     // are accurate sub-10 m instead of 60 m-pixel chunky.
+    //
+    // Owner decision 1 (2026-09-30) replaces the S-57 half of that rule
+    // with a scale test. Where chart S-57 water and chart land paint collide,
+    // the land paint stands UNLESS the finest S-57 depth band on the cell is
+    // charted at a strictly FINER scale than the finest land paint there and
+    // never dries (DRVAL1 ≥ 0) — the coarse overview landmask bulging over a
+    // finer cell's charted channel (Tangalooma Roads; the Mooloolah
+    // wharf→bar mile). That cell is shallow WATER: honest CAUTION (red, 40×,
+    // tide-chipped), never deep, protected so the coastline strip and the
+    // Pass-6 buffer cannot seal it, and flagged wetConflict so endpoint
+    // snapping prefers honest water. A drying or undepthed band, a band at
+    // the same or a coarser scale, and an unknown rank on either side (an
+    // unranked LNDARE, or only unranked bands) leave the land paint standing
+    // — fail safe. The router's merges rank LNDARE, DEPARE and DRGARE
+    // (InshoreRouter SCALE_RANKED_LAYERS), so production can make the
+    // comparison; a layer set without ranks (the corridor fixtures) keeps all
+    // of its land. OSM-vouched water (Newport canals, Brisbane River
+    // LNDARE-bleed) keeps navigable under any land paint — except over an
+    // S-57 band that dries (round-3 review, 2026-09-30, below).
+    //
+    // Two steps, so overlapping land paint resolves the same in any feature
+    // order: first the finest land claim per cell (an unranked claim
+    // poisons it — unknown), then one verdict per land cell.
     const lndare = layers.LNDARE?.features ?? [];
     const tPassLndare = Date.now();
+    const LAND_NONE = RANK_UNCLAIMED;
+    const LAND_UNRANKED = RANK_UNRANKED;
+    const landRankAt = lndare.length > 0 ? new Int16Array(width * height).fill(LAND_NONE) : null;
+    // Land paint decision 1 upheld over an S-57 band that claimed the cell as
+    // water (before the decision: a CAUTION conflict cell). No later rescue
+    // pass may reopen it as water it could not be before — see Pass 4's mark
+    // ribbon. Allocated on the first such cell.
+    let landUpheld: Uint8Array | null = null;
+    // Decision-1 water whose finest band is deep enough for this keel (see
+    // grid.chartedShallow). Allocated on the first such cell.
+    let d1DeepBand: Uint8Array | null = null;
     for (const f of lndare) {
         const g = f.geometry;
-        if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
+        if (!landRankAt || !g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+        const props = f.properties as Record<string, unknown> | null;
+        const rank = typeof props?._scaleRank === 'number' ? (props._scaleRank as number) : null;
+        // The finest land claim is kept by its landRankKey: land paint known
+        // by its usage band alone counts as that band's finest, so no band of
+        // the same usage band can beat it (round 2, 2026-09-30).
+        const landKey = rank === null ? 0 : landRankKey(rank);
         // NO rogue filter on LNDARE: real chart-source LNDARE for narrow
         // land features (Redcliffe peninsula, river banks) naturally has
         // long-edge fan triangles that LOOK rogue but are correctly
@@ -734,61 +979,69 @@ export function buildNavGrid(
         // (peninsula's rcid 4500 had 49% of its 3146 triangles flagged as
         // rogue by edge/aspect heuristics) and A* threads through. Better
         // to over-block (LNDARE bleeds across rivers → some water shows
-        // as land) and rely on S-57 DEPARE authoritative override in
-        // pass 1 to un-block actual surveyed water.
+        // as land) and rely on the chart's own finer survey (decision 1)
+        // and OSM-vouched water to un-block actual surveyed water.
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
-            if (protectedCells[idx]) {
-                // This cell was claimed as deep water by a DEPARE pass, yet a
-                // chart LNDARE polygon also covers it. Two sub-cases:
-                //   • OSM-vouched water (Newport canals, Brisbane River
-                //     LNDARE-bleed) → trust OSM, keep clean navigable.
-                //   • chart-S57-DEPARE only → the chart's own DEPARE and
-                //     LNDARE layers DISAGREE here (typically a coarse
-                //     overview-cell landmask bulging over a finer-survey deep
-                //     channel — Tangalooma Roads off Moreton Island). Don't
-                //     present confident clean water over charted land:
-                //     downgrade to CAUTION so the renderer flags it red and
-                //     A* only crosses it absent an all-water alternative.
-                //     hardBlocked stays 0 so the route can still reach a
-                //     destination that genuinely sits in such a conflict zone.
-                if (osmWaterCells[idx] !== 1 && cells[idx] >= 0) {
-                    cells[idx] = CAUTION;
+            const held = landRankAt[idx];
+            if (rank === null) landRankAt[idx] = LAND_UNRANKED;
+            else if (held === LAND_NONE || (held !== LAND_UNRANKED && landKey > held)) landRankAt[idx] = landKey;
+        });
+    }
+    if (landRankAt) {
+        for (let idx = 0; idx < landRankAt.length; idx++) {
+            const held = landRankAt[idx];
+            if (held === LAND_NONE) continue;
+            // OSM-vouched water (marina / canal / dock / river, or the canal
+            // carve) under chart land paint: trust OSM, keep it navigable —
+            // unchanged by decision 1 — UNLESS the chart's own S-57 band on
+            // the cell dries (round-3 review, 2026-09-30). There the chart
+            // says the same thing twice — land paint over a drying bank, which
+            // decision 1 never lets a drying band beat — and OSM water, which
+            // has no depth, is not evidence against it. It protected the
+            // Brisbane River mouth's charted drying bank (ENB5 -2.2..0 under
+            // the overview's land paint) and the routes crossed ~2.9 km of it;
+            // measured after this rule, 30 m, and the river-mouth land sliver
+            // the audit counted (Rivergate golden 47.1 m) is gone.
+            const osmOverDrying = s57DryingAt[idx] === 1;
+            if (protectedCells[idx] && osmWaterCells[idx] === 1 && !osmOverDrying) continue;
+            if (finerBandBeatsLandAt(idx, held === LAND_UNRANKED ? null : held)) {
+                // Decision 1: shallow water, never deep. A deep finer band
+                // reads CAUTION here (the Tangalooma Roads doctrine); a
+                // shallow one keeps the CAUTION and real depth Pass 1 set.
+                // Only the DEEP kind is caution solely because of the coarse
+                // land paint, and only it may hold a route's end (decision 7,
+                // grid.chartedShallow below): its finest band is itself at
+                // least draft + safety, with no ranked shallow claim tied
+                // with it.
+                if (cells[idx] >= draftM + safetyM && s57ShallowAt[idx] !== S57_RANKED) {
+                    (d1DeepBand ??= new Uint8Array(width * height))[idx] = 1;
                 }
-                return;
-            }
-            if (wetChartClaim[idx] === 1) {
-                // LNDARE-vs-WET-chart-water conflict — the shallow sibling of
-                // the deep conflict above, same doctrine: the chart's own
-                // layers disagree (typically a coarse overview-cell landmask
-                // bulging over a finer cell's charted river — 1:90k paints the
-                // whole Mooloolah wharf→bar mile as coastline over the harbour
-                // cell's D2-5). Keep the honest CAUTION the DEPARE pass set
-                // (red, 40×, tide-chipped) instead of erasing charted water,
-                // and protect it so the coastline strip and the Pass-6 land
-                // buffer can't seal the 2-cell-wide river shut — without this,
-                // routes out of Mooloolaba exited over the drying beach spit
-                // at 120× because the charted front door didn't exist in the
-                // grid. Conflict-scoped ON PURPOSE: protecting ALL wet-shallow
-                // chart water regressed the Tangalooma golden +7.5% and
-                // Rivergate caution 3.7× by perturbing the buffer and centring
-                // EDT everywhere; this branch leaves every non-conflict grid
-                // byte-identical. Fixture: tests/engine/wetChartProtection.
+                if (cells[idx] >= 0) cells[idx] = CAUTION;
                 protectedCells[idx] = 1;
                 wetConflict[idx] = 1;
-                return;
+                continue;
             }
+            // Land. A deep S-57 band's Pass-1 protection (or its wet claim) is
+            // withdrawn: the chart's own land paint stands over it, so no
+            // later pass may read this cell as protected or wet water.
+            const chartWater = protectedCells[idx] === 1 || wetChartClaim[idx] === 1;
+            protectedCells[idx] = 0;
+            wetChartClaim[idx] = 0;
+            if (chartWater) (landUpheld ??= new Uint8Array(width * height))[idx] = 1;
             if (relaxedLndare || relaxMask[idx] === 1) {
-                // CAUTION-mode: A* can traverse at 500× cost. Don't set
-                // hardBlocked so FAIRWY/DRGARE rescue still applies.
-                if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+                // CAUTION-mode: A* can traverse at the caution price, so a
+                // far-snapped endpoint can thread it; not hardBlocked. Still
+                // land to every lead and mark rescue (relaxedLand). Relaxed
+                // land over a chart band is never deep either.
+                if (cells[idx] === UNKNOWN_OPEN || (chartWater && cells[idx] > 0)) cells[idx] = CAUTION;
                 if (relaxedLand) relaxedLand[idx] = 1;
             } else {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
                 landBlocked[idx] = 1;
             }
-        });
+        }
     }
 
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
@@ -1216,11 +1469,18 @@ export function buildNavGrid(
         const x1 = Math.min(width - 1, Math.ceil((lon + dLonBuf - minLon) / dLon));
         const y0 = Math.max(0, Math.floor((lat - dLatBuf - minLat) / dLat));
         const y1 = Math.min(height - 1, Math.ceil((lat + dLatBuf - minLat) / dLat));
+        // Every cell whose SQUARE the buffer disc touches — the cell holding
+        // the hazard always among them (fix-up, 2026-09-30). Testing the cell
+        // CENTRE against the 30 m buffer blocked nothing for a wreck at a cell
+        // corner (a 50 m cell's half-diagonal is 35.4 m), and the route passed
+        // 25 m from it.
         for (let y = y0; y <= y1; y++) {
             const cellLat = minLat + (y + 0.5) * dLat;
+            const offLatM = Math.max(0, Math.abs(lat - cellLat) - dLat / 2) * M_PER_DEG_LAT;
             for (let x = x0; x <= x1; x++) {
                 const cellLon = minLon + (x + 0.5) * dLon;
-                const dM = haversineM(cellLat, cellLon, lat, lon);
+                const offLonM = Math.max(0, Math.abs(lon - cellLon) - dLon / 2) * mPerLon;
+                const dM = Math.hypot(offLatM, offLonM);
                 if (dM <= obstructionBufferM) {
                     cells[y * width + x] = BLOCKED;
                     hardBlocked[y * width + x] = 1;
@@ -1277,78 +1537,81 @@ export function buildNavGrid(
     markPass('pass3-points', tPassPoints, obstrnFeatures.length + wrecksFeatures.length + uwtrocFeatures.length);
 
     // ── Pass 4: FAIRWY + DRGARE — mark preferred channel cells ─────
-    // We don't change the navigability of these cells (a navigable cell
-    // stays navigable, a blocked cell stays blocked — fairways CAN
-    // overlap with shallow flats at low tide, and the chart's DEPARE
-    // pass is the authoritative source for "is there enough depth").
-    // We just flag cells that fall inside a marked channel so the A*
-    // cost function can prefer them.
+    // A marked channel is PREFERRED (A* rides it at 1.0×, cellCostMultiplier)
+    // and nothing more: it never changes a cell's navigability or depth. The
+    // chart's depth bands are the authority for "is there enough water" — a
+    // dredged area's own DRVAL1 among them (Pass 1) — and the land passes for
+    // "is this land" (owner decision 1 in Pass 2). Fairways CAN overlap
+    // shallow flats at low tide; a shallow cell here stays honest CAUTION
+    // (red, 'needs tide', its real depth kept in shallowDepthM).
+    //
+    // Phase 2a review (2026-09-30): this pass used to write a 5 m "rescue
+    // depth" into every shallow, blocked or land cell under a chart FAIRWY or
+    // DRGARE, or an OSM water polygon promoted to one (`_promotePreferred`,
+    // InshoreRouter) — land paint at any scale, decision-1 conflict water,
+    // a charted wreck's buffer, a pontoon, and a 1.3 m dredged area for a
+    // 2.4 m keel all read 5 m preferred water, and the final land audit could
+    // not catch it (it counted any FAIRWY/DRGARE overlap as water). Owner
+    // decisions: leads, fairways and dredged areas never override land,
+    // hazards or depth. OSM-vouched water (the promoted river polygons are
+    // also in DEPARE as natural=water) keeps clean navigable under land paint
+    // through Pass 2's own rule, unchanged.
+    //
+    // The synthetic lateral-mark ribbon (chain-ordered port/starboard
+    // midpoints from InshoreRouter Step 5) keeps its one narrow repair: where
+    // LAND PAINT hard-blocked a cell the chart's own DEPARE calls water, it
+    // restores that DEPARE verdict (real depth, or CAUTION if genuinely
+    // shallow) — never fabricated depth, never a hazard buffer, never land
+    // decision 1 upheld over an S-57 band.
     let ribbonUnblockedCells = 0; // synthetic mark-ribbon cells un-blocked from LNDARE bleed (DEPARE-vouched)
+    // Cells ONLY a channel outline (here), a paired mark's disc (Pass 5) or a
+    // lead's corridor (Pass 5b) made preferred: still no evidence of water for
+    // the no-water-evidence mask (grid.unvouched, grid.leadOnlyPreferred).
+    // Allocated on the first such cell.
+    let leadOnlyPreferred: Uint8Array | null = null;
     const markChannelPreference = (f: Feature): void => {
         if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
         const g = f.geometry as Polygon | MultiPolygon;
-        const rescueDepth = Math.max(draftM + safetyM, 5.0);
-        // S-57 charted features carry an `acronym` property (e.g. 'DRGARE',
-        // 'FAIRWY') set by senc-extractor's geojsonEmitter. OSM-derived
-        // mock channels don't. A chart-authoritative dredged area or
-        // fairway is *surveyed navigable water* — when it overlaps an
-        // LNDARE polygon (which happens on real ENC charts because the
-        // SENC's GLU-tessellated LNDARE primitives can span across
-        // river concavities), the DRGARE/FAIRWY is the truth.
-        //
-        // This is the inverse of the 2026-05-14 Scarborough peninsula
-        // fix: that fix locked LNDARE down so bathymetry-derived DEPARE
-        // couldn't unblock real land. Chart DRGARE/FAIRWY are a different
-        // signal class — they exist because a harbour authority surveyed
-        // and dredged the channel, so they get the keys back. OSM-derived
-        // channel features (no `acronym`) still respect LNDARE's hard-block.
-        //
-        // EXTENSION (2026-05-19): OSM water polygons tagged `water=river`
-        // or `harbour=yes` and wider than ~200 m are promoted to this
-        // chart-authoritative class via `_promotePreferred` set in
-        // InshoreRouter.ts. Without this, the Brisbane River shipping
-        // channel cells (which sit inside an over-bleeding mainland
-        // LNDARE polygon on the AU SENC) couldn't be rescued by their
-        // own OSM water tag, and A* would route through Bramble Bay
-        // shallows instead of along the river. The promotion is gated
-        // on tag + minimum width to keep suburban ponds out.
         const props = f.properties as Record<string, unknown> | null;
-        const isChartAuthoritative = typeof props?.acronym === 'string' || props?._promotePreferred === true;
-        // The synthetic lateral-mark ribbon (chain-ordered port/starboard
-        // midpoints from InshoreRouter Step 5). NOT a surveyed chart fairway,
-        // so it must not fabricate depth. But where it overlaps cells the
-        // chart's OWN DEPARE calls water, it restores that verdict to un-block
-        // LNDARE *bleed* (the AU SENC blocks the bay channel under a coastal
-        // land polygon) — the offline equivalent of a charted fairway. Cells
-        // with no DEPARE coverage are real land and stay blocked.
         const isMarkRibbon = props?._class === 'synthetic-channel-segment';
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
             // A low-clearance bar (fixed bridge) is impassable for this vessel
-            // — not even a chart-authoritative FAIRWY/DRGARE gets the keys back.
+            // — not even preferred.
             if (clearanceBarred[idx] === 1) return;
             preferred[idx] = 1;
-            const blockedOrShallow = Number.isNaN(cells[idx]) || cells[idx] < 0;
-            if (!blockedOrShallow) return;
-            if (isMarkRibbon) {
-                // Restore the chart's DEPARE verdict (real depth, or CAUTION
-                // if genuinely shallow) ONLY where LNDARE bleed hard-blocked
-                // charted water. No DEPARE here → real land → leave blocked.
-                // Honest: a shallow marked channel stays CAUTION (red), it is
-                // never fabricated into deep water.
-                const v = depareVerdict[idx];
-                if (hardBlocked[idx] === 1 && !Number.isNaN(v)) {
-                    cells[idx] = v;
-                    ribbonUnblockedCells++;
-                }
-                return;
+            // A fairway, a dredged area's outline or the lateral-mark ribbon
+            // says where the channel is, not that there is water (Phase 2a
+            // round-2 review, 2026-09-30): a cell with no chart band, no OSM
+            // water and no protection under it stays unvouched, as between a
+            // pair of marks (Pass 5) or along a lead (Pass 5b). Preferring it
+            // unconditionally let a strict route cross a 1.9 NM gap no chart
+            // covers all green once the ribbon (or a FAIRWY) spanned it.
+            if (Number.isNaN(depareVerdict[idx]) && osmWaterCells[idx] !== 1 && protectedCells[idx] !== 1) {
+                (leadOnlyPreferred ??= new Uint8Array(width * height))[idx] = 1;
             }
-            // Chart DRGARE/FAIRWY rescues hard-blocked cells too —
-            // LNDARE polygons on ENC charts span river concavities, and
-            // the dredged-channel polygon is the authoritative "this is
-            // navigable" overlay. OSM channels still respect hardBlocked.
-            if (hardBlocked[idx] === 1 && !isChartAuthoritative) return;
-            cells[idx] = rescueDepth;
+            if (!isMarkRibbon) return;
+            // Restore the chart's DEPARE verdict ONLY where land paint
+            // hard-blocked charted water: landBlocked, and neither a hazard
+            // buffer (Pass 3's obstnBlocked; a wreck in a buoyed channel is
+            // still a wreck) nor a berth or pontoon (Pass 2c). No DEPARE here
+            // → real land → leave blocked.
+            // Land paint that owner decision 1 upheld over an S-57 band (a
+            // band at the same or a coarser scale, or unranked) is land here
+            // too: restoring the band's depth would make it deep water.
+            if (!Number.isNaN(cells[idx])) return;
+            const v = depareVerdict[idx];
+            if (
+                hardBlocked[idx] === 1 &&
+                landBlocked[idx] === 1 &&
+                obstnBlocked[idx] !== 1 &&
+                berthBlocked?.[idx] !== 1 &&
+                !Number.isNaN(v) &&
+                landUpheld?.[idx] !== 1
+            ) {
+                cells[idx] = v;
+                ribbonUnblockedCells++;
+            }
         });
     };
     const tPassFairwy = Date.now();
@@ -1376,6 +1639,8 @@ export function buildNavGrid(
     // For markers without `_pairDistanceM` (raw beacons / buoys
     // outside the paired pipeline), we fall back to the default
     // 80 m radius — those are best-effort hints, not pair midpoints.
+    // A paired mark's disc (here) marks leadOnlyPreferred like Pass 4 and
+    // Pass 5b: preferred, but no evidence of water.
     const MARKER_CHANNEL_RADIUS_DEFAULT_M = 80;
     const MARKER_CHANNEL_RADIUS_MIN_M = 15;
     const MARKER_CHANNEL_PAIR_MARGIN_M = 5;
@@ -1428,19 +1693,25 @@ export function buildNavGrid(
                 const dM = haversineM(cellLat, cellLon, lat, lon);
                 if (dM <= radius) {
                     const idx = y * width + x;
-                    preferred[idx] = 1;
-                    // Rescue shallow-blocked cells inside a paired
-                    // channel midpoint zone — same rationale as the
-                    // FAIRWY pass: the boat passes between the two
-                    // markers, so this is navigable channel water even
-                    // where coarse bathymetry reads it shallow. Never
-                    // override a hard-blocked cell (LNDARE / hazard).
-                    if ((Number.isNaN(cells[idx]) || cells[idx] < 0) && hardBlocked[idx] !== 1) {
-                        // Rescue a hard-blocked OR caution-marked cell to
-                        // real navigable depth — the marked channel is
-                        // authoritative over both a shallow bathymetry
-                        // reading and a coastline-buffer over-reach.
-                        cells[idx] = Math.max(draftM + safetyM, 5.0);
+                    // PREFER the gate — A* rides it at 1.0×
+                    // (cellCostMultiplier's flat-preferred doctrine) — and
+                    // nothing more (Phase 2a round 2, 2026-09-30). The disc
+                    // used to write a 5 m "rescue depth" into every CAUTION
+                    // or blocked cell between the marks that was not land or
+                    // conflict water: a pair laid across a charted 1 m bank
+                    // read 5 m preferred water for a 2.4 m keel. The marks
+                    // say where the channel is, not how deep it is — the same
+                    // rule Pass 4 and the Pass 5b lead brush now follow
+                    // (channelsNeverDeepen.test.ts). A charted-shallow cell
+                    // stays CAUTION with its real depth (shallowDepthM, the
+                    // tide window's input); land, hazards and conflict water
+                    // stay what they are; and an uncharted cell between the
+                    // marks stays UNKNOWN — no evidence of water, so still
+                    // unvouched under the strict uncharted policy
+                    // (leadOnlyPreferred, shared with the lead brush).
+                    if (preferred[idx] === 0) {
+                        preferred[idx] = 1;
+                        (leadOnlyPreferred ??= new Uint8Array(width * height))[idx] = 1;
                     }
                 }
             }
@@ -1453,33 +1724,33 @@ export function buildNavGrid(
     for (const f of bcnlatFeatures) markMarkerRadius(f);
     markPass('pass5-markers', tPassMarkers, boylatFeatures.length + bcnlatFeatures.length);
 
-    // ── Pass 5b: OSM navigation lines → preferred channel corridor ───
-    // Charted leading/transit lines (seamark navigation_line) are the
-    // dredged-channel centreline ships steer along. Bresenham-rasterise
-    // each into a ~3-cell-wide PREFERRED corridor and rescue shallow
-    // (CAUTION) / unknown cells along it to navigable depth — so A* is
-    // attracted onto the marked channel AND can ride it through bars the
-    // 30 m bathymetry reads as too shallow. Never touches hardBlocked
-    // (real land / charted hazard) cells. Runs after Pass 2 (LNDARE, so
-    // hardBlocked is set) and before Pass 6 (buffer skips preferred cells,
-    // so the corridor isn't sealed). The Brisbane River mouth bar is the
-    // canonical case: the dredged cut isn't in chart FAIRWY and the
-    // lateral markers are too sparse to stitch, but OSM has it as
-    // navigation_line — without this the route cut a red CAUTION diagonal
-    // straight across the bar instead of riding the channel.
+    // ── Pass 5b: navigation lines (leads) → preferred channel corridor ─
+    // Charted leading/transit lines (chart NAVLNE CATNAV 3; OSM seamark
+    // navigation_line) are the channel centreline ships steer along.
+    // Bresenham-rasterise each into a ~3-cell-wide PREFERRED corridor so A*
+    // is attracted onto the marked channel and rides it — at the flat 1.0×
+    // preferred cost, through a bar the bathymetry reads shallow too. It never
+    // changes a cell's depth or navigability (Phase 2a review, 2026-09-30:
+    // leads never override depth; unknown is never green): a shallow cell on
+    // a lead stays red CAUTION with its charted depth for the tide window.
+    // Never touches hardBlocked (real land / charted hazard) cells. Runs
+    // after Pass 2 (LNDARE, so hardBlocked is set) and before Pass 6 (buffer
+    // skips preferred cells, so the corridor isn't sealed). The Brisbane
+    // River mouth bar is the canonical case: the dredged cut isn't in chart
+    // FAIRWY and the lateral markers are too sparse to stitch, but OSM has it
+    // as navigation_line — without the corridor the route cut a CAUTION
+    // diagonal straight across the bar instead of riding the channel.
     //
     // LEADS ONLY (navLineLeads): a chart clearing line (NAVLNE CATNAV 1)
     // marks the edge of a danger and a transit (CATNAV 2) is a bearing —
-    // neither may be preferred, rescue depth or reopen land here. Filtered
+    // neither may be preferred or reopen land here. Filtered
     // again at this pass so a direct grid build (the tracer) can never
     // stamp one, whatever assembled the layers.
     //
     // ON-WATER SPANS ONLY (Phase 1): a leading line is drawn on to its
     // leading marks, usually ashore (Newport NAVLNE 2379 runs ~1.1 km over
     // LNDARE). Only the stretch over water is a lead; the land extension no
-    // longer stamps a corridor, rescues depth or reopens land-painted cells.
-    // The depth rescue on the on-water span is unchanged here (Phase 4, with
-    // the 'needs tide' review).
+    // longer stamps a corridor or reopens land-painted cells.
     //
     // "Over water" is THIS GRID's verdict, cell by cell (Phase 1 review,
     // 2026-09-29), not the S-57-only vector clip (leadLandClip) this pass
@@ -1492,17 +1763,18 @@ export function buildNavGrid(
     // the grid through the canal carve — and the production-shape routes
     // (chart leads + OSM overlay) were refused or crossed ~1 km of land. A
     // line cell is ashore when land paint still blocks it (landBlocked and
-    // not since rescued — a chart FAIRWY/DRGARE or the mark ribbon keeps
-    // landBlocked but restores a depth), or when a relax zone let land paint
+    // not since restored — the mark ribbon keeps landBlocked but restores a
+    // DEPARE verdict), or when a relax zone let land paint
     // through as CAUTION: no corridor is stamped around it.
-    const navlineFeatures = navLineLeads(layers.NAVLINE?.features ?? []);
+    // The pre-clip leads when routeInshore's entry clip left them
+    // (NAVLINE_GRID): this pass clips against the grid's own verdict below.
+    const navlineFeatures = navLineLeads((layers.NAVLINE_GRID ?? layers.NAVLINE)?.features ?? []);
     const leadCellAshore = (x: number, y: number): boolean => {
         if (x < 0 || y < 0 || x >= width || y >= height) return false;
         const idx = y * width + x;
         return (landBlocked[idx] === 1 && Number.isNaN(cells[idx])) || relaxedLand?.[idx] === 1;
     };
     const tPassNavline = Date.now();
-    const navDepth = Math.max(draftM + safetyM, 5.0);
     const NAVLINE_BRUSH_CELLS = 1; // 1-cell Chebyshev radius → ~3-cell (≈150 m) wide corridor
     let navlineCellsMarked = 0;
     const stampNavlineCell = (cx: number, cy: number): void => {
@@ -1544,12 +1816,25 @@ export function buildNavGrid(
                 // slipped through stamped it 5 m preferred, and tideDirect
                 // crossed it with 0 caution legs).
                 if (hardBlocked[idx] === 1 || leadCellAshore(nx, ny) || coastConflict?.[idx] === 1) continue;
-                preferred[idx] = 1; // attract A* onto the marked channel
-                if (cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
-                    // Rescue a shallow-reading (CAUTION) or unknown cell on
-                    // the charted channel to navigable — the leading line
-                    // IS the dredged deep water.
-                    cells[idx] = navDepth;
+                // PREFER the lead — A* rides it at 1.0× (cellCostMultiplier's
+                // flat-preferred doctrine), so it follows the channel through
+                // a bar exactly as before — and NOTHING more. The brush used
+                // to rescue every CAUTION or UNKNOWN cell within a cell of a
+                // lead to 5 m preferred water (Phase 2a review, 2026-09-30:
+                // 12 of the 31 CATNAV-3 leads on the real newport-shane cells,
+                // up to 199 cells a lead, including bands charted 0 m and
+                // drying, and decision-1 conflict water), so the router drew
+                // a clean deep route where the overlay said 'needs tide'.
+                // Owner decisions: leads never override depth, and unknown is
+                // never green. A charted-shallow cell stays CAUTION with its
+                // real depth (shallowDepthM, the tide window's input);
+                // decision-1 water stays conflict CAUTION; an uncharted cell
+                // stays UNKNOWN — and a lead is no evidence of water depth, so
+                // it stays unvouched under the strict uncharted policy
+                // (leadOnlyPreferred below).
+                if (preferred[idx] === 0) {
+                    preferred[idx] = 1; // attract A* onto the marked channel
+                    (leadOnlyPreferred ??= new Uint8Array(width * height))[idx] = 1;
                     navlineCellsMarked++;
                 }
             }
@@ -1580,7 +1865,7 @@ export function buildNavGrid(
     markPass('pass5b-navline', tPassNavline, navlineFeatures.length);
     if (ENGINE_DEBUG && navlineFeatures.length > 0) {
         console.warn(
-            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred`,
+            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells preferred`,
         );
     }
 
@@ -1845,7 +2130,7 @@ export function buildNavGrid(
         for (let idx = 0; idx < cells.length; idx++) {
             if (
                 cells[idx] === UNKNOWN_OPEN &&
-                preferred[idx] === 0 &&
+                (preferred[idx] === 0 || leadOnlyPreferred?.[idx] === 1) &&
                 Number.isNaN(depareVerdict[idx]) &&
                 osmWaterCells[idx] === 0 &&
                 protectedCells[idx] === 0
@@ -1855,12 +2140,61 @@ export function buildNavGrid(
             }
         }
         grid.unvouched = unvouched;
+        if (leadOnlyPreferred) grid.leadOnlyPreferred = leadOnlyPreferred;
         markPass('unvouched-mask', tPassUnvouched, unvouchedCount);
+    }
+    // ── Charted caution water (see NavGrid.chartedShallow) ────────────
+    // Owner decision 7 (2026-09-30): a pin in charted-shallow water gets a
+    // route ALL the way to it, the stretch past the last deep-enough water
+    // flagged 'needs tide'. Only honest chart water qualifies: a CAUTION
+    // cell that an S-57 never-drying band owns (s57ShallowClaim) with no
+    // land paint over it, or that a current Notice-to-Mariners survey charts
+    // (ntmRiseM). Never land (or relax-softened land), never a drying band
+    // (any DRVAL1 < 0 at the owning survey), never a hazard or berth buffer,
+    // never a structure bar, never uncharted water — that is Phase 2b's local
+    // connector.
+    //
+    // Decision-1 water (a finer never-drying band beating coarser land paint;
+    // wetConflict, closing lines over a wet band included) qualifies ONLY when
+    // its finest band is itself deep enough for the keel (d1DeepBand) — caution
+    // solely because of the coarse land paint, as at Tangalooma (finest band
+    // 10–15 m) and the Rivergate dredged area (9.1 m). Owner decision 2 binds
+    // the rest: the offline Newport canal (a 0–2 m harbour band under every
+    // cell's land paint, no OSM water) gets no route until the offline water
+    // pack (Phase 2b) — round 2 routed out of it through a 5.6 km 'needs
+    // tide' tail — and the Mooloolaba conflict creek (2 m) stays the
+    // phantom-departure guard's honest-water snap (Phase 2a round-2 review,
+    // 2026-09-30).
+    {
+        let chartedShallow: Uint8Array | null = null;
+        const ntm = grid.ntmRiseM;
+        for (let idx = 0; idx < cells.length; idx++) {
+            if (!(cells[idx] < 0)) continue;
+            if (hardBlocked[idx] === 1 || landBlocked[idx] === 1 || relaxedLand?.[idx] === 1) continue;
+            if (clearanceBarred[idx] === 1 || obstnBlocked[idx] === 1 || berthBlocked?.[idx] === 1) continue;
+            const s = shallowDepthM[idx];
+            if (s < 0) continue; // a drying band (NaN compares false: no shallow claim)
+            // OSM water under chart land paint is the OVERLAY's water, not the
+            // chart's (round-3 review, 2026-09-30): since OSM water no longer
+            // hides the S-57 band's shallow claim (Pass 1), the online Newport
+            // canal reads CAUTION over its 0–2 m band — but its water is the
+            // OSM canal against every cell's land paint, and a 'needs tide'
+            // tail through it fails the chart's own land check (the canal line
+            // is not a polygon). Such a pin keeps the endpoint carve it always
+            // had, as while OSM painted it 5–10 m deep.
+            if (osmWaterCells[idx] === 1 && landRankAt !== null && landRankAt[idx] !== LAND_NONE) continue;
+            const chartWater = wetConflict[idx] === 1 ? d1DeepBand?.[idx] === 1 : s57ShallowClaim[idx] === 1;
+            if (chartWater || (ntm !== undefined && !Number.isNaN(ntm[idx]))) {
+                (chartedShallow ??= new Uint8Array(width * height))[idx] = 1;
+            }
+        }
+        if (chartedShallow) grid.chartedShallow = chartedShallow;
     }
     grid.shallowDepthM = shallowDepthM;
     grid.clearanceBarred = clearanceBarred;
     grid.wetConflict = wetConflict;
     grid.markDiscBlocked = markDiscBlocked;
+    grid.obstnBlocked = obstnBlocked;
     // Exposed only when endpoint relax zones softened land — the relax-retry
     // acceptance uses it to catch a route circumventing a low-clearance
     // bridge overland (relax-carved cells near a clearanceBarred cell).

@@ -23,25 +23,31 @@
  * under them), and the land audit counted anything within 125 m of them as
  * proven water. Only the ON-WATER spans of a lead are evidence of anything.
  *
- * LAND here is the hard land the engine already treats as land: inside an
- * LNDARE polygon and NOT inside S-57 chart water that the grid lets beat
- * LNDARE —
- *   • a chart DEPARE with DRVAL1 > 0 (Pass 1/2: a deep band is a protected
- *     conflict, a shallow one a wet chart claim; both stay CAUTION water),
- *   • a chart DRGARE or FAIRWY (Pass 4 rescues those over LNDARE).
- * A drying band (DRVAL1 ≤ 0) under LNDARE is land: the grid keeps the land
- * paint there, and only the old NAVLNE reopen let a lead through it — the
- * very extension this module removes. Injected OSM/Mapbox water (no S-57
- * identity) is NOT chart evidence and never un-lands anything here.
+ * LAND here is hard land: inside an LNDARE polygon, unless the land paint is
+ * beaten by a FINER survey's depth band that never dries (owner decision 1,
+ * 2026-09-30; services/enc/scaleShadow.ts finerBandBeatsLand):
+ *   • the finest-ranked S-57 DEPARE / DRGARE bands covering the point (the
+ *     same "finest survey owns the point" rule as the depth below) all chart
+ *     DRVAL1 ≥ 0, and
+ *   • their fineness rank (`_scaleRank`, stamped at merge time from the
+ *     cell's compilation scale or usage band — scaleShadow cellFinenessRank,
+ *     higher is finer) is STRICTLY finer than the finest land paint covering
+ *     the point (never a sibling of the same band whose scale is unknown).
+ * That water is shallow water, never clear: the metres of a lead over it are
+ * counted as `landConflictM`, and the compiler classes such a lead 'needs
+ * tide' however deep the band. Land stays land under a drying band
+ * (DRVAL1 < 0) or one with no DRVAL1, under a band charted at the same or a
+ * coarser scale, and wherever the ranks are unknown — an unranked LNDARE or
+ * unranked bands covering the point — because the comparison cannot be made
+ * (fail safe). A chart FAIRWY carries no depth and is not water here. Injected
+ * OSM/Mapbox water (no S-57 identity) is NOT chart evidence and never
+ * un-lands anything.
  *
- * SCALE: where the features carry a fineness rank (`_scaleRank`, stamped at
- * merge time from the cell's bbox — higher is finer), chart water only beats
- * land charted at the SAME or a coarser scale: a 1:90k overview band cannot
- * erase an island a 1:22k harbour cell draws, while a harbour cell's water
- * still beats the overview's generalised landmask. The router's merge ranks
- * DEPARE only, so there LNDARE is unranked and any chart water beats it —
- * exactly the grid's rule. The lead compiler's merge ranks LNDARE too, so
- * it clips at least as much as the engine does (the safe direction).
+ * Every merge that feeds this module ranks LNDARE, DEPARE and DRGARE: the
+ * lead compiler's mergeLeadCells, and the router's own merges (InshoreRouter
+ * tryInshoreRouteInner / assembleTracerLayers, read by the engine's land audit
+ * and entry lead clip through navLinesOnWater). A layer set without ranks —
+ * the corridor test fixtures — keeps all of its land paint.
  *
  * CHARTED DEPTH is S-57 DEPARE/DRGARE DRVAL1 only (DRGARE = the maintained
  * depth). The finest survey wins where ranked features overlap (the same
@@ -58,6 +64,14 @@
  */
 import type { MultiPolygon, Polygon, Position } from 'geojson';
 import { geometryBbox, haversineM } from '../engine/geometry';
+import {
+    bandNeverDries,
+    depthSurveyOwners,
+    finerBandBeatsLand,
+    finestSurveyOwners,
+    landRankKey,
+} from '../enc/scaleShadow';
+import { isS57ChartProps } from '../enc/types';
 
 /** The minimal GeoJSON shapes this module reads. */
 export interface ClipFeatureLike {
@@ -73,7 +87,6 @@ export interface ClipLayers {
     LNDARE?: ClipCollectionLike;
     DEPARE?: ClipCollectionLike;
     DRGARE?: ClipCollectionLike;
-    FAIRWY?: ClipCollectionLike;
 }
 
 type AreaGeometry = Polygon | MultiPolygon;
@@ -112,11 +125,10 @@ export interface IndexedDepthArea extends IndexedArea {
     drval1: number | null;
 }
 
-/** One layer set, indexed once: the land test, the chart water that beats
- * it, and the charted depth bands. */
+/** One layer set, indexed once: the land paint and the charted depth bands
+ * (which are also the only chart water that can beat the land paint). */
 export interface ChartAreaIndex {
     land: IndexedArea[];
-    wet: IndexedArea[];
     depth: IndexedDepthArea[];
     /** Per-feature clip results for navLinesOnWater (feature identity). */
     clipCache: WeakMap<object, ClipFeatureLike | null>;
@@ -127,6 +139,9 @@ interface SegmentPiece {
     t0: number;
     t1: number;
     land: boolean;
+    /** Land paint beaten by a finer never-drying band (decision 1): water,
+     * but never clear. Always false where `land` is true. */
+    conflict: boolean;
     /** Charted depth (m) over this piece, or null when no chart band with a
      * DRVAL1 covers it. Only computed when depth was asked for. */
     depthM: number | null;
@@ -149,6 +164,9 @@ export interface DepthAlong {
     uncoveredM: number;
     /** Metres over land (should be 0 for a compiled lead). */
     landM: number;
+    /** Metres over coarser land paint that a finer never-drying band beats
+     * (decision 1): water, but a lead over any of it is never clear. */
+    landConflictM: number;
 }
 
 export const readNum = (props: Record<string, unknown> | null | undefined, key: string): number | null => {
@@ -158,15 +176,10 @@ export const readNum = (props: Record<string, unknown> | null | undefined, key: 
 };
 
 /** An S-57 chart feature (the extractor's acronym, classCode or OBJL), as
- * opposed to injected OSM/Mapbox water, which carries none of them. */
+ * opposed to injected OSM/Mapbox water, which carries none of them — the one
+ * test the grid and the audit share (services/enc/types.ts isS57ChartProps). */
 export function isS57Feature(feature: ClipFeatureLike): boolean {
-    const p = feature.properties ?? {};
-    return (
-        (typeof p.acronym === 'string' && p.acronym.trim() !== '') ||
-        (typeof p.ACRONYM === 'string' && p.ACRONYM.trim() !== '') ||
-        p.classCode !== undefined ||
-        p.OBJL !== undefined
-    );
+    return isS57ChartProps(feature.properties);
 }
 
 export function areaGeometry(feature: ClipFeatureLike): AreaGeometry | null {
@@ -261,33 +274,24 @@ export function pointInArea(area: IndexedArea, lon: number, lat: number): boolea
  * layer collections' identity by chartAreaIndexFor. */
 export function buildChartAreaIndex(layers: ClipLayers): ChartAreaIndex {
     const land: IndexedArea[] = [];
-    const wet: IndexedArea[] = [];
     const depth: IndexedDepthArea[] = [];
     for (const f of layers.LNDARE?.features ?? []) {
         const g = areaGeometry(f);
         if (g) land.push(indexArea(g, readNum(f.properties, '_scaleRank')));
     }
-    for (const [layer, isDredged] of [
-        [layers.DEPARE, false],
-        [layers.DRGARE, true],
-    ] as const) {
+    // DEPARE and DRGARE (the maintained depth; the display merge folds it into
+    // DEPARE and the acronym still says which) are one set of depth bands.
+    for (const layer of [layers.DEPARE, layers.DRGARE]) {
         for (const f of layer?.features ?? []) {
             const g = areaGeometry(f);
             if (!g || !isS57Feature(f)) continue;
-            const acronym = String(f.properties?.acronym ?? f.properties?.ACRONYM ?? '').toUpperCase();
-            // The display merge folds DRGARE into DEPARE; the acronym still says which.
-            const dredged = isDredged || acronym === 'DRGARE';
-            const drval1 = readNum(f.properties, 'DRVAL1');
-            const area = indexArea(g, readNum(f.properties, '_scaleRank'));
-            depth.push({ ...area, drval1 });
-            if (dredged || (drval1 !== null && drval1 > 0)) wet.push(area);
+            depth.push({
+                ...indexArea(g, readNum(f.properties, '_scaleRank')),
+                drval1: readNum(f.properties, 'DRVAL1'),
+            });
         }
     }
-    for (const f of layers.FAIRWY?.features ?? []) {
-        const g = areaGeometry(f);
-        if (g && isS57Feature(f)) wet.push(indexArea(g, readNum(f.properties, '_scaleRank')));
-    }
-    return { land, wet, depth, clipCache: new WeakMap() };
+    return { land, depth, clipCache: new WeakMap() };
 }
 
 const EMPTY_KEY = {};
@@ -296,7 +300,7 @@ const indexMemo = new WeakMap<object, { parts: object[]; index: ChartAreaIndex }
 /** The memoized index for a layer set, keyed on the collections' identity —
  * the grid and the audit hand the same merged collections in for a route. */
 export function chartAreaIndexFor(layers: ClipLayers): ChartAreaIndex {
-    const parts = [layers.LNDARE, layers.DEPARE, layers.DRGARE, layers.FAIRWY].map((c) => c ?? EMPTY_KEY);
+    const parts = [layers.LNDARE, layers.DEPARE, layers.DRGARE].map((c) => c ?? EMPTY_KEY);
     const hit = indexMemo.get(parts[0]);
     if (hit && hit.parts.every((p, i) => p === parts[i])) return hit.index;
     const index = buildChartAreaIndex(layers);
@@ -306,50 +310,86 @@ export function chartAreaIndexFor(layers: ClipLayers): ChartAreaIndex {
 
 const bboxHitsSegment = (b: BBox, s: BBox): boolean => !(b[2] < s[0] || b[0] > s[2] || b[3] < s[1] || b[1] > s[3]);
 
-/** Hard land at a point: inside LNDARE, and not inside chart water charted
- * at the same or a finer scale than the finest land claim there (unranked
- * land loses to any chart water; unranked water beats any land). */
-function landAt(index: ChartAreaIndex, lon: number, lat: number): boolean {
-    let landRank: number | undefined;
-    for (const a of index.land) {
-        const r = a.rank ?? -Infinity;
-        if (landRank !== undefined && r <= landRank) continue;
-        if (pointInArea(a, lon, lat)) landRank = r;
-    }
-    if (landRank === undefined) return false;
-    for (const w of index.wet) {
-        if ((w.rank ?? Infinity) < landRank) continue;
-        if (pointInArea(w, lon, lat)) return false;
-    }
-    return true;
+const OPEN = 0;
+const LAND = 1;
+const CONFLICT = 2;
+type LandVerdict = typeof OPEN | typeof LAND | typeof CONFLICT;
+
+/** The depth bands covering a point that OWN it: the finest ranked band and
+ * every band whose rank TIES with it (the same rank, or one usage band where
+ * either is known by its band alone — scaleShadow surveyRanksTie; Phase 2a
+ * round-2 review, 2026-09-30), or every unranked band when no ranked one
+ * covers the point. `rank` is the owners' weakest rank (null: unranked). */
+function ownersAt(
+    areas: readonly IndexedDepthArea[],
+    lon: number,
+    lat: number,
+): { owners: IndexedDepthArea[]; rank: number | null } {
+    const covering = areas.filter((a) => pointInArea(a, lon, lat));
+    const { owners, rank } = finestSurveyOwners(covering.map((a) => a.rank));
+    return { owners: owners.map((i) => covering[i]), rank };
 }
 
-/** Charted depth at a point: the finest-ranked covering bands own it, and
- * the shallowest DRVAL1 among them wins. Null when no band covers the point,
- * or when any band at that finest rank carries no DRVAL1 — the finest survey
- * charts no depth here, and a coarser cell's band is not evidence for it. */
-export function chartedDepthAt(areas: readonly IndexedDepthArea[], lon: number, lat: number): number | null {
-    let bestRank = -Infinity;
-    let covered = false;
-    let undepthed = false;
-    let depth: number | null = null;
-    for (const a of areas) {
-        const rank = a.rank ?? -Infinity;
-        // A coarser band can never change the answer once a finer one covers.
-        if (covered && rank < bestRank) continue;
+/**
+ * The finest-ranked depth bands covering a point (chartedDepthAt's owners):
+ * their rank (null when unranked — unknown fineness) and whether every one of
+ * them never dries (bandNeverDries). Null when no band covers the point.
+ */
+function finestBandsAt(
+    areas: readonly IndexedDepthArea[],
+    lon: number,
+    lat: number,
+): { rank: number | null; neverDries: boolean } | null {
+    const { owners, rank } = ownersAt(areas, lon, lat);
+    if (owners.length === 0) return null;
+    return { rank, neverDries: owners.every((a) => bandNeverDries(a.drval1)) };
+}
+
+/**
+ * The land verdict at a point (decision 1, see the header): OPEN outside the
+ * land paint; CONFLICT where the finest covering bands never dry and are
+ * charted strictly finer than every land claim there; LAND otherwise —
+ * including wherever a covering land claim or the owning bands carry no rank.
+ */
+function landVerdictAt(index: ChartAreaIndex, lon: number, lat: number): LandVerdict {
+    let inLand = false;
+    let landRank: number | null = -Infinity;
+    for (const a of index.land) {
         if (!pointInArea(a, lon, lat)) continue;
-        if (!covered || rank > bestRank) {
-            covered = true;
-            bestRank = rank;
-            undepthed = a.drval1 === null;
-            depth = a.drval1;
-        } else if (a.drval1 === null) {
-            undepthed = true;
-        } else if (depth === null || a.drval1 < depth) {
-            depth = a.drval1;
+        inLand = true;
+        if (a.rank === null) {
+            landRank = null; // unknown fineness: the land paint stands
+            break;
         }
+        // The hardest land claim to beat (a paint known by its usage band
+        // alone counts as that band's finest: scaleShadow landRankKey).
+        const key = landRankKey(a.rank);
+        if (key > (landRank as number)) landRank = key;
     }
-    return undepthed ? null : depth;
+    if (!inLand) return OPEN;
+    if (landRank === null) return LAND;
+    const bands = finestBandsAt(index.depth, lon, lat);
+    return bands && bands.neverDries && finerBandBeatsLand(bands.rank, landRank) ? CONFLICT : LAND;
+}
+
+/** Charted depth at a point: the finest-ranked covering bands own it (with
+ * every band tied with them), and the shallowest DRVAL1 among them wins. Null
+ * when no band covers the point, or when any owning band carries no DRVAL1 —
+ * the finest survey charts no depth here, and a coarser cell's band is not
+ * evidence for it. */
+export function chartedDepthAt(areas: readonly IndexedDepthArea[], lon: number, lat: number): number | null {
+    // Every UNRANKED band covering the point owns its depth too (scaleShadow
+    // depthSurveyOwners; round-3 review, 2026-09-30): its scale is unknown, so
+    // a ranked band cannot out-survey it — the shallowest wins, as in the grid
+    // (navGrid Pass 1).
+    const covering = areas.filter((a) => pointInArea(a, lon, lat));
+    const owners = depthSurveyOwners(covering.map((a) => a.rank)).owners.map((i) => covering[i]);
+    let depth: number | null = null;
+    for (const a of owners) {
+        if (a.drval1 === null) return null;
+        if (depth === null || a.drval1 < depth) depth = a.drval1;
+    }
+    return depth;
 }
 
 /** Parameters t ∈ (0,1) where segment a→b crosses any edge of the areas. */
@@ -396,11 +436,11 @@ function profileSegment(index: ChartAreaIndex, a: Position, b: Position, withDep
     const sb: BBox = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
     const ts: number[] = [0, 1];
     crossings(index.land, a, b, sb, ts);
-    // Wet areas only matter where land is: skip their edges when no land
-    // area touches this segment (the common open-water case).
+    // The bands only matter to the land verdict where land is: skip their
+    // edges when no land area touches this segment (the common open-water
+    // case) and no depth was asked for.
     const landNear = index.land.some((area) => bboxHitsSegment(area.bbox, sb));
-    if (landNear) crossings(index.wet, a, b, sb, ts);
-    if (withDepth) crossings(index.depth, a, b, sb, ts);
+    if (landNear || withDepth) crossings(index.depth, a, b, sb, ts);
     ts.sort((x, y) => x - y);
     const pieces: SegmentPiece[] = [];
     for (let i = 0; i < ts.length - 1; i++) {
@@ -410,11 +450,13 @@ function profileSegment(index: ChartAreaIndex, a: Position, b: Position, withDep
         const tm = (t0 + t1) / 2;
         const lon = a[0] + (b[0] - a[0]) * tm;
         const lat = a[1] + (b[1] - a[1]) * tm;
-        const land = landNear && landAt(index, lon, lat);
+        const verdict = landNear ? landVerdictAt(index, lon, lat) : OPEN;
+        const land = verdict === LAND;
+        const conflict = verdict === CONFLICT;
         const depthM = withDepth ? chartedDepthAt(index.depth, lon, lat) : null;
         const prev = pieces[pieces.length - 1];
-        if (prev && prev.land === land && prev.depthM === depthM) prev.t1 = t1;
-        else pieces.push({ t0, t1, land, depthM });
+        if (prev && prev.land === land && prev.conflict === conflict && prev.depthM === depthM) prev.t1 = t1;
+        else pieces.push({ t0, t1, land, conflict, depthM });
     }
     return pieces;
 }
@@ -469,12 +511,14 @@ function indexNear(index: ChartAreaIndex, coords: readonly Position[]): ChartAre
         if (c[1] > lb[3]) lb[3] = c[1];
     }
     const near = <A extends IndexedArea>(areas: A[]): A[] => areas.filter((a) => bboxHitsSegment(a.bbox, lb));
-    return { land: near(index.land), wet: near(index.wet), depth: near(index.depth), clipCache: index.clipCache };
+    return { land: near(index.land), depth: near(index.depth), clipCache: index.clipCache };
 }
 
 /**
  * Cut a line to its on-water runs. A run continues through a vertex when
- * the water continues; land splits it. Runs shorter than `minPieceM` are
+ * the water continues; land splits it. Water over land paint that a finer
+ * band beats (decision 1) is water here — its depth verdict is
+ * depthAlongLine's landConflictM. Runs shorter than `minPieceM` are
  * dropped (their metres are neither land nor kept).
  */
 export function clipLineToWater(
@@ -522,12 +566,14 @@ export function clipLineToWater(
     return { pieces, lengthM, landM };
 }
 
-/** Charted depth, uncovered metres and land metres along a line. */
+/** Charted depth, uncovered metres, land metres and metres over land paint
+ * a finer band beats (landConflictM) along a line. */
 export function depthAlongLine(index: ChartAreaIndex, coords: readonly Position[]): DepthAlong {
     index = indexNear(index, coords);
     let lengthM = 0;
     let uncoveredM = 0;
     let landM = 0;
+    let landConflictM = 0;
     let minDepthM: number | null = null;
     for (let i = 0; i < coords.length - 1; i++) {
         const a = coords[i];
@@ -537,11 +583,12 @@ export function depthAlongLine(index: ChartAreaIndex, coords: readonly Position[
         for (const piece of profileSegment(index, a, b, true)) {
             const m = (piece.t1 - piece.t0) * len;
             if (piece.land) landM += m;
+            if (piece.conflict) landConflictM += m;
             if (piece.depthM === null) uncoveredM += m;
             else if (minDepthM === null || piece.depthM < minDepthM) minDepthM = piece.depthM;
         }
     }
-    return { lengthM, minDepthM, uncoveredM, landM };
+    return { lengthM, minDepthM, uncoveredM, landM, landConflictM };
 }
 
 /** LineString / MultiLineString coordinates of a feature (malformed vertices

@@ -140,6 +140,53 @@ export function pointToTupleLinesM(
     return best;
 }
 
+/** A vertex this close to an OSM canal centre-line rides the canal: it
+ * renders tier-1 red (the pipeline's tier1Vtx, and a promoted route's mask). */
+export const CANAL_RENDER_M = 45;
+
+/**
+ * The per-segment canal (tier 1) and offshore (tier 4) masks for a polyline
+ * the tier pipeline did NOT assemble — a PROMOTED Seaway Graph route (round
+ * 3, 2026-09-30). It carried neither mask, so the planner, which requires
+ * every colour mask before it calls a route verified, drew every promoted
+ * route as grey 'unverified' dashes that could not be saved, exported or
+ * shared. By the pipeline's own rules: a vertex is canal when it lies within
+ * CANAL_RENDER_M of an OSM canal centre-line, or on injected canal / marina
+ * water that is neither a marked channel (the graph's channel edges) nor a
+ * charted fairway (segmentRoute's tier 1); offshore when it lies off the ENC
+ * grid (segmentRoute's tier 4); and a segment is canal / offshore when either
+ * end is (routeInshore's per-segment rule).
+ */
+export function routeTierMasks(
+    polyline: readonly (readonly [number, number])[],
+    grid: NavGrid,
+    layers: InshoreLayers,
+    channelSegMask: readonly boolean[] = [],
+): { canalMask: boolean[]; offshoreMask: boolean[] } {
+    const canalLines = parseCanalLines((layers.CANAL?.features ?? []) as Parameters<typeof parseCanalLines>[0]);
+    const n = polyline.length;
+    const onChannel = (i: number): boolean => channelSegMask[i - 1] === true || channelSegMask[i] === true;
+    const canalVtx: boolean[] = [];
+    const offshoreVtx: boolean[] = [];
+    for (let i = 0; i < n; i++) {
+        const [lon, lat] = polyline[i];
+        const { x, y } = latLonToGrid(grid, lat, lon);
+        const inGrid = x >= 0 && y >= 0 && x < grid.width && y < grid.height;
+        const idx = inGrid ? y * grid.width + x : -1;
+        offshoreVtx.push(!inGrid);
+        const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
+        const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1 && grid.preferred[idx] !== 1 && !onChannel(i);
+        canalVtx.push(onCanalLine || injected);
+    }
+    const canalMask: boolean[] = [];
+    const offshoreMask: boolean[] = [];
+    for (let i = 0; i + 1 < n; i++) {
+        canalMask.push(canalVtx[i] || canalVtx[i + 1]);
+        offshoreMask.push(offshoreVtx[i] || offshoreVtx[i + 1]);
+    }
+    return { canalMask, offshoreMask };
+}
+
 export function pointToTuplePolylineM(
     p: { lat: number; lon: number },
     polyline: readonly (readonly [number, number])[],
@@ -261,6 +308,39 @@ export function buildGateCentreTracks(
     return tracks;
 }
 
+/** A vertex within this of a gate's centre is that gate's crossing. The
+ * followers (chain, gate-centre track, egress splice) put their gate vertex
+ * ON the centre; this only absorbs float, and is far inside the narrowest
+ * gate buildGateCentreTracks accepts (12 m), so no scaffold point beside a
+ * gate is mistaken for it. */
+export const GATE_ANCHOR_M = 3;
+
+/**
+ * Per vertex: is this a lateral-mark gate crossing — within GATE_ANCHOR_M of
+ * a gate centre (round 5, 2026-10-01)? A gate crossing is an anchor: the
+ * route line must visibly thread every gate it passes through, so no
+ * simplifier may remove the vertex (engine scaffold collapse,
+ * collapseStateRuns `pinned`). Newport's gate 5/6 sits 1.2 m off the chord
+ * 7/8 → 3/4, and the 2.5 m collapse dropped it.
+ */
+export function gateAnchorMask(
+    polyline: readonly (readonly [number, number])[],
+    gateCentres: readonly LatLon[],
+    toleranceM = GATE_ANCHOR_M,
+): boolean[] {
+    if (gateCentres.length === 0) return polyline.map(() => false);
+    const tolLatDeg = toleranceM / M_PER_DEG_LAT;
+    return polyline.map(([lon, lat]) => {
+        const tolLonDeg = toleranceM / Math.max(1, mPerDegLon(lat));
+        return gateCentres.some(
+            (c) =>
+                Math.abs(c.lat - lat) <= tolLatDeg &&
+                Math.abs(c.lon - lon) <= tolLonDeg &&
+                llDistM(c, { lat, lon }) <= toleranceM,
+        );
+    });
+}
+
 export function turnDegLL(a: LatLon, b: LatLon, c: LatLon): number {
     const mPerLon = mPerDegLon(b.lat);
     const ux = (b.lon - a.lon) * mPerLon;
@@ -304,6 +384,8 @@ export function lineCrossesHardLand(grid: NavGrid, a: LatLon, b: LatLon, stepM =
         if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
         const idx = y * grid.width + x;
         if (grid.landBlocked ? grid.landBlocked[idx] === 1 : Number.isNaN(grid.cells[idx])) return true;
+        // A structure this mast cannot pass under is land for this vessel.
+        if (grid.clearanceBarred?.[idx] === 1) return true;
     }
     return false;
 }
@@ -999,6 +1081,9 @@ export function applyThreeTier(
     channelMask: boolean[];
     tier4Mask: boolean[];
     offshoreMask: boolean[];
+    /** Per-vertex lateral-mark gate crossing (gateAnchorMask) — an anchor no
+     *  simplifier may remove. */
+    gateMask: boolean[];
 } | null {
     if (polyline.length < 2) return null;
 
@@ -1127,6 +1212,9 @@ export function applyThreeTier(
         const landOnly = (p: { lat: number; lon: number }): boolean => {
             const { x, y } = latLonToGrid(grid, p.lat, p.lon);
             if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
+            // …and a bridge / overhead line this mast cannot pass under: the
+            // snap rides the track off the grid, so it must see the bar.
+            if (grid.clearanceBarred?.[y * grid.width + x] === 1) return true;
             return grid.landBlocked ? grid.landBlocked[y * grid.width + x] === 1 : false;
         };
         const snapped = snapToLeadingLines(
@@ -1416,7 +1504,6 @@ export function applyThreeTier(
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
 
-    const CANAL_RENDER_M = 45;
     const tier1Vtx = outPoly.map(([lon, lat], i) => {
         const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
         return canalVtx[i] || canalKeys.has(`${lon}|${lat}`) || onCanalLine;
@@ -1536,6 +1623,16 @@ export function applyThreeTier(
         engineLog.warn(`[ntm-bar] rode promulgated REF transit (+${barRide.polyline.length - clampedPoly.length} vtx)`);
     }
 
+    // Every gate centre the route may thread: the accepted chart pairs (and
+    // the gate-centre tracks built on them), the OSM pair-inferred channel
+    // midpoints and the chains built from them.
+    const gateCentres: LatLon[] = [
+        ...gatePairs.map((g) => ({ lat: (g.port.lat + g.stbd.lat) / 2, lon: (g.port.lon + g.stbd.lon) / 2 })),
+        ...gateCentreTracks.flatMap((t) => t.pts),
+        ...channelChains.flatMap((t) => t.pts),
+        ...midpointMarks.map((m) => ({ lat: m.lat, lon: m.lon })),
+    ];
+
     return {
         polyline: barRide.polyline,
         provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}${cardinalClampTag}${
@@ -1550,6 +1647,8 @@ export function applyThreeTier(
         tier4Mask: barRide.channelSeg,
         // Per-vertex offshore (tier-4) flag for the DARK BLUE offshore leg.
         offshoreMask: barRide.offshoreVtx,
+        // Per-vertex gate crossing — pinned through the scaffold collapse.
+        gateMask: gateAnchorMask(barRide.polyline, gateCentres),
     };
 }
 
@@ -1661,6 +1760,8 @@ export function applyLeadingLineSnap(
     const isBlocked = (p: LatLon): boolean => {
         const { x, y } = latLonToGrid(grid, p.lat, p.lon);
         if (x < 0 || y < 0 || x >= w || y >= h) return true;
+        // A bridge / overhead line this mast cannot pass under aborts like land.
+        if (grid.clearanceBarred?.[y * w + x] === 1) return true;
         return grid.landBlocked ? grid.landBlocked[y * w + x] === 1 : Number.isNaN(grid.cells[y * w + x]);
     };
     const isCaution = (p: LatLon): boolean => {
@@ -1744,6 +1845,8 @@ export function applyLeadingLineApproach(
     const isBlocked = (p: LatLon): boolean => {
         const { x, y } = latLonToGrid(grid, p.lat, p.lon);
         if (x < 0 || y < 0 || x >= w || y >= h) return true;
+        // A bridge / overhead line this mast cannot pass under aborts like land.
+        if (grid.clearanceBarred?.[y * w + x] === 1) return true;
         return grid.landBlocked ? grid.landBlocked[y * w + x] === 1 : Number.isNaN(grid.cells[y * w + x]);
     };
     const isCautionOrBlocked = (p: LatLon): boolean => {

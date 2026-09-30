@@ -28,7 +28,8 @@ import {
     type NtmRoutingPack,
     type NtmPackStatus,
 } from '../../services/ntmRouting';
-import { loadLowBridges, type LowBridge } from '../../services/lowBridges';
+import { loadLowBridges } from '../../services/lowBridges';
+import { bridgeMarkerPassable, bridgePopupHtml } from './bridgePopup';
 import { vesselAirDraftMetres } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { NoticeToMarinersService, type Notice } from '../../services/NoticeToMarinersService';
@@ -232,7 +233,7 @@ function bridgeEl(passable: boolean): HTMLDivElement {
         '<path d="M1 11.5h14M3.5 11.5V4M12.5 11.5V4M1 7.5c3.2 0 4-3 7-3s3.8 3 7 3" fill="none" ' +
         `stroke="${passable ? 'rgb(148,163,184)' : 'rgb(239,68,68)'}" stroke-width="1.2" stroke-linecap="round"/></svg>`;
     el.setAttribute('role', 'img');
-    el.setAttribute('aria-label', passable ? 'Bridge' : 'Bridge — clearance below air draft');
+    el.setAttribute('aria-label', passable ? 'Bridge' : 'Bridge — routes blocked for your air draft');
     Object.assign(el.style, {
         fontSize: '14px',
         lineHeight: '1',
@@ -244,29 +245,6 @@ function bridgeEl(passable: boolean): HTMLDivElement {
         boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
     } satisfies Partial<CSSStyleDeclaration>);
     return el;
-}
-
-function bridgePopupHtml(b: LowBridge, airDraftM: number | null): string {
-    const blocked = airDraftM !== null && b.clearanceM !== null && airDraftM > b.clearanceM;
-    const verdict =
-        b.clearanceM === null
-            ? '<span style="color:var(--day-ui-amber, #fbbf24);font-weight:700;">No published clearance — verify locally before passing. Routing is NOT gated here.</span>'
-            : airDraftM === null
-              ? '<span style="color:var(--day-ui-muted, #94a3b8);">Set your air draft in Vessel settings for clearance checks.</span>'
-              : blocked
-                ? `<span style="color:var(--day-ui-danger, #f87171);font-weight:700;">IMPASSABLE for your ${airDraftM.toFixed(1)} m air draft — routes are blocked here.</span>`
-                : `<span style="color:var(--day-ui-success, #4ade80);">Clears your ${airDraftM.toFixed(1)} m air draft.</span>`;
-    const clearanceLine =
-        b.clearanceM === null
-            ? 'Vertical clearance not charted'
-            : `Vertical clearance ${b.clearanceM.toFixed(1)} m${b.estimated ? ' (estimated — verify locally)' : ''}`;
-    return `
-      <div style="font-family:inherit;color:var(--day-ui-text, #e2e8f0);max-width:240px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:var(--day-ui-muted, #94a3b8);margin-bottom:2px;">🌉 FIXED BRIDGE</div>
-        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(b.name)}</div>
-        <div style="font-size:11px;color:var(--day-ui-muted, #cbd5e1);margin-bottom:4px;">${clearanceLine}</div>
-        <div style="font-size:11px;">${verdict}</div>
-      </div>`;
 }
 
 function broadcastPopupHtml(n: Notice): string {
@@ -423,9 +401,10 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
             const airDraftM = vesselAirDraftMetres(useSettingsStore.getState().settings.vessel);
             for (const b of bridges) {
                 const mid = b.span[Math.floor(b.span.length / 2)];
-                // Unknown clearance renders NEUTRAL (not red): the popup
-                // carries the verify-locally caution instead.
-                const passable = airDraftM === null || b.clearanceM === null || airDraftM <= b.clearanceM;
+                // The router's own verdict (overheadClearance.clearanceBlock):
+                // neutral only where a route may pass — too low, unknown or
+                // estimated clearance, or no air draft set, all render red.
+                const passable = bridgeMarkerPassable(b, airDraftM);
                 const el = bridgeEl(passable);
                 el.addEventListener('click', (ev) => {
                     ev.stopPropagation();

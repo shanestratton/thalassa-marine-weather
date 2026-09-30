@@ -85,6 +85,14 @@ import {
     type PiWorkloadClass,
     type PiWorkloadLease,
 } from '../workloadGovernor.js';
+import {
+    conversionLayers,
+    ENC_ALWAYS_EMITTED_LAYERS,
+    ENC_CONVERSION_SCHEMA,
+    dsidCompilationScale,
+    ogrinfoLayerFeatureCounts,
+    type OgrLayerOutcome,
+} from '../encLayerContract.js';
 
 // ── Job state ─────────────────────────────────────────────────────
 
@@ -238,7 +246,16 @@ const ENC_LAYERS = [
     'SLCONS',
     'DAMCON',
     'PILPNT',
+    // Bridges and overhead clearance (Part B, inshore router, 2026-09-30) —
+    // mirrored with ROUTING_CLASSES; for ROUTING, not rendered. BRIDGE /
+    // PONTON / CBLOHD / PIPOHD / CONVYR, carrying VERCLR, VERCCL, VERCOP, VERCSA and
+    // CATBRG: the router blocks a structure a mast cannot clear, and the
+    // lead overlay reviews leads against them. ALWAYS carried, empty when
+    // the cell has none (encLayerContract: "extracted, none charted").
+    ...ENC_ALWAYS_EMITTED_LAYERS,
 ] as const;
+/** Exported for the layer-contract test (encLayerContract.test.mts). */
+export { ENC_LAYERS };
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // 300 MB — covers regional AHO/NOAA ZIP packs
@@ -424,11 +441,7 @@ async function acquireRequestWorkload(
  * once here rather than ship the file path back, because the
  * caller will pack everything into the EncConversionResult anyway.
  */
-async function runOgr2Ogr(
-    inputPath: string,
-    layer: string,
-    outputDir: string,
-): Promise<{ type: 'FeatureCollection'; features: unknown[] } | null> {
+async function runOgr2Ogr(inputPath: string, layer: string, outputDir: string): Promise<OgrLayerOutcome> {
     const outputPath = path.join(outputDir, `${layer}.geojson`);
 
     const result = await new Promise<number>((resolve, reject) => {
@@ -466,7 +479,9 @@ async function runOgr2Ogr(
         throw err;
     });
 
-    if (result === -1) return null;
+    // The cell has no such layer: none charted (encLayerContract stamps an
+    // empty collection for the always-emitted structure layers).
+    if (result === -1) return 'absent';
 
     try {
         const text = await fs.readFile(outputPath, 'utf8');
@@ -489,6 +504,11 @@ async function parseS57Metadata(inputPath: string): Promise<{
     edition: number;
     issued: string;
     bbox: [number, number, number, number];
+    /** Per-layer feature counts from the ogrinfo summary — the structure
+     * layers' conversions are held to them (conversionLayers). */
+    layerFeatureCounts: Record<string, number>;
+    /** Compilation scale denominator (DSID record's DSPM_CSCL), when read. */
+    nativeScale?: number;
 }> {
     // ogrinfo -al -so produces summary output including DSID (dataset
     // identifier) and per-layer extents. We parse text rather than
@@ -547,6 +567,12 @@ async function parseS57Metadata(inputPath: string): Promise<{
     // edition=0 / issued=today, which the UI handles.
     let edition = 0;
     let issued = new Date().toISOString().slice(0, 10);
+    // Compilation scale (DSPM_CSCL): the phone ranks a cell's survey
+    // fineness by it (services/enc/scaleShadow.ts cellFinenessRank) — which
+    // chart's land paint a finer survey's water beats (owner decision 1,
+    // round 2 2026-09-30). Absent: the phone falls back to the usage band in
+    // the cell name (AU5…), then to "unknown" (the land paint stands).
+    let nativeScale: number | undefined;
     try {
         const csv = await new Promise<string>((resolve, reject) => {
             const proc = spawn('ogr2ogr', ['-f', 'CSV', '/vsistdout/', inputPath, 'DSID'], {
@@ -580,6 +606,7 @@ async function parseS57Metadata(inputPath: string): Promise<{
                 const v = parseInt(values[edtnIdx] ?? '', 10);
                 if (Number.isFinite(v)) edition = v;
             }
+            nativeScale = dsidCompilationScale(colIdx, values) ?? undefined;
             const uadtIdx = colIdx['UADT'] ?? colIdx['DSID_UADT'] ?? -1;
             if (uadtIdx >= 0 && /^\d{8}$/.test(values[uadtIdx] ?? '')) {
                 const u = values[uadtIdx];
@@ -636,6 +663,8 @@ async function parseS57Metadata(inputPath: string): Promise<{
         edition,
         issued,
         bbox: [minLon, minLat, maxLon, maxLat],
+        layerFeatureCounts: ogrinfoLayerFeatureCounts(stdout),
+        ...(nativeScale !== undefined ? { nativeScale } : {}),
     };
 }
 
@@ -691,15 +720,9 @@ async function convertOneCell(
 ): Promise<{ result: object; featureCount: number; cellId: string; bbox: [number, number, number, number] }> {
     const meta = await parseS57Metadata(inputPath);
 
-    const layers: Record<string, unknown> = {};
-    let totalFeatures = 0;
-    for (const layer of ENC_LAYERS) {
-        const fc = await runOgr2Ogr(inputPath, layer, outputDir);
-        if (fc && Array.isArray(fc.features)) {
-            layers[layer] = fc;
-            totalFeatures += fc.features.length;
-        }
-    }
+    const outcomes: Record<string, OgrLayerOutcome> = {};
+    for (const layer of ENC_LAYERS) outcomes[layer] = await runOgr2Ogr(inputPath, layer, outputDir);
+    const { layers, featureCount: totalFeatures } = conversionLayers(outcomes, meta.layerFeatureCounts);
 
     return {
         result: {
@@ -708,7 +731,11 @@ async function convertOneCell(
             edition: meta.edition,
             issued: meta.issued,
             bbox: meta.bbox,
+            ...(meta.nativeScale !== undefined ? { nativeScale: meta.nativeScale } : {}),
             layers,
+            // Which converter schema produced it: a newer one replaces an
+            // older conversion of the same revision (encChartStore).
+            extractorSchema: ENC_CONVERSION_SCHEMA,
         },
         featureCount: totalFeatures,
         cellId: meta.cellId,

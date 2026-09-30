@@ -5,12 +5,23 @@
  * Draws the compiled lead graph (services/routing/leadCompiler.ts) from the
  * installed navigation cells in view: recommended tracks and the on-water
  * spans of leading lines in pink, buoyed channels in indigo — solid only when
- * 'clear' (charted deep enough for this boat's draft + 0.5 m, nothing charted
- * on or beside the line, and the draft is the skipper's own). No installed
- * cell carries bridges, pontoons or overhead lines yet, so today nothing is
- * clear: every line is amber 'bridges not in chart data' until the cells are
- * re-extracted with them (leadReview.ts, Phase 1 review). 'needs tide'
- * and 'needs review' are an amber dash on a dark casing — deliberately NOT
+ * 'clear' (charted deep enough for this boat's draft + 0.5 m even after the
+ * survey's vertical error, on a graded survey, nothing charted on or beside
+ * the line, no coarser chart's land paint under it, and the draft is the
+ * skipper's own). No installed cell carries bridges, pontoons or overhead
+ * lines yet, so today nothing is clear: every line is amber 'bridges not in
+ * chart data' until the cells are re-extracted with them (leadReview.ts,
+ * Phase 1 review; the extractor and the Pi emit them since Part B). Once they
+ * are, a bridge or overhead line on a lead is read against the vessel's air
+ * draft: too low for it + 1 m, no clearance charted, or no air draft set
+ * makes the line 'blocked' — red dashes on the dark casing, the label naming
+ * the structure and its clearance, never saveable (the router blocks it:
+ * owner decision 5; round 2, 2026-09-30, it was amber before); one the mast
+ * clears still keeps the line amber, 'bridge on the line (clears your
+ * mast)'. The label names the rest in plain words: 'survey not
+ * graded', 'poor or unassessed survey', 'survey too rough for this depth',
+ * 'a coarser chart shows land' (owner decisions 1, 3 and 4, 2026-09-30).
+ * 'needs tide' and 'needs review' are an amber dash on a dark casing — deliberately NOT
  * the base chart's own amber track dash (EncVectorLayer RECTRC, drawn on the
  * very same lines), which reads as ordinary chart furniture. Where part of a
  * line has no charted depth it is dotted grey. A line label says why. Chart
@@ -32,6 +43,7 @@ import { leadGraphOverlayGeoJSON } from '../../services/routing/leadCompiler';
 import { leadGraphForView } from '../../services/routing/leadOverlayData';
 import { createLogger } from '../../utils/createLogger';
 import { ENC_VEC_LAYERS } from './encLayerIds';
+import { NEEDS_TIDE_AMBER, SURVEY_DASH } from './inshoreRouteState';
 
 const log = createLogger('useChartLeadsLayer');
 
@@ -40,12 +52,14 @@ export const CHART_LEADS_LAYER_IDS = {
     clear: 'thalassa-chart-leads-clear',
     amberCasing: 'thalassa-chart-leads-amber-casing',
     amber: 'thalassa-chart-leads-amber',
+    blocked: 'thalassa-chart-leads-blocked',
     unknown: 'thalassa-chart-leads-unknown',
     label: 'thalassa-chart-leads-label',
 } as const;
 const ALL_LAYERS = [
     CHART_LEADS_LAYER_IDS.label,
     CHART_LEADS_LAYER_IDS.unknown,
+    CHART_LEADS_LAYER_IDS.blocked,
     CHART_LEADS_LAYER_IDS.amber,
     CHART_LEADS_LAYER_IDS.amberCasing,
     CHART_LEADS_LAYER_IDS.clear,
@@ -59,13 +73,21 @@ export const CHART_LEADS_MIN_ZOOM = 11;
 export const LEAD_INK = '#e879f9';
 /** Buoyed channels: indigo. Solid only when clear. */
 export const CHANNEL_INK = '#818cf8';
-/** 'needs tide' / 'needs review': a brighter amber than the base chart's
- *  RECTRC dash (#f59e0b), on a dark casing, so it never reads as the
- *  chart's own track furniture it is drawn on top of. */
-export const AMBER_INK = '#fbbf24';
-export const AMBER_CASING_INK = '#1c1917';
+/** 'needs tide' / 'needs review': the app's ONE needs-tide amber — the
+ *  route line's and its tide chip's too (owner decision 10, 2026-09-30; it
+ *  was #fbbf24, a shade off the route's #ff9100) — on a dark casing, so it
+ *  never reads as the chart's own RECTRC track dash (#f59e0b) it is drawn
+ *  on top of. */
+export const AMBER_INK = NEEDS_TIDE_AMBER;
+export const AMBER_CASING_INK = SURVEY_DASH.casing;
 export const UNKNOWN_INK = '#9ca3af';
+/** 'blocked': a structure this mast cannot clear (owner decision 5) — the
+ *  app's danger red (--day-ui-danger), dashed on the same dark casing, so it
+ *  reads as "not for this boat" and never as the amber "check this". */
+export const BLOCKED_INK = '#f87171';
 const AMBER_CLASSES = ['needs-tide', 'needs-review'];
+/** Classes drawn on the dark casing: amber and blocked. */
+const CASED_CLASSES = [...AMBER_CLASSES, 'blocked'];
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
@@ -98,7 +120,7 @@ function layerSpecs(): mapboxgl.AnyLayer[] {
             type: 'line',
             source: CHART_LEADS_SOURCE_ID,
             minzoom: CHART_LEADS_MIN_ZOOM,
-            filter: ['match', ['get', 'depthClass'], AMBER_CLASSES, true, false],
+            filter: ['match', ['get', 'depthClass'], CASED_CLASSES, true, false],
             layout: { 'line-join': 'round', 'line-cap': 'butt' },
             paint: {
                 'line-color': AMBER_CASING_INK,
@@ -118,6 +140,22 @@ function layerSpecs(): mapboxgl.AnyLayer[] {
                 'line-width': width,
                 'line-opacity': 0.95,
                 'line-dasharray': [1.6, 1.2],
+            },
+        },
+        {
+            // Blocked: red, in longer dashes than the amber, so the two
+            // differ in pattern as well as colour.
+            id: CHART_LEADS_LAYER_IDS.blocked,
+            type: 'line',
+            source: CHART_LEADS_SOURCE_ID,
+            minzoom: CHART_LEADS_MIN_ZOOM,
+            filter: ['==', ['get', 'depthClass'], 'blocked'],
+            layout: { 'line-join': 'round', 'line-cap': 'butt' },
+            paint: {
+                'line-color': BLOCKED_INK,
+                'line-width': width,
+                'line-opacity': 0.95,
+                'line-dasharray': [2.6, 1.4],
             },
         },
         {
@@ -156,6 +194,8 @@ function layerSpecs(): mapboxgl.AnyLayer[] {
                     AMBER_INK,
                     'needs-review',
                     AMBER_INK,
+                    'blocked',
+                    BLOCKED_INK,
                     'unknown',
                     UNKNOWN_INK,
                     inkByKind,
@@ -175,6 +215,11 @@ export function useChartLeadsLayer(
     /** The draft is a fallback or onboarding estimate (vesselDraftIsAssumed):
      *  nothing is drawn clear and the lines say "draft not set". */
     draftAssumed = false,
+    /** The vessel's air draft, metres (vesselAirDraftMetres). A bridge or
+     *  overhead line on a lead is read against it: too low, not charted, or
+     *  this null (not set) makes the line 'blocked' — red dashes, never
+     *  saveable (Part B; round 2, 2026-09-30). */
+    airDraftM: number | null = null,
 ): void {
     const compileTokenRef = useRef(0);
     const latestDataRef = useRef<GeoJSON.FeatureCollection>(EMPTY);
@@ -243,6 +288,7 @@ export function useChartLeadsLayer(
                     [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
                     draftM,
                     draftAssumed,
+                    airDraftM,
                 );
                 if (disposed || token !== compileTokenRef.current) return;
                 setData(leadGraphOverlayGeoJSON(graph) as GeoJSON.FeatureCollection);
@@ -282,5 +328,5 @@ export function useChartLeadsLayer(
             unsubscribe();
             remove();
         };
-    }, [mapReady, mapRef, visible, draftM, draftAssumed]);
+    }, [mapReady, mapRef, visible, draftM, draftAssumed, airDraftM]);
 }

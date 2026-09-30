@@ -452,3 +452,21 @@ describe('synthesizePortals — junction detection paths', () => {
         expect(junctions[0].channelKeys.sort()).toEqual(['A', 'B', 'C']);
     });
 });
+
+describe('connector — never squeezes diagonally past a blocked cell (fix-up, 2026-09-30)', () => {
+    it('a one-cell diagonal staircase (a low-clearance bar) is a wall, not a gap', () => {
+        // The staircase runs corner to corner across the whole grid: the only
+        // way across is a diagonal step between two of its cells.
+        const g = makeGrid(40, 40);
+        for (let i = 0; i < 40; i++) g.cells[idx(g, i, i)] = NaN;
+        const search = connectToTargets(g, cellLatLon(g, 30, 5), [target(g, 'across', 5, 30)]);
+        expect(search.results[0].reached).toBe(false);
+    });
+
+    it('open water beside the staircase still connects', () => {
+        const g = makeGrid(40, 40);
+        for (let i = 0; i < 40; i++) g.cells[idx(g, i, i)] = NaN;
+        const search = connectToTargets(g, cellLatLon(g, 30, 5), [target(g, 'same-side', 35, 20)]);
+        expect(search.results[0].reached).toBe(true);
+    });
+});

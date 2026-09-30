@@ -23,6 +23,8 @@ interface PassageBannerProps {
         routeAnalysis: { totalDistance: number; estimatedDuration: number } | null;
         routeVerification: PassageRouteVerification;
         routeActionsAvailable: boolean;
+        /** What the drawn route itself must say (usePassagePlanner routeCaveats). */
+        routeCaveats?: readonly string[];
         departureTime: string | null;
         setShowPassage: (v: boolean) => void;
         clearRoute: () => void;
@@ -138,6 +140,13 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                 durationApprox: `${totalHrs.toFixed(0)} hours`,
                 departureDate: passage.departureTime || new Date().toISOString(),
             };
+            // What the drawn route must say — bridges not checked (decision
+            // 8), a pin off the water (decision 7), its survey quality
+            // (decision 9) — goes WITH the saved plan (round-3 review,
+            // 2026-09-30: saving from the map dropped every one of them).
+            // PassagePlanSave keeps them on the logbook route.
+            const caveats = (passage.routeCaveats ?? []).filter((c) => typeof c === 'string' && c.trim() !== '');
+            if (caveats.length > 0) plan.__inshoreRouting = { status: 'success', caveats };
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const voyageId = await ShipLogService.savePassagePlanToLogbook(plan as any);
@@ -418,6 +427,25 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                                 </div>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {/* ── Route caveats ──
+                    What the drawn route itself must say (bridges not checked
+                    on a schema-1 chart — owner decision 8 — or a pin off the
+                    water). A line of its own, so no later notice replaces it
+                    (fix-up, 2026-09-30). */}
+                {!isoProgress && (passage.routeCaveats?.length ?? 0) > 0 && (
+                    <div
+                        className="border-t border-amber-500/20 bg-amber-500/[0.06] px-3.5 py-2"
+                        role="note"
+                        data-testid="passage-route-caveats"
+                    >
+                        {passage.routeCaveats!.map((c) => (
+                            <div key={c} className="text-[11px] leading-snug text-amber-100/90">
+                                {c}
+                            </div>
+                        ))}
                     </div>
                 )}
 

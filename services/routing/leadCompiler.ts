@@ -30,23 +30,45 @@
  * Class, against a given draft, with 0.5 m under-keel clearance:
  *   • 'clear' — THE CONTRACT: charted depth (S-57 DEPARE / DRGARE DRVAL1,
  *     finest survey wins, shallowest within a survey) is at least draft + UKC
- *     all along, AND nothing on the review list below applies, AND the draft
- *     is the skipper's own (not a fallback or onboarding guess). The only
- *     green state.
+ *     all along, AND the survey under every stretch is graded and good enough
+ *     that the charted depth less the grade's vertical error is still at
+ *     least draft + UKC, AND nothing else on the review list below applies,
+ *     AND the draft is the skipper's own (not a fallback or onboarding
+ *     guess). The only green state.
+ *   • 'blocked' — a bridge or an overhead cable / pipe / conveyor on the
+ *     line that this mast cannot clear: the router BLOCKS it, so the lead is
+ *     no lead for this boat (owner decision 5; round 2, 2026-09-30 — it was
+ *     amber 'needs-review' before). Reasons 'bridge-clearance' /
+ *     'overhead-clearance': clearance below air draft + 1 m, no clearance
+ *     charted, an opening bridge that does not clear closed, or no air draft
+ *     set, which also adds 'air-draft-not-set' (services/routing/
+ *     overheadClearance.ts, Part B). `blockedBy` names each structure and its
+ *     clearance. Red, dashed; never saveable (leadClassSaveable). Whatever
+ *     the depth: a mast that cannot pass makes the depth moot.
  *   • 'needs-review' — charted deep enough, but the chart says look again
  *     (services/routing/leadReview.ts): an obstruction / wreck / rock of
  *     unknown or too-shallow depth within the router's 60 m obstruction
- *     buffer ('hazard'), a bridge on the line ('bridge' — Phase 2 must BLOCK
- *     an unknown clearance), an overhead cable or pipe across it
- *     ('overhead'), a shoreline construction or pontoon on it ('structure'),
+ *     buffer ('hazard'), a bridge or an overhead line on it that this mast
+ *     clears ('bridge' / 'overhead': still a structure narrowing the
+ *     channel — "clears your mast"), a shoreline
+ *     construction or pontoon on it ('structure'),
  *     chart data that does not carry bridges, pontoons or overhead lines at
- *     all ('structures-unknown' — true of every cell today: neither pipeline
- *     extracts them yet), a CATZOC C/D/U survey under it ('survey'), or no
- *     draft entered ('draft-not-set'). Amber, never green; the reasons travel
- *     with the edge.
+ *     all ('structures-unknown' — true of every cell installed today: both
+ *     pipelines extract them since Part B's schema 2, but the installed cells
+ *     were converted before it), a CATZOC D or U survey under it ('survey'), a
+ *     graded survey whose vertical error eats the margin ('survey-margin':
+ *     depth − error < draft + UKC, with A1 0.5 m + 1%, A2 and B 1.0 m + 2%,
+ *     C 2.0 m + 5% of the depth — owner decision 3, 2026-09-30), survey not
+ *     graded under some of it ('survey-ungraded': no M_QUAL, or the finest
+ *     zone carries no CATZOC — decision 4), or no draft entered
+ *     ('draft-not-set'). Amber, never green; the reasons travel with the
+ *     edge.
  *   • 'needs-tide' — charted all along, but somewhere shallower than draft +
  *     UKC (offered amber, never refused and never green; no tide is solved
- *     here). Review reasons are listed too.
+ *     here); OR some of it runs over a coarser chart's land paint that a
+ *     finer survey's never-drying band beats ('land-paint', owner decision 1,
+ *     2026-09-30: shallow water, never clear, however deep the band). Review
+ *     reasons are listed too.
  *   • 'unknown' — some of the edge has no charted depth under it (including
  *     where the finest survey charts a band with no DRVAL1).
  * Injected OSM/Mapbox water is never charted depth.
@@ -56,7 +78,7 @@
  */
 import type { Position } from 'geojson';
 import { haversineM } from '../engine/geometry';
-import { featureIsShadowed, shadowingCells, cellScaleRank } from '../enc/scaleShadow';
+import { featureIsShadowed, shadowingCells, cellFinenessRank } from '../enc/scaleShadow';
 import { parseChartTrackLines, type ChartTrackLine } from '../leadingLine';
 import { compileSeawayGraph } from '../seaway/graphCompiler';
 import { splitMarkFeatures, type PointFeatureLike } from '../seaway/markSplit';
@@ -70,12 +92,20 @@ import {
     type ClipLayers,
 } from './leadLandClip';
 import {
+    clearanceBlock,
+    usableAirDraftM,
+    type ClearanceBlock,
+    type ClearanceStructureLayer,
+} from './overheadClearance';
+import {
     buildLeadReviewIndex,
-    LEAD_POOR_SURVEY_CATZOC,
+    LEAD_CLEARANCE_LAYERS,
     LEAD_REQUIRED_STRUCTURE_LAYERS,
     reviewAlongLine,
+    surveyVerdict,
     type LeadReviewLayers,
     type LeadSpanReview,
+    type LeadStructureOn,
 } from './leadReview';
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -83,25 +113,61 @@ import {
 export type LeadEdgeKind = 'recommended-track' | 'leading-line' | 'channel';
 export type LeadTrust = 'chart' | 'osm';
 /** The lead's class: depth first, demoted by the review (see the header). */
-export type LeadDepthClass = 'clear' | 'needs-review' | 'needs-tide' | 'unknown';
+export type LeadDepthClass = 'clear' | 'needs-review' | 'needs-tide' | 'unknown' | 'blocked';
+
+/**
+ * Whether a lead of this class may be saved as (part of) a route. 'blocked'
+ * never: the mast cannot pass (owner decision 5). 'needs-tide' may — amber,
+ * saveable (owner decision 6); the rest carry their own warnings.
+ */
+export function leadClassSaveable(cls: LeadDepthClass): boolean {
+    return cls !== 'blocked';
+}
+
+/** A structure on a lead this mast cannot pass under (a 'blocked' lead). */
+export interface LeadBlockingStructure {
+    layer: ClearanceStructureLayer;
+    /** Charted name (OBJNAM), when it has one. */
+    name?: string;
+    /** The governing charted clearance, m; null when none is charted. */
+    clearanceM: number | null;
+    /** Why it blocks (overheadClearance.clearanceBlock). */
+    block: ClearanceBlock;
+}
 /** Why a lead is not clear beyond its depth, in this fixed order. */
 export type LeadReviewReason =
+    | 'land-paint'
     | 'hazard'
+    | 'bridge-clearance'
+    | 'overhead-clearance'
     | 'bridge'
     | 'overhead'
     | 'structure'
     | 'structures-unknown'
     | 'survey'
+    | 'survey-margin'
+    | 'survey-ungraded'
+    | 'air-draft-not-set'
     | 'draft-not-set';
 const REASON_ORDER: readonly LeadReviewReason[] = [
+    'land-paint',
     'hazard',
+    'bridge-clearance',
+    'overhead-clearance',
     'bridge',
     'overhead',
     'structure',
     'structures-unknown',
     'survey',
+    'survey-margin',
+    'survey-ungraded',
+    'air-draft-not-set',
     'draft-not-set',
 ];
+
+/** Metres below which a stretch is rounding at a polygon edge, not a fact
+ * about the lead (the same sliver rule as uncovered depth). */
+const SLIVER_M = 1;
 
 /** Under-keel clearance on top of the draft (owner-confirmed default). */
 export const LEAD_UKC_M = 0.5;
@@ -120,6 +186,10 @@ export interface LeadClassifyOptions {
     /** The draft is a fallback or an onboarding estimate, not the skipper's
      * own (services/units.ts vesselDraftIsAssumed): nothing is clear. */
     draftAssumed?: boolean;
+    /** The vessel's air draft, metres (services/units.ts
+     * vesselAirDraftMetres). Null or absent: NOT SET — every bridge and
+     * overhead line on a lead is a clearance reason (owner decision). */
+    airDraftM?: number | null;
 }
 
 export interface LeadCompileOptions {
@@ -141,6 +211,10 @@ export interface LeadSpanDepth {
     minDepthM: number | null;
     /** Metres of the span with no charted depth under them. */
     uncoveredM: number;
+    /** Metres over a coarser chart's land paint that a finer survey's
+     * never-drying band beats (leadLandClip, owner decision 1): water, but
+     * the lead is never clear. Absent reads as 0. */
+    landConflictM?: number;
 }
 
 /** One undirected on-water run of a lead, before direction and draft. */
@@ -190,8 +264,9 @@ export interface LeadEdge {
     name?: string;
     sourceLandM: number;
     /** `class` is the lead's class (the contract in the header); `review`
-     * lists why it is not clear beyond its depth, if anything. */
-    depth: LeadSpanDepth & { class: LeadDepthClass; review: LeadReviewReason[] };
+     * lists why it is not clear beyond its depth, if anything; `blockedBy`
+     * names what blocks a 'blocked' lead. */
+    depth: LeadSpanDepth & { class: LeadDepthClass; review: LeadReviewReason[]; blockedBy?: LeadBlockingStructure[] };
 }
 
 export interface LeadNetwork {
@@ -555,8 +630,12 @@ export function compileLeadSpans(layers: LeadCompilerLayers, options: LeadCompil
                 rcids: src.rcid !== undefined ? [src.rcid] : [],
                 ...(src.name ? { name: src.name } : {}),
                 sourceLandM: landM,
-                depth: { minDepthM: profile.minDepthM, uncoveredM: profile.uncoveredM },
-                review: reviewAlongLine(reviewIndex, piece),
+                depth: {
+                    minDepthM: profile.minDepthM,
+                    uncoveredM: profile.uncoveredM,
+                    landConflictM: profile.landConflictM,
+                },
+                review: reviewAlongLine(reviewIndex, piece, index.depth, index.land),
             };
             spans.push(span);
             made.push(span);
@@ -604,15 +683,56 @@ export function compileLeadSpans(layers: LeadCompilerLayers, options: LeadCompil
     return { spans, dropped, clippedLandM, compileMs: Date.now() - t0 };
 }
 
-/** Draft class for a span's charted depth alone (no review). */
+/** Draft class for a span's charted depth alone (no review). Water over a
+ * coarser chart's land paint (landConflictM, decision 1) is never clear. */
 export function leadDepthClass(
     depth: LeadSpanDepth,
     draftM: number,
     ukcM = LEAD_UKC_M,
 ): Exclude<LeadDepthClass, 'needs-review'> {
     // Floating-point slivers between touching bands are not coverage gaps.
-    if (depth.minDepthM === null || depth.uncoveredM > 1) return 'unknown';
+    if (depth.minDepthM === null || depth.uncoveredM > SLIVER_M) return 'unknown';
+    if ((depth.landConflictM ?? 0) > SLIVER_M) return 'needs-tide';
     return depth.minDepthM >= draftM + ukcM - 1e-9 ? 'clear' : 'needs-tide';
+}
+
+/**
+ * The survey reasons for a span against a draft (owner decisions 3 and 4,
+ * 2026-09-30; leadReview.ts LeadSurveyStretch):
+ *   • 'survey-ungraded' — some of it (beyond a sliver) is not graded;
+ *   • 'survey' — some of it lies in a CATZOC D or U zone;
+ *   • 'survey-margin' — a graded stretch charted deep enough whose depth less
+ *     its grade's vertical error falls below draft + UKC.
+ */
+function surveyReasons(review: LeadSpanReview, draftM: number, ukcM: number): LeadReviewReason[] {
+    // No survey facts at all (a review built before decisions 3 and 4, or a
+    // malformed one): the grade cannot be known, and unknown is never clear.
+    if (!Array.isArray(review.survey)) return ['survey-ungraded'];
+    const out: LeadReviewReason[] = [];
+    let ungradedM = 0;
+    let poorM = 0;
+    let marginM = 0;
+    // Each stretch is one grade over one charted depth (round-3 review,
+    // 2026-09-30): read against its own depth, so a shallow piece of a grade
+    // no longer hides the margin of a deeper one. The metres add up per
+    // reason, and slivers between touching bands do not count.
+    for (const s of review.survey) {
+        if (s.catzoc === null) {
+            ungradedM += s.lengthM;
+            continue;
+        }
+        // The one survey rule the route reads too (leadReview surveyVerdict,
+        // owner decision 9, 2026-09-30). No charted depth: the span is
+        // 'unknown' already; charted shallower than the keel needs: 'needs
+        // tide' already — only a depth that clears gets a margin.
+        const v = surveyVerdict(s.catzoc, s.minDepthM, draftM + ukcM);
+        if (v.kind === 'poor') poorM += s.lengthM;
+        else if (v.kind === 'margin') marginM += s.lengthM;
+    }
+    if (poorM > SLIVER_M) out.push('survey');
+    if (marginM > SLIVER_M) out.push('survey-margin');
+    if (ungradedM > SLIVER_M) out.push('survey-ungraded');
+    return out;
 }
 
 /** Why a span is not clear beyond its depth, for this draft. */
@@ -624,20 +744,69 @@ export function leadReviewReasons(
 ): LeadReviewReason[] {
     const r = span.review;
     const found = new Set<LeadReviewReason>();
+    // Some of it is water only because a finer survey beats a coarser chart's
+    // land paint (decision 1): the charts disagree, so it is never clear.
+    if ((span.depth.landConflictM ?? 0) > SLIVER_M) found.add('land-paint');
     // Depth over the hazard unknown, or shallower than this keel needs.
     if (r.hazards.some((h) => h.valsouM === null || h.valsouM < draftM + ukcM - 1e-9)) found.add('hazard');
     for (const s of r.structures) {
-        found.add(
-            s.layer === 'BRIDGE' ? 'bridge' : s.layer === 'CBLOHD' || s.layer === 'PIPOHD' ? 'overhead' : 'structure',
-        );
+        if (!LEAD_CLEARANCE_LAYERS.has(s.layer)) {
+            found.add('structure');
+            continue;
+        }
+        // Can this mast pass under it (Part B, overheadClearance.ts)?
+        const block = structureBlock(s, options.airDraftM);
+        if (block === null) found.add(s.layer === 'BRIDGE' ? 'bridge' : 'overhead');
+        else {
+            found.add(s.layer === 'BRIDGE' ? 'bridge-clearance' : 'overhead-clearance');
+            if (block === 'air-draft-unset') found.add('air-draft-not-set');
+        }
     }
     // The data cannot show a bridge or an overhead line here: "nothing on the
     // line" is unknown, and unknown is never clear.
     if (r.structuresUnknown) found.add('structures-unknown');
-    if (r.worstCatzoc !== null && r.worstCatzoc >= LEAD_POOR_SURVEY_CATZOC) found.add('survey');
+    for (const reason of surveyReasons(r, draftM, ukcM)) found.add(reason);
     // Against a guessed keel, charted depth proves nothing either way.
     if (options.draftAssumed && span.depth.minDepthM !== null) found.add('draft-not-set');
     return REASON_ORDER.filter((x) => found.has(x));
+}
+
+/** Why a clearance structure on a lead blocks this mast, or null when it
+ * passes. A review built before the clearance facts falls back to VERCLR. */
+function structureBlock(s: LeadStructureOn, airDraftM: number | null | undefined): ClearanceBlock | null {
+    return clearanceBlock(
+        {
+            clearanceM: s.clearanceM !== undefined ? s.clearanceM : (s.verclrM ?? null),
+            opening: s.opening === true,
+        },
+        airDraftM,
+    );
+}
+
+/** The structures on a span this mast cannot pass under (one per structure). */
+export function leadBlockingStructures(
+    span: Pick<LeadSpan, 'review'>,
+    options: LeadClassifyOptions = {},
+): LeadBlockingStructure[] {
+    const out: LeadBlockingStructure[] = [];
+    const seen = new Set<string>();
+    for (const s of span.review.structures) {
+        if (!LEAD_CLEARANCE_LAYERS.has(s.layer)) continue;
+        const block = structureBlock(s, options.airDraftM);
+        if (block === null) continue;
+        const clearanceM = s.clearanceM !== undefined ? s.clearanceM : (s.verclrM ?? null);
+        // A structure drawn as several lines is one structure.
+        const key = s.rcid !== undefined ? `${s.layer}#${s.rcid}` : `${s.layer}|${s.name ?? ''}|${clearanceM}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+            layer: s.layer as ClearanceStructureLayer,
+            ...(s.name ? { name: s.name } : {}),
+            clearanceM,
+            block,
+        });
+    }
+    return out;
 }
 
 /** The lead's class and review reasons for this draft (the header's contract). */
@@ -646,13 +815,18 @@ export function leadClass(
     draftM: number,
     ukcM = LEAD_UKC_M,
     options: LeadClassifyOptions = {},
-): { class: LeadDepthClass; review: LeadReviewReason[] } {
+): { class: LeadDepthClass; review: LeadReviewReason[]; blockedBy?: LeadBlockingStructure[] } {
     const byDepth = leadDepthClass(span.depth, draftM, ukcM);
     // Unknown depth is already grey whatever the keel: the draft is moot.
     const review =
         byDepth === 'unknown'
             ? leadReviewReasons(span, draftM, ukcM, { ...options, draftAssumed: false })
             : leadReviewReasons(span, draftM, ukcM, options);
+    // A structure this mast cannot clear BLOCKS the lead, whatever the depth
+    // (owner decision 5; round 2, 2026-09-30 — it used to be amber
+    // 'needs-review', offered like any lead to check).
+    const blockedBy = leadBlockingStructures(span, options);
+    if (blockedBy.length > 0) return { class: 'blocked', review, blockedBy };
     return { class: byDepth === 'clear' && review.length > 0 ? 'needs-review' : byDepth, review };
 }
 
@@ -800,13 +974,18 @@ export interface LeadCellInput {
     id: string;
     bbox: [number, number, number, number];
     layers: Record<string, { features?: readonly ClipFeatureLike[] } | undefined>;
+    /** What the cell says about its scale (services/enc/scaleShadow.ts
+     * CellScaleFacts): the blob's compilation scale, the S-57 name. A cell
+     * that says neither is unranked — its land paint always stands. */
+    nativeScale?: unknown;
+    sourceCellId?: unknown;
+    usageBand?: unknown;
 }
 
 const MERGED = [
     'LNDARE',
     'DEPARE',
     'DRGARE',
-    'FAIRWY',
     'RECTRC',
     'NAVLNE',
     'BOYLAT',
@@ -820,6 +999,7 @@ const MERGED = [
     'PONTON',
     'CBLOHD',
     'PIPOHD',
+    'CONVYR',
     'M_QUAL',
 ] as const;
 
@@ -827,9 +1007,10 @@ const MERGED = [
  * Concatenate the layers the compiler reads, the router's way: a much
  * coarser cell's LNDARE / DEPARE lying wholly inside a finer cell is dropped
  * (scaleShadow), and every area and line is stamped with its cell's fineness
- * rank and id — on COPIES, so cached cell blobs are never mutated. Ranking
- * LNDARE as well as DEPARE lets the land rule refuse coarse water that would
- * erase a finer cell's island (stricter than the router's merge).
+ * rank and id — on COPIES, so cached cell blobs are never mutated. The land
+ * clip needs LNDARE, DEPARE and DRGARE ranked: only a strictly finer
+ * never-drying band beats land paint, and unranked land always stands
+ * (owner decision 1; the router's merges rank the same three layers).
  *
  * A cell whose data does not carry every LEAD_REQUIRED_STRUCTURE_LAYERS key
  * (an empty collection counts: "extracted, none charted") adds its extent to
@@ -846,7 +1027,14 @@ export function mergeLeadCells(cells: readonly LeadCellInput[]): LeadCompilerLay
             structureGaps.push([cell.bbox[0], cell.bbox[1], cell.bbox[2], cell.bbox[3]]);
         }
         const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, extents);
-        const rank = cellScaleRank(cell.bbox);
+        // The router's rank (cellFinenessRank: compilation scale, else the
+        // S-57 name's usage band — never the bbox; round 2, 2026-09-30).
+        const rank = cellFinenessRank({
+            nativeScale: cell.nativeScale,
+            sourceCellId: cell.sourceCellId,
+            cellId: cell.id,
+            usageBand: cell.usageBand,
+        });
         for (const name of MERGED) {
             for (const f of cell.layers[name]?.features ?? []) {
                 if (
@@ -855,9 +1043,11 @@ export function mergeLeadCells(cells: readonly LeadCellInput[]): LeadCompilerLay
                     featureIsShadowed(f as Parameters<typeof featureIsShadowed>[0], shadows)
                 )
                     continue;
+                const { _scaleRank: _stale, ...props } = (f.properties ?? {}) as Record<string, unknown>;
+                void _stale;
                 out[name].features.push({
                     ...f,
-                    properties: { ...(f.properties ?? {}), _scaleRank: rank, _cellId: cell.id },
+                    properties: { ...props, ...(rank === null ? {} : { _scaleRank: rank }), _cellId: cell.id },
                 });
             }
         }
@@ -892,7 +1082,7 @@ export function leadCellSetKey(cellKeys: readonly string[], options: LeadCompile
 }
 
 const graphKey = (setKey: string, draftM: number, ukcM: number, classify: LeadClassifyOptions): string =>
-    `${setKey}@${draftM}/${ukcM}${classify.draftAssumed ? '/assumed' : ''}`;
+    `${setKey}@${draftM}/${ukcM}${classify.draftAssumed ? '/assumed' : ''}/air:${usableAirDraftM(classify.airDraftM) ?? 'unset'}`;
 
 /** The cached graph for a cell set and draft, if it has been compiled. */
 export function peekLeadGraph(
@@ -955,18 +1145,60 @@ export interface LeadOverlayProperties {
     minDepthM: number | null;
     /** The review reasons, comma-joined ('' when none). */
     review: string;
+    /** May it be saved as (part of) a route (leadClassSaveable): never when
+     * 'blocked'. Phase 2 scaffolding: nothing saves a lead from the overlay
+     * yet — the route save path will read it when leads become pickable
+     * (fix-up note, 2026-09-30). */
+    saveable: boolean;
 }
 
 /** Short label text per review reason (the line label on the chart). */
 export const LEAD_REVIEW_LABEL: Record<LeadReviewReason, string> = {
+    'land-paint': 'a coarser chart shows land',
     hazard: 'charted hazard near',
-    bridge: 'bridge — check clearance',
-    overhead: 'overhead line — check clearance',
+    'bridge-clearance': 'bridge clearance too low or unknown',
+    'overhead-clearance': 'overhead line clearance too low or unknown',
+    bridge: 'bridge on the line (clears your mast)',
+    overhead: 'overhead line (clears your mast)',
     structure: 'structure on the line',
     'structures-unknown': 'bridges not in chart data',
-    survey: 'poor survey',
+    survey: 'poor or unassessed survey',
+    'survey-margin': 'survey too rough for this depth',
+    'survey-ungraded': 'survey not graded',
+    'air-draft-not-set': 'air draft not set',
     'draft-not-set': 'draft not set',
 };
+
+const STRUCTURE_WORD: Record<ClearanceStructureLayer, string> = {
+    BRIDGE: 'bridge',
+    CBLOHD: 'overhead cable',
+    PIPOHD: 'overhead pipe',
+    CONVYR: 'overhead conveyor',
+};
+
+/** A blocking structure in plain words: which one, its clearance, and why. */
+export function leadBlockerLabel(b: LeadBlockingStructure): string {
+    const what = `${b.block === 'opening-bridge' ? 'opening bridge' : STRUCTURE_WORD[b.layer]}${b.name ? ` "${b.name}"` : ''}`;
+    const m = (v: number) => `${Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1)} m`;
+    switch (b.block) {
+        case 'too-low':
+            return `${what} ${m(b.clearanceM ?? 0)} clearance, too low for your mast`;
+        case 'opening-bridge':
+            return `${what}${b.clearanceM !== null ? ` ${m(b.clearanceM)} closed` : ''}, may not open`;
+        case 'air-draft-unset':
+            return `${what}${b.clearanceM !== null ? ` ${m(b.clearanceM)} clearance` : ''}, air draft not set`;
+        case 'clearance-unknown':
+        default:
+            return `${what}, no charted clearance`;
+    }
+}
+
+/** Review reasons a 'blocked' label already says through its blockers. */
+const SAID_BY_BLOCKERS: ReadonlySet<LeadReviewReason> = new Set([
+    'bridge-clearance',
+    'overhead-clearance',
+    'air-draft-not-set',
+]);
 
 /** One line per span (both directions draw the same ink once). */
 export function leadGraphOverlayGeoJSON(graph: LeadGraph | null | undefined): {
@@ -988,11 +1220,17 @@ export function leadGraphOverlayGeoJSON(graph: LeadGraph | null | undefined): {
         const state =
             e.depth.class === 'clear'
                 ? []
-                : e.depth.class === 'needs-tide'
-                  ? ['needs tide', ...reasons]
-                  : e.depth.class === 'needs-review'
-                    ? reasons
-                    : ['depth not charted', ...reasons];
+                : e.depth.class === 'blocked'
+                  ? [
+                        'blocked',
+                        ...(e.depth.blockedBy ?? []).map(leadBlockerLabel),
+                        ...e.depth.review.filter((r) => !SAID_BY_BLOCKERS.has(r)).map((r) => LEAD_REVIEW_LABEL[r]),
+                    ]
+                  : e.depth.class === 'needs-tide'
+                    ? ['needs tide', ...reasons]
+                    : e.depth.class === 'needs-review'
+                      ? reasons
+                      : ['depth not charted', ...reasons];
         features.push({
             type: 'Feature' as const,
             properties: {
@@ -1004,6 +1242,7 @@ export function leadGraphOverlayGeoJSON(graph: LeadGraph | null | undefined): {
                 label: [what, ...state].join(' · '),
                 minDepthM: e.depth.minDepthM,
                 review: e.depth.review.join(','),
+                saveable: leadClassSaveable(e.depth.class),
             } satisfies LeadOverlayProperties,
             geometry: { type: 'LineString' as const, coordinates: e.coordinates },
         });

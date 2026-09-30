@@ -13,9 +13,18 @@
  * chart water claim that land paint and the buffer cannot erase. The cell
  * still PRICES as caution (40×, red). Drying bands (DRVAL1 ≤ 0) keep the old
  * behaviour: land wins, the buffer seals — a spit stays a spit.
+ *
+ * Owner decision 1 (2026-09-30) makes it a SCALE test: only a band charted at
+ * a strictly FINER scale than the land paint, and never drying (DRVAL1 ≥ 0),
+ * beats it; unknown ranks leave the land (tests/engine/chartWaterUnderLandPaint).
+ * The fixture below now says what its prose always did — the mouth blob is
+ * the COARSE cell's generalised coastline, the river the harbour cell's band —
+ * by carrying the ranks the router's merge stamps (_scaleRank; higher is
+ * finer). Unranked, the blob stands and the river is sealed (last test).
  */
 import { describe, expect, it } from 'vitest';
 import { routeInshore, type RouteRequest } from '../../services/inshoreRouterEngine';
+import { buildNavGrid } from '../../services/engine/navGrid';
 import type { FeatureCollection, Feature, Position } from 'geojson';
 
 function rect(
@@ -52,19 +61,32 @@ const isResult = (r: ReturnType<typeof routeInshore>): r is Extract<typeof r, { 
 // mouth. Sea on the east.
 const RIVER_S = -27.9005;
 const RIVER_N = -27.8995; // ~110 m wide
+/** The harbour cell's fineness rank, and the overview cell's (coarser). */
+const HARBOUR = { _scaleRank: 200 };
+const OVERVIEW = { _scaleRank: 100 };
 const layers = {
     DEPARE: fc(
-        rect(152.5, -27.902, 152.505, -27.898, { DRVAL1: 10, acronym: 'DEPARE' }), // basin (deep)
-        rect(152.505, RIVER_S, 152.517, RIVER_N, { DRVAL1: 2.0, acronym: 'DEPARE' }), // the river (wet, shallow)
-        rect(152.517, -27.93, 152.545, -27.88, { DRVAL1: 10, acronym: 'DEPARE' }), // open sea
+        rect(152.5, -27.902, 152.505, -27.898, { DRVAL1: 10, acronym: 'DEPARE', ...HARBOUR }), // basin (deep)
+        rect(152.505, RIVER_S, 152.517, RIVER_N, { DRVAL1: 2.0, acronym: 'DEPARE', ...HARBOUR }), // the river (wet, shallow)
+        rect(152.517, -27.93, 152.545, -27.88, { DRVAL1: 10, acronym: 'DEPARE', ...HARBOUR }), // open sea
     ),
     LNDARE: fc(
-        rect(152.503, -27.898, 152.517, -27.88, {}), // north bank
-        rect(152.503, -27.93, 152.517, -27.902, {}), // south bank
+        rect(152.503, -27.898, 152.517, -27.88, { ...HARBOUR }), // north bank
+        rect(152.503, -27.93, 152.517, -27.902, { ...HARBOUR }), // south bank
         // Generalised coarse-cell coastline blob across the river mouth — the
         // 1:90k class that survives scale-shadow and paints charted water.
-        rect(152.514, -27.903, 152.517, -27.897, {}),
+        rect(152.514, -27.903, 152.517, -27.897, { ...OVERVIEW }),
     ),
+};
+/** The same chart with no ranks at all: the comparison cannot be made. */
+const unranked = {
+    DEPARE: fc(
+        ...layers.DEPARE.features.map((f) => ({
+            ...f,
+            properties: { DRVAL1: f.properties!.DRVAL1, acronym: 'DEPARE' },
+        })),
+    ),
+    LNDARE: fc(...layers.LNDARE.features.map((f) => ({ ...f, properties: {} }))),
 };
 const req: RouteRequest = {
     fromLat: -27.9,
@@ -110,6 +132,12 @@ describe('wet-at-LAT S-57 protection (sealed-river knob)', () => {
         // open sea to the east. The origin must snap to honest water, not
         // start the route inside the conflict corridor (the Mooloolaba
         // canal-estate phantom-departure regression, device 2026-07-02).
+        //
+        // Fix-up (2026-09-30): round 2 moved this pin to -27.8975 because at
+        // -27.9 it sat in decision-1 water that decision 7 then routed FROM.
+        // Owner decision 2 binds that water: a conflict creek whose finest
+        // band (2 m) is shallower than the keel needs is no charted pin, so
+        // the guard is back where it was, asserting what it always did.
         const r = routeInshore(layers, {
             ...req,
             // On the mouth's land blob: nearest cells are conflict-caution.
@@ -129,13 +157,29 @@ describe('wet-at-LAT S-57 protection (sealed-river knob)', () => {
         expect(snap!.snappedLon).toBeGreaterThanOrEqual(152.5165);
     });
 
-    it('a DRYING channel (DRVAL1 = 0) stays sealed — the spit is still a spit', () => {
+    it('a pin IN the shallow conflict river is no charted pin (decision 2 over decision 7)', () => {
+        // The river's finest band is 2 m, under the 2.9 m floor: caution for
+        // its depth, not only for the coarse blob over it — the offline
+        // Newport canal's class (a 0–2 m band under land paint), which owner
+        // decision 2 keeps unrouted until the offline water pack. No 'needs
+        // tide' head from it (fix-up, 2026-09-30; round 2 asserted one).
+        const q = { ...req, fromLat: -27.9, fromLon: 152.5155, toLat: -27.9, toLon: 152.53 };
+        const r = routeInshore(layers, q);
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.originChartedPin).toBeUndefined();
+        expect(r.shallowRuns?.some((x) => x.endpointTail)).toBe(false);
+    });
+
+    // Decision 1: DRVAL1 0 now counts as never drying (≥ 0), so the drying
+    // channel here is a real drying band (DRVAL1 −0.5, was 0.0).
+    it('a DRYING channel (DRVAL1 < 0) stays sealed — the spit is still a spit', () => {
         const drying = {
             ...layers,
             DEPARE: fc(
-                rect(152.5, -27.902, 152.505, -27.898, { DRVAL1: 10, acronym: 'DEPARE' }),
-                rect(152.505, RIVER_S, 152.517, RIVER_N, { DRVAL1: 0.0, acronym: 'DEPARE' }), // dries at LAT
-                rect(152.517, -27.93, 152.545, -27.88, { DRVAL1: 10, acronym: 'DEPARE' }),
+                rect(152.5, -27.902, 152.505, -27.898, { DRVAL1: 10, acronym: 'DEPARE', ...HARBOUR }),
+                rect(152.505, RIVER_S, 152.517, RIVER_N, { DRVAL1: -0.5, acronym: 'DEPARE', ...HARBOUR }), // dries at LAT
+                rect(152.517, -27.93, 152.545, -27.88, { DRVAL1: 10, acronym: 'DEPARE', ...HARBOUR }),
             ),
         };
         const r = routeInshore(drying, { ...req, unchartedPolicy: 'strict' });
@@ -151,5 +195,18 @@ describe('wet-at-LAT S-57 protection (sealed-river knob)', () => {
         } else {
             expect(r.error.length).toBeGreaterThan(0);
         }
+    });
+
+    it('UNRANKED, the coarse blob stands (decision 1 fails safe): the river mouth under it is land', () => {
+        const probe = (l: typeof layers) => {
+            const g = buildNavGrid(l, [152.495, -27.935, 152.55, -27.875], 50, req.draftM, req.safetyM ?? 1, 60);
+            const x = Math.floor((152.5155 - g.minLon) / g.dLon);
+            const y = Math.floor((-27.9 - g.minLat) / g.dLat);
+            return g.landBlocked?.[y * g.width + x] === 1;
+        };
+        // Ranked: the harbour cell's river beats the overview's blob (water).
+        expect(probe(layers)).toBe(false);
+        // No ranks: the comparison cannot be made, so the land paint stands.
+        expect(probe(unranked)).toBe(true);
     });
 });

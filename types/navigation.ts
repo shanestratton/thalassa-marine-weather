@@ -136,6 +136,12 @@ export interface VoyagePlan {
         error?: string;
         /** Pi-side error code when status='failed' (origin-on-land, etc). */
         errorCode?: string;
+        /** What the route must say wherever it is shown (owner decision 8:
+         *  bridges not checked on a schema-1 chart; a pin off the water;
+         *  owner decision 9: its survey quality) — components/map/
+         *  inshoreRouteNotice inshoreRouteCaveats; shown again with the saved
+         *  plan (savedInshoreRouteCaveats). */
+        caveats?: string[];
     };
 }
 

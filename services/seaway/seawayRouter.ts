@@ -151,6 +151,10 @@ export interface SeawayShadowReport {
     edgesTotal: number;
     portalCount: number;
     phaseTimings: Record<string, number>;
+    /** The cached grid the graph route was built on (present with `graph`):
+     * a PROMOTED route's shallow runs are sampled against it (InshoreRouter,
+     * fix-up 2026-09-30). Read-only. */
+    grid?: NavGrid;
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────
@@ -650,6 +654,7 @@ export function shadowCompare(
             },
             portalCount,
             ...base,
+            grid,
         };
     }
 }

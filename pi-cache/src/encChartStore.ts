@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { chartBlobExtractorSchema } from './encLayerContract.js';
 
 export interface InstalledCellMeta {
     cellId: string;
@@ -296,10 +297,26 @@ export async function publishChartDelivery(
                         prepared.push({ source: candidate.filename, meta: previous, changed: false });
                         continue;
                     }
-                    throw new ChartInstallError(
-                        'chart-revision-conflict',
-                        `${meta.cellId} has different content with the same chart revision. Existing charts were preserved.`,
-                    );
+                    // The same chart revision from a DIFFERENT converter schema
+                    // (encLayerContract ENC_CONVERSION_SCHEMA / the extractor's
+                    // EXTRACTOR_SCHEMA): a newer conversion replaces the older one
+                    // (how installed cells gain new layers, e.g. the bridge and
+                    // overhead-clearance layers of Part B); an older one never
+                    // replaces a newer one. Equal or unreadable schemas: conflict.
+                    const incomingSchema = chartBlobExtractorSchema(bytes);
+                    const installedSchema = chartBlobExtractorSchema(installedBytes);
+                    const schemasKnown = incomingSchema !== null && installedSchema !== null;
+                    if (schemasKnown && incomingSchema < installedSchema) {
+                        summary.unchanged++;
+                        prepared.push({ source: candidate.filename, meta: previous, changed: false });
+                        continue;
+                    }
+                    if (!schemasKnown || incomingSchema === installedSchema) {
+                        throw new ChartInstallError(
+                            'chart-revision-conflict',
+                            `${meta.cellId} has different content with the same chart revision. Existing charts were preserved.`,
+                        );
+                    }
                 }
                 summary.updated++;
             } else {

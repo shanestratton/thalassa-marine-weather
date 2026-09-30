@@ -8,8 +8,8 @@
  *     (cellsForBBox), read with the remote ladder OFF — the overlay never
  *     downloads a chart;
  *   • the same count/byte bound the chart merge uses (capCellsForMerge);
- *   • one compile per cell set, one re-classification per draft
- *     (cachedLeadGraph) — panning inside the same cells costs a lookup.
+ *   • one compile per cell set, one re-classification per draft and air
+ *     draft (cachedLeadGraph) — panning inside the same cells costs a lookup.
  *
  * The cache follows chart CONTENT, not cell ids (Phase 1 review): each cell
  * is keyed by encCellContentIdentity, so a new edition or a same-edition
@@ -37,12 +37,16 @@ const PAD_DEG = 0.02;
  * The lead graph for the installed navigation cells under a map view
  * [west, south, east, north], classified for `draftM`. `draftAssumed`: the
  * draft is a fallback or an onboarding estimate (vesselDraftIsAssumed), so
- * nothing is classed clear. Null when no installed cell covers the view.
+ * nothing is classed clear. `airDraftM`: the vessel's air draft
+ * (vesselAirDraftMetres; null — not set — makes every bridge and overhead
+ * line on a lead a clearance reason, Part B). Null when no installed cell
+ * covers the view.
  */
 export async function leadGraphForView(
     bbox: [number, number, number, number],
     draftM: number,
     draftAssumed = false,
+    airDraftM: number | null = null,
 ): Promise<LeadGraph | null> {
     const window: [number, number, number, number] = [
         bbox[0] - PAD_DEG,
@@ -53,7 +57,7 @@ export async function leadGraphForView(
     const cells = capCellsForMerge(cellsForBBox(window), window);
     if (cells.length === 0) return null;
     const keys = cells.map(encCellContentIdentity);
-    const classify = { draftAssumed };
+    const classify = { draftAssumed, airDraftM };
     const hit = peekLeadGraph(keys, draftM, {}, LEAD_UKC_M, classify);
     if (hit) return hit;
 
@@ -62,7 +66,14 @@ export async function leadGraphForView(
         // Installed only: no Pi / cloud fetch from a chart overlay.
         const blob = await loadCellGeoJSON(cell.id, false);
         if (!blob?.layers) continue;
-        inputs.push({ id: cell.id, bbox: cell.bbox, layers: blob.layers as LeadCellInput['layers'] });
+        inputs.push({
+            id: cell.id,
+            bbox: cell.bbox,
+            layers: blob.layers as LeadCellInput['layers'],
+            // The cell's own scale, the router's rank (round 2, 2026-09-30).
+            nativeScale: blob.nativeScale,
+            sourceCellId: cell.sourceCellId ?? blob.sourceCellId,
+        });
     }
     if (inputs.length === 0) return null;
     return cachedLeadGraph(keys, draftM, () => mergeLeadCells(inputs), {}, LEAD_UKC_M, classify);

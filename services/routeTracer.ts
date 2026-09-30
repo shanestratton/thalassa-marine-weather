@@ -47,6 +47,15 @@ import {
     type ChartTrackLine,
 } from './leadingLine';
 import { computeTidalWindows, DEFAULT_TIDE_SAFETY_M } from './routing/tidalWindow';
+import { navLinesOnWater } from './routing/leadLandClip';
+import {
+    chartClearanceBars,
+    clearanceRefusalMessage,
+    curatedClearanceBars,
+    polylineCrossesClearanceBar,
+    type ClearanceBar,
+} from './routing/overheadClearance';
+import { vesselAirDraftMetres } from './units';
 import { tideFieldFromCurve } from './routing/env/EnvFields';
 import { fetchTideCurve } from './TideHeightService';
 import type { VoyagePlan } from '../types/navigation';
@@ -172,6 +181,27 @@ export interface TracerContext {
     /** Grid coverage bbox [W,S,E,N] — pins outside need a context rebuild. */
     bbox: [number, number, number, number];
     resM: number;
+    /**
+     * Low-clearance bars for THIS context's air draft (airDraftM): every chart
+     * bridge / overhead cable / overhead pipe and curated bridge the mast
+     * cannot pass under — too low for air draft + 1 m, no or only an estimated
+     * clearance, or no air draft set (services/routing/overheadClearance.ts,
+     * the router's verdict). They are baked into `grid` (so "Fix this leg"
+     * detours round them) and checked exactly on every leg. Optional so
+     * hand-built contexts stay valid; absent = none (Phase 2a review,
+     * 2026-09-30).
+     */
+    clearanceBars?: ClearanceBar[];
+    /** The air draft the bars were computed for (null = not set). */
+    airDraftM?: number | null;
+    /**
+     * Extents of the cells in this window whose chart data carries no bridge /
+     * overhead-line layers (converted before schema 2 — every installed cell
+     * today). A leg through one was checked against the curated bridge list
+     * only, and says so (owner decision 8; fix-up, 2026-09-30 — the tracer
+     * and the pins an auto-route drops never did). Absent = none.
+     */
+    structuresUnknownBboxes?: [number, number, number, number][];
 }
 
 /** buildTracerContext outcome — statuses drive the panel strip. */
@@ -404,11 +434,24 @@ export function tracerResolutionM(bbox: [number, number, number, number]): numbe
     return Math.max(6, Math.ceil(Math.sqrt((spanLonM * spanLatM) / MAX_GRID_CELLS)));
 }
 
-/** The routing grid normally rescues canals, fairways and transits to an
- * assumed navigable depth. A trial CHECK must not use those routing hints as
- * soundings. Keep the original layers separately for mark/lead parsing. */
+/** The routing grid carves canals at an assumed navigable depth and prefers
+ * fairways and leads. A trial CHECK must not use those routing hints as
+ * soundings or preferences. Keep the original layers separately for mark/lead
+ * parsing. The engine's pre-clip lead copy (NAVLINE_GRID, left by
+ * routeInshore's entry clip) is a lead layer too, so it goes with NAVLINE.
+ * DRGARE stays: a dredged area is charted depth — its own DRVAL1, finest
+ * survey wins (navGrid Pass 1, Phase 2a review 2026-09-30) — not a hint. It
+ * was stripped here while the grid still painted it a fabricated 5 m; kept,
+ * a leg through a charted 1.3 m dredged area reads 1.3 m and needs tide
+ * instead of "no charted depth" (round 2, 2026-09-30). */
 export function chartOnlyTracerGridLayers(layers: import('./inshoreRouterEngine').InshoreLayers) {
-    return { ...layers, CANAL: undefined, NAVLINE: undefined, FAIRWY: undefined, DRGARE: undefined };
+    return {
+        ...layers,
+        CANAL: undefined,
+        NAVLINE: undefined,
+        NAVLINE_GRID: undefined,
+        FAIRWY: undefined,
+    };
 }
 
 /**
@@ -431,9 +474,14 @@ export function tracerContextFromLayers(
          *  present it's used verbatim; absent = build synchronously here (the
          *  pure/testable path + the router-consistency golden). */
         prebuiltGrid?: NavGrid | null;
+        /** See TracerContext.clearanceBars. A prebuilt grid must already
+         *  carry them (tracerGridLayersWithBars). */
+        clearanceBars?: ClearanceBar[];
+        airDraftM?: number | null;
     } = {},
 ): TracerContext {
     const resM = tracerResolutionM(bbox);
+    const clearanceBars = opts.clearanceBars ?? [];
     // Marina-scale traces (~3 km) land well under 20 m → navGrid's Pass 2c
     // berth carve is ACTIVE and legs over pontoon rows read blocked, exactly
     // like the fine routing grid. Bay-scale traces coarsen gracefully.
@@ -442,7 +490,14 @@ export function tracerContextFromLayers(
             ? (opts.prebuiltGrid ?? null)
             : opts.skipGrid
               ? null
-              : buildNavGrid(merged, bbox, resM, draftM, DEFAULT_TIDE_SAFETY_M, 60);
+              : buildNavGrid(
+                    tracerGridLayersWithBars(merged, clearanceBars),
+                    bbox,
+                    resM,
+                    draftM,
+                    DEFAULT_TIDE_SAFETY_M,
+                    60,
+                );
 
     // Marks: real ENC laterals; those inside an accepted pair are gate-checked,
     // the rest get the solo "verify the side" advisory.
@@ -458,14 +513,18 @@ export function tracerContextFromLayers(
     // so only real leads count: a clearing or transit NAVLNE never does, nor
     // an OSM way that redraws one (navLineLeads on the mixed layer). Of those,
     // only CHART leads carry the cardinal override; OSM lines are tap-snap only.
-    const navLeads = navLineLeads(merged.NAVLINE?.features ?? []);
-    const leads = parseLeadingLines([
-        ...((merged.RECTRC?.features ?? []) as never[]),
-        ...navLeads.filter((feature) => isChartNavLine(feature)),
-    ]);
+    // And only their ON-WATER spans (navLinesOnWater, the lead compiler's
+    // S-57 land rule — the router's entry clip, withNavLineLeadsOnly): a
+    // leading line drawn on to its marks ashore, or a recommended track on a
+    // coarse chart's land paint, must never snap a tap or excuse a cardinal
+    // there. The grid above is built from the unclipped layers: it clips a
+    // lead against its own land verdict (navGrid Pass 5b).
+    const navLeads = navLinesOnWater(navLineLeads(merged.NAVLINE?.features ?? []), merged);
+    const tracks = navLinesOnWater(merged.RECTRC?.features ?? [], merged);
+    const leads = parseLeadingLines([...(tracks as never[]), ...navLeads.filter((feature) => isChartNavLine(feature))]);
     const osmLeads = parseLeadingLines(navLeads.filter((feature) => !isChartNavLine(feature)));
     const chartTracks = [
-        ...parseChartTrackLines((merged.RECTRC?.features ?? []) as never[], 'RECTRC'),
+        ...parseChartTrackLines(tracks as never[], 'RECTRC'),
         ...parseChartTrackLines(navLeads, 'NAVLNE'),
     ];
     const canalLanes = parseLeadingLines((merged.CANAL?.features ?? []) as never[]);
@@ -485,6 +544,24 @@ export function tracerContextFromLayers(
         gateChecksUnavailable: opts.gateChecksUnavailable ?? false,
         bbox,
         resM,
+        ...(clearanceBars.length > 0 ? { clearanceBars } : {}),
+        ...(opts.airDraftM !== undefined ? { airDraftM: opts.airDraftM } : {}),
+    };
+}
+
+/**
+ * The tracer grid's layers with this vessel's low-clearance bars added to
+ * OBSTRN — the engine hard-blocks `_class:'low-clearance'` bars and no rescue
+ * pass reopens them, exactly as on the router's grid. A copy; never mutates.
+ */
+export function tracerGridLayersWithBars<T extends import('./inshoreRouterEngine').InshoreLayers>(
+    layers: T,
+    bars: readonly ClearanceBar[],
+): T {
+    if (bars.length === 0) return layers;
+    return {
+        ...layers,
+        OBSTRN: { type: 'FeatureCollection', features: [...(layers.OBSTRN?.features ?? []), ...bars] },
     };
 }
 
@@ -657,16 +734,34 @@ export function snapTracerBbox(
 export async function buildTracerContext(
     bbox: [number, number, number, number],
     draftM: number,
-    opts: { draftAssumed?: boolean; chartedDepthOnly?: boolean } = {},
+    opts: {
+        draftAssumed?: boolean;
+        chartedDepthOnly?: boolean;
+        /** The mast's air draft (m; null = not set). Omitted: the vessel
+         *  profile's (vesselAirDraftMetres), as the router reads it. */
+        airDraftM?: number | null;
+    } = {},
 ): Promise<TracerBuildResult> {
+    // The store is read LAZILY, and only when the caller did not say: every
+    // production caller passes airDraftM (useTracerGrading, useTracerLegFixes),
+    // and a module-scope import made loading this file evaluate the settings
+    // store — which calls getSystemUnits() at load — so any test that mocks
+    // utils/system without it failed at import (GalleyCard, Phase 2a round-2
+    // review, 2026-09-30).
+    const airDraftM =
+        opts.airDraftM !== undefined
+            ? opts.airDraftM
+            : vesselAirDraftMetres(
+                  (await import('../stores/settingsStore')).useSettingsStore.getState().settings.vessel,
+              );
     // Snap BEFORE keying and BEFORE building: identical snapped windows
     // coalesce in flight, and the held context CONTAINS the next wobbled
     // request, so the LRU reuse check hits too.
     const snapped = snapTracerBbox(bbox);
-    const key = `${snapped.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}|${opts.chartedDepthOnly ? 'charted' : 'legacy'}`;
+    const key = `${snapped.map((v) => v.toFixed(4)).join(',')}|${draftM}|${opts.draftAssumed ? 1 : 0}|${opts.chartedDepthOnly ? 'charted' : 'legacy'}|air${airDraftM ?? 'unset'}`;
     const existing = inflightBuilds.get(key);
     if (existing) return existing;
-    const p = contextBuildQueue(() => buildTracerContextInner(snapped, draftM, opts)).finally(() => {
+    const p = contextBuildQueue(() => buildTracerContextInner(snapped, draftM, { ...opts, airDraftM })).finally(() => {
         inflightBuilds.delete(key);
     });
     inflightBuilds.set(key, p);
@@ -676,7 +771,7 @@ export async function buildTracerContext(
 async function buildTracerContextInner(
     bbox: [number, number, number, number],
     draftM: number,
-    opts: { draftAssumed?: boolean; chartedDepthOnly?: boolean } = {},
+    opts: { draftAssumed?: boolean; chartedDepthOnly?: boolean; airDraftM: number | null },
 ): Promise<TracerBuildResult> {
     const { spanLonM, spanLatM } = bboxSpansM(bbox);
     const spanM = Math.max(spanLonM, spanLatM);
@@ -709,6 +804,19 @@ async function buildTracerContextInner(
         return { status: 'nochart' };
     }
 
+    // Bridges and overhead lines this mast cannot pass under — the router's
+    // verdict, from the chart's BRIDGE / CBLOHD / PIPOHD / CONVYR and the curated
+    // bridge list (Phase 2a review, 2026-09-30: the tracer checked neither).
+    const clearanceBars: ClearanceBar[] = [...chartClearanceBars(bundle.chartStructures ?? {}, opts.airDraftM)];
+    try {
+        const { loadLowBridges } = await import('./lowBridges');
+        clearanceBars.push(...curatedClearanceBars(await loadLowBridges(), opts.airDraftM));
+    } catch (err) {
+        log.warn(
+            `[tracer] curated bridge data unavailable (chart structures still checked): ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
+
     const skipGrid = spanM > MAX_DEPTH_GRID_SPAN_M;
     // Build the depth grid OFF the main thread (2026-07-15 crash fix): the
     // synchronous build froze the WKWebView long enough for iOS to kill the
@@ -717,7 +825,10 @@ async function buildTracerContextInner(
     const grid = skipGrid
         ? null
         : await buildNavGridAsync(
-              opts.chartedDepthOnly ? chartOnlyTracerGridLayers(bundle.merged) : bundle.merged,
+              tracerGridLayersWithBars(
+                  opts.chartedDepthOnly ? chartOnlyTracerGridLayers(bundle.merged) : bundle.merged,
+                  clearanceBars,
+              ),
               bbox,
               tracerResolutionM(bbox),
               draftM,
@@ -729,8 +840,11 @@ async function buildTracerContextInner(
         gateChecksUnavailable: bundle.gateChecksUnavailable,
         skipGrid,
         prebuiltGrid: grid,
+        clearanceBars,
+        airDraftM: opts.airDraftM,
     });
     ctx.supplementalChecksUnavailable = bundle.supplementalChecksUnavailable;
+    if (bundle.structuresUnknownBboxes?.length) ctx.structuresUnknownBboxes = bundle.structuresUnknownBboxes;
     if (opts.chartedDepthOnly) ctx.canalLanes = [];
     log.warn(
         `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length}${ctx.gateChecksUnavailable ? ' (FETCH FAILED — not gate-checked)' : ''} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}+osm${ctx.osmLeads?.length ?? 0}`,
@@ -838,7 +952,7 @@ function ridingLeadAt(p: TracePoint, legBrgRad: number, leads: LeadingLine[]): b
 // ── Grid sampling ──────────────────────────────────────────────────────────
 
 type CellRead =
-    | { kind: 'blocked'; sub: 'land' | 'berth' | 'hazard' | 'markzone' }
+    | { kind: 'blocked'; sub: 'land' | 'berth' | 'hazard' | 'markzone' | 'clearance' }
     | { kind: 'depth'; depthM: number }
     | { kind: 'caution-uncharted' }
     | { kind: 'uncharted' }
@@ -858,6 +972,11 @@ function readCell(grid: NavGrid, p: TracePoint): CellRead {
         // the tracer must tell the punter the truth: the chart may show
         // perfectly good water here, the block is IALA side-discipline.
         if (grid.markDiscBlocked?.[idx]) return { kind: 'blocked', sub: 'markzone' };
+        // A low-clearance bar: water under a bridge / overhead line this mast
+        // cannot pass. The leg check tests the structure's own line exactly
+        // (TracerContext.clearanceBars), so the bar's cells say nothing of
+        // their own — neither land, hazard nor shoal.
+        if (grid.clearanceBarred?.[idx]) return { kind: 'blocked', sub: 'clearance' };
         return { kind: 'blocked', sub: 'hazard' };
     }
     if (v === CAUTION) {
@@ -907,7 +1026,7 @@ function lateralSideRead(grid: NavGrid, m: TracePoint, dirE: number, dirN: numbe
             // A mark-inference disc is OUR OWN synthesis around this very
             // mark — reading it as "shoal" would be circular evidence.
             // Skip it and keep probing for real chart data.
-            if (r.sub === 'markzone') continue;
+            if (r.sub === 'markzone' || r.sub === 'clearance') continue;
             return 'shoal';
         }
         if (r.kind === 'depth') return r.depthM < keelM ? 'shoal' : 'deep';
@@ -989,6 +1108,20 @@ export function validateTraceLeg(
     let minAt: TracePoint | null = null;
     let blockedAt: TracePoint | null = null;
     let blockedSub: 'land' | 'berth' | 'hazard' | null = null;
+    // 0 — a bridge, overhead cable or pipe this mast cannot pass under (the
+    // router's verdict and wording: too low for air draft + 1 m, no or an
+    // estimated clearance, or no air draft set). Exact: the leg crosses the
+    // structure's own line, never merely passes near it.
+    const underBar = ctx.clearanceBars?.length
+        ? polylineCrossesClearanceBar(
+              [
+                  [a.lon, a.lat],
+                  [b.lon, b.lat],
+              ],
+              ctx.clearanceBars,
+          )
+        : null;
+    if (underBar) issues.push({ severity: 'danger', message: clearanceRefusalMessage(underBar.properties, 'here') });
     // Mark-inference discs tracked SEPARATELY from hard blocks: a leg
     // crossing both a solo-mark disc and real land must still report the
     // land as danger — the disc caution must never mask it.
@@ -1017,7 +1150,9 @@ export function validateTraceLeg(
                 if (!bankShaveAt) bankShaveAt = p;
             } else if (r.kind === 'blocked' && r.sub === 'markzone') {
                 if (!markZoneAt) markZoneAt = p;
-            } else if (r.kind === 'blocked' && r.sub !== 'markzone' && !blockedAt) {
+            } else if (r.kind === 'blocked' && r.sub === 'clearance') {
+                // Checked exactly below, against the structure's own line.
+            } else if (r.kind === 'blocked' && r.sub !== 'markzone' && r.sub !== 'clearance' && !blockedAt) {
                 blockedAt = p;
                 blockedSub = r.sub;
             } else if (r.kind === 'depth') {
@@ -1335,10 +1470,29 @@ export function validateTraceLeg(
         issues.push({ severity: 'caution', message: 'channel marks unchecked — mark data did not load' });
     }
 
+    // Overhead honesty (owner decision 8): a leg through a chart that carries
+    // no bridge / overhead-line layers was checked against Thalassa's own
+    // bridge list only. Said as an 'info' note, last, so it never changes the
+    // grade nor displaces a leg's own confirmation (fix-up, 2026-09-30).
+    const structuresUnchecked = (ctx.structuresUnknownBboxes ?? []).some(
+        ([w, s, e, n]) =>
+            Math.max(a.lon, b.lon) >= w &&
+            Math.min(a.lon, b.lon) <= e &&
+            Math.max(a.lat, b.lat) >= s &&
+            Math.min(a.lat, b.lat) <= n,
+    );
+
     // Draft honesty: a "clear" graded against the 2.5 m FALLBACK draft is not
     // a clear — downgrade with an explicit reason until a real draft exists.
     if (ctx.draftAssumed && issues.length === 0) {
         issues.push({ severity: 'caution', message: 'checked against a default 2.5 m draft — set your vessel' });
+    }
+
+    if (structuresUnchecked) {
+        issues.push({
+            severity: 'info',
+            message: 'bridges and power lines not checked on this chart — known bridges are',
+        });
     }
 
     // 'info' issues are GREEN confirmations — they must NOT escalate the grade
@@ -1434,7 +1588,7 @@ export async function tideWindowLabelFor(
 export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'berth' | 'hazard' | null {
     if (!ctx.grid) return null;
     const r = readCell(ctx.grid, p);
-    return r.kind === 'blocked' && r.sub !== 'markzone' ? r.sub : null;
+    return r.kind === 'blocked' && r.sub !== 'markzone' && r.sub !== 'clearance' ? r.sub : null;
 }
 
 /**
@@ -1755,8 +1909,11 @@ export function notifySavedRoutesChanged(scope: AuthIdentityScope = getAuthIdent
  * and the reworded too-long copy.
  * v3 (2026-09-13): typed finite track-alignment review; clearing bearings,
  * crossings and joins must not replay old "steer to the transit" verdicts.
+ * v4 (2026-09-30): legs are graded against bridges and overhead lines for the
+ * mast's air draft (TracerContext.clearanceBars), and the stamp carries that
+ * air draft — a v3 verdict never checked a single bridge.
  */
-export const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v3';
+export const LEG_VERDICTS_KEY = 'thalassa_leg_verdicts_v4';
 /** A working route is tens of legs; 500 covers several routes' churn
  *  without letting localStorage bloat. Insertion order ≈ age — the tail
  *  (newest) survives the cap. */
@@ -1774,6 +1931,9 @@ interface PersistedLegVerdicts {
      *  amplifier, and exactly the crash-loop the incremental banking below
      *  was built to break. */
     encFingerprint: string;
+    /** The air draft (m; null = not set) the legs' overhead clearance was
+     *  graded against. */
+    airDraftM?: number | null;
     entries: Array<[string, TraceLegVerdict]>;
 }
 
@@ -1782,28 +1942,36 @@ export function persistLegVerdicts(
     draftM: number,
     draftAssumed: boolean,
     encFingerprint: string,
+    airDraftM: number | null = null,
 ): void {
     try {
         const entries = Array.from(cache.entries()).slice(-LEG_VERDICTS_CAP);
-        const payload: PersistedLegVerdicts = { draftM, draftAssumed, encFingerprint, entries };
+        const payload: PersistedLegVerdicts = { draftM, draftAssumed, encFingerprint, airDraftM, entries };
         localStorage.setItem(authScopedStorageKey(LEG_VERDICTS_KEY), JSON.stringify(payload));
     } catch {
         /* quota/private mode — worst case is the old behaviour (re-grade) */
     }
 }
 
-/** Null unless the persisted set was graded against the SAME keel and the
- *  SAME chart library — a stale verdict is worse than a re-grade. */
+/** Null unless the persisted set was graded against the SAME keel, the SAME
+ *  mast and the SAME chart library — a stale verdict is worse than a re-grade. */
 export function hydrateLegVerdicts(
     draftM: number,
     draftAssumed: boolean,
     encFingerprint: string,
+    airDraftM: number | null = null,
 ): Map<string, TraceLegVerdict> | null {
     try {
         const raw = localStorage.getItem(authScopedStorageKey(LEG_VERDICTS_KEY));
         if (!raw) return null;
         const p = JSON.parse(raw) as PersistedLegVerdicts;
-        if (!p || p.draftM !== draftM || p.draftAssumed !== draftAssumed || p.encFingerprint !== encFingerprint)
+        if (
+            !p ||
+            p.draftM !== draftM ||
+            p.draftAssumed !== draftAssumed ||
+            p.encFingerprint !== encFingerprint ||
+            (p.airDraftM ?? null) !== airDraftM
+        )
             return null;
         if (!Array.isArray(p.entries)) return null;
         return new Map(p.entries.filter(([k, v]) => typeof k === 'string' && v && typeof v.grade === 'string'));
@@ -3020,7 +3188,18 @@ export function fixLegOnGrid(ctx: TracerContext, a: TracePoint, b: TracePoint): 
     }
     cells.reverse();
     const path = [a, ...cells.slice(1, -1), b];
-    return rdpTracePoints(path, Math.max(15, ctx.resM * 1.5));
+    const pins = rdpTracePoints(path, Math.max(15, ctx.resM * 1.5));
+    // The grid carries the low-clearance bars, but the pins are a decimated
+    // line: never hand back a detour whose straightened legs pass under one.
+    if (
+        ctx.clearanceBars?.length &&
+        polylineCrossesClearanceBar(
+            pins.map((p) => [p.lon, p.lat] as [number, number]),
+            ctx.clearanceBars,
+        )
+    )
+        return null;
+    return pins;
 }
 
 // ── THE departure window (masterplan Phase 3.4) ────────────────────────────

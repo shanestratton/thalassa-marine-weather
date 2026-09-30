@@ -18,6 +18,7 @@ import {
     ENC_CELL_ID_PATTERN,
     S57_CELL_NAME_PATTERN,
     encCellStorageIdentity,
+    S57_CLEARANCE_STRUCTURE_CLASSES,
     S57_POINT_MARK_CLASSES,
     S57_STRUCTURE_CLASSES,
     type EncCell,
@@ -80,6 +81,10 @@ export const LOCAL_ENC_PACK_LAYER_NAMES = new Set<string>([
     ...BASE_LAYER_NAMES,
     ...S57_POINT_MARK_CLASSES,
     ...S57_STRUCTURE_CLASSES,
+    // Converter schema 2 always emits these (empty when none is charted): a
+    // phone without them rejects every re-extracted cell, so they must ship
+    // to every phone BEFORE the Pi or the extractor moves to schema 2.
+    ...S57_CLEARANCE_STRUCTURE_CLASSES,
     ...CAUTION_AREA_CLASSES,
 ]);
 
@@ -292,6 +297,20 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
     ) {
         throw new Error(`${cellId}: original chart identifier must match the issuing office.`);
     }
+    // The compilation scale (DSPM CSCL) the extractor carries: the router's
+    // survey fineness (scaleShadow cellFinenessRank). Optional; a malformed one
+    // is refused rather than guessed at. Zero or negative is ABSENT — the SENC
+    // header's unsigned read gives 0 when the producer left it blank, and
+    // refusing threw the whole pack away with its fine cells (Phase 2a
+    // round-2 review, 2026-09-30): the cell is kept, its rank unknown.
+    const rawNativeScale = value.nativeScale;
+    const nativeScale = typeof rawNativeScale === 'number' && rawNativeScale <= 0 ? undefined : rawNativeScale;
+    if (
+        nativeScale !== undefined &&
+        (typeof nativeScale !== 'number' || !Number.isFinite(nativeScale) || nativeScale < 1 || nativeScale > 1e9)
+    ) {
+        throw new Error(`${cellId}.nativeScale must be a compilation scale denominator from 1 to 1e9.`);
+    }
     const edition = finiteNumber(value.edition, `${cellId}.edition`);
     if (!Number.isInteger(edition) || edition < 0 || edition > 9999) {
         throw new Error(`${cellId}.edition must be an integer from 0 to 9999.`);
@@ -356,6 +375,7 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
         cellId,
         sourceHO,
         ...(sourceCellId !== undefined ? { sourceCellId: sourceCellId as string } : {}),
+        ...(nativeScale !== undefined ? { nativeScale: nativeScale as number } : {}),
         edition,
         ...(updateNumber !== undefined ? { updateNumber: updateNumber as number } : {}),
         issued,

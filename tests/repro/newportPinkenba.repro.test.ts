@@ -835,7 +835,41 @@ describe('Newport → Pinkenba — hug reproduction against real ENC', { timeout
         expect(off.mean, 'engine routes the canal near centre while continuing to the charted lead-out').toBeLessThan(
             12,
         );
-        expect(prov, 'canal-line snap engaged').toContain('canalsnap');
+        // Round 2 (2026-09-30, owner decision 7): in this variant (chart + OSM
+        // canal LINES, no OSM water polygons) the Newport pin sits in the
+        // harbour cell's charted 0 m band — charted-shallow water, so the route
+        // starts AT the pin, its first ~32 m a 'needs tide' head through that
+        // charted water, with no 60 m 5 m-deep carve bubble faked over it.
+        // The snap used to engage on that bubble's jog at the start (the rest
+        // of the canal run is the tier-2 egress channel, which it never
+        // touches); with no bubble there is nothing for it to straighten.
+        //
+        // Fix-up (2026-09-30): assert the branch that happens — the fixture is
+        // deterministic, and an either-or let a flip between the two pass
+        // unseen. The pin's 0 m band is NOT under land paint here, so owner
+        // decision 2's rule for decision-1 water leaves it a charted pin.
+        //
+        // RE-PIN (round-3 review fix-up, 2026-09-30; measured in its own
+        // process): that ~32 m head reached "deep" water only because the OSM
+        // canal-line carve painted the canal 5 m deep over the harbour cell's
+        // own 0–2 m band. The carve no longer paints a charted shallow band
+        // deep (navGrid Pass 1b), so the pin's charted water reaches deep water
+        // only by running the whole canal — whose line cells sit under the
+        // cells' land paint, so the head fails the chart's own land check
+        // (debug.chartedEndRejected) and the route departs as it did before
+        // decision 7, from the endpoint carve. Honestly drawn all the same:
+        // the whole canal is one 'needs tide' run from the first segment
+        // (charted 0 m), and the carve's first segment is red by the backstop
+        // (chartedShallowSpans), never clean water.
+        expect(route.debug?.originChartedPin).toBeUndefined();
+        expect(route.debug?.chartedEndRejected).toMatch(/charted head crosses charted land/);
+        const canalRun = route.shallowRuns?.find((x) => x.startSeg === 0);
+        expect(canalRun, 'the canal carries a needs-tide run from the pin').toBeDefined();
+        expect(canalRun!.minDepthM).toBe(0);
+        expect(
+            route.cautionMask?.[0] || route.chartedShallowSpans?.some((sp) => sp.startSeg === 0),
+            'the first segment is red',
+        ).toBe(true);
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
         expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
         expect(flaggedCanalSegs, 'every non-channel canal-interior segment carries the canal red flag').toBe(

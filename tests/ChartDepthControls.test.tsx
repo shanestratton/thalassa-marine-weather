@@ -224,6 +224,22 @@ describe('ChartKeyPanel', () => {
 
         expect(screen.getByRole('region', { name: 'Nautical chart key' })).toHaveClass('z-9997');
     });
+
+    // Owner decision 10 (2026-09-30): the route's colours get a key — solid
+    // amber needs tide, amber dashes are the survey, red no tide clears.
+    it('keys the planned route: needs-tide amber apart from survey dashes', () => {
+        render(<ChartKeyPanel visible imageryOn={false} tideDepthMode={false} draftConfigured onClose={vi.fn()} />);
+
+        expect(screen.getByText('Planned route')).toBeInTheDocument();
+        expect(screen.getByText('Needs tide — the chip says when')).toBeInTheDocument();
+        expect(screen.getByText('Survey may be out, or old')).toBeInTheDocument();
+        // Round-4 review (2026-09-30): the red names every reason it is drawn
+        // for, and the leads overlay's needs-tide dash is keyed apart.
+        expect(
+            screen.getByText('No tide clears it, no tide data, charts disagree, uncharted, canal or hazard'),
+        ).toBeInTheDocument();
+        expect(screen.getByText('Charted lead (leads overlay) that needs tide')).toBeInTheDocument();
+    });
 });
 
 describe('LiveTideAckModal', () => {

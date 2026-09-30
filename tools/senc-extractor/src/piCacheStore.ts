@@ -127,6 +127,27 @@ export function cellStoreRecord(cell: CellOutput): { json: string; meta: Install
     };
 }
 
+/**
+ * The extractor schema a store blob `{cells: [cell]}` was produced by: the
+ * cell's `extractorSchema`, 1 when absent (every extraction before the field
+ * existed); null when the blob is not a single-cell batch or the field is
+ * malformed — then no schema rule applies and a content difference stays a
+ * conflict.
+ */
+export function cellExtractorSchema(raw: string | Buffer): number | null {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw.toString());
+    } catch {
+        return null;
+    }
+    const cells = (parsed as { cells?: unknown } | null)?.cells;
+    if (!Array.isArray(cells) || cells.length !== 1 || !cells[0] || typeof cells[0] !== 'object') return null;
+    const schema = (cells[0] as { extractorSchema?: unknown }).extractorSchema;
+    if (schema === undefined) return 1;
+    return Number.isSafeInteger(schema) && (schema as number) >= 1 ? (schema as number) : null;
+}
+
 /** Immutable blobs are written first; the index rename publishes the complete selection. */
 export async function publishPiCacheCells(
     storeDir: string,
@@ -167,9 +188,21 @@ export async function publishPiCacheCells(
                         result.unchanged.push(meta.cellId);
                         continue;
                     }
-                    throw new Error(
-                        `Conflicting content for ${meta.cellId} at edition ${meta.edition}, update ${meta.updateNumber ?? 0}`,
-                    );
+                    // The same chart revision from a DIFFERENT extractor schema
+                    // (s57Classes EXTRACTOR_SCHEMA): a newer extractor's output
+                    // replaces the older one (how installed cells gain new
+                    // layers); an older extractor never replaces a newer one.
+                    const incoming = cellExtractorSchema(record.json);
+                    const installedSchema = cellExtractorSchema(data);
+                    if (incoming !== null && installedSchema !== null && incoming < installedSchema) {
+                        result.unchanged.push(meta.cellId);
+                        continue;
+                    }
+                    if (incoming === null || installedSchema === null || incoming === installedSchema) {
+                        throw new Error(
+                            `Conflicting content for ${meta.cellId} at edition ${meta.edition}, update ${meta.updateNumber ?? 0}`,
+                        );
+                    }
                 }
                 if (existing.sourceCellId && existing.sourceCellId !== meta.sourceCellId)
                     throw new Error(`Native ENC identity conflict for ${meta.cellId}`);

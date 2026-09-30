@@ -54,6 +54,55 @@ function liveScore(fixtureName: string): BaselineEntry {
     };
 }
 
+// RE-PIN (2026-09-30, Phase 2a rounds 1 and 2) — newport-tangalooma only,
+// the two numbers that left their ±2% band (the rest still pass as pinned):
+//   distanceRatio 1.2008 → 1.2728, lengthM 34041 → 36080 m.
+//   • 34041 → 35886 m (round 1): Pass 4 and the Pass 5b lead brush no longer
+//     paint 5 m over FAIRWY / DRGARE / leads, and owner decision 1 (fixture
+//     ranked as production ranks it) decides where the overview's Moreton
+//     Island land paint stands — jointly (reverting the rescues alone 36308 m,
+//     decision 1 alone 33502 m, all three 34041 m again). The 34041 m route
+//     crossed 862 m of charted land by today's audit.
+//   • 35886 → 36080 m (round 2, owner decision 7): the pin sits in charted
+//     decision-1 water and the route now runs on to it (a ~1.0 km 'needs
+//     tide' tail) instead of stopping 429 m short.
+// Measured alongside (not re-pinned, still inside their bounds): turnCount
+// 21 → 16, caution 2946 → 3141 m over 7 → 3 runs.
+//
+// REGENERATED (2026-09-30, Phase 2a round-2 fix-up) with
+// REGEN_SCORECARD_BASELINE=1 — the round-2 Tangalooma row had been
+// hand-edited (live distance and length beside HEAD's turns and caution, a
+// row that described no real route) and the bounds let a 44% turn regression
+// pass. Every number is now one live route, each also measured in its own
+// process (tests/inshoreRouter.golden.test.ts, same routes):
+//   newport-rivergate  distanceRatio 1.7192 → 1.7895, lengthM 41316 → 43005,
+//                      turns 13 → 13, caution 14303 m / 3 runs → 22082 m / 3.
+//   newport-tangalooma distanceRatio 1.2728 → 1.3298, lengthM 36080 → 37697,
+//                      turns 21 → 24, caution 2946 m / 7 runs → 13940 m / 3.
+// Why they moved:
+//   • both: a charted shallow S-57 band now stands against a later deep
+//     band that is neither S-57 nor OSM-vouched — the captures' GMRT public
+//     bathymetry (grade D) used to upgrade it to deep in one feature order
+//     (navGrid Pass 1, the shallowest-wins fix). Rivergate 41618 → 43005 m;
+//     Tangalooma 36872 → 37697 m.
+//   • Tangalooma: the decision-7 tail may no longer run through decision-1
+//     water whose finest band is 0 m (owner decision 2), and prefers deeper
+//     water (tail step weight): 36080 → 36872 m, the tail 1036 m through 0 m
+//     → 1906 m (finest survey 5 m, under the coarser chart's land paint).
+//
+// REGENERATED (round-3 review fix-up, 2026-09-30) with
+// REGEN_SCORECARD_BASELINE=1; each route also measured in its own process
+// (tests/inshoreRouter.golden.test.ts, same routes):
+//   newport-rivergate  distanceRatio 1.7895 → 1.7909, lengthM 43005 → 43040,
+//                      turns 13 → 16, caution 22082 m / 3 runs → 26520 m / 4.
+//   newport-tangalooma distanceRatio 1.3298 → 1.3303, lengthM 37697 → 37710,
+//                      turns 24 → 23, caution 13940 m / 3 runs → 15253 m / 3.
+// Why they moved: the OSM overlay's water polygons (a synthetic 10 m) no
+// longer outrank the chart's own S-57 bands, nor beat land paint over a band
+// that dries (navGrid Pass 1/2). The Newport canal's 0–2 m band and the
+// Brisbane River mouth's -2.2..0 m band are honest caution (or drying land)
+// now: Rivergate crosses 30 m of charted drying ground instead of ~2.9 km,
+// with 3 more turns threading the mouth; more of both routes is red.
 const FIXTURES = ['newport-rivergate.corridor.json.gz', 'newport-tangalooma.corridor.json.gz'];
 
 describe('scorecard baseline (golden fixtures)', () => {

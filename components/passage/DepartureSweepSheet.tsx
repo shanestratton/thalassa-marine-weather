@@ -42,6 +42,7 @@ import { isDraftConfirmed } from '../../services/draftConfirmation';
 import { requireConfirmedDraft } from '../../stores/draftConfirmStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { OverlayPortal } from '../ui/OverlayPortal';
+import { savedInshoreRouteCaveats } from '../map/inshoreRouteNotice';
 
 const log = createLogger('DepartureSweepSheet');
 
@@ -151,6 +152,9 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
             ?.properties;
         return readPersistedShallowRuns(properties?.shallowRuns);
     }, [voyagePlan?.routeGeoJSON]);
+
+    // The saved route's own caveats (round 3, 2026-09-30).
+    const savedCaveats = useMemo(() => savedInshoreRouteCaveats(voyagePlan), [voyagePlan]);
 
     const shallowSpots = useMemo(
         () => (polyline ? shallowRunsToDepartureSpots(polyline, persistedShallowRuns) : []),
@@ -314,6 +318,19 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                             <span className="font-mono tracking-wide">
                                 {waitingForDraft ? 'Waiting for your draft…' : 'Loading tide data…'}
                             </span>
+                        </div>
+                    )}
+                    {/* What the saved route itself must say (decision 8's
+                        bridges, a pin off the water, decision 9's survey
+                        quality) — kept with the plan, shown again here
+                        (round 3, 2026-09-30). */}
+                    {savedCaveats.length > 0 && (
+                        <div className="mt-2 space-y-0.5" role="note" data-testid="sweep-route-caveats">
+                            {savedCaveats.map((c) => (
+                                <p key={c} className="text-[11px] leading-snug text-amber-200/90">
+                                    {c}
+                                </p>
+                            ))}
                         </div>
                     )}
                     {!busy && tideProvenance === 'EXTREMES_INTERP' && (

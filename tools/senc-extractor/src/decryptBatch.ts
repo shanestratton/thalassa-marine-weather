@@ -8,6 +8,7 @@ import { OexserverdClient } from './oexserverd.js';
 import { loadKeyFileEntries } from './keyFile.js';
 import { parseSenc } from './featureParser.js';
 import { emitCell } from './geojsonEmitter.js';
+import { EXTRACTOR_SCHEMA } from './s57Classes.js';
 import { writeFileAtomic } from './atomicWrite.js';
 import { cellStoreRecord, loadPiCacheIndex, publishPiCacheCells } from './piCacheStore.js';
 import { loadChartSourceMetadata, resolveChartProducer } from './chartProvenance.js';
@@ -107,9 +108,16 @@ export function parseArgs(argv: string[]): Args {
     return args;
 }
 
-/** Content hashes catch same-mtime replacements and key-only updates. No raw keys are persisted. */
+/**
+ * Content hashes catch same-mtime replacements and key-only updates. No raw
+ * keys are persisted. The extractor's output schema is folded in (v2 salt up
+ * to schema 1), so a newer extractor re-extracts every unchanged chart once
+ * on the next --skip-existing reconcile — how installed cells gain new
+ * layers (s57Classes EXTRACTOR_SCHEMA).
+ */
 export async function inputFingerprint(chartPath: string, keyDigest: string, sourceHO: string): Promise<string> {
-    const hash = createHash('sha256').update(`senc-extractor-v2\0${keyDigest}\0${sourceHO}\0`);
+    const salt = EXTRACTOR_SCHEMA <= 1 ? 'senc-extractor-v2' : `senc-extractor-v2-schema${EXTRACTOR_SCHEMA}`;
+    const hash = createHash('sha256').update(`${salt}\0${keyDigest}\0${sourceHO}\0`);
     for await (const chunk of createReadStream(chartPath)) hash.update(chunk);
     return hash.digest('hex');
 }

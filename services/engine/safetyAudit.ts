@@ -8,10 +8,13 @@
  * an independent engine-boundary veto after every grid carve and splice.
  */
 import type { FeatureCollection, LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
-import type { InshoreLayers } from './types';
-import { geometryBbox, haversineM, pointInGeometry } from './geometry';
+import type { InshoreLayers, NavGrid } from './types';
+import { geometryBbox, haversineM, latLonToGrid, pointInGeometry } from './geometry';
+import { UNKNOWN_OPEN } from './constants';
 import { navLineLeads } from '../leadingLine';
 import { navLinesOnWater } from '../routing/leadLandClip';
+import { bandClaimOf, finestBandBeatsLand, isAuthoritativeOsmWater, type BandClaim } from './chartWaterEvidence';
+import { isS57ChartProps, readS57 } from '../enc/types';
 
 type AreaGeometry = Polygon | MultiPolygon;
 
@@ -36,16 +39,37 @@ export interface HardLandAudit {
 /** A longer exact-LNDARE run is not a marina-mouth alignment error. */
 export const MAX_UNVOUCHED_HARD_LAND_RUN_M = 500;
 
-function indexAreas(collections: Array<FeatureCollection | undefined>): IndexedArea[] {
-    const indexed: IndexedArea[] = [];
+/** An indexed area carrying the value `pick` read from its feature. */
+interface TaggedArea<T> extends IndexedArea {
+    tag: T;
+}
+
+function indexTaggedAreas<T>(
+    collections: Array<FeatureCollection | undefined>,
+    pick: (props: Record<string, unknown> | null) => T | undefined,
+): TaggedArea<T>[] {
+    const indexed: TaggedArea<T>[] = [];
     for (const collection of collections) {
         for (const feature of collection?.features ?? []) {
             const geometry = feature.geometry;
             if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) continue;
-            indexed.push({ geometry, bbox: geometryBbox(geometry) });
+            const tag = pick(feature.properties as Record<string, unknown> | null);
+            if (tag === undefined) continue;
+            indexed.push({ geometry, bbox: geometryBbox(geometry), tag });
         }
     }
     return indexed;
+}
+
+/** The tags of every area containing the point. */
+function tagsAt<T>(lon: number, lat: number, areas: readonly TaggedArea<T>[]): T[] {
+    const out: T[] = [];
+    for (const area of areas) {
+        const [minLon, minLat, maxLon, maxLat] = area.bbox;
+        if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) continue;
+        if (pointInGeometry(lon, lat, area.geometry)) out.push(area.tag);
+    }
+    return out;
 }
 
 function pointInIndexedAreas(lon: number, lat: number, areas: readonly IndexedArea[]): boolean {
@@ -118,21 +142,79 @@ function pointNearVouchedLine(lon: number, lat: number, lines: readonly IndexedL
 }
 
 /**
+ * Is this POINT charted hard land — inside chart land paint with no water
+ * evidence there (OSM-vouched water, or decision-1 water: a finer never-drying
+ * band beating the land paint)? The audit's own polygon rule below, for one
+ * point, WITHOUT the 125 m lead / canal corridor (a lead beside a pin does not
+ * make the pin water). The engine asks it of each pin (round 2, 2026-09-30):
+ * a pin in decision-1 water is shallow water, not "on land", so the route runs
+ * to it; a pin on hard land keeps today's nearest-water ending. Returns a
+ * predicate, memoized per layer set, so the strict, relaxed and fine passes
+ * of one route index the layers once.
+ */
+const hardLandMemo = new WeakMap<InshoreLayers, (lon: number, lat: number) => boolean>();
+
+export function hardLandAtPoint(layers: InshoreLayers): (lon: number, lat: number) => boolean {
+    const hit = hardLandMemo.get(layers);
+    if (hit) return hit;
+    const test = buildHardLandAtPoint(layers);
+    hardLandMemo.set(layers, test);
+    return test;
+}
+
+function buildHardLandAtPoint(layers: InshoreLayers): (lon: number, lat: number) => boolean {
+    const land = indexTaggedAreas<number | null>([layers.LNDARE], (p) =>
+        typeof p?._scaleRank === 'number' ? p._scaleRank : null,
+    );
+    if (land.length === 0) return () => false;
+    const osmWater = indexTaggedAreas<true>([layers.DEPARE, layers.FAIRWY], (p) =>
+        isAuthoritativeOsmWater(p) ? true : undefined,
+    );
+    const bands = indexTaggedAreas<BandClaim>([layers.DEPARE, layers.DRGARE], (p) => bandClaimOf(p) ?? undefined);
+    return (lon, lat) => {
+        const landRanks = tagsAt(lon, lat, land);
+        if (landRanks.length === 0) return false;
+        if (pointInIndexedAreas(lon, lat, osmWater)) return false;
+        return !finestBandBeatsLand(tagsAt(lon, lat, bands), landRanks);
+    };
+}
+
+/**
  * Measure continuous emitted-route runs that sit inside charted LNDARE without
- * any overlapping polygonal water evidence. DEPARE/DRGARE/FAIRWY overlap means
- * the source layers disagree, so the point is caution-worthy but not
- * unambiguously land. Everything else is an exact hard-land hit.
+ * water evidence there. Polygonal water evidence is the grid's own
+ * (services/engine/chartWaterEvidence.ts): OSM-vouched engineered water, or —
+ * owner decision 1 — an S-57 DEPARE / DRGARE band charted at a strictly finer
+ * scale than the finest land paint on the spot that never dries. Those points
+ * are the sources disagreeing (caution-worthy, not unambiguously land).
+ * Everything else — a drying, undepthed, equal-scale, coarser or unranked
+ * band, a bare bathymetry-derived band, a FAIRWY (a route area, not a depth)
+ * — leaves the land paint standing: an exact hard-land hit.
+ *
+ * Phase 2a review (2026-09-30): this used to vouch ANY DEPARE, DRGARE or
+ * FAIRWY overlap, so the independent veto could not catch the land the
+ * grid's old chart-FAIRWY/DRGARE rescue reopened.
  */
 export function auditUnvouchedHardLand(
     layers: InshoreLayers,
     polyline: readonly (readonly [number, number])[],
     sampleStepM = 25,
 ): HardLandAudit {
-    const land = indexAreas([layers.LNDARE]);
+    // Land paint with its fineness rank (null: unranked — unknown).
+    const land = indexTaggedAreas<number | null>([layers.LNDARE], (p) =>
+        typeof p?._scaleRank === 'number' ? p._scaleRank : null,
+    );
     if (land.length === 0 || polyline.length < 2) {
         return { maxRunM: 0, totalM: 0, sampledIntervals: 0 };
     }
-    const wet = indexAreas([layers.DEPARE, layers.DRGARE, layers.FAIRWY]);
+    // OSM-vouched water (the promoted river polygons in FAIRWY carry the same
+    // OSM tags as their DEPARE copies; an S-57 FAIRWY never qualifies).
+    const osmWater = indexTaggedAreas<true>([layers.DEPARE, layers.FAIRWY], (p) =>
+        isAuthoritativeOsmWater(p) ? true : undefined,
+    );
+    // S-57 depth bands, each with its decision-1 claim.
+    const bands = indexTaggedAreas<BandClaim>([layers.DEPARE, layers.DRGARE], (p) => bandClaimOf(p) ?? undefined);
+    const waterUnderLand = (lon: number, lat: number, landRanks: readonly (number | null)[]): boolean =>
+        pointInIndexedAreas(lon, lat, osmWater) || finestBandBeatsLand(tagsAt(lon, lat, bands), landRanks);
     // These line layers are explicit navigation evidence. The grid carves or
     // prefers a narrow corridor around them, so the independent vector audit
     // must honour the same physical-water claim without treating all relaxed
@@ -177,9 +259,10 @@ export function auditUnvouchedHardLand(
             const t = (s + 0.5) / intervals;
             const lon = lonA + (lonB - lonA) * t;
             const lat = latA + (latB - latA) * t;
+            const landRanks = tagsAt(lon, lat, land);
             const hardLand =
-                pointInIndexedAreas(lon, lat, land) &&
-                !pointInIndexedAreas(lon, lat, wet) &&
+                landRanks.length > 0 &&
+                !waterUnderLand(lon, lat, landRanks) &&
                 !pointNearVouchedLine(lon, lat, wetLines);
             sampledIntervals++;
             if (hardLand) {
@@ -199,4 +282,144 @@ export function auditUnvouchedHardLand(
     }
 
     return { maxRunM, totalM, sampledIntervals, maxRunStart, maxRunEnd };
+}
+
+/**
+ * The engine's no-evidence rule for one grid cell — no chart band, no OSM
+ * water, no protection vouches there is water, and nothing but a lead's
+ * corridor prefers it (routeInshore isUnvouchedIdx under the strict policy).
+ * Shared so a PROMOTED Seaway route is held to the same rule (round-3 review,
+ * 2026-09-30).
+ */
+export function isUnvouchedCell(grid: NavGrid, idx: number): boolean {
+    return (
+        grid.unvouched !== undefined &&
+        grid.unvouched[idx] === 1 &&
+        grid.cells[idx] === UNKNOWN_OPEN &&
+        // A lead's corridor prefers a cell without vouching for its depth.
+        (grid.preferred[idx] === 0 || grid.leadOnlyPreferred?.[idx] === 1)
+    );
+}
+
+/** No-evidence water along a polyline, sampled every half cell (≥ 25 m) as
+ * the engine's own sweep does: the longest run, the total, and which segments
+ * touch it. Runs carry across vertices; out-of-grid samples count as none. */
+export function unvouchedAlong(
+    grid: NavGrid,
+    polyline: readonly (readonly [number, number])[],
+): { maxRunM: number; totalM: number; segMask: boolean[] } {
+    const segMask: boolean[] = new Array(Math.max(0, polyline.length - 1)).fill(false);
+    const cellM = grid.dLat * 110_540;
+    const stepM = Math.max(25, cellM / 2);
+    let runM = 0;
+    let maxRunM = 0;
+    let totalM = 0;
+    for (let i = 1; i < polyline.length; i++) {
+        const [lonA, latA] = polyline[i - 1];
+        const [lonB, latB] = polyline[i];
+        const segM = haversineM(latA, lonA, latB, lonB);
+        const steps = Math.max(1, Math.ceil(segM / stepM));
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const { x, y } = latLonToGrid(grid, latA + (latB - latA) * t, lonA + (lonB - lonA) * t);
+            const inGrid = x >= 0 && y >= 0 && x < grid.width && y < grid.height;
+            if (inGrid && isUnvouchedCell(grid, y * grid.width + x)) {
+                segMask[i - 1] = true;
+                if (s === 0) continue; // the shared vertex was counted with the last segment
+                runM += segM / steps;
+                totalM += segM / steps;
+                if (runM > maxRunM) maxRunM = runM;
+            } else if (s > 0) {
+                runM = 0;
+            }
+        }
+    }
+    return { maxRunM, totalM, segMask };
+}
+
+/**
+ * The FINAL geometry against the chart's own hazards (round-3 review,
+ * 2026-09-30). The grid blocks every cell an OBSTRN / WRECKS / UWTROC buffer
+ * touches, but several things write around it: the endpoint and
+ * component-bridge carves (now barred from charted hazard cells), smoothing
+ * chords between cell centres, and every splice that rides off the grid —
+ * leads and RECTRC snaps validate against LAND only, on purpose, so a lead is
+ * never vetoed by the wreck it guides past (2026-06-11). Per segment: true
+ * where it passes within `bufferM` of a charted point hazard, or through a
+ * charted hazard area, whose depth over it is unknown or shallower than
+ * `needM` — the lead review's own test (leadReview LEAD_HAZARD_BUFFER_M).
+ * The engine flags those segments caution (red outside a marked channel)
+ * rather than refusing the route. Synthetic router furniture (clearance bars,
+ * mark discs, OSM reefs) carries no S-57 identity and is not read.
+ */
+export function hazardBufferSegments(
+    polyline: readonly (readonly [number, number])[],
+    layers: InshoreLayers,
+    bufferM: number,
+    needM: number,
+): boolean[] {
+    const segs: boolean[] = new Array(Math.max(0, polyline.length - 1)).fill(false);
+    if (segs.length === 0) return segs;
+    const points: [number, number][] = [];
+    const areas: (Polygon | MultiPolygon)[] = [];
+    for (const fcol of [layers.OBSTRN, layers.WRECKS, layers.UWTROC]) {
+        for (const f of fcol?.features ?? []) {
+            const props = f.properties as Record<string, unknown> | null;
+            if (!f.geometry || !isS57ChartProps(props)) continue;
+            const raw = readS57(props, 'VALSOU');
+            const valsou =
+                typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+            if (Number.isFinite(valsou) && valsou >= needM - 1e-9) continue; // charted deep enough over it
+            const g = f.geometry;
+            if (g.type === 'Point') points.push(g.coordinates as [number, number]);
+            else if (g.type === 'MultiPoint') for (const c of g.coordinates) points.push(c as [number, number]);
+            else if (g.type === 'Polygon' || g.type === 'MultiPolygon') areas.push(g);
+        }
+    }
+    if (points.length === 0 && areas.length === 0) return segs;
+    const lat0 = polyline[0][1];
+    const kx = 111_320 * Math.cos((lat0 * Math.PI) / 180);
+    const ky = 110_540;
+    const padLon = bufferM / kx;
+    const padLat = bufferM / ky;
+    const areaBoxes = areas.map((a) => ({ a, b: geometryBbox(a) }));
+    for (let i = 0; i + 1 < polyline.length; i++) {
+        const [ax, ay] = polyline[i];
+        const [bx, by] = polyline[i + 1];
+        const minX = Math.min(ax, bx) - padLon;
+        const maxX = Math.max(ax, bx) + padLon;
+        const minY = Math.min(ay, by) - padLat;
+        const maxY = Math.max(ay, by) + padLat;
+        const dx = (bx - ax) * kx;
+        const dy = (by - ay) * ky;
+        const l2 = dx * dx + dy * dy;
+        for (const [px, py] of points) {
+            if (px < minX || px > maxX || py < minY || py > maxY) continue;
+            const qx = (px - ax) * kx;
+            const qy = (py - ay) * ky;
+            const t = l2 > 0 ? Math.max(0, Math.min(1, (qx * dx + qy * dy) / l2)) : 0;
+            if (Math.hypot(qx - t * dx, qy - t * dy) < bufferM) {
+                segs[i] = true;
+                break;
+            }
+        }
+        if (segs[i] || areaBoxes.length === 0) continue;
+        const segM = haversineM(ay, ax, by, bx);
+        const steps = Math.max(1, Math.ceil(segM / 10));
+        for (const { a, b } of areaBoxes) {
+            if (
+                b[2] < Math.min(ax, bx) ||
+                b[0] > Math.max(ax, bx) ||
+                b[3] < Math.min(ay, by) ||
+                b[1] > Math.max(ay, by)
+            )
+                continue;
+            for (let k = 0; k <= steps && !segs[i]; k++) {
+                const t = k / steps;
+                if (pointInGeometry(ax + (bx - ax) * t, ay + (by - ay) * t, a)) segs[i] = true;
+            }
+            if (segs[i]) break;
+        }
+    }
+    return segs;
 }

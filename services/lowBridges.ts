@@ -1,18 +1,22 @@
 /**
  * lowBridges — curated fixed-bridge clearances for air-draft route gating.
  *
- * v1 data is the BUNDLED `public/notices/bridges-au.json` (hand-curated from
- * OSM bridge ways; clearances marked `estimated` until surveyed). Seeded with
- * the Newport canal-estate road crossings (Griffith Rd / Klingner Rd / Dalton
- * St) — fixed low bridges no sailboat clears. Phase 2 sources: S-57 BRIDGE +
- * VERCLR via the SENC extractor, OSM maxheight via the Pi Overpass query.
+ * The BUNDLED `public/notices/bridges-au.json` (hand-curated from OSM bridge
+ * ways; clearances marked `estimated` until surveyed), seeded with the
+ * Newport canal-estate road crossings (Griffith Rd / Klingner Rd / Dalton
+ * St). Since Part B (2026-09-30) it is an EXTRA source beside the chart's own
+ * S-57 BRIDGE / CBLOHD / PIPOHD / CONVYR, and both go through ONE verdict:
+ * services/routing/overheadClearance.ts (clearanceBlock).
  *
- * SAFETY SEMANTICS: a bridge the vessel cannot clear is LAND for that vessel.
- * The orchestrator turns each blocked bridge into a thin `_class:
- * 'low-clearance'` OBSTRN polygon across the waterway; the grid hard-blocks
- * it, every rescue/carve pass refuses to tunnel it, and the canal centre-line
- * network is severed across it. No clearance data or no air draft set ⇒ no
- * gating (never fabricate a clearance).
+ * SAFETY SEMANTICS (owner decisions 2026-09-29/30): a bridge the vessel
+ * cannot clear is LAND for that vessel — clearance below air draft + 1 m, a
+ * NULL or estimated clearance (unknown never passes), or NO AIR DRAFT SET
+ * (nothing can be checked, so every bridge blocks). The orchestrator turns
+ * each blocked bridge into thin `_class: 'low-clearance'` OBSTRN bars across
+ * the waterway (overheadClearance.curatedClearanceBars); the grid hard-blocks
+ * them, every rescue/carve pass refuses to tunnel them, the canal centre-line
+ * network is severed across them, and a final route that still passes under
+ * one is refused with the bridge named.
  */
 import { createLogger } from '../utils/createLogger';
 
@@ -22,9 +26,9 @@ export interface LowBridge {
     id: string;
     name: string;
     /** Charted/estimated vertical clearance (m). NULL = no published
-     *  value exists — the bridge still DISPLAYS (position is real) but
-     *  never gates routing: an invented number could either block a
-     *  passable span or, far worse, pass a mast into a deck. */
+     *  value exists — the bridge still DISPLAYS (position is real), and for
+     *  routing it BLOCKS (owner decision: unknown clearance blocks; a number
+     *  is never invented either way). */
     clearanceM: number | null;
     /** True until the clearance is verified against a survey/chart value. */
     estimated?: boolean;
@@ -60,54 +64,7 @@ export async function loadLowBridges(): Promise<LowBridge[]> {
     return inflight;
 }
 
-const M_PER_DEG_LAT = 110_540;
-const mPerDegLon = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
-
-/**
- * Thin blocking polygon across the waterway from the bridge's span line:
- * the span widened `halfWidthM` each side and extended `endPadM` past each
- * end, so the bar seals bank-to-bank even when the OSM way stops at the
- * water's edge. GeoJSON Polygon, [lon, lat].
- *
- * halfWidthM defaults to 30 m (60 m bar) because the engine's coarse grid
- * rasterises by CELL-CENTRE sampling at ~50 m — a 20 m bar can slip between
- * cell centres and claim ZERO cells, i.e. not block at all. 60 m guarantees
- * at least one cell row across the waterway; over-blocking ±30 m around a
- * bridge the vessel can't pass anyway costs nothing.
- */
-export function bridgeBarPolygon(bridge: LowBridge, halfWidthM = 30, endPadM = 15): GeoJSON.Polygon {
-    const a = bridge.span[0];
-    const b = bridge.span[bridge.span.length - 1];
-    const midLat = (a[1] + b[1]) / 2;
-    const mx = mPerDegLon(midLat);
-    // Span direction in metres.
-    let dx = (b[0] - a[0]) * mx;
-    let dy = (b[1] - a[1]) * M_PER_DEG_LAT;
-    const len = Math.hypot(dx, dy) || 1;
-    dx /= len;
-    dy /= len;
-    // Perpendicular unit.
-    const px = -dy;
-    const py = dx;
-    const toLL = (ex: number, ey: number): [number, number] => [a[0] + ex / mx, a[1] + ey / M_PER_DEG_LAT];
-    // Endpoints in metre frame anchored at `a`, padded along the span.
-    const ax = -dx * endPadM;
-    const ay = -dy * endPadM;
-    const bx = (b[0] - a[0]) * mx + dx * endPadM;
-    const by = (b[1] - a[1]) * M_PER_DEG_LAT + dy * endPadM;
-    const ring: [number, number][] = [
-        toLL(ax + px * halfWidthM, ay + py * halfWidthM),
-        toLL(bx + px * halfWidthM, by + py * halfWidthM),
-        toLL(bx - px * halfWidthM, by - py * halfWidthM),
-        toLL(ax - px * halfWidthM, ay - py * halfWidthM),
-    ];
-    ring.push(ring[0]);
-    return { type: 'Polygon', coordinates: [ring] };
-}
-
-/** Bridges whose clearance the vessel cannot make. */
-export function blockedBridgesFor(bridges: readonly LowBridge[], airDraftM: number | null): LowBridge[] {
-    if (airDraftM === null || !Number.isFinite(airDraftM) || airDraftM <= 0) return [];
-    // Null clearance never gates — display-only until a published value lands.
-    return bridges.filter((b) => b.clearanceM !== null && airDraftM > b.clearanceM);
-}
+// bridgeBarPolygon and blockedBridgesFor went in the fix-up (2026-09-30): no
+// production caller since Part B — the router and the tracer build curated
+// bars through overheadClearance.curatedClearanceBars, one verdict for chart
+// and curated bridges alike (its tests cover what blockedBridgesFor did).

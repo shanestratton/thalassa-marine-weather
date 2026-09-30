@@ -50,7 +50,7 @@ import {
 } from '../../services/routeTracer';
 import { gradeLegs } from '../../services/traceGrading';
 import { legCacheKey, TRACE_CLUSTER_SPAN_M } from './mapHubHelpers';
-import { vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
+import { vesselAirDraftMetres, vesselDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { getVersion as getEncRegistryVersion, getRegistryFingerprint } from '../../services/enc/EncCellMetadata';
 import type { TraceCheckStatus } from '../../services/traceVerification';
 
@@ -75,7 +75,7 @@ export interface TracerGradingDeps {
     capturedCoords: { lat: number; lon: number }[];
     coordCaptureMode: boolean;
     /** settings.vessel — the object identity is the dep, as it is today. */
-    vessel: { draft?: number; estimatedFields?: string[] } | null | undefined;
+    vessel: { draft?: number; airDraft?: number; estimatedFields?: string[] } | null | undefined;
     legVerdicts: Array<TraceLegVerdict | null>;
     departureMs: number | null;
     legEtaOffsetsMs: number[];
@@ -83,7 +83,7 @@ export interface TracerGradingDeps {
     tracerCtxLruRef: { current: TracerContext[] };
     /** Shared with useTracerLegFixes, which reads it at fire time — so it is
      *  owned by MapHub, not by this hook. */
-    gradedDraftRef: { current: { d: number; assumed: boolean } | null };
+    gradedDraftRef: { current: { d: number; assumed: boolean; air?: number | null } | null };
     tracerCtxFromLru: (pts: ReadonlyArray<{ lat: number; lon: number }>) => TracerContext | null;
     tracerCtxHold: (ctx: TracerContext) => void;
     setLegVerdicts: Dispatch<SetStateAction<Array<TraceLegVerdict | null>>>;
@@ -165,6 +165,10 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
         }
         const draftNow = vesselDraftMetres(vessel);
         const draftAssumed = vesselDraftIsAssumed(vessel);
+        // The mast: legs are graded against bridges and overhead lines for
+        // THIS air draft (TracerContext.clearanceBars), so it keys the caches
+        // exactly as the keel does.
+        const airNow = vesselAirDraftMetres(vessel);
         const seq = ++tracerSeqRef.current;
 
         // Draft change invalidates EVERY cached verdict and tide label —
@@ -174,7 +178,10 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
         // chart data is static for the session, so a verdict graded in an
         // earlier window stays true forever.
         const prevDraft = gradedDraftRef.current;
-        if (prevDraft && (prevDraft.d !== draftNow || prevDraft.assumed !== draftAssumed)) {
+        if (
+            prevDraft &&
+            (prevDraft.d !== draftNow || prevDraft.assumed !== draftAssumed || (prevDraft.air ?? null) !== airNow)
+        ) {
             tracerCtxRef.current = null;
             tracerCtxLruRef.current = []; // grids were built FOR the old keel
             legCacheRef.current.clear();
@@ -182,7 +189,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             setTideLabels({});
             tideReqRef.current.clear();
         }
-        gradedDraftRef.current = { d: draftNow, assumed: draftAssumed };
+        gradedDraftRef.current = { d: draftNow, assumed: draftAssumed, air: airNow };
         const cache = legCacheRef.current;
         if (!legCacheHydratedRef.current) {
             legCacheHydratedRef.current = true;
@@ -191,7 +198,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             // Library identity is the FINGERPRINT (stable across reloads),
             // never the in-memory version counter (boot-scoped — using it
             // meant hydration never matched and every mount cold-regraded).
-            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, getRegistryFingerprint());
+            const persisted = hydrateLegVerdicts(draftNow, draftAssumed, getRegistryFingerprint(), airNow);
             if (persisted) for (const [k, v] of persisted) if (!cache.has(k)) cache.set(k, v);
         }
         // Failure verdicts retry with BACKOFF, not on every pass. Retrying
@@ -252,6 +259,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             const result = await gradeLegs(pending, {
                 draftM: draftNow,
                 draftAssumed,
+                airDraftM: airNow,
                 clusterSpanM: TRACE_CLUSTER_SPAN_M,
                 ctxFromLru: tracerCtxFromLru,
                 holdCtx: tracerCtxHold,
@@ -284,7 +292,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
                     // again and died again: a crash loop whose every lap does
                     // the exact work that kills. Banking incrementally means
                     // each attempt KEEPS its progress.
-                    persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint());
+                    persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint(), airNow);
                 },
             });
             if (result.superseded || seq !== tracerSeqRef.current) return;
@@ -295,7 +303,7 @@ export function useTracerGrading(deps: TracerGradingDeps): void {
             setTracerStatus(result.status);
             // The pass is the unit of new knowledge — bank it so the NEXT mount
             // (reload, deploy, tab-bounce) re-grades nothing.
-            persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint());
+            persistLegVerdicts(cache, draftNow, draftAssumed, getRegistryFingerprint(), airNow);
         })();
         // The stable identities below (five refs and the setters) are named
         // only to satisfy exhaustive-deps, which can no longer see they are

@@ -11,6 +11,7 @@ import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import type { RouteRequest } from '../../services/inshoreRouterEngine';
 import type { Feature, FeatureCollection } from 'geojson';
+import { corridorCellRanks, corridorCellRanksByReference, withCorridorCellRanks } from './corridorCellRanks';
 
 // ── Fixture loading ────────────────────────────────────────────────
 
@@ -53,9 +54,14 @@ function wide(f: Feature, m: number): boolean {
     return Math.min(widthM, heightM) >= m;
 }
 
-/** cells + osm → the layer set production hands routeInshore. */
-
-export function assembleLayers(fx: CorridorFixture): any {
+/**
+ * cells + osm → the layer set production hands routeInshore — chart
+ * LNDARE / DEPARE / DRGARE ranked the way the router's merge ranks them
+ * (withProductionRanks below) unless `{ ranks: false }` asks for the raw
+ * capture.
+ */
+export function assembleLayers(fxIn: CorridorFixture, opts: { ranks?: boolean } = {}): any {
+    const fx = opts.ranks === false ? fxIn : withProductionRanks(fxIn);
     const m: any = {};
     for (const k of Object.keys(fx.cells)) m[k] = { type: 'FeatureCollection', features: [...fx.cells[k].features] };
     for (const k of ['COASTLINE', 'CANAL', 'NAVLINE', 'FAIRWY', 'DEPARE', 'OBSTRN'])
@@ -89,4 +95,28 @@ export function assembleLayers(fx: CorridorFixture): any {
     for (const f of o.canalLines.features) m.CANAL.features.push(f);
     for (const f of o.navLines.features) m.NAVLINE.features.push(f);
     return m;
+}
+
+/**
+ * A copy of the fixture whose chart LNDARE / DEPARE / DRGARE carry the
+ * fineness ranks the router's merge stamps (`_scaleRank`, `_cellId`;
+ * InshoreRouter SCALE_RANKED_LAYERS) — the layer set production hands
+ * routeInshore. A capture that lists `_meta.cells` is ranked from its own cell
+ * order (corridorCellRanks); the May 2026 clips that do not are ranked by
+ * matching each chart feature to the whole-cell capture
+ * newport-shane.corridor.json.gz (corridorCellRanksByReference). Anything
+ * that cannot be tied to a cell stays unranked — production's "unknown".
+ *
+ * Owner decision 1 (2026-09-30) compares band and land ranks; without them
+ * every land paint in a fixture stands, which no production merge does.
+ */
+export function withProductionRanks(fx: CorridorFixture): CorridorFixture {
+    const order = fx._meta.cells as string[] | undefined;
+    const ranks = Array.isArray(order)
+        ? corridorCellRanks(order, fx.cells)
+        : (() => {
+              const ref = loadFixture('newport-shane.corridor.json.gz');
+              return corridorCellRanksByReference(fx.cells, { order: ref._meta.cells as string[], cells: ref.cells });
+          })();
+    return { ...fx, cells: withCorridorCellRanks(fx.cells, ranks) };
 }

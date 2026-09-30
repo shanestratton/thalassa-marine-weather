@@ -2,6 +2,35 @@ import { CAUTION_BAND_COLOR, DEPARE_BAND_COLORS, SHALLOW_CAUTION_COLOR } from '.
 import { CAUTION_CLASS_COLOURS, CAUTION_DEFAULT_COLOUR } from './encPopup';
 import { seamarkIconDataUri } from './seamarkIcons';
 import { LIGHT_COLOUR_HEX } from '../../services/enc/types';
+import { NEEDS_TIDE_AMBER, SURVEY_DASH } from './inshoreRouteState';
+
+/**
+ * The planned route's colours (owner decision 10, Shane 2026-09-30: "Amber if
+ * a tide clears it") — the app had no key for them, and solid amber (needs
+ * tide) against amber dots (survey) is a difference only a key explains.
+ * The inks are the route layers' own (useMapInit). Round-4 review
+ * (2026-09-30): the red names every reason it is drawn for, and the leads
+ * overlay's own needs-tide dash — which the survey stretches used to share —
+ * is keyed apart from the route.
+ */
+const ROUTE_KEY: readonly { swatch: string; label: string }[] = [
+    { swatch: '#2dd4bf', label: 'Clear water' },
+    { swatch: '#facc15', label: 'Marked channel' },
+    { swatch: NEEDS_TIDE_AMBER, label: 'Needs tide — the chip says when' },
+    {
+        swatch: `radial-gradient(circle, ${SURVEY_DASH.ink} 0 1.5px, ${SURVEY_DASH.casing} 1.6px) 0 50% / 5px 6px repeat-x`,
+        label: 'Survey may be out, or old',
+    },
+    { swatch: '#ff1744', label: 'No tide clears it, no tide data, charts disagree, uncharted, canal or hazard' },
+    { swatch: '#1e40af', label: 'Offshore' },
+    {
+        // The leads overlay's own inks (useChartLeadsLayer AMBER_INK on
+        // AMBER_CASING_INK — the same two values, without pulling the overlay
+        // hook into the key).
+        swatch: `repeating-linear-gradient(90deg, ${NEEDS_TIDE_AMBER} 0 5px, ${SURVEY_DASH.casing} 5px 9px)`,
+        label: 'Charted lead (leads overlay) that needs tide',
+    },
+];
 
 export interface ChartKeyPanelProps {
     visible: boolean;
@@ -115,6 +144,22 @@ export function ChartKeyPanel({
                         Teal numbers = live tide depth is on (drying numbers stay olive).
                     </div>
                 )}
+            </div>
+
+            <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[10px] leading-snug text-gray-300">
+                <span className="font-black uppercase tracking-wider text-gray-200">Planned route</span>
+                <div className="grid grid-cols-1 gap-y-1">
+                    {ROUTE_KEY.map(({ swatch, label }) => (
+                        <div key={label} className="flex min-w-0 items-center gap-1.5">
+                            <span
+                                className="inline-block h-1.5 w-5 shrink-0 rounded-xs"
+                                style={{ background: swatch }}
+                                aria-hidden
+                            />
+                            <span className="min-w-0">{label}</span>
+                        </div>
+                    ))}
+                </div>
             </div>
 
             <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[10px] leading-snug text-gray-300">

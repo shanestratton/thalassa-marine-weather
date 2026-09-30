@@ -1038,6 +1038,11 @@ export const NAV_LAYER_IDS = [
     'route-line-layer',
     'route-harbour-dash',
     'route-core',
+    // Decision 9's survey stretches: amber dots on a dark casing (owner
+    // decision 10, 2026-09-30; dots since the round-4 review;
+    // inshoreRouteState surveyDashLayers).
+    'route-survey-casing',
+    'route-survey-dash',
     'waypoint-circles',
     'waypoint-labels',
     // ── The TRACER's own render (MapHub coordCaptureMode) ──

@@ -298,3 +298,57 @@ export function douglasPeucker(
     }
     return [points[0], points[points.length - 1]];
 }
+
+/**
+ * Collapse a splice's densify scaffold (round 4, 2026-09-30): near-collinear
+ * vertices INSIDE runs of segments that share one state key, Douglas-Peucker
+ * per run with the land-guard contract above — a merged chord stands only
+ * where `chordFits(a, b, runKey)` says the straight line reads the run's own
+ * state (and crosses no land). So a run is never merged across a change of
+ * state, and a merged line never reads a different state from the segments
+ * it replaces. Returns the new polyline and, per new segment, the index of an
+ * original segment of its run (its per-segment facts carry over unchanged).
+ *
+ * `pinned` (per vertex) marks anchors no merge may remove (round 5,
+ * 2026-10-01): a lateral-mark gate crossing. A run is simplified piecewise
+ * between its pinned vertices, so the scaffold either side still collapses
+ * but the line keeps a point in every gate — Newport's gate 5/6 centre sits
+ * 1.2 m off the 7/8 → 3/4 chord, inside the 2.5 m tolerance, and went.
+ */
+export function collapseStateRuns(
+    polyline: readonly [number, number][],
+    segKeys: readonly string[],
+    toleranceDeg: number,
+    chordFits: (a: [number, number], b: [number, number], runKey: string) => boolean,
+    pinned?: readonly boolean[],
+): { polyline: [number, number][]; fromSeg: number[] } {
+    const segCount = polyline.length - 1;
+    if (segCount < 2 || segKeys.length !== segCount) {
+        return {
+            polyline: polyline.map((p) => [p[0], p[1]]),
+            fromSeg: Array.from({ length: Math.max(0, segCount) }, (_, i) => i),
+        };
+    }
+    const out: [number, number][] = [[polyline[0][0], polyline[0][1]]];
+    const fromSeg: number[] = [];
+    let runStart = 0;
+    for (let i = 1; i <= segCount; i++) {
+        if (i < segCount && segKeys[i] === segKeys[runStart]) continue;
+        // Run of segments [runStart, i) → points [runStart, i], simplified
+        // piece by piece between its pinned interior vertices.
+        const key = segKeys[runStart];
+        let pieceStart = runStart;
+        for (let v = runStart + 1; v <= i; v++) {
+            if (v < i && !pinned?.[v]) continue;
+            const pts = polyline.slice(pieceStart, v + 1).map((p) => [p[0], p[1]] as [number, number]);
+            const kept = pts.length < 3 ? pts : douglasPeucker(pts, toleranceDeg, (a, b) => !chordFits(a, b, key));
+            for (let k = 1; k < kept.length; k++) {
+                out.push(kept[k]);
+                fromSeg.push(pieceStart);
+            }
+            pieceStart = v;
+        }
+        runStart = i;
+    }
+    return { polyline: out, fromSeg };
+}

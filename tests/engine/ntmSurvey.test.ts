@@ -166,9 +166,16 @@ describe('NTM survey-override zones', () => {
         // the land paint (the Mooloolah entrance: 1:90k coastal LNDARE over
         // the harbour cell's D2-5) — the fresh survey resolves the conflict
         // to water and the route rides the surveyed 2.5 m corridor through it.
+        // Owner decision 1 (2026-09-30): only a FINER never-drying band beats
+        // land paint, and unknown ranks leave it land. The fixture now carries
+        // the ranks the router's merge stamps, saying what the prose above
+        // does — the plug is the 1:90k coastal cell's (coarser), the bands the
+        // harbour cell's (finer). Unranked, the plug's 30 m fringe over the
+        // deep bands, outside the survey zones, stays land and walls it off.
+        const harbour = (f: Feature): Feature => ({ ...f, properties: { ...f.properties, _scaleRank: 200 } });
         const conflictLayers = {
-            DEPARE: layers.DEPARE, // bar band continuous — a water claim under the plug
-            LNDARE: fc(rect(BAR_W - 0.0005, -27.906, BAR_E + 0.0005, -27.899, {})),
+            DEPARE: fc(...layers.DEPARE.features.map(harbour)), // bar band continuous — a water claim under the plug
+            LNDARE: fc(rect(BAR_W - 0.0005, -27.906, BAR_E + 0.0005, -27.899, { _scaleRank: 100 })),
         };
         const r = routeInshore({ ...conflictLayers, NTMZONE }, base);
         expect(isResult(r)).toBe(true);

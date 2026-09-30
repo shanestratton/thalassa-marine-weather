@@ -38,6 +38,7 @@
 
 import { useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { inshoreRouteCaveats } from './inshoreRouteNotice';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
 import { rdpTracePoints, capSegmentLength } from '../../services/routeTracer';
@@ -236,6 +237,17 @@ export function useAutoRouteLeg(deps: AutoRouteLegDeps): () => void {
                             setSelectedPin(null); // indices shifted; drop the highlight
                             setInsertAfter(null);
                             insertAfterRef.current = null;
+                            // What the route must say (owner decision 8: bridges not
+                            // checked on a schema-1 chart; a pin off the water) rides
+                            // on the persisted diag line (fix-up, 2026-09-30).
+                            const caveats = inshoreRouteCaveats({
+                                structuresUnknownCells: res.structuresUnknownCells,
+                                pinOffWater: res.pinOffWater,
+                                surveyRuns: res.surveyRuns,
+                                surveyUncheckedCells: res.surveyUncheckedCells,
+                            });
+                            const withCaveats = (d: string | null): string | null =>
+                                caveats.length === 0 ? d : [d, ...caveats].filter(Boolean).join(' ');
                             if (interior.length > 0) {
                                 flashTraceFeedback(
                                     viaTide
@@ -245,12 +257,14 @@ export function useAutoRouteLeg(deps: AutoRouteLegDeps): () => void {
                                 // Persist the decision + ratios (not null) so an
                                 // on-water run gives ground truth to calibrate the
                                 // NEAR_DIRECT_CAP / TIDE_ADOPT_FACTOR dials.
-                                setAutoRouteDiag(diag);
+                                setAutoRouteDiag(withCaveats(diag));
                             } else {
                                 // Engine returned the straight line — it can't see a
                                 // better path even on 'safest'. Persist WHY.
                                 setAutoRouteDiag(
-                                    `⚡ Engine kept the straight line (${prof}, ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM). It sees no deeper detour it can reach — the shallow may sit in a coverage gap or between charts.`,
+                                    withCaveats(
+                                        `⚡ Engine kept the straight line (${prof}, ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM). It sees no deeper detour it can reach — the shallow may sit in a coverage gap or between charts.`,
+                                    ),
                                 );
                             }
                         } else if (res && 'error' in res) {
