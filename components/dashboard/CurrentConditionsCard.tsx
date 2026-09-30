@@ -4,6 +4,18 @@ import { convertSpeed, convertDistance, convertPrecip } from '../../utils';
 import { DropletIcon, EyeIcon } from '../Icons';
 import { AnimatedSunIcon, AnimatedRainIcon } from '../ui/AnimatedIcons';
 
+/**
+ * A fifth of a 320–430 pt row holds about four 24 px mono characters. Longer
+ * readings ("Trace", an inch figure such as '<0.01"') step down a size so they
+ * stay inside their cell instead of running over the divider.
+ */
+export function fifthCellValueSize(value: string | number): string {
+    const length = String(value).length;
+    if (length <= 3) return 'text-2xl';
+    if (length === 4) return 'text-xl';
+    return 'text-lg';
+}
+
 interface CurrentConditionsCardProps {
     data: WeatherMetrics;
     units: UnitPreferences;
@@ -32,11 +44,16 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
     // `precipitation` is an AMOUNT in millimetres, not a probability — this cell
     // appended '%' to it (audit 2026-09-02). convertPrecip returns a formatted
     // inch string for Fahrenheit users (unit mark embedded) and mm otherwise.
-    const rainAmount =
+    const rawRain =
         data.precipitation !== null && data.precipitation !== undefined
             ? (convertPrecip(data.precipitation, units.temp) ?? '0')
             : '--';
-    const rainUnit = units.temp === 'F' || rainAmount === '--' ? '' : 'mm';
+    // Under 0.25 mm convertPrecip says TRACE. As "TRACE mm" in a fifth of the
+    // row it ran into the HUM cell and clipped its unit to "m" (Shane
+    // 2026-09-30). A trace is a word, not a measurement: "Trace", no unit.
+    const isTrace = rawRain === 'TRACE';
+    const rainAmount = isTrace ? 'Trace' : rawRain;
+    const rainUnit = units.temp === 'F' || rainAmount === '--' || isTrace ? '' : 'mm';
     const uvIndex =
         data.uvIndex !== null && data.uvIndex !== undefined && !isNaN(data.uvIndex) ? Math.round(data.uvIndex) : '--';
     const humidity = data.humidity !== null && data.humidity !== undefined ? `${Math.round(data.humidity)}%` : '--';
@@ -115,8 +132,12 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
                         <AnimatedRainIcon className="w-3 h-3 text-emerald-400" />
                         <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Rain</span>
                     </div>
-                    <div className="flex items-baseline mt-1">
-                        <span className="text-2xl font-mono font-medium text-ivory tracking-tight">{rainAmount}</span>
+                    <div className="flex items-baseline mt-1 min-w-0 max-w-full">
+                        <span
+                            className={`${fifthCellValueSize(rainAmount)} font-mono font-medium text-ivory tracking-tight whitespace-nowrap`}
+                        >
+                            {rainAmount}
+                        </span>
                         {rainUnit && <span className="text-[11px] text-white/60 font-medium ml-0.5">{rainUnit}</span>}
                     </div>
                 </div>

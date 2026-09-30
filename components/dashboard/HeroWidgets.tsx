@@ -365,7 +365,10 @@ const InstrumentCell: React.FC<{
             <div className="flex items-baseline mt-auto mb-1 gap-0.5">
                 {dirDeg !== undefined && dirDeg !== null && <DirectionArrow degrees={dirDeg} size={12} />}
                 <span
-                    className={`text-[26px] font-mono font-medium tracking-tight drop-shadow-md ${
+                    // Five or more characters ('Trace', an inch figure such as
+                    // '<0.01"') do not fit a fifth of the row at 26 px: they
+                    // ran over the divider. Step them down rather than clip.
+                    className={`${String(value).length >= 5 ? 'text-[20px]' : 'text-[26px]'} font-mono font-medium tracking-tight whitespace-nowrap drop-shadow-md ${
                         value === '--' ? 'text-slate-500' : 'text-ivory'
                     }`}
                     style={{ fontFeatureSettings: '"tnum"' }}
@@ -528,7 +531,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 // Imperial: convert mm → inches. convertPrecip returns a fully
                 // formatted string ('0.39"', '<0.01"', 'TRACE') with the inch
                 // mark embedded, so rainUnit is blank for this path.
-                return convertPrecip(todayTotal, 'F') ?? 0;
+                // A trace is a word, not a measurement (it overran the cell as TRACE).
+                const inches = convertPrecip(todayTotal, 'F') ?? 0;
+                return inches === 'TRACE' ? 'Trace' : inches;
             }
             return todayTotal > 0 ? Math.round(todayTotal) : 0;
         }
