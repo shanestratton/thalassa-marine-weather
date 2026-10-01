@@ -127,7 +127,7 @@ enum DmContentCodec {
         }) else { throw DmFrameError.invalidInput }
     }
 
-    private static func validateContext(_ context: DmAuthenticatedContext) throws {
+    static func validateContext(_ context: DmAuthenticatedContext) throws {
         for identifier in [context.conversationId, context.clientMessageId,
                            context.senderUserId, context.senderDeviceId,
                            context.recipientUserId, context.recipientDeviceId,

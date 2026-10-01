@@ -69,6 +69,64 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 1 October typed incoming-message failure and sealed retry slice
+
+The native wrapper now has one narrowly classified `MessageNotOpened` variant,
+with exhaustive pinned upstream error matching. Local pickle/key/configuration
+and output failures remain non-deferable. Restoring the relevant local provider
+snapshot happens before inspecting incoming wire, so damaged ciphertext cannot
+mask a corrupt pickle. The upstream library, dependency manifest/lock and Olm v1
+cryptography are unchanged; this is error classification, not a new ratchet.
+
+Version 4 research state retains a bounded sealed unresolved ledger alongside
+the inbox. It captures exact ciphertext, server ID, full relay-record metadata,
+original local owner/peer generations and a fixed sanitized reason. No failed
+message becomes plaintext or a read/deletion receipt. A speculative copy is used
+for decryption: deferring authenticated-content failure preserves the ORIGINAL
+account, one-time key, session, outbox and inbox. Persistence/CAS errors cannot be
+caught as message failure, and no deferred/stored result is returned before commit.
+
+Ordinary rescans only classify exact saved rows; they never automatically retry,
+evict, rebind or restore old history. Explicit retry requires the original active
+owner/accepted-peer generations and current credential epoch. Successful retry
+atomically removes the queue row, advances crypto and appends bound native history.
+Failed retry persists the unchanged payload through a lifecycle-fencing CAS.
+Server/record/ciphertext collisions remain conflicts before and after promotion.
+Inbox plus unresolved shares a 16-row limit; the sealed-store byte cap also applies.
+Full stores stop without silent eviction, including historical unresolved rows.
+Production capacity/retention policy, scalable cursors and retry UI are not built.
+
+Observed validation: **20 real-provider Rust boundary tests passed** after a fresh
+offline boundary rebuild and regenerated Swift bindings. Simulator and physical
+iPhone target compilation/linking also passed; compilation is not phone execution.
+The final `thalassa-native-exchange-XjN28V/exchange-run.json` reported **passed**
+across nine simulator process launches, four actual native encrypted messages,
+eight poisoned inbox responses and zero stale-context HTTP requests. SQL reopen,
+lost-response/exact-ciphertext retry, wrong receipt, malformed structural page and
+scoped relay plaintext-absence checks remained passing. No unexpected host failures.
+
+Preparation executed the native unresolved probe, including genuine provider
+2,002/1,000-position message-gap recovery: the exact late ciphertext stayed queued
+through reopen, an ordinary rescan did not retry it, and explicit retry atomically
+promoted it after an intermediate message made decryption possible. Corrupt local
+account/session state remained a hard failure with no queued row. Exact bindings,
+shared capacity, deferral/promotion rollback and competing lifecycle CAS probes
+passed. In the HTTPS exchange, the retained poison preceded a valid successor,
+survived another process, and became historical after trust/owner changes without
+being deleted/rebound or exposing text. The disposable simulator/test CA were
+removed; executed Swift source hashes remained unchanged after the run.
+
+The seven existing TypeScript research suites passed **474 tests**, followed by
+strict selected-file type checks. They remain framing/delivery/server tests, not
+474 native encrypted exchanges. Both logical native clients still share one
+research simulator; real account/token attestation and peer pins are fixtures.
+The exchange runner records hashes of the freshly rebuilt boundary artifacts but
+does not independently attest their provenance. No live Auth, app integration,
+primary phone project or deployment changed. Two phones, device/prekey lifecycle,
+production retention/scalable sync and independent review still gate release.
+
+Earlier checkpoints below describe their then-current boundaries and limits.
+
 ### 1 October native lifecycle and known-inbox recovery slice
 
 The isolated sealed coordinator now owns a persisted active/signed-out flag,
@@ -139,7 +197,7 @@ plugin, primary phone project, Supabase schema or master deployment is changed.
 Auth/token and peer-identity attestations remain fixtures. Two physical phones,
 key/device/prekey lifecycle, scalable sync and independent review remain gates.
 
-**Poison recovery is deliberately not implemented yet.** The current native
+**At that checkpoint, poison recovery was deliberately not implemented.** The then-current native
 provider error conflates invalid ciphertext/content with restored-state failure.
 Safely retaining an unresolved encrypted row while continuing later messages
 first needs typed error boundaries, a fresh binding/binary rebuild, a bounded
