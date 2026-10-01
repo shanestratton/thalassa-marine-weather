@@ -48,6 +48,9 @@ const settingsReady = awaitSettingsLoaded().then(() =>
                 maxWaveHeight: 2,
                 cruisingSpeed: 6,
             },
+            // Auto route (trial) switched on in Preferences: the real-engine
+            // provider reads it (off by default since 2026-10-01).
+            autorouteTrialEnabled: true,
         },
     }),
 );

@@ -20,6 +20,7 @@ const m = vi.hoisted(() => ({
     invoke: vi.fn(),
     packs: vi.fn(async () => [] as unknown[]),
     notices: vi.fn(async () => [] as unknown[]),
+    trialOn: true,
 }));
 
 vi.mock('../services/InshoreRouter', () => ({
@@ -42,6 +43,12 @@ vi.mock('../services/localNotices', async (original) => ({
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
+// Settings → Preferences → "Auto route (trial)" (2026-10-01): off by default,
+// on here unless a test says otherwise (tests/AutorouteTrialSwitch.test.tsx
+// runs the real store).
+vi.mock('../stores/settingsStore', () => ({
+    useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: m.trialOn } }) },
+}));
 
 import {
     calculateThalassaProposal,
@@ -52,6 +59,7 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
 import { inshoreSegmentStates, surveyAmberMetres } from '../components/map/inshoreRouteState';
 import { thalassaVesselWarnings } from '../services/autoroutingVesselProfile';
+import { applyWaterPack } from '../services/waterPack/waterPackWords';
 import type { AutoroutingVesselProfile } from '../types/autorouting';
 
 // Invented open water in the Tasman Sea; no real chart data.
@@ -111,6 +119,7 @@ const engineResult = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(() => {
     vi.useRealTimers();
     setAuthIdentityScope('user-1');
+    m.trialOn = true;
     m.tryInshoreRoute.mockReset();
     m.hasEncCoverageForRoute.mockReset().mockReturnValue(true);
     m.crossesLand.mockReset().mockResolvedValue({ status: 'verified', crossesLand: false, runs: [] });
@@ -138,9 +147,35 @@ describe('Auto status, computed on the phone', () => {
         setAuthIdentityScope(null);
         expect(getThalassaAutorouteStatus().enabled).toBe(false);
     });
+
+    // Opt-in (2026-10-01): Pro is every account while the public beta is on,
+    // so Auto stays closed until the skipper turns the switch on, and says where.
+    it('is closed until Auto route (trial) is switched on in Preferences, and says where the switch is', () => {
+        m.trialOn = false;
+        expect(getThalassaAutorouteStatus()).toEqual({
+            enabled: false,
+            ready: false,
+            message: 'Auto route (trial) is off. Turn it on in Settings → Preferences. Manual is ready.',
+        });
+        // Signed out still says sign in first.
+        setAuthIdentityScope(null);
+        expect(getThalassaAutorouteStatus().message).toBe('Sign in to use Auto routing. Manual is ready.');
+        expect(m.invoke).not.toHaveBeenCalled();
+    });
 });
 
 describe('calculateThalassaProposal', () => {
+    it('refuses while Auto route (trial) is off, before the engine, the land check or a chart fill', async () => {
+        m.trialOn = false;
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            'Auto route (trial) is off. Turn it on in Settings → Preferences. Manual is ready.',
+        );
+        expect(m.tryInshoreRoute).not.toHaveBeenCalled();
+        expect(m.crossesLand).not.toHaveBeenCalled();
+        expect(m.fill).not.toHaveBeenCalled();
+    });
+
     it('returns the engine polyline exactly, with the planned-only line, the caveats and the disclosure', async () => {
         const res = engineResult();
         m.tryInshoreRoute.mockResolvedValue(res);
@@ -458,6 +493,118 @@ describe('calculateThalassaProposal', () => {
         setAuthIdentityScope(null);
         await expect(calculateThalassaProposal(request())).rejects.toThrow('Sign in to use Auto routing.');
         expect(m.tryInshoreRoute).not.toHaveBeenCalled();
+    });
+});
+
+// Phase 2b (2026-10-01), owner decision 2: offline, Auto routes the canal
+// when its water is in the phone's pack and says where it came from; when an
+// end's water is not saved, its refusals say that first.
+describe('the offline water pack', () => {
+    const SAVED = new Date(2026, 8, 28, 12).getTime();
+    const PACK_LEAD = "No route: the harbour water for the departure isn't on this phone yet";
+
+    it('passes an engine refusal that leads with the pack, whole, with the engine words in it', async () => {
+        const engineWords = 'No safe chart-vouched route: the only candidate crosses 0.9 km of charted land';
+        m.tryInshoreRoute.mockResolvedValue(
+            applyWaterPack(
+                { error: engineWords, code: 'hard-land-crossing' },
+                { source: 'none', missing: ['departure'], offline: true },
+            ),
+        );
+        const err = await calculateThalassaProposal(request()).catch((e: Error) => e);
+        expect(err).toBeInstanceOf(Error);
+        expect((err as Error).message.startsWith(PACK_LEAD)).toBe(true);
+        expect((err as Error).message).toContain(engineWords);
+    });
+
+    it('a route on the pack carries its caveat after the planned-only line', async () => {
+        m.tryInshoreRoute.mockResolvedValue(
+            engineResult({ waterPack: { source: 'pack', dataAsOf: SAVED, missing: [] } }),
+        );
+        const route = await calculateThalassaProposal(request());
+        expect(route.warnings[0]).toBe(THALASSA_PLANNED_ONLY_WARNING);
+        const i = route.warnings.findIndex((w) => w.startsWith('Canal and marina water on this route came from'));
+        expect(i).toBeGreaterThan(0);
+        expect(route.warnings[i]).toContain('saved on this phone on 28 Sep (© OpenStreetMap contributors)');
+    });
+
+    it("its own refusals lead with the pack when that end's water is missing", async () => {
+        const masks = {
+            cautionMask: [false],
+            canalMask: [false],
+            channelMask: [false],
+            offshoreMask: [false],
+            chartedShallowMask: [false],
+            landPaintConflictMask: [false],
+            tideDepthM: [null],
+            surveyRuns: [],
+        };
+        // The route starts ~1 km off the departure pin, unexplained.
+        const start: [number, number][] = [
+            [161.01, -31.0],
+            [DEST.lon, DEST.lat],
+        ];
+        m.tryInshoreRoute.mockResolvedValue(
+            engineResult({
+                polyline: start,
+                ...masks,
+                waterPack: { source: 'pack', missing: ['departure'], offline: true },
+            }),
+        );
+        const err = (await calculateThalassaProposal(request()).catch((e: Error) => e)) as Error;
+        expect(err.message.startsWith(PACK_LEAD)).toBe(true);
+        expect(err.message).toMatch(/No route by water from your departure: the nearest water Thalassa could reach is/);
+        // The destination's water missing says nothing about the departure end.
+        m.tryInshoreRoute.mockResolvedValue(
+            engineResult({ polyline: start, ...masks, waterPack: { source: 'pack', missing: ['destination'] } }),
+        );
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(/^No route by water from your departure/);
+        // Charted land away from a pin, with an end's water missing.
+        m.tryInshoreRoute.mockResolvedValue(
+            engineResult({
+                hardLand: { totalM: 400, awayM: 400, awayAt: [161.03, -31.02] },
+                waterPack: { source: 'none', missing: ['departure', 'destination'], offline: true },
+            }),
+        );
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            /^No route: the harbour water for the departure and the destination isn't on this phone yet.*crosses charted land near 31\.020° S/,
+        );
+    });
+
+    // Fix-up (2026-10-02): online, the water "couldn't be downloaded just
+    // now" — never "route once you're online"; and with both ends saved but
+    // water along the way not, the land refusal says that after its words.
+    it('online, and on a partial pack, its own refusals say why in words that fit', async () => {
+        m.tryInshoreRoute.mockResolvedValue(
+            engineResult({
+                hardLand: { totalM: 400, awayM: 400, awayAt: [161.03, -31.02] },
+                waterPack: { source: 'none', missing: ['departure', 'destination'] },
+            }),
+        );
+        const online = (await calculateThalassaProposal(request()).catch((e: Error) => e)) as Error;
+        expect(online.message).toMatch(
+            /^No route: the harbour water for the departure and the destination couldn't be downloaded just now and isn't saved on this phone.*Try again shortly\./,
+        );
+        expect(online.message).not.toMatch(/once you're online/);
+        m.tryInshoreRoute.mockResolvedValue(
+            engineResult({
+                hardLand: { totalM: 400, awayM: 400, awayAt: [161.03, -31.02] },
+                waterPack: { source: 'pack', missing: [], gaps: true, offline: true },
+            }),
+        );
+        const partial = (await calculateThalassaProposal(request()).catch((e: Error) => e)) as Error;
+        expect(partial.message).toMatch(/^The only way Thalassa found crosses charted land near 31\.020° S/);
+        expect(partial.message).toMatch(
+            /Some harbour water along this route isn't saved on this phone, so the charts alone were used there; route once you're online to save it\.$/,
+        );
+    });
+
+    it('an online route reads exactly as before', async () => {
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        const before = await calculateThalassaProposal(request());
+        m.tryInshoreRoute.mockResolvedValue(engineResult({ waterPack: { source: 'online', missing: [] } }));
+        const after = await calculateThalassaProposal(request());
+        expect(after.warnings).toEqual(before.warnings);
     });
 });
 

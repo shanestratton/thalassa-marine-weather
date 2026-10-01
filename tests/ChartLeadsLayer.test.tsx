@@ -316,7 +316,10 @@ describe('Settings → Preferences → Chart — the switch, off by default', ()
         const toggle = screen.getByRole('switch', { name: 'Show charted leads' });
         // The legend names the overlay's own inks for every state, and does
         // not call the chart's ordinary amber track dash 'needs tide'.
-        const legend = screen.getByText(/Not for navigation/).textContent ?? '';
+        // Found by its own opening words: Preferences has a second "Not for
+        // navigation" line since 2026-10-01 (Routing → Auto route (trial)).
+        const legend = screen.getByText(/^Leads \(pink\) and buoyed channels/).textContent ?? '';
+        expect(legend).toMatch(/Not for navigation/);
         expect(legend).toMatch(/pink/i);
         expect(legend).toMatch(/indigo/i);
         expect(legend).toMatch(/dark edge/i);

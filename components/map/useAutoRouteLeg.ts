@@ -246,6 +246,8 @@ export function useAutoRouteLeg(deps: AutoRouteLegDeps): () => void {
                                 tideCheck: res.tideCheck,
                                 surveyRuns: res.surveyRuns,
                                 surveyUncheckedCells: res.surveyUncheckedCells,
+                                // Canal water from the offline pack (Phase 2b).
+                                waterPack: res.waterPack,
                             });
                             const withCaveats = (d: string | null): string | null =>
                                 caveats.length === 0 ? d : [d, ...caveats].filter(Boolean).join(' ');

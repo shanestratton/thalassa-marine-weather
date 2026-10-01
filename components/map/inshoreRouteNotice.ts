@@ -5,6 +5,7 @@
  */
 import type { PassageNotice } from './usePassagePlanner';
 import type { PinOffWater, SurveyRunInfo } from '../../services/engine/types';
+import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 
 export interface InshoreRouteNoticeInput {
     /** The router's per-segment safety classifications arrived intact. */
@@ -27,6 +28,11 @@ export interface InshoreRouteNoticeInput {
      *  survey amber at all (a saved plan, the tracer), so the caveat names no
      *  colour. */
     surveyAmber?: { marginM: number; poorM: number };
+    /** Where the route's canal and marina water came from when it was not a
+     *  live download (InshoreRouteResult.waterPack, Phase 2b, 2026-10-01):
+     *  the phone's offline pack or the Pi's stale copy, with its date — or an
+     *  end whose water is not saved, routed on the charts alone. */
+    waterPack?: WaterPackUse;
     ntmLockBanner: PassageNotice | null;
 }
 
@@ -109,7 +115,10 @@ export function surveyCaveats(
  * route's survey quality (decision 9, surveyCaveats).
  */
 export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLockBanner' | 'stateMaskOk'>): string[] {
-    const out: string[] = [];
+    // Owner decision 2 (Phase 2b, 2026-10-01): canal water from the phone's
+    // offline pack or the Pi's stale copy is said first, with its date and
+    // the OSM credit — it is the water the whole route stands on.
+    const out: string[] = [...waterPackCaveats(input.waterPack)];
     const gaps = input.structuresUnknownCells?.length ?? 0;
     if (gaps > 0) {
         out.push(
@@ -175,6 +184,7 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
     // normal and say so plainly — never refuse for it — in a skipper's words.
     const gaps = input.structuresUnknownCells?.length ?? 0;
     const offWater = !!(input.pinOffWater?.origin || input.pinOffWater?.destination);
+    const pack = waterPackCaveats(input.waterPack).length > 0;
     return {
         severity: 'warn',
         title:
@@ -184,7 +194,11 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
                   ? 'Pin off the water'
                   : input.tideCheck === 'not-loaded'
                     ? 'Tide times not loaded'
-                    : 'Survey quality',
+                    : pack
+                      ? input.waterPack?.source === 'none'
+                          ? 'Harbour water not saved'
+                          : 'Saved harbour water'
+                      : 'Survey quality',
         message: caveats.join(' '),
     };
 }
@@ -199,6 +213,22 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
  */
 export function isFinalInshoreRefusal(code: unknown): boolean {
     return code === 'no-tide-clears' || code === 'air-draft-blocked';
+}
+
+/** A saved route's water-pack facts (inshoreRouteToGeoJSON), checked;
+ *  undefined when malformed — no words rather than wrong ones. */
+function savedWaterPack(v: unknown): WaterPackUse | undefined {
+    if (!v || typeof v !== 'object') return undefined;
+    const w = v as { source?: unknown; dataAsOf?: unknown; missing?: unknown; offline?: unknown };
+    if (w.source !== 'pack' && w.source !== 'pi-stale' && w.source !== 'none') return undefined;
+    const ends: WaterPackEnd[] = ['departure', 'destination'];
+    const missing = Array.isArray(w.missing) ? ends.filter((e) => (w.missing as unknown[]).includes(e)) : [];
+    return {
+        source: w.source,
+        ...(typeof w.dataAsOf === 'number' && Number.isFinite(w.dataAsOf) ? { dataAsOf: w.dataAsOf } : {}),
+        missing,
+        ...(w.offline === true ? { offline: true as const } : {}),
+    };
 }
 
 /**
@@ -237,6 +267,7 @@ export function savedInshoreRouteCaveats(
             ...(p.tideCheck === 'not-loaded' ? { tideCheck: 'not-loaded' as const } : {}),
             surveyRuns: Array.isArray(p.surveyRuns) ? (p.surveyRuns as SurveyRunInfo[]) : undefined,
             surveyUncheckedCells: strings(p.surveyUncheckedCells),
+            waterPack: savedWaterPack(p.waterPack),
         });
     }
     const saved = plan.__inshoreRouting;

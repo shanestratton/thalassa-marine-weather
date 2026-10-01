@@ -850,13 +850,21 @@ describe('DayPlannerSheet review and planned-only save', () => {
 describe('DayPlannerEntry lifecycle', () => {
     // The entry opens the planner at once on a confirmed draft; an
     // unconfirmed one is asked about first (tests/DraftConfirmGates.test.tsx).
+    // Auto route (trial) is switched on in Preferences: Plan Your Day is
+    // closed without it since 2026-10-01 (tests/AutorouteTrialSwitch.test.tsx).
     beforeEach(async () => {
         await awaitSettingsLoaded();
         useSettingsStore.setState({
             settings: {
                 ...useSettingsStore.getState().settings,
                 vessel: { ...vessel, draftConfirmedFt: vessel.draft },
+                autorouteTrialEnabled: true,
             },
+        });
+    });
+    afterEach(() => {
+        useSettingsStore.setState({
+            settings: { ...useSettingsStore.getState().settings, autorouteTrialEnabled: undefined },
         });
     });
 

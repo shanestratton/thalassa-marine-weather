@@ -9,6 +9,7 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentity
 import { autoroutingProposalGeometryKey } from '../autoroutingProposalEvidence';
 import { reviewAutoroutingProposal } from '../autoroutingReview';
 import { calculateThalassaProposal, getThalassaAutorouteStatus } from '../autoroutingThalassa';
+import { isAutorouteTrialOn, PLAN_YOUR_DAY_TRIAL_OFF } from '../autorouteTrialSwitch';
 import { snapshotAutoroutingVesselProfile } from '../autoroutingVesselProfile';
 import { getRegistryFingerprint, subscribe as subscribeEncRegistry } from '../enc/EncCellMetadata';
 import { FEET_PER_METRE, vesselDraftMetres } from '../units';
@@ -161,6 +162,9 @@ export async function runDayPlanner(
     const cancelled = () => new DOMException('Day planning was cancelled or the account changed.', 'AbortError');
     if (options.signal.aborted || !isAuthIdentityScopeCurrent(scope)) throw cancelled();
     if (!scope.userId) throw new Error('Sign in to use Plan my day.');
+    // Every leg is Thalassa's router, so Plan Your Day is closed until the
+    // skipper switches Auto route (trial) on in Preferences (2026-10-01).
+    if (!isAutorouteTrialOn()) throw new Error(PLAN_YOUR_DAY_TRIAL_OFF);
     const capturedVessel = structuredClone(vessel);
     const vesselKey = JSON.stringify(vessel);
     const inputs = dayPlannerVesselInputs(capturedVessel);
@@ -242,8 +246,9 @@ export async function runDayPlanner(
     };
     try {
         check();
-        // Thalassa's router on this phone (2026-10-01): a signed-in identity
-        // and installed navigation charts. No server status call.
+        // Thalassa's router on this phone (2026-10-01): a signed-in identity,
+        // the Auto route (trial) switch and installed navigation charts. No
+        // server status call.
         const status = getThalassaAutorouteStatus();
         if (!status.enabled || !status.ready)
             throw new Error(status.message || 'Plan my day needs installed charts for Auto routing.');
@@ -396,8 +401,11 @@ export async function runDayPlanner(
                 };
                 // One engine route per leg, in turn (the engine is synchronous
                 // on the phone). It routes from the berth itself: the retired
-                // automatic canal exit is not consulted, and offline the Newport
-                // estate refuses in the engine's own words (owner decision 2).
+                // automatic canal exit is not consulted. Offline the Newport
+                // estate routes when the phone's water pack holds its canal
+                // (Phase 2b, 2026-10-01), and otherwise refuses — "No route:
+                // the harbour water for the departure isn't on this phone yet"
+                // first, then the engine's own words (owner decision 2).
                 let route: AutoroutingTrialRoute = await wait(
                     calculateThalassaProposal(routeRequest, controller.signal),
                 );

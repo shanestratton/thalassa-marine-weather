@@ -44,6 +44,17 @@ const polygon = (props: Record<string, unknown>): FeatureCollection => ({
     ],
 });
 const bbox: [number, number, number, number] = [0, 0, 0.01, 0.01];
+const emptyOverlay = () => ({
+    water: empty(),
+    marina: empty(),
+    reef: empty(),
+    coastline: empty(),
+    breakwater: empty(),
+    berths: empty(),
+    aeroway: empty(),
+    canalLines: empty(),
+    navLines: empty(),
+});
 beforeEach(() => {
     vi.clearAllMocks();
     mocks.blob.mockResolvedValue({ layers: { DEPARE: polygon({ DRVAL1: 1, DRVAL2: 1 }) } });
@@ -232,6 +243,36 @@ describe('charted-only trial depth policy', () => {
         mocks.overlay.mockRejectedValue(new Error('offline'));
         const result = await assembleTracerLayers(bbox, { chartedDepthOnly: true });
         expect(result?.supplementalChecksUnavailable).toBe(true);
+    });
+    // Phase 2b (2026-10-01): getOsmRouteOverlay never throws — after a failure
+    // it returns an EMPTY overlay, which used to pass the Auto chart review as
+    // "no berths or breakwaters here". Its provenance now tells the two apart:
+    // no saved water, or only part of the window's, is an incomplete check
+    // (disclosure only — it never blocks a planned-only save).
+    it("flags an overlay that holds none or only part of the window's water (provenance coverage)", async () => {
+        for (const coverage of ['none', 'partial'] as const) {
+            mocks.overlay.mockResolvedValue({
+                ...emptyOverlay(),
+                provenance: { source: coverage === 'none' ? 'none' : 'pack', coverage, presentTiles: [] },
+            });
+            const strict = await assembleTracerLayers(bbox, { chartedDepthOnly: true });
+            expect(strict?.supplementalChecksUnavailable, coverage).toBe(true);
+            // The manual tracer does not run the Auto review: unchanged.
+            const manual = await assembleTracerLayers(bbox);
+            expect(manual?.supplementalChecksUnavailable, coverage).toBe(false);
+        }
+    });
+    it('a whole overlay, online or saved, or one with no provenance at all, is a complete check', async () => {
+        for (const provenance of [
+            { source: 'pack', coverage: 'full', presentTiles: ['x'] },
+            { source: 'cloud', coverage: 'full' },
+            { source: 'pi-stale', coverage: 'full' },
+            undefined,
+        ]) {
+            mocks.overlay.mockResolvedValue({ ...emptyOverlay(), ...(provenance ? { provenance } : {}) });
+            const strict = await assembleTracerLayers(bbox, { chartedDepthOnly: true });
+            expect(strict?.supplementalChecksUnavailable, JSON.stringify(provenance)).toBe(false);
+        }
     });
 });
 describe('the router merges rank the land paint and the depth bands (owner decision 1, 2026-09-30)', () => {

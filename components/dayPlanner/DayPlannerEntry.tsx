@@ -3,6 +3,7 @@ import type { VesselProfile } from '../../types/vessel';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
+import { isAutorouteTrialOn, PLAN_YOUR_DAY_TRIAL_OFF, useAutorouteTrialOn } from '../../services/autorouteTrialSwitch';
 import './DayPlanner.css';
 
 const DayPlannerSheet = lazyRetry(() => import('./DayPlannerSheet'));
@@ -25,6 +26,21 @@ export function DayPlannerEntry({
     onUpgrade: () => void;
 }) {
     const [open, setOpen] = useState(false);
+    // Opt-in (2026-10-01): Plan Your Day routes with Auto route (trial),
+    // off by default in Settings → Preferences. Pro alone is every beta
+    // account, so a Pro tap with the switch off says where the switch is
+    // and opens nothing; switched off while open, the planner shuts.
+    const trialOn = useAutorouteTrialOn();
+    const [askedWhileOff, setAskedWhileOff] = useState(false);
+    // Any change of the switch starts the entry afresh: switched off, the
+    // planner shuts and stays shut (switched on again it waits for a tap and
+    // the draft check); switched on, the note goes.
+    const [trialSeen, setTrialSeen] = useState(trialOn);
+    if (trialSeen !== trialOn) {
+        setTrialSeen(trialOn);
+        setOpen(false);
+        setAskedWhileOff(false);
+    }
     const close = useCallback(() => setOpen(false), []);
     const openSaved = useCallback(
         (id: string) => {
@@ -44,7 +60,13 @@ export function DayPlannerEntry({
                 // Every plan is worked out against the draft: it opens once the
                 // skipper has confirmed it (Shane 2026-09-29), at once if so.
                 // Pro only (2026-10-01): a free account is offered the upgrade.
-                onClick={() => (isPro ? runWithConfirmedDraft('day-plan', () => setOpen(true)) : onUpgrade())}
+                // Then the Auto route (trial) switch, the same day.
+                onClick={() => {
+                    if (!isPro) onUpgrade();
+                    else if (!trialOn) setAskedWhileOff(true);
+                    // Still on once the draft is confirmed, or it stays shut.
+                    else runWithConfirmedDraft('day-plan', () => setOpen(isAutorouteTrialOn()));
+                }}
             >
                 <span className="day-plan-entry-icon" aria-hidden="true">
                     ☀
@@ -57,7 +79,12 @@ export function DayPlannerEntry({
                     ↗
                 </span>
             </button>
-            {open && isPro && (
+            {askedWhileOff && isPro && !trialOn && (
+                <p role="status" className="day-plan-notice">
+                    {PLAN_YOUR_DAY_TRIAL_OFF}
+                </p>
+            )}
+            {open && isPro && trialOn && (
                 <Suspense
                     fallback={
                         <p role="status" className="text-sm text-cyan-300">

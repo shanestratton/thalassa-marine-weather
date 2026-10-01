@@ -59,6 +59,12 @@
  * marina basins, OSM water) is merged on top, and the grid treats the Newport
  * entrance channel as water through it. The GOLDEN at the end pins that shape
  * (review 2026-09-29): it routes, with no unvouched land.
+ *
+ * Phase 2b (2026-10-01): the offline water pack is built, so decision 2's
+ * offline "no route" now applies only when the canal's tiles are NOT on the
+ * phone. The chart-only refusals below are that case and stay as pinned; the
+ * offline route WITH the pack is tests/waterPack/offlineNewportCanal.test.ts
+ * (23.52 NM, 0 m unvouched land, from the canal pin). No re-pins here.
  */
 import { describe, expect, it } from 'vitest';
 import { haversineM } from '../services/engine/geometry';

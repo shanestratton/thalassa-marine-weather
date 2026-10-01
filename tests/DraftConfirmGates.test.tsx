@@ -173,6 +173,20 @@ describe('⚡ Auto route', () => {
 
 // ── 2. Plan Your Day (components/dayPlanner) ─────────────────────────────
 describe('Plan Your Day', () => {
+    // The skipper has switched Auto route (trial) on in Preferences: Plan
+    // Your Day is closed without it since 2026-10-01
+    // (tests/AutorouteTrialSwitch.test.tsx). seed() keeps it.
+    beforeEach(() => {
+        useSettingsStore.setState({
+            settings: { ...useSettingsStore.getState().settings, autorouteTrialEnabled: true },
+        });
+    });
+    afterEach(() => {
+        useSettingsStore.setState({
+            settings: { ...useSettingsStore.getState().settings, autorouteTrialEnabled: undefined },
+        });
+    });
+
     // RoutePlanner hands the entry the store's profile.
     function Entry() {
         const vessel = useSettingsStore((state) => state.settings.vessel ?? null);

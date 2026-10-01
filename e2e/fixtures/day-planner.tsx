@@ -259,9 +259,13 @@ if (frontDoor) {
     setAuthIdentityScope(signedOut ? null : 'day-planner-synthetic-fixture');
     // That scope switch reloads settings and drops the seeded vessel, so the
     // front door ran on no profile at all. Plan Your Day now asks for a draft
-    // when there is none, so put the synthetic (confirmed) vessel back.
+    // when there is none, so put the synthetic (confirmed) vessel back. The
+    // synthetic skipper has switched Auto route (trial) on: Plan Your Day is
+    // closed without it since 2026-10-01.
     await awaitSettingsLoaded();
-    useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, vessel } });
+    useSettingsStore.setState({
+        settings: { ...useSettingsStore.getState().settings, vessel, autorouteTrialEnabled: true },
+    });
     planFrontDoor = (
         <WeatherProvider>
             <RoutePlanner onTriggerUpgrade={() => undefined} />
@@ -269,10 +273,13 @@ if (frontDoor) {
     );
 } else {
     // Plan Your Day opens once the ACTIVE profile's draft is confirmed, so the
-    // in-memory store carries the same synthetic (confirmed) vessel.
+    // in-memory store carries the same synthetic (confirmed) vessel, and
+    // Auto route (trial) switched on (Plan Your Day needs it since 2026-10-01).
     const { awaitSettingsLoaded, useSettingsStore } = await import('../../stores/settingsStore');
     await awaitSettingsLoaded();
-    useSettingsStore.setState({ settings: { ...useSettingsStore.getState().settings, vessel } });
+    useSettingsStore.setState({
+        settings: { ...useSettingsStore.getState().settings, vessel, autorouteTrialEnabled: true },
+    });
 }
 
 function Fixture() {

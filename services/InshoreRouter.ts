@@ -76,7 +76,8 @@ import { compileSeawayGraph } from './seaway/graphCompiler';
 import { splitMarkFeatures, type PointFeatureLike } from './seaway/markSplit';
 import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi, routeRequestBinding } from './PiPairingService';
-import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
+import { getOsmRouteOverlay, type OsmOverlayProvenance, type OsmRouteOverlay } from './OsmRouteOverlayService';
+import { applyWaterPack, waterPackUseFor, type WaterPackUse } from './waterPack/waterPackWords';
 import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { fetchMapboxWater } from './mapboxWater';
 import { fetchSatelliteWater } from './satelliteWater';
@@ -548,6 +549,11 @@ export interface InshoreRouteResult {
      *  (owner decision 11), so water no tide clears was ruled out where they
      *  reach. */
     tideCeilingsLoaded?: boolean;
+    /** Where the route's canal and marina water came from (Phase 2b,
+     *  2026-10-01): the phone's offline water pack, the Pi's stale copy, or
+     *  none saved for an end — said next to the route (waterPackCaveats).
+     *  Absent when the overlay carried no provenance (a mock). */
+    waterPack?: WaterPackUse;
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -557,6 +563,9 @@ export interface InshoreRouteFailure {
     error: string;
     code?: string;
     cellsUsed?: string[];
+    /** As InshoreRouteResult.waterPack. With an end's water missing offline,
+     *  `error` leads with that (owner decision 2); the code is the engine's. */
+    waterPack?: WaterPackUse;
 }
 
 // ── Coverage check ──────────────────────────────────────────────────
@@ -670,6 +679,25 @@ export function findCorridorCoverageGap(
     return null;
 }
 
+/**
+ * The bbox the router asks the OSM overlay for: the endpoints' envelope
+ * padded by a flat 0.10° (≈11 km), a little more than the engine's grid pad
+ * (max(maxSpan × 0.5, 0.08°), commit a42a2762), so the OSM water / coastline
+ * / aeroway coverage never undershoots the grid's lateral margin. Exported
+ * for the offline water-pack test (Phase 2b, 2026-10-01).
+ */
+export function inshoreOverlayBbox(
+    origin: InshoreOrigin,
+    destination: InshoreOrigin,
+): [number, number, number, number] {
+    return [
+        Math.min(origin.lon, destination.lon) - 0.1,
+        Math.min(origin.lat, destination.lat) - 0.1,
+        Math.max(origin.lon, destination.lon) + 0.1,
+        Math.max(origin.lat, destination.lat) + 0.1,
+    ];
+}
+
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
@@ -744,8 +772,11 @@ export async function tryInshoreRoute(
     // Claude A's 90 s caller-side race so this one fires first and
     // returns a skipper-readable failure instead of an opaque throw.
     const INSHORE_WATCHDOG_MS = 85_000;
+    // Where this route's OSM water came from (Phase 2b): one holder per call,
+    // so two routes in flight never read each other's.
+    const overlayUse: { overlay?: OsmOverlayProvenance } = {};
     const promise = withDeadline(
-        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile, opts),
+        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile, opts, overlayUse),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
@@ -761,6 +792,10 @@ export async function tryInshoreRoute(
             }
             throw err;
         })
+        // Owner decision 2 (Phase 2b, 2026-10-01): the route says where its
+        // canal water came from, and a refusal with an end's water missing
+        // offline says that first. The code never changes.
+        .then((res) => applyWaterPack(res, waterPackUseFor(overlayUse.overlay, origin, destination)))
         .then((res) => {
             // Loud paired exit log so every ENTRY has a visible
             // completion in the console. Three outcomes:
@@ -795,6 +830,7 @@ async function tryInshoreRouteInner(
     airDraftM: number | null = null,
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
     opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] } = {},
+    overlayUse: { overlay?: OsmOverlayProvenance } = {},
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
@@ -1068,15 +1104,11 @@ async function tryInshoreRouteInner(
     // never undershoots the grid's lateral margin. Empty cells in
     // open-bay corridors fall back to chart-DEPARE cleanly anyway, but
     // matching the bbox keeps the diagnostic counts honest.
-    const routeBbox: [number, number, number, number] = [
-        Math.min(origin.lon, destination.lon) - 0.1,
-        Math.min(origin.lat, destination.lat) - 0.1,
-        Math.max(origin.lon, destination.lon) + 0.1,
-        Math.max(origin.lat, destination.lat) + 0.1,
-    ];
+    const routeBbox = inshoreOverlayBbox(origin, destination);
     let osmOverlay: OsmRouteOverlay | null = null;
     try {
         osmOverlay = await getOsmRouteOverlay(routeBbox);
+        overlayUse.overlay = osmOverlay?.provenance;
         // OSM water polygons → DEPARE with synthetic deep DRVAL1 so the
         // router treats them as authoritative navigable (the existing
         // isAuthoritativeDepare gate honours waterway=river/canal/dock
@@ -2341,6 +2373,21 @@ export function inshoreRouteToGeoJSON(
             ...(result.surveyUncheckedCells?.length ? { surveyUncheckedCells: result.surveyUncheckedCells } : {}),
             // …and that it was routed with no tide loaded (decision 11).
             ...(result.tideCheck ? { tideCheck: result.tideCheck } : {}),
+            // …and where its canal water came from when that was not a live
+            // download (Phase 2b, 2026-10-01): the saved plan says so again.
+            ...(result.waterPack && result.waterPack.source !== 'online'
+                ? {
+                      waterPack: {
+                          source: result.waterPack.source,
+                          ...(typeof result.waterPack.dataAsOf === 'number'
+                              ? { dataAsOf: result.waterPack.dataAsOf }
+                              : {}),
+                          missing: [...result.waterPack.missing],
+                          // Offline or not decides the words (2026-10-02).
+                          ...(result.waterPack.offline ? { offline: true } : {}),
+                      },
+                  }
+                : {}),
             origin: { lat: origin.lat, lon: origin.lon },
             destination: { lat: destination.lat, lon: destination.lon },
         },
@@ -4272,6 +4319,14 @@ export async function assembleTracerLayers(
     let osmOverlay: OsmRouteOverlay | null = null;
     try {
         osmOverlay = await getOsmRouteOverlay([minLon - 0.05, minLat - 0.05, maxLon + 0.05, maxLat + 0.05]);
+        // The overlay never throws: after a failure it is EMPTY, which read
+        // as "no berths or breakwaters here" and passed the Auto chart review
+        // clean. Its provenance tells the two apart (Phase 2b, 2026-10-01):
+        // none saved, or only part of the window, is an incomplete check.
+        // Disclosure only — it never blocks a planned-only save.
+        const coverage = osmOverlay?.provenance?.coverage;
+        if (opts.chartedDepthOnly && (coverage === 'none' || coverage === 'partial'))
+            supplementalChecksUnavailable = true;
         const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
         if (!opts.chartedDepthOnly && osmOverlay.water.features.length > 0) {
             const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };

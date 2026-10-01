@@ -18,10 +18,12 @@
  * tide changes whether and when, never which way.
  */
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
+import { AUTO_ROUTE_TRIAL_OFF, isAutorouteTrialOn } from './autorouteTrialSwitch';
 import { listCells } from './enc/EncCellMetadata';
 import { validateAutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 import { thalassaVesselWarnings } from './autoroutingVesselProfile';
 import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
+import { waterPackRefusal, type WaterPackEnd } from './waterPack/waterPackWords';
 import {
     dangerWithoutChartedDepth,
     inshoreSegmentStates,
@@ -78,15 +80,19 @@ const NOT_SIGNED_IN_FILL =
     "The missing charts wouldn't download — you're probably not signed in (the chart bucket is licensed-access). Sign in and try again. Nothing changed.";
 
 /**
- * Whether Auto is offered, worked out on the phone: a signed-in identity
- * (enabled) and at least one installed navigation chart (ready). No network.
- * The rest of Auto's gate is unchanged and lives with its callers: Pro route
- * planning (RoutePlanner) and a confirmed draft (runWithConfirmedDraft).
+ * Whether Auto is offered, worked out on the phone: a signed-in identity and
+ * the Auto route (trial) switch in Preferences (enabled), and at least one
+ * installed navigation chart (ready). No network. The switch is off by
+ * default (2026-10-01, services/autorouteTrialSwitch.ts): Pro alone is every
+ * beta account. The rest of Auto's gate is unchanged and lives with its
+ * callers: Pro route planning (RoutePlanner) and a confirmed draft
+ * (runWithConfirmedDraft).
  */
 export function getThalassaAutorouteStatus(): AutoroutingTrialStatus {
     const scope = getAuthIdentityScope();
     if (!scope.userId)
         return { enabled: false, ready: false, message: 'Sign in to use Auto routing. Manual is ready.' };
+    if (!isAutorouteTrialOn()) return { enabled: false, ready: false, message: AUTO_ROUTE_TRIAL_OFF };
     let cells = 0;
     try {
         cells = listCells().length;
@@ -242,6 +248,9 @@ export async function calculateThalassaProposal(
     const scope = getAuthIdentityScope();
     const input = snapshotRequest(request);
     if (!scope.userId) throw new Error(AUTH_REQUIRED);
+    // Off by default (2026-10-01): no route from Auto or Plan Your Day until
+    // the skipper switches Auto route (trial) on, whoever asks.
+    if (!isAutorouteTrialOn()) throw new Error(AUTO_ROUTE_TRIAL_OFF);
     const assertCurrent = () => {
         if (signal?.aborted || !isAuthIdentityScopeCurrent(scope)) throw abortError();
     };
@@ -342,9 +351,25 @@ export async function calculateThalassaProposal(
     // pins came back as a red line straight across it. Land at a pin's own
     // edge (a pin on land or a drying bank, decision 7) is that pin's, and
     // the route says so; any other is no route.
+    // Owner decision 2 (Phase 2b, 2026-10-01): offline, an end whose harbour
+    // water is not on the phone is said first — the charts alone paint the
+    // Newport canal as land.
+    // The pack's facts for these ends only; `gaps` (some water along the
+    // route not saved) only for a refusal about the whole route.
+    const packFor = (ends: readonly WaterPackEnd[], gaps = false): Parameters<typeof waterPackRefusal>[1] =>
+        ok.waterPack && (ok.waterPack.source === 'pack' || ok.waterPack.source === 'none')
+            ? {
+                  missing: ok.waterPack.missing.filter((e) => ends.includes(e)),
+                  ...(gaps && ok.waterPack.gaps ? { gaps: true as const } : {}),
+                  ...(ok.waterPack.offline ? { offline: true as const } : {}),
+              }
+            : undefined;
     if ((ok.hardLand?.awayM ?? 0) > 0)
         throw new Error(
-            `The only way Thalassa found crosses charted land${ok.hardLand?.awayAt ? ` near ${positionWords(ok.hardLand.awayAt)}` : ''}. No route. Nothing changed.`,
+            waterPackRefusal(
+                `The only way Thalassa found crosses charted land${ok.hardLand?.awayAt ? ` near ${positionWords(ok.hardLand.awayAt)}` : ''}. No route. Nothing changed.`,
+                packFor(['departure', 'destination'], true),
+            ),
         );
     const stateMask = inshoreSegmentStates(ok);
     // Red with no charted depth behind it, inside a relax zone, when the
@@ -377,11 +402,17 @@ export async function calculateThalassaProposal(
     const endExplained = !!ok.pinOffWater?.destination || !!ok.destinationInlandTrimM;
     if (endGapM > PIN_GAP_REFUSE_M && !endExplained)
         throw new Error(
-            `No route by water to your destination: the nearest water Thalassa could reach is ${distanceWords(endGapM)} from the pin. Nothing changed.`,
+            waterPackRefusal(
+                `No route by water to your destination: the nearest water Thalassa could reach is ${distanceWords(endGapM)} from the pin. Nothing changed.`,
+                packFor(['destination']),
+            ),
         );
     if (startGapM > PIN_GAP_REFUSE_M && !startExplained)
         throw new Error(
-            `No route by water from your departure: the nearest water Thalassa could reach is ${distanceWords(startGapM)} from the pin. Nothing changed.`,
+            waterPackRefusal(
+                `No route by water from your departure: the nearest water Thalassa could reach is ${distanceWords(startGapM)} from the pin. Nothing changed.`,
+                packFor(['departure']),
+            ),
         );
 
     // The satellite land check, as the passage planner runs it. Land refuses;
@@ -402,6 +433,8 @@ export async function calculateThalassaProposal(
         tideCheck: ok.tideCheck,
         surveyRuns: ok.surveyRuns,
         surveyUncheckedCells: ok.surveyUncheckedCells,
+        // Where the canal water came from offline (Phase 2b, 2026-10-01).
+        waterPack: ok.waterPack,
         // Auto draws the survey dots (the workspace's surveyDashLayers), so
         // the words name them as the planner's do.
         ...(stateMask

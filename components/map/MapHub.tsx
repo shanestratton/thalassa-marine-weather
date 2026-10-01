@@ -432,12 +432,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the exact window where "checking…" jank is felt (jank audit #5).
     // legVerdicts in the deps re-arms the timer per grading publish, so it
     // fires ~4 s after the route settles — long before that water matters.
+    // The same settled moment saves the harbour water round the first and
+    // last pins to the offline water pack (Phase 2b, 2026-10-01; owner
+    // decision 2), so the passage still routes when the signal is gone.
     useEffect(() => {
         if (!coordCaptureMode || capturedCoords.length < 2) return;
         if (legVerdicts.some((v) => v === null)) return;
         const t = window.setTimeout(() => {
             void import('../../services/enc/corridorPrefetch').then(({ prefetchCorridorCells }) =>
                 prefetchCorridorCells(capturedCoords),
+            );
+            void import('../../services/OsmRouteOverlayService').then(({ prefetchWaterPack }) =>
+                prefetchWaterPack([capturedCoords[0], capturedCoords[capturedCoords.length - 1]]),
             );
         }, 4000);
         return () => window.clearTimeout(t);
@@ -2516,6 +2522,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         tideCheck: res.tideCheck,
                         surveyRuns: res.surveyRuns,
                         surveyUncheckedCells: res.surveyUncheckedCells,
+                        // Canal water from the offline pack (Phase 2b).
+                        waterPack: res.waterPack,
                     });
                     flashTraceFeedback('Auto-routed — check the arrival end, drag pins to adjust.');
                     // On the tracer panel's persistent line, not only in the

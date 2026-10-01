@@ -212,6 +212,15 @@ export interface UserSettings {
      * furniture only: it routes nothing, and Auto does not follow it yet.
      */
     showChartLeads?: boolean;
+    /**
+     * Settings → Preferences → Routing: "Auto route (trial)" (2026-10-01).
+     * Auto routing and Plan Your Day run Thalassa's own router only while
+     * this is on (services/autorouteTrialSwitch.ts). Off by default: Pro is
+     * every account while the public beta is on, and the router must not
+     * reach every tester before Shane has proved it in the Whitsundays.
+     * The manual planner's ⚡ Auto route and the passage planner ignore it.
+     */
+    autorouteTrialEnabled?: boolean;
     gribMode?: 'direct' | 'iridium';
     satelliteMode?: boolean;
     cloudSyncSettings?: boolean;

@@ -25,6 +25,12 @@ const api = vi.hoisted(() => ({
     authListeners: new Set<() => void>(),
     chartListeners: new Set<() => void>(),
     profiles: [] as unknown[],
+    trialOn: true,
+}));
+// Settings → Preferences → "Auto route (trial)" (2026-10-01): Plan Your Day
+// runs only with it on. Off by default; on here unless a test says otherwise.
+vi.mock('../stores/settingsStore', () => ({
+    useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: api.trialOn } }) },
 }));
 // Thalassa's router on the phone (2026-10-01): no edge function, no status call.
 vi.mock('../services/autoroutingThalassa', () => ({
@@ -301,6 +307,7 @@ beforeEach(() => {
     api.currentAccount = true;
     api.fingerprint = 'charts-v1';
     api.profiles.length = 0;
+    api.trialOn = true;
     api.authListeners.clear();
     api.chartListeners.clear();
     api.status.mockReturnValue({ enabled: true, ready: true });
@@ -561,6 +568,25 @@ describe('Day planner live adapter', () => {
         api.status.mockReturnValue(status);
         await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow(message);
         expect(api.load).not.toHaveBeenCalled();
+        expect(api.invoke).not.toHaveBeenCalled();
+    });
+
+    // Opt-in (2026-10-01): with the switch off, Plan Your Day refuses in its
+    // own words before any status, reference or routing work — even where
+    // the router itself would be ready.
+    it('refuses while Auto route (trial) is off, and says where to turn it on', async () => {
+        api.trialOn = false;
+        await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow(
+            'Plan Your Day routes with Auto route (trial), which is off. Turn it on in Settings → Preferences.',
+        );
+        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
+            /Auto route \(trial\), which is off/,
+        );
+        expect(api.status).not.toHaveBeenCalled();
+        expect(api.catalogue).not.toHaveBeenCalled();
+        expect(api.load).not.toHaveBeenCalled();
+        expect(api.discover).not.toHaveBeenCalled();
+        expect(api.calculate).not.toHaveBeenCalled();
         expect(api.invoke).not.toHaveBeenCalled();
     });
 
