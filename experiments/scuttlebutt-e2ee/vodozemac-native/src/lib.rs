@@ -20,6 +20,8 @@ uniffi::setup_scaffolding!();
 
 pub const MAX_PLAINTEXT_BYTES: usize = 64 * 1024;
 pub const MAX_WIRE_BYTES: usize = MAX_PLAINTEXT_BYTES + 1024;
+// Leave room for the public wire envelope and its caller-supplied signing context.
+pub const MAX_PUBLIC_REQUEST_BYTES: usize = 100 * 1024;
 // Leave room for two pickles, one wire and metadata in the 1 MiB native snapshot.
 pub const MAX_PICKLE_BYTES: usize = 256 * 1024;
 
@@ -44,6 +46,12 @@ pub struct AccountState {
     pub identity_curve: String,
     pub signing_key: String,
     pub one_time_key: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct PublicRequestSignature {
+    pub signing_key: String,
+    pub signature: String,
 }
 
 #[derive(uniffi::Record)]
@@ -157,6 +165,29 @@ pub fn new_account(pickle_key: Vec<u8>) -> Result<AccountState, NativeCryptoErro
         identity_curve: account.curve25519_key().to_base64(),
         signing_key: account.ed25519_key().to_base64(),
         one_time_key,
+    })
+}
+
+/// Sign exact public request bytes with the restored provider account identity.
+/// The caller must supply the complete signing context and canonical request.
+/// Does not advance account state or return a replacement account pickle.
+#[uniffi::export]
+pub fn sign_public_request(
+    account_pickle: String,
+    pickle_key: Vec<u8>,
+    message: Vec<u8>,
+) -> Result<PublicRequestSignature, NativeCryptoError> {
+    let account_pickle = Zeroizing::new(account_pickle);
+    let pickle_key = Zeroizing::new(pickle_key);
+    let message = Zeroizing::new(message);
+    let key = key_bytes(&pickle_key)?;
+    if message.is_empty() || message.len() > MAX_PUBLIC_REQUEST_BYTES {
+        return Err(NativeCryptoError::InvalidInput);
+    }
+    let account = account_from(&account_pickle, key)?;
+    Ok(PublicRequestSignature {
+        signing_key: account.ed25519_key().to_base64(),
+        signature: account.sign(message.as_slice()).to_base64(),
     })
 }
 

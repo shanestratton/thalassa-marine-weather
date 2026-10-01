@@ -1,13 +1,15 @@
 # Isolated device-directory and ciphertext-relay research
 
-This directory prototypes an account-authorized, single-device relay boundary.
+This directory prototypes a device-signed, account-authorized, single-device relay boundary.
 It is not an HTTP endpoint, Supabase migration, app adapter or deployment. It
-does not encrypt messages and is not connected to Thalassa chat, native stores,
-push notifications or production accounts. Existing app messages are untouched.
+does not encrypt messages and is not connected to Thalassa chat, push notifications
+or production accounts. An optional simulator bridge exercises it with the real
+native provider and sealed stores; existing app messages are untouched.
 
 `deviceBundle.ts` defines canonical public bundle framing and verifies real
-Ed25519 signatures. `gateway.ts` authenticates through an injected server-side
-adapter and validates requests and terminal send receipts. `relay.sql` owns the
+Ed25519 signatures. `signedGateway.ts` exposes signed dispatch and registration;
+the older `gateway.ts` is internal/legacy research, not a public unsigned endpoint.
+`supabaseAuth.ts` implements fresh server-side Auth HTTP verification. `relay.sql` owns the
 bounded directory, prekey reservations, block state and immutable message
 decisions. `proof.mjs` runs those files against an on-disk PGlite database with
 synthetic account credentials and payloads. A test existing in the runner is not
@@ -17,17 +19,22 @@ observed results.
 ## Trust boundary
 
 The gateway host must validate each credential and derive `userId` independently
-of the request body. The proof supplies a fixture credential-to-user map; it does
-not contact Auth, validate JWT signatures, test token expiry/revocation, or prove
-logout/session binding. For future integration, Supabase's documented
+of the request body. `supabaseAuth.ts` makes a fresh, bounded GET to a trusted
+HTTPS project origin's `/auth/v1/user`, using only a public API key and the supplied
+bearer token. Redirects, failures, invalid IDs and oversized/stalled responses
+fail closed. Only the Auth server's canonical UUID `id` selects an actor; editable
+metadata and locally decoded user JWT claims never do. Supabase's documented
 [`getUser(jwt)`](https://supabase.com/docs/reference/javascript/auth-getuser)
 contacts its Auth server and returns identity suitable for authorization. That
-is a design reference, not an implemented or tested adapter here.
+is the source for that boundary. Adapter tests and the native bridge inject Auth
+HTTP responses. They do not contact live Auth, test real token revocation, or
+establish logout/session binding. A fresh Auth check is not a claimed guarantee
+that every previously issued token becomes invalid immediately on logout.
 
 SQL receives the actor as a trusted gateway argument. The private gateway role
 must never be given to app clients. A caller holding that role can assert an
 actor; SQL cannot distinguish such an assertion from a properly authenticated
-gateway call. Only the six RPCs are executable by the gateway role. Client roles
+gateway call. Only the eight declared RPCs are executable by the gateway role. Client roles
 have no schema/table/RPC access, and the gateway has no direct table or helper
 function access. Roles are non-login roles with no privileged attributes.
 Creation fails if the research roles or schema already exist.
@@ -48,10 +55,17 @@ provide fingerprint verification, key transparency, or protection against a
 malicious directory replacing first-use key material. Peer pinning and identity
 change handling remain client responsibilities.
 
-Registration proves signing-key possession, but subsequent relay requests are
-authorized by account credentials and a registered device ID. They are not
-signed by the device. Request origin on that physical device, proof of private
-Curve25519 key possession, and native key provenance are not established here.
+Registration proves signing-key possession. Subsequent requests require both
+fresh account authentication and an Ed25519 signature verified against the
+immutable registered signing key obtained through private SQL lookup, never a
+key supplied in the request. `signedRequest.ts` binds account/device, action,
+nonce, expiry and exact canonical payload in the `thalassa-relay-request` array
+domain. The wire is fixed-order printable ASCII JSON, at most 100 KiB; expiry
+must be a future integer no more than 300 seconds ahead. Lookup still returns a
+revoked device's immutable public key so old receipts can be authenticated;
+current SQL policy controls new actions and read/claim retries.
+Signing-key possession does not establish physical device identity, independent
+first-key verification or protection from a compromised native process.
 `ownerSessionGeneration` and `recipientIdentityGeneration` are immutable record
 comparison fields and local lifecycle guards, not server authentication claims.
 
@@ -87,6 +101,19 @@ are not integrated in this experiment. Same-account sends, claims and blocks are
 unsupported and rejected at both gateway and SQL boundaries.
 
 ## Relay decisions and reads
+
+Signed execution atomically stores a bounded request ledger with the operation.
+An exact nonce/wire retry does not reapply block/revoke mutations or manufacture
+a second message decision. Changed wire under that nonce fails. Cached key claims
+recheck both devices, target expiry and current blocks. Cached reads require an
+active recipient and filter the original snapshot against current blocks; they
+never add later messages or rewrite the stored snapshot. Send receipts remain
+immutable even after lifecycle changes. Gateway expiry is checked before and
+after asynchronous key verification; an expired proof must be replaced with a
+new nonce/signature, while the exact ciphertext message ID remains unchanged.
+The message ledger then reconciles its original terminal decision. SQL-only
+receipt replay can outlive the proof's TTL; this is not an expired-proof exception
+in the signed gateway.
 
 The durable key is `(owner, sender device, client message ID, recipient device)`.
 The stored record includes both account IDs, recipient identity reference, both
@@ -135,11 +162,13 @@ Bounds are intentionally fixed and have no eviction policy:
 | ------------------------------------------------ | ------------------------------------------------- |
 | Registered devices, including revoked            | 64 total                                          |
 | Immutable relay decisions                        | 256 per owner                                     |
+| Signed request ledger                            | 512 per owner; no eviction                        |
 | Prekey reservations                              | 64 per owner; one total per target device         |
 | Block relationships, including unblocked entries | 64 per owner                                      |
 | Read batch                                       | 1–16 records                                      |
 | Identifiers                                      | 1–128 ASCII characters from `A-Z a-z 0-9 . _ : -` |
 | Public bundle                                    | 4,096 ASCII characters                            |
+| Signed request wire / proof lifetime             | 100 KiB / at most 300 seconds                     |
 | Decoded envelope ciphertext                      | 65 KiB                                            |
 | Serialized envelope                              | 90,156 bytes                                      |
 | Local generations and read cursor                | Integer from 0 through 9,007,199,254,740,991      |
@@ -157,7 +186,7 @@ one-heavy-job-at-a-time rule, including native jobs. The runner checks for
 then identifies itself in that build-slot check. It does not automatically detect
 every native build.
 
-For the four focused TypeScript suites, first check the shared build slot with
+For the six focused TypeScript suites, first check the shared build slot with
 `pgrep -fl "vite build|tsc|vitest"` and wait if another job is running. Then run:
 
 ```sh
@@ -173,7 +202,10 @@ node --max-old-space-size=1024 node_modules/typescript/bin/tsc \
   services/chat/e2ee/directMessageEnvelope.ts services/chat/e2ee/encryptedDmDelivery.ts \
   experiments/scuttlebutt-e2ee/relay/deviceBundle.ts experiments/scuttlebutt-e2ee/relay/gateway.ts \
   tests/DirectMessageEnvelope.test.ts tests/EncryptedDmDelivery.test.ts \
-  tests/E2eeResearchDeviceBundle.test.ts tests/E2eeResearchGateway.test.ts
+  tests/E2eeResearchDeviceBundle.test.ts tests/E2eeResearchGateway.test.ts \
+  experiments/scuttlebutt-e2ee/relay/supabaseAuth.ts experiments/scuttlebutt-e2ee/relay/signedRequest.ts \
+  experiments/scuttlebutt-e2ee/relay/signedGateway.ts \
+  tests/E2eeResearchSupabaseAuth.test.ts tests/E2eeResearchSignedGateway.test.ts
 ```
 
 Fetch the single pinned public research dependency:
@@ -221,9 +253,17 @@ ciphertext is a Base64-encoded byte, not an Olm-encrypted message. This runner
 therefore cannot establish end-to-end encryption or a real-provider relay round
 trip. Real signature checks do not change that limitation.
 
-Live JWT/Auth integration, transport response authentication, device-signed
-requests, request rate limits, directory consistency, native coordinator
-integration, independently concurrent database connections, crash/power-loss
+`nativeRelayBridge.mjs` is imported only by the optional native proof runner.
+It verifies/extracts the same pinned archive into a new temporary namespace,
+uses the real SQL and signed gateway, and returns committed ciphertext records
+to separately launched native processes. Only public bundles, signed requests,
+ciphertext and exact receipts cross the bridge. Auth HTTP responses and
+out-of-band peer pins are explicit fixtures; the filesystem bridge is not TLS
+or an authenticated transport response. Decryption/history assertions run only
+inside native code. See the native README for reproduction and its device limits.
+
+Live JWT/Auth integration, transport response authentication, request rate limits,
+directory consistency, app/native lifecycle integration, independently concurrent database connections, crash/power-loss
 behavior, two real phones and an independent security review remain unverified.
 No app dependency, live schema, production configuration, phone installation or
 deployment is created by this research runner.

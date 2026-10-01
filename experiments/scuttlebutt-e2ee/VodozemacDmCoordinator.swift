@@ -30,6 +30,7 @@ struct DmPublicIdentity {
     let userId: String
     let deviceId: String
     let identityKeyId: String
+    let signingKey: String
     let curve: String
     let prekey: String
 }
@@ -95,6 +96,7 @@ final class VodozemacDmCoordinator {
         var owner: DmOwnerContext
         let conversationId: String
         let identityKeyId: String
+        let signingKey: String
         let curve: String
         let prekey: String
         var account: String
@@ -122,8 +124,8 @@ final class VodozemacDmCoordinator {
             throw DmCoordinatorError.conflict
         }
         let account = try newAccount(pickleKey: store.providerPickleKey())
-        let state = State(version: 1, owner: owner, conversationId: conversationId,
-            identityKeyId: identityKeyId, curve: account.identityCurve, prekey: account.oneTimeKey,
+        let state = State(version: 2, owner: owner, conversationId: conversationId,
+            identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
             account: account.accountPickle, peer: nil, session: nil, outbox: [], inbox: [])
         try validate(state)
         try store.commit(expectedRevision: before.revision, payload: JSONEncoder().encode(state))
@@ -134,8 +136,76 @@ final class VodozemacDmCoordinator {
         try withState { _, state in
             try Self.requireOwner(owner, state)
             return DmPublicIdentity(userId: state.owner.userId, deviceId: state.owner.deviceId,
-                identityKeyId: state.identityKeyId, curve: state.curve, prekey: state.prekey)
+                identityKeyId: state.identityKeyId, signingKey: state.signingKey, curve: state.curve, prekey: state.prekey)
         }
+    }
+
+    /// Public bundle signing is limited to the initial unpublished research
+    /// account. A consumed one-time prekey must never be republished as fresh.
+    func signedBundleForResearch(prekeyId: String, expiresAt: Int64, now: Int64, owner: DmOwnerContext) throws -> String {
+        try withState { revision, state in
+            try Self.requireOwner(owner, state)
+            guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty else { throw DmCoordinatorError.unavailable }
+            try DmRelayCodec.expiry(expiresAt, now: now, maximum: 7 * 24 * 60 * 60)
+            let identity = DmPublicIdentity(userId: owner.userId, deviceId: owner.deviceId, identityKeyId: state.identityKeyId,
+                                           signingKey: state.signingKey, curve: state.curve, prekey: state.prekey)
+            let signed = try signPublicRequest(accountPickle: state.account, pickleKey: store.providerPickleKey(),
+                message: DmRelayCodec.bundleSigningBytes(identity, prekeyId: prekeyId, expiresAt: expiresAt))
+            guard signed.signingKey == state.signingKey else { throw DmCoordinatorError.conflict }
+            let wire = try DmRelayCodec.bundleWire(identity, prekeyId: prekeyId, expiresAt: expiresAt, signature: signed.signature)
+            // Signing doesn't advance Olm, but this CAS fences a competing owner
+            // change before a signature becomes observable outside native code.
+            try persist(state, revision: revision)
+            return wire
+        }
+    }
+
+    func signedClaimForResearch(requestId: String, expiresAt: Int64, now: Int64,
+                                owner: DmOwnerContext, peerGeneration: Int64) throws -> String {
+        try withState { revision, state in
+            let peer = try Self.requirePeer(owner, peerGeneration, state)
+            let payload = "[" + (try [peer.userId, peer.deviceId, requestId].map(DmRelayCodec.quote)).joined(separator: ",") + "]"
+            return try signRelay(state: state, revision: revision, owner: owner, action: "claim", payload: payload,
+                                 requestId: requestId, expiresAt: expiresAt, now: now)
+        }
+    }
+
+    /// Caller cannot sign a newly fabricated outbox: only exact durable pending
+    /// ciphertext belonging to the current native owner and pinned peer.
+    func signedSendForResearch(_ record: DmOutboxRecord, requestId: String, expiresAt: Int64, now: Int64,
+                               owner: DmOwnerContext, peerGeneration: Int64) throws -> String {
+        try withState { revision, state in
+            _ = try Self.requirePeer(owner, peerGeneration, state)
+            let index = try Self.outboxIndex(record, state)
+            guard state.outbox[index].status == .pending,
+                  record.ownerSessionGeneration == owner.generation, record.recipientIdentityGeneration == peerGeneration else {
+                throw DmCoordinatorError.unavailable
+            }
+            return try signRelay(state: state, revision: revision, owner: owner, action: "send", payload: DmRelayCodec.outboxWire(record),
+                                 requestId: requestId, expiresAt: expiresAt, now: now)
+        }
+    }
+
+    func signedListForResearch(requestId: String, afterId: Int64 = 0, batch: Int = 16, expiresAt: Int64, now: Int64,
+                               owner: DmOwnerContext) throws -> String {
+        try withState { revision, state in
+            try Self.requireOwner(owner, state)
+            guard (0...Self.generationMax).contains(afterId), (1...16).contains(batch) else { throw DmCoordinatorError.invalidInput }
+            return try signRelay(state: state, revision: revision, owner: owner, action: "list", payload: "[\(afterId),\(batch)]",
+                                 requestId: requestId, expiresAt: expiresAt, now: now)
+        }
+    }
+
+    private func signRelay(state: State, revision: Int64, owner: DmOwnerContext, action: String, payload: String,
+                           requestId: String, expiresAt: Int64, now: Int64) throws -> String {
+        try DmRelayCodec.expiry(expiresAt, now: now, maximum: 300)
+        let signed = try signPublicRequest(accountPickle: state.account, pickleKey: store.providerPickleKey(),
+            message: DmRelayCodec.requestSigningBytes(owner: owner, action: action, requestId: requestId, expiresAt: expiresAt, payload: payload))
+        guard signed.signingKey == state.signingKey else { throw DmCoordinatorError.conflict }
+        let wire = try DmRelayCodec.requestWire(owner: owner, action: action, requestId: requestId, expiresAt: expiresAt,
+                                               payload: payload, signature: signed.signature)
+        try persist(state, revision: revision)
+        return wire
     }
 
     /// Direct fixture pinning is NOT a reviewed authenticated device directory.
@@ -421,7 +491,7 @@ final class VodozemacDmCoordinator {
     }
 
     private static func validate(_ state: State) throws {
-        guard state.version == 1, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
+        guard state.version == 2, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
               state.outbox.count <= capacity, state.inbox.count <= capacity else {
             throw DmCoordinatorError.unsupportedState
         }
@@ -429,6 +499,7 @@ final class VodozemacDmCoordinator {
         try DmContentCodec.validateIdentifier(state.identityKeyId)
         try DmContentCodec.validateIdentifier(state.conversationId)
         try validateKey(state.curve)
+        try validateKey(state.signingKey)
         try validateKey(state.prekey)
         guard let peer = state.peer else {
             guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty else {
