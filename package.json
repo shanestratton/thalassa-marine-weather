@@ -140,5 +140,8 @@
         "*.{ts,tsx,json,md}": [
             "prettier --check"
         ]
+    },
+    "overrides": {
+        "basic-ftp": "^6.2.1"
     }
 }
