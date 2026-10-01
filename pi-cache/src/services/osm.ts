@@ -15,8 +15,29 @@
  *
  * Caching: per-bbox-tile (0.01° rounded) in `OSM_CACHE_DIR`, 7-day TTL.
  * Overpass is rate-limited and slow on cold queries (~5-30s); cache aggressively.
+ *
+ * Phase 2b (2026-10-01): a failure is no longer an empty overlay. The phone
+ * read that empty 200 as "no canals here" and saved it over its last good
+ * copy. Now an Overpass reply carrying a `remark` (a runtime error with
+ * partial elements) is a failure, as the cloud's is (supabase/functions/
+ * _shared/overpass-fetch.ts); an all-empty reply is served but never saved;
+ * the query and the cache key use the same grid-expanded bbox (v6); and when
+ * Overpass cannot be reached the newest saved copy for the key is served as
+ * 'stale' with its own date — or getOsmOverlay throws
+ * OsmOverlayUnavailableError and the route answers 503.
+ *
+ * Fix-up (2026-10-02): 'stale' goes only to a phone that asks for it
+ * (acceptStale, the route's &stale=1). A phone from before 2b ignores
+ * X-Osm-Overlay, so a stale copy would read to it as fresh — held 30 min and
+ * written to its disk copy with no caveat; it gets the 503 it already reads
+ * as a failure. And with a copy to fall back on, a hanging Overpass is waited
+ * on for only STALE_AFTER_MS before the copy goes out (the phone gives up at
+ * 20 s); the fetch carries on to its 45 s deadline and refreshes the cache.
+ * Cache files are written to a temporary name and renamed, so a power cut on
+ * the boat cannot truncate the only copy.
  */
 
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { FeatureCollection, Feature, Polygon, LineString, Position } from 'geojson';
@@ -26,6 +47,10 @@ const OSM_CACHE_DIR = process.env.OSM_CACHE_DIR ?? '/opt/thalassa-pi-cache/osm-c
 const OVERPASS_URL = process.env.OVERPASS_URL ?? 'https://overpass-api.de/api/interpreter';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const OVERPASS_TIMEOUT_MS = 45_000;
+/** With a copy to fall back on, how long a slow Overpass is waited on before
+ *  the copy is served stale: well inside the phone's 20 s read timeout
+ *  (OsmRouteOverlayService FETCH_TIMEOUT_MS). */
+const STALE_AFTER_MS = 12_000;
 // Cache schema version. Bump when adding new fields to OsmRouteOverlay so
 // old cache files (which lack the new fields) are bypassed and a fresh
 // Overpass fetch happens. Old files stay on disk until LRU/manual cleanup —
@@ -39,7 +64,13 @@ const OVERPASS_TIMEOUT_MS = 45_000;
 //        pontoons inside a marina; the router carves them out of the basin
 //        at fine resolution so the line follows the fairway between berth
 //        rows instead of driving over the pens, Mooloolaba 2026-07-05)
-const CACHE_SCHEMA_VERSION = 'v5';
+//   v6 — the same fields; the key is the grid-expanded bbox the query now
+//        uses too (W/S floored, E/N ceiled to 0.01°), so a cached reply always
+//        covers the request; replies with an Overpass remark are never saved,
+//        nor all-empty ones (Phase 2b, 2026-10-01). A v5 file is still read,
+//        but only as a stale copy when Overpass cannot be reached.
+const CACHE_SCHEMA_VERSION = 'v6';
+const LEGACY_CACHE_SCHEMA_VERSION = 'v5';
 
 export interface OsmRouteOverlay {
     /** natural=water polygons (rivers, lakes, harbours, basins). Used as
@@ -114,30 +145,146 @@ function emptyOverlay(): OsmRouteOverlay {
     };
 }
 
-/** Round bbox edges to 0.01° (~1 km) so neighbouring routes share cache hits. */
-function bboxCacheKey(bbox: [number, number, number, number]): string {
+type Bbox = [number, number, number, number];
+
+const OVERLAY_FIELDS = [
+    'water',
+    'reef',
+    'coastline',
+    'marina',
+    'breakwater',
+    'aeroway',
+    'canalLines',
+    'navLines',
+    'berths',
+] as const;
+
+/** No internet on the Pi and nothing saved for this bbox: the route answers
+ *  503, never an empty overlay (Phase 2b, 2026-10-01). */
+export class OsmOverlayUnavailableError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'OsmOverlayUnavailableError';
+    }
+}
+
+/** fresh = just fetched; cache = a saved copy under 7 days; stale = an older
+ *  copy served because Overpass could not be reached. */
+export type OsmOverlayState = 'fresh' | 'cache' | 'stale';
+
+export interface OsmOverlayResult {
+    overlay: OsmRouteOverlay;
+    state: OsmOverlayState;
+    /** When this data came from Overpass (epoch ms). */
+    fetchedAt: number;
+}
+
+/** What the Overpass POST sends. The URL is always OVERPASS_URL. */
+export interface OverpassRequest {
+    method: 'POST';
+    body: string;
+    headers: Record<string, string>;
+    signal: AbortSignal;
+}
+
+/** The part of an HTTP reply the parser reads. */
+export interface OverpassReply {
+    ok: boolean;
+    status: number;
+    text(): Promise<string>;
+}
+
+export interface OsmOverlayDeps {
+    /** Sends the query to Overpass. Injected by tests: the outbound policy
+     *  blocks loopback, so a local stub server cannot stand in for it. */
+    fetchOverpass: (init: OverpassRequest) => Promise<OverpassReply>;
+    cacheDir: string;
+    now: () => number;
+    /** The whole Overpass call, body included, is abandoned after this. */
+    overpassTimeoutMs: number;
+    /** With a stale copy to serve, Overpass is waited on only this long. */
+    staleAfterMs: number;
+}
+
+export interface OsmOverlayOptions {
+    /** The client reads X-Osm-Overlay and says so (the phone's &stale=1,
+     *  2b on): only then is an old copy served as 'stale' (2026-10-02). */
+    acceptStale?: boolean;
+}
+
+const defaultDeps: OsmOverlayDeps = {
+    fetchOverpass: (init) => outboundFetch(OVERPASS_URL, init),
+    cacheDir: OSM_CACHE_DIR,
+    now: () => Date.now(),
+    overpassTimeoutMs: OVERPASS_TIMEOUT_MS,
+    staleAfterMs: STALE_AFTER_MS,
+};
+
+/**
+ * The bbox the query asks for and the cache is keyed by: W/S floored and E/N
+ * ceiled to 0.01°, so a saved reply always covers the request it answers.
+ * The v5 key rounded to the nearest 0.01° while the query used the exact
+ * bbox, so a later request with the same key could get water up to ~0.005°
+ * short at an edge (the cloud names the same hazard, overpass-fetch.ts).
+ */
+function gridBbox([w, s, e, n]: Bbox): Bbox {
+    const down = (v: number): number => Number((Math.floor(v * 100 + 1e-9) / 100).toFixed(2));
+    const up = (v: number): number => Number((Math.ceil(v * 100 - 1e-9) / 100).toFixed(2));
+    return [down(w), down(s), up(e), up(n)];
+}
+
+function gridKey(bbox: Bbox): string {
+    return bbox.map((v) => v.toFixed(2)).join('_');
+}
+
+/** The pre-2b key: each edge of the REQUEST bbox rounded to 0.01°. */
+function legacyCacheKey(bbox: Bbox): string {
     const round = (n: number): string => (Math.round(n * 100) / 100).toFixed(2);
     return `${round(bbox[0])}_${round(bbox[1])}_${round(bbox[2])}_${round(bbox[3])}`;
 }
 
-function cachePath(bbox: [number, number, number, number]): string {
-    return path.join(OSM_CACHE_DIR, `${CACHE_SCHEMA_VERSION}_${bboxCacheKey(bbox)}.json`);
+function overlayIsAllEmpty(overlay: OsmRouteOverlay): boolean {
+    return OVERLAY_FIELDS.every((k) => overlay[k].features.length === 0);
 }
 
-async function loadCache(bbox: [number, number, number, number]): Promise<OsmRouteOverlay | null> {
-    try {
-        const text = await fs.readFile(cachePath(bbox), 'utf8');
-        const parsed = JSON.parse(text) as { ts: number; data: OsmRouteOverlay };
-        if (Date.now() - parsed.ts < CACHE_TTL_MS) return parsed.data;
-    } catch {
-        // Cache miss — fall through to fetch.
+/** A saved overlay with every field present; null when the file is not one. */
+function overlayFromSaved(value: unknown): OsmRouteOverlay | null {
+    if (!value || typeof value !== 'object') return null;
+    const raw = value as Partial<Record<(typeof OVERLAY_FIELDS)[number], { features?: unknown }>>;
+    const overlay = emptyOverlay();
+    for (const k of OVERLAY_FIELDS) {
+        const fc = raw[k];
+        if (fc === undefined) continue; // older schemas lack the newer fields
+        if (!fc || !Array.isArray(fc.features)) return null;
+        overlay[k] = fc as FeatureCollection;
     }
-    return null;
+    return overlay;
 }
 
-async function saveCache(bbox: [number, number, number, number], data: OsmRouteOverlay): Promise<void> {
-    await fs.mkdir(OSM_CACHE_DIR, { recursive: true });
-    await fs.writeFile(cachePath(bbox), JSON.stringify({ ts: Date.now(), data }), 'utf8');
+async function readSaved(file: string): Promise<{ ts: number; data: OsmRouteOverlay } | null> {
+    try {
+        const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as { ts?: unknown; data?: unknown };
+        const data = overlayFromSaved(parsed.data);
+        if (!data || typeof parsed.ts !== 'number' || !Number.isFinite(parsed.ts)) return null;
+        return { ts: parsed.ts, data };
+    } catch {
+        return null; // no copy (or an unreadable one) for this key
+    }
+}
+
+/** Written to a temporary name and renamed over the old copy (as
+ *  encChartStore and windHistory do): a power cut mid-write leaves the old
+ *  copy whole, never a truncated one (2026-10-02). */
+async function saveCache(file: string, bbox: Bbox, ts: number, data: OsmRouteOverlay): Promise<void> {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${randomUUID()}.tmp`);
+    try {
+        await fs.writeFile(temporary, JSON.stringify({ ts, schema: CACHE_SCHEMA_VERSION, bbox, data }), 'utf8');
+        await fs.rename(temporary, file);
+    } catch (err) {
+        await fs.unlink(temporary).catch(() => {});
+        throw err;
+    }
 }
 
 /**
@@ -148,7 +295,7 @@ async function saveCache(bbox: [number, number, number, number], data: OsmRouteO
  * Note: `(s,w,n,e)` is Overpass's bbox order (south, west, north, east).
  * Our internal bbox is [W, S, E, N] so swap accordingly.
  */
-function buildQuery(bbox: [number, number, number, number]): string {
+function buildQuery(bbox: Bbox): string {
     const [w, s, e, n] = bbox;
     // `out geom` returns inline geometry for each way/relation — eliminates
     // node-table lookups AND makes multipolygon relations easy to parse
@@ -198,17 +345,50 @@ interface OverpassResponse {
     elements: OverpassElement[];
 }
 
-async function fetchFromOverpass(bbox: [number, number, number, number]): Promise<OsmRouteOverlay> {
+/**
+ * The Overpass reply as an element list. A 200 can carry a runtime error in
+ * `remark` with PARTIAL elements (a timeout part-way through the query): that
+ * is a failure, never a complete inventory of the bbox — the cloud's
+ * parseOverpassDocument rule (Phase 2b, 2026-10-01).
+ */
+export function parseOverpassReply(text: string): OverpassResponse {
+    let value: { elements?: unknown; remark?: unknown };
+    try {
+        value = JSON.parse(text);
+    } catch {
+        throw new Error('Overpass reply is not JSON');
+    }
+    if (!value || typeof value !== 'object' || !Array.isArray(value.elements)) {
+        throw new Error('Overpass reply has no element list');
+    }
+    if (value.remark !== undefined && value.remark !== '') {
+        throw new Error('Overpass runtime error (partial reply)');
+    }
+    return { elements: value.elements as OverpassElement[] };
+}
+
+async function fetchFromOverpass(
+    bbox: Bbox,
+    fetchOverpass: OsmOverlayDeps['fetchOverpass'],
+    timeoutMs: number,
+): Promise<OsmRouteOverlay> {
     const query = buildQuery(bbox);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
-    let response: Awaited<ReturnType<typeof outboundFetch>>;
-    try {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    // The deadline settles the call even if the fetch ignores the abort, so
+    // a hung request can never pin the single-flight entry for its key.
+    const deadline = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+            controller.abort();
+            reject(new Error(`Overpass did not answer within ${timeoutMs} ms`));
+        }, timeoutMs);
+    });
+    const work = (async () => {
         // Overpass convention: POST with body `data=<query>` URL-encoded.
         // Raw query in body without `data=` returns 406. Apache also
         // requires a User-Agent — without one we get 406 Not Acceptable
         // from the front-end before the query even reaches Overpass.
-        response = await outboundFetch(OVERPASS_URL, {
+        const response = await fetchOverpass({
             method: 'POST',
             body: 'data=' + encodeURIComponent(query),
             headers: {
@@ -217,14 +397,20 @@ async function fetchFromOverpass(bbox: [number, number, number, number]): Promis
             },
             signal: controller.signal,
         });
+        if (!response.ok) {
+            throw new Error(`Overpass returned HTTP ${response.status}`);
+        }
+        // The body read is inside the deadline too: a reply that stalls
+        // mid-body is a failure, not a hang.
+        return assembleOverlay(parseOverpassReply(await response.text()));
+    })();
+    // A late failure after the deadline won is nobody's to handle.
+    work.catch(() => {});
+    try {
+        return await Promise.race([work, deadline]);
     } finally {
         clearTimeout(timeout);
     }
-    if (!response.ok) {
-        throw new Error(`Overpass returned HTTP ${response.status}`);
-    }
-    const json = (await response.json()) as OverpassResponse;
-    return assembleOverlay(json);
 }
 
 /** Coordinates of a way returned by `out geom` (Overpass inline geometry). */
@@ -437,20 +623,99 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
     return overlay;
 }
 
-/**
- * Public entry: load a fresh (or cached) OSM overlay for a route bbox.
- * Caller passes [W, S, E, N]. Returns an empty overlay on any failure so
- * the router can fall back to chart-only cleanly.
- */
-export async function getOsmOverlay(bbox: [number, number, number, number]): Promise<OsmRouteOverlay> {
-    try {
-        const cached = await loadCache(bbox);
-        if (cached) return cached;
-        const fresh = await fetchFromOverpass(bbox);
-        await saveCache(bbox, fresh);
-        return fresh;
-    } catch (err) {
+/** One Overpass call per cache file at a time: a request that arrives while
+ *  one is in flight (a stale copy already served, the fetch carrying on)
+ *  joins it rather than asking Overpass again. */
+const inflight = new Map<string, Promise<{ overlay: OsmRouteOverlay; fetchedAt: number }>>();
+
+function refresh(
+    grid: Bbox,
+    file: string,
+    d: OsmOverlayDeps,
+): Promise<{ overlay: OsmRouteOverlay; fetchedAt: number }> {
+    const running = inflight.get(file);
+    if (running) return running;
+    const job = (async () => {
+        const overlay = await fetchFromOverpass(grid, d.fetchOverpass, d.overpassTimeoutMs);
+        const fetchedAt = d.now();
+        // An all-empty reply is served (a bbox of open sea is genuinely
+        // empty) but not saved: an empty copy cannot be told from a lost one
+        // later.
+        if (!overlayIsAllEmpty(overlay)) {
+            try {
+                await saveCache(file, grid, fetchedAt, overlay);
+            } catch (err) {
+                console.warn('[osmService] cache write failed:', err instanceof Error ? err.message : err);
+            }
+        }
+        return { overlay, fetchedAt };
+    })();
+    inflight.set(file, job);
+    const done = (): void => {
+        if (inflight.get(file) === job) inflight.delete(file);
+    };
+    job.then(done, (err) => {
         console.warn('[osmService] fetch failed:', err instanceof Error ? err.message : err);
-        return emptyOverlay();
+        done();
+    });
+    return job;
+}
+
+/**
+ * Public entry: the OSM overlay for a route bbox ([W, S, E, N]) and how fresh
+ * it is. A v6 copy under 7 days is served as 'cache'. Otherwise Overpass is
+ * asked: a good reply is 'fresh' (saved unless it is all-empty). When
+ * Overpass fails — or, with a copy to fall back on, has not answered within
+ * staleAfterMs — and the client accepts stale, the newest saved copy for the
+ * key at any age (v6, else the pre-2b v5 file) is served as 'stale' with its
+ * own date, and nothing is written; a slow fetch carries on and refreshes the
+ * cache. Otherwise this throws OsmOverlayUnavailableError: the route answers
+ * 503 instead of an empty overlay the phone would take for "no canals here"
+ * (Phase 2b, 2026-10-01; acceptStale and the short wait 2026-10-02).
+ */
+export async function getOsmOverlay(
+    bbox: Bbox,
+    opts: OsmOverlayOptions = {},
+    deps: Partial<OsmOverlayDeps> = {},
+): Promise<OsmOverlayResult> {
+    const d: OsmOverlayDeps = { ...defaultDeps, ...deps };
+    const grid = gridBbox(bbox);
+    const file = path.join(d.cacheDir, `${CACHE_SCHEMA_VERSION}_${gridKey(grid)}.json`);
+    const saved = await readSaved(file);
+    if (saved && d.now() - saved.ts < CACHE_TTL_MS) {
+        return { overlay: saved.data, state: 'cache', fetchedAt: saved.ts };
     }
+    // What a failure may fall back on — only for a client that reads the
+    // state. An all-empty v5 file may be a failure the old Pi saved as an
+    // answer: it is never served as the boat's copy of the water.
+    let copy: { ts: number; data: OsmRouteOverlay } | null = null;
+    if (opts.acceptStale) {
+        const legacy = saved
+            ? null
+            : await readSaved(path.join(d.cacheDir, `${LEGACY_CACHE_SCHEMA_VERSION}_${legacyCacheKey(bbox)}.json`));
+        copy = saved ?? (legacy && !overlayIsAllEmpty(legacy.data) ? legacy : null);
+    }
+    const fetching = refresh(grid, file, d);
+    if (!copy) {
+        try {
+            const { overlay, fetchedAt } = await fetching;
+            return { overlay, state: 'fresh', fetchedAt };
+        } catch {
+            throw new OsmOverlayUnavailableError('Overpass unavailable and nothing saved for this bbox');
+        }
+    }
+    let wait: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+        fetching.then(
+            (fresh) => ({ fresh }),
+            () => ({ failed: true as const }),
+        ),
+        new Promise<{ slow: true }>((resolve) => {
+            wait = setTimeout(() => resolve({ slow: true }), d.staleAfterMs);
+        }),
+    ]);
+    clearTimeout(wait);
+    if ('fresh' in outcome)
+        return { overlay: outcome.fresh.overlay, state: 'fresh', fetchedAt: outcome.fresh.fetchedAt };
+    return { overlay: copy.data, state: 'stale', fetchedAt: copy.ts };
 }
