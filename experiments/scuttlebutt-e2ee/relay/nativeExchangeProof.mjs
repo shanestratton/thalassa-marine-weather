@@ -22,7 +22,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createNativeExchangeServer } from './nativeExchangeServer.mjs';
@@ -146,10 +146,12 @@ try {
             'VodozemacSealedStore.swift',
             'VodozemacDmFrame.swift',
             'VodozemacDmCoordinator.swift',
+            'VodozemacDmCoordinatorProbe.swift',
             'VodozemacRelayCodec.swift',
             'VodozemacRelayTransport.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
+            'VodozemacLifecycleProbe.swift',
             'VodozemacRelayClient.swift',
             'VodozemacExchangeProbe.swift',
         ].map((name) => join(experiment, name)),
@@ -219,8 +221,6 @@ try {
         timeout: 30_000,
     });
     assert(!signed.error && signed.status === 0, 'Ad-hoc sign only this isolated simulator app');
-    relay = await createNativeExchangeServer({ archivePath, scratch });
-    receipt.origin = relay.origin;
     receipt.phase = 'simulator-create';
     saveReceipt();
     const runtimes = JSON.parse(run(['simctl', 'list', 'runtimes', '--json'], { quiet: true })).runtimes;
@@ -231,7 +231,13 @@ try {
             value.identifier === 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
     );
     assert(runtime, 'An already installed iOS 26.5 runtime is required; never download runtimes');
-    const deviceType = runtime.supportedDeviceTypes.find((value) => value.productFamily === 'iPhone').identifier;
+    const phoneTypes = runtime.supportedDeviceTypes.filter((value) => value.productFamily === 'iPhone');
+    const deviceType = (
+        phoneTypes.find(
+            (value) => value.identifier === 'com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation',
+        ) ?? phoneTypes[0]
+    ).identifier;
+    receipt.simulatorDeviceType = deviceType;
     const name = `Thalassa E2EE disposable ${runID}`;
     const created = run(['simctl', 'create', name, deviceType, runtime.identifier], { quiet: true });
     assert(/^[0-9A-Fa-f-]{36}$/.test(created), 'Must capture exact newly created simulator ID');
@@ -251,8 +257,29 @@ try {
     };
     ownDevice();
     run(['simctl', 'boot', simulator], { quiet: true });
-    run(['simctl', 'bootstatus', simulator, '-b'], { timeout: 180_000, quiet: true });
+    // Cold first boot can be slow on the shared 8 GB Mac. Keep its progress
+    // observable, and postpone the SQL/WASM allocation until boot completes.
+    await new Promise((resolve, reject) => {
+        const child = spawn('/usr/bin/xcrun', ['simctl', 'bootstatus', simulator, '-b'], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        const timer = setTimeout(() => child.kill('SIGTERM'), 600_000);
+        child.stdout.on('data', (data) => process.stdout.write(data));
+        child.stderr.on('data', (data) => process.stderr.write(data));
+        child.once('error', (error) => {
+            clearTimeout(timer);
+            reject(error);
+        });
+        child.once('exit', (code) => {
+            clearTimeout(timer);
+            if (code === 0) resolve();
+            else reject(new Error('Disposable simulator boot did not complete; no message tests ran'));
+        });
+    });
     run(['simctl', 'install', simulator, app], { timeout: 180_000, quiet: true });
+    relay = await createNativeExchangeServer({ archivePath, scratch });
+    receipt.origin = relay.origin;
+    saveReceipt();
     const container = run(['simctl', 'get_app_container', simulator, bundle, 'data'], { quiet: true });
     assert(isAbsolute(container));
     const statusPath = join(container, 'Documents', `exchange-status-${runID.toLowerCase()}.json`);
@@ -295,10 +322,16 @@ try {
             }
             await delay(250); // Keep Node HTTPS server available while the app runs.
         }
+        // Retain only fixed native labels/counts before removing the disposable
+        // device, so an assertion failure is diagnosable without retaining keys.
+        receipt.lastNativeStatus = status
+            ? { phase, status: status.status, stage: status.stage }
+            : { phase, status: 'missing' };
+        saveReceipt();
         assert.equal(
             status?.status,
             'passed',
-            `Native ${phase} failed or unresolved; only sanitized app receipt inspected`,
+            `Native ${phase} failed or unresolved (${status?.stage ?? 'missing'}); only sanitized app receipt inspected`,
         );
         receipt.completedPhases.push({ phase, pid, stage: status.stage });
         receipt.observation = 'app-reported-pass';
@@ -316,7 +349,7 @@ try {
     run(['simctl', 'keychain', simulator, 'add-root-cert', relay.certPath], { quiet: true });
     receipt.rootAddedOnlyToNewSimulator = true;
     saveReceipt();
-    for (const phase of ['prepare', 'opening', 'retry', 'reply', 'successor', 'verify', 'cleanup']) {
+    for (const phase of ['prepare', 'opening', 'retry', 'reply', 'successor', 'verify', 'recovery', 'cleanup']) {
         await launch(phase);
         if (phase === 'opening') {
             await relay.verify({ expectedDecisions: 1, expectedFaults: { lostResponses: 1 } });
@@ -324,12 +357,14 @@ try {
         }
     }
     receipt.serverVerification = await relay.verify({
-        expectedDecisions: 3,
-        expectedClientIds: ['exchange-opening', 'exchange-reply', 'exchange-successor'],
+        expectedDecisions: 4,
+        expectedMessages: 4,
+        expectedClientIds: ['exchange-opening', 'exchange-reply', 'exchange-successor', 'exchange-recovery'],
         forbiddenPlaintexts: [
             'Native HTTPS research opening',
             'Native HTTPS research reply',
             'Native HTTPS research successor',
+            'Native HTTPS research recovery',
         ],
         expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 2 },
     });
@@ -360,7 +395,10 @@ try {
         }
     }
     try {
-        if (relay) await relay.close();
+        if (relay) {
+            receipt.serverCounters = relay.counters();
+            await relay.close();
+        }
     } catch (error) {
         failure ??= error;
         receipt.status = 'incomplete';

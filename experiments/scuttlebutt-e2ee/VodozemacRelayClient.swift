@@ -7,6 +7,10 @@ import Foundation
 struct DmRelayInboxReport: Equatable {
     let stored: Int
     let duplicates: Int
+    let historical: Int
+    init(stored: Int, duplicates: Int, historical: Int = 0) {
+        self.stored = stored; self.duplicates = duplicates; self.historical = historical
+    }
 }
 
 final class VodozemacRelayClient {
@@ -31,6 +35,18 @@ final class VodozemacRelayClient {
         guard !Task.isCancelled, try currentContext() == credential.context else {
             throw DmRelayTransportError.unresolved
         }
+        // Read native authority AFTER the external reader. A slow/reentrant
+        // callback cannot rotate the epoch and then return a captured old value.
+        try coordinator.validateRelayContextForResearch(owner: owner(credential), credentialEpoch: credential.context.credentialEpoch,
+                                                        peerGeneration: credential.context.peerGeneration)
+    }
+
+    // The transport rechecks durable native lifecycle at actual dispatch and
+    // completion. A caller returning its captured old context cannot override
+    // a persisted sign-out, token renewal, or peer status change.
+    private func guardedContext(_ credential: DmRelayNetworkCredential,
+                                _ currentContext: @escaping () throws -> DmRelayNetworkContext?) -> () throws -> DmRelayNetworkContext? {
+        { try self.check(credential, currentContext); return credential.context }
     }
 
     func registerForResearch(prekeyId: String, expiresAt: Int64, now: Int64,
@@ -40,8 +56,8 @@ final class VodozemacRelayClient {
         let own = owner(credential)
         let identity = try coordinator.publicIdentity(owner: own)
         let wire = try coordinator.signedBundleForResearch(prekeyId: prekeyId, expiresAt: expiresAt,
-                                                          now: now, owner: own)
-        let data = try await transport.register(bundle: wire, credential: credential, currentContext: currentContext)
+                                                          now: now, owner: own, credentialEpoch: credential.context.credentialEpoch)
+        let data = try await transport.register(bundle: wire, credential: credential, currentContext: guardedContext(credential, currentContext))
         try check(credential, currentContext)
         try DmRelayResultCodec.registration(data, expected: identity)
         _ = try coordinator.publicIdentity(owner: own) // Re-read durable owner after the await.
@@ -62,8 +78,8 @@ final class VodozemacRelayClient {
               peer.identityKeyId == pinned.identityKeyId, peer.curve == pinned.curve,
               peer.prekey == pinned.prekey else { throw DmCoordinatorError.conflict }
         let wire = try coordinator.signedClaimForResearch(requestId: requestId, expiresAt: expiresAt,
-                                                         now: now, owner: own, peerGeneration: generation)
-        let data = try await transport.dispatch(request: wire, credential: credential, currentContext: currentContext)
+                                                         now: now, owner: own, peerGeneration: generation, credentialEpoch: credential.context.credentialEpoch)
+        let data = try await transport.dispatch(request: wire, credential: credential, currentContext: guardedContext(credential, currentContext))
         try check(credential, currentContext)
         // A near-expiry key may expire while its response is in flight. Neither
         // the captured caller time nor a wall-clock rollback extends its life.
@@ -86,16 +102,16 @@ final class VodozemacRelayClient {
         let own = owner(credential)
         guard let generation = credential.context.peerGeneration else { throw DmCoordinatorError.invalidInput }
         let wire = try coordinator.signedSendForResearch(record, requestId: requestId, expiresAt: expiresAt,
-                                                        now: now, owner: own, peerGeneration: generation)
-        let data = try await transport.dispatch(request: wire, credential: credential, currentContext: currentContext)
+                                                        now: now, owner: own, peerGeneration: generation, credentialEpoch: credential.context.credentialEpoch)
+        let data = try await transport.dispatch(request: wire, credential: credential, currentContext: guardedContext(credential, currentContext))
         try check(credential, currentContext)
         let receipt = try DmRelayResultCodec.receipt(data, expected: record)
         try check(credential, currentContext)
         switch receipt {
         case .accepted:
-            try coordinator.confirmAcceptance(record, owner: own, peerGeneration: generation)
+            try coordinator.confirmAcceptance(record, owner: own, peerGeneration: generation, credentialEpoch: credential.context.credentialEpoch)
         case .rejected(_, let reason):
-            try coordinator.confirmRejection(record, reason: reason, owner: own)
+            try coordinator.confirmRejection(record, reason: reason, owner: own, credentialEpoch: credential.context.credentialEpoch)
         }
         // Do not publish a completion into a replaced account/credential context.
         // If it changes here, the already committed local decision stays valid.
@@ -105,9 +121,10 @@ final class VodozemacRelayClient {
 
     // Bounded single-peer research store: re-scan from zero, deliberately no
     // advancing cursor. This revisits messages hidden by a temporary block and
-    // survives restart/partial batch failure within the SAME lifecycle. After
-    // owner/peer generation changes old rows fail closed, not silently skipped;
-    // generation-safe reconciliation remains a gate before app integration.
+    // survives restart/partial batch failure. Exact saved rows from an older
+    // owner/peer generation are explicitly counted as historical, without
+    // restoring plaintext or rebinding history. Device/key identity is immutable
+    // in this research store. Unseen rows still need guarded native decryption.
     // Canonical but undecryptable ciphertext also stalls the bounded rescan.
     // Duplicate handling is native and
     // durable. A scalable sealed per-owner sync cursor remains future work.
@@ -121,21 +138,28 @@ final class VodozemacRelayClient {
         let identity = try coordinator.publicIdentity(owner: own)
         let peer = try coordinator.peerForResearch(owner: own, generation: generation)
         let wire = try coordinator.signedListForResearch(requestId: requestId, afterId: 0, batch: 16,
-                                                        expiresAt: expiresAt, now: now, owner: own)
-        let data = try await transport.dispatch(request: wire, credential: credential, currentContext: currentContext)
+                                                        expiresAt: expiresAt, now: now, owner: own, credentialEpoch: credential.context.credentialEpoch)
+        let data = try await transport.dispatch(request: wire, credential: credential, currentContext: guardedContext(credential, currentContext))
         try check(credential, currentContext)
         // Validate the COMPLETE batch before any ratchet/inbox mutation.
         let rows = try DmRelayResultCodec.inbox(data, owner: own, identity: identity, peer: peer, afterId: 0, batch: 16)
-        var stored = 0, duplicates = 0
+        var stored = 0, duplicates = 0, historical = 0
         for row in rows {
             try check(credential, currentContext)
-            switch try coordinator.receive(row.record.serializedEnvelope, owner: own, peerGeneration: generation) {
+            switch try coordinator.knownInboundForResearch(row.record.serializedEnvelope, owner: own, peerGeneration: generation,
+                                                           credentialEpoch: credential.context.credentialEpoch) {
+            case .current: duplicates += 1; continue
+            case .historical: historical += 1; continue
+            case .unknown: break
+            }
+            switch try coordinator.receive(row.record.serializedEnvelope, owner: own, peerGeneration: generation,
+                                            credentialEpoch: credential.context.credentialEpoch) {
             case .stored: stored += 1
             case .duplicate: duplicates += 1
             }
         }
         _ = try coordinator.peerForResearch(owner: own, generation: generation)
         try check(credential, currentContext)
-        return DmRelayInboxReport(stored: stored, duplicates: duplicates)
+        return DmRelayInboxReport(stored: stored, duplicates: duplicates, historical: historical)
     }
 }

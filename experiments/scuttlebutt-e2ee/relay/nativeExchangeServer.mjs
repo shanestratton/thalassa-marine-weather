@@ -133,6 +133,7 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
         wrongReceipts: 0,
         malformedLists: 0,
         poisonLists: 0,
+        staleContextRequests: 0,
         databaseReopens: 0,
         unexpectedFailures: 0,
     };
@@ -191,6 +192,14 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
                     chunks.push(chunk);
                 }
                 const body = Buffer.concat(chunks);
+                if (
+                    incoming.url === '/v1/dispatch' &&
+                    ['stale-epoch-must-not-dispatch', 'callback-epoch-must-not-dispatch'].includes(
+                        JSON.parse(body.toString('utf8')).requestId,
+                    )
+                ) {
+                    counters.staleContextRequests++;
+                }
                 const requestHeaders = new Headers();
                 for (let i = 0; i < incoming.rawHeaders.length; i += 2)
                     requestHeaders.append(incoming.rawHeaders[i], incoming.rawHeaders[i + 1]);
@@ -306,10 +315,18 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
         origin,
         certPath,
         counters: () => Object.freeze({ ...counters }),
-        async verify({ expectedDecisions, expectedClientIds, forbiddenPlaintexts = [], expectedFaults } = {}) {
+        async verify({
+            expectedDecisions,
+            expectedMessages,
+            expectedClientIds,
+            forbiddenPlaintexts = [],
+            expectedFaults,
+        } = {}) {
             const value = await snapshot();
             assert.equal(value.devices, 2, 'Only two native fixture devices registered');
             if (expectedDecisions !== undefined) assert.equal(value.decisions.length, expectedDecisions);
+            const messages = value.decisions.filter((row) => row.accepted === true).length;
+            if (expectedMessages !== undefined) assert.equal(messages, expectedMessages);
             assert(
                 value.decisions.every((row) => row.accepted === true),
                 'All durable decisions accepted once',
@@ -330,6 +347,7 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
                     assert.equal(counters[name], count);
                 }
             assert.equal(counters.unexpectedFailures, 0, 'No hidden fixture-host failure');
+            assert.equal(counters.staleContextRequests, 0, 'Stale native epochs never reached HTTP/Auth/SQL');
             assert(
                 counters.authRequests >= counters.registrations + counters.dispatches,
                 'Each completed registration and signed request checked fresh fixture Auth',
@@ -337,6 +355,7 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
             return Object.freeze({
                 devices: value.devices,
                 decisions: value.decisions.length,
+                messages,
                 requests: value.requests.length,
                 ...counters,
             });

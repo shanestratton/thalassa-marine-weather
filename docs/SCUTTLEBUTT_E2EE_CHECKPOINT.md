@@ -69,6 +69,83 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 1 October native lifecycle and known-inbox recovery slice
+
+The isolated sealed coordinator now owns a persisted active/signed-out flag,
+owner generation and credential epoch. Sign-out closes ordinary identity,
+signing, send, receive and history access. Same-account/device resume uses a new
+generation/epoch without changing its immutable keys or rebinding prior history
+or pending sends. Wrong-account/device and stale resume requests refuse. At the
+maximum generation, sign-out still persists inactive state and a new epoch;
+resume permanently refuses rather than overflowing or leaving the account active.
+These are explicit native research fixtures, **not real Auth attestation**.
+
+Same-account token renewal rotates only the persisted credential epoch; current
+pending ciphertext remains byte-identical and resumable. Relay checks evaluate
+the external context reader before one fresh sealed authority read. Its captured
+epoch is checked again inside signing and receipt/receive transactions and their
+CAS, so a reentrant reader or competing credential renewal cannot silently apply
+an old-epoch result. Already dispatched server work may still commit; this does
+not promise network cancellation or immediate server token revocation.
+
+Inbox rescans can explicitly recognise exact previously stored ciphertext from
+earlier owner/peer generations as historical, under the **unchanged immutable
+identity** and current accepted-peer guards. This read-only classification returns
+no text and does not mutate the ratchet or restore/re-tag old history. Unknown rows
+still require actual decrypt and atomic guarded commit. Known IDs with changed
+bytes, stale owners/peers and blocked/changed/revoked peers refuse. Direct receive
+keeps its strict generation checks. Unseen historical ciphertext is not identifiable
+as such from the current wire; future identity/device replacement requires a new
+identity-scoped design rather than reusing this helper.
+
+Observed final run: temporary `thalassa-native-exchange-QuNkaU/exchange-run.json`
+reported **passed**, with nine separate simulator process launches and four actual
+native Olm messages over ordinary URLSession HTTPS into the signed SQL relay.
+The fourth message decrypted after Bob's persisted sign-out/resume and another
+process restart (owner generation 23, accepted peer generation 9). Two previously
+stored rows were classified historical without restoring their text; only the new
+message appeared in current history. The following rescan reported one current
+duplicate and two historical rows, with no extra receive mutation.
+
+The native lifecycle probe and existing coordinator/result probes executed during
+preparation. They check wrong/stale/off contexts, epoch races, reopen,
+exact-ciphertext retention, known-history isolation, competing lifecycle CAS and
+generation exhaustion. The server observed **zero stale-context HTTP requests**
+for both the stale epoch and reentrant context-reader cases. Existing lost-response,
+wrong-receipt, malformed-batch, cryptographic-poison and retry checks passed;
+four exact message IDs and four decisions persisted. SQL reopen and scoped
+plaintext-absence checks passed, with no unexpected server failures. The runner
+removed its own disposable simulator and test trust root. The seven existing
+TypeScript suites also passed **474 tests**, followed by strict selected-file type
+checks; these are not 474 native encrypted exchanges.
+
+Two earlier attempts compiled but timed out booting fresh simulators before any
+message test ran. A third booted and passed TLS refusal, preparation and opening,
+then failed in retry; its exact failure cause was not established. The final run
+uses the transport's normal bounded 10-second deadline instead of the earlier
+research harness's 5 seconds. These failed attempts are not counted as passes;
+each removed only its own simulator. Simulator startup now precedes SQL allocation
+to reduce peak memory, with a bounded 600-second boot wait and observable progress.
+
+The final runner recorded provider/source hashes and reused previously tested
+cached bindings/static artifacts; it was not a fresh Rust rebuild or independently
+verified artifact provenance. Both logical clients still ran inside one research
+app on one simulator, not two physical phones. Auth tokens, same-account resume
+attestation and peer pins remain fixtures.
+
+Version 3 research snapshots now include active/epoch authority. Earlier snapshots
+are refused, never recreated or automatically migrated. No actual account, app
+plugin, primary phone project, Supabase schema or master deployment is changed.
+Auth/token and peer-identity attestations remain fixtures. Two physical phones,
+key/device/prekey lifecycle, scalable sync and independent review remain gates.
+
+**Poison recovery is deliberately not implemented yet.** The current native
+provider error conflates invalid ciphertext/content with restored-state failure.
+Safely retaining an unresolved encrypted row while continuing later messages
+first needs typed error boundaries, a fresh binding/binary rebuild, a bounded
+sealed queue with no eviction, and CAS-protected retry/promotion. Broadly catching
+all decrypt/storage/lifecycle failures would hide broken local state and is refused.
+
 ### 1 October complete native/local HTTPS exchange checkpoint
 
 The previously separate provider/network/SQL pieces now have an isolated native
@@ -126,8 +203,8 @@ or install on a physical iPhone. Both logical native clients ran in one disposab
 research app/simulator, not on two independent devices. Auth HTTP responses,
 account IDs, credential epochs and out-of-band peer pins remain fixtures.
 
-The bounded inbox rescans from zero and has no advancing cursor. This avoids
-skipping temporarily hidden rows but currently stalls on old-generation duplicates
+At that checkpoint, the bounded inbox rescanned from zero with no advancing cursor.
+This avoided skipping temporarily hidden rows but stalled on old-generation duplicates
 or permanent cryptographic poison. Generation-safe reconciliation/quarantine,
 durable real Auth/refresh/logout state, scalable inbox sync, device/prekey
 renewal/recovery, independent PostgreSQL connections, two physical phones,
