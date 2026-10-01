@@ -34,7 +34,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
-import { inshoreRouteCaveats } from './inshoreRouteNotice';
+import { inshoreRouteCaveats, isFinalInshoreRefusal } from './inshoreRouteNotice';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
 import { MapBaseSelector, mapBaseVisibility } from './MapBaseSelector';
@@ -2513,6 +2513,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const caveats = inshoreRouteCaveats({
                         structuresUnknownCells: res.structuresUnknownCells,
                         pinOffWater: res.pinOffWater,
+                        tideCheck: res.tideCheck,
                         surveyRuns: res.surveyRuns,
                         surveyUncheckedCells: res.surveyUncheckedCells,
                     });
@@ -2526,7 +2527,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                     flashTraceFeedback('Already at the destination');
                 }
             } else if (res && 'error' in res) {
-                flashTraceFeedback(`Router: ${res.error.slice(0, 70)}`);
+                if (isFinalInshoreRefusal(res.code)) {
+                    // No route, and why — whole, on the panel's persistent
+                    // line (decision 11 fix-up, 2026-10-01): the 70-character
+                    // flash cut the refusal off after the place's name, so the
+                    // charted depth, the highest tide and the need were lost.
+                    flashTraceFeedback('No route — see why below');
+                    setAutoRouteDiag(res.error);
+                } else {
+                    flashTraceFeedback(`Router: ${res.error.slice(0, 70)}`);
+                }
             } else {
                 flashTraceFeedback('No auto route from here (too far or no charts) — keep tracing');
             }

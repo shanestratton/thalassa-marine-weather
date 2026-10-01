@@ -139,6 +139,9 @@ describe('annotateTideWindows — each place by its own tide, over 14 days', () 
             draftM: 2.4,
             needM: NEED_M,
             departureMs: h.DEPART_MS,
+            // The clock (decision 11 fix-up, 2026-10-01: tops are read from
+            // the later of now and the departure) — the test's own.
+            nowMs: h.DEPART_MS,
             isStale: () => false,
             markers,
             liftable: liftable(),
@@ -164,7 +167,10 @@ describe('annotateTideWindows — each place by its own tide, over 14 days', () 
         expect(at(153.745, -27.3)).toBeNull();
         const texts = markers.map((m) => (m as unknown as { el: HTMLElement }).el.textContent);
         expect(texts[0]).toMatch(/^clears /);
-        expect(texts[1]).toBe('no tide in 14 days clears it — needs +1.4 m, highest 1.0 m');
+        // RE-PINNED 14 → 13 days (decision 11 fix-up, 2026-10-01): the top is
+        // read from the departure on; the curve's first day (from yesterday
+        // 00:00, the proxy's anchor) is past.
+        expect(texts[1]).toBe('no tide in 13 days clears it — needs +1.4 m, highest 1.0 m');
         expect(texts[2]).toBe('tide times not loaded here — needs +1.4 m');
     });
 

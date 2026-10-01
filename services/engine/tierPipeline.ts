@@ -3,7 +3,7 @@
  * Carved out of inshoreRouterEngine.ts (module split, 2026-06-24).
  */
 import { M_PER_DEG_LAT, ENGINE_DEBUG, engineLog } from './constants';
-import type { NavGrid, InshoreLayers, RelaxZone } from './types';
+import type { NavGrid, InshoreLayers, RelaxZone, TideBarrier, TideCeiling } from './types';
 import { mPerDegLon, haversineM, latLonToGrid, pointInGeometry, geometryBbox, douglasPeucker } from './geometry';
 import type { Polygon, MultiPolygon } from 'geojson';
 import { buildNavGridCached, snapToNavigable } from './navGrid';
@@ -1073,6 +1073,11 @@ export function applyThreeTier(
     obstructionBufferM: number,
     relaxedLndare: boolean,
     relaxZones: RelaxZone[],
+    /** Decision 11 (2026-10-01): the fine grid blocks water no tide clears
+     *  exactly as the coarse one does — with the retry's crossed bands
+     *  closed, when the route is one. */
+    tideCeilings: readonly TideCeiling[] = [],
+    tideBarriers: readonly TideBarrier[] = [],
 ): {
     polyline: [number, number][];
     provenance: string;
@@ -1296,6 +1301,9 @@ export function applyThreeTier(
                 // fine grid agrees with the route it's refining.
                 relaxedLndare,
                 relaxZones,
+                'safest',
+                tideCeilings,
+                tideBarriers,
             ).grid;
         } catch {
             return null;

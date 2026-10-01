@@ -38,6 +38,7 @@ import {
     areaGeometry,
     chartAreaIndexFor,
     chartedDepthAt,
+    chartedDepthRangeAt,
     indexArea,
     isS57Feature,
     piecesAlong,
@@ -490,6 +491,15 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
                 midLat: mid[1],
                 midLon: mid[0],
                 ...(runMinAt ? { minAtLat: runMinAt[1], minAtLon: runMinAt[0] } : {}),
+                // The deepest the chart admits at that spot (decision 11
+                // fix-up, 2026-10-01): a 0–2 m band's 0 m end may need more
+                // than any tide while the band itself is not proved
+                // unclearable — the chip says which (tideWindowChips).
+                ...(() => {
+                    if (!runMinAt || runNtm || depthBands.length === 0) return {};
+                    const deepestM = chartedDepthRangeAt(depthBands, runMinAt[0], runMinAt[1])?.deepestM ?? null;
+                    return deepestM !== null ? { deepestM } : {};
+                })(),
                 ...(runNtm ? { ntmSurveyed: true } : {}),
                 ...(endpointTail ? { endpointTail } : {}),
                 // A tail through decision-1 water with no finest-survey depth

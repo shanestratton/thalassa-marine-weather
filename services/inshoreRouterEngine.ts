@@ -64,6 +64,8 @@ import type {
     RouteResult,
     RouteFailure,
     RelaxZone,
+    PinOffWater,
+    TideBarrier,
 } from './engine/types';
 import {
     mPerDegLon,
@@ -104,6 +106,18 @@ import {
 import { navLineLeads } from './leadingLine';
 import { chartAreaIndexFor, chartedDepthAt, navLinesOnWater } from './routing/leadLandClip';
 import { clearanceBarAt, clearanceRefusalMessage, polylineCrossesClearanceBar } from './routing/overheadClearance';
+import {
+    classifyNoTideRuns,
+    NO_TIDE_CLIP_TOLERANCE_M,
+    noTideBarriersAt,
+    noTideClearsAt,
+    noTideClearsRefusal,
+    pointAlongM,
+    tideCeilingLookup,
+    type CeilingLookup,
+    type NoTideRun,
+    type NoTideSplice,
+} from './engine/tideCeiling';
 
 // ── Public API ──────────────────────────────────────────────────────
 
@@ -174,6 +188,11 @@ export function dropsProtectedCanalGateContract(
     return false;
 }
 
+/** An endpoint that snapped further than this from its pin is cut off from
+ *  the routable water (routeInshoreMain's localized relax retry; decision 11
+ *  reads it too). */
+const FAR_SNAP_M = 500;
+
 function routeInshoreMain(
     layers: InshoreLayers,
     req: RouteRequest,
@@ -185,7 +204,18 @@ function routeInshoreMain(
     // mainland whenever no water path existed; a red caution line is not an
     // acceptable substitute for a navigable route.
     const strict = routeInshoreOnce(layers, req, false, [], gridOverride);
-    if ('error' in strict) {
+    // A strict attempt refused for water no tide clears, whose pin snapped
+    // far, may only have met that water on its way round to where it snapped
+    // (decision 11 fix-up, 2026-10-01: the Newport origin is cut off at some
+    // grid alignments, and the refusal named the canal estate's drying ground
+    // as "the only way through"). The localized relax retry below is the
+    // rescue for exactly that pin, so it runs first.
+    const strictNoTideFar =
+        'error' in strict &&
+        strict.code === 'no-tide-clears' &&
+        Math.max(strict.debug?.originSnap?.snapDistanceM ?? 0, strict.debug?.destinationSnap?.snapDistanceM ?? 0) >
+            FAR_SNAP_M;
+    if ('error' in strict && !strictNoTideFar) {
         return strict;
     }
 
@@ -217,7 +247,6 @@ function routeInshoreMain(
     // body that would let A* shortcut. We only relax around an endpoint
     // that actually snapped far — a well-connected endpoint (Rivergate
     // dest snapped 3 m) gets no zone.
-    const FAR_SNAP_M = 500;
     const originSnapM = strict.debug?.originSnap?.snapDistanceM ?? 0;
     const destSnapM = strict.debug?.destinationSnap?.snapDistanceM ?? 0;
     const zoneRadiusFor = (snapM: number): number => Math.min(snapM * 1.5 + 500, 4000);
@@ -240,8 +269,24 @@ function routeInshoreMain(
         // failure: the pin sits behind a fixed bridge the vessel cannot pass.
         // Returning the strict route here would silently start the passage
         // 2 km away and hide the impassable structure.
+        // So is a no-tide refusal (owner decision 11, 2026-10-01): the way to
+        // the pin crosses water no tide clears for this boat. Returning the
+        // strict route would draw a stub that ends kilometres short of it —
+        // but only a relaxed route that REACHED the pins proves that (fix-up,
+        // 2026-10-01: one that stopped 2.3 km short named a bay clip as "the
+        // only way through").
         if (relaxed.code === 'air-draft-blocked' || relaxed.code === 'hard-land-crossing') return relaxed;
+        if (relaxed.code === 'no-tide-clears' && relaxed.debug?.noTideCrossing?.reachedPins) return relaxed;
         return strict;
+    }
+    if ('error' in strict) {
+        // The strict refusal was for water no tide clears from a far-snapped
+        // pin: the relaxed route stands if it starts (or ends) nearer the pin.
+        const relaxedSnapM = Math.max(
+            relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
+            relaxed.debug?.destinationSnap?.snapDistanceM ?? Infinity,
+        );
+        return relaxedSnapM < strictWorstSnapM - 200 ? relaxed : strict;
     }
     if (dropsProtectedCanalGateContract(strict, relaxed)) {
         console.warn(
@@ -291,8 +336,187 @@ const COARSE_PRECHECK_RES_M = 400;
  *  a twentieth of a grid cell. */
 const SCAFFOLD_TOLERANCE_DEG = 2.5 / 110_000;
 
+/** How near a route must come to each pin to have REACHED it (decision 11
+ *  fix-up, 2026-10-01) — routeInshoreMain's far-snap threshold. A pin off
+ *  the water (on land, drying or in water no tide clears) is reached at its
+ *  edge, as decision 7 has it. */
+function reachesPins(r: RouteResult): boolean {
+    const end = (which: 'origin' | 'destination'): boolean => {
+        if (r.pinOffWater?.[which]) return true;
+        const snap = which === 'origin' ? r.debug?.originSnap : r.debug?.destinationSnap;
+        const gapM = (snap?.snapDistanceM ?? 0) + (which === 'destination' ? (r.destinationInlandTrimM ?? 0) : 0);
+        return gapM <= FAR_SNAP_M;
+    };
+    return end('origin') && end('destination');
+}
+
+/** The crossing an attempt was refused for (decision 11), or null. */
+const noTideCrossingOf = (r: RouteResult | RouteFailure): NonNullable<RouteDebug['noTideCrossing']> | null =>
+    'error' in r && r.code === 'no-tide-clears' ? (r.debug?.noTideCrossing ?? null) : null;
+
+/** The most times routeInshore closes crossed bands and routes again. */
+const NO_TIDE_RETRY_ROUNDS = 2;
+
 export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
     const layers = withNavLineLeadsOnly(rawLayers);
+    // Owner decision 11 (2026-10-01): with the highest tide known per place,
+    // water no tide clears for this boat is impassable (the grid blocks it:
+    // navGrid, services/engine/tideCeiling). The route goes the deep way
+    // round; where that leaves no way through, there is no route and the
+    // refusal names the spot.
+    const ceilings = tideCeilingLookup(req.tideCeilings);
+    if (ceilings.size === 0) return routeInshoreCore(layers, req);
+    const needM = req.draftM + (req.safetyM ?? 1.0);
+    // The route without the ceilings — today's — is read at most once, by
+    // whichever check below needs it first (fix-up, 2026-10-01: the verdict
+    // and the retry each built their own, up to four full routes a request).
+    let withoutMemo: RouteResult | RouteFailure | null = null;
+    const routeWithout = (): RouteResult | RouteFailure =>
+        (withoutMemo ??= routeInshoreCore(layers, { ...req, tideCeilings: undefined, tideBarriers: undefined }));
+    const first = routeInshoreCore(layers, req);
+    const firstCrossing = noTideCrossingOf(first);
+    if (!firstCrossing) return noTideClearsVerdict(layers, req, ceilings, first, routeWithout);
+    // The finished route crossed water no tide clears with no local way
+    // round it — a bar too thin for the grid to close, or one an off-grid
+    // splice ran across (fix-up, 2026-10-01: 30–59 m bars were routed straight
+    // over, the final check tolerating a cell of it and reading the bar
+    // short). Close every band it crossed, wherever each is proved, and route
+    // again: the deep way round. Twice at most, should the way round cross
+    // another band.
+    let barriers: TideBarrier[] = [...(req.tideBarriers ?? [])];
+    let attempt: RouteResult | RouteFailure = first;
+    for (let round = 0; round < NO_TIDE_RETRY_ROUNDS; round++) {
+        const crossing = noTideCrossingOf(attempt);
+        if (!crossing) break;
+        const more = noTideBarriersAt(layers, ceilings, needM, crossing.spots).filter(
+            (b) => !barriers.some((held) => held.geometry === b.geometry),
+        );
+        if (more.length === 0) break;
+        barriers = [...barriers, ...more];
+        attempt = routeInshoreCore(layers, { ...req, tideBarriers: barriers });
+        engineLog.warn(
+            `[noTide] crossed ${Math.round(crossing.lengthM)} m no tide clears near ${crossing.mid[1].toFixed(4)},${crossing.mid[0].toFixed(4)} — closed ${barriers.length} band(s) and routed again: ${
+                'error' in attempt
+                    ? `refused (${attempt.code ?? 'no code'})`
+                    : `${attempt.distanceNM.toFixed(2)} NM${reachesPins(attempt) ? '' : ', short of a pin'}`
+            }`,
+        );
+    }
+    if (!('error' in attempt) && reachesPins(attempt))
+        return noTideClearsVerdict(layers, req, ceilings, attempt, routeWithout);
+    // No way round. A first route that reached both pins through the crossing
+    // proves it is the only way through, and its refusal names it.
+    if (firstCrossing.reachedPins) return first;
+    // It did not (the real Wynnum → Lytton Reach check, 2026-10-01: its pin
+    // was trimmed 2.3 km overland): only today's route can show what is in the
+    // way. Its own failure says why (there, 2.2 km of land); across water no
+    // tide clears with no local way round, to both pins, that is the only way
+    // through; over clips at most, it is the route.
+    const without = routeWithout();
+    if ('error' in without) return without;
+    const sorted = classifyNoTideRuns(layers, without.polyline, ceilings, needM, {
+        toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
+    });
+    if (sorted.crossings.length > 0) {
+        if (!reachesPins(without)) return first;
+        const worst = sorted.crossings.reduce((a, b) => (b.run.lengthM > a.run.lengthM ? b : a));
+        return noTideRefusalFor(layers, req, needM, worst.run, without.debug);
+    }
+    if (sorted.splices.length === 0) return without;
+    return attempt;
+}
+
+/** Decision 11's refusal for a run: the error that names it. */
+function noTideRefusalFor(
+    layers: InshoreLayers,
+    req: RouteRequest,
+    needM: number,
+    run: NoTideRun,
+    debug: RouteDebug | undefined,
+): RouteFailure {
+    engineLog.warn(
+        `[noTide] no way round: today's route crosses ${Math.round(run.lengthM)} m no tide clears near ${run.mid[1].toFixed(4)},${run.mid[0].toFixed(4)} (deepest ${run.deepestM} m + highest ${run.highestM} m < ${needM.toFixed(1)} m) — REFUSING`,
+    );
+    return {
+        error: noTideClearsRefusal(layers, run, req.draftM, needM),
+        code: 'no-tide-clears',
+        ...(debug ? { debug } : {}),
+    };
+}
+
+/**
+ * Decision 11's verdict on a route built with tide ceilings (2026-10-01).
+ * The grid only makes that water impassable; this says why a route stopped
+ * short of, or never reached, a pin its way would have reached through such
+ * water. When the ceiling-aware attempt failed, or ended (or started) far
+ * from a pin with water no tide clears in the gap — and the pin itself is not
+ * in such water, which gets a route to the edge of the water a tide clears,
+ * nor on land, which explains the gap by itself — today's route (without the
+ * ceilings) is read. If it reaches both pins, nearer than this one did,
+ * through more than a clip of water no tide clears, there is no way round:
+ * the refusal names the spot on it (noTideClearsRefusal). Otherwise the
+ * ceiling-aware result stands.
+ */
+function noTideClearsVerdict(
+    layers: InshoreLayers,
+    req: RouteRequest,
+    ceilings: CeilingLookup,
+    routed: RouteResult | RouteFailure,
+    routeWithout: () => RouteResult | RouteFailure,
+): RouteResult | RouteFailure {
+    const needM = req.draftM + (req.safetyM ?? 1.0);
+    if ('error' in routed && (routed.code === 'no-tide-clears' || routed.code === 'air-draft-blocked')) return routed;
+    const proofAt = noTideClearsAt(layers, ceilings, needM);
+    const pinIn = {
+        origin: proofAt(req.fromLon, req.fromLat) !== null,
+        destination: proofAt(req.toLon, req.toLat) !== null,
+    };
+    /** Metres between a pin and where the route reached for it. */
+    const gapM = (r: RouteResult, which: 'origin' | 'destination'): number =>
+        (which === 'origin' ? r.debug?.originSnap?.snapDistanceM : r.debug?.destinationSnap?.snapDistanceM) ?? 0;
+    /** Water no tide clears lies between the pin and where the route reached. */
+    const gapCrossesNoTide = (r: RouteResult, which: 'origin' | 'destination'): boolean => {
+        if (pinIn[which]) return false;
+        // The route ran to the pin and was cut back at the water's edge: land
+        // explains the gap by itself (fix-up, 2026-10-01: today's route was
+        // rebuilt for such a pin, to say nothing).
+        if (r.debug?.pinEdgeTrimM?.[which] !== undefined) return false;
+        if (which === 'destination' && (r.destinationInlandTrimM ?? 0) > 0) return false;
+        const snap = which === 'origin' ? r.debug?.originSnap : r.debug?.destinationSnap;
+        if (!snap || snap.snapDistanceM < 150) return false;
+        const [pLat, pLon] = which === 'origin' ? [req.fromLat, req.fromLon] : [req.toLat, req.toLon];
+        const steps = Math.max(1, Math.ceil(snap.snapDistanceM / 10));
+        for (let k = 0; k <= steps; k++) {
+            const t = k / steps;
+            if (proofAt(pLon + (snap.snappedLon - pLon) * t, pLat + (snap.snappedLat - pLat) * t)) return true;
+        }
+        return false;
+    };
+    const suspect =
+        'error' in routed ? true : gapCrossesNoTide(routed, 'origin') || gapCrossesNoTide(routed, 'destination');
+    if (!suspect) return routed;
+    const without = routeWithout();
+    if ('error' in without) return routed;
+    if (!('error' in routed)) {
+        const closer = (which: 'origin' | 'destination'): boolean =>
+            !pinIn[which] && gapM(without, which) + 100 < gapM(routed, which);
+        if (!closer('origin') && !closer('destination')) return routed;
+    }
+    // Only a route that reaches the pins across it — no local way round it
+    // there, however short (tideCeiling classifyNoTideRuns) — proves it
+    // (fix-up, 2026-10-01: any 1-sample run used to refuse, named as "the
+    // only way through" when the ceiling-aware attempt failed for another
+    // reason).
+    if (!reachesPins(without)) return routed;
+    const crossings = classifyNoTideRuns(layers, without.polyline, ceilings, needM, {
+        toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
+    }).crossings;
+    if (crossings.length === 0) return routed;
+    const worst = crossings.reduce((a, b) => (b.run.lengthM > a.run.lengthM ? b : a));
+    return noTideRefusalFor(layers, req, needM, worst.run, routed.debug);
+}
+
+function routeInshoreCore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
     const spanDeg = Math.max(Math.abs(req.toLat - req.fromLat), Math.abs(req.toLon - req.fromLon));
 
     // ── Strict coarse pre-check (field hang 2026-06-12, reply 19) ────
@@ -310,10 +534,17 @@ export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): Route
     // ignored: coarse topology is unreliable for success, only the
     // unvouched measure is trusted.
     if (req.unchartedPolicy === 'strict' && spanDeg > 0.02 && (req.resolutionM ?? 50) < COARSE_PRECHECK_RES_M) {
-        const coarse = routeInshoreMain(layers, req, {
-            resolutionM: COARSE_PRECHECK_RES_M,
-            padDeg: Math.max(spanDeg * 0.5, 0.08),
-        });
+        // Without tide ceilings (decision 11, 2026-10-01): a 400 m cell classed
+        // by its centre would close water a tide clears, and the detour could
+        // read as uncharted. The fine passes below apply them.
+        const coarse = routeInshoreMain(
+            layers,
+            { ...req, tideCeilings: undefined },
+            {
+                resolutionM: COARSE_PRECHECK_RES_M,
+                padDeg: Math.max(spanDeg * 0.5, 0.08),
+            },
+        );
         if ('error' in coarse && coarse.code === 'uncharted-corridor') {
             coarse.debug = { ...(coarse.debug as RouteDebug), coarsePrecheck: true } as RouteDebug;
             return coarse;
@@ -483,6 +714,8 @@ function routeInshoreOnceEnds(
         relaxedLndare,
         relaxZones,
         req.routeProfile ?? 'safest',
+        req.tideCeilings ?? [],
+        req.tideBarriers ?? [],
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     // The endpoint carve and the component-bridge carve below write THIS
@@ -549,6 +782,13 @@ function routeInshoreOnceEnds(
     // route that stops at the water's edge — never across the drying ground
     // (round 3, 2026-09-30, below) — and the result says so (pinOffWater).
     const deepFloorM = req.draftM + safetyM;
+    // Water no tide clears (owner decision 11, 2026-10-01), against the
+    // chart itself: never a pin's charted tail, never a carve, and the pins
+    // in it — and the finished route — are held to it below. Null
+    // everywhere without tide ceilings.
+    const tideLookup = tideCeilingLookup(req.tideCeilings);
+    const noTideAt = noTideClearsAt(layers, tideLookup, deepFloorM);
+    const isNoTideCell = (idx: number): boolean => grid.noTideClears?.[idx] === 1;
     const isDeepEnough = (idx: number): boolean => {
         const d = grid.cells[idx];
         return !Number.isNaN(d) && d >= deepFloorM;
@@ -632,6 +872,9 @@ function routeInshoreOnceEnds(
     const exactSpotPin = { origin: false, destination: false };
     const chartedPinCell = (lat: number, lon: number, idx: number, which: 'origin' | 'destination'): number => {
         if (idx < 0) return -1;
+        // A pin in water no tide clears gets no 'needs tide' tail: the route
+        // stops at the edge of the water a tide does (decision 11).
+        if (noTideAt(lon, lat)) return -1;
         if (isChartedCaution(idx)) return idx;
         const d = pinDepthAt(lat, lon);
         if (d === null || d < 0 || d >= deepFloorM || onHardLandPin(lon, lat)) return -1;
@@ -680,18 +923,21 @@ function routeInshoreOnceEnds(
     // a pin on a drying bank can be ON the bank — and is then cut back to the
     // edge of the water on the finished geometry (round 3, 2026-09-30: "A pin
     // off the water" below); the planner's route notice says which.
-    const pinOffWater: { origin?: 'land' | 'drying'; destination?: 'land' | 'drying' } = {};
+    const pinOffWater: { origin?: PinOffWater; destination?: PinOffWater } = {};
     {
         // Exactly at the pin (round-3 review, 2026-09-30): hard land by the
         // audit's point rule, drying by the finest survey's charted depth —
         // the edge cut's own predicates, so the notice never says a pin dries
         // (or is ashore) where the chart says it does not. The 50 m cell used
         // to decide it.
-        const offWater = (lat: number, lon: number, idx: number): 'land' | 'drying' | undefined => {
+        const offWater = (lat: number, lon: number, idx: number): PinOffWater | undefined => {
             if (idx < 0) return undefined;
             if (onHardLandPin(lon, lat)) return 'land';
             const d = pinDepthAt(lat, lon);
-            return d !== null && d < 0 ? 'drying' : undefined;
+            if (d !== null && d < 0) return 'drying';
+            // Decision 11: water that never dries but no tide clears for
+            // this boat — the route stops at the edge of the water one does.
+            return noTideAt(lon, lat) ? 'no-tide' : undefined;
         };
         const o = originWay ? undefined : offWater(req.fromLat, req.fromLon, originTapIdx);
         const d = destinationWay ? undefined : offWater(req.toLat, req.toLon, destinationTapIdx);
@@ -722,6 +968,8 @@ function routeInshoreOnceEnds(
                 // from it, all teal). A mark-inference disc is not a charted
                 // hazard and may still be carved, as before.
                 if (isChartedHazardCell(idx)) continue;
+                // …nor over water no tide clears (decision 11, 2026-10-01).
+                if (isNoTideCell(idx)) continue;
                 grid.cells[idx] = carveDepth;
                 grid.preferred[idx] = 1; // attract A* to enter via the bubble
             }
@@ -742,6 +990,7 @@ function routeInshoreOnceEnds(
         cellsBlocked: blocked,
         ...(relaxedLndare ? { relaxedLndare: true } : {}),
         ...(relaxZones.length > 0 ? { relaxZones } : {}),
+        ...(grid.noTideClears ? { noTideClearsCells: grid.noTideClears.reduce((n, v) => n + v, 0) } : {}),
     };
 
     // ── Label connected components ──
@@ -861,7 +1110,24 @@ function routeInshoreOnceEnds(
                         }
                     }
                 }
-                if (crossesClearanceBar) {
+                // Nor water no tide clears (decision 11, 2026-10-01): the gap
+                // stays shut, and if it was the only way through the verdict
+                // names it (noTideClearsVerdict).
+                const crossesNoTide =
+                    !crossesClearanceBar &&
+                    carvePath.some(
+                        (c) =>
+                            c.x >= 0 &&
+                            c.y >= 0 &&
+                            c.x < grid.width &&
+                            c.y < grid.height &&
+                            isNoTideCell(c.y * grid.width + c.x),
+                    );
+                if (crossesNoTide) {
+                    engineLog.warn(
+                        `[noTide] component carve REFUSED — the ${Math.round(bestGap * resolutionM)}m gap crosses water no tide clears for this boat`,
+                    );
+                } else if (crossesClearanceBar) {
                     engineLog.warn(
                         `[airDraft] component carve REFUSED — the ${Math.round(bestGap * resolutionM)}m gap is a low-clearance structure this vessel cannot pass`,
                     );
@@ -1174,10 +1440,167 @@ function routeInshoreOnceEnds(
     // A* must succeed because the destination cell is in the origin's
     // reachable component. Defensive: still handle null in case the
     // grid has a path-cost edge case I haven't anticipated.
-    const cells = aStar(grid, startCell, endCell);
+    const aStarCells = aStar(grid, startCell, endCell);
     tPhase = mark('aStar', tPhase);
-    if (!cells) {
+    if (!aStarCells) {
         return { error: 'A* failed despite reachability flood-fill — should be impossible', code: 'no-path', debug };
+    }
+
+    // ── No out-and-back (2026-10-01) ─────────────────────────────────
+    // A route must never visit deep water only to come back through the same
+    // shallows. A pin in charted-shallow water (decision 7) gets its tail from
+    // the deep-enough water its own charted water reaches most cheaply — and
+    // that water can lie beyond the pin: the Pinkenba repro's north-exit pin,
+    // 113 m from Newport gate 1/2 in the charted 0–2 m band, got a route
+    // 2.3 km out past it to 5 m water and a 2.4 km tail back (4.51 NM; 2.07 NM
+    // on the old code). Where the grid path already passes nearer the pin
+    // than that deep water, the pin's charted water (charted caution or deep
+    // cells — never land, drying ground, a hazard, uncharted water or water
+    // no tide clears) is searched from the pin, and the route leaves the path
+    // at the cell that makes it shortest: the tail then runs straight through
+    // that charted water to the pin — 'needs tide', amber with its chip —
+    // unless the deep path is shorter or equal (within one cell). The origin
+    // is symmetric. The tail keeps every check it had (tailPoints, the final
+    // charted-tail walk up to where it joins the path).
+    let cells = aStarCells;
+    let originTailWay = originWay;
+    let destinationTailWay = destinationWay;
+    const outAndBackCutM: { origin?: number; destination?: number } = {};
+    if ((originWay || destinationWay) && cells.length >= 3) {
+        const w = grid.width;
+        const stepLenM = (a: { x: number; y: number }, b: { x: number; y: number }): number =>
+            Math.hypot(a.x - b.x, a.y - b.y) * resolutionM;
+        const wayLenM = (way: readonly { x: number; y: number }[]): number => {
+            let m = 0;
+            for (let i = 1; i < way.length; i++) m += stepLenM(way[i - 1], way[i]);
+            return m;
+        };
+        /** From the pin through its charted water (deep or charted caution),
+         * weighted as chartedWayToDeep weights a tail, out to `limitM` of
+         * water: each cell's metres back to the pin along the cheapest way,
+         * and the next cell on it. */
+        const chartedWaterFrom = (
+            pinIdx: number,
+            limitM: number,
+        ): { geoM: Map<number, number>; toward: Map<number, number> } => {
+            const cost = new Map<number, number>([[pinIdx, 0]]);
+            const geoM = new Map<number, number>([[pinIdx, 0]]);
+            const toward = new Map<number, number>([[pinIdx, -1]]);
+            const heap = new MinHeap();
+            heap.push({ f: 0, idx: pinIdx });
+            for (let e = heap.pop(); e; e = heap.pop()) {
+                if (e.f > (cost.get(e.idx) ?? Infinity)) continue;
+                const x = e.idx % w;
+                const y = Math.floor(e.idx / w);
+                const g = geoM.get(e.idx) ?? 0;
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= w || ny >= grid.height) continue;
+                        const n = ny * w + nx;
+                        if (!isDeepEnough(n) && !isChartedCaution(n)) continue;
+                        if (dx !== 0 && dy !== 0 && (isBlockedIdx(y * w + nx) || isBlockedIdx(ny * w + x))) continue;
+                        const step = dx !== 0 && dy !== 0 ? Math.SQRT2 : 1;
+                        const gn = g + step * resolutionM;
+                        if (gn > limitM) continue;
+                        const c = e.f + step * tailStepWeight(n);
+                        if (c >= (cost.get(n) ?? Infinity)) continue;
+                        cost.set(n, c);
+                        geoM.set(n, gn);
+                        toward.set(n, e.idx);
+                        heap.push({ f: c, idx: n });
+                    }
+                }
+            }
+            return { geoM, toward };
+        };
+        /** The charted tail's exact check (tailFault below), on cell centres. */
+        const tailLand = hardLandAtPoint(layers);
+        const tailBands = chartAreaIndexFor(layers).depth;
+        const exactTailFault = (pts: readonly [number, number][]): string | null => {
+            for (let i = 0; i + 1 < pts.length; i++) {
+                const [lonA, latA] = pts[i];
+                const [lonB, latB] = pts[i + 1];
+                const steps = Math.max(1, Math.ceil(haversineM(latA, lonA, latB, lonB) / 5));
+                for (let k = 0; k <= steps; k++) {
+                    const lon = lonA + ((lonB - lonA) * k) / steps;
+                    const lat = latA + ((latB - latA) * k) / steps;
+                    if (tailLand(lon, lat)) return 'charted land';
+                    if (tailBands.length === 0) continue;
+                    const d = chartedDepthAt(tailBands, lon, lat);
+                    if (d === null) return 'water no chart covers';
+                    if (d < 0) return 'a charted drying band';
+                    if (noTideAt(lon, lat)) return 'water no tide clears';
+                }
+            }
+            return polylineCrossesClearanceBar(pts, layers.OBSTRN?.features ?? []) ? 'a low structure' : null;
+        };
+        const cut = (which: 'origin' | 'destination'): void => {
+            const way = which === 'origin' ? originTailWay : destinationTailWay;
+            if (!way || way.length < 2 || cells.length < 3) return;
+            const pin = way[0];
+            const deep = way[way.length - 1];
+            const tailM = wayLenM(way);
+            // Only when the path comes nearer the pin than the tail's deep end.
+            const deepGapM = stepLenM(deep, pin);
+            if (!cells.some((c) => stepLenM(c, pin) < deepGapM - resolutionM)) return;
+            const cum = [0];
+            for (let i = 1; i < cells.length; i++) cum.push(cum[i - 1] + stepLenM(cells[i - 1], cells[i]));
+            const pathM = cum[cum.length - 1];
+            const field = chartedWaterFrom(pin.y * w + pin.x, tailM + 2 * resolutionM);
+            // Must beat today's way by more than a cell (the grid's own noise).
+            const todayM = pathM + tailM;
+            const lo = which === 'destination' ? 1 : 0;
+            const hi = which === 'destination' ? cells.length - 1 : cells.length - 2;
+            const candidates: { i: number; total: number }[] = [];
+            for (let i = lo; i <= hi; i++) {
+                const g = field.geoM.get(cells[i].y * w + cells[i].x);
+                if (g === undefined) continue;
+                const total = which === 'destination' ? cum[i] + g : pathM - cum[i] + g;
+                if (total < todayM - resolutionM) candidates.push({ i, total });
+            }
+            candidates.sort((a, b) => a.total - b.total);
+            /** The new tail, pin first and the junction last (chartedWayToDeep's shape). */
+            const tailTo = (i: number): { x: number; y: number }[] => {
+                const back: { x: number; y: number }[] = [];
+                for (let c = cells[i].y * w + cells[i].x; c !== -1; c = field.toward.get(c) as number)
+                    back.push({ x: c % w, y: Math.floor(c / w) });
+                return back.reverse();
+            };
+            // The shortest whose tail passes the tail's own exact check (the
+            // chart itself every 5 m: never land, drying ground, water no band
+            // charts or no tide clears) — at most a few tried.
+            let chosen: { i: number; total: number; tail: { x: number; y: number }[] } | null = null;
+            for (const c of candidates.slice(0, 6)) {
+                const tail = tailTo(c.i);
+                const pts = tail.map((t) => gridToLatLon(grid, t.x, t.y));
+                pts[0] = which === 'destination' ? [req.toLon, req.toLat] : [req.fromLon, req.fromLat];
+                if (exactTailFault(pts) === null) {
+                    chosen = { ...c, tail };
+                    break;
+                }
+            }
+            if (!chosen) return;
+            const best = chosen.i;
+            const tail = chosen.tail;
+            outAndBackCutM[which] = Math.round(todayM - chosen.total);
+            if (which === 'destination') {
+                cells = cells.slice(0, best + 1);
+                destinationTailWay = tail;
+            } else {
+                cells = cells.slice(best);
+                originTailWay = tail;
+            }
+            engineLog.warn(
+                `[outAndBack] the ${which} pin's own charted water joins the route ${Math.round((which === 'destination' ? pathM - (cum[best] ?? 0) : (cum[best] ?? 0)) / 10) * 10} m before its deep end — ${outAndBackCutM[which]} m shorter, no out-and-back`,
+            );
+        };
+        if (debug.destinationChartedPin) cut('destination');
+        if (debug.originChartedPin) cut('origin');
+        if (outAndBackCutM.origin !== undefined || outAndBackCutM.destination !== undefined)
+            debug.outAndBackCutM = outAndBackCutM;
     }
 
     // Marina-centerline refinement: ride mid-channel with keel clearance as
@@ -1191,7 +1614,7 @@ function routeInshoreOnceEnds(
     const firstCautionIdx = cells.findIndex((c) => grid.cells[c.y * grid.width + c.x] < 0);
     const cleanPrefixEnd = firstCautionIdx === -1 ? cells.length - 1 : firstCautionIdx - 1;
     // Need ≥2 clean cells (a real canal run) for the centerline to mean anything.
-    let marinaCells = cleanPrefixEnd >= 1 ? tryMarinaCenterline(grid, startCell, cells[cleanPrefixEnd]) : null;
+    let marinaCells = cleanPrefixEnd >= 1 ? tryMarinaCenterline(grid, cells[0], cells[cleanPrefixEnd]) : null;
     if (marinaCells && marinaCells.length >= 2) {
         // Cost-no-worse gate: the centerline pipeline routes on the WATER
         // MASK alone — preferred corridors, marker ribbons, wings and exit
@@ -1501,6 +1924,8 @@ function routeInshoreOnceEnds(
         obstructionBufferM,
         relaxedLndare,
         relaxZones,
+        req.tideCeilings ?? [],
+        req.tideBarriers ?? [],
     );
     if (threeTier) {
         finalPolyline = threeTier.polyline;
@@ -1682,6 +2107,8 @@ function routeInshoreOnceEnds(
                     const d = chartedDepthAt(depthBands, lon, lat);
                     if (d === null) return 'water no chart covers';
                     if (d < 0) return 'a charted drying band';
+                    // A 'needs tide' tail is water some tide clears (decision 11).
+                    if (noTideAt(lon, lat)) return 'water no tide clears';
                 }
             }
             return polylineCrossesClearanceBar(pts, layers.OBSTRN?.features ?? []) ? 'a low structure' : null;
@@ -1705,8 +2132,8 @@ function routeInshoreOnceEnds(
                 : atStart
                   ? [...new Array(count).fill(false), ...mask]
                   : [...mask, ...new Array(count).fill(false)];
-        if (debug.destinationChartedPin && destinationWay) {
-            const tail = tailPoints(destinationWay, [req.toLon, req.toLat]);
+        if (debug.destinationChartedPin && destinationTailWay) {
+            const tail = tailPoints(destinationTailWay, [req.toLon, req.toLat]);
             if (typeof tail === 'string') {
                 return {
                     error: `the destination's charted tail crosses ${tail}`,
@@ -1725,9 +2152,9 @@ function routeInshoreOnceEnds(
             finalChannelMask = noMask(finalChannelMask, added, false);
             finalOffshoreMask = noMask(finalOffshoreMask, added, false);
         }
-        if (debug.originChartedPin && originWay) {
+        if (debug.originChartedPin && originTailWay) {
             // Pin first, the deep cell (the route's first point) last.
-            const headPts = tailPoints(originWay, [req.fromLon, req.fromLat]);
+            const headPts = tailPoints(originTailWay, [req.fromLon, req.fromLat]);
             if (typeof headPts === 'string') {
                 return {
                     error: `the origin's charted head crosses ${headPts}`,
@@ -1882,7 +2309,9 @@ function routeInshoreOnceEnds(
         const offWater = (p: readonly [number, number]): boolean => {
             if (onHardLand(p[0], p[1])) return true;
             const d = depthBands.length > 0 ? chartedDepthAt(depthBands, p[0], p[1]) : null;
-            return d !== null && d < 0;
+            // …or water no tide clears (decision 11, 2026-10-01): the route
+            // stops at the edge of the water a tide does.
+            return (d !== null && d < 0) || noTideAt(p[0], p[1]) !== null;
         };
         const lerp = (a: readonly [number, number], b: readonly [number, number], t: number): [number, number] => [
             a[0] + (b[0] - a[0]) * t,
@@ -1972,6 +2401,11 @@ function routeInshoreOnceEnds(
         const chartedTailClean = (fromEnd: boolean): boolean => {
             const n = finalPolyline.length;
             for (let k = 0; k < n - 1; k++) {
+                // A tail cut short of the deep water (no out-and-back, above)
+                // ends where it joins the path: the walk ends there too.
+                const seg = fromEnd ? n - 2 - k : k;
+                if (fromEnd && outAndBackCutM.destination !== undefined && seg < destinationTailStartSeg) return true;
+                if (!fromEnd && outAndBackCutM.origin !== undefined && seg > originTailEndSeg) return true;
                 const a = finalPolyline[fromEnd ? n - 1 - k : k];
                 const b = finalPolyline[fromEnd ? n - 2 - k : k + 1];
                 const steps = Math.max(1, Math.ceil(haversineM(a[1], a[0], b[1], b[0]) / stepM));
@@ -2000,6 +2434,135 @@ function routeInshoreOnceEnds(
                 code: 'charted-end-rejected',
                 debug,
             };
+        }
+    }
+
+    // ── Water no tide clears on the FINAL geometry (decision 11) ───────
+    // The grid blocks it for A*'s cells; the off-grid splices (a lead or
+    // recommended-track snap, a canal egress) and the simplifier's chords do
+    // not read the grid, a 50 m cell is classed by its centre, and a bar
+    // thinner than a cell is left open. So the finished route is held to the
+    // chart itself every 10 m (fix-up, 2026-10-01; tideCeiling
+    // classifyNoTideRuns), and each stretch of such water on it is:
+    //   • a clip — a chord over a band's corner with a local way round it,
+    //     no more than NO_TIDE_CLIP_TOLERANCE_M (50 m, fixed: a coarsened
+    //     grid's cell used to set it) out to the band edges: kept, drawn red
+    //     with its chip (decision 10);
+    //   • a creek — longer, with a local way through water a tide clears (a
+    //     channel narrower than a cell through drying flats): that way, drawn
+    //     on a 10 m raster, replaces it here;
+    //   • a crossing — no local way round, however thin the bar (30–59 m bars
+    //     were routed straight over by the old one-cell tolerance): refused
+    //     below, after the land veto (a route that crosses land as well is
+    //     refused for the land), and routeInshore routes again with the
+    //     crossed band closed.
+    // The straight bridge from a cut-off origin pin to where the route really
+    // starts (a snap of more than FAR_SNAP_M) is not read: it is not water
+    // the route takes, and reading it refused Newport routes at some grid
+    // alignments for the canal estate's drying ground (fix-up, 2026-10-01).
+    // routeInshoreMain's relax retry and the verdict own that gap.
+    let noTideCrossings: { run: NoTideRun; spots: [number, number][] }[] = [];
+    if (tideLookup.size > 0 && finalPolyline.length >= 2) {
+        let skipM = 0;
+        const oSnap = debug.originSnap;
+        if (!debug.originChartedPin && oSnap && oSnap.snapDistanceM > FAR_SNAP_M) {
+            // From the first point within a cell of where the route starts.
+            let along = 0;
+            outer: for (let i = 0; i + 1 < finalPolyline.length; i++) {
+                const a = finalPolyline[i];
+                const b = finalPolyline[i + 1];
+                const segM = tupleDistM(a, b);
+                const steps = Math.max(1, Math.ceil(segM / 10));
+                for (let k = 0; k <= steps; k++) {
+                    const lon = a[0] + ((b[0] - a[0]) * k) / steps;
+                    const lat = a[1] + ((b[1] - a[1]) * k) / steps;
+                    if (haversineM(lat, lon, oSnap.snappedLat, oSnap.snappedLon) <= resolutionM) {
+                        skipM = along + (segM * k) / steps;
+                        break outer;
+                    }
+                }
+                along += segM;
+            }
+        }
+        const classify = () =>
+            classifyNoTideRuns(layers, finalPolyline, tideLookup, deepFloorM, {
+                fromM: skipM,
+                toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
+            });
+        const sorted = classify();
+        noTideCrossings = [...sorted.crossings];
+        const cum = [0];
+        for (let i = 1; i < finalPolyline.length; i++)
+            cum.push(cum[i - 1] + tupleDistM(finalPolyline[i - 1], finalPolyline[i]));
+        // A local way may stand in for its stretch only clear of the pins'
+        // charted tails (decision 7 owns those), under no structure this mast
+        // cannot clear, and no wild detour.
+        const splices: NoTideSplice[] = [];
+        for (const sp of sorted.splices) {
+            const inSeg = pointAlongM(finalPolyline, cum, sp.fromM).seg;
+            const outSeg = pointAlongM(finalPolyline, cum, sp.toM).seg;
+            let wayM = 0;
+            for (let k = 1; k < sp.points.length; k++) wayM += tupleDistM(sp.points[k - 1], sp.points[k]);
+            const ok =
+                (originTailEndSeg < 0 || inSeg > originTailEndSeg) &&
+                (destinationTailStartSeg < 0 || outSeg < destinationTailStartSeg) &&
+                wayM <= 2 * (sp.toM - sp.fromM) + 300 &&
+                !polylineCrossesClearanceBar(sp.points, layers.OBSTRN?.features ?? []);
+            if (ok) splices.push(sp);
+            else noTideCrossings.push(sp);
+        }
+        if (splices.length > 0) {
+            const bands = chartAreaIndexFor(layers).depth;
+            /** A spliced segment is caution where the chart charts it shallower
+             *  than the keel needs, or not at all (its 10 m samples). */
+            const wayCaution = (a: [number, number], b: [number, number]): boolean => {
+                if (bands.length === 0) return true;
+                const steps = Math.max(1, Math.ceil(tupleDistM(a, b) / 10));
+                for (let k = 0; k <= steps; k++) {
+                    const d = chartedDepthAt(
+                        bands,
+                        a[0] + ((b[0] - a[0]) * k) / steps,
+                        a[1] + ((b[1] - a[1]) * k) / steps,
+                    );
+                    if (d === null || d < deepFloorM) return true;
+                }
+                return false;
+            };
+            const pts: [number, number][] = [];
+            /** Per new segment: the old segment it is part of, or -1 for a way's. */
+            const src: number[] = [];
+            const pushPoint = (p: [number, number], from: number): void => {
+                if (pts.length > 0 && tupleDistM(pts[pts.length - 1], p) < 0.01) return;
+                if (pts.length > 0) src.push(from);
+                pts.push(p);
+            };
+            let next = 0;
+            for (const sp of [...splices].sort((a, b) => a.fromM - b.fromM)) {
+                const a = pointAlongM(finalPolyline, cum, sp.fromM);
+                const b = pointAlongM(finalPolyline, cum, sp.toM);
+                for (; next <= a.seg; next++) pushPoint(finalPolyline[next], next - 1);
+                pushPoint(a.p, a.seg);
+                for (let k = 1; k < sp.points.length; k++) pushPoint(sp.points[k], -1);
+                next = b.seg + 1;
+            }
+            for (; next < finalPolyline.length; next++) pushPoint(finalPolyline[next], next - 1);
+            const remap = (mask: boolean[], way: (k: number) => boolean): boolean[] =>
+                mask.length === 0 ? mask : src.map((o, k) => (o >= 0 ? (mask[o] ?? false) : way(k)));
+            finalCaution = remap(finalCaution, (k) => wayCaution(pts[k], pts[k + 1]));
+            finalCanalMask = remap(finalCanalMask, () => false);
+            finalChannelMask = remap(finalChannelMask, () => false);
+            finalOffshoreMask = remap(finalOffshoreMask, () => false);
+            if (originTailEndSeg >= 0) originTailEndSeg = src.lastIndexOf(originTailEndSeg);
+            if (destinationTailStartSeg >= 0) destinationTailStartSeg = src.indexOf(destinationTailStartSeg);
+            finalPolyline = pts;
+            debug.noTideSplicedM = splices.map((sp) => Math.round(sp.run.lengthM));
+            engineLog.warn(
+                `[noTide] ${splices.length} stretch(es) over water no tide clears (${debug.noTideSplicedM.join(', ')} m) redrawn along a local way through water a tide clears`,
+            );
+            // The redrawn route is held to the chart again: whatever is left
+            // that is not a clip is a crossing.
+            const again = classify();
+            noTideCrossings = [...noTideCrossings, ...again.crossings, ...again.splices];
         }
     }
 
@@ -2087,6 +2650,38 @@ function routeInshoreOnceEnds(
     // What the shipped route crosses, for a PROMOTED Seaway route to be held
     // to (InshoreRouter seawayGraphSafetyFault: never more land than this).
     if (hardLandAudit) debug.hardLandTotalM = Math.round(hardLandAudit.totalM);
+
+    // ── A crossing of water no tide clears: refused (decision 11) ──────
+    // After the land veto (a route that crosses land as well is refused for
+    // the land). The refusal names the longest crossing; debug.noTideCrossing
+    // says where every crossed band was read, and whether this attempt
+    // reached both pins — only then does it prove the crossing is the only
+    // way through (routeInshore).
+    if (noTideCrossings.length > 0) {
+        const worst = noTideCrossings.reduce((a, b) => (b.run.lengthM > a.run.lengthM ? b : a));
+        const reached = (which: 'origin' | 'destination'): boolean =>
+            !!pinOffWater[which] ||
+            ((which === 'origin' ? debug.originSnap : debug.destinationSnap)?.snapDistanceM ?? 0) +
+                (which === 'destination' ? (debug.destinationInlandTrimM ?? 0) : 0) <=
+                FAR_SNAP_M;
+        const totalM = noTideCrossings.reduce((m, c) => m + c.run.lengthM, 0);
+        engineLog.warn(
+            `[noTide] final route crosses ${Math.round(totalM)} m no tide clears with no local way round (worst ${Math.round(worst.run.lengthM)} m near ${worst.run.mid[1].toFixed(4)},${worst.run.mid[0].toFixed(4)})${(req.tideBarriers?.length ?? 0) > 0 ? ` with ${req.tideBarriers?.length} band(s) closed` : ''} — REFUSING`,
+        );
+        return {
+            error: noTideClearsRefusal(layers, worst.run, req.draftM, deepFloorM),
+            code: 'no-tide-clears',
+            debug: {
+                ...debug,
+                noTideCrossing: {
+                    mid: worst.run.mid,
+                    lengthM: Math.round(totalM),
+                    spots: noTideCrossings.flatMap((c) => c.spots),
+                    reachedPins: reached('origin') && reached('destination'),
+                },
+            } as RouteDebug,
+        };
+    }
 
     // ── Engine-boundary water-vouched sweep (strict policy only) ─────
     // The FINAL polyline (post smoothing / fairlead / leading-line
@@ -2270,6 +2865,8 @@ export type {
     NavGrid,
     RelaxZone,
     FairingMidpoint,
+    TideCeiling,
+    PinOffWater,
 } from './engine/types';
 export { UNCHARTED_MAX_RUN_M } from './engine/constants';
 export { getCachedNavGrid } from './engine/navGrid';

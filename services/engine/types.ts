@@ -2,7 +2,7 @@
  * Inshore Router Engine — public type contracts.
  * Carved out of inshoreRouterEngine.ts (module split, 2026-06-24).
  */
-import type { FeatureCollection } from 'geojson';
+import type { FeatureCollection, MultiPolygon, Polygon } from 'geojson';
 
 /**
  * The subset of layers we actually consume. Other ENC layers in the
@@ -142,6 +142,13 @@ export interface InshoreLayers {
      */
     NTMBAR?: FeatureCollection;
     /**
+     * S-57 SEAARE — named sea areas (OBJNAM: "Boat Passage", "Entrance
+     * Channel"). Never read by the grid or the path cost: only to NAME the
+     * water a route cannot get through (owner decision 11, 2026-10-01 —
+     * services/engine/tideCeiling noTideClearsRefusal).
+     */
+    SEAARE?: FeatureCollection;
+    /**
      * Marina finger pontoons / berth rows (OSM man_made=pier/pontoon,
      * floating=yes — LineStrings mostly, some closed polygons). Hard-blocked
      * by buildNavGrid's berth pass ONLY at fine resolution (cell < ~20 m),
@@ -159,6 +166,25 @@ export interface InshoreLayers {
      * decision 9, 2026-09-30; services/engine/shallowRuns collectSurveyRuns).
      */
     M_QUAL?: FeatureCollection;
+}
+
+/**
+ * The highest tide the app knows at a place (owner decision 11, Shane
+ * 2026-10-01: "ok avoid water no tide can clear"): one per 0.25° bucket of
+ * the tide cache (TideHeightService tideCurveBucket), from the same 14-day
+ * curve the route's tide chips read (tideWindowChips curveHighestM). The
+ * router treats water that even this tide cannot clear for the boat as
+ * impassable (services/engine/tideCeiling). A place with no ceiling proves
+ * nothing: its water is routed as before.
+ */
+export interface TideCeiling {
+    /** A spot in the bucket — where its curve was fetched. */
+    lat: number;
+    lon: number;
+    /** The top of the loaded curve, m above LAT. */
+    highestM: number;
+    /** Whole days the curve spans: "the highest tide in the next N days". */
+    days: number;
 }
 
 /** A cell merged for a route whose data carries NO M_QUAL layer at all —
@@ -228,6 +254,39 @@ export interface RouteRequest {
     routeProfile?: 'safest' | 'tideAssist' | 'tideDirect';
     /** Cells merged for this route with no M_QUAL layer (SurveyUncheckedCell). */
     surveyUncheckedCells?: readonly SurveyUncheckedCell[];
+    /**
+     * The highest tide known per place (TideCeiling; owner decision 11,
+     * 2026-10-01). Where the chart's deepest value for the water (DRVAL2)
+     * plus that tide is still short of draft + safety, the water is
+     * impassable for this request: the route goes the deep way round, or
+     * none is drawn and the refusal names the spot. Absent or empty: nothing
+     * is proved, and the route is as before. Part of the grid cache key.
+     */
+    tideCeilings?: readonly TideCeiling[];
+    /**
+     * INTERNAL (decision 11 fix-up, 2026-10-01): the charted bands a route
+     * crossed through water no tide clears, with no local way round them.
+     * routeInshore's own retry closes EVERY cell each one touches where it is
+     * proved (TideBarrier) — a bar narrower than a grid cell included, which
+     * the default grid leaves open — and routes again: the deep way round,
+     * or no route. Part of the grid cache key.
+     */
+    tideBarriers?: readonly TideBarrier[];
+}
+
+/**
+ * A charted depth band a route crossed through water no tide clears
+ * (RouteRequest.tideBarriers; decision 11 fix-up, 2026-10-01): its polygon,
+ * the deepest it admits (DRVAL2) and its survey rank. The retry's grid
+ * closes every cell the band touches where that depth plus the place's
+ * highest tide is still short of draft + safety, unless a finer survey owns
+ * the cell.
+ */
+export interface TideBarrier {
+    geometry: Polygon | MultiPolygon;
+    deepestM: number;
+    /** Survey fineness (`_scaleRank`), or null when unranked. */
+    rank: number | null;
 }
 
 /**
@@ -268,6 +327,34 @@ export interface RouteDebug {
      *  in a component the route did not use, or the finished geometry reached
      *  the pin through other water. Absent when no re-run happened. */
     chartedEndRejected?: string;
+    /** Metres a pin's charted tail saved by joining the route where the path
+     *  already passed nearer the pin than the tail's deep end (no
+     *  out-and-back, 2026-10-01). Absent when no tail was cut. */
+    outAndBackCutM?: { origin?: number; destination?: number };
+    /** Owner decision 11 (2026-10-01): grid cells proved impassable because
+     *  no tide the app knows clears them for this boat (TideCeiling). */
+    noTideClearsCells?: number;
+    /**
+     * Decision 11 fix-up (2026-10-01): the route crossed water no tide clears
+     * with no local way round it (services/engine/tideCeiling
+     * classifyNoTideRuns), so this attempt was refused. Where it is (the
+     * longest run's middle, [lon, lat]), its metres, the spots its bands are
+     * read at (every run's start, middle and end — routeInshore closes those
+     * bands and routes again) and whether the attempt reached both pins
+     * (within 500 m, or at the edge of a pin off the water): only a route
+     * that reached them proves the crossing is the only way through. Present
+     * only on such a refusal.
+     */
+    noTideCrossing?: {
+        mid: [number, number];
+        lengthM: number;
+        spots: [number, number][];
+        reachedPins: boolean;
+    };
+    /** Decision 11 fix-up (2026-10-01): stretches over water no tide clears
+     *  the 50 m geometry drew where a local fine way avoids it (a creek
+     *  narrower than a cell), replaced by that way; their metres. */
+    noTideSplicedM?: number[];
     /** Metres cut off an end whose pin is off the water (pinOffWater, round 3
      *  2026-09-30): the route stops at the edge of the drying bank or land
      *  instead of running on across it to the pin. */
@@ -333,7 +420,9 @@ export interface RouteDebug {
 /**
  * One contiguous charted-shallow (caution) run on the final polyline — the
  * substrate for the Phase 7 tide-window annotation ("clears 09:40–15:10").
- * Display/annotation only: tide changes feasibility AND timing, never geometry.
+ * Display/annotation only: tide changes feasibility AND timing, never geometry
+ * — with one exception, owner decision 11 (2026-10-01): water NO tide the app
+ * knows clears for this boat is impassable (RouteRequest.tideCeilings).
  */
 /** A stretch of the route between two exact points: segment + fraction. */
 export interface ChartedShallowSpan {
@@ -389,6 +478,16 @@ export interface ShallowRunInfo {
     /** Where the minimum depth was sampled — the exact spot to check on the chart. */
     minAtLat?: number;
     minAtLon?: number;
+    /**
+     * The deepest the chart admits at that spot: the owning bands' deepest
+     * DRVAL2 (decision 11 fix-up, 2026-10-01). Where it plus the highest tide
+     * reaches what the keel needs, the water is not proved unclearable even
+     * when its shallow end needs more than any tide — a 0–2 m band at a
+     * 2.5 m top — and the chip says "its 0 m end", not "no tide clears it".
+     * Absent where a band there bounds no depth, or the depth is an NtM
+     * survey's.
+     */
+    deepestM?: number;
     /**
      * True when the run's minimum depth came from an NtM surveyed-override
      * zone (grid ntmRiseM stamped) rather than the chart DEPARE — the chip
@@ -465,6 +564,14 @@ export const AMBER_SURVEY_REASONS: ReadonlySet<SurveyRunReason> = new Set([
     'survey-margin',
     'survey-ungraded',
 ]);
+
+/**
+ * Why a pin is not water a route can reach it through (RouteResult.pinOffWater):
+ * on charted land, on a drying bank, or — owner decision 11 (2026-10-01) — in
+ * water no tide the app knows clears for this boat. The route stops at the
+ * edge of the water it can use.
+ */
+export type PinOffWater = 'land' | 'drying' | 'no-tide';
 
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
@@ -578,7 +685,7 @@ export interface RouteResult {
      * much was cut. The planner's route notice says which. Absent when both
      * pins are water.
      */
-    pinOffWater?: { origin?: 'land' | 'drying'; destination?: 'land' | 'drying' };
+    pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
     /**
      * The route's survey-quality stretches (owner decision 9, 2026-09-30;
      * SurveyRunInfo): amber for CATZOC D/U, a grade whose error eats the keel
@@ -620,7 +727,11 @@ export interface RouteFailure {
         /** A fixed bridge with insufficient clearance for this vessel's air
          *  draft severs the only channel — the honest verdict is "no
          *  mast-safe route", never a cross-country workaround. */
-        | 'air-draft-blocked';
+        | 'air-draft-blocked'
+        /** Owner decision 11 (2026-10-01): the only way through crosses water
+         *  no tide the app knows clears for this boat. The error names the
+         *  spot, its charted depth, the highest tide and what the boat needs. */
+        | 'no-tide-clears';
     debug?: RouteDebug;
 }
 
@@ -765,6 +876,18 @@ export interface NavGrid {
      * implicitly). Absent when no cell qualifies.
      */
     chartedShallow?: Uint8Array;
+    /**
+     * Per-cell flag (owner decision 11, 2026-10-01): 1 = water no tide the
+     * app knows clears for this boat — the charted bands' deepest value
+     * (DRVAL2) plus the place's highest tide (RouteRequest.tideCeilings) is
+     * still short of draft + safety at its centre, and no band a tide clears
+     * touches it (fix-up, 2026-10-01: a creek narrower than a cell stays
+     * open) — or a crossed band's retry closed it (RouteRequest.tideBarriers).
+     * Blocked in `cells` (NaN) like land; the endpoint carve and the
+     * component-bridge carve never tunnel it. Absent when the grid was built
+     * without ceilings or nothing was proved.
+     */
+    noTideClears?: Uint8Array;
     /**
      * Per-cell wet-chart-land-conflict flag (1 = a coarse LNDARE painted over
      * a finer cell's wet DEPARE band and the wet claim won — the cell is

@@ -65,6 +65,7 @@ import {
 import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
 import { encCell, osmOverlay, seQldNavMarkers } from '../helpers/encCells';
+import { revisits } from '../helpers/routeRevisits';
 
 // This harness routes on the REAL ENC, but from committed fixtures rather than
 // the boat's chart server — so it RUNS IN CI as a real gate. It used to skip
@@ -609,6 +610,15 @@ describe('Newport → Pinkenba — hug reproduction against real ENC', { timeout
         );
         expect(route.polyline.length).toBeGreaterThanOrEqual(2);
         expect(hug.riverPts).toBeGreaterThan(0);
+        // NO OUT-AND-BACK, pinned (decision 11 fix-up, 2026-10-01; HEAD and
+        // the fix each measured in their own process): the origin's decision-7
+        // tail came from deep water out past the pin, and the route looped
+        // 12 km back to -27.20989, 153.093 — 26.73 NM on HEAD. It now leaves
+        // through the pin's own charted water: 20.33 NM. The junction keeps a
+        // ≈140 m V there: the path runs on through the relaxed −2 m band,
+        // which a tail may never enter (decision 7), so it cannot join sooner.
+        expect(route.distanceNM, 'no out-and-back loop from the origin').toBeLessThan(21);
+        expect(revisits(route.polyline), 'the route never comes back over its own track').toBe(false);
     });
 
     it('VARIANT B — chart NAVLNE baseline comparison', () => {
@@ -1083,5 +1093,14 @@ describe('Newport → Pinkenba — hug reproduction against real ENC', { timeout
         );
         expect(prov, 'a tier-2 marked-channel span engaged').toContain('tier2');
         expect(channelSegs, 'the yellow channel mask is populated').toBeGreaterThan(0);
+        // NO OUT-AND-BACK (2026-10-01): the pin sits in the charted 0–2 m band
+        // 113 m from gate 1/2. Its decision-7 tail used to come from the 5 m
+        // water 2.3 km out past it — the route ran out through the shallows
+        // and back: 4.51 NM (2.07 NM on the old code). It now reaches the pin
+        // through its own charted water — 2.15 NM, measured in its own process
+        // (2026-10-01) — within a sane bound of that direct way, and never back
+        // over its own track.
+        expect(res.distanceNM, 'no out-and-back to the deep water').toBeLessThan(2.5);
+        expect(revisits(res.polyline), 'the route never comes back over its own track').toBe(false);
     });
 });

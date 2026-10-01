@@ -18,7 +18,7 @@ import { DeepAnalysisReport } from '../types';
 import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/createLogger';
 import { withTimeout } from '../utils/deadline';
-import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
+import { inshoreRouteCaveats, isFinalInshoreRefusal } from '../components/map/inshoreRouteNotice';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
@@ -704,6 +704,15 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     // produce nothing or overwrite our channel-following route
                     // with a meaningless straight line through land.
                     let inshoreSucceeded = false;
+                    // The inshore router said NO route — a bridge the mast
+                    // cannot clear, or water no tide clears for this keel with
+                    // no way round (owner decision 11, Shane 2026-10-01: draw
+                    // no route and say why). As final as a success: no
+                    // bathymetric, isochrone or corridor line is drawn in its
+                    // place — those know nothing of either (fix-up,
+                    // 2026-10-01: the GEBCO fallback drew Newport → Rivergate
+                    // through the Boat Passage, the refusal never shown).
+                    let inshoreRefused = false;
                     try {
                         // Loud breadcrumb at the orchestrator level so a
                         // missing-coord skip is visible. Without this, the
@@ -803,6 +812,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                             caveats: inshoreRouteCaveats({
                                                 structuresUnknownCells: inshoreRes.structuresUnknownCells,
                                                 pinOffWater: inshoreRes.pinOffWater,
+                                                tideCheck: inshoreRes.tideCheck,
                                                 surveyRuns: inshoreRes.surveyRuns,
                                                 surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
                                             }),
@@ -819,6 +829,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 console.warn(
                                     `[useVoyageForm] inshore router failed: ${inshoreRes.error} (${inshoreRes.code ?? 'no code'})`,
                                 );
+                                inshoreRefused = isFinalInshoreRefusal(inshoreRes.code);
                                 enhancedPlan = {
                                     ...enhancedPlan,
                                     __inshoreRouting: {
@@ -840,7 +851,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     // Skipped when inshore router already produced a polyline:
                     // GEBCO is too coarse to refine a 50m-resolution channel route
                     // and would overwrite our routeGeoJSON.
-                    if (!inshoreSucceeded) {
+                    if (!inshoreSucceeded && !inshoreRefused) {
                         try {
                             const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
                             if (!operationIsCurrent()) return;
@@ -914,7 +925,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     //   - engine fails or times out
                     // In those cases the corridor router below picks up the slack.
                     let isochroneSucceeded = false;
-                    if (!inshoreSucceeded) {
+                    if (!inshoreSucceeded && !inshoreRefused) {
                         try {
                             const { enhanceVoyagePlanWithIsochrone } = await import('../services/isochroneEnhancer');
                             if (!operationIsCurrent()) return;
@@ -953,7 +964,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     // builds a 30 NM-wide A* graph that for a river passage is
                     // mostly land and would happily overwrite our channel route
                     // with a straight line.
-                    if (!isochroneSucceeded && !inshoreSucceeded) {
+                    if (!isochroneSucceeded && !inshoreSucceeded && !inshoreRefused) {
                         try {
                             const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                             if (!operationIsCurrent()) return;
