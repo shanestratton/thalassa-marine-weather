@@ -64,6 +64,14 @@ enum DmReceiveResult: Equatable {
     case duplicate
 }
 
+struct DmLifecycleSnapshot: Equatable {
+    let owner: DmOwnerContext
+    let active: Bool
+    let credentialEpoch: UUID
+}
+
+enum DmKnownInbound: Equatable { case unknown, current, historical }
+
 /// One owner/device, one pinned peer and conversation per bounded research store.
 /// The per-instance lock forbids interleaving. Every mutation also CASes the whole
 /// authenticated snapshot, so a second instance's trust/owner change or message
@@ -94,6 +102,8 @@ final class VodozemacDmCoordinator {
     private struct State: Codable {
         let version: Int
         var owner: DmOwnerContext
+        var ownerActive: Bool
+        var credentialEpoch: UUID
         let conversationId: String
         let identityKeyId: String
         let signingKey: String
@@ -124,12 +134,75 @@ final class VodozemacDmCoordinator {
             throw DmCoordinatorError.conflict
         }
         let account = try newAccount(pickleKey: store.providerPickleKey())
-        let state = State(version: 2, owner: owner, conversationId: conversationId,
+        let state = State(version: 3, owner: owner, ownerActive: true, credentialEpoch: UUID(), conversationId: conversationId,
             identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
             account: account.accountPickle, peer: nil, session: nil, outbox: [], inbox: [])
         try validate(state)
         try store.commit(expectedRevision: before.revision, payload: JSONEncoder().encode(state))
         return try VodozemacDmCoordinator(store: store)
+    }
+
+    // Research-native lifecycle authority, not proof of a real Auth sign-in.
+    // Persisted epoch survives process restarts; bearer tokens are never saved.
+    // Reading this exposes only identifiers/status, never keys or message text.
+    func lifecycleForResearch() throws -> DmLifecycleSnapshot {
+        try withState { _, state in Self.lifecycle(state) }
+    }
+
+    func validateRelayContextForResearch(owner: DmOwnerContext, credentialEpoch: UUID, peerGeneration: Int64?) throws {
+        try withState { _, state in
+            try Self.requireOwner(owner, state)
+            try Self.requireEpoch(credentialEpoch, state)
+            if let generation = peerGeneration { _ = try Self.requirePeer(owner, generation, state) }
+        }
+    }
+
+    @discardableResult
+    func signOutForResearch(owner: DmOwnerContext) throws -> DmLifecycleSnapshot {
+        try withState { revision, state in
+            try Self.requireOwner(owner, state)
+            // Exhausted counters must not leave an account active on logout.
+            // The final inactive scope cannot resume, but still rotates its
+            // epoch so previously captured credentials are invalidated.
+            if state.owner.generation < Self.generationMax { try Self.advanceOwner(&state) }
+            else { state.credentialEpoch = UUID() }
+            state.ownerActive = false
+            try persist(state, revision: revision)
+            return Self.lifecycle(state)
+        }
+    }
+
+    /// Only a future native Auth adapter may attest the authenticated identity.
+    /// Here these arguments are explicit fixtures, not a JS/plugin API. Resume
+    /// keeps immutable account/device keys; replacement needs a separate store.
+    /// Old pending records and history are NEVER rebound to the new generation.
+    @discardableResult
+    func resumeOwnerForResearch(signedOut: DmOwnerContext, authenticatedUserId: String,
+                                authenticatedDeviceId: String) throws -> DmLifecycleSnapshot {
+        try withState { revision, state in
+            try Self.validateOwner(signedOut)
+            guard !state.ownerActive, state.owner == signedOut,
+                  authenticatedUserId.utf8.elementsEqual(state.owner.userId.utf8),
+                  authenticatedDeviceId.utf8.elementsEqual(state.owner.deviceId.utf8) else {
+                throw DmCoordinatorError.unavailable
+            }
+            try Self.advanceOwner(&state)
+            state.ownerActive = true
+            try persist(state, revision: revision)
+            return Self.lifecycle(state)
+        }
+    }
+
+    /// Same-account token renewal fences in-flight HTTP through a new durable
+    /// epoch, without re-encrypting/rebinding pending ciphertext or history.
+    @discardableResult
+    func rotateCredentialEpochForResearch(owner: DmOwnerContext) throws -> DmLifecycleSnapshot {
+        try withState { revision, state in
+            try Self.requireOwner(owner, state)
+            state.credentialEpoch = UUID()
+            try persist(state, revision: revision)
+            return Self.lifecycle(state)
+        }
     }
 
     func publicIdentity(owner: DmOwnerContext) throws -> DmPublicIdentity {
@@ -148,9 +221,11 @@ final class VodozemacDmCoordinator {
 
     /// Public bundle signing is limited to the initial unpublished research
     /// account. A consumed one-time prekey must never be republished as fresh.
-    func signedBundleForResearch(prekeyId: String, expiresAt: Int64, now: Int64, owner: DmOwnerContext) throws -> String {
+    func signedBundleForResearch(prekeyId: String, expiresAt: Int64, now: Int64, owner: DmOwnerContext,
+                                 credentialEpoch: UUID? = nil) throws -> String {
         try withState { revision, state in
             try Self.requireOwner(owner, state)
+            try Self.requireEpoch(credentialEpoch, state)
             guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty else { throw DmCoordinatorError.unavailable }
             try DmRelayCodec.expiry(expiresAt, now: now, maximum: 7 * 24 * 60 * 60)
             let identity = DmPublicIdentity(userId: owner.userId, deviceId: owner.deviceId, identityKeyId: state.identityKeyId,
@@ -167,9 +242,10 @@ final class VodozemacDmCoordinator {
     }
 
     func signedClaimForResearch(requestId: String, expiresAt: Int64, now: Int64,
-                                owner: DmOwnerContext, peerGeneration: Int64) throws -> String {
+                                owner: DmOwnerContext, peerGeneration: Int64, credentialEpoch: UUID? = nil) throws -> String {
         try withState { revision, state in
             let peer = try Self.requirePeer(owner, peerGeneration, state)
+            try Self.requireEpoch(credentialEpoch, state)
             let payload = "[" + (try [peer.userId, peer.deviceId, requestId].map(DmRelayCodec.quote)).joined(separator: ",") + "]"
             return try signRelay(state: state, revision: revision, owner: owner, action: "claim", payload: payload,
                                  requestId: requestId, expiresAt: expiresAt, now: now)
@@ -179,9 +255,10 @@ final class VodozemacDmCoordinator {
     /// Caller cannot sign a newly fabricated outbox: only exact durable pending
     /// ciphertext belonging to the current native owner and pinned peer.
     func signedSendForResearch(_ record: DmOutboxRecord, requestId: String, expiresAt: Int64, now: Int64,
-                               owner: DmOwnerContext, peerGeneration: Int64) throws -> String {
+                               owner: DmOwnerContext, peerGeneration: Int64, credentialEpoch: UUID? = nil) throws -> String {
         try withState { revision, state in
             _ = try Self.requirePeer(owner, peerGeneration, state)
+            try Self.requireEpoch(credentialEpoch, state)
             let index = try Self.outboxIndex(record, state)
             guard state.outbox[index].status == .pending,
                   record.ownerSessionGeneration == owner.generation, record.recipientIdentityGeneration == peerGeneration else {
@@ -193,9 +270,10 @@ final class VodozemacDmCoordinator {
     }
 
     func signedListForResearch(requestId: String, afterId: Int64 = 0, batch: Int = 16, expiresAt: Int64, now: Int64,
-                               owner: DmOwnerContext) throws -> String {
+                               owner: DmOwnerContext, credentialEpoch: UUID? = nil) throws -> String {
         try withState { revision, state in
             try Self.requireOwner(owner, state)
+            try Self.requireEpoch(credentialEpoch, state)
             guard (0...Self.generationMax).contains(afterId), (1...16).contains(batch) else { throw DmCoordinatorError.invalidInput }
             return try signRelay(state: state, revision: revision, owner: owner, action: "list", payload: "[\(afterId),\(batch)]",
                                  requestId: requestId, expiresAt: expiresAt, now: now)
@@ -286,9 +364,11 @@ final class VodozemacDmCoordinator {
     /// Caller must already authenticate the server decision. This research API
     /// does not establish that authenticity, delivery to the peer, or reading.
     func confirmAcceptance(_ record: DmOutboxRecord, owner: DmOwnerContext, peerGeneration: Int64,
+                           credentialEpoch: UUID? = nil,
                            fault: VodozemacSealedStore.CommitFault = .none) throws {
         try withState { revision, state in
             _ = try Self.requirePeer(owner, peerGeneration, state)
+            try Self.requireEpoch(credentialEpoch, state)
             guard record.ownerSessionGeneration == owner.generation,
                   record.recipientIdentityGeneration == peerGeneration else { throw DmCoordinatorError.unavailable }
             let index = try Self.outboxIndex(record, state)
@@ -302,9 +382,11 @@ final class VodozemacDmCoordinator {
     /// Unlike acceptance, a trusted terminal refusal may cancel an old pending
     /// generation after blocking/reauth. Current owner/device guard still applies.
     func confirmRejection(_ record: DmOutboxRecord, reason: DmRejectionReason, owner: DmOwnerContext,
+                          credentialEpoch: UUID? = nil,
                           fault: VodozemacSealedStore.CommitFault = .none) throws {
         try withState { revision, state in
             try Self.requireOwner(owner, state)
+            try Self.requireEpoch(credentialEpoch, state)
             let index = try Self.outboxIndex(record, state)
             if state.outbox[index].status == .rejected, state.outbox[index].reason == reason { return }
             guard state.outbox[index].status == .pending else { throw DmCoordinatorError.conflict }
@@ -315,15 +397,17 @@ final class VodozemacDmCoordinator {
     }
 
     func receive(_ serializedEnvelope: String, owner: DmOwnerContext, peerGeneration: Int64,
+                 credentialEpoch: UUID? = nil,
                  fault: VodozemacSealedStore.CommitFault = .none) throws -> DmReceiveResult {
         try withState { revision, state in
             let peer = try Self.requirePeer(owner, peerGeneration, state)
+            try Self.requireEpoch(credentialEpoch, state)
             let envelope = try DmEnvelope.decode(serializedEnvelope)
             guard envelope.senderDeviceId == peer.deviceId, envelope.recipientDeviceId == owner.deviceId else {
                 throw DmCoordinatorError.conflict
             }
             if let old = state.inbox.first(where: { $0.clientMessageId == envelope.clientMessageId }) {
-                guard old.serializedEnvelope == serializedEnvelope,
+                guard old.serializedEnvelope.utf8.elementsEqual(serializedEnvelope.utf8),
                       old.ownerGeneration == owner.generation, old.peerGeneration == peerGeneration else {
                     throw DmCoordinatorError.conflict
                 }
@@ -360,6 +444,27 @@ final class VodozemacDmCoordinator {
         }
     }
 
+    /// Explicit read-only rescan reconciliation. Identities are immutable in
+    /// this store: current owner + accepted unchanged peer may recognise exact
+    /// ciphertext saved before a generation change. No plaintext, old-history
+    /// restoration, ratchet mutation, or outbox rebinding occurs. Unknown rows
+    /// still require receive() and a durable guarded commit. A future key/device
+    /// replacement must NOT reuse this identity scope.
+    func knownInboundForResearch(_ serializedEnvelope: String, owner: DmOwnerContext,
+                                 peerGeneration: Int64, credentialEpoch: UUID? = nil) throws -> DmKnownInbound {
+        try withState { _, state in
+            let peer = try Self.requirePeer(owner, peerGeneration, state)
+            try Self.requireEpoch(credentialEpoch, state)
+            let envelope = try DmEnvelope.decode(serializedEnvelope)
+            guard envelope.senderDeviceId == peer.deviceId, envelope.recipientDeviceId == owner.deviceId else {
+                throw DmCoordinatorError.conflict
+            }
+            guard let old = state.inbox.first(where: { $0.clientMessageId == envelope.clientMessageId }) else { return .unknown }
+            guard old.serializedEnvelope.utf8.elementsEqual(serializedEnvelope.utf8) else { throw DmCoordinatorError.conflict }
+            return old.ownerGeneration == owner.generation && old.peerGeneration == peerGeneration ? .current : .historical
+        }
+    }
+
     func history(owner: DmOwnerContext, peerGeneration: Int64, limit: Int = 16) throws -> [DmReceivedMessage] {
         try withState { _, state in
             _ = try Self.requirePeer(owner, peerGeneration, state)
@@ -391,8 +496,7 @@ final class VodozemacDmCoordinator {
     func advanceOwnerGenerationForResearch(owner: DmOwnerContext) throws -> DmOwnerContext {
         try withState { revision, state in
             try Self.requireOwner(owner, state)
-            guard owner.generation < Self.generationMax else { throw DmCoordinatorError.unavailable }
-            state.owner = DmOwnerContext(userId: owner.userId, deviceId: owner.deviceId, generation: owner.generation + 1)
+            try Self.advanceOwner(&state)
             try persist(state, revision: revision)
             return state.owner
         }
@@ -417,7 +521,24 @@ final class VodozemacDmCoordinator {
 
     private static func requireOwner(_ owner: DmOwnerContext, _ state: State) throws {
         try validateOwner(owner)
-        guard owner == state.owner else { throw DmCoordinatorError.unavailable }
+        guard state.ownerActive, owner == state.owner else { throw DmCoordinatorError.unavailable }
+    }
+
+    private static func lifecycle(_ state: State) -> DmLifecycleSnapshot {
+        DmLifecycleSnapshot(owner: state.owner, active: state.ownerActive, credentialEpoch: state.credentialEpoch)
+    }
+
+    // Optional only for legacy non-network provider probes. The relay adapter
+    // always supplies its captured epoch for signing and atomic local decisions.
+    private static func requireEpoch(_ expected: UUID?, _ state: State) throws {
+        if let expected = expected, expected != state.credentialEpoch { throw DmCoordinatorError.unavailable }
+    }
+
+    private static func advanceOwner(_ state: inout State) throws {
+        guard state.owner.generation < generationMax else { throw DmCoordinatorError.unavailable }
+        state.owner = DmOwnerContext(userId: state.owner.userId, deviceId: state.owner.deviceId,
+                                    generation: state.owner.generation + 1)
+        state.credentialEpoch = UUID()
     }
 
     private static func requirePeer(_ owner: DmOwnerContext, _ generation: Int64, _ state: State) throws -> DmPeerContext {
@@ -497,7 +618,9 @@ final class VodozemacDmCoordinator {
     }
 
     private static func validate(_ state: State) throws {
-        guard state.version == 2, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
+        // Older research snapshots are refused, never recreated/migrated into
+        // a newly active identity. A shipping migration remains separate work.
+        guard state.version == 3, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
               state.outbox.count <= capacity, state.inbox.count <= capacity else {
             throw DmCoordinatorError.unsupportedState
         }

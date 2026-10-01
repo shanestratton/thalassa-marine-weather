@@ -12,6 +12,7 @@ private enum ExchangeFixture {
     static let opening = "Native HTTPS research opening"
     static let reply = "Native HTTPS research reply"
     static let successor = "Native HTTPS research successor"
+    static let recovery = "Native HTTPS research recovery"
 }
 
 private struct ExchangeArguments {
@@ -23,7 +24,7 @@ private struct ExchangeArguments {
     static func read() throws -> ExchangeArguments {
         let args = CommandLine.arguments
         guard args.count == 7, args[1] == "--exchange",
-              ["tls-refuse", "prepare", "opening", "retry", "reply", "successor", "verify", "cleanup"].contains(args[2]),
+              ["tls-refuse", "prepare", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
               let run = UUID(uuidString: args[3]), let alice = UUID(uuidString: args[4]), let bob = UUID(uuidString: args[5]),
               alice != bob else { throw ExchangeFailure.configuration }
         return ExchangeArguments(phase: args[2], run: run, alice: alice, bob: bob, origin: args[6])
@@ -53,18 +54,23 @@ private struct ExchangeParticipant {
     init(coordinator: VodozemacDmCoordinator, owner: DmOwnerContext, origin: String,
          generation: Int64 = ExchangeFixture.peerGeneration) throws {
         self.coordinator = coordinator
+        let lifecycle = try coordinator.lifecycleForResearch()
+        try exchangeRequire(lifecycle.active && lifecycle.owner == owner, "active-durable-owner")
         let context = DmRelayNetworkContext(userId: owner.userId, deviceId: owner.deviceId, ownerGeneration: owner.generation,
-                                          credentialEpoch: UUID(), peerGeneration: generation)
+                                          credentialEpoch: lifecycle.credentialEpoch, peerGeneration: generation)
         credential = try DmRelayNetworkCredential(context: context,
             bearer: owner.userId == ExchangeFixture.alice.userId ? "fixture-alice" : "fixture-bob")
         client = VodozemacRelayClient(coordinator: coordinator,
-                                     transport: try VodozemacRelayTransport(serviceOrigin: origin, deadlineSeconds: 5))
-        // Real sealed owner/peer guards; the token/epoch remains a research
-        // lifecycle fixture, not an app sign-in/refresh/revocation integration.
+                                     transport: try VodozemacRelayTransport(serviceOrigin: origin))
+        // Token/account attestation remain research fixtures, but lifecycle
+        // generation, active flag and epoch are native-owned durable state.
         readContext = {
+            let current = try coordinator.lifecycleForResearch()
+            guard current.active, current.owner == owner else { return nil }
             _ = try coordinator.publicIdentity(owner: owner)
             _ = try coordinator.peerForResearch(owner: owner, generation: generation)
-            return context
+            return DmRelayNetworkContext(userId: owner.userId, deviceId: owner.deviceId, ownerGeneration: owner.generation,
+                credentialEpoch: current.credentialEpoch, peerGeneration: generation)
         }
     }
     func send(_ record: DmOutboxRecord, nonce: String) async throws -> DmRelayReceipt {
@@ -127,10 +133,15 @@ private func runExchange(_ args: ExchangeArguments) async throws {
             curve: ai.curve, prekey: ai.prekey, generation: generation, status: .accepted), owner: bo)
     } else { a = try .init(store: aStore); b = try .init(store: bStore) }
     let alice = try ExchangeParticipant(coordinator: a, owner: ao, origin: args.origin)
-    let bob = try ExchangeParticipant(coordinator: b, owner: bo, origin: args.origin)
+    let bobOwner = args.phase == "recovery" ? try b.lifecycleForResearch().owner : bo
+    let bobGeneration = args.phase == "recovery" ? generation + 2 : generation
+    let bob = try ExchangeParticipant(coordinator: b, owner: bobOwner, origin: args.origin, generation: bobGeneration)
     switch args.phase {
     case "prepare":
         try runDmRelayResultProbe()
+        _ = try runDmCoordinatorProbe(root: FileManager.default.temporaryDirectory)
+        let lifecycleChecks = try runLifecycleProbeForResearch()
+        print("PASS isolated native lifecycle assertions: \(lifecycleChecks)")
         let now = Int64(Date().timeIntervalSince1970)
         for (person, prekey) in [(alice, "alice-prekey"), (bob, "bob-prekey")] {
             try await person.client.registerForResearch(prekeyId: prekey, expiresAt: now + 3600, now: now,
@@ -218,20 +229,58 @@ private func runExchange(_ args: ExchangeArguments) async throws {
         let reaccepted = try b.setPeerStatusForResearch(.accepted, owner: bo)
         try exchangeRequire(blocked == generation + 1 && reaccepted == generation + 2, "peer-lifecycle-monotonic")
         let changedPeer = try ExchangeParticipant(coordinator: b, owner: bo, origin: args.origin, generation: reaccepted)
-        do {
-            _ = try await changedPeer.sync("old-peer-generation-rescan")
-            throw ExchangeFailure.assertion("old-peer-history-revived")
-        } catch is DmCoordinatorError { /* Future generation-safe reconciliation needed. */ }
+        let peerRescan = try await changedPeer.sync("old-peer-generation-rescan")
+        try exchangeRequire(peerRescan == DmRelayInboxReport(stored: 0, duplicates: 0, historical: 2), "old-peer-known-reconciliation")
         try exchangeRequire(try b.history(owner: bo, peerGeneration: reaccepted).isEmpty, "old-peer-history-hidden")
-        // Deliberately document the current lifecycle rescan limit. It refuses
-        // old-generation duplicate rows rather than reviving their plaintext.
-        let nextOwner = try b.advanceOwnerGenerationForResearch(owner: bo)
-        let current = try ExchangeParticipant(coordinator: b, owner: nextOwner, origin: args.origin, generation: reaccepted)
+        // Even a caller returning its captured context cannot defeat the sealed
+        // credential epoch. Renewal must fence HTTP before a request is sent.
+        let renewed = try b.rotateCredentialEpochForResearch(owner: bo)
+        try exchangeRequire(renewed.owner == bo && renewed.credentialEpoch != changedPeer.credential.context.credentialEpoch,
+                            "native-renewal-epoch")
         do {
-            _ = try await current.sync("old-generation-rescan")
-            throw ExchangeFailure.assertion("old-history-revived")
-        } catch is DmCoordinatorError { /* Future generation-safe cursor needed. */ }
-        try exchangeRequire(try b.history(owner: nextOwner, peerGeneration: reaccepted).isEmpty, "old-generation-history-hidden")
+            let now = Int64(Date().timeIntervalSince1970)
+            _ = try await changedPeer.client.syncInboxForResearch(requestId: "stale-epoch-must-not-dispatch", expiresAt: now + 240, now: now,
+                credential: changedPeer.credential, currentContext: { changedPeer.credential.context })
+            throw ExchangeFailure.assertion("stale-native-epoch-dispatched")
+        } catch DmCoordinatorError.unavailable { /* Native guard, not callback, refuses. */ }
+        let callbackRace = try ExchangeParticipant(coordinator: b, owner: bo, origin: args.origin, generation: reaccepted)
+        var rotatedInsideReader = false
+        do {
+            let now = Int64(Date().timeIntervalSince1970)
+            _ = try await callbackRace.client.syncInboxForResearch(requestId: "callback-epoch-must-not-dispatch", expiresAt: now + 240, now: now,
+                credential: callbackRace.credential, currentContext: {
+                    if !rotatedInsideReader {
+                        _ = try b.rotateCredentialEpochForResearch(owner: bo)
+                        rotatedInsideReader = true
+                    }
+                    return callbackRace.credential.context
+                })
+            throw ExchangeFailure.assertion("reentrant-native-epoch-dispatched")
+        } catch DmCoordinatorError.unavailable { /* Fresh authority read follows external callback. */ }
+        try exchangeRequire(rotatedInsideReader, "native-epoch-race-fixture-ran")
+        let signedOut = try b.signOutForResearch(owner: bo)
+        try exchangeRequire(!signedOut.active && signedOut.owner.generation == bo.generation + 1, "durable-signed-out")
+        do {
+            _ = try b.publicIdentity(owner: signedOut.owner)
+            throw ExchangeFailure.assertion("signed-out-state-accessible")
+        } catch is DmCoordinatorError { /* No identity/signing/history while signed out. */ }
+        let resumed = try b.resumeOwnerForResearch(signedOut: signedOut.owner, authenticatedUserId: bo.userId, authenticatedDeviceId: bo.deviceId)
+        try exchangeRequire(resumed.active && resumed.owner.generation == bo.generation + 2, "native-resume-generation")
+        let current = try ExchangeParticipant(coordinator: b, owner: resumed.owner, origin: args.origin, generation: reaccepted)
+        let ownerRescan = try await current.sync("old-generation-rescan")
+        try exchangeRequire(ownerRescan == DmRelayInboxReport(stored: 0, duplicates: 0, historical: 2), "old-owner-known-reconciliation")
+        try exchangeRequire(try b.history(owner: resumed.owner, peerGeneration: reaccepted).isEmpty, "old-generation-history-hidden")
+    case "recovery":
+        try exchangeRequire(bobOwner.generation == bo.generation + 2, "resumed-owner-process-restart")
+        let record = try a.prepare(clientMessageId: "exchange-recovery", text: ExchangeFixture.recovery, owner: ao, peerGeneration: generation)
+        let receipt = try await alice.send(record, nonce: "send-recovery")
+        try exchangeRequire(receipt == .accepted(record), "recovery-new-ciphertext-committed")
+        let report = try await bob.sync("recovery-after-restart")
+        try exchangeRequire(report == DmRelayInboxReport(stored: 1, duplicates: 0, historical: 2), "recovered-inbox-new-message")
+        try exchangeRequire(try b.history(owner: bobOwner, peerGeneration: bobGeneration).map(\.text) == [ExchangeFixture.recovery],
+                            "recovered-current-history-only")
+        let duplicate = try await bob.sync("recovery-rescan")
+        try exchangeRequire(duplicate == DmRelayInboxReport(stored: 0, duplicates: 1, historical: 2), "recovered-known-exact-rescan")
     default: throw ExchangeFailure.configuration
     }
 }
