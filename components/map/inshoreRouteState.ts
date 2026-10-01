@@ -128,6 +128,43 @@ export function inshoreSegmentStates(r: InshoreRouteMasks): InshoreSegmentState[
 }
 
 /**
+ * The segments drawn RED with no charted depth behind the red (pure; review
+ * fix-up, 2026-10-01): a 'danger' segment that is neither charted-shallow
+ * water (a depth a tide could lift), decision-1 water (a finer survey's band
+ * under coarser land paint) nor a canal (known water, red because it is
+ * narrow) — so land the localized relax retry opened, water no chart vouches
+ * for, or a charted hazard's buffer. Nothing on the chart says the boat
+ * floats there: Auto never saves such a proposal, Plan My Day never plans
+ * it, and Auto refuses one inside a relax zone (services/autoroutingThalassa).
+ * Null when the masks do not verify.
+ */
+export function dangerWithoutChartedDepth(r: {
+    stateMask: readonly InshoreSegmentState[] | null | undefined;
+    canalMask?: readonly boolean[];
+    chartedShallowMask?: readonly boolean[];
+    landPaintConflictMask?: readonly boolean[];
+    shallowRuns?: readonly ShallowRunInfo[];
+}): number[] | null {
+    const states = r.stateMask;
+    if (!Array.isArray(states)) return null;
+    const segCount = states.length;
+    const fits = (m?: readonly boolean[]): m is readonly boolean[] => Array.isArray(m) && m.length === segCount;
+    const charted = (i: number): boolean =>
+        fits(r.chartedShallowMask)
+            ? r.chartedShallowMask[i]
+            : (r.shallowRuns ?? []).some((run) => run.minDepthM !== null && run.startSeg <= i && i <= run.endSeg);
+    const out: number[] = [];
+    for (let i = 0; i < segCount; i++) {
+        if (states[i] !== 'danger') continue;
+        if (fits(r.canalMask) && r.canalMask[i]) continue;
+        if (fits(r.landPaintConflictMask) && r.landPaintConflictMask[i]) continue;
+        if (charted(i)) continue;
+        out.push(i);
+    }
+    return out;
+}
+
+/**
  * Per segment, the charted depth a tide must lift for the planner to draw
  * that segment amber instead of red (owner decision 10, 2026-09-30) — the
  * engine's RouteResult.tideDepthM on a segment red for its depth alone, else
@@ -400,6 +437,98 @@ export interface RouteLineLayerSpec {
     filter: unknown[];
     layout: { 'line-join': 'round' | 'bevel' | 'miter'; 'line-cap': 'butt' | 'round' | 'square' };
     paint: { 'line-color': string; 'line-width': number; 'line-opacity': number };
+}
+
+/** The solid route layers (glow, line, core), as plain data. */
+export interface RouteSolidLayerSpec {
+    id: string;
+    type: 'line';
+    source: string;
+    layout: { 'line-join': 'round'; 'line-cap': 'round' };
+    paint: Record<string, unknown>;
+    filter: unknown[];
+}
+
+/** Each drawn state's colour on the line and the glow, then on the thin core.
+ *  Moved verbatim from useMapInit (2026-10-01) so Auto's map paints a
+ *  Thalassa route in exactly the planner's colours. */
+const ROUTE_LINE_COLOURS: readonly [string, string][] = [
+    ['safe', '#00e676'],
+    ['caution', '#ff9100'],
+    ['tide', NEEDS_TIDE_AMBER],
+    ['danger', '#ff1744'],
+    ['unverified', '#f59e0b'],
+    ['channel', '#facc15'],
+    ['harbour', '#38bdf8'],
+    ['offshore', '#1e40af'],
+];
+const ROUTE_LINE_DEFAULT = '#2dd4bf';
+const ROUTE_CORE_COLOURS: readonly [string, string][] = [
+    ['safe', '#b9f6ca'],
+    ['caution', '#ffe0b2'],
+    ['tide', '#ffe0b2'],
+    ['danger', '#ffcdd2'],
+    ['unverified', '#cbd5e1'],
+    ['channel', '#fcd34d'],
+    ['harbour', '#bae6fd'],
+    ['offshore', '#93c5fd'],
+];
+const ROUTE_CORE_DEFAULT = '#99f6e4';
+
+/**
+ * The route line's three solid layers (pure; shared 2026-10-01): a wide
+ * blurred glow, the line and a thin bright core, coloured by each piece's
+ * `safety` (inshoreRouteFeatures). Owner decision 10 (2026-09-30): 'tide' —
+ * shallow water some tide clears — is the ONE needs-tide amber, solid;
+ * decision 9's 'survey' stretches are that amber in dots on a dark casing
+ * (surveyDashLayers), so these layers leave them out, and dashed pieces too.
+ * `idPrefix` 'route' gives the planner's own ids (route-glow, route-line-layer,
+ * route-core); another map passes its own.
+ */
+export function inshoreRouteLineLayers(source: string, idPrefix = 'route'): RouteSolidLayerSpec[] {
+    const filter = ['all', ['!=', ['get', 'dashed'], true], ['!=', ['get', 'safety'], 'survey']];
+    const colour = (table: readonly [string, string][], fallback: string) => [
+        'match',
+        ['get', 'safety'],
+        ...table.flat(),
+        fallback,
+    ];
+    const layout = { 'line-join': 'round', 'line-cap': 'round' } as const;
+    return [
+        {
+            id: `${idPrefix}-glow`,
+            type: 'line',
+            source,
+            layout: { ...layout },
+            paint: {
+                'line-color': colour(ROUTE_LINE_COLOURS, ROUTE_LINE_DEFAULT),
+                'line-width': 12,
+                'line-blur': 10,
+                'line-opacity': ['match', ['get', 'safety'], 'harbour', 0.3, 0.6],
+            },
+            filter: structuredClone(filter),
+        },
+        {
+            id: `${idPrefix}-line-layer`,
+            type: 'line',
+            source,
+            layout: { ...layout },
+            paint: {
+                'line-color': colour(ROUTE_LINE_COLOURS, ROUTE_LINE_DEFAULT),
+                'line-width': 3,
+                'line-opacity': 0.9,
+            },
+            filter: structuredClone(filter),
+        },
+        {
+            id: `${idPrefix}-core`,
+            type: 'line',
+            source,
+            layout: { ...layout },
+            paint: { 'line-color': colour(ROUTE_CORE_COLOURS, ROUTE_CORE_DEFAULT), 'line-width': 1.5 },
+            filter: structuredClone(filter),
+        },
+    ];
 }
 
 /**

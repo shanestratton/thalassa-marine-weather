@@ -55,17 +55,24 @@ describe('ENC sync-key agreement', () => {
 
     it('leaves the ENC sheet no second definition of its own', () => {
         // A local re-derivation is how these drifted apart the first time.
+        // Since 2026-10-01 the sheet and the sync share the whole PLAN (what is
+        // held, what a sync can add, what the phone refused), not just the key.
         const ui = codeOf('components/vessel/EncCellManager.tsx');
-        expect(ui).toContain('encCellSyncKey(');
+        expect(ui).toContain('planPiCellSync(');
         expect(ui, 'UI re-derives the sync identity instead of sharing it').not.toMatch(
             /`\$\{c(ell)?Id\}@\$\{edition\}`|`\$\{c\.id\}@\$\{c\.edition \?\? 0\}`/,
         );
+        expect(ui, 'UI keys held charts itself instead of sharing the plan').not.toContain('encCellSyncKey(');
     });
 
-    it('keeps the service using the shared key too', () => {
+    it('keeps the service using the shared plan too', () => {
         const service = codeOf('services/EncImportService.ts');
         const sync = service.slice(service.indexOf('export async function syncEncFromPi'));
-        expect(sync).toContain('encCellSyncKey(c.id, c.edition, c.sizeBytes, c.contentSha256)');
+        expect(sync).toContain('planPiCellSync(installed, localCells)');
+        // The plan keys both sides with the one key.
+        const plan = codeOf('services/enc/piSyncPlan.ts');
+        expect(plan).toContain('encCellSyncKey(cell.cellId, cell.edition ?? 0, cell.sizeBytes, cell.contentSha256)');
+        expect(plan).toContain('encCellSyncKey(cell.id, edition, size, cell.contentSha256)');
     });
     it('detects same-size same-edition content changes', () => {
         expect(encCellSyncKey('FR466870', 6, 100, 'a'.repeat(64))).not.toBe(

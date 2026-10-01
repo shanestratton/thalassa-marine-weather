@@ -19,12 +19,24 @@ vi.mock('../services/enc/EncCellMetadata', async (importOriginal) => ({
 }));
 vi.mock('../services/savedRoutesSync', () => ({ pushSavedRoute: (...args: unknown[]) => mock.push(...args) }));
 
-function fixture(count = 3) {
-    const route: AutoroutingTrialRoute = {
-        id: 'proposal-1',
-        provider: 'SevenCs',
-        createdAt: '2026-09-13T01:00:00.000Z',
-        coordinates: Array.from({ length: count }, (_, i) => [153 + i * 0.000000001, -27]),
+/** Legacy SevenCs-trial evidence as rows saved before 2026-10-01 carry it:
+ * still readable, never written by this build. */
+function legacyEvidence(points: { lat: number; lon: number }[]) {
+    return {
+        version: 1,
+        origin: 'sevencs-trial',
+        proposalId: 'legacy-1',
+        providerCreatedAt: '2026-09-13T01:00:00.000Z',
+        savedAt: '2026-09-13T01:02:00.000Z',
+        plannedOnlyAcknowledged: true,
+        basis: {
+            proposalId: 'legacy-1',
+            geometryKey: autoroutingProposalGeometryKey(points.map((p) => [p.lon, p.lat])),
+            draftM: 1.5,
+            draftAssumed: true,
+            registryFingerprint: 'cell@1',
+            checkedAt: '2026-09-13T01:01:00.000Z',
+        },
         warnings: ['Confirm all clearance independently.'],
         providerCheck: {
             status: 'caution',
@@ -38,14 +50,33 @@ function fixture(count = 3) {
                     geometry: { type: 'Point', coordinates: [153.2, -27.1] },
                     provenance: {
                         source: 'SevenCs GeoJSON',
-                        properties: { uuid: 'area-1', dataset: 'licensed chart', severity: 'Warning' },
+                        properties: { uuid: 'area-1', severity: 'Warning' },
                         omittedPropertyCount: 0,
                     },
                 },
             ],
         },
-        source: { rtz: 'raw licensed RTZ — never persist', geoJson: 'raw licensed GeoJSON — never persist' },
-        canalDeparture: { handoverIndex: 1 },
+        canalHandoverIndex: 1,
+        legs: points
+            .slice(1)
+            .map(() => ({ grade: 'caution', incomplete: true, minDepthM: null, minAt: null, issues: [] })),
+    };
+}
+
+function fixture(count = 3) {
+    const route: AutoroutingTrialRoute = {
+        id: 'proposal-1',
+        provider: 'Thalassa',
+        createdAt: '2026-09-13T01:00:00.000Z',
+        coordinates: Array.from({ length: count }, (_, i) => [153 + i * 0.000000001, -27]),
+        warnings: ['Confirm all clearance independently.'],
+        engine: {
+            stateMask: Array.from({ length: count - 1 }, () => 'green' as const),
+            cellsUsed: ['OC-99-SYN001'],
+            distanceNM: 0.1,
+            elapsedMs: 10,
+            backstop: 'verified',
+        },
     };
     const review: TrialRouteReview = {
         phase: 'complete',
@@ -100,7 +131,7 @@ describe('explicit planned proposal save', () => {
     it('refuses a locally edited route even after fresh complete local checks match its exact geometry', () => {
         const input = fixture(5);
         input.route.coordinates[2] = [153.01, -27.01];
-        const waypoint = buildTrialWaypointPlan(input.route.coordinates, [1]).waypoints.find(
+        const waypoint = buildTrialWaypointPlan(input.route.coordinates, []).waypoints.find(
             (pin) => pin.pathIndex === 2,
         )!;
         input.route = moveAutoroutingDisplayWaypoint(input.route, waypoint, [153.011, -27.011]).route;
@@ -112,8 +143,10 @@ describe('explicit planned proposal save', () => {
             input.currentDraftAssumed,
         );
         expect(result.eligible).toBe(false);
-        expect(result.reason).toMatch(/locally edited.*SevenCs/);
-        expect(() => saveReviewedAutoroutingProposal(input, getAuthIdentityScope())).toThrow(/locally edited/);
+        expect(result.reason).toBe(
+            "This edited route has not been rechecked by Thalassa's router and cannot be saved. Recalculate.",
+        );
+        expect(() => saveReviewedAutoroutingProposal(input, getAuthIdentityScope())).toThrow(/edited route/);
         expect(loadSavedTraces()).toEqual([]);
         expect(mock.push).not.toHaveBeenCalled();
     });
@@ -125,11 +158,69 @@ describe('explicit planned proposal save', () => {
             evaluateAutoroutingProposalSave(input.route, input.review, input.currentDraftM, input.currentDraftAssumed)
                 .eligible,
         ).toBe(false);
-        expect(() => saveReviewedAutoroutingProposal(input, getAuthIdentityScope())).toThrow(/locally edited/);
+        expect(() => saveReviewedAutoroutingProposal(input, getAuthIdentityScope())).toThrow(/edited route/);
         expect(loadSavedTraces()).toEqual([]);
     });
 
-    it('retains every sub-metre point, warning/location and provider finding in the canonical library, without navigation proof or a voyage/trip', async () => {
+    it('accepts only a Thalassa route with its router disclosure for this exact line', () => {
+        const input = fixture();
+        const ok = evaluateAutoroutingProposalSave(input.route, input.review, 1.5, true);
+        expect(ok.eligible).toBe(true);
+        const unknown = { ...input.route, provider: 'SevenCs' } as unknown as AutoroutingTrialRoute;
+        expect(evaluateAutoroutingProposalSave(unknown, input.review, 1.5, true)).toEqual({
+            eligible: false,
+            reason: 'The proposal origin is not recognised.',
+        });
+        const { engine: _engine, ...withoutEngine } = input.route;
+        const unverified = { ...input.route, engine: { ...input.route.engine!, stateMask: null } };
+        const misaligned = { ...input.route, engine: { ...input.route.engine!, stateMask: ['green' as const] } };
+        for (const route of [withoutEngine, unverified, misaligned])
+            expect(evaluateAutoroutingProposalSave(route, input.review, 1.5, true)).toEqual({
+                eligible: false,
+                reason: 'Route shown, verification incomplete. Recalculate before saving.',
+            });
+    });
+
+    // Review fix-ups, 2026-10-01: a route over charted land, red with no
+    // charted depth behind it, or not yet checked against the satellite land
+    // relief, is never a saved plan — whatever the independent review graded.
+    it('denies a route that crosses charted land, or red with no charted depth, or before the satellite land check', () => {
+        const input = fixture(4);
+        expect(evaluateAutoroutingProposalSave(input.route, input.review, 1.5, true).eligible).toBe(true);
+        const over = { ...input.route, engine: { ...input.route.engine!, hardLandAwayM: 400 } };
+        expect(evaluateAutoroutingProposalSave(over, input.review, 1.5, true)).toEqual({
+            eligible: false,
+            reason: 'This route crosses charted land. It cannot be saved. Nothing was saved.',
+        });
+        const red = {
+            ...input.route,
+            engine: {
+                ...input.route.engine!,
+                stateMask: ['green', 'danger', 'green'] as ('green' | 'danger')[],
+                cautionMask: [false, true, false],
+                canalMask: [false, false, false],
+                chartedShallowMask: [false, false, false],
+                landPaintConflictMask: [false, false, false],
+            },
+        };
+        expect(evaluateAutoroutingProposalSave(red, input.review, 1.5, true)).toEqual({
+            eligible: false,
+            reason: 'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
+        });
+        // Red for a charted depth (a tide could lift it), decision-1 water or
+        // a canal is not this denial: the review's own rules decide those.
+        for (const mask of ['chartedShallowMask', 'landPaintConflictMask', 'canalMask'] as const) {
+            const charted = { ...red, engine: { ...red.engine, [mask]: [false, true, false] } };
+            expect(evaluateAutoroutingProposalSave(charted, input.review, 1.5, true).eligible).toBe(true);
+        }
+        const offline = { ...input.route, engine: { ...input.route.engine!, backstop: 'unavailable' as const } };
+        expect(evaluateAutoroutingProposalSave(offline, input.review, 1.5, true)).toEqual({
+            eligible: false,
+            reason: 'The satellite land check has not run for this route (offline). Recalculate online before saving.',
+        });
+    });
+
+    it('retains every sub-metre point and warning/location in the canonical library as Thalassa evidence, without the router disclosure, navigation proof or a voyage/trip', async () => {
         const input = fixture(10_000);
         for (const leg of input.review.legs.slice(1)) {
             leg!.incomplete = false;
@@ -140,15 +231,16 @@ describe('explicit planned proposal save', () => {
         const [saved] = loadSavedTraces();
         expect(saved.points.map(({ lat, lon }) => [lon, lat])).toEqual(input.route.coordinates);
         expect(saved.proposalEvidence?.warnings).toEqual(input.route.warnings);
-        expect(saved.proposalEvidence?.providerCheck).toEqual(input.route.providerCheck);
+        expect(saved.proposalEvidence?.origin).toBe('thalassa-inshore');
         expect(saved.proposalEvidence?.legs[0].issues).toEqual(input.review.legs[0]!.verdict.issues);
         expect(saved.proposalEvidence?.legs[0].minAt).toEqual(input.review.legs[0]!.verdict.minAt);
-        expect(saved.proposalEvidence?.canalHandoverIndex).toBe(1);
+        expect(saved.proposalEvidence).not.toHaveProperty('providerCheck');
+        expect(saved.proposalEvidence).not.toHaveProperty('canalHandoverIndex');
+        expect(JSON.stringify(saved)).not.toContain('stateMask');
         expect(saved.verification).toBeUndefined();
         expect(saved.tripId).toBeUndefined();
         expect(saved.passageVoyageId).toBeUndefined();
         expect(saved.plannedRouteId).toBeUndefined();
-        expect(JSON.stringify(saved)).not.toContain('raw licensed');
         expect(groupTracesByTrip([saved])[0].legs).toEqual([saved]);
     });
 
@@ -245,15 +337,15 @@ describe('explicit planned proposal save', () => {
             },
         ],
         [
-            'provider unsafe',
+            'no router disclosure',
             (f: ReturnType<typeof fixture>) => {
-                f.route.providerCheck!.status = 'unsafe';
+                delete f.route.engine;
             },
         ],
         [
-            'provider hidden danger',
+            'unverified line',
             (f: ReturnType<typeof fixture>) => {
-                f.route.providerCheck!.findings[0].severity = 'danger';
+                f.route.engine!.stateMask = null;
             },
         ],
         [
@@ -310,11 +402,11 @@ describe('explicit planned proposal save', () => {
         input.route.warnings[0] = 'changed';
         input.review.legs[0]!.verdict.issues[0].message = 'changed';
         result.trace.points[0].lon = 1;
-        result.trace.proposalEvidence!.providerCheck!.findings[0].geometry = { type: 'Point', coordinates: [0, 0] };
+        result.trace.proposalEvidence!.warnings[0] = 'changed';
         await result.cloud;
         expect(loadSavedTraces()[0].points[0].lon).toBe(original.route.coordinates[0][0]);
         expect(mock.push.mock.calls[0][0].points[0].lon).toBe(original.route.coordinates[0][0]);
-        expect(mock.push.mock.calls[0][0].proposalEvidence.providerCheck).toEqual(original.route.providerCheck);
+        expect(mock.push.mock.calls[0][0].proposalEvidence.warnings).toEqual(original.route.warnings);
     });
 
     it('normalizes independent snapshots and rejects mismatched, unsafe, raw, malformed or over-budget evidence', () => {
@@ -329,11 +421,18 @@ describe('explicit planned proposal save', () => {
         expect(
             normaliseAutoroutingProposalEvidence({ ...evidence, raw: 'do not persist' }, result.trace.points),
         ).toBeNull();
+        // A Thalassa row never carries the old provider's report or canal handover.
         expect(
             normaliseAutoroutingProposalEvidence(
-                { ...evidence, providerCheck: { status: 'unsafe', findings: [] } },
+                { ...evidence, providerCheck: { status: 'not-reported', findings: [] } },
                 result.trace.points,
             ),
+        ).toBeNull();
+        expect(
+            normaliseAutoroutingProposalEvidence({ ...evidence, canalHandoverIndex: 1 }, result.trace.points),
+        ).toBeNull();
+        expect(
+            normaliseAutoroutingProposalEvidence({ ...evidence, origin: 'somewhere-else' }, result.trace.points),
         ).toBeNull();
         expect(
             normaliseAutoroutingProposalEvidence(evidence, [
@@ -341,8 +440,25 @@ describe('explicit planned proposal save', () => {
                 { lat: 1, lon: 1 },
             ]),
         ).toBeNull();
-        const malformed = structuredClone(evidence);
-        malformed.providerCheck!.findings[0].geometry = { type: 'LineString', coordinates: [[0, 0]] };
-        expect(normaliseAutoroutingProposalEvidence(malformed, result.trace.points)).toBeNull();
+    });
+
+    it('still reads legacy SevenCs-trial rows, provider report and canal handover included (read path only)', () => {
+        const points = [
+            { lat: -27, lon: 153 },
+            { lat: -27.01, lon: 153.01 },
+            { lat: -27.02, lon: 153.02 },
+        ];
+        const legacy = legacyEvidence(points);
+        const copy = normaliseAutoroutingProposalEvidence(legacy, points);
+        expect(copy).toEqual(legacy);
+        expect(
+            normaliseAutoroutingProposalEvidence(
+                { ...legacy, providerCheck: { status: 'unsafe', findings: [] } },
+                points,
+            ),
+        ).toBeNull();
+        const malformed = structuredClone(legacy);
+        malformed.providerCheck.findings[0].geometry = { type: 'LineString', coordinates: [[0, 0]] } as never;
+        expect(normaliseAutoroutingProposalEvidence(malformed, points)).toBeNull();
     });
 });

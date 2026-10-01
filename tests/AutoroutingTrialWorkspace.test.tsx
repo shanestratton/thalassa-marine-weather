@@ -15,11 +15,7 @@ type Handler = (event?: unknown) => void;
 const mocks = vi.hoisted(() => ({
     status: vi.fn(),
     calculate: vi.fn(),
-    guidedFactory: vi.fn(),
-    guidedCalculate: vi.fn(),
-    canalCalculate: vi.fn(),
-    resolveExit: vi.fn(),
-    verifyExit: vi.fn(),
+    annotate: vi.fn(),
     review: vi.fn(),
     encLayer: vi.fn(),
     encBase: vi.fn(),
@@ -51,24 +47,18 @@ const mocks = vi.hoisted(() => ({
         addControl: ReturnType<typeof vi.fn>;
         queryRenderedFeatures: ReturnType<typeof vi.fn>;
         flyTo: ReturnType<typeof vi.fn>;
+        setLayoutProperty: ReturnType<typeof vi.fn>;
         getCanvas: ReturnType<typeof vi.fn<() => { style: { cursor: string } }>>;
         project: ReturnType<typeof vi.fn<(coordinates: [number, number]) => { x: number; y: number }>>;
     }>,
 }));
-vi.mock('../services/autoroutingTrial', () => ({
-    getAutoroutingTrialStatus: mocks.status,
-    calculateAutoroutingTrial: mocks.calculate,
+// Thalassa's router on the phone (2026-10-01); the real one runs in
+// tests/autoroutingThalassa.engine.test.ts.
+vi.mock('../services/autoroutingThalassa', () => ({
+    getThalassaAutorouteStatus: mocks.status,
+    calculateThalassaProposal: mocks.calculate,
 }));
-vi.mock('../services/autoroutingCanalDeparture', () => ({ calculateWithCanalDeparture: mocks.canalCalculate }));
-vi.mock('../services/chartGuidedAutorouting', () => ({
-    createChartGuidedTrialCalculator: mocks.guidedFactory,
-    CHART_GUIDANCE_TOTAL_TIMEOUT_MS: 75_000,
-}));
-vi.mock('../services/automaticCanalExit', () => ({
-    resolveAutomaticCanalExit: mocks.resolveExit,
-    VERIFIED_CANAL_EXIT_PROFILES: [],
-}));
-vi.mock('../services/verifyCanalExitChart', () => ({ verifyCanalExitChart: mocks.verifyExit }));
+vi.mock('../components/map/tideWindowChips', () => ({ annotateTideWindows: mocks.annotate }));
 vi.mock('../services/autoroutingReview', async (original) => ({
     ...(await original<typeof import('../services/autoroutingReview')>()),
     reviewAutoroutingProposal: mocks.review,
@@ -109,6 +99,7 @@ vi.mock('mapbox-gl', () => ({
                     getLayer: vi.fn(() => true),
                     queryRenderedFeatures: vi.fn(() => []),
                     flyTo: vi.fn(),
+                    setLayoutProperty: vi.fn(),
                     getZoom: vi.fn(() => 10),
                     getCanvas: vi.fn(() => canvas),
                     project: vi.fn(([lon, lat]: [number, number]) => ({ x: lon * 100, y: -lat * 100 })),
@@ -137,7 +128,7 @@ vi.mock('mapbox-gl', () => ({
 
 const route: AutoroutingTrialRoute = {
     id: 'proposal-1',
-    provider: 'SevenCs',
+    provider: 'Thalassa',
     createdAt: '2026-09-12T00:00:00Z',
     coordinates: [
         [153.15, -27.2],
@@ -145,6 +136,17 @@ const route: AutoroutingTrialRoute = {
         [153.4, -27],
     ],
     warnings: ['Check all charted hazards independently.'],
+    engine: {
+        stateMask: ['channel', 'green'],
+        cautionMask: [false, false],
+        canalMask: [false, false],
+        channelMask: [true, false],
+        offshoreMask: [false, false],
+        cellsUsed: ['OC-99-SYN001'],
+        distanceNM: 15.6,
+        elapsedMs: 900,
+        backstop: 'verified',
+    },
 };
 const deferred = <T,>() => {
     let resolve!: (value: T) => void;
@@ -166,7 +168,7 @@ async function openWorkspace(onClose = vi.fn()) {
     act(() => mocks.maps.at(-1)!.handlers.get('load')!());
     return { ...view, onClose };
 }
-function fillRequest(mode: 'canal' | 'open-water' | null = 'open-water') {
+function fillRequest() {
     fireEvent.click(screen.getByText('Enter coordinates'));
     for (const [label, value] of [
         ['departure latitude', '-27.2'],
@@ -176,7 +178,6 @@ function fillRequest(mode: 'canal' | 'open-water' | null = 'open-water') {
     ]) {
         fireEvent.change(screen.getByLabelText(label), { target: { value } });
     }
-    if (mode) fireEvent.click(screen.getByRole('button', { name: mode === 'canal' ? 'Canal / marina' : 'Open water' }));
 }
 const calculateButton = () => screen.getByRole('button', { name: 'Calculate trial route' });
 // The workspace keeps two ResizeObservers: one on the chart container (refit
@@ -278,15 +279,9 @@ beforeEach(() => {
     };
     mocks.location = { lat: -27.47, lon: 153.02, source: 'initial' };
     setAuthIdentityScope('trial-fixture-account');
-    mocks.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true });
+    mocks.status.mockReturnValue({ enabled: true, ready: true });
     mocks.calculate.mockResolvedValue(route);
-    mocks.guidedFactory.mockReturnValue(mocks.guidedCalculate);
-    mocks.guidedCalculate.mockResolvedValue(route);
-    mocks.verifyExit.mockResolvedValue(true);
-    mocks.resolveExit.mockReturnValue({
-        status: 'manual-required',
-        reason: 'No reviewed channel exit covers this departure. Choose an exit manually.',
-    });
+    mocks.annotate.mockResolvedValue(undefined);
     mocks.review.mockImplementation(async (proposal: AutoroutingTrialRoute) => ({
         phase: 'complete',
         legs: proposal.coordinates.slice(1).map(() => ({
@@ -344,8 +339,6 @@ describe('read-only day-plan proposal review', () => {
         expect(routeLine()).toEqual(route.coordinates);
         expectNoRouteMutationControls();
         expect(mocks.calculate).not.toHaveBeenCalled();
-        expect(mocks.guidedCalculate).not.toHaveBeenCalled();
-        expect(mocks.canalCalculate).not.toHaveBeenCalled();
         fireEvent.click(screen.getByRole('button', { name: 'Whole route' }));
         expect(mocks.maps[0].fitBounds).toHaveBeenCalled();
         fireEvent.click(screen.getByRole('button', { name: 'Expand tracer panel' }));
@@ -450,321 +443,149 @@ describe('read-only day-plan proposal review', () => {
 });
 
 describe('isolated autorouting trial workspace', () => {
-    it.each([undefined, false])(
-        'keeps the original provider path without advertised guidance: %s',
-        async (capability) => {
-            mocks.status.mockResolvedValue({ enabled: true, ready: true, channelGuidance: capability });
-            await openWorkspace();
-            fillRequest();
-            fireEvent.click(calculateButton());
-            await openReview();
-            expect(mocks.calculate).toHaveBeenCalledTimes(1);
-            expect(mocks.guidedFactory).not.toHaveBeenCalled();
-            expect(mocks.guidedCalculate).not.toHaveBeenCalled();
-        },
-    );
-    it('uses the advertised guidance calculator and reviews the complete returned open-water proposal', async () => {
-        mocks.status.mockResolvedValue({ enabled: true, ready: true, channelGuidance: true });
-        const guided = {
-            ...route,
-            id: 'guided-result',
-            coordinates: [...route.coordinates, [153.5, -26.9] as [number, number]],
-        };
-        mocks.guidedCalculate.mockResolvedValue(guided);
+    it('sets up with two pins and Calculate: no departure type, no canal exit, the router asked once', async () => {
         await openWorkspace();
+        expect(screen.queryByRole('button', { name: 'Canal / marina' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Open water' })).not.toBeInTheDocument();
+        expect(screen.queryByText(/Departure type/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/canal exit/i)).not.toBeInTheDocument();
+        expect(calculateButton()).toBeDisabled();
         fillRequest();
-        fireEvent.click(calculateButton());
-        await openReview();
-        expect(mocks.guidedFactory).toHaveBeenCalledWith({
-            channelGuidance: true,
-            onProgress: expect.any(Function),
-            deadlineAtMs: expect.any(Number),
-        });
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        expect(mocks.guidedCalculate).toHaveBeenCalledWith(
-            { departure: { lat: -27.2, lon: 153.15 }, destination: { lat: -27, lon: 153.4 }, draftM: 1.6, speedKts: 6 },
-            expect.any(AbortSignal),
-        );
-        await waitFor(() => expect(mocks.review.mock.calls.at(-1)?.[0]).toBe(guided));
-    });
-    it('injects guidance into the canal continuation and reviews the entire joined proposal', async () => {
-        mocks.status.mockResolvedValue({ enabled: true, ready: true, channelGuidance: true });
-        const joined = { ...route, canalDeparture: { handoverIndex: 1 } };
-        mocks.canalCalculate.mockResolvedValue(joined);
-        await openWorkspace();
-        fillRequest('canal');
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.19' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.15' } });
-        fireEvent.click(calculateButton());
-        await openReview();
-        expect(mocks.canalCalculate.mock.calls[0][6]).toBe(mocks.guidedCalculate);
-        expect(mocks.guidedCalculate).not.toHaveBeenCalled();
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        await waitFor(() => expect(mocks.review.mock.calls.at(-1)?.[0]).toBe(joined));
-    });
-    const resolvedExit = () => ({
-        status: 'resolved' as const,
-        profileId: 'synthetic-channel',
-        label: 'Fixture channel',
-        sourceRevision: 'synthetic-review-1',
-        validUntil: new Date(Date.now() + 3_600_000).toISOString(),
-        gateCentres: [
-            { lat: -27.195, lon: 153.15 },
-            { lat: -27.19, lon: 153.15 },
-        ],
-        outboundBearingDeg: 0,
-        exit: { lat: -27.19, lon: 153.15 },
-    });
-    it('selects a verified exit without a third pin and passes every pinned centre to the local connector', async () => {
-        const resolved = resolvedExit();
-        mocks.resolveExit.mockReturnValue(resolved);
-        mocks.canalCalculate.mockResolvedValue({ ...route, canalDeparture: { handoverIndex: 1 } });
-        await openWorkspace();
-        fillRequest('canal');
-        expect(screen.getByRole('region', { name: 'Automatic channel exit' })).toBeVisible();
-        expect(screen.queryByLabelText('canal exit latitude')).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /^destination\s/i })).toHaveAttribute('aria-pressed', 'true');
-        expect(features().find((f) => f.properties?.endpoint === 'canal exit')?.geometry).toEqual({
-            type: 'Point',
-            coordinates: [153.15, -27.19],
-        });
-        await waitFor(() => expect(calculateButton()).toBeEnabled());
-        fireEvent.click(calculateButton());
-        await openReview();
-        expect(mocks.canalCalculate.mock.calls[0][5]).toEqual(resolved);
-        expect(mocks.calculate).not.toHaveBeenCalled();
-    });
-    it('auto advances chart taps from departure directly to destination for a verified channel', async () => {
-        mocks.resolveExit.mockReturnValue(resolvedExit());
-        await openWorkspace();
-        fireEvent.click(screen.getByRole('button', { name: 'Canal / marina' }));
-        await act(async () => {
-            tapChart(153.15, -27.2);
-        });
-        expect(screen.getByRole('button', { name: /^destination\s/i })).toHaveAttribute('aria-pressed', 'true');
-        expect(screen.queryByRole('button', { name: /^canal exit\s/i })).not.toBeInTheDocument();
-    });
-    it('allows a manual override, keeps it for destination edits, and can return to automatic', async () => {
-        mocks.resolveExit.mockReturnValue(resolvedExit());
-        await openWorkspace();
-        fillRequest('canal');
-        fireEvent.click(screen.getByRole('button', { name: 'Choose manually' }));
-        expect(calculateButton()).toBeDisabled();
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.18' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.16' } });
-        fireEvent.change(screen.getByLabelText('destination longitude'), { target: { value: '153.5' } });
-        expect(screen.getByLabelText('canal exit latitude')).toHaveValue(-27.18);
-        await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: 'Use automatic channel exit' }));
-        });
-        expect(screen.getByRole('region', { name: 'Automatic channel exit' })).toBeVisible();
-        expect(screen.queryByLabelText('canal exit latitude')).not.toBeInTheDocument();
-    });
-    it('clears a manual exit even on an incomplete departure edit and cancels the pending route', async () => {
-        await openWorkspace();
-        fillRequest('canal');
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.19' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.15' } });
-        const pendingRoute = deferred<AutoroutingTrialRoute>();
-        mocks.canalCalculate.mockReturnValueOnce(pendingRoute.promise);
-        fireEvent.click(calculateButton());
-        await waitFor(() => expect(mocks.canalCalculate).toHaveBeenCalled());
-        fireEvent.change(screen.getByLabelText('departure latitude'), { target: { value: '' } });
-        expect(mocks.canalCalculate.mock.calls[0][3].aborted).toBe(true);
-        expect(screen.getByLabelText('canal exit latitude')).toHaveValue(null);
-        expect(calculateButton()).toBeDisabled();
-        await act(async () => pendingRoute.resolve(route));
-        expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
-    });
-    it('drops the automatic exit when departure leaves its reviewed area, without sending directly to SevenCs', async () => {
-        mocks.resolveExit.mockImplementation((start) =>
-            start.lat === -27.2 ? resolvedExit() : { status: 'manual-required', reason: 'No reviewed channel here.' },
-        );
-        await openWorkspace();
-        fillRequest('canal');
-        await waitFor(() => expect(calculateButton()).toBeEnabled());
-        fireEvent.change(screen.getByLabelText('departure latitude'), { target: { value: '-27.3' } });
-        expect(screen.queryByRole('region', { name: 'Automatic channel exit' })).not.toBeInTheDocument();
-        expect(screen.getByLabelText('canal exit latitude')).toHaveValue(null);
-        expect(calculateButton()).toBeDisabled();
-        expect(features().some((f) => f.properties?.endpoint === 'canal exit')).toBe(false);
-        expect(mocks.calculate).not.toHaveBeenCalled();
-    });
-    it('rechecks the reviewed exit at Calculate and refuses an expired review instead of falling back', async () => {
-        mocks.resolveExit.mockReturnValue(resolvedExit());
-        await openWorkspace();
-        fillRequest('canal');
-        await waitFor(() => expect(calculateButton()).toBeEnabled());
-        mocks.resolveExit.mockReturnValue({ status: 'manual-required', reason: 'Channel review expired.' });
-        fireEvent.click(calculateButton());
-        expect(await screen.findByRole('alert')).toHaveTextContent('Automatic channel exit needs review');
-        expect(mocks.canalCalculate).not.toHaveBeenCalled();
-        expect(mocks.calculate).not.toHaveBeenCalled();
-    });
-    it('does not let a hidden Canal Exit target turn automatic mode into manual after coordinate entry', async () => {
-        await openWorkspace();
-        fillRequest('canal');
-        expect(screen.getByRole('button', { name: /^canal exit\s/i })).toHaveAttribute('aria-pressed', 'true');
-        mocks.resolveExit.mockReturnValue(resolvedExit());
-        fireEvent.change(screen.getByLabelText('departure latitude'), { target: { value: '-27.201' } });
-        await waitFor(() =>
-            expect(screen.getByRole('button', { name: /^destination\s/i })).toHaveAttribute('aria-pressed', 'true'),
-        );
-        tapChart(153.4, -27.01);
-        expect(screen.getByLabelText('destination latitude')).toHaveValue(-27.01);
-        expect(screen.queryByLabelText('canal exit latitude')).not.toBeInTheDocument();
-    });
-    it('requires the current installed chart to match the reviewed markers and falls back to an empty manual exit on failure', async () => {
-        mocks.resolveExit.mockReturnValue(resolvedExit());
-        mocks.verifyExit.mockResolvedValue(false);
-        await openWorkspace();
-        fillRequest('canal');
-        expect(await screen.findByRole('alert')).toHaveTextContent('installed chart could not verify');
-        expect(screen.getByLabelText('canal exit latitude')).toHaveValue(null);
-        expect(calculateButton()).toBeDisabled();
-        expect(mocks.canalCalculate).not.toHaveBeenCalled();
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        mocks.verifyExit.mockResolvedValue(true);
-        fireEvent.click(screen.getByRole('button', { name: 'Use automatic channel exit' }));
-        await waitFor(() => expect(calculateButton()).toBeEnabled());
-    });
-    it('ignores a late source verification after the departure changes out of coverage', async () => {
-        const proof = deferred<boolean>();
-        mocks.resolveExit.mockImplementation((start) =>
-            start.lat === -27.2 ? resolvedExit() : { status: 'manual-required', reason: 'Outside reviewed area.' },
-        );
-        mocks.verifyExit.mockReturnValue(proof.promise);
-        await openWorkspace();
-        fillRequest('canal');
-        expect(calculateButton()).toBeDisabled();
-        await waitFor(() => expect(mocks.verifyExit).toHaveBeenCalled());
-        const signal = mocks.verifyExit.mock.calls[0][1];
-        fireEvent.change(screen.getByLabelText('departure latitude'), { target: { value: '-27.3' } });
-        expect(signal.aborted).toBe(true);
-        await act(async () => proof.resolve(true));
-        expect(screen.queryByRole('region', { name: 'Automatic channel exit' })).not.toBeInTheDocument();
-        expect(calculateButton()).toBeDisabled();
-    });
-    it('refuses a result if the exit review expired while the local/provider calculation was pending', async () => {
-        mocks.resolveExit.mockReturnValue(resolvedExit());
-        const pendingRoute = deferred<AutoroutingTrialRoute>();
-        mocks.canalCalculate.mockReturnValueOnce(pendingRoute.promise);
-        await openWorkspace();
-        fillRequest('canal');
-        await waitFor(() => expect(calculateButton()).toBeEnabled());
-        fireEvent.click(calculateButton());
-        await waitFor(() => expect(mocks.canalCalculate).toHaveBeenCalled());
-        mocks.resolveExit.mockReturnValue({ status: 'manual-required', reason: 'Expired.' });
-        await act(async () => pendingRoute.resolve(route));
-        expect(await screen.findByRole('alert')).toHaveTextContent('review changed during calculation');
-        expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
-    });
-    it('requires an explicit departure mode even when both coordinates are set; neither path is a default', async () => {
-        await openWorkspace();
-        fillRequest(null);
-        for (const name of ['Canal / marina', 'Open water'])
-            expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false');
-        expect(calculateButton()).toBeDisabled();
-        fireEvent.click(calculateButton());
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        expect(mocks.canalCalculate).not.toHaveBeenCalled();
-        fireEvent.click(screen.getByRole('button', { name: 'Open water' }));
         expect(calculateButton()).toBeEnabled();
         fireEvent.click(calculateButton());
         await openReview();
         expect(mocks.calculate).toHaveBeenCalledTimes(1);
-        expect(mocks.canalCalculate).not.toHaveBeenCalled();
+        const [request, signal, onProgress] = mocks.calculate.mock.calls[0];
+        expect(request).toEqual({
+            departure: { lat: -27.2, lon: 153.15 },
+            destination: { lat: -27, lon: 153.4 },
+            draftM: 1.6,
+            speedKts: 6,
+        });
+        expect(signal).toBeInstanceOf(AbortSignal);
+        expect(onProgress).toEqual(expect.any(Function));
+        expect(screen.getByText(/Thalassa proposal · not saved or activated/)).toBeVisible();
     });
-    it('makes the canal exit explicit and uses the local connector, without changing normal routing', async () => {
+
+    it("paints the router's own pieces in the planner's colours and hides the chart-check line colours", async () => {
         await openWorkspace();
-        fillRequest('canal');
-        expect(calculateButton()).toBeDisabled();
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.19' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.15' } });
-        mocks.canalCalculate.mockResolvedValue({ ...route, canalDeparture: { handoverIndex: 1 } });
+        const map = mocks.maps.at(-1)!;
+        const layerIds = map.addLayer.mock.calls.map(([layer]) => layer.id);
+        expect(layerIds).toEqual(
+            expect.arrayContaining([
+                'thalassa-route-glow',
+                'thalassa-route-line-layer',
+                'thalassa-route-core',
+                'route-survey-casing',
+                'route-survey-dash',
+                'thalassa-route-unverified',
+            ]),
+        );
+        fillRequest();
         fireEvent.click(calculateButton());
         await openReview();
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        expect(mocks.canalCalculate).toHaveBeenCalledWith(
-            { departure: { lat: -27.2, lon: 153.15 }, destination: { lat: -27, lon: 153.4 }, draftM: 1.6, speedKts: 6 },
-            { lat: -27.19, lon: 153.15 },
-            'fixture-token',
-            expect.any(AbortSignal),
-            expect.any(Function),
-            undefined,
-            mocks.calculate,
+        const pieces = sourceFeatures('thalassa-route');
+        expect(pieces.map((piece) => piece.properties?.safety)).toEqual(['channel', 'green']);
+        for (const piece of pieces)
+            expect(['danger', 'tide', 'survey', 'channel', 'offshore', 'green']).toContain(piece.properties?.safety);
+        expect(map.setLayoutProperty).toHaveBeenLastCalledWith('trial-reviewed-legs', 'visibility', 'none');
+        // The numbered waypoints keep the chart-check colours.
+        expect(sourceFeatures('trial-review').some((feature) => feature.geometry.type === 'Point')).toBe(true);
+    });
+
+    it('draws an unverified line dashed and keeps the chart-check colours when the classifications did not arrive', async () => {
+        mocks.calculate.mockResolvedValue({ ...route, engine: { ...route.engine!, stateMask: null } });
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        expect(sourceFeatures('thalassa-route')).toEqual([
+            expect.objectContaining({ properties: expect.objectContaining({ safety: 'unverified', dashed: true }) }),
+        ]);
+        expect(mocks.maps.at(-1)!.setLayoutProperty).toHaveBeenLastCalledWith(
+            'trial-reviewed-legs',
+            'visibility',
+            'visible',
         );
-        await openSetup();
-        fireEvent.click(screen.getByRole('button', { name: /^Clear$/ }));
-        for (const name of ['Canal / marina', 'Open water'])
-            expect(screen.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false');
-        expect(screen.queryByText(/Thalassa canal \+ SevenCs proposal/)).not.toBeInTheDocument();
+        expect(mocks.annotate).not.toHaveBeenCalled();
     });
-    it('guides chart taps through departure, canal exit and destination without resetting pins on a repeated mode tap', async () => {
+
+    it("shows the router's refusal whole and draws no line", async () => {
+        const refusal =
+            'No route for 1.6 m draft: the only way through crosses Synthetic Bank, charted 0.5 m; the highest tide in the next 14 days is 0.6 m and you need 2.1 m.';
+        mocks.calculate.mockRejectedValue(new Error(refusal));
         await openWorkspace();
-        fireEvent.click(screen.getByRole('button', { name: 'Canal / marina' }));
-        expect(screen.getByRole('button', { name: /^departure\s/i })).toHaveAttribute('aria-pressed', 'true');
-        const tap = (lat: number, lon: number) => tapChart(lon, lat);
-        tap(-27.2, 153.15);
-        expect(screen.getByRole('button', { name: /^canal exit\s/i })).toHaveAttribute('aria-pressed', 'true');
-        tap(-27.19, 153.15);
-        expect(screen.getByRole('button', { name: /^destination\s/i })).toHaveAttribute('aria-pressed', 'true');
-        tap(-27, 153.4);
-        expect(calculateButton()).toBeEnabled();
-        fireEvent.click(screen.getByRole('button', { name: 'Canal / marina' }));
-        expect(screen.getByLabelText('canal exit latitude')).toHaveValue(-27.19);
-        expect(calculateButton()).toBeEnabled();
-    });
-    it('does not fall back to ordinary SevenCs when the chosen canal calculation fails', async () => {
-        await openWorkspace();
-        fillRequest('canal');
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.19' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.15' } });
-        mocks.canalCalculate.mockRejectedValueOnce(new Error('No connected canal exit found.'));
+        fillRequest();
         fireEvent.click(calculateButton());
-        expect(await screen.findByRole('alert')).toHaveTextContent('No connected canal exit found.');
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        expect(features().every((feature) => feature.geometry.type === 'Point')).toBe(true);
-    });
-    it('explains the missing departure when destination and canal exit are filled, as in the reported screenshot', async () => {
-        await openWorkspace();
-        fireEvent.click(screen.getByRole('button', { name: 'Canal / marina' }));
-        for (const [label, value] of [
-            ['destination latitude', '-27.448242'],
-            ['destination longitude', '153.088345'],
-            ['canal exit latitude', '-27.214517'],
-            ['canal exit longitude', '153.089774'],
-        ])
-            fireEvent.change(screen.getByLabelText(label), { target: { value } });
-        expect(
-            screen.getByText('Set departure on the chart or enter its coordinates before calculating.'),
-        ).toBeVisible();
-        expect(calculateButton()).toBeDisabled();
-        expect(screen.getByRole('button', { name: /^departure\s/i })).toHaveAttribute('aria-pressed', 'true');
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        expect(mocks.canalCalculate).not.toHaveBeenCalled();
-    });
-    it('switching departure mode aborts a pending canal result, clears its exit, and preserves chosen endpoints', async () => {
-        await openWorkspace();
-        fillRequest('canal');
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.19' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.15' } });
-        const pending = deferred<AutoroutingTrialRoute>();
-        mocks.canalCalculate.mockReturnValueOnce(pending.promise);
-        fireEvent.click(calculateButton());
-        await waitFor(() => expect(mocks.canalCalculate).toHaveBeenCalled());
-        const signal = mocks.canalCalculate.mock.calls[0][3] as AbortSignal;
-        fireEvent.click(screen.getByRole('button', { name: 'Open water' }));
-        expect(signal.aborted).toBe(true);
-        await act(async () => pending.resolve({ ...route, canalDeparture: { handoverIndex: 1 } }));
+        expect(await screen.findByRole('alert')).toHaveTextContent(refusal);
+        expect(features().some((feature) => feature.geometry.type === 'LineString')).toBe(false);
         expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
-        expect(mocks.calculate).not.toHaveBeenCalled();
-        expect(screen.getByLabelText('departure latitude')).toHaveValue(-27.2);
-        expect(screen.getByLabelText('destination longitude')).toHaveValue(153.4);
-        fireEvent.click(screen.getByRole('button', { name: 'Canal / marina' }));
-        expect(screen.getByLabelText('canal exit latitude')).toHaveValue(null);
-        expect(calculateButton()).toBeDisabled();
     });
+
+    it('lists what the route must say on Review and counts the notes in the folded status', async () => {
+        mocks.calculate.mockResolvedValue({
+            ...route,
+            warnings: [
+                'Proposal only: not cleared for navigation.',
+                'Bridges and power lines not checked on this chart — known bridges are.',
+            ],
+        });
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        const notes = screen.getByRole('region', { name: 'What this route must say' });
+        expect(within(notes).getAllByRole('listitem')).toHaveLength(2);
+        expect(screen.getByText('2 route notes · review required')).toBeInTheDocument();
+        expect(screen.getByText('Not for navigation. Unsaved proposal only.')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByText('Chart checks complete · review required')).toBeInTheDocument());
+    });
+
+    it('places tide chips on the workspace map and removes them on recalculate and close', async () => {
+        const marker = { remove: vi.fn() };
+        mocks.annotate.mockImplementation(async (options: { markers: unknown[] }) => {
+            options.markers.push(marker);
+        });
+        const shallow = {
+            ...route,
+            engine: {
+                ...route.engine!,
+                stateMask: ['danger' as const, 'green' as const],
+                cautionMask: [true, false],
+                chartedShallowMask: [true, false],
+                tideDepthM: [1.2, null],
+                tideNeedM: 2.1,
+                shallowRuns: [{ startSeg: 0, endSeg: 0, lengthM: 900, midLat: -27.15, midLon: 153.22, minDepthM: 1.2 }],
+            },
+        };
+        mocks.calculate.mockResolvedValue(shallow);
+        const { unmount } = await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        await waitFor(() => expect(mocks.annotate).toHaveBeenCalledTimes(1));
+        const options = mocks.annotate.mock.calls[0][0];
+        expect(options.map).toBe(mocks.maps.at(-1));
+        expect(options.runs).toEqual(shallow.engine.shallowRuns);
+        expect(options.needM).toBe(2.1);
+        expect(options.draftM).toBe(1.6);
+        expect(options.liftable.length).toBeGreaterThan(0);
+        // The tide's top redraws the line: amber where a tide clears it.
+        let drawn: unknown;
+        act(() => {
+            drawn = options.onTide(() => 2.5);
+        });
+        expect((drawn as { state: string }[])[0].state).toBe('tide');
+        expect(sourceFeatures('thalassa-route')[0].properties?.safety).toBe('tide');
+        await openSetup();
+        fireEvent.click(calculateButton());
+        await waitFor(() => expect(marker.remove).toHaveBeenCalledTimes(1));
+        await openReview();
+        await waitFor(() => expect(mocks.annotate).toHaveBeenCalledTimes(2));
+        unmount();
+        expect(marker.remove).toHaveBeenCalledTimes(2);
+    });
+
     it('shows numbered waypoints, paints per-leg checks, and does not replace the proposal on a background tap', async () => {
         await openWorkspace();
         fillRequest();
@@ -1024,7 +845,6 @@ describe('isolated autorouting trial workspace', () => {
             route.coordinates,
         );
         expect(sourceFeatures('trial-focus')).toEqual([]);
-        expect(sourceFeatures('trial-provider-hazard')).toEqual([]);
         expect(routeLine()).toEqual(route.coordinates);
         expect(mocks.review).toHaveBeenCalledTimes(1);
     });
@@ -1062,18 +882,14 @@ describe('isolated autorouting trial workspace', () => {
         },
     );
 
-    it('confirms one full-path vertex edit, discards old review colours, retains historical provider danger and blocks saving after a fresh review', async () => {
+    it("confirms one full-path vertex edit, drops the router's colours, keeps its notes as history and blocks saving after a fresh review", async () => {
         const original: AutoroutingTrialRoute = {
             ...route,
             coordinates: Array.from({ length: 1000 }, (_, index) => [
                 153 + index * 0.0001,
                 -27 + (index === 500 ? 0.01 : 0),
             ]),
-            providerCheck: {
-                status: 'unsafe',
-                findings: [{ featureIndex: 4, severity: 'danger', message: 'Original reported obstruction' }],
-            },
-            source: { rtz: '<unchanged/>', geoJson: '{"original":true}' },
+            engine: { ...route.engine!, stateMask: Array.from({ length: 999 }, () => 'green' as const) },
         };
         const snapshot = structuredClone(original);
         mocks.calculate.mockResolvedValue(original);
@@ -1082,6 +898,7 @@ describe('isolated autorouting trial workspace', () => {
         fireEvent.click(calculateButton());
         await openReview();
         await waitFor(() => expect(screen.getByText(/999\/999 checked segments/)).toBeVisible());
+        expect(sourceFeatures('thalassa-route')).toHaveLength(1);
         const firstReview = (await mocks.review.mock.results[0].value) as TrialRouteReview;
         const originalSignal = mocks.review.mock.calls[0][2] as AbortSignal;
         const oldProgress = mocks.review.mock.calls[0][3] as (result: TrialRouteReview) => void;
@@ -1108,8 +925,12 @@ describe('isolated autorouting trial workspace', () => {
         ]);
         expect(routeLine()).toEqual(edited.coordinates);
         expect(original).toEqual(snapshot);
-        expect(edited.providerCheck).toBeUndefined();
-        expect(edited.localEdit?.originalProposal.providerCheck).toEqual(snapshot.providerCheck);
+        // The router never saw the edited line: no disclosure, no router
+        // colours — the chart-check colours return on the line.
+        expect(edited.engine).toBeUndefined();
+        expect(edited.localEdit?.originalProposal.warnings).toEqual(snapshot.warnings);
+        expect(sourceFeatures('thalassa-route')).toEqual([]);
+        expect(map.setLayoutProperty).toHaveBeenLastCalledWith('trial-reviewed-legs', 'visibility', 'visible');
         expect(originalSignal.aborted).toBe(true);
         expect(
             sourceFeatures('trial-review')
@@ -1121,10 +942,12 @@ describe('isolated autorouting trial workspace', () => {
         expect(map.flyTo).not.toHaveBeenCalled();
         await openReview();
         expect(screen.getByText('Checking 0/999 detailed route segments…')).toBeVisible();
-        expect(screen.getByText('Original SevenCs report · before waypoint edits')).toBeVisible();
-        expect(screen.getByText('Original reported obstruction')).toBeVisible();
-        expect(screen.getByText('Original proposal notices (historical):')).toBeVisible();
-        expect(screen.getByText(/original provider and canal checks no longer apply/)).toBeVisible();
+        expect(
+            screen.getByText('From the original route, before waypoint edits · historical, not checks of this line.'),
+        ).toBeVisible();
+        expect(screen.getByText('Check all charted hazards independently.')).toBeVisible();
+        expect(screen.getByText(/The router's\s+original checks no longer apply/)).toBeVisible();
+        expect(screen.getByText('Edited · router checks no longer apply')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Save as planned route' })).toBeDisabled();
         // Late progress from the previous check cannot repaint the edited route.
         act(() => oldProgress(firstReview));
@@ -1132,7 +955,7 @@ describe('isolated autorouting trial workspace', () => {
         await act(async () => pending.resolve(firstReview));
         expect(screen.getByText(/999\/999 checked segments/)).toBeVisible();
         expect(screen.getByRole('button', { name: 'Save as planned route' })).toBeDisabled();
-        expect(screen.getByText(/locally edited trial has not been rechecked by SevenCs/)).toBeVisible();
+        expect(screen.getByText(/edited route has not been rechecked by Thalassa's router/)).toBeVisible();
         expect(mocks.calculate).toHaveBeenCalledTimes(1);
         expect(mocks.maps).toHaveLength(1);
     });
@@ -1164,21 +987,18 @@ describe('isolated autorouting trial workspace', () => {
         expect(routeLine()).toEqual(edited.coordinates);
     });
 
-    it('keeps endpoint and handover pins locked but permits an internal canal corner', async () => {
+    it('keeps endpoint pins locked but permits an interior corner', async () => {
         const joined: AutoroutingTrialRoute = {
             ...route,
             coordinates: [route.coordinates[0], [153.2, -27.15], route.coordinates[1], route.coordinates[2]],
-            canalDeparture: { handoverIndex: 2 },
         };
-        mocks.canalCalculate.mockResolvedValue(joined);
+        mocks.calculate.mockResolvedValue(joined);
         await openWorkspace();
-        fillRequest('canal');
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.19' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.15' } });
+        fillRequest();
         fireEvent.click(calculateButton());
         await openReview();
-        const waypoints = buildTrialWaypointPlan(joined.coordinates, [2]).waypoints;
-        for (const pathIndex of [0, 2, 3]) {
+        const waypoints = buildTrialWaypointPlan(joined.coordinates).waypoints;
+        for (const pathIndex of [0, 3]) {
             const displayIndex = waypoints.findIndex((pin) => pin.pathIndex === pathIndex);
             expect(displayIndex).toBeGreaterThanOrEqual(0);
             tapWaypoint(displayIndex + 1);
@@ -1220,30 +1040,6 @@ describe('isolated autorouting trial workspace', () => {
                 .features.find((feature: GeoJSON.Feature) => feature.geometry.type === 'LineString').geometry
                 .coordinates,
         ).toEqual(dense.coordinates);
-    });
-    it('keeps the canal handover numbered in the sparse waypoint list', async () => {
-        const joined: AutoroutingTrialRoute = {
-            ...route,
-            coordinates: Array.from({ length: 1000 }, (_, index) => [153, -27 + (4 * index) / 999]),
-            canalDeparture: { handoverIndex: 5 },
-        };
-        mocks.canalCalculate.mockResolvedValue(joined);
-        await openWorkspace();
-        fillRequest('canal');
-        fireEvent.change(screen.getByLabelText('canal exit latitude'), { target: { value: '-27.19' } });
-        fireEvent.change(screen.getByLabelText('canal exit longitude'), { target: { value: '153.15' } });
-        fireEvent.click(calculateButton());
-        await openReview();
-        expect(screen.getByText(/Canal exit: waypoint 2/)).toBeVisible();
-        const source = (mocks.maps[0].getSource as (id: string) => { setData: ReturnType<typeof vi.fn> })(
-            'trial-review',
-        );
-        const data = source.setData.mock.calls.at(-1)![0] as GeoJSON.FeatureCollection;
-        expect(
-            data.features.find((feature) => feature.geometry.type === 'Point' && feature.properties?.number === 2)
-                ?.geometry,
-        ).toEqual({ type: 'Point', coordinates: joined.coordinates[5] });
-        expect(joined.canalDeparture?.handoverIndex).toBe(5);
     });
     it.each([
         [undefined, 6],
@@ -1432,6 +1228,7 @@ describe('isolated autorouting trial workspace', () => {
         expect(mocks.calculate).toHaveBeenCalledWith(
             { departure: { lat: -27.2, lon: 153.15 }, destination: { lat: -27, lon: 153.4 }, draftM: 1.6, speedKts: 6 },
             expect.any(AbortSignal),
+            expect.any(Function),
         );
         expect(features().find((feature) => feature.geometry.type === 'LineString')?.geometry).toEqual({
             type: 'LineString',
@@ -1581,16 +1378,14 @@ describe('isolated autorouting trial workspace', () => {
         expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
     });
 
-    it('unmount aborts both availability and proposal requests and removes subscriptions', async () => {
+    it('unmount aborts the proposal request and removes subscriptions', async () => {
         const pending = deferred<AutoroutingTrialRoute>();
         mocks.calculate.mockReturnValue(pending.promise);
         const view = await openWorkspace();
         fillRequest();
         fireEvent.click(calculateButton());
-        const statusSignal = mocks.status.mock.calls[0][0] as AbortSignal;
         const signal = mocks.calculate.mock.calls[0][1] as AbortSignal;
         view.unmount();
-        expect(statusSignal.aborted).toBe(true);
         expect(signal.aborted).toBe(true);
         act(() => setAuthIdentityScope('next-account'));
         expect(view.onClose).not.toHaveBeenCalled();
@@ -1598,51 +1393,19 @@ describe('isolated autorouting trial workspace', () => {
         expect(mocks.maps[0].remove).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps an authorized unready chart available, but disables Calculate with an honest message', async () => {
-        mocks.status.mockResolvedValue({ enabled: true, ready: false, message: 'Trial coverage is being configured.' });
+    it('keeps the chart available without installed charts, but disables Calculate with an honest message', async () => {
+        mocks.status.mockReturnValue({
+            enabled: true,
+            ready: false,
+            message: 'Install charts for your area to use Auto. Manual is ready.',
+        });
         await openWorkspace();
         fillRequest();
-        expect(screen.getByText('Trial coverage is being configured.')).toBeVisible();
+        expect(screen.getByText('Install charts for your area to use Auto. Manual is ready.')).toBeVisible();
+        expect(screen.getByText('Install charts to calculate')).toBeInTheDocument();
         expect(calculateButton()).toBeDisabled();
         expect(mocks.calculate).not.toHaveBeenCalled();
         expect(mocks.maps).toHaveLength(1);
-    });
-
-    it.each([
-        { ready: true, vesselProfile: undefined, showsUpgrade: true, canCalculate: false },
-        { ready: true, vesselProfile: false, showsUpgrade: true, canCalculate: false },
-        { ready: true, vesselProfile: true, showsUpgrade: false, canCalculate: true },
-        { ready: false, vesselProfile: undefined, showsUpgrade: false, canCalculate: false },
-    ])('waits for confirmed profile capability before displaying an upgrade warning: %j', async (next) => {
-        const pending = deferred<{ enabled: boolean; ready: boolean; vesselProfile?: boolean }>();
-        mocks.status.mockReturnValue(pending.promise);
-        render(
-            <AutoroutingTrialWorkspace
-                mapboxToken="fixture-token"
-                onClose={vi.fn()}
-                initialDraftM={1.6}
-                initialSpeedKts={6}
-                initialVesselProfile={{
-                    draftStatus: 'measured',
-                    length: { status: 'measured', valueM: 10 },
-                    beam: { status: 'measured', valueM: 3 },
-                    airDraft: { status: 'measured', valueM: 15 },
-                }}
-            />,
-        );
-        // Pending capability is unknown, not evidence that the server is old.
-        // Check this first rendered state before resolving its asynchronous status.
-        expect(screen.getByText('Checking trial availability…')).toBeVisible();
-        expect(screen.queryByText(/The routing service needs an update/)).not.toBeInTheDocument();
-        act(() => mocks.maps[0].handlers.get('load')!());
-        fillRequest();
-        expect(calculateButton()).toBeDisabled();
-        await act(async () => pending.resolve({ enabled: true, ready: next.ready, vesselProfile: next.vesselProfile }));
-        if (next.showsUpgrade) expect(screen.getByText(/The routing service needs an update/)).toBeVisible();
-        else expect(screen.queryByText(/The routing service needs an update/)).not.toBeInTheDocument();
-        if (next.canCalculate) expect(calculateButton()).toBeEnabled();
-        else expect(calculateButton()).toBeDisabled();
-        expect(mocks.calculate).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -1697,50 +1460,33 @@ describe('isolated autorouting trial workspace', () => {
         );
         expect(source).toContain('<AutoroutingProposalSaveCard');
     });
-    it('folds controls without replacing the map, locates exact provider geometry and clears it with the proposal', async () => {
-        const geometry = { type: 'Point' as const, coordinates: [153.25, -27.12] as [number, number] };
-        mocks.calculate.mockResolvedValue({
-            ...route,
-            providerCheck: {
-                status: 'unsafe',
-                findings: [
-                    {
-                        featureIndex: 4,
-                        featureType: 'obstruction',
-                        severity: 'danger',
-                        message: 'Fixture provider obstruction',
-                        geometry,
-                    },
-                ],
-            },
-        });
+    it('folds controls without replacing the map, reports danger from the chart checks and clears with the proposal', async () => {
+        mocks.review.mockImplementation(async (proposal: AutoroutingTrialRoute) => ({
+            phase: 'complete',
+            legs: proposal.coordinates.slice(1).map((_, index) => ({
+                incomplete: false,
+                verdict: {
+                    grade: index === 0 ? 'danger' : 'clear',
+                    issues: index === 0 ? [{ severity: 'danger', message: 'Charted obstruction' }] : [],
+                    minDepthM: 8,
+                    minAt: null,
+                    needsTide: false,
+                    nudge: null,
+                    nudgeTo: null,
+                },
+            })),
+        }));
         await openWorkspace();
         fillRequest();
         fireEvent.click(calculateButton());
         const toggle = await screen.findByRole('button', { name: /^(Expand|Collapse) tracer panel$/ });
         expect(toggle).toHaveAttribute('aria-expanded', 'false');
-        expect(screen.getByText('Danger reported · review required')).toBeVisible();
+        await waitFor(() => expect(screen.getByText('Danger reported · review required')).toBeVisible());
         expect(screen.getByText('Danger reported · open Route review before proceeding.')).toBeVisible();
         expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
-        await openReview();
-        fireEvent.click(screen.getByRole('button', { name: 'Locate provider finding 5' }));
-        expect(toggle).toHaveAttribute('aria-expanded', 'false');
-        expect(toggle).toHaveFocus();
-        expect(screen.getByText(/SevenCs danger · exact reported Point highlighted/)).toBeVisible();
         const map = mocks.maps[0];
-        const source = (map.getSource as (id: string) => { setData: ReturnType<typeof vi.fn> })(
-            'trial-provider-hazard',
-        );
-        expect(source.setData.mock.calls.at(-1)![0].features[0].geometry).toEqual(geometry);
-        expect(map.fitBounds).toHaveBeenLastCalledWith(
-            [
-                [153.25, -27.12],
-                [153.25, -27.12],
-            ],
-            expect.objectContaining({ maxZoom: 16 }),
-        );
-        expect(map.addLayer.mock.calls.map(([layer]) => layer.id)).toEqual(
-            expect.arrayContaining(['trial-provider-fill', 'trial-provider-line', 'trial-provider-point']),
+        expect(map.addLayer.mock.calls.map(([layer]) => layer.id)).not.toEqual(
+            expect.arrayContaining(['trial-provider-fill']),
         );
         expect(mocks.maps).toHaveLength(1);
         expect(features().find((f) => f.geometry.type === 'LineString')?.geometry).toEqual({
@@ -1749,8 +1495,8 @@ describe('isolated autorouting trial workspace', () => {
         });
         await openSetup();
         fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-        expect(source.setData.mock.calls.at(-1)![0].features).toEqual([]);
-        expect(screen.queryByText(/exact reported Point/)).not.toBeInTheDocument();
+        expect(sourceFeatures('thalassa-route')).toEqual([]);
+        expect(features().some((f) => f.geometry.type === 'LineString')).toBe(false);
     });
 });
 
@@ -1790,8 +1536,8 @@ async function chooseAuto() {
 }
 
 describe('explicit routing mode choice', () => {
-    it('does no availability or map work until mounted and immediately offers Manual while Auto is pending', () => {
-        mocks.status.mockReturnValue(new Promise(() => undefined));
+    it('does no availability or map work until mounted; offers Manual at once and Auto only when enabled', () => {
+        mocks.status.mockReturnValue({ enabled: false, ready: false });
         render(<RoutingFlow />);
         expect(mocks.status).not.toHaveBeenCalled();
         expect(mocks.maps).toHaveLength(0);
@@ -1806,20 +1552,16 @@ describe('explicit routing mode choice', () => {
         expect(mocks.calculate).not.toHaveBeenCalled();
     });
 
-    it('Manual closes immediately without a calculation, map or extra status call and fences the old status', async () => {
-        const pending = deferred<{ enabled: boolean; ready: boolean }>();
-        mocks.status.mockReturnValue(pending.promise);
+    it('Manual closes immediately without a calculation, map or extra status call', async () => {
         const onManual = vi.fn();
         const onClose = vi.fn();
         render(<RoutingFlow onManual={onManual} onClose={onClose} />);
         openChoice();
-        const signal = mocks.status.mock.calls[0][0] as AbortSignal;
+        // Worked out on the phone (2026-10-01): no request to wait for or abort.
+        expect(mocks.status.mock.calls[0]).toEqual([]);
         fireEvent.click(screen.getByRole('button', { name: 'Manual routing' }));
         expect(onManual).toHaveBeenCalledTimes(1);
         expect(onClose).not.toHaveBeenCalled();
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-        expect(signal.aborted).toBe(true);
-        await act(async () => pending.resolve({ enabled: true, ready: true }));
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(mocks.status).toHaveBeenCalledTimes(1);
         expect(mocks.maps).toHaveLength(0);
@@ -1829,8 +1571,11 @@ describe('explicit routing mode choice', () => {
     it.each(['denied', 'failed', 'signed out'] as const)(
         'keeps Manual available and Auto disabled when %s',
         async (state) => {
-            if (state === 'denied') mocks.status.mockResolvedValue({ enabled: false, ready: false });
-            if (state === 'failed') mocks.status.mockRejectedValue(new Error('Availability failed'));
+            if (state === 'denied') mocks.status.mockReturnValue({ enabled: false, ready: false });
+            if (state === 'failed')
+                mocks.status.mockImplementation(() => {
+                    throw new Error('Availability failed');
+                });
             if (state === 'signed out') setAuthIdentityScope(null);
             const onManual = vi.fn();
             render(<RoutingFlow onManual={onManual} />);
@@ -1849,16 +1594,12 @@ describe('explicit routing mode choice', () => {
         },
     );
 
-    it('opens Auto only after server authorization and snapshots selected location and vessel without changing settings', async () => {
-        const pending = deferred<{ enabled: boolean; ready: boolean }>();
-        mocks.status.mockReturnValueOnce(pending.promise);
+    it('opens Auto only when enabled and snapshots selected location and vessel without changing settings', async () => {
         mocks.location = { lat: -26.7, lon: 153.2, source: 'map_pin' };
         mocks.settings = { vessel: { draft: 6, draftConfirmedFt: 6, cruisingSpeed: 7 } };
         render(<RoutingFlow />);
         openChoice();
-        expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
         expect(mocks.maps).toHaveLength(0);
-        await act(async () => pending.resolve({ enabled: true, ready: true }));
         await chooseAuto();
         expect(mocks.maps[0].options.center).toEqual([153.2, -26.7]);
         expect(features()).toEqual([]);
@@ -1885,40 +1626,41 @@ describe('explicit routing mode choice', () => {
         expect(mocks.settings).toEqual({ defaultLocationCoords: { lat: -23.9, lon: 152.4 }, vessel });
     });
 
-    it('lets an authorized but unready user open Auto without enabling Calculate', async () => {
-        mocks.status.mockResolvedValue({ enabled: true, ready: false, message: 'Setup in progress.' });
+    it('lets a signed-in user with no charts open Auto without enabling Calculate', async () => {
+        mocks.status.mockReturnValue({
+            enabled: true,
+            ready: false,
+            message: 'Install charts for your area to use Auto. Manual is ready.',
+        });
         render(<RoutingFlow />);
         openChoice();
         await chooseAuto();
         fillRequest();
-        expect(screen.getByText('Setup in progress.')).toBeVisible();
+        expect(screen.getByText('Install charts for your area to use Auto. Manual is ready.')).toBeVisible();
         expect(calculateButton()).toBeDisabled();
         expect(mocks.calculate).not.toHaveBeenCalled();
     });
 
-    it('Cancel aborts pending authorization; a late success cannot reopen the flow and remount rechecks fresh', async () => {
-        const old = deferred<{ enabled: boolean; ready: boolean }>();
-        const fresh = deferred<{ enabled: boolean; ready: boolean }>();
-        mocks.status.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+    it('Cancel closes the choice; reopening reads the status fresh', async () => {
+        mocks.status.mockReturnValueOnce({ enabled: true, ready: true }).mockReturnValueOnce({
+            enabled: false,
+            ready: false,
+        });
         const onClose = vi.fn();
         render(<RoutingFlow onClose={onClose} />);
         openChoice();
-        const signal = mocks.status.mock.calls[0][0] as AbortSignal;
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Auto routing' })).toBeEnabled());
         fireEvent.click(screen.getByRole('button', { name: 'Close routing choice' }));
         expect(onClose).toHaveBeenCalledTimes(1);
-        expect(signal.aborted).toBe(true);
-        await act(async () => old.resolve({ enabled: true, ready: true }));
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         openChoice();
         expect(mocks.status).toHaveBeenCalledTimes(2);
-        expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
-        await act(async () => fresh.resolve({ enabled: false, ready: false }));
         expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
         expect(mocks.maps).toHaveLength(0);
     });
 
     it('Escape closes the choice and restores its opener without choosing either route mode', () => {
-        mocks.status.mockReturnValue(new Promise(() => undefined));
+        mocks.status.mockReturnValue({ enabled: false, ready: false });
         const onClose = vi.fn();
         const onManual = vi.fn();
         render(<RoutingFlow onClose={onClose} onManual={onManual} />);
@@ -1933,8 +1675,8 @@ describe('explicit routing mode choice', () => {
         expect(mocks.maps).toHaveLength(0);
     });
 
-    it('traps keyboard focus among available choices while authorization is pending', () => {
-        mocks.status.mockReturnValue(new Promise(() => undefined));
+    it('traps keyboard focus among available choices while Auto is unavailable', () => {
+        mocks.status.mockReturnValue({ enabled: false, ready: false });
         render(<RoutingFlow />);
         openChoice();
         const close = screen.getByRole('button', { name: 'Close routing choice' });
@@ -1948,7 +1690,7 @@ describe('explicit routing mode choice', () => {
     });
 
     it('centres the choice and cancels only on its backdrop, not its content', () => {
-        mocks.status.mockReturnValue(new Promise(() => undefined));
+        mocks.status.mockReturnValue({ enabled: false, ready: false });
         const onClose = vi.fn();
         render(<RoutingFlow onClose={onClose} />);
         const dialog = openChoice();
@@ -1976,16 +1718,14 @@ describe('explicit routing mode choice', () => {
     });
 
     it('account changes close and discard the choice rather than rechecking the old dialog', async () => {
-        const old = deferred<{ enabled: boolean; ready: boolean }>();
-        mocks.status.mockReturnValueOnce(old.promise).mockResolvedValue({ enabled: false, ready: false });
+        mocks.status
+            .mockReturnValueOnce({ enabled: true, ready: true })
+            .mockReturnValue({ enabled: false, ready: false });
         const onClose = vi.fn();
         render(<RoutingFlow onClose={onClose} />);
         openChoice();
-        const signal = mocks.status.mock.calls[0][0] as AbortSignal;
         act(() => setAuthIdentityScope('not-entitled'));
         expect(onClose).toHaveBeenCalledTimes(1);
-        expect(signal.aborted).toBe(true);
-        await act(async () => old.resolve({ enabled: true, ready: true }));
         expect(mocks.status).toHaveBeenCalledTimes(1);
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         openChoice();
@@ -2046,7 +1786,7 @@ describe('explicit routing mode choice', () => {
     });
 
     it('scopes the centred choice to its pane, leaves the other pane usable and ignores its Escape', () => {
-        mocks.status.mockReturnValue(new Promise(() => undefined));
+        mocks.status.mockReturnValue({ enabled: false, ready: false });
         const host = document.createElement('div');
         const frame = document.createElement('div');
         const otherPane = document.createElement('div');

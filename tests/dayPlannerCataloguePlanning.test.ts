@@ -581,7 +581,7 @@ describe('catalogue wire response through calculation and asynchronous save', ()
             route: vi.fn<DayPlannerDependencies['route']>(async (from, to, _signal, constraint) => {
                 const route: AutoroutingTrialRoute = {
                     id: `synthetic-${constraint?.direction}`,
-                    provider: 'SevenCs',
+                    provider: 'Thalassa',
                     createdAt: new Date(NOW).toISOString(),
                     coordinates: constraint
                         ? constraint.checkpoints.map(({ lon, lat }) => [lon, lat])
@@ -590,7 +590,13 @@ describe('catalogue wire response through calculation and asynchronous save', ()
                               [to.lon, to.lat],
                           ],
                     warnings: ['Synthetic provider result; independently inspect the route.'],
-                    providerCheck: { status: 'not-reported', findings: [] },
+                    engine: {
+                        stateMask: (constraint ? constraint.checkpoints.slice(1) : [to]).map(() => 'green' as const),
+                        cellsUsed: ['OC-99-SYN001'],
+                        distanceNM: 1,
+                        elapsedMs: 10,
+                        backstop: 'verified',
+                    },
                     vesselProfile: structuredClone(profile),
                 };
                 return {

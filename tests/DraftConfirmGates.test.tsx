@@ -28,9 +28,9 @@ vi.mock('../components/dayPlanner/DayPlannerSheet', () => ({
         return <div role="dialog" aria-label="Plan Your Day" />;
     },
 }));
-vi.mock('../services/autoroutingTrial', () => ({
-    getAutoroutingTrialStatus: mocks.status,
-    calculateAutoroutingTrial: vi.fn(),
+vi.mock('../services/autoroutingThalassa', () => ({
+    getThalassaAutorouteStatus: mocks.status,
+    calculateThalassaProposal: vi.fn(),
 }));
 vi.mock('../components/autorouting/AutoroutingTrialWorkspace', () => ({
     AutoroutingTrialWorkspace: (props: { initialDraftM?: number }) => {
@@ -102,7 +102,7 @@ beforeEach(async () => {
         ],
         distanceNM: 0.8,
     });
-    mocks.status.mockResolvedValue({ enabled: true, ready: true });
+    mocks.status.mockReturnValue({ enabled: true, ready: true });
     mocks.sweep.mockReturnValue({ options: [], best: null, currentProvenance: 'NONE' });
 });
 
@@ -176,7 +176,7 @@ describe('Plan Your Day', () => {
     // RoutePlanner hands the entry the store's profile.
     function Entry() {
         const vessel = useSettingsStore((state) => state.settings.vessel ?? null);
-        return <DayPlannerEntry vessel={vessel} mapboxToken="" onOpenSaved={vi.fn()} />;
+        return <DayPlannerEntry vessel={vessel} mapboxToken="" onOpenSaved={vi.fn()} isPro onUpgrade={vi.fn()} />;
     }
 
     it('does not open the planner until the draft is confirmed, then opens it on the confirmed draft', async () => {

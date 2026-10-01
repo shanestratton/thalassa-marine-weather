@@ -41,7 +41,7 @@ const points = [
 ];
 const proposalEvidence = (positions = points): SavedAutoroutingProposalEvidence => ({
     version: 1,
-    origin: 'sevencs-trial',
+    origin: 'thalassa-inshore',
     proposalId: 'provider-1',
     providerCreatedAt: '2026-09-13T00:00:00Z',
     savedAt: '2026-09-13T00:02:00Z',
@@ -58,6 +58,12 @@ const proposalEvidence = (positions = points): SavedAutoroutingProposalEvidence 
     warnings: ['Check independently'],
     legs: positions.slice(1).map(() => ({ grade: 'clear', incomplete: false, minDepthM: 8, minAt: null, issues: [] })),
 });
+/** The live CHECK still names only the old origin until Shane pushes
+ * 20261001120000 (Postgres 23514 through PostgREST). */
+const originNotYetAllowed = {
+    code: '23514',
+    message: 'new row for relation "saved_routes" violates check constraint "saved_routes_proposal_evidence_bounded"',
+};
 const missingColumn = {
     code: 'PGRST204',
     message: "Could not find the 'proposal_evidence' column in the schema cache",
@@ -214,6 +220,34 @@ describe('savedRoutesSync — canonical chain and deletion integrity', () => {
         expect(mocks.upsert.mock.calls[0][0].proposal_evidence).toEqual(proposalEvidence());
         expect(loadSavedTraces()[0].points).toEqual(points);
         expect(loadSavedTraces()[0].proposalEvidence).toEqual(proposalEvidence());
+    });
+
+    it('keeps a Thalassa proposal on the device as schema-pending until the origin migration is pushed', async () => {
+        mocks.upsert.mockResolvedValue({ error: originNotYetAllowed });
+        const result = saveTrace('Auto proposal', points, { proposalEvidence: proposalEvidence() });
+        await expect(result.cloud).resolves.toBe('schema-pending');
+        expect(mocks.upsert).toHaveBeenCalledTimes(1);
+        expect(loadSavedTraces()[0].proposalEvidence).toEqual(proposalEvidence());
+        // Any other constraint is still a failure.
+        mocks.upsert.mockResolvedValue({
+            error: { code: '23514', message: 'violates check constraint "saved_routes_points_sane"' },
+        });
+        await expect(pushSavedRoute(loadSavedTraces()[0])).resolves.toBe('error');
+    });
+
+    it('widens the evidence origin in a migration that changes nothing else', () => {
+        const sql = readFileSync(
+            'supabase/migrations/20261001120000_saved_proposal_evidence_thalassa_origin.sql',
+            'utf8',
+        );
+        expect(sql).toContain('DROP CONSTRAINT IF EXISTS saved_routes_proposal_evidence_bounded');
+        expect(sql).toContain("proposal_evidence->>'origin' IN ('sevencs-trial', 'thalassa-inshore')");
+        expect(sql).toContain("proposal_evidence->>'version' = '1'");
+        expect(sql).toContain("proposal_evidence->>'plannedOnlyAcknowledged' = 'true'");
+        expect(sql).toContain('<= 2097152');
+        expect(sql).not.toMatch(
+            /(?:GRANT|REVOKE|CREATE POLICY|DROP POLICY|DISABLE ROW LEVEL SECURITY|UPDATE public|DELETE FROM|DROP COLUMN)/i,
+        );
     });
 
     it('retains old-schema compatibility only for ordinary manual routes', async () => {

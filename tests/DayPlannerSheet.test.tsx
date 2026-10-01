@@ -156,14 +156,20 @@ function resultFor(request: DayPlanRequest, offset = mock.delay): DayPlanResult 
         const profile = snapshotAutoroutingVesselProfile(vessel);
         const route: AutoroutingTrialRoute = {
             id: `route-${index}`,
-            provider: 'SevenCs',
+            provider: 'Thalassa',
             createdAt: new Date(NOW).toISOString(),
             coordinates: [
                 [from.lon, from.lat],
                 [to.lon, to.lat],
             ],
             warnings: [],
-            providerCheck: { status: 'not-reported', findings: [] },
+            engine: {
+                stateMask: ['green'],
+                cellsUsed: ['OC-99-SYN001'],
+                distanceNM: 1,
+                elapsedMs: 10,
+                backstop: 'verified',
+            },
             vesselProfile: profile,
         };
         const review: TrialRouteReview = {
@@ -857,7 +863,7 @@ describe('DayPlannerEntry lifecycle', () => {
     it('keeps a pending calculation alive through an unrelated entry rerender', async () => {
         mock.run.mockReturnValue(new Promise(() => {}));
         const onOpenSaved = vi.fn();
-        const props = { vessel, mapboxToken: 'test-token', onOpenSaved };
+        const props = { vessel, mapboxToken: 'test-token', onOpenSaved, isPro: true, onUpgrade: vi.fn() };
         const view = render(<DayPlannerEntry {...props} />);
         fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
         await locate();
@@ -871,9 +877,31 @@ describe('DayPlannerEntry lifecycle', () => {
         expect(signal.aborted).toBe(true);
     });
 
+    // Review fix-up (2026-10-01): Plan Your Day routes every leg with
+    // Thalassa's router, so it is Pro route planning, as Auto is. A free
+    // account is offered the upgrade and the planner never opens.
+    it('a free account is offered the upgrade, and the planner never opens', async () => {
+        const onUpgrade = vi.fn();
+        render(
+            <DayPlannerEntry
+                vessel={vessel}
+                mapboxToken="test-token"
+                onOpenSaved={vi.fn()}
+                isPro={false}
+                onUpgrade={onUpgrade}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
+        expect(onUpgrade).toHaveBeenCalledOnce();
+        await Promise.resolve();
+        expect(screen.queryByRole('dialog', { name: 'Plan Your Day' })).toBeNull();
+        expect(mock.locate).not.toHaveBeenCalled();
+        expect(mock.run).not.toHaveBeenCalled();
+    });
+
     it('cancels the old calculation when numeric draft changes with the same profile status', async () => {
         mock.run.mockReturnValue(new Promise(() => {}));
-        const props = { vessel, mapboxToken: 'test-token', onOpenSaved: vi.fn() };
+        const props = { vessel, mapboxToken: 'test-token', onOpenSaved: vi.fn(), isPro: true, onUpgrade: vi.fn() };
         const view = render(<DayPlannerEntry {...props} />);
         fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
         await locate();

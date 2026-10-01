@@ -11,12 +11,8 @@ import {
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
 } from '../../services/authIdentityScope';
-import {
-    calculateAutoroutingTrial,
-    getAutoroutingTrialStatus,
-    type AutoroutingTrialRoute,
-    type AutoroutingTrialStatus,
-} from '../../services/autoroutingTrial';
+import type { AutoroutingTrialRoute, AutoroutingTrialStatus } from '../../services/autoroutingThalassa';
+import { useAutoroutingProvider } from './AutoroutingProviderContext';
 import {
     AUTOROUTING_TRIAL_MAX_DRAFT_M,
     AUTOROUTING_TRIAL_MAX_SPEED_KTS,
@@ -24,6 +20,7 @@ import {
 } from '../../types/autorouting';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 import { useEncChartInventory } from '../map/useEncChartInventory';
+import { subscribe as subscribeEncRegistry } from '../../services/enc/EncCellMetadata';
 import { useEncVectorLayer } from '../map/useEncVectorLayer';
 import { EncAttributionChip } from '../map/EncAttributionChip';
 import { setEncMapBase } from '../map/encDepthStyleState';
@@ -36,10 +33,16 @@ import { moveAutoroutingDisplayWaypoint } from '../../services/autoroutingWaypoi
 import { nearestTrialWaypoint } from '../../services/autoroutingWaypointHit';
 import { useAutoroutingReview } from './useAutoroutingReview';
 import { TrialRouteReviewPanel } from './TrialRouteReviewPanel';
-import { resolveAutomaticCanalExit, VERIFIED_CANAL_EXIT_PROFILES } from '../../services/automaticCanalExit';
-import { verifyCanalExitChart } from '../../services/verifyCanalExitChart';
-import { providerHazardMapFeature, providerHazardViewport } from '../../services/providerHazardGeometry';
-import type { AutoroutingProviderFinding } from '../../supabase/functions/_shared/autorouting-provider-check';
+import {
+    inshoreRouteFeatures,
+    inshoreRouteLineLayers,
+    inshoreRoutePieces,
+    routeTideDepths,
+    surveyDashLayers,
+    tideLiftablePieces,
+    type InshoreRoutePiece,
+} from '../map/inshoreRouteState';
+import { annotateTideWindows } from '../map/tideWindowChips';
 import { AutoroutingProposalSaveCard } from './AutoroutingProposalSaveCard';
 import { TrialTracerShell } from './TrialTracerShell';
 import { TrialWaypointEditor } from './TrialWaypointEditor';
@@ -58,8 +61,7 @@ export interface AutoroutingTrialWorkspaceProps {
     reviewProposal?: AutoroutingTrialRoute;
     onReviewChange?: (review: import('../../services/autoroutingReview').TrialRouteReview | null) => void;
 }
-type Endpoint = 'departure' | 'destination' | 'canal exit';
-type DepartureMode = 'canal' | 'open-water';
+type Endpoint = 'departure' | 'destination';
 type PositionInput = { lat: string; lon: string };
 const emptyPosition = (): PositionInput => ({ lat: '', lon: '' });
 const point = ({ lat, lon }: PositionInput) =>
@@ -74,6 +76,13 @@ const point = ({ lat, lon }: PositionInput) =>
 const inputClass = 'w-full min-w-0 rounded-lg border border-white/15 bg-slate-900 p-2 text-sm text-white';
 const buttonClass = 'min-h-11 rounded-xl border border-white/15 px-3 text-sm font-bold disabled:opacity-40';
 
+/** The route's own drawn pieces (owner decisions 9 and 10) are paintable only
+ * for the router's unedited line with an intact disclosure. */
+function engineStateMask(route: AutoroutingTrialRoute | null) {
+    const mask = route?.engine?.stateMask;
+    return route && !route.localEdit && mask && mask.length === route.coordinates.length - 1 ? mask : null;
+}
+
 /** Disposable plotting workspace. Saving is a separate explicit planned-route action. */
 export function AutoroutingTrialWorkspace({
     onClose,
@@ -86,6 +95,7 @@ export function AutoroutingTrialWorkspace({
     onReviewChange,
 }: AutoroutingTrialWorkspaceProps) {
     const pane = usePaneScope();
+    const provider = useAutoroutingProvider();
     const keyboardHeight = useKeyboardOffset(!pane);
     const closeRef = useRef<HTMLButtonElement>(null);
     const escapeAction = useRef(onClose);
@@ -145,35 +155,15 @@ export function AutoroutingTrialWorkspace({
             ? { lat: String(reviewProposal.coordinates.at(-1)![1]), lon: String(reviewProposal.coordinates.at(-1)![0]) }
             : emptyPosition(),
     );
-    const [canalExit, setCanalExit] = useState(emptyPosition);
-    // No default: an unnoticed checkbox must not send a canal departure
-    // straight to SevenCs, bypassing the local connector.
-    const [departureMode, setDepartureMode] = useState<DepartureMode | null>(null);
-    const canalEnabled = departureMode === 'canal';
-    const [manualExitOverride, setManualExitOverride] = useState(false);
-    const [exitRevision, setExitRevision] = useState(0);
+    // Thalassa's router routes from the berth with its own canal tier, so
+    // setup is departure, destination, Calculate (2026-10-01): the Canal /
+    // marina vs Open water choice and the canal exit pin went with the old
+    // server trial, which could not route canals.
     const start = useMemo(() => point(departure), [departure]);
     const end = useMemo(() => point(destination), [destination]);
-    const exitResolution = useMemo(
-        () => (start && canalEnabled ? resolveAutomaticCanalExit(start, end, VERIFIED_CANAL_EXIT_PROFILES) : null),
-        // Review validity is time-based: expiry/resume explicitly advances this revision.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [start, end, canalEnabled, exitRevision],
-    );
-    const automaticExit = !manualExitOverride && exitResolution?.status === 'resolved' ? exitResolution : null;
-    const automaticSourceKey = automaticExit ? `${automaticExit.profileId}:${automaticExit.sourceRevision}` : '';
-    const [verifiedExitSource, setVerifiedExitSource] = useState('');
-    const exitSourceReady = !!automaticSourceKey && verifiedExitSource === automaticSourceKey;
-    const effectiveExitInput = useMemo(
-        () =>
-            automaticExit ? { lat: String(automaticExit.exit.lat), lon: String(automaticExit.exit.lon) } : canalExit,
-        [automaticExit, canalExit],
-    );
     const [progress, setProgress] = useState('');
-    const endpointNames: Endpoint[] =
-        canalEnabled && !automaticExit ? ['departure', 'canal exit', 'destination'] : ['departure', 'destination'];
-    const endpointInput = (name: Endpoint) =>
-        name === 'departure' ? departure : name === 'destination' ? destination : canalExit;
+    const endpointNames: Endpoint[] = ['departure', 'destination'];
+    const endpointInput = (name: Endpoint) => (name === 'departure' ? departure : destination);
     const [target, setTarget] = useState<Endpoint>('departure');
     // Read-only Vessel preferences from the mode chooser. Clear resets the
     // proposed route, never the boat. Preserve the full metres conversion.
@@ -193,7 +183,6 @@ export function AutoroutingTrialWorkspace({
         speed > 0 &&
         speed <= AUTOROUTING_TRIAL_MAX_SPEED_KTS &&
         vesselProfile?.draftStatus !== 'missing';
-    const profileSupported = !vesselProfile || status?.vesselProfile === true;
     const [proposal, setProposal] = useState<AutoroutingTrialRoute | null>(() =>
         reviewProposal ? structuredClone(reviewProposal) : null,
     );
@@ -204,11 +193,7 @@ export function AutoroutingTrialWorkspace({
     const waypointPlan = useMemo(
         () =>
             proposal
-                ? buildTrialWaypointPlan(
-                      proposal.coordinates,
-                      proposal.canalDeparture ? [proposal.canalDeparture.handoverIndex] : [],
-                      proposal.localEdit?.waypointIndices ?? [],
-                  )
+                ? buildTrialWaypointPlan(proposal.coordinates, [], proposal.localEdit?.waypointIndices ?? [])
                 : { waypoints: [], sparse: true },
         [proposal],
     );
@@ -217,9 +202,6 @@ export function AutoroutingTrialWorkspace({
     waypointCountRef.current = displayWaypoints.length;
     const passageNm = (displayWaypoints.at(-1)?.distanceM ?? 0) / 1852;
     const [savedProposal, setSavedProposal] = useState<AutoroutingTrialRoute | null>(null);
-    const [locatedProvider, setLocatedProvider] = useState<AutoroutingProviderFinding | null>(null);
-    const locatedProviderRef = useRef(locatedProvider);
-    locatedProviderRef.current = locatedProvider;
     const { review, stop: stopReview, recheck } = useAutoroutingReview(proposal, draft, draftAssumed);
     useEffect(() => {
         if (reviewProposal) onReviewChange?.(review);
@@ -249,7 +231,6 @@ export function AutoroutingTrialWorkspace({
         setUndoProposal(null);
         setPanelPage('setup');
         setSavedProposal(null);
-        setLocatedProvider(null);
         setError('');
         setProgress('');
         setInspectingWaypoint(false);
@@ -258,67 +239,12 @@ export function AutoroutingTrialWorkspace({
         setMoveError('');
         moveBasisRef.current = null;
     }, []);
-    // A manual exit belongs to one departure. Even partially editing its
-    // coordinates invalidates the old association and any in-flight request.
+    // Even partially editing an endpoint invalidates any proposal and request.
     const updateEndpoint = (name: Endpoint, value: PositionInput) => {
         invalidate();
-        if (name === 'departure') {
-            setDeparture(value);
-            setCanalExit(emptyPosition());
-            setManualExitOverride(false);
-        } else if (name === 'destination') setDestination(value);
-        else {
-            setCanalExit(value);
-            setManualExitOverride(true);
-        }
+        if (name === 'departure') setDeparture(value);
+        else setDestination(value);
     };
-    useEffect(() => {
-        // Coordinate-entry can resolve an exit without a chart tap. Never leave
-        // a now-hidden Canal Exit target armed for the next tap.
-        if (automaticExit && target === 'canal exit') setTarget('destination');
-    }, [automaticExit, target]);
-    const automaticProfileId = automaticExit?.profileId;
-    useEffect(() => {
-        setVerifiedExitSource('');
-        if (!automaticProfileId) return;
-        const controller = new AbortController();
-        const scope = getAuthIdentityScope();
-        void verifyCanalExitChart(automaticProfileId, controller.signal)
-            .catch(() => false)
-            .then((verified) => {
-                if (controller.signal.aborted || !isAuthIdentityScopeCurrent(scope)) return;
-                if (verified) setVerifiedExitSource(automaticSourceKey);
-                else {
-                    invalidate();
-                    setManualExitOverride(true);
-                    setCanalExit(emptyPosition());
-                    setTarget('canal exit');
-                    setError(
-                        'The installed chart could not verify this automatic exit. Choose Canal exit manually, or retry the chart check.',
-                    );
-                }
-            });
-        return () => controller.abort();
-    }, [automaticProfileId, automaticSourceKey, exitRevision, invalidate]);
-    useEffect(() => {
-        if (!automaticExit) return;
-        const delay = Math.max(0, Date.parse(automaticExit.validUntil) - Date.now());
-        // Long timers overflow in browsers. Recheck boundedly, including when
-        // a suspended phone resumes after the source review has expired.
-        const refresh = () => {
-            invalidate();
-            setExitRevision((v) => v + 1);
-        };
-        const timer = window.setTimeout(refresh, Math.min(delay + 1, 2_147_000_000));
-        const resume = () => {
-            if (Date.now() >= Date.parse(automaticExit.validUntil)) refresh();
-        };
-        document.addEventListener('visibilitychange', resume);
-        return () => {
-            window.clearTimeout(timer);
-            document.removeEventListener('visibilitychange', resume);
-        };
-    }, [automaticExit, invalidate]);
     const selectPoint = useRef((_lat: number, _lon: number) => {});
     selectPoint.current = (lat, lon) => {
         if (movingWaypoint) {
@@ -327,21 +253,13 @@ export function AutoroutingTrialWorkspace({
             return;
         }
         if (proposal && !editingEndpoints) return;
-        const input = { lat: lat.toFixed(6), lon: lon.toFixed(6) };
-        updateEndpoint(target, input);
-        const nextExit =
-            target === 'departure' && canalEnabled && point(input)
-                ? resolveAutomaticCanalExit(point(input)!, end, VERIFIED_CANAL_EXIT_PROFILES)
-                : null;
-        setTarget(
-            target === 'departure' && canalEnabled && nextExit?.status !== 'resolved' ? 'canal exit' : 'destination',
-        );
+        updateEndpoint(target, { lat: lat.toFixed(6), lon: lon.toFixed(6) });
+        setTarget('destination');
     };
     const selectWaypoint = useRef<(index: number) => boolean>(() => false);
     selectWaypoint.current = (index) => {
         if (proposal && !editingEndpoints && Number.isInteger(index) && index >= 0 && index < displayWaypoints.length) {
             localSpotFocused.current = true;
-            setLocatedProvider(null);
             setSelectedWaypoint(index);
             setInspectingWaypoint(true);
             setPanelExpanded(false);
@@ -351,27 +269,33 @@ export function AutoroutingTrialWorkspace({
     };
 
     useEffect(() => {
-        const controller = new AbortController();
-        const scope = getAuthIdentityScope();
         const unsubscribe = subscribeAuthIdentityScope(() => {
-            controller.abort();
             invalidate();
             setDeparture(emptyPosition());
             setDestination(emptyPosition());
             setStatus(null);
             onClose();
         });
-        void getAutoroutingTrialStatus(controller.signal)
-            .then((next) => {
-                if (!controller.signal.aborted && isAuthIdentityScopeCurrent(scope)) setStatus(next);
-            })
-            .catch(() => {});
         return () => {
-            controller.abort();
             pending.current?.abort();
             unsubscribe();
         };
     }, [invalidate, onClose]);
+
+    // Worked out on the phone (2026-10-01): a signed-in identity and installed
+    // navigation charts. Re-read when the chart library changes, so charts
+    // installed while Auto is open enable Calculate.
+    useEffect(() => {
+        const read = () => {
+            try {
+                setStatus(provider.status());
+            } catch {
+                setStatus({ enabled: false, ready: false, message: 'Auto routing is temporarily unavailable.' });
+            }
+        };
+        read();
+        return subscribeEncRegistry(read);
+    }, [provider]);
 
     // One Mapbox instance per open workspace; edits update only its GeoJSON source.
     useEffect(() => {
@@ -426,6 +350,13 @@ export function AutoroutingTrialWorkspace({
                 filter: ['==', '$type', 'LineString'],
                 paint: { 'line-color': '#94a3b8', 'line-width': 4, 'line-dasharray': [2, 1] },
             });
+            // Thalassa's route in the planner's own Phase 2a colours
+            // (inshoreRouteState): red, needs-tide amber, survey dots,
+            // channel yellow, teal — the same table the planner map uses.
+            map.addSource('thalassa-route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            for (const spec of inshoreRouteLineLayers('thalassa-route', 'thalassa-route'))
+                map.addLayer(spec as mapboxgl.AnyLayer);
+            for (const spec of surveyDashLayers('thalassa-route')) map.addLayer(spec as mapboxgl.AnyLayer);
             map.addSource('trial-review', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
             map.addLayer({
                 id: 'trial-reviewed-legs',
@@ -434,6 +365,16 @@ export function AutoroutingTrialWorkspace({
                 filter: ['==', '$type', 'LineString'],
                 paint: { 'line-color': ['get', 'color'], 'line-width': 4 },
             });
+            // A line whose safety classifications did not arrive intact: the
+            // planner's dashed 'unverified' amber, over the chart-check colours.
+            map.addLayer({
+                id: 'thalassa-route-unverified',
+                type: 'line',
+                source: 'thalassa-route',
+                filter: ['==', ['get', 'dashed'], true],
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#f59e0b', 'line-width': 2.5, 'line-opacity': 0.95, 'line-dasharray': [4, 4] },
+            });
             map.addLayer({
                 id: 'trial-endpoints',
                 type: 'circle',
@@ -441,15 +382,7 @@ export function AutoroutingTrialWorkspace({
                 filter: ['==', '$type', 'Point'],
                 paint: {
                     'circle-radius': 8,
-                    'circle-color': [
-                        'match',
-                        ['get', 'endpoint'],
-                        'departure',
-                        '#34d399',
-                        'canal exit',
-                        '#fbbf24',
-                        '#c084fc',
-                    ],
+                    'circle-color': ['match', ['get', 'endpoint'], 'departure', '#34d399', '#c084fc'],
                     'circle-stroke-width': 2,
                     'circle-stroke-color': '#ffffff',
                 },
@@ -480,37 +413,6 @@ export function AutoroutingTrialWorkspace({
                 paint: { 'text-color': '#0f172a' },
             });
             map.addSource('trial-focus', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-            map.addSource('trial-provider-hazard', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] },
-            });
-            const hazardColor = ['match', ['get', 'severity'], 'danger', '#fb7185', '#fbbf24'] as const;
-            map.addLayer({
-                id: 'trial-provider-fill',
-                type: 'fill',
-                source: 'trial-provider-hazard',
-                filter: ['==', '$type', 'Polygon'],
-                paint: { 'fill-color': [...hazardColor], 'fill-opacity': 0.22 },
-            });
-            map.addLayer({
-                id: 'trial-provider-line',
-                type: 'line',
-                source: 'trial-provider-hazard',
-                filter: ['in', '$type', 'LineString', 'Polygon'],
-                paint: { 'line-color': [...hazardColor], 'line-width': 4 },
-            });
-            map.addLayer({
-                id: 'trial-provider-point',
-                type: 'circle',
-                source: 'trial-provider-hazard',
-                filter: ['==', '$type', 'Point'],
-                paint: {
-                    'circle-color': [...hazardColor],
-                    'circle-radius': 14,
-                    'circle-stroke-width': 3,
-                    'circle-stroke-color': '#0f172a',
-                },
-            });
             map.addLayer({
                 id: 'trial-focus-ring',
                 type: 'circle',
@@ -572,8 +474,6 @@ export function AutoroutingTrialWorkspace({
         const keepUserView = (event: unknown) => {
             if (event && typeof event === 'object' && 'originalEvent' in event && event.originalEvent) {
                 localSpotFocused.current = true;
-                // Retain any hazard highlight, but stop treating it as a camera command.
-                locatedProviderRef.current = null;
             }
         };
         map.on('dragstart', keepUserView);
@@ -591,13 +491,7 @@ export function AutoroutingTrialWorkspace({
             map.resize();
             // Controls do not shrink the canvas. On orientation/keyboard resize,
             // keep the proposal clear of the floating header and source credit.
-            const hazardViewport =
-                locatedProviderRef.current && !localSpotFocused.current
-                    ? providerHazardViewport(locatedProviderRef.current)
-                    : null;
-            if (hazardViewport)
-                map.fitBounds(hazardViewport.bounds, { padding: viewportPadding(), maxZoom: 16, duration: 0 });
-            else if (proposalBounds.current && !localSpotFocused.current)
+            if (proposalBounds.current && !localSpotFocused.current)
                 map.fitBounds(proposalBounds.current, { padding: viewportPadding(), duration: 0 });
         });
         resize.observe(container.current);
@@ -625,34 +519,9 @@ export function AutoroutingTrialWorkspace({
         true,
     );
 
-    const exit = canalEnabled ? point(effectiveExitInput) : null;
-    const providerReport = proposal?.localEdit?.originalProposal.providerCheck ?? proposal?.providerCheck;
-    const dangerReported =
-        providerReport?.status === 'unsafe' ||
-        providerReport?.findings.some((finding) => finding.severity === 'danger') ||
-        review?.legs.some((leg) => leg?.verdict.grade === 'danger');
-    const missingPosition = !start ? 'departure' : canalEnabled && !exit ? 'canal exit' : !end ? 'destination' : null;
-    const valid =
-        departureMode &&
-        start &&
-        end &&
-        (start.lat !== end.lat || start.lon !== end.lon) &&
-        vesselReady &&
-        profileSupported &&
-        (!canalEnabled || (!!exit && (!automaticExit || exitSourceReady)));
-    const chooseDepartureMode = (mode: DepartureMode) => {
-        if (mode === departureMode) return;
-        invalidate();
-        setDepartureMode(mode);
-        setCanalExit(emptyPosition());
-        setManualExitOverride(false);
-        const resolved =
-            mode === 'canal' && start ? resolveAutomaticCanalExit(start, end, VERIFIED_CANAL_EXIT_PROFILES) : null;
-        setTarget(
-            mode === 'canal' && start ? (resolved?.status === 'resolved' ? 'destination' : 'canal exit') : 'departure',
-        );
-        setEditingEndpoints(true);
-    };
+    const dangerReported = review?.legs.some((leg) => leg?.verdict.grade === 'danger');
+    const missingPosition = !start ? 'departure' : !end ? 'destination' : null;
+    const valid = start && end && (start.lat !== end.lat || start.lon !== end.lon) && vesselReady;
     useEffect(() => {
         const source = mapRef.current?.getSource('trial') as mapboxgl.GeoJSONSource | undefined;
         if (!mapReady || !source) return;
@@ -661,7 +530,6 @@ export function AutoroutingTrialWorkspace({
             ['departure', departure],
             ['destination', destination],
         ];
-        if (canalEnabled) endpoints.push(['canal exit', effectiveExitInput]);
         for (const [endpoint, input] of endpoints) {
             const p = point(input);
             if (p)
@@ -686,34 +554,123 @@ export function AutoroutingTrialWorkspace({
             if (!preserveEditedViewport.current)
                 mapRef.current?.fitBounds(bounds, { padding: viewportPadding(), duration: 0 });
         }
-    }, [mapReady, departure, destination, canalEnabled, effectiveExitInput, proposal, viewportPadding]);
+    }, [mapReady, departure, destination, proposal, viewportPadding]);
 
     useEffect(() => {
         if (!mapReady) return;
         const source = mapRef.current?.getSource('trial-review') as mapboxgl.GeoJSONSource | undefined;
         source?.setData(trialReviewFeatures(proposal?.coordinates ?? [], review, displayWaypoints));
     }, [mapReady, proposal, review, displayWaypoints]);
+
+    // The router's own colours for its unedited line (owner decisions 9/10,
+    // the planner's pieces): while they show, the chart-check colouring of the
+    // line is hidden — the numbered waypoints keep it. A hand edit, or a line
+    // whose classifications did not arrive intact, falls back to the
+    // chart-check colours; the latter also draws the planner's dashed amber.
+    const [tideTop, setTideTop] = useState<{
+        route: AutoroutingTrialRoute;
+        highestAt: (lon: number, lat: number) => number | null;
+    } | null>(null);
+    const tideNeedM =
+        typeof proposal?.engine?.tideNeedM === 'number' && Number.isFinite(proposal.engine.tideNeedM)
+            ? proposal.engine.tideNeedM
+            : (draft ?? 0) + DEFAULT_TIDE_SAFETY_M;
+    const routePieces = useCallback(
+        (route: AutoroutingTrialRoute, highestAt: ((lon: number, lat: number) => number | null) | null) => {
+            const mask = engineStateMask(route);
+            const engine = route.engine;
+            if (!mask || !engine) return [] as InshoreRoutePiece[];
+            const masks = { polyline: route.coordinates, ...engine };
+            return inshoreRoutePieces(route.coordinates, mask, engine.surveyRuns, engine.chartedShallowSpans, {
+                depthM: routeTideDepths(masks),
+                needM: tideNeedM,
+                highestM: null,
+                ...(highestAt ? { highestAt } : {}),
+            });
+        },
+        [tideNeedM],
+    );
+    const enginePainted = !!engineStateMask(proposal);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapReady || !map) return;
+        const source = map.getSource('thalassa-route') as mapboxgl.GeoJSONSource | undefined;
+        let features: GeoJSON.Feature[] = [];
+        if (proposal && enginePainted)
+            features = inshoreRouteFeatures(
+                routePieces(proposal, tideTop?.route === proposal ? tideTop.highestAt : null),
+            );
+        else if (proposal?.engine && !proposal.localEdit && !proposal.engine.stateMask)
+            features = [
+                {
+                    type: 'Feature',
+                    properties: { safety: 'unverified', dashed: true, verification: 'unverified' },
+                    geometry: { type: 'LineString', coordinates: proposal.coordinates },
+                },
+            ];
+        source?.setData({ type: 'FeatureCollection', features });
+        if (map.getLayer('trial-reviewed-legs'))
+            map.setLayoutProperty('trial-reviewed-legs', 'visibility', enginePainted ? 'none' : 'visible');
+    }, [mapReady, proposal, enginePainted, routePieces, tideTop]);
+
+    // Tide-window chips on the needs-tide runs, as the planner places them
+    // (tideWindowChips): fetched after the route paints; the curves' tops
+    // redraw the line amber where a tide clears it (owner decision 10).
+    // Removed on recalculate, clear, edit, account change and close: every one
+    // of them changes or drops the proposal, or unmounts.
+    const chipMarkers = useRef<mapboxgl.Marker[]>([]);
+    const chipRevision = useRef(0);
+    useEffect(() => {
+        const map = mapRef.current;
+        const revision = ++chipRevision.current;
+        const clearChips = () => {
+            chipRevision.current += 1;
+            for (const marker of chipMarkers.current.splice(0)) marker.remove();
+        };
+        const engine = proposal?.engine;
+        const mask = engineStateMask(proposal);
+        if (!mapReady || !map || !proposal || !engine || !mask || typeof draft !== 'number') return clearChips;
+        const liftable = tideLiftablePieces(
+            proposal.coordinates,
+            mask,
+            engine.chartedShallowSpans,
+            routeTideDepths({ polyline: proposal.coordinates, ...engine }),
+            tideNeedM,
+        );
+        if (!engine.shallowRuns?.length && !engine.surveyRuns?.length && liftable.length === 0) return clearChips;
+        const stale = () => revision !== chipRevision.current || mapRef.current !== map;
+        const departureMs = Date.parse(proposal.createdAt);
+        void annotateTideWindows({
+            map,
+            runs: engine.shallowRuns ?? [],
+            surveyRuns: engine.surveyRuns,
+            draftM: draft,
+            needM: tideNeedM,
+            departureMs: Number.isFinite(departureMs) ? departureMs : Date.now(),
+            isStale: stale,
+            markers: chipMarkers.current,
+            liftable,
+            ...(engine.canalMask ? { canalMask: engine.canalMask } : {}),
+            onTide: (highestAt) => {
+                if (stale()) return;
+                setTideTop({ route: proposal, highestAt });
+                return routePieces(proposal, highestAt);
+            },
+        });
+        return clearChips;
+    }, [mapReady, proposal, draft, tideNeedM, routePieces]);
+
     useEffect(() => {
         if (!mapReady) return;
         localSpotFocused.current = preserveEditedViewport.current;
         preserveEditedViewport.current = false;
         const source = mapRef.current?.getSource('trial-focus') as mapboxgl.GeoJSONSource | undefined;
         source?.setData({ type: 'FeatureCollection', features: [] });
-        (mapRef.current?.getSource('trial-provider-hazard') as mapboxgl.GeoJSONSource | undefined)?.setData({
-            type: 'FeatureCollection',
-            features: [],
-        });
-        setLocatedProvider(null);
     }, [mapReady, proposal]);
     const focusSpot = (spot: { lat: number; lon: number }) => {
         const map = mapRef.current;
         if (!map) return;
         localSpotFocused.current = true;
-        setLocatedProvider(null);
-        (map.getSource('trial-provider-hazard') as mapboxgl.GeoJSONSource | undefined)?.setData({
-            type: 'FeatureCollection',
-            features: [],
-        });
         (map.getSource('trial-focus') as mapboxgl.GeoJSONSource | undefined)?.setData({
             type: 'Feature',
             properties: {},
@@ -730,9 +687,7 @@ export function AutoroutingTrialWorkspace({
           ? undefined
           : inspectedWaypoint.pathIndex === 0 || inspectedWaypoint.pathIndex === (proposal?.coordinates.length ?? 0) - 1
             ? 'Change departure or destination in route setup, then recalculate.'
-            : inspectedWaypoint.pathIndex === proposal?.canalDeparture?.handoverIndex
-              ? 'Change the canal exit in route setup, then recalculate.'
-              : undefined;
+            : undefined;
     const cancelMove = () => {
         setMovingWaypoint(false);
         setMoveCandidate(null);
@@ -766,11 +721,11 @@ export function AutoroutingTrialWorkspace({
             const moved = moveAutoroutingDisplayWaypoint(proposal, inspectedWaypoint, moveCandidate);
             const plan = buildTrialWaypointPlan(
                 moved.route.coordinates,
-                moved.route.canalDeparture ? [moved.route.canalDeparture.handoverIndex] : [],
+                [],
                 moved.route.localEdit?.waypointIndices ?? [],
             );
             // Fresh immutable geometry starts a complete new local review. The
-            // old provider report is historical, never current clearance.
+            // router's checks are historical, never current clearance.
             stopReview();
             preserveEditedViewport.current = true;
             localSpotFocused.current = true;
@@ -792,7 +747,6 @@ export function AutoroutingTrialWorkspace({
         preserveEditedViewport.current = true;
         localSpotFocused.current = true;
         setSavedProposal(null);
-        setLocatedProvider(null);
         setInspectingWaypoint(false);
         setSelectedWaypoint(0);
         setProposal(undoProposal);
@@ -804,15 +758,11 @@ export function AutoroutingTrialWorkspace({
         pendingSpot.current = null;
         cancelMove();
         setInspectingWaypoint(false);
-        setLocatedProvider(null);
-        locatedProviderRef.current = null;
         localSpotFocused.current = false;
-        for (const source of ['trial-focus', 'trial-provider-hazard']) {
-            (mapRef.current?.getSource(source) as mapboxgl.GeoJSONSource | undefined)?.setData({
-                type: 'FeatureCollection',
-                features: [],
-            });
-        }
+        (mapRef.current?.getSource('trial-focus') as mapboxgl.GeoJSONSource | undefined)?.setData({
+            type: 'FeatureCollection',
+            features: [],
+        });
         collapsePanel();
         setFitRevision((value) => value + 1);
     };
@@ -884,48 +834,14 @@ export function AutoroutingTrialWorkspace({
         source?.setData({ type: 'FeatureCollection', features });
         if (map) map.getCanvas().style.cursor = movingWaypoint ? 'crosshair' : '';
     }, [mapReady, movingWaypoint, moveCandidate, proposal, inspectedWaypoint]);
-    const focusProvider = (finding: AutoroutingProviderFinding) => {
-        const map = mapRef.current;
-        const feature = providerHazardMapFeature(finding);
-        const viewport = providerHazardViewport(finding);
-        if (!map || !mapReady || !feature || !viewport) return;
-        localSpotFocused.current = false;
-        (map.getSource('trial-focus') as mapboxgl.GeoJSONSource | undefined)?.setData({
-            type: 'FeatureCollection',
-            features: [],
-        });
-        (map.getSource('trial-provider-hazard') as mapboxgl.GeoJSONSource | undefined)?.setData({
-            type: 'FeatureCollection',
-            features: [feature],
-        });
-        setLocatedProvider(finding);
-        map.fitBounds(viewport.bounds, {
-            padding: viewportPadding(),
-            maxZoom: 16,
-            duration: 500,
-        });
-        collapsePanel();
-    };
 
-    // The folded status may gain lines when a hazard or missing ENC coverage is
+    // The folded status may gain lines when a danger or missing ENC coverage is
     // reported. Measure the committed DOM before framing its exact geometry.
     useLayoutEffect(() => {
         if (!mapReady || panelExpanded) return;
-        const viewport = locatedProvider && !localSpotFocused.current ? providerHazardViewport(locatedProvider) : null;
-        if (viewport)
-            mapRef.current?.fitBounds(viewport.bounds, { padding: viewportPadding(), maxZoom: 16, duration: 0 });
-        else if (proposalBounds.current && !localSpotFocused.current)
+        if (proposalBounds.current && !localSpotFocused.current)
             mapRef.current?.fitBounds(proposalBounds.current, { padding: viewportPadding(), duration: 0 });
-    }, [
-        mapReady,
-        panelExpanded,
-        locatedProvider,
-        encNoCoverage,
-        encHydration.remaining,
-        mapError,
-        viewportPadding,
-        fitRevision,
-    ]);
+    }, [mapReady, panelExpanded, encNoCoverage, encHydration.remaining, mapError, viewportPadding, fitRevision]);
     // That fit measures the folded card once. The card can still change
     // height afterwards, when its status line wraps differently once fonts
     // settle or a late status lands: on Linux fonts 'Chart checks complete ·
@@ -948,8 +864,7 @@ export function AutoroutingTrialWorkspace({
     }, [mapReady, panelExpanded, dialogRef]);
 
     const calculate = async () => {
-        if (!valid || !departureMode || !start || !end || !vesselReady || !status?.ready || busy || pending.current)
-            return;
+        if (!valid || !start || !end || !vesselReady || !status?.ready || busy || pending.current) return;
         invalidate();
         const controller = new AbortController();
         const scope = getAuthIdentityScope();
@@ -966,66 +881,9 @@ export function AutoroutingTrialWorkspace({
             const onProgress = (message: string) => {
                 if (!controller.signal.aborted && isAuthIdentityScopeCurrent(scope)) setProgress(message);
             };
-            let calculateProvider = calculateAutoroutingTrial;
-            // Older deployments do not accept chart-track constraints. Only
-            // load the scoped guidance path after the entitled server advertises it.
-            if (status.channelGuidance === true) {
-                const { createChartGuidedTrialCalculator, CHART_GUIDANCE_TOTAL_TIMEOUT_MS } =
-                    await import('../../services/chartGuidedAutorouting');
-                if (controller.signal.aborted || !isAuthIdentityScopeCurrent(scope)) return;
-                calculateProvider = createChartGuidedTrialCalculator({
-                    channelGuidance: true,
-                    onProgress,
-                    // Include local canal work in the optional guidance budget,
-                    // reserving time before the canal's outer abort deadline.
-                    deadlineAtMs: Date.now() + CHART_GUIDANCE_TOTAL_TIMEOUT_MS,
-                });
-            }
-            let route: AutoroutingTrialRoute;
-            if (canalEnabled && exit) {
-                // Do not use a source that expired between render and tapping
-                // Calculate, nor fall through to a direct provider request.
-                const currentExit = automaticExit
-                    ? resolveAutomaticCanalExit(start, end, VERIFIED_CANAL_EXIT_PROFILES)
-                    : null;
-                if (automaticExit && currentExit?.status !== 'resolved') {
-                    setExitRevision((v) => v + 1);
-                    throw new Error('Automatic channel exit needs review. Choose the exit manually.');
-                }
-                if (automaticExit && !(await verifyCanalExitChart(automaticExit.profileId, controller.signal)))
-                    throw new Error(
-                        'The chart no longer matches the reviewed channel exit. Choose Canal exit manually.',
-                    );
-                const { calculateWithCanalDeparture } = await import('../../services/autoroutingCanalDeparture');
-                if (controller.signal.aborted || !isAuthIdentityScopeCurrent(scope)) return;
-                route = await calculateWithCanalDeparture(
-                    request,
-                    exit,
-                    openingToken.current,
-                    controller.signal,
-                    onProgress,
-                    currentExit?.status === 'resolved' ? currentExit : undefined,
-                    calculateProvider,
-                );
-            } else if (departureMode === 'open-water') {
-                route = await calculateProvider(request, controller.signal);
-            } else return;
-            if (automaticExit) {
-                const currentExit = resolveAutomaticCanalExit(start, end, VERIFIED_CANAL_EXIT_PROFILES);
-                if (
-                    currentExit.status !== 'resolved' ||
-                    currentExit.profileId !== automaticExit.profileId ||
-                    currentExit.sourceRevision !== automaticExit.sourceRevision ||
-                    JSON.stringify(currentExit.gateCentres) !== JSON.stringify(automaticExit.gateCentres) ||
-                    !(await verifyCanalExitChart(automaticExit.profileId, controller.signal))
-                )
-                    throw new Error(
-                        'The automatic exit review changed during calculation. No proposal has been accepted.',
-                    );
-                // A chart read may straddle expiry too (including resume from sleep).
-                if (Date.now() >= Date.parse(currentExit.validUntil))
-                    throw new Error('The automatic exit review expired. Choose Canal exit manually.');
-            }
+            // Thalassa's router on this phone (2026-10-01). A refusal throws
+            // the engine's own words, shown whole; it never draws a line.
+            const route = await provider.calculate(request, controller.signal, onProgress);
             if (!controller.signal.aborted && isAuthIdentityScopeCurrent(scope)) {
                 setSelectedWaypoint(0);
                 setEditingEndpoints(false);
@@ -1049,9 +907,6 @@ export function AutoroutingTrialWorkspace({
         invalidate();
         setDeparture(emptyPosition());
         setDestination(emptyPosition());
-        setCanalExit(emptyPosition());
-        setManualExitOverride(false);
-        setDepartureMode(null);
         setTarget('departure');
         setEditingEndpoints(true);
         setPanelExpanded(true);
@@ -1185,17 +1040,23 @@ export function AutoroutingTrialWorkspace({
                                       ? review?.phase === 'complete'
                                           ? 'Chart checks complete · review required'
                                           : `Chart checks ${review?.phase ?? 'pending'}`
-                                      : departureMode
-                                        ? missingPosition
-                                            ? `Set ${missingPosition}`
-                                            : 'Ready to calculate'
-                                        : 'Choose departure type'}
+                                      : missingPosition
+                                        ? `Set ${missingPosition}`
+                                        : !status?.ready && status
+                                          ? 'Install charts to calculate'
+                                          : 'Ready to calculate'}
                             </span>
                             {dangerReported && (
                                 <span className="block font-bold">Danger reported · review required</span>
                             )}
+                            {proposal && proposal.warnings.length > 0 && (
+                                <span className="block">
+                                    {proposal.warnings.length} route {proposal.warnings.length === 1 ? 'note' : 'notes'}{' '}
+                                    · review required
+                                </span>
+                            )}
                             {proposal?.localEdit && (
-                                <span className="block">Edited · provider checks no longer apply</span>
+                                <span className="block">Edited · router checks no longer apply</span>
                             )}
                             {inspectedWaypoint && (mapError || encNoCoverage || encHydration.remaining > 0) && (
                                 <span className="block">
@@ -1274,35 +1135,10 @@ export function AutoroutingTrialWorkspace({
                     <div className="p-3 space-y-3">
                         {(!proposal || panelPage === 'setup') && (
                             <div className="space-y-3">
-                                <fieldset className="min-w-0">
-                                    <legend className="text-micro font-semibold text-gray-300">
-                                        Departure type — choose one
-                                    </legend>
-                                    <div className="mt-1 grid grid-cols-2 gap-2">
-                                        {(
-                                            [
-                                                ['canal', 'Canal / marina'],
-                                                ['open-water', 'Open water'],
-                                            ] as const
-                                        ).map(([mode, label]) => (
-                                            <button
-                                                key={mode}
-                                                type="button"
-                                                aria-pressed={departureMode === mode}
-                                                onClick={() => chooseDepartureMode(mode)}
-                                                className={`${buttonClass} min-w-0 ${departureMode === mode ? 'border-teal-400 bg-teal-500/20 text-teal-200' : 'bg-slate-900 text-white'}`}
-                                            >
-                                                {label}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </fieldset>
                                 <p className="text-micro text-gray-400">
-                                    {!departureMode
-                                        ? 'Choose Canal / marina or Open water above before calculating.'
-                                        : proposal && !editingEndpoints
-                                          ? 'Tap a numbered waypoint to inspect or move it.'
-                                          : `Tap the chart to set ${target}.`}
+                                    {proposal && !editingEndpoints
+                                        ? 'Tap a numbered waypoint to inspect or move it.'
+                                        : `Tap the chart to set ${target}.`}
                                 </p>
                                 {(encHydration.remaining > 0 || encNoCoverage) && (
                                     <p role="status" className="text-micro text-amber-300">
@@ -1318,77 +1154,6 @@ export function AutoroutingTrialWorkspace({
                                         {mapError}
                                     </p>
                                 )}
-                                {canalEnabled && automaticExit && (
-                                    <section
-                                        aria-label="Automatic channel exit"
-                                        className="rounded-xl border border-teal-400/30 bg-teal-500/10 p-3 text-micro"
-                                    >
-                                        <div className="flex items-center justify-between gap-2">
-                                            <button
-                                                type="button"
-                                                className="min-h-11 text-left"
-                                                onClick={() => focusSpot(automaticExit.exit)}
-                                            >
-                                                <span className="block font-bold text-teal-300">
-                                                    {automaticExit.label} ·{' '}
-                                                    {exitSourceReady ? 'automatic exit' : 'checking chart…'}
-                                                </span>
-                                                <span className="block tabular-nums">
-                                                    {formatLatDegMin(automaticExit.exit.lat)}{' '}
-                                                    {formatLonDegMin(automaticExit.exit.lon)}
-                                                </span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className={buttonClass}
-                                                onClick={() => {
-                                                    invalidate();
-                                                    setCanalExit(emptyPosition());
-                                                    setManualExitOverride(true);
-                                                    setTarget('canal exit');
-                                                    setEditingEndpoints(true);
-                                                }}
-                                            >
-                                                Choose manually
-                                            </button>
-                                        </div>
-                                        <p>
-                                            {proposal?.localEdit
-                                                ? 'Exit retained. The canal path has been edited; its original marker-pair checks no longer apply.'
-                                                : `Local route through ${automaticExit.gateCentres.length} charted marker pairs; SevenCs starts at the final pair. Depth and hazards still need checking.`}
-                                        </p>
-                                    </section>
-                                )}
-                                {canalEnabled && !automaticExit && (
-                                    <p className="text-micro text-amber-300">
-                                        {!manualExitOverride && exitResolution?.status === 'manual-required' && (
-                                            <span className="block">{exitResolution.reason}</span>
-                                        )}
-                                        Place Canal exit in open water beyond the walls. Thalassa plots to it; SevenCs
-                                        starts there. Local water shape does not establish depth or clearance.
-                                    </p>
-                                )}
-                                {canalEnabled && manualExitOverride && exitResolution?.status === 'resolved' && (
-                                    <button
-                                        type="button"
-                                        className={buttonClass}
-                                        onClick={() => {
-                                            invalidate();
-                                            setManualExitOverride(false);
-                                            setCanalExit(emptyPosition());
-                                            setTarget('destination');
-                                            setEditingEndpoints(true);
-                                        }}
-                                    >
-                                        Use automatic channel exit
-                                    </button>
-                                )}
-                                {departureMode === 'open-water' && (
-                                    <p className="text-micro text-gray-300">
-                                        SevenCs starts at departure. For a canal or marina exit, choose Canal / marina
-                                        above.
-                                    </p>
-                                )}
                                 <div className="grid grid-cols-2 gap-2">
                                     {endpointNames.map((name) => {
                                         const position = point(endpointInput(name));
@@ -1402,7 +1167,7 @@ export function AutoroutingTrialWorkspace({
                                                     setEditingEndpoints(true);
                                                     collapsePanel();
                                                 }}
-                                                className={`${buttonClass} min-w-0 py-2 text-left ${endpointNames.length === 3 && name === 'destination' ? 'col-span-2' : ''} ${target === name ? 'border-teal-400 bg-teal-500/10' : ''}`}
+                                                className={`${buttonClass} min-w-0 py-2 text-left ${target === name ? 'border-teal-400 bg-teal-500/10' : ''}`}
                                             >
                                                 <span className="block capitalize">{name}</span>
                                                 <span className="block text-micro font-normal">
@@ -1495,21 +1260,13 @@ export function AutoroutingTrialWorkspace({
                                         </p>
                                     </details>
                                 )}
-                                {status?.ready && !profileSupported && (
-                                    <p role="status" className="text-micro text-amber-300">
-                                        The routing service needs an update to use your full boat details. No
-                                        measurements have been omitted.
-                                    </p>
-                                )}
                                 {!status?.ready && (
                                     <p role="status" className="text-micro text-amber-300">
                                         {status?.message ||
-                                            (status
-                                                ? 'Trial calculation is not available.'
-                                                : 'Checking trial availability…')}
+                                            (status ? 'Trial calculation is not available.' : 'Checking charts…')}
                                     </p>
                                 )}
-                                {departureMode && missingPosition && (
+                                {missingPosition && (
                                     <p role="status" className="text-sm font-semibold text-amber-300">
                                         Set {missingPosition} on the chart or enter its coordinates before calculating.
                                     </p>
@@ -1538,12 +1295,10 @@ export function AutoroutingTrialWorkspace({
                                     onInspectWaypoint={(index) => {
                                         cancelMove();
                                         localSpotFocused.current = true;
-                                        setLocatedProvider(null);
                                         setSelectedWaypoint(index);
                                         setInspectingWaypoint(true);
                                         collapsePanel();
                                     }}
-                                    onLocateProvider={focusProvider}
                                     onStop={stopReview}
                                     onRecheck={recheck}
                                 />
@@ -1558,40 +1313,17 @@ export function AutoroutingTrialWorkspace({
                             <div hidden={panelPage !== 'review'}>
                                 <section aria-label="Trial proposal" className="space-y-1 text-micro">
                                     <p className="font-bold text-teal-300">
-                                        {proposal.localEdit
-                                            ? 'Locally edited trial proposal'
-                                            : proposal.canalDeparture
-                                              ? 'Thalassa canal + SevenCs proposal'
-                                              : 'SevenCs proposal'}{' '}
-                                        ·{' '}
+                                        {proposal.localEdit ? 'Locally edited trial proposal' : 'Thalassa proposal'} ·{' '}
                                         {savedProposal === proposal
                                             ? 'saved as a plan, not activated'
                                             : 'not saved or activated'}
                                     </p>
                                     {proposal.localEdit && (
                                         <p role="status" className="text-amber-300">
-                                            Waypoints moved · new local chart checks required. The original provider and
-                                            canal checks no longer apply. Saving this edited trial is unavailable.
+                                            Waypoints moved · new local chart checks required. The router&apos;s
+                                            original checks no longer apply. Saving this edited trial is unavailable.
                                         </p>
                                     )}
-                                    {proposal.canalDeparture && !proposal.localEdit && (
-                                        <p>
-                                            Canal exit: waypoint{' '}
-                                            {displayWaypoints.findIndex(
-                                                (waypoint) =>
-                                                    waypoint.pathIndex === proposal.canalDeparture!.handoverIndex,
-                                            ) + 1}
-                                            . Provider checks apply to the SevenCs section only.
-                                        </p>
-                                    )}
-                                    {proposal.localEdit && (
-                                        <p className="font-semibold">Original proposal notices (historical):</p>
-                                    )}
-                                    {proposal.warnings.map((warning, index) => (
-                                        <p key={index} className="text-amber-300">
-                                            {warning}
-                                        </p>
-                                    ))}
                                 </section>
                             </div>
                         )}
@@ -1638,12 +1370,6 @@ export function AutoroutingTrialWorkspace({
                     className="autoroute-map-prompt rounded-xl border border-white/15 bg-slate-950 px-3 py-2 text-micro shadow-xl"
                     role="status"
                 >
-                    {locatedProvider && (
-                        <span className="block font-semibold text-amber-300">
-                            SevenCs {locatedProvider.severity} · exact reported {locatedProvider.geometry?.type}{' '}
-                            highlighted.
-                        </span>
-                    )}
                     {(mapError || encNoCoverage || encHydration.remaining > 0) && (
                         <span className="block font-semibold text-amber-300">
                             {mapError ||
@@ -1660,9 +1386,7 @@ export function AutoroutingTrialWorkspace({
                             : reviewProposal
                               ? 'Day plan preview · review checks, then return to the itinerary.'
                               : 'Trial proposal only · open Route review to inspect checks and save.'
-                        : !departureMode
-                          ? 'Open Set up route to choose Canal / marina or Open water.'
-                          : `Tap the chart to set ${target}.`}
+                        : `Tap the chart to set ${target}.`}
                 </div>
             )}
         </OverlayPortal>

@@ -160,20 +160,7 @@ export async function reviewAutoroutingProposal(
                 if (signal.aborted) return;
                 const index = indices.get(key);
                 if (index === undefined) return;
-                const localCanal = index < (route.canalDeparture?.handoverIndex ?? 0);
-                const incomplete = volatile || verdict.minDepthM === null || localCanal;
-                if (localCanal)
-                    verdict = {
-                        ...verdict,
-                        issues: [
-                            ...verdict.issues,
-                            {
-                                severity: 'caution',
-                                message:
-                                    'Local canal proposal — mapped water shape is not a depth or clearance guarantee.',
-                            },
-                        ],
-                    };
+                const incomplete = volatile || verdict.minDepthM === null;
                 // Even a mistakenly optimistic upstream status cannot make a
                 // missing-depth or failed-marker result look green here.
                 legs[index] = {

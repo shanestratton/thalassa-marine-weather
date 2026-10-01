@@ -34,6 +34,7 @@ import {
     NEEDS_TIDE_AMBER,
     SURVEY_DASH,
     inshoreRouteFeatures,
+    inshoreRouteLineLayers,
     inshoreRoutePieces,
     inshoreSegmentStates,
     routeTideDepths,
@@ -330,8 +331,26 @@ describe('decision 9 beside decision 10 — survey stretches are amber DASHES', 
     it('the map draws them: solid layers leave survey out, the dashed pair draws it', () => {
         const src = readFileSync('components/map/useMapInit.ts', 'utf8');
         expect(src).toContain('surveyDashLayers(');
-        expect(src).toContain("['!=', ['get', 'safety'], 'survey']");
-        expect(src).toContain("'tide',\n                        NEEDS_TIDE_AMBER");
+        // The solid layers' table moved to inshoreRouteState on 2026-10-01
+        // (shared with Auto's map): check what it builds, not its spelling.
+        expect(src).toContain("inshoreRouteLineLayers('route-line')");
+        const layers = inshoreRouteLineLayers('route-line');
+        // Both tables pinned outright (2026-10-01 review: the core's entry
+        // went unpinned behind a branch): the glow and the line draw needs
+        // tide in THE amber, the thin core in its pale tint.
+        const tideColour = (id: string): unknown => {
+            const layer = layers.find((l) => l.id === id);
+            expect(layer, id).toBeDefined();
+            expect(layer!.filter).toContainEqual(['!=', ['get', 'safety'], 'survey']);
+            const colours = layer!.paint['line-color'] as unknown[];
+            const tide = colours.indexOf('tide');
+            expect(tide).toBeGreaterThan(1);
+            return colours[tide + 1];
+        };
+        expect(layers.map((l) => l.id)).toEqual(['route-glow', 'route-line-layer', 'route-core']);
+        expect(tideColour('route-glow')).toBe(NEEDS_TIDE_AMBER);
+        expect(tideColour('route-line-layer')).toBe(NEEDS_TIDE_AMBER);
+        expect(tideColour('route-core')).toBe('#ffe0b2');
         expect(src).not.toContain('ntmlock');
     });
 

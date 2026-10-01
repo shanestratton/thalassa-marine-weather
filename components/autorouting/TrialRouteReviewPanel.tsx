@@ -8,8 +8,7 @@ import {
     type TrialRouteReview,
 } from '../../services/autoroutingReview';
 import type { TracePoint } from '../../services/routeTracer';
-import type { AutoroutingProviderFinding } from '../../types/autorouting';
-import { providerHazardViewport } from '../../services/providerHazardGeometry';
+import { NEEDS_TIDE_AMBER, SURVEY_DASH } from '../map/inshoreRouteState';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 import {
     buildTrialWaypointPlan,
@@ -31,7 +30,6 @@ export function TrialRouteReviewPanel({
     onSelect,
     onFocus,
     onInspectWaypoint,
-    onLocateProvider,
     onStop,
     onRecheck,
 }: {
@@ -44,25 +42,22 @@ export function TrialRouteReviewPanel({
     onSelect: (index: number) => void;
     onFocus: (point: TracePoint) => void;
     onInspectWaypoint?: (index: number) => void;
-    onLocateProvider?: (finding: AutoroutingProviderFinding) => void;
     onStop: () => void;
     onRecheck: () => void;
 }) {
     // Waypoints are a presentation plan only. The route and every original
     // segment verdict remain untouched, including at fractional spacing points.
-    const handoverIndex = route?.canalDeparture?.handoverIndex;
-    // A move invalidates the report, not the existence of its hazards. Keep
-    // the original findings visible, explicitly historical, beside new checks.
-    const providerReport = route?.localEdit?.originalProposal.providerCheck ?? route?.providerCheck;
-    const providerDangers = providerReport?.findings.filter((finding) => finding.severity === 'danger') ?? [];
-    const providerAdvisories = providerReport?.findings.filter((finding) => finding.severity !== 'danger') ?? [];
     const waypointPlan = useMemo(
         () =>
             suppliedWaypoints
                 ? { waypoints: suppliedWaypoints, sparse: suppliedSparse ?? true }
-                : buildTrialWaypointPlan(coordinates, handoverIndex == null ? [] : [handoverIndex]),
-        [suppliedWaypoints, suppliedSparse, coordinates, handoverIndex],
+                : buildTrialWaypointPlan(coordinates, []),
+        [suppliedWaypoints, suppliedSparse, coordinates],
     );
+    // The line is in the router's own colours only for its unedited line with
+    // an intact disclosure (the workspace paints it so).
+    const routerColours =
+        !!route?.engine?.stateMask && !route.localEdit && route.engine.stateMask.length === coordinates.length - 1;
     const { waypoints, sparse } = waypointPlan;
     const legRanges = useMemo(
         () => waypoints.map((_, index) => displayWaypointLegRange(waypoints, index)),
@@ -97,107 +92,56 @@ export function TrialRouteReviewPanel({
             : review.phase === 'stopped'
               ? `Checks stopped at ${done}/${segmentCount} detailed route segments.`
               : `${danger} danger · ${caution} caution · ${incomplete} incomplete · ${done}/${segmentCount} checked segments`;
-    const providerFinding = (finding: AutoroutingProviderFinding, index: number) => (
-        <li
-            key={`${finding.featureIndex}-${index}`}
-            className="trial-provider-finding"
-            data-severity={finding.severity}
-            style={{
-                color: finding.severity === 'danger' ? TRIAL_GRADE_COLORS.danger : TRIAL_GRADE_COLORS.caution,
-            }}
-        >
-            {onLocateProvider && providerHazardViewport(finding) ? (
-                <button
-                    type="button"
-                    className="min-h-11 w-full text-left underline decoration-dotted"
-                    aria-label={`Locate provider finding ${finding.featureIndex + 1}`}
-                    onClick={() => onLocateProvider(finding)}
-                >
-                    {finding.message} ↗
-                </button>
-            ) : (
-                <p>{finding.message}</p>
-            )}
-            {finding.provenance && (
-                <details className="trial-review-disclosure mt-1 text-gray-300">
-                    <summary>Provider details · source feature {finding.featureIndex + 1}</summary>
-                    <dl className="space-y-1 break-words">
-                        {Object.entries(finding.provenance.properties).map(([key, value]) => (
-                            <div key={key}>
-                                <dt className="font-semibold">{key}</dt>
-                                <dd>{typeof value === 'string' ? value : JSON.stringify(value)}</dd>
-                            </div>
-                        ))}
-                    </dl>
-                    {finding.provenance.omittedPropertyCount > 0 && (
-                        <p>
-                            {finding.provenance.omittedPropertyCount} additional source properties are retained only in
-                            the original provider report.
-                        </p>
-                    )}
-                </details>
-            )}
+    const swatch = (colour: string, label: string, dotted = false) => (
+        <li className="flex items-center gap-2">
+            <span
+                aria-hidden="true"
+                className="inline-block h-1.5 w-6 shrink-0 rounded-full"
+                style={
+                    dotted
+                        ? {
+                              background: `radial-gradient(circle, ${colour} 45%, transparent 50%) 0 0 / 6px 6px repeat-x, ${SURVEY_DASH.casing}`,
+                          }
+                        : { background: colour }
+                }
+            />
+            <span>{label}</span>
         </li>
     );
     return (
         <section aria-label="Route chart checks" className="trial-review-panel space-y-2">
             {route && (
                 <section
-                    aria-label="SevenCs provider report"
-                    data-severity={providerReport?.status === 'unsafe' ? 'danger' : 'caution'}
-                    role={providerReport?.status === 'unsafe' ? 'alert' : undefined}
-                    className="trial-provider-report rounded-lg border p-2 space-y-1 text-micro"
-                    style={{
-                        borderColor:
-                            providerReport?.status === 'unsafe'
-                                ? TRIAL_GRADE_COLORS.danger
-                                : TRIAL_GRADE_COLORS.caution,
-                        color:
-                            providerReport?.status === 'unsafe'
-                                ? TRIAL_GRADE_COLORS.danger
-                                : TRIAL_GRADE_COLORS.caution,
-                    }}
+                    aria-label="What this route must say"
+                    className="trial-route-notes rounded-lg border border-amber-300/30 p-2 space-y-1 text-micro"
                 >
-                    <h3 className="font-bold">
-                        {route.localEdit
-                            ? 'Original SevenCs report · before waypoint edits'
-                            : providerReport?.status === 'unsafe'
-                              ? 'SevenCs reported an unsafe proposal'
-                              : providerReport?.status === 'caution'
-                                ? 'SevenCs reported cautions'
-                                : 'Provider clearance is not established'}
-                    </h3>
+                    <h3 className="font-bold text-amber-300">What this route must say</h3>
                     {route.localEdit && (
                         <p className="font-semibold">
-                            Original provider status: {providerReport?.status ?? 'not reported'} · historical only.
+                            From the original route, before waypoint edits · historical, not checks of this line.
                         </p>
                     )}
-                    <p>
-                        {route.localEdit
-                            ? 'This report does not check the edited route. Original findings remain below for review. '
-                            : ''}
-                        {providerReport?.status === 'unsafe' ? 'Do not use this proposal for navigation. ' : ''}
-                        Local chart checks below do not override provider findings or establish route safety.
-                        {route.canalDeparture
-                            ? ' The provider report covers the SevenCs section only, not the local canal.'
-                            : ''}
+                    <ul className="space-y-1 text-amber-200">
+                        {route.warnings.map((warning, index) => (
+                            <li key={index}>{warning}</li>
+                        ))}
+                    </ul>
+                </section>
+            )}
+            {routerColours && (
+                <section aria-label="Route line colours" className="trial-route-legend space-y-1 text-micro">
+                    <h4 className="font-semibold text-gray-200">Route line · Thalassa&apos;s router</h4>
+                    <ul className="grid grid-cols-2 gap-1 text-gray-300">
+                        {swatch('#ff1744', 'Red · land, shallow or unchecked — read the route notes')}
+                        {swatch(NEEDS_TIDE_AMBER, 'Amber · a tide clears it')}
+                        {swatch(SURVEY_DASH.ink, 'Amber dots · survey quality', true)}
+                        {swatch('#facc15', 'Yellow · marked channel')}
+                        {swatch('#2dd4bf', 'Teal · deep water')}
+                    </ul>
+                    <p className="text-gray-400">
+                        The chart checks below credit no tide: water the line shows amber reads as danger there, with
+                        the tide it needs, until you check the tide window.
                     </p>
-                    {providerDangers.length > 0 && (
-                        <ul className="space-y-1" aria-label="Provider dangers">
-                            {providerDangers.map(providerFinding)}
-                        </ul>
-                    )}
-                    {providerAdvisories.length > 0 && (
-                        <details className="trial-review-disclosure">
-                            <summary>
-                                {providerAdvisories.length} provider{' '}
-                                {providerAdvisories.length === 1 ? 'advisory' : 'advisories'} · inspect findings
-                            </summary>
-                            <ul className="space-y-1" aria-label="Provider advisories">
-                                {providerAdvisories.map(providerFinding)}
-                            </ul>
-                        </details>
-                    )}
                 </section>
             )}
             <div className="flex items-center justify-between gap-2">
@@ -335,9 +279,7 @@ export function TrialRouteReviewPanel({
                                                 ? ' · Departure'
                                                 : index === waypoints.length - 1
                                                   ? ' · Destination'
-                                                  : waypoint.kind === 'handover'
-                                                    ? ' · Canal exit'
-                                                    : ''}
+                                                  : ''}
                                         </span>
                                         <span className="block font-mono">
                                             {formatLatDegMin(lat)} {formatLonDegMin(lon)}

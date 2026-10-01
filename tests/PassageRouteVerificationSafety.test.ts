@@ -72,7 +72,10 @@ describe('Passage Planner fail-closed route verification contract', () => {
     });
 
     it('styles every unverified and progressive preview as amber/grey rather than green', () => {
-        expect(mapInitSource).toContain("'unverified',\n                        '#f59e0b'");
+        // The solid route colours moved to inshoreRouteState on 2026-10-01
+        // (shared with Auto's map); useMapInit draws them from there.
+        expect(mapInitSource).toContain("inshoreRouteLineLayers('route-line')");
+        expect(stateSource).toContain("['unverified', '#f59e0b']");
         expect(mapInitSource).toContain("['match', ['get', 'safety'], 'unverified', '#f59e0b', '#38bdf8']");
         expect(routerEventsSource).toContain("'line-color': '#f59e0b'");
         expect(routerEventsSource).not.toContain("'line-color': '#00e676'");

@@ -1,4 +1,5 @@
 import type { AutoroutingTrialRoute } from '../types/autorouting';
+import { dangerWithoutChartedDepth } from '../components/map/inshoreRouteState';
 import type { TrialRouteReview } from './autoroutingReview';
 import { saveTrace, type SavedTrace, type TracePoint } from './routeTracer';
 import { getRegistryFingerprint } from './enc/EncCellMetadata';
@@ -28,13 +29,33 @@ export function evaluateAutoroutingProposalSave(
     currentDraftAssumed: boolean,
 ): { eligible: boolean; reason: string } {
     const deny = (reason: string) => ({ eligible: false, reason });
-    if (route.provider !== 'SevenCs') return deny('The proposal origin is not recognised.');
+    // Thalassa's router is Auto's only provider since 2026-10-01.
+    if (route.provider !== 'Thalassa') return deny('The proposal origin is not recognised.');
     if (route.localEdit !== undefined)
+        return deny("This edited route has not been rechecked by Thalassa's router and cannot be saved. Recalculate.");
+    // The line was routed but its safety classifications did not arrive intact
+    // (the planner's dashed 'unverified' line): never a saved plan.
+    if (
+        !route.engine ||
+        !Array.isArray(route.engine.stateMask) ||
+        route.engine.stateMask.length !== route.coordinates.length - 1
+    )
+        return deny('Route shown, verification incomplete. Recalculate before saving.');
+    // Review fix-ups (2026-10-01). Land the route crosses away from a pin's
+    // own edge: Auto refuses such a route, so this only holds the line.
+    if ((route.engine.hardLandAwayM ?? 0) > 0)
+        return deny('This route crosses charted land. It cannot be saved. Nothing was saved.');
+    // Red with no charted depth behind it — land, water no chart vouches for,
+    // a charted hazard's buffer: nothing on the chart says the boat floats
+    // there, whatever the independent review graded it.
+    if ((dangerWithoutChartedDepth(route.engine) ?? [0]).length > 0)
         return deny(
-            'This locally edited trial has not been rechecked by SevenCs and cannot be saved. Recalculate a fresh proposal.',
+            'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
         );
-    if (route.providerCheck?.status === 'unsafe' || route.providerCheck?.findings.some((f) => f.severity === 'danger'))
-        return deny('The provider reported danger. Resolve it before saving this proposal.');
+    // The satellite land check did not run (offline: its cache is in memory
+    // only). Shown with its caveat; saved only once it has been checked.
+    if (route.engine.backstop !== 'verified')
+        return deny('The satellite land check has not run for this route (offline). Recalculate online before saving.');
     if (!review || review.phase !== 'complete') return deny('Finish current chart checks before saving.');
     const key = autoroutingProposalGeometryKey(route.coordinates);
     const basis = review.basis;
@@ -82,15 +103,15 @@ export function prepareReviewedAutoroutingProposal(
     const points = route.coordinates.map(([lon, lat]) => ({ lat, lon }));
     const candidate = {
         version: 1,
-        origin: 'sevencs-trial',
+        // The router's disclosure (masks, runs) stays in memory: the warnings
+        // already carry what the route must say.
+        origin: 'thalassa-inshore',
         proposalId: route.id,
         providerCreatedAt: route.createdAt,
         savedAt: new Date().toISOString(),
         plannedOnlyAcknowledged: true,
         basis: review!.basis!,
         warnings: route.warnings,
-        ...(route.providerCheck ? { providerCheck: route.providerCheck } : {}),
-        ...(route.canalDeparture ? { canalHandoverIndex: route.canalDeparture.handoverIndex } : {}),
         legs: review!.legs.map((leg) => ({
             grade: leg!.verdict.grade,
             incomplete: leg!.incomplete,

@@ -1,6 +1,10 @@
 import type { Feature, FeatureCollection, LineString, Polygon } from 'geojson';
 import { describe, expect, it } from 'vitest';
-import { auditUnvouchedHardLand, MAX_UNVOUCHED_HARD_LAND_RUN_M } from '../../services/engine/safetyAudit';
+import {
+    auditUnvouchedHardLand,
+    hardLandAwayFromPinEdges,
+    MAX_UNVOUCHED_HARD_LAND_RUN_M,
+} from '../../services/engine/safetyAudit';
 import type { InshoreLayers } from '../../services/engine/types';
 
 function polygon(minLon: number, minLat: number, maxLon: number, maxLat: number): Feature<Polygon> {
@@ -45,11 +49,15 @@ describe('auditUnvouchedHardLand', () => {
             maxRunM: 0,
             totalM: 0,
             sampledIntervals: 0,
+            runs: [],
+            lengthM: 0,
         });
         expect(auditUnvouchedHardLand({ LNDARE: collection(polygon(0, 0, 1, 1)) }, [[0, 0]])).toEqual({
             maxRunM: 0,
             totalM: 0,
             sampledIntervals: 0,
+            runs: [],
+            lengthM: 0,
         });
     });
 
@@ -62,6 +70,41 @@ describe('auditUnvouchedHardLand', () => {
         expect(result.sampledIntervals).toBeGreaterThan(100);
         expect(result.maxRunStart?.[0]).toBeGreaterThanOrEqual(0);
         expect(result.maxRunEnd?.[0]).toBeLessThanOrEqual(0.02);
+        // Each run, by where it lies along the line (2026-10-01).
+        expect(result.runs).toHaveLength(1);
+        expect(result.runs[0].lengthM).toBeCloseTo(result.maxRunM, 6);
+        expect(result.runs[0].toM - result.runs[0].fromM).toBeCloseTo(result.maxRunM, 6);
+        expect(result.runs[0].fromM).toBeGreaterThan(0);
+        expect(result.runs[0].toM).toBeLessThan(result.lengthM);
+        expect(result.runs[0].mid[0]).toBeGreaterThan(0);
+        expect(result.runs[0].mid[0]).toBeLessThan(0.02);
+    });
+
+    // 2026-10-01 review: the land a route crosses, apart from the ground a
+    // pin off the water sits on (Auto refuses any of it).
+    it('tells the land at a pin’s own edge from the land a route crosses', () => {
+        const audit = {
+            lengthM: 10_000,
+            runs: [
+                { fromM: 0, toM: 20, lengthM: 20, mid: [1, 1] as [number, number] },
+                { fromM: 4_000, toM: 4_400, lengthM: 400, mid: [2, 2] as [number, number] },
+                { fromM: 9_990, toM: 10_000, lengthM: 10, mid: [3, 3] as [number, number] },
+            ],
+        };
+        expect(hardLandAwayFromPinEdges(audit, { origin: false, destination: false })).toEqual({
+            metres: 430,
+            at: [2, 2],
+        });
+        expect(hardLandAwayFromPinEdges(audit, { origin: true, destination: true })).toEqual({
+            metres: 400,
+            at: [2, 2],
+        });
+        // An edge pin excuses only the run that touches ITS end.
+        expect(hardLandAwayFromPinEdges(audit, { origin: true, destination: false }).metres).toBe(410);
+        expect(hardLandAwayFromPinEdges({ lengthM: 100, runs: [] }, { origin: true, destination: true })).toEqual({
+            metres: 0,
+            at: null,
+        });
     });
 
     // Phase 2a review (2026-09-30): the audit's water test is the grid's

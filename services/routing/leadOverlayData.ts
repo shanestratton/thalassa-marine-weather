@@ -33,6 +33,41 @@ import {
 /** ~2 km around the view, so a lead that starts just off-screen is drawn. */
 const PAD_DEG = 0.02;
 
+/** The capped cells under a view, their cache keys, and the cached graph. */
+function viewLookup(
+    bbox: [number, number, number, number],
+    draftM: number,
+    draftAssumed: boolean,
+    airDraftM: number | null,
+) {
+    const window: [number, number, number, number] = [
+        bbox[0] - PAD_DEG,
+        bbox[1] - PAD_DEG,
+        bbox[2] + PAD_DEG,
+        bbox[3] + PAD_DEG,
+    ];
+    const cells = capCellsForMerge(cellsForBBox(window), window);
+    const keys = cells.map(encCellContentIdentity);
+    const classify = { draftAssumed, airDraftM };
+    const hit = cells.length === 0 ? null : peekLeadGraph(keys, draftM, {}, LEAD_UKC_M, classify);
+    return { cells, keys, classify, hit };
+}
+
+/**
+ * The lead graph for a view ONLY if it is already compiled (the same cells,
+ * draft and air draft as leadGraphForView), else null — no cell is read and
+ * nothing is compiled. For the router's lead shadow (2026-10-01 review): it
+ * must cost a route nothing it would not otherwise spend.
+ */
+export function peekLeadGraphForView(
+    bbox: [number, number, number, number],
+    draftM: number,
+    draftAssumed = false,
+    airDraftM: number | null = null,
+): LeadGraph | null {
+    return viewLookup(bbox, draftM, draftAssumed, airDraftM).hit;
+}
+
 /**
  * The lead graph for the installed navigation cells under a map view
  * [west, south, east, north], classified for `draftM`. `draftAssumed`: the
@@ -48,17 +83,8 @@ export async function leadGraphForView(
     draftAssumed = false,
     airDraftM: number | null = null,
 ): Promise<LeadGraph | null> {
-    const window: [number, number, number, number] = [
-        bbox[0] - PAD_DEG,
-        bbox[1] - PAD_DEG,
-        bbox[2] + PAD_DEG,
-        bbox[3] + PAD_DEG,
-    ];
-    const cells = capCellsForMerge(cellsForBBox(window), window);
+    const { cells, keys, classify, hit } = viewLookup(bbox, draftM, draftAssumed, airDraftM);
     if (cells.length === 0) return null;
-    const keys = cells.map(encCellContentIdentity);
-    const classify = { draftAssumed, airDraftM };
-    const hit = peekLeadGraph(keys, draftM, {}, LEAD_UKC_M, classify);
     if (hit) return hit;
 
     const inputs: LeadCellInput[] = [];

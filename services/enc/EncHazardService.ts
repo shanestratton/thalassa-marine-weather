@@ -513,6 +513,16 @@ async function importCellSerialized(
         cloudManifestVersion?: number;
         personalManifestVersion?: number;
         contentSha256?: string;
+        /** The size the Pi's index reported for this revision (see EncCell.piSizeBytes). */
+        piSizeBytes?: number;
+        /**
+         * A route-time Pi pull (piCellSync downloadPiCell) has no index row to
+         * hand in contentSha256 / piSizeBytes. When the bytes it wrote are the
+         * same revision as the record they replace — same edition, update and
+         * stored size — that record's values are kept, so the chart sheet
+         * does not count a held Pi chart as missing again (2026-10-01 review).
+         */
+        keepPiRevisionWhenUnchanged?: boolean;
         /** Recheck the originating account/Pi after queued work and async I/O. */
         assertAuthority?: () => void;
     } = {},
@@ -553,6 +563,9 @@ async function importCellSerialized(
     }
     if (options.contentSha256 !== undefined && !/^[a-f0-9]{64}$/.test(options.contentSha256)) {
         throw new Error(`${canonicalId} revision fingerprint is invalid; bytes were not written.`);
+    }
+    if (options.piSizeBytes !== undefined && (!Number.isSafeInteger(options.piSizeBytes) || options.piSizeBytes <= 0)) {
+        throw new Error(`${canonicalId} Pi revision size is invalid; bytes were not written.`);
     }
     if (
         !/^\d{4}-\d{2}-\d{2}$/.test(issued) ||
@@ -694,13 +707,27 @@ async function importCellSerialized(
     // re-extractions with the same cellId+edition (e.g. when the
     // senc-extractor's rogue-triangle filter improves). Stringify length
     // matches the bytes the Pi reported in its installed-cells index.
+    // The record this import replaces, when it is the same revision with the
+    // same stored bytes: a route-time pull keeps its Pi identity.
+    const unchangedRevision =
+        options.keepPiRevisionWhenUnchanged &&
+        options.contentSha256 === undefined &&
+        options.piSizeBytes === undefined &&
+        installedDisplayCell !== null &&
+        installedDisplayCell.edition === normalizedBlob.edition &&
+        installedDisplayCell.updateNumber === normalizedBlob.updateNumber &&
+        installedDisplayCell.sizeBytes === sizeBytes
+            ? installedDisplayCell
+            : null;
+    const contentSha256 = options.contentSha256 ?? unchangedRevision?.contentSha256;
+    const piSizeBytes = options.piSizeBytes ?? unchangedRevision?.piSizeBytes;
     const cell: EncCell = {
         id: canonicalId,
         sourceHO: normalizedBlob.sourceHO,
         sourceCellId: normalizedBlob.sourceCellId,
         edition: normalizedBlob.edition,
         updateNumber: normalizedBlob.updateNumber,
-        contentSha256: options.contentSha256,
+        contentSha256,
         issued: normalizedBlob.issued,
         importedAt: new Date().toISOString(),
         bbox: normalizedBlob.bbox,
@@ -709,6 +736,7 @@ async function importCellSerialized(
         usage: requestedUsage,
         catzocRange,
         sizeBytes,
+        ...(piSizeBytes !== undefined ? { piSizeBytes } : {}),
         ...(Number.isInteger(options.cloudManifestVersion)
             ? { cloudManifestVersion: options.cloudManifestVersion }
             : {}),
@@ -738,6 +766,8 @@ export function importCell(
         cloudManifestVersion?: number;
         personalManifestVersion?: number;
         contentSha256?: string;
+        piSizeBytes?: number;
+        keepPiRevisionWhenUnchanged?: boolean;
         assertAuthority?: () => void;
     } = {},
 ): Promise<EncCell> {

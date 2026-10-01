@@ -37,12 +37,12 @@ import {
     listPiInstalledCharts,
     listRecentEncInstalls,
     resumeEncInstall,
-    encCellSyncKey,
     type EncImportProgress,
     type EncImportSummary,
     type EncInstallReceipt,
 } from '../../services/EncImportService';
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
+import { planPiCellSync } from '../../services/enc/piSyncPlan';
 import type { EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 import { piCache } from '../../services/PiCacheService';
@@ -346,6 +346,8 @@ export const EncCellManager: React.FC = () => {
     const [importing, setImporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastSkipped, setLastSkipped] = useState<{ filename: string; error: string }[]>([]);
+    /** Bumped after a sync on this sheet so the Pi plan re-reads the phone's chart refusals. */
+    const [syncRefusalsVersion, setSyncRefusalsVersion] = useState(0);
     const [urlDialogOpen, setUrlDialogOpen] = useState(false);
     const [urlInput, setUrlInput] = useState('');
     const [urlError, setUrlError] = useState<string | null>(null);
@@ -657,6 +659,7 @@ export const EncCellManager: React.FC = () => {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
             setImporting(false);
+            setSyncRefusalsVersion((version) => version + 1);
             scheduleProgressClear();
         }
     }, [refreshCells, scheduleProgressClear]);
@@ -824,25 +827,27 @@ export const EncCellManager: React.FC = () => {
 
     // Find Pi cells the device is either missing OR has at a stale
     // edition. Both count as "the user has something to sync".
-    // encCellSyncKey is the SERVICE's definition of "already on this device",
+    // planPiCellSync is the SERVICE's definition of "already on this device",
     // shared rather than re-derived. This used to key on `cellId@edition`,
     // which silently disagreed with syncEncFromPi: a cell the Pi re-extracted
     // (same id, same chart edition, different bytes) read as already-held, so
     // the sheet claimed "Pi charts already in sync", the Sync button stayed
     // hidden, and the picker — gated on the same flag — was hidden too. The
     // improved charts were unreachable with the Pi sitting right there.
-    const localCellKeys = useMemo(
-        () => new Set(cells.map((c) => encCellSyncKey(c.id, c.edition ?? 0, c.sizeBytes, c.contentSha256))),
-        [cells],
-    );
-    const missingOnDevice = useMemo(
-        () =>
-            (piCellsSummary ?? []).filter(
-                ({ cellId, edition, sizeBytes, contentSha256 }) =>
-                    !localCellKeys.has(encCellSyncKey(cellId, edition, sizeBytes, contentSha256)),
-            ),
-        [piCellsSummary, localCellKeys],
-    );
+    //
+    // 2026-10-01: the count must also never offer a sync that cannot add
+    // anything. Shane's "Sync 12 charts from Pi" never reached 0: five were
+    // charts this phone refuses (no depth areas), left out of the count with a
+    // plain note instead, and seven were legacy Pi rows the phone could never
+    // match as held (it now records the Pi's size for what it pulls; a copy
+    // from before that is pulled once more). `syncRefusalsVersion` re-reads
+    // the refusals after a sync on this sheet.
+    const piSyncPlan = useMemo(() => {
+        void syncRefusalsVersion;
+        return planPiCellSync(piCellsSummary ?? [], cells);
+    }, [piCellsSummary, cells, syncRefusalsVersion]);
+    const missingOnDevice = piSyncPlan.pending;
+    const unusableOnPhone = piSyncPlan.withoutDepthAreas.length;
     const piHasMoreThanLocal = missingOnDevice.length > 0;
 
     // Per-chart pull. Auto-sync only fetches the 20 cells nearest the current
@@ -872,6 +877,7 @@ export const EncCellManager: React.FC = () => {
                 setError(err instanceof Error ? err.message : String(err));
             } finally {
                 setPullingCellId(null);
+                setSyncRefusalsVersion((version) => version + 1);
                 scheduleProgressClear();
             }
         },
@@ -1138,6 +1144,16 @@ export const EncCellManager: React.FC = () => {
                                         </span>
                                     </span>
                                 </button>
+                            )}
+
+                            {/* Charts the phone refused at their current Pi
+                                revision (2026-10-01). Not in the count — a sync
+                                cannot add them — but not silently missing either. */}
+                            {unusableOnPhone > 0 && (
+                                <p className="px-1 text-[10px] text-white/60 leading-relaxed">
+                                    {unusableOnPhone} chart{unusableOnPhone === 1 ? '' : 's'} on the Pi can’t be used on
+                                    this phone: {unusableOnPhone === 1 ? 'it has' : 'they have'} no depth areas.
+                                </p>
                             )}
 
                             {/* Targeted pull — see `showPicker` above. */}

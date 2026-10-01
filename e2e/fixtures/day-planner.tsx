@@ -228,6 +228,9 @@ const vessel: VesselProfile = {
 const rejectSavedPlan = () => {
     throw new Error('No saved plan exists in the form-only fixture.');
 };
+const rejectUpgrade = () => {
+    throw new Error('Upgrade is not part of the form-only fixture.');
+};
 // Use the production Plan front door and its real context, without mounting
 // SettingsProvider (which starts account/fleet sync). A loading settings gate
 // suppresses weather initialization; only the in-memory synthetic vessel is used.
@@ -295,7 +298,13 @@ function Fixture() {
                                 Synthetic vessel, account and yacht coordinates. No real GPS, route calculations, chart
                                 assertions or account writes. Storage exists only in this page.
                             </p>
-                            <DayPlannerEntry vessel={vessel} mapboxToken="" onOpenSaved={rejectSavedPlan} />
+                            <DayPlannerEntry
+                                vessel={vessel}
+                                mapboxToken=""
+                                onOpenSaved={rejectSavedPlan}
+                                isPro
+                                onUpgrade={rejectUpgrade}
+                            />
                         </>
                     )}
                 </section>

@@ -2,21 +2,28 @@ import React, { useCallback, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import mapboxgl from 'mapbox-gl';
 import { RoutingModeDialog } from '../../components/autorouting/RoutingModeDialog';
+import {
+    AutoroutingProviderContext,
+    thalassaAutoroutingProvider,
+    type AutoroutingProvider,
+} from '../../components/autorouting/AutoroutingProviderContext';
 import { SlideToAction } from '../../components/ui/SlideToAction';
 import { PanePortalScope } from '../../context/PanePortalContext';
 import { NIGHT_SCRIM_Z_INDEX } from '../../components/ui/OverlayPortal';
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
-import { supabase } from '../../services/supabase';
 import { LocationStore } from '../../stores/LocationStore';
 import { awaitSettingsLoaded, useSettingsStore } from '../../stores/settingsStore';
 import { initGlobalKeyboardScroll } from '../../utils/keyboardScroll';
-import type { AutoroutingTrialRequest } from '../../types/autorouting';
+import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../../types/autorouting';
 import type { TrialRouteReview } from '../../services/autoroutingReview';
 import { importCell } from '../../services/enc/EncHazardService';
 import '../../index.css';
 
 const params = new URLSearchParams(location.search);
 const pane = params.get('pane') === 'true';
+/** ?engine=real runs Thalassa's own router on a synthetic navigation cell;
+ * otherwise a stub provider returns synthetic geometry (2026-10-01). */
+const realEngine = params.get('engine') === 'real';
 const mode = params.get('mode') || 'dark';
 document.documentElement.classList.toggle('display-light', mode === 'light');
 setAuthIdentityScope('trial-layout-fixture');
@@ -178,7 +185,76 @@ const overviewEncReady =
               { usage: 'reference' },
           )
         : Promise.resolve();
-const encReady = Promise.all([fineEncReady, overviewEncReady]);
+// ?engine=real: a synthetic NAVIGATION cell in the open Tasman Sea (invented
+// geometry near 161.0E, 31.0S — no real chart data): a 10 m sea, an island,
+// and a bank charted 0–1 m (DRVAL1 0 / DRVAL2 1) south of it.
+// ?charts=none installs nothing, so Auto opens with Calculate disabled.
+const box = (w: number, s: number, e: number, n: number): GeoJSON.Polygon => ({
+    type: 'Polygon',
+    coordinates: [
+        [
+            [w, s],
+            [e, s],
+            [e, n],
+            [w, n],
+            [w, s],
+        ],
+    ],
+});
+const area = (geometry: GeoJSON.Polygon, properties: Record<string, unknown>): GeoJSON.Feature => ({
+    type: 'Feature',
+    properties,
+    geometry,
+});
+const realEncReady =
+    realEngine && params.get('charts') !== 'none'
+        ? importCell(
+              {
+                  cellId: 'ZZ5TEST9',
+                  sourceHO: 'ZZ',
+                  edition: 1,
+                  issued: '2026-10-01',
+                  bbox: [160.9, -31.1, 161.1, -30.9],
+                  layers: {
+                      DEPARE: {
+                          type: 'FeatureCollection',
+                          features: [
+                              // Sea around the island, in four strips.
+                              area(box(160.9, -31.1, 160.99, -30.9), { DRVAL1: 10, DRVAL2: 20 }),
+                              area(box(161.01, -31.1, 161.1, -30.9), { DRVAL1: 10, DRVAL2: 20 }),
+                              area(box(160.99, -30.99, 161.01, -30.9), { DRVAL1: 10, DRVAL2: 20 }),
+                              area(box(160.99, -31.1, 161.01, -31.03), { DRVAL1: 10, DRVAL2: 20 }),
+                              // The bank south of the island.
+                              area(box(160.99, -31.03, 161.01, -31.01), { DRVAL1: 0, DRVAL2: 1 }),
+                          ],
+                      },
+                      LNDARE: {
+                          type: 'FeatureCollection',
+                          features: [area(box(160.99, -31.01, 161.01, -30.99), {})],
+                      },
+                      // Contours off the route's way: a real cell's feature
+                      // density, so the corridor gate reads it routing-grade
+                      // (InshoreRouter ROUTING_GRADE_MIN_FEATURES_PER_SQDEG).
+                      DEPCNT: {
+                          type: 'FeatureCollection',
+                          features: Array.from({ length: 12 }, (_, i) => ({
+                              type: 'Feature' as const,
+                              properties: { VALDCO: 10 },
+                              geometry: {
+                                  type: 'LineString' as const,
+                                  coordinates: [
+                                      [160.91 + i * 0.015, -31.09],
+                                      [160.91 + i * 0.015, -31.06],
+                                  ],
+                              },
+                          })),
+                      },
+                  },
+              },
+              { usage: 'navigation' },
+          )
+        : Promise.resolve();
+const encReady = Promise.all([fineEncReady, overviewEncReady, realEncReady]);
 const control = {
     statuses: 0,
     calculations: 0,
@@ -190,7 +266,6 @@ const control = {
     review: null as TrialRouteReview | null,
     releaseReview: null as (() => void) | null,
     lastRequest: null as AutoroutingTrialRequest | null,
-    providerGeometries: [] as GeoJSON.Geometry[],
     routeCoordinates: [] as [number, number][],
 };
 Object.assign(window, { __trialFixture: control });
@@ -211,30 +286,24 @@ Object.assign(mapboxgl, {
     },
 });
 
-// Playwright replaces only the Supabase client module with an empty local
-// client. The real trial service still snapshots, authorizes and validates.
-// All account and provider operations below are in-memory, with no live I/O.
-Object.assign(supabase!.auth, {
-    getSession: async () => ({
-        data: { session: { user: { id: 'trial-layout-fixture' }, access_token: 'fixture-only-not-a-token' } },
-        error: null,
-    }),
-});
-Object.assign(supabase!.functions, {
-    invoke: async (_name: string, { body }: { body: AutoroutingTrialRequest & { action: string } }) => {
-        if (body.action === 'status') {
-            control.statuses += 1;
-            if (params.get('status') === 'failed') return { data: null, error: new Error('Fixture unavailable') };
+// The stub provider (2026-10-01): Auto's own router is replaced only for the
+// layout scenarios; ?engine=real runs it. Nothing here makes a request.
+const stubProvider: AutoroutingProvider = {
+    status: () => {
+        control.statuses += 1;
+        const status = params.get('status');
+        if (status === 'failed') throw new Error('Fixture unavailable');
+        if (status === 'disabled') return { enabled: false, ready: false };
+        if (status === 'unready')
             return {
-                data: {
-                    enabled: params.get('status') !== 'disabled',
-                    ready: !['disabled', 'unready'].includes(params.get('status') ?? ''),
-                    vesselProfile: !['disabled', 'unready'].includes(params.get('status') ?? ''),
-                    message: params.get('status') === 'unready' ? 'Fixture provider setup is pending.' : undefined,
-                },
-                error: null,
+                enabled: true,
+                ready: false,
+                message: 'Install charts for your area to use Auto. Manual is ready.',
             };
-        }
+        return { enabled: true, ready: true };
+    },
+    calculate: async (body, signal) => {
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
         control.calculations += 1;
         control.lastRequest = structuredClone(body);
         const { departure, destination } = body;
@@ -324,103 +393,47 @@ Object.assign(supabase!.functions, {
                 })),
             };
         }
-        const providerUnsafe = params.get('review') === 'provider-unsafe';
-        const [hazardLon, hazardLat] = coordinates[1];
-        const rectangle = (delta: number) => [
-            [hazardLon - delta, hazardLat - delta],
-            [hazardLon + delta, hazardLat - delta],
-            [hazardLon + delta, hazardLat + delta],
-            [hazardLon - delta, hazardLat + delta],
-            [hazardLon - delta, hazardLat - delta],
-        ];
-        control.providerGeometries = providerUnsafe
-            ? [
-                  { type: 'Point', coordinates: [...coordinates[1]] },
-                  { type: 'Polygon', coordinates: [rectangle(0.0015), rectangle(0.00025).reverse()] },
-              ]
-            : [];
-        if (providerUnsafe) {
-            // Deliberately conflicting synthetic sources: provider unsafe,
-            // while every independent local leg check reports no issue.
-            // The browser test releases local completion after seeing the alert.
-            control.review = {
-                phase: 'complete',
-                legs: coordinates.slice(1).map(([lon, lat]) => ({
-                    incomplete: false,
-                    verdict: {
-                        grade: 'clear',
-                        minDepthM: 8,
-                        minAt: { lat, lon },
-                        needsTide: false,
-                        nudge: null,
-                        nudgeTo: null,
-                        issues: [],
-                    },
-                })),
-            };
-        }
-        return {
-            data: {
-                id: 'layout-proposal',
-                provider: 'SevenCs',
-                createdAt: '2026-09-12T00:00:00Z',
-                coordinates,
-                ...(body.vesselProfile ? { vesselProfile: structuredClone(body.vesselProfile) } : {}),
-                // Source-only response exercises the real client classifier,
-                // including compatibility with servers predating providerCheck.
-                ...(providerUnsafe
-                    ? {
-                          source: {
-                              rtz: '<route name="synthetic-browser-unsafe-fixture"/>',
-                              geoJson: JSON.stringify({
-                                  type: 'FeatureCollection',
-                                  features: [
-                                      {
-                                          type: 'Feature',
-                                          properties: {
-                                              type: 'track',
-                                              safe: false,
-                                              name: 'Fixture unsafe track',
-                                          },
-                                          geometry: { type: 'LineString', coordinates },
-                                      },
-                                      {
-                                          type: 'Feature',
-                                          properties: {
-                                              type: 'danger',
-                                              severity: 'Danger',
-                                              name: 'Fixture provider obstruction',
-                                              UUID: 'synthetic-obstruction-id',
-                                              dataset: 'ZZ-FIXTURE-ONLY',
-                                          },
-                                          geometry: control.providerGeometries[0],
-                                      },
-                                      {
-                                          type: 'Feature',
-                                          properties: {
-                                              type: 'danger',
-                                              severity: 'Warning',
-                                              name: 'Fixture provider area with hole',
-                                              UUID: 'synthetic-area-id',
-                                              dataset: 'ZZ-FIXTURE-ONLY',
-                                          },
-                                          geometry: control.providerGeometries[1],
-                                      },
-                                  ],
-                              }),
-                          },
-                      }
-                    : {}),
-                warnings: Array.from(
-                    { length: 4 },
-                    (_, index) =>
-                        `Fixture warning ${index + 1}: Independently inspect current official charts, notices, tides and all vessel clearances. This lengthy advisory must remain readable in the small pane without covering the chart or Close.`,
-                ),
+        const segments = coordinates.length - 1;
+        const none = () => Array.from({ length: segments }, () => false);
+        const route: AutoroutingTrialRoute = {
+            id: 'layout-proposal',
+            provider: 'Thalassa',
+            createdAt: '2026-09-12T00:00:00Z',
+            coordinates,
+            ...(body.vesselProfile ? { vesselProfile: structuredClone(body.vesselProfile) } : {}),
+            engine: {
+                stateMask: Array.from({ length: segments }, () => 'green' as const),
+                cautionMask: none(),
+                canalMask: none(),
+                channelMask: none(),
+                offshoreMask: none(),
+                cellsUsed: ['ZZ5TEST1'],
+                distanceNM: 1,
+                elapsedMs: 10,
+                backstop: 'verified',
             },
-            error: null,
+            warnings: Array.from(
+                { length: 4 },
+                (_, index) =>
+                    `Fixture warning ${index + 1}: Independently inspect current official charts, notices, tides and all vessel clearances. This lengthy advisory must remain readable in the small pane without covering the chart or Close.`,
+            ),
         };
+        return route;
     },
-});
+};
+const provider: AutoroutingProvider = realEngine
+    ? {
+          status: () => {
+              control.statuses += 1;
+              return thalassaAutoroutingProvider.status();
+          },
+          calculate: (request, signal, onProgress) => {
+              control.calculations += 1;
+              control.lastRequest = structuredClone(request);
+              return thalassaAutoroutingProvider.calculate(request, signal, onProgress);
+          },
+      }
+    : stubProvider;
 
 // Same visual-viewport keyboard model used by the existing keyboard suite.
 const viewport = new EventTarget();
@@ -479,7 +492,11 @@ function Fixture() {
                                 />
                             </div>
                         )}
-                        {open && <RoutingModeDialog mapboxToken="pk.fixture" onClose={close} onManual={selectManual} />}
+                        {open && (
+                            <AutoroutingProviderContext.Provider value={provider}>
+                                <RoutingModeDialog mapboxToken="pk.fixture" onClose={close} onManual={selectManual} />
+                            </AutoroutingProviderContext.Provider>
+                        )}
                     </section>
                 </PanePortalScope>
             </div>

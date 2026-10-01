@@ -70,7 +70,6 @@ import type {
 import {
     mPerDegLon,
     haversineM,
-    pointInGeometry,
     gridToLatLon,
     latLonToGrid,
     bresenhamCells,
@@ -82,6 +81,7 @@ import { buildNavGridCached, snapWithPredicate, snapToNavigable, labelConnectedC
 import {
     auditUnvouchedHardLand,
     hardLandAtPoint,
+    hardLandAwayFromPinEdges,
     hazardBufferSegments,
     isUnvouchedCell,
     MAX_UNVOUCHED_HARD_LAND_RUN_M,
@@ -193,6 +193,26 @@ export function dropsProtectedCanalGateContract(
  *  reads it too). */
 const FAR_SNAP_M = 500;
 
+/**
+ * Why a localized-relaxed route may not replace a strict refusal for water no
+ * tide clears (2026-10-01), or null: it crosses charted land away from a
+ * pin's own edge (debug.hardLandAwayM, the final audit's figure), or water no
+ * tide clears beyond a clip (the engine's own rule, classifyNoTideRuns).
+ */
+function relaxedRescueFault(layers: InshoreLayers, req: RouteRequest, relaxed: RouteResult): string | null {
+    const landM = relaxed.debug?.hardLandAwayM ?? 0;
+    if (landM > 0) return `crosses ${Math.round(landM)} m of charted land`;
+    const ceilings = tideCeilingLookup(req.tideCeilings);
+    if (ceilings.size === 0) return null;
+    const sorted = classifyNoTideRuns(layers, relaxed.polyline, ceilings, req.draftM + (req.safetyM ?? 1.0), {
+        toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
+    });
+    const across = [...sorted.crossings, ...sorted.splices];
+    if (across.length > 0)
+        return `crosses ${Math.round(across.reduce((m, c) => m + c.run.lengthM, 0))} m of water no tide clears`;
+    return null;
+}
+
 function routeInshoreMain(
     layers: InshoreLayers,
     req: RouteRequest,
@@ -286,13 +306,40 @@ function routeInshoreMain(
             relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
             relaxed.debug?.destinationSnap?.snapDistanceM ?? Infinity,
         );
-        return relaxedSnapM < strictWorstSnapM - 200 ? relaxed : strict;
+        if (relaxedSnapM >= strictWorstSnapM - 200) return strict;
+        // …and only if it is a way by WATER (2026-10-01 fix-up; review of the
+        // Phase 3 Auto swap): the relax zone opens land up to 4 km from the
+        // pin, and the hard-land veto only refuses a run over 500 m. Beside a
+        // bank no tide clears, the relaxed route ran 400 m through the land
+        // wall next to it, 19 m inside the edge — round the very water the
+        // strict pass refused, over land instead (owner decision 11: the deep
+        // way round, or no route and why). A relaxed rescue that crosses
+        // charted land away from a pin's own edge, or water no tide clears,
+        // is no rescue: the strict refusal stands.
+        const fault = relaxedRescueFault(layers, req, relaxed);
+        if (fault) {
+            engineLog.warn(`[noTide] localized-relaxed rescue ${fault} — the strict refusal stands`);
+            return strict;
+        }
+        return relaxed;
     }
     if (dropsProtectedCanalGateContract(strict, relaxed)) {
         console.warn(
             '[inshoreEngine] localized-relaxed route dropped the canal/gate tier contract — keeping strict tiered route',
         );
         return strict;
+    }
+    // With tides loaded (owner decision 11) the relaxed rescue is a way by
+    // WATER or none (2026-10-01 review): beside a bar no tide clears, the
+    // relax zone otherwise opens the land next to it and the route goes
+    // round the bar over that land — under the 500 m veto. The strict route
+    // stands, and routeInshore's verdict reads the gap to the pin.
+    if (tideCeilingLookup(req.tideCeilings).size > 0) {
+        const fault = relaxedRescueFault(layers, req, relaxed);
+        if (fault) {
+            engineLog.warn(`[noTide] localized-relaxed route ${fault} — keeping the strict route`);
+            return strict;
+        }
     }
     const relaxedWorstSnapM = Math.max(
         relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
@@ -344,7 +391,9 @@ function reachesPins(r: RouteResult): boolean {
     const end = (which: 'origin' | 'destination'): boolean => {
         if (r.pinOffWater?.[which]) return true;
         const snap = which === 'origin' ? r.debug?.originSnap : r.debug?.destinationSnap;
-        const gapM = (snap?.snapDistanceM ?? 0) + (which === 'destination' ? (r.destinationInlandTrimM ?? 0) : 0);
+        const gapM =
+            (snap?.snapDistanceM ?? 0) +
+            (which === 'destination' ? (r.destinationInlandTrimM ?? 0) + (r.debug?.destinationLandTailTrimM ?? 0) : 0);
         return gapM <= FAR_SNAP_M;
     };
     return end('origin') && end('destination');
@@ -402,7 +451,16 @@ export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): Route
             }`,
         );
     }
-    if (!('error' in attempt) && reachesPins(attempt))
+    // A way round is a way by WATER (2026-10-01 review): with the crossed
+    // band closed, the strict pass snapped a pin across a land wall and the
+    // localized relax retry went through the wall beside the band — 400 m on
+    // charted land, under the 500 m veto. That is no way round.
+    const overLand = !('error' in attempt) && (attempt.debug?.hardLandAwayM ?? 0) > 0;
+    if (overLand)
+        engineLog.warn(
+            `[noTide] the way round crosses ${Math.round((attempt as RouteResult).debug?.hardLandAwayM ?? 0)} m of charted land — no way round`,
+        );
+    if (!('error' in attempt) && reachesPins(attempt) && !overLand)
         return noTideClearsVerdict(layers, req, ceilings, attempt, routeWithout);
     // No way round. A first route that reached both pins through the crossing
     // proves it is the only way through, and its refusal names it.
@@ -423,7 +481,9 @@ export function routeInshore(rawLayers: InshoreLayers, req: RouteRequest): Route
         return noTideRefusalFor(layers, req, needM, worst.run, without.debug);
     }
     if (sorted.splices.length === 0) return without;
-    return attempt;
+    // Never the way round over land (above), nor today's route through water
+    // no tide clears: the refusal, the safe side.
+    return overLand ? first : attempt;
 }
 
 /** Decision 11's refusal for a run: the error that names it. */
@@ -481,6 +541,12 @@ function noTideClearsVerdict(
         // explains the gap by itself (fix-up, 2026-10-01: today's route was
         // rebuilt for such a pin, to say nothing).
         if (r.debug?.pinEdgeTrimM?.[which] !== undefined) return false;
+        // So does a pin on land (the inland trim). A WATER pin whose relaxed
+        // tail was cut back off a spit (destinationLandTailTrimM) is not
+        // explained by it (review fix-up, 2026-10-01): the line from the pin
+        // to where the route snapped is sampled like any other gap, so a bar
+        // no tide clears between them is still found. Land samples on that
+        // line read null (proofAt), so a causeway alone says nothing.
         if (which === 'destination' && (r.destinationInlandTrimM ?? 0) > 0) return false;
         const snap = which === 'origin' ? r.debug?.originSnap : r.debug?.destinationSnap;
         if (!snap || snap.snapDistanceM < 150) return false;
@@ -754,14 +820,6 @@ function routeInshoreOnceEnds(
         if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return -1;
         return y * grid.width + x;
     };
-    const pointInsideLndare = (lat: number, lon: number): boolean => {
-        for (const f of layers.LNDARE?.features ?? []) {
-            const geom = f.geometry;
-            if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) continue;
-            if (pointInGeometry(lon, lat, geom)) return true;
-        }
-        return false;
-    };
     const destinationTapIdx = endpointCellIdx(req.toLat, req.toLon);
     const originTapIdx = endpointCellIdx(req.fromLat, req.fromLon);
 
@@ -909,10 +967,17 @@ function routeInshoreOnceEnds(
     const originWay = originPinCell >= 0 ? chartedWayToDeep(originPinCell) : null;
     const destinationWay = destinationPinCell >= 0 ? chartedWayToDeep(destinationPinCell) : null;
 
+    // On hard land by the audit's point rule (onHardLandPin), not "inside any
+    // land paint" (2026-10-01). The raw test called the Rivergate pin — in a
+    // 9.1 m dredged area of the 1:12,000 harbour chart, under the 1:90,000
+    // and overview charts' coastline paint — "on charted land" whenever the
+    // route could not reach it, and the inland trim then cut 2,660 m of river
+    // off the route's end. Decision 1 makes that water, as the audit and the
+    // pin notice already said.
     const destinationTapOnHardLand =
         !destinationWay &&
         (destinationTapIdx < 0 ||
-            pointInsideLndare(req.toLat, req.toLon) ||
+            onHardLandPin(req.toLon, req.toLat) ||
             (grid.landBlocked
                 ? grid.landBlocked[destinationTapIdx] === 1
                 : Number.isNaN(grid.cells[destinationTapIdx])));
@@ -2252,7 +2317,17 @@ function routeInshoreOnceEnds(
     // deliberately untouched (berth-start departures ride a visible carve by
     // design). A trim that would eat >5 km is a data problem to surface, not
     // geometry to silently chop — left alone.
-    if (destinationTapOnHardLand) {
+    //
+    // Also gated in, since 2026-10-01, when the PIN is water but the route
+    // ENDS on hard land (the audit's point rule): a pin it could not reach by
+    // water — a dredged river behind a closure — whose relaxed tail snapped
+    // onto the bank. That tail is cut back the same way, and the metres are
+    // a gap to the pin (destinationLandTailTrimM), never "the destination is
+    // inland": the pin is water.
+    const routeEnd = finalPolyline[finalPolyline.length - 1];
+    const routeEndsOnHardLand =
+        !destinationTapOnHardLand && finalPolyline.length >= 2 && onHardLandPin(routeEnd[0], routeEnd[1]);
+    if (destinationTapOnHardLand || routeEndsOnHardLand) {
         const sd = grid.shallowDepthM;
         const isWetVertex = (p: readonly [number, number]): boolean => {
             const { x, y } = latLonToGrid(grid, p[1], p[0]);
@@ -2280,10 +2355,17 @@ function routeInshoreOnceEnds(
                 finalCanalMask = finalCanalMask.slice(0, lastWet);
                 finalChannelMask = finalChannelMask.slice(0, lastWet);
                 finalOffshoreMask = finalOffshoreMask.slice(0, lastWet);
-                debug.destinationInlandTrimM = Math.round(trimmedM);
-                engineLog.warn(
-                    `[inlandTrim] destination is on charted land — trimmed ${Math.round(trimmedM)} m overland tail (${dropped} vtx); route now ends at the water's edge`,
-                );
+                if (destinationTapOnHardLand) {
+                    debug.destinationInlandTrimM = Math.round(trimmedM);
+                    engineLog.warn(
+                        `[inlandTrim] destination is on charted land — trimmed ${Math.round(trimmedM)} m overland tail (${dropped} vtx); route now ends at the water's edge`,
+                    );
+                } else {
+                    debug.destinationLandTailTrimM = Math.round(trimmedM);
+                    engineLog.warn(
+                        `[inlandTrim] the destination pin is water the route could not reach — trimmed ${Math.round(trimmedM)} m tail off charted land (${dropped} vtx)`,
+                    );
+                }
             } else {
                 engineLog.warn(
                     `[inlandTrim] SKIPPED — overland tail is ${Math.round(trimmedM)} m (>5 km); leaving geometry for diagnosis`,
@@ -2649,7 +2731,22 @@ function routeInshoreOnceEnds(
     }
     // What the shipped route crosses, for a PROMOTED Seaway route to be held
     // to (InshoreRouter seawayGraphSafetyFault: never more land than this).
-    if (hardLandAudit) debug.hardLandTotalM = Math.round(hardLandAudit.totalM);
+    // And how much of it lies away from a pin's own edge (2026-10-01): land
+    // the route crosses rather than the ground a pin off the water sits on.
+    // A relaxed rescue may not cross any (relaxedRescueFault), and Auto
+    // refuses a route that does (services/autoroutingThalassa).
+    if (hardLandAudit) {
+        debug.hardLandTotalM = Math.round(hardLandAudit.totalM);
+        const away = hardLandAwayFromPinEdges(hardLandAudit, {
+            origin: !!pinOffWater.origin || debug.pinEdgeTrimM?.origin !== undefined,
+            destination:
+                !!pinOffWater.destination ||
+                (debug.destinationInlandTrimM ?? 0) > 0 ||
+                debug.pinEdgeTrimM?.destination !== undefined,
+        });
+        debug.hardLandAwayM = Math.round(away.metres);
+        if (away.at) debug.hardLandAwayAt = away.at;
+    }
 
     // ── A crossing of water no tide clears: refused (decision 11) ──────
     // After the land veto (a route that crosses land as well is refused for
@@ -2662,7 +2759,9 @@ function routeInshoreOnceEnds(
         const reached = (which: 'origin' | 'destination'): boolean =>
             !!pinOffWater[which] ||
             ((which === 'origin' ? debug.originSnap : debug.destinationSnap)?.snapDistanceM ?? 0) +
-                (which === 'destination' ? (debug.destinationInlandTrimM ?? 0) : 0) <=
+                (which === 'destination'
+                    ? (debug.destinationInlandTrimM ?? 0) + (debug.destinationLandTailTrimM ?? 0)
+                    : 0) <=
                 FAR_SNAP_M;
         const totalM = noTideCrossings.reduce((m, c) => m + c.run.lengthM, 0);
         engineLog.warn(

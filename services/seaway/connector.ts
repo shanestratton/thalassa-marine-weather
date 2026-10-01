@@ -75,7 +75,7 @@ const CAUTION_TIER = cellCostMultiplier(-1, false);
  * targetFromGate so a bare mid-edge coordinate never acquires a kind by
  * accident.
  */
-export type ConnectorNodeKind = 'portal' | 'junction' | 'marina-entrance' | 'gate-mid';
+export type ConnectorNodeKind = 'portal' | 'junction' | 'marina-entrance' | 'gate-mid' | 'lead-end';
 
 export interface ConnectorTarget extends SeawayLatLon {
     id: string;
@@ -94,6 +94,17 @@ export const targetFromGate = (g: GateNode): ConnectorTarget => ({
     kind: 'gate-mid',
     lat: g.mid.lat,
     lon: g.mid.lon,
+});
+
+/** A Phase 1 lead-graph node (services/routing/leadCompiler LeadNode) as a
+ *  connector target (Phase 3, 2026-10-01: the lead-graph search,
+ *  services/seaway/leadGraphSearch). Budgeted like a portal — a lead is
+ *  never joined through caution-only water (budgetForTarget). */
+export const targetFromLeadNode = (n: { id: string; lat: number; lon: number }): ConnectorTarget => ({
+    id: n.id,
+    kind: 'lead-end',
+    lat: n.lat,
+    lon: n.lon,
 });
 
 export interface ConnectorResult {
@@ -176,6 +187,9 @@ function snapToCell(
  * the target KIND's water tier:
  *   portal/junction        → WORST_REAL_WATER_TIER (deep-snapped
  *     open-water nodes; caution-only access is a mispair signal);
+ *   lead-end               → WORST_REAL_WATER_TIER too (2026-10-01): a
+ *     charted lead is joined from real water or not at all — never
+ *     through caution-only access (the lead-graph search's L3 rule);
  *   marina-entrance/gate-mid → CAUTION_TIER (canal-estate doctrine —
  *     the engine deliberately routes caution water to reach these, and
  *     the connector must reach what the engine reaches; the adversarial
@@ -202,6 +216,7 @@ function budgetForTarget(
         }
         chain.push({ x: c.x, y: c.y });
     }
+    // 'portal' | 'junction' | 'lead-end' → the worst real-water tier.
     const kindTier = kind === 'marina-entrance' || kind === 'gate-mid' ? CAUTION_TIER : WORST_REAL_WATER_TIER;
     const directM = clear ? chainCostM(grid, chain) : euclidM * kindTier;
     return CONNECTOR_BUDGET_FACTOR * directM;
@@ -437,6 +452,39 @@ export function connectToTargets(
     });
 
     return { results, popped };
+}
+
+/**
+ * The true bearing (degrees, 0–360) a connector path arrives on: from the
+ * point `spanM` back along the path (or its start, when shorter) to its last
+ * cell (pure; 2026-10-01). The masterplan §4 capture window for leading
+ * lines reads it: a lead is joined only when this lies within ±25° of the
+ * lead's own bearing. Null for a path of fewer than two distinct cells.
+ */
+export function arrivalBearingDeg(
+    path: ReadonlyArray<{ x: number; y: number }>,
+    grid: Pick<NavGrid, 'minLon' | 'minLat' | 'dLon' | 'dLat' | 'height'>,
+    spanM = 1500,
+): number | null {
+    if (path.length < 2) return null;
+    const midLat = grid.minLat + (grid.height * grid.dLat) / 2;
+    const mx = grid.dLon * mPerDegLon(midLat);
+    const my = grid.dLat * M_PER_DEG_LAT;
+    const end = path[path.length - 1];
+    let start = path[path.length - 1];
+    let walked = 0;
+    for (let i = path.length - 1; i > 0; i--) {
+        const a = path[i - 1];
+        const b = path[i];
+        const step = Math.hypot((b.x - a.x) * mx, (b.y - a.y) * my);
+        if (walked + step > spanM && walked > 0) break;
+        walked += step;
+        start = a;
+    }
+    const dx = (end.x - start.x) * mx;
+    const dy = (end.y - start.y) * my;
+    if (dx === 0 && dy === 0) return null;
+    return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
 }
 
 // ── Portal synthesis ────────────────────────────────────────────────

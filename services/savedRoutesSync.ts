@@ -104,6 +104,17 @@ function missingProposalEvidenceColumn(error: unknown): boolean {
     );
 }
 
+/** The live evidence CHECK names only the old 'sevencs-trial' origin until
+ * 20261001120000 is pushed (2026-10-01, Shane runs the db push). A Thalassa
+ * Auto save rejected by it (Postgres 23514) stays on this device and says
+ * "sync pending a server update", rather than reading as a failure. */
+function proposalEvidenceOriginPending(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const value = error as { code?: unknown; message?: unknown; details?: unknown };
+    const text = [value.message, value.details].filter((v): v is string => typeof v === 'string').join(' ');
+    return String(value.code) === '23514' && text.includes('saved_routes_proposal_evidence_bounded');
+}
+
 /** Push one trace to the account. Fire-and-forget from saveTrace. */
 export async function pushSavedRoute(
     trace: SavedTrace,
@@ -158,6 +169,10 @@ export async function pushSavedRoute(
         ({ error } = await supabase!.from('saved_routes').upsert(legacy));
     }
     if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
+    if (proposalEvidence && proposalEvidenceOriginPending(error)) {
+        log.warn(`push pending for ${trace.id}: the server does not accept this evidence origin yet`);
+        return 'schema-pending';
+    }
     if (error) {
         log.warn(`push failed for ${trace.id}: ${error.message}`);
         return 'error';

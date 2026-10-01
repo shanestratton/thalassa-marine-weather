@@ -16,7 +16,7 @@ vi.mock('../services/enc/EncCellMetadata', () => ({
 import { useAutoroutingReview } from '../components/autorouting/useAutoroutingReview';
 const proposal: AutoroutingTrialRoute = {
     id: 'a',
-    provider: 'SevenCs',
+    provider: 'Thalassa',
     warnings: [],
     createdAt: '2026-09-12',
     coordinates: [

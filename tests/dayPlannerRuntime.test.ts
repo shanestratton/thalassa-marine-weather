@@ -16,10 +16,8 @@ const api = vi.hoisted(() => ({
     weather: vi.fn(),
     cached: vi.fn(),
     build: vi.fn(),
-    guidance: vi.fn(),
-    canal: vi.fn(),
+    invoke: vi.fn(),
     resolveExit: vi.fn(),
-    verifyExit: vi.fn(),
     catalogue: vi.fn(),
     revalidateCatalogue: vi.fn(),
     currentAccount: true,
@@ -28,10 +26,12 @@ const api = vi.hoisted(() => ({
     chartListeners: new Set<() => void>(),
     profiles: [] as unknown[],
 }));
-vi.mock('../services/autoroutingTrial', () => ({
-    calculateAutoroutingTrial: api.calculate,
-    getAutoroutingTrialStatus: api.status,
+// Thalassa's router on the phone (2026-10-01): no edge function, no status call.
+vi.mock('../services/autoroutingThalassa', () => ({
+    calculateThalassaProposal: api.calculate,
+    getThalassaAutorouteStatus: api.status,
 }));
+vi.mock('../services/supabase', () => ({ supabase: { functions: { invoke: api.invoke } } }));
 vi.mock('../services/autoroutingReview', () => ({ reviewAutoroutingProposal: api.review }));
 vi.mock('../services/anchorages/AnchorageService', () => ({ AnchorageService: { loadNear: api.load } }));
 vi.mock('../services/dayPlanner/discovery', () => ({ discoverMappedDayPlanCandidates: api.discover }));
@@ -62,23 +62,18 @@ vi.mock('../services/automaticCanalExit', () => ({
     VERIFIED_CANAL_EXIT_PROFILES: api.profiles,
     resolveAutomaticCanalExit: api.resolveExit,
 }));
-vi.mock('../services/verifyCanalExitChart', () => ({ verifyCanalExitChart: api.verifyExit }));
-vi.mock('../services/chartGuidedAutorouting', () => ({ createChartGuidedTrialCalculator: api.guidance }));
-vi.mock('../services/autoroutingCanalDeparture', () => ({ calculateWithCanalDeparture: api.canal }));
 vi.mock('../services/dayPlanner/engine', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/dayPlanner/engine')>()),
     buildFlexibleDayPlan: api.build,
 }));
 import {
+    DAY_PLANNER_CHECKPOINTS_UNSUPPORTED,
     DAY_PLANNER_TIMEOUT_MS,
-    dayPlannerCanalExitRefusal,
     dayPlannerVesselInputs,
     runDayPlanner,
 } from '../services/dayPlanner/runtime';
 
 const now = Date.UTC(2026, 8, 27, 0);
-const NEXT_STEP =
-    'Move the departure to open water outside the canal entrance, or set the canal exit by hand in Auto routing, under Canal / marina.';
 const vessel = (): VesselProfile => ({
     name: 'Test vessel',
     type: 'sail',
@@ -205,9 +200,10 @@ const data = () => ({
 });
 const route = (input: AutoroutingTrialRequest): AutoroutingTrialRoute => ({
     id: 'provider-proposal',
-    provider: 'SevenCs',
+    provider: 'Thalassa',
     createdAt: new Date(now).toISOString(),
     warnings: [],
+    engine: { stateMask: ['green'], cellsUsed: ['OC-99-SYN001'], distanceNM: 5, elapsedMs: 10, backstop: 'verified' },
     coordinates: [
         [input.departure.lon, input.departure.lat],
         [input.destination.lon, input.destination.lat],
@@ -307,7 +303,7 @@ beforeEach(() => {
     api.profiles.length = 0;
     api.authListeners.clear();
     api.chartListeners.clear();
-    api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true });
+    api.status.mockReturnValue({ enabled: true, ready: true });
     api.load.mockResolvedValue(data());
     api.discover.mockResolvedValue({
         candidates: [],
@@ -323,8 +319,6 @@ beforeEach(() => {
     api.weather.mockResolvedValue(undefined);
     api.cached.mockReturnValue(undefined);
     api.revalidateCatalogue.mockResolvedValue(undefined);
-    api.guidance.mockReturnValue(api.calculate);
-    api.verifyExit.mockResolvedValue(true);
 });
 afterEach(() => {
     vi.useRealTimers();
@@ -419,62 +413,20 @@ describe('Day planner live adapter', () => {
         expect(api.build).not.toHaveBeenCalled();
     });
 
-    it('passes every required interior checkpoint to the provider then reviews the whole returned route', async () => {
-        withCatalogueRoute();
-        api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true, channelGuidance: true });
-        api.calculate.mockImplementation(async (input: AutoroutingTrialRequest) => ({
-            ...route(input),
-            coordinates: [
-                [input.departure.lon, input.departure.lat],
-                ...(input.chartTrackConstraints ?? []).map((point) => [point.lon, point.lat]),
-                [input.destination.lon, input.destination.lat],
-            ],
-        }));
-        await runDayPlanner({ ...request(), catalogueSelection }, vessel(), options());
-        expect(api.calculate.mock.calls[0][0].chartTrackConstraints).toEqual([{ lat: -20.26, lon: 148.9 }]);
-        expect(api.review.mock.calls[0][0].coordinates).toHaveLength(3);
-        expect(api.review.mock.calls[0][0].warnings).toContain(
-            'Catalogue outbound route limitation: Current clearance remains unverified.',
-        );
-    });
-
-    it('rejects unsupported constraints and provider shortcuts without a generic-route retry', async () => {
+    it('excludes a catalogue trip with required checkpoints in plain words, without routing it', async () => {
+        // Thalassa's router takes two pins (2026-10-01): routing without the
+        // checkpoints would drop the catalogue's route, so the stop is refused.
+        // The engine's per-candidate catch puts it in `excluded` (dayPlannerEngine).
         withCatalogueRoute();
         await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
-            /does not support/,
+            DAY_PLANNER_CHECKPOINTS_UNSUPPORTED,
+        );
+        expect(DAY_PLANNER_CHECKPOINTS_UNSUPPORTED).toBe(
+            'This catalogue trip needs checkpoints Auto cannot follow yet. Plot it in Manual.',
         );
         expect(api.calculate).not.toHaveBeenCalled();
-        api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true, channelGuidance: true });
-        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
-            /every required/,
-        );
-        expect(api.calculate).toHaveBeenCalledTimes(1);
         expect(api.review).not.toHaveBeenCalled();
-    });
-
-    it('rejects a canal handover that cannot preserve the required catalogue chain', async () => {
-        withCatalogueRoute();
-        api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true, channelGuidance: true });
-        api.profiles.push({
-            departureArea: {
-                type: 'Polygon',
-                coordinates: [
-                    [
-                        [148.7, -20.3],
-                        [148.9, -20.3],
-                        [148.9, -20.2],
-                        [148.7, -20.2],
-                        [148.7, -20.3],
-                    ],
-                ],
-            },
-        });
-        api.resolveExit.mockReturnValue({ status: 'resolved' });
-        await expect(runDayPlanner({ ...request(), catalogueSelection }, vessel(), options())).rejects.toThrow(
-            /cannot be combined/,
-        );
-        expect(api.calculate).not.toHaveBeenCalled();
-        expect(api.canal).not.toHaveBeenCalled();
+        expect(api.invoke).not.toHaveBeenCalled();
     });
 
     it('passes only the explicit local destination to the engine with activity preferences intact', async () => {
@@ -600,13 +552,16 @@ describe('Day planner live adapter', () => {
     });
 
     it.each([
-        { enabled: false, ready: false, vesselProfile: false },
-        { enabled: true, ready: false, vesselProfile: false },
-        { enabled: true, ready: true },
-    ])('requires explicit ready and vessel-profile capabilities %j', async (status) => {
-        api.status.mockResolvedValue(status);
-        await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow('vessel-profile');
+        [{ enabled: false, ready: false }, 'Plan my day needs installed charts for Auto routing.'],
+        [
+            { enabled: true, ready: false, message: 'Install charts for your area to use Auto. Manual is ready.' },
+            'Install charts for your area to use Auto. Manual is ready.',
+        ],
+    ])('needs a signed-in identity and installed charts on the phone %j', async (status, message) => {
+        api.status.mockReturnValue(status);
+        await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow(message);
         expect(api.load).not.toHaveBeenCalled();
+        expect(api.invoke).not.toHaveBeenCalled();
     });
 
     it('rejects unsupported polar starts and vessel speed or draft mismatches before network work', async () => {
@@ -710,17 +665,11 @@ describe('Day planner live adapter', () => {
         });
         expect(assessed?.review.basis?.geometryKey).toContain(JSON.stringify(assessed?.route.coordinates));
         expect(assessed?.route.warnings.join(' ')).toContain('Cruising speed is estimated');
-        expect(api.guidance).not.toHaveBeenCalled();
-    });
-
-    it('uses chart guidance only when explicitly advertised', async () => {
-        withRoute();
-        api.status.mockResolvedValue({ enabled: true, ready: true, vesselProfile: true, channelGuidance: true });
-        await runDayPlanner(request(), vessel(), options());
-        expect(api.guidance).toHaveBeenCalledWith({
-            channelGuidance: true,
-            deadlineAtMs: now + DAY_PLANNER_TIMEOUT_MS,
-        });
+        // One engine route per leg, with the abort signal and nothing else.
+        expect(api.calculate).toHaveBeenCalledTimes(1);
+        expect(api.calculate.mock.calls[0][1]).toBeInstanceOf(AbortSignal);
+        expect(sent).not.toHaveProperty('chartTrackConstraints');
+        expect(api.invoke).not.toHaveBeenCalled();
     });
 
     it('refuses a provider response with a changed vessel snapshot', async () => {
@@ -790,50 +739,10 @@ describe('Day planner live adapter', () => {
         expect(api.authListeners.size).toBe(0);
     });
 
-    it('ignores a geographically unrelated expired canal profile without resolving it', async () => {
-        withRoute();
-        api.profiles.push({
-            departureArea: {
-                type: 'Polygon',
-                coordinates: [
-                    [
-                        [153, -27],
-                        [154, -27],
-                        [154, -26],
-                        [153, -26],
-                        [153, -27],
-                    ],
-                ],
-            },
-            validUntil: '2020-01-01',
-        });
-        await runDayPlanner(request(), vessel(), options());
-        expect(api.resolveExit).not.toHaveBeenCalled();
-        expect(api.calculate).toHaveBeenCalledTimes(1);
-    });
-
-    it('refuses an applicable invalid canal exit instead of bypassing it', async () => {
-        withRoute();
-        api.profiles.push({
-            departureArea: {
-                type: 'Polygon',
-                coordinates: [
-                    [
-                        [148.7, -20.3],
-                        [148.9, -20.3],
-                        [148.9, -20.2],
-                        [148.7, -20.2],
-                        [148.7, -20.3],
-                    ],
-                ],
-            },
-        });
-        api.resolveExit.mockReturnValue({ status: 'manual-required', reason: 'Reviewed channel exit is out of date.' });
-        await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow('out of date');
-        expect(api.calculate).not.toHaveBeenCalled();
-    });
-
-    it('refuses a departure inside a RETIRED exit with a reason the skipper can act on in Plan My Day', async () => {
+    // The retired automatic canal exit is not consulted (2026-10-01): the
+    // engine routes from the berth with its own canal tier, and offline the
+    // Newport estate refuses in the engine's own words (owner decision 2).
+    it('sends a departure inside a retired canal-exit area straight to the engine', async () => {
         withRoute();
         api.profiles.push({
             departureArea: {
@@ -851,122 +760,22 @@ describe('Day planner live adapter', () => {
         });
         api.resolveExit.mockReturnValue({
             status: 'manual-required',
-            reason: 'The automatic Newport Waterways canal exit is retired. Choose Canal exit on the chart.',
             code: 'retired',
-            profileLabel: 'Newport Waterways',
+            reason: 'The automatic Newport Waterways canal exit is retired. Choose Canal exit on the chart.',
         });
-        const refusal = await runDayPlanner(request(), vessel(), options()).catch((error: unknown) => error);
-        // Plan My Day has no "Canal exit on the chart"; it must not send the skipper looking for one.
-        expect((refusal as Error).message).toBe(`The automatic Newport Waterways canal exit is retired. ${NEXT_STEP}`);
-        expect(api.calculate).not.toHaveBeenCalled();
-    });
-
-    it('words an out-of-date exit the same way', () => {
-        expect(
-            dayPlannerCanalExitRefusal({
-                status: 'manual-required',
-                reason: 'x',
-                code: 'out-of-date',
-                profileLabel: 'Newport Waterways',
-            }),
-        ).toBe(`The reviewed Newport Waterways canal exit is out of date. ${NEXT_STEP}`);
-    });
-
-    // Every other manual-required result from an applicable profile also used
-    // to end "Choose Canal Exit on the chart." — a control Plan My Day lacks.
-    it.each([
-        ['an ambiguous area boundary', 'Departure is on an ambiguous channel-area boundary.'],
-        ['conflicting exit records', 'Channel-exit records conflict.'],
-        ['conflicting marker records', 'Channel-marker records conflict.'],
-        ['a malformed in-area record', 'Reviewed channel-exit data is unavailable or out of date.'],
-        ['no reviewed exit', 'No reviewed channel exit covers this departure.'],
-    ])('never points Plan My Day at the chart control for %s', (_name, first) => {
-        for (const control of ['Choose Canal Exit on the chart.', 'Choose Canal exit on the chart.']) {
-            const refusal = dayPlannerCanalExitRefusal({ status: 'manual-required', reason: `${first} ${control}` });
-            expect(refusal).toBe(`${first} ${NEXT_STEP}`);
-            expect(refusal).not.toMatch(/on the chart/i);
-        }
-    });
-
-    it('passes a reason with no chart instruction through unchanged', () => {
-        const reason = 'Choose valid departure and destination positions before selecting a channel exit.';
-        expect(dayPlannerCanalExitRefusal({ status: 'manual-required', reason })).toBe(reason);
-    });
-
-    it('rewords a real boundary refusal from the resolver (departure exactly on the area edge)', async () => {
-        const edge = { lat: -20.3, lon: 148.8 };
-        const { resolveAutomaticCanalExit } = await vi.importActual<typeof import('../services/automaticCanalExit')>(
-            '../services/automaticCanalExit',
-        );
-        const area = {
-            type: 'Polygon' as const,
-            coordinates: [
-                [
-                    [148.7, -20.3],
-                    [148.9, -20.3],
-                    [148.9, -20.2],
-                    [148.7, -20.2],
-                    [148.7, -20.3],
-                ],
-            ],
-        };
-        const exit = resolveAutomaticCanalExit(edge, { lat: -20.1, lon: 149 }, [{ departureArea: area } as never]);
-        expect(exit.status).toBe('manual-required');
-        if (exit.status !== 'manual-required') return;
-        expect(exit.reason).toMatch(/Choose Canal Exit on the chart\.$/);
-        expect(dayPlannerCanalExitRefusal(exit)).not.toMatch(/on the chart/i);
-    });
-
-    it.each(invalidRings)(
-        'refuses canal applicability from a $name even outside the departure area',
-        async ({ ring }) => {
-            withRoute();
-            api.profiles.push({ departureArea: { type: 'Polygon', coordinates: [ring] } });
-            await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow('geometry');
-            expect(api.calculate).not.toHaveBeenCalled();
-            expect(api.resolveExit).not.toHaveBeenCalled();
-        },
-    );
-
-    it('uses the verified canal wrapper and rechecks the source after calculation', async () => {
-        withRoute();
-        api.profiles.push({
-            departureArea: {
-                type: 'Polygon',
-                coordinates: [
-                    [
-                        [148.7, -20.3],
-                        [148.9, -20.3],
-                        [148.9, -20.2],
-                        [148.7, -20.2],
-                        [148.7, -20.3],
-                    ],
-                ],
-            },
-        });
-        const exit = {
-            status: 'resolved',
-            profileId: 'reviewed-pilot',
-            label: 'Reviewed departure',
-            sourceRevision: 'edition-1',
-            validUntil: new Date(now + 86400000).toISOString(),
-            gateCentres: [{ lat: -20.2, lon: 148.85 }],
-            exit: { lat: -20.2, lon: 148.85 },
-            outboundBearingDeg: 45,
-        };
-        api.resolveExit.mockReturnValue(exit);
-        api.canal.mockImplementation(async (input) => route(input));
         await runDayPlanner(request(), vessel(), options());
-        expect(api.canal).toHaveBeenCalledTimes(1);
-        expect(api.canal.mock.calls[0][1]).toEqual(exit.exit);
-        expect(api.canal.mock.calls[0][2]).toBe('test-map-token');
-        expect(api.canal.mock.calls[0][5]).toBe(exit);
-        expect(api.canal.mock.calls[0][6]).toBe(api.calculate);
-        expect(api.verifyExit).toHaveBeenCalledTimes(2);
-        expect(api.review).toHaveBeenCalledTimes(1);
-        api.verifyExit.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-        await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow('changed or expired');
-        expect(api.calculate).not.toHaveBeenCalled();
+        expect(api.resolveExit).not.toHaveBeenCalled();
+        expect(api.calculate).toHaveBeenCalledTimes(1);
+        expect(api.calculate.mock.calls[0][0].departure).toMatchObject({ lat: -20.25, lon: 148.82 });
+    });
+
+    it("refuses with the engine's own reason, whole, when it cannot route the departure", async () => {
+        withRoute();
+        const refusal =
+            'No route for 2.4 m draft: the only way through crosses the canal estate, charted 0.0 m; the highest tide in the next 14 days is 0.0 m and you need 2.9 m.';
+        api.calculate.mockRejectedValue(new Error(refusal));
+        await expect(runDayPlanner(request(), vessel(), options())).rejects.toThrow(refusal);
+        expect(api.review).not.toHaveBeenCalled();
     });
 
     it('fences a vessel mutation during provider work', async () => {

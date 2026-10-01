@@ -294,7 +294,9 @@ interface MatchPiece {
  * represented by every source bend; >8 required constraints declines rather
  * than simplifying. Neither the original geometry nor local canal is changed. */
 export function selectChannelTrackGuidance(
-    route: Pick<AutoroutingTrialRoute, 'coordinates' | 'canalDeparture'>,
+    // Retired with the server trial's canal handover (2026-10-01): the shape is
+    // kept here so this guarded module stays as it was until it is deleted.
+    route: { coordinates: AutoroutingTrialRoute['coordinates']; canalDeparture?: { handoverIndex: number } },
     candidate: ChannelTrackCandidate | null,
 ): ChannelTrackGuidance | null {
     if (

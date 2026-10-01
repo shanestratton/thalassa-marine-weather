@@ -69,7 +69,11 @@ import {
 } from './enc/scaleShadow';
 import { capCellsForMerge } from './enc/mergeCap';
 import { crumb } from '../utils/flightRecorder';
-import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
+import { routeCachedGrid, shadowCompare, shadowSummary } from './seaway/seawayRouter';
+import { leadPromotionVerdict, leadShadowSummary, searchLeadGraph } from './seaway/leadGraphSearch';
+import { peekLeadGraphForView } from './routing/leadOverlayData';
+import { compileSeawayGraph } from './seaway/graphCompiler';
+import { splitMarkFeatures, type PointFeatureLike } from './seaway/markSplit';
 import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi, routeRequestBinding } from './PiPairingService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
@@ -89,6 +93,7 @@ import {
 } from './routing/overheadClearance';
 import {
     auditUnvouchedHardLand,
+    hardLandAwayFromPinEdges,
     hazardBufferSegments,
     MAX_UNVOUCHED_HARD_LAND_RUN_M,
     unvouchedAlong,
@@ -152,6 +157,14 @@ const CLOUD_ROUTER_ENABLED = false;
 // only — the user's route is untouched; flip off if the shadow ever shows
 // up in route latency (it rides the grid cache, so it shouldn't).
 const SEAWAY_SHADOW_ENABLED = true;
+
+// Phase 3 (2026-10-01): the lead-graph SHADOW (services/seaway/leadGraphSearch)
+// — would routing over the Phase 1 lead graph (recommended tracks, leading
+// lines, hops between them) have done better? One 'LEAD SHADOW' warn line per
+// LOCAL route, with its own timings. Telemetry only: it never returns and
+// never alters the route; promotion is Phase 3b. Flip off if it shows up in
+// route latency, as with the Seaway shadow.
+const LEAD_GRAPH_SHADOW_ENABLED = true;
 
 // Phase 13 — PROMOTE the Seaway Graph route (it threads dead-centre through the
 // lateral-mark gates by construction) when it is side-correct AND stays within the
@@ -518,6 +531,23 @@ export interface InshoreRouteResult {
     /** Cells with no M_QUAL layer that own some of the route: its survey
      * quality was not checked there (a caveat, never amber). */
     surveyUncheckedCells?: string[];
+    /**
+     * The charted land this route crosses (2026-10-01 review; engine
+     * debug.hardLandTotalM / hardLandAwayM / hardLandAwayAt): all of it, and
+     * the part away from a pin's own edge, with the middle of its longest
+     * run. The engine refuses only a run over 500 m; Auto refuses any land
+     * away from a pin's edge (services/autoroutingThalassa). Absent when the
+     * audit did not run (a permissive or cloud route).
+     */
+    hardLand?: { totalM: number; awayM: number; awayAt?: [number, number] };
+    /** The localized relax zones the route was built with (engine
+     *  debug.relaxZones): circles round a far-snapped pin where charted land
+     *  was opened as caution so the route could reach the berth. */
+    relaxZones?: { lat: number; lon: number; radiusM: number }[];
+    /** Tide ceilings (the highest tide per place) were loaded before routing
+     *  (owner decision 11), so water no tide clears was ruled out where they
+     *  reach. */
+    tideCeilingsLoaded?: boolean;
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -531,8 +561,10 @@ export interface InshoreRouteFailure {
 
 // ── Coverage check ──────────────────────────────────────────────────
 
-/** Max straight-line distance for inshore routing (nautical miles). */
-const MAX_INSHORE_NM = 50;
+/** Max straight-line distance for inshore routing (nautical miles). Exported
+ *  2026-10-01 so Auto (services/autoroutingThalassa) can say why before it
+ *  asks: this function answers a longer passage with a silent null. */
+export const MAX_INSHORE_NM = 50;
 
 /** Margin around an endpoint when checking ENC coverage (degrees ≈ 5km). */
 const COVERAGE_MARGIN_DEG = 0.05;
@@ -2023,6 +2055,85 @@ async function tryInshoreRouteInner(
         }
     }
 
+    // What Auto must know of how the route was made (2026-10-01 review):
+    // the relax zones it was built with, and whether tides were loaded.
+    const relaxZonesUsed = result.debug?.relaxZones;
+    const routeContext = {
+        ...(relaxZonesUsed && relaxZonesUsed.length > 0
+            ? { relaxZones: relaxZonesUsed.map((z) => ({ lat: z.lat, lon: z.lon, radiusM: z.radiusM })) }
+            : {}),
+        tideCeilingsLoaded: tideCeilings.length > 0,
+    };
+
+    // ── Lead-graph SHADOW (Phase 3, 2026-10-01) ──────────────────────
+    // Placed BEFORE the Seaway block, not after it: a promoted Seaway route
+    // returns early from that block, and the shadow must see every local
+    // route. It reads the route's own cached grid (never builds one) and the
+    // lead graph ONLY if the chart overlay has already compiled it for these
+    // charts (peekLeadGraphForView) — on a miss it logs 'no-graph' and stops.
+    // Review fix-up (2026-10-01): it used to compile the graph on a miss —
+    // the normal case, the overlay is off by default — reading every cell
+    // under the route again, inside the 85 s watchdog and beside the
+    // engine's peak grid memory; and its await let an overdue watchdog fire
+    // before a finished route was delivered. Synchronous now, no await.
+    // try/catch: a shadow failure never reaches the route.
+    if (LEAD_GRAPH_SHADOW_ENABLED && !routedOnCloud) {
+        try {
+            const tLead = Date.now();
+            const grid = routeCachedGrid(merged, routeOpts, result);
+            let w = Math.min(origin.lon, destination.lon);
+            let sLat = Math.min(origin.lat, destination.lat);
+            let e = Math.max(origin.lon, destination.lon);
+            let n = Math.max(origin.lat, destination.lat);
+            for (const [lon, lat] of result.polyline) {
+                w = Math.min(w, lon);
+                e = Math.max(e, lon);
+                sLat = Math.min(sLat, lat);
+                n = Math.max(n, lat);
+            }
+            const leadGraph = grid ? peekLeadGraphForView([w, sLat, e, n], routeOpts.draftM, false, airDraftM) : null;
+            const tGraph = Date.now() - tLead;
+            if (grid && !leadGraph) {
+                log.warn(`LEAD SHADOW: no-graph — not compiled for these charts; skipped (lookup ${tGraph}ms)`);
+            } else {
+                const report = searchLeadGraph({ grid, graph: leadGraph, origin, destination, direct: result });
+                const marks = [
+                    ...(merged.BOYLAT?.features ?? []),
+                    ...(merged.BCNLAT?.features ?? []),
+                ] as PointFeatureLike[];
+                const { chartFeatures, unnumberedMarks } = splitMarkFeatures(marks);
+                const gates =
+                    report.route && chartFeatures.length + unnumberedMarks.length > 0
+                        ? compileSeawayGraph({ chartFeatures, unnumberedMarks }).graph.gates
+                        : [];
+                const verdict = leadPromotionVerdict(report, result, merged, {
+                    checks: {
+                        blockReason: (r: typeof result) =>
+                            seawayPromotionBlockReason(r as Parameters<typeof seawayPromotionBlockReason>[0]),
+                        safetyFault: (polyline, layers, r, strict, noTide) =>
+                            seawayGraphSafetyFault(
+                                polyline,
+                                layers,
+                                r as Parameters<typeof seawayGraphSafetyFault>[2],
+                                strict,
+                                noTide,
+                            ),
+                    },
+                    needM: routeOpts.draftM + routeOpts.safetyM,
+                    tideCeilings,
+                    ...(grid ? { grid } : {}),
+                    strict: routeOpts.unchartedPolicy === 'strict',
+                    gates,
+                });
+                log.warn(
+                    `LEAD SHADOW: ${leadShadowSummary(report, verdict)} graph=${tGraph}ms total=${Date.now() - tLead}ms`,
+                );
+            }
+        } catch (err) {
+            log.warn(`LEAD SHADOW: failed (route unaffected): ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
     // ── Seaway SHADOW (masterplan Phase 12) ──────────────────────────
     // Telemetry only: would the Seaway Graph have routed this passage
     // better? The user gets `result` regardless; the shadow rides the
@@ -2079,13 +2190,34 @@ async function tryInshoreRouteInner(
                         log.warn(
                             `SEAWAY ROUTER: PROMOTED graph route (${g.edgesUsed.length} edges, compliance ${g.gateCompliance}, maxLegDetour ${g.maxLegDetour.toFixed(2)})`,
                         );
-                        return promotedSeawayRoute(g, report.grid, merged, routeOpts, {
+                        const promoted = promotedSeawayRoute(g, report.grid, merged, routeOpts, {
                             cellsUsed,
                             elapsedMs,
                             surveyUncheckedCells,
                             structuresUnknownCells: structuresUnknownOn(g.polyline),
                             ...(tideUnchecked(g.polyline) ? { tideCheck: 'not-loaded' as const } : {}),
                         });
+                        // The land it crosses, on its own geometry (2026-10-01
+                        // review): a promoted route never reports a pin off the
+                        // water (seawayPromotionBlockReason), so all of it counts.
+                        const promotedLand =
+                            routeOpts.unchartedPolicy === 'strict' ? auditUnvouchedHardLand(merged, g.polyline) : null;
+                        const promotedAway = promotedLand
+                            ? hardLandAwayFromPinEdges(promotedLand, { origin: false, destination: false })
+                            : null;
+                        return {
+                            ...promoted,
+                            ...(promotedLand && promotedAway
+                                ? {
+                                      hardLand: {
+                                          totalM: Math.round(promotedLand.totalM),
+                                          awayM: Math.round(promotedAway.metres),
+                                          ...(promotedAway.at ? { awayAt: promotedAway.at } : {}),
+                                      },
+                                  }
+                                : {}),
+                            ...routeContext,
+                        };
                     }
                     log.warn(
                         `SEAWAY ROUTER: graph route DECLINED — violations=${g.crossLineViolations} ` +
@@ -2157,6 +2289,16 @@ async function tryInshoreRouteInner(
             ? { surveyUncheckedCells: (result as { surveyUncheckedCells?: string[] }).surveyUncheckedCells }
             : {}),
         ...(tideUnchecked(result.polyline) ? { tideCheck: 'not-loaded' as const } : {}),
+        ...(typeof result.debug?.hardLandTotalM === 'number'
+            ? {
+                  hardLand: {
+                      totalM: result.debug.hardLandTotalM,
+                      awayM: result.debug.hardLandAwayM ?? result.debug.hardLandTotalM,
+                      ...(result.debug.hardLandAwayAt ? { awayAt: result.debug.hardLandAwayAt } : {}),
+                  },
+              }
+            : {}),
+        ...routeContext,
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,
@@ -2411,6 +2553,36 @@ export function orientHazardsTowardLand(
     // LATERAL_REEF_GATE_M = 800 m. Catches Scarborough (~600 m),
     // Mud I. fringing (~400 m), Peel I. fringing (~700 m). Excludes
     // mid-Moreton-Bay solo laterals (typically > 1 km from any land).
+    //
+    // 2026-10-01 — a SOLO LATERAL's keep-out never closes a charted
+    // DREDGED CHANNEL or FAIRWAY deep enough for this vessel. On the real
+    // Brisbane cells the shipping channel's marks reach this function
+    // unpaired, and three solo starboards beside the dredged river mouth
+    // (BC19, BC21, Koopa Channel 5) grew discs of 549–647 m toward the
+    // nearest land — ACROSS the dredged channel — and closed the river:
+    // the route refused at a 2.5 m tide top ("the only way through crosses
+    // the West Banks") and, with no tide known, went over ~950 m of drying
+    // bank and ~850 m of land instead. So the disc is tagged
+    // _yieldsToChartedDeep, and the grid leaves open the cells inside it
+    // that an S-57 DRGARE or FAIRWY covers and an S-57 depth area charts
+    // deep enough, with no shallower S-57 band beside it (navGrid Pass 3).
+    //
+    // Review fix-up, same day: the first cut also capped every solo
+    // lateral's disc at one cable (185 m) and opened ANY charted-deep
+    // water. That undid the disc's job — the strip between a reef-edge mark
+    // and the shore that the chart may not show: with the reef 150 m inside
+    // a mark 600 m off the shore and 10 m charted between them (the
+    // Scarborough pattern), the route passed 110 m INSIDE the mark, 40 m off
+    // the drying reef, exactly as with no mark at all. The radii are back
+    // to the policy above, and natural deep water within a CABLE (185 m, the
+    // traditional good berth; _innerKeepOutM) of the mark on its inferred
+    // side stays closed: there only a charted dredged channel or fairway is a
+    // way through. Beyond a cable the chart speaks where it charts water that
+    // never dries; water it does not chart (vouched only by OSM or Mapbox,
+    // where an undrawn fringing reef would lie), drying and land stay closed
+    // to the full reach. Measured on the real cells: the full-reach discs
+    // closing charted water pushed the bay → Lytton route onto a drying clip.
+    const SOLO_LATERAL_INNER_M = 185;
     const HAZARD_RADIUS_MIN_M = 80;
     const DIRECT_HAZARD_RADIUS_MAX_M = 300; // dangers/isolated — compact
     // A CARDINAL's safe side is intrinsic (from CATCAM), not shore-derived, so its avoidance
@@ -2526,7 +2698,8 @@ export function orientHazardsTowardLand(
         // hazard keep the shore-bearing orientation.
         const SAFE_ANGLE: Record<string, number> = { e: 0, n: Math.PI / 2, w: Math.PI, s: -Math.PI / 2 };
         const arcCentre = cardDir != null ? SAFE_ANGLE[cardDir] + Math.PI : landAngle;
-        const isReefEdgeSoloLateral = hazardClass === 'lateral-marker-as-hazard' && shoreDistM <= LATERAL_REEF_GATE_M;
+        const isSoloLateral = hazardClass === 'lateral-marker-as-hazard';
+        const isReefEdgeSoloLateral = isSoloLateral && shoreDistM <= LATERAL_REEF_GATE_M;
         // `isolated` markers are intentionally tagged in nav_markers
         // .geojson to mark reef edges (Scarborough Reef beacon being
         // the canonical example). Their hazard strip can extend the
@@ -2586,6 +2759,13 @@ export function orientHazardsTowardLand(
                 _cardinalOriented: cardDir != null,
                 _shoreDistanceM: Math.round(shoreDistM),
                 _radiusM: Math.round(radiusM),
+                // A solo lateral's side is inferred from the shore bearing: its
+                // keep-out never closes a charted dredged channel or fairway
+                // deep enough for the vessel, and beyond a cable it leaves
+                // S-57-charted water that never dries to the chart (navGrid
+                // Pass 3; 2026-10-01).
+                _yieldsToChartedDeep: cardDir == null && isSoloLateral,
+                ...(cardDir == null && isSoloLateral ? { _innerKeepOutM: SOLO_LATERAL_INNER_M } : {}),
                 // True marker position (the half-disc centroid is offset toward the hazard side,
                 // so the cardinal clamp must read the buoy point, not the polygon centroid).
                 _markerLat: mLat,

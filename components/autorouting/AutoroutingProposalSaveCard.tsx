@@ -33,16 +33,11 @@ const syncMessage = (result: PushResult) =>
           : 'Saved on this device only. Private sync is pending; all detailed route points and evidence are retained here.';
 
 /** Geometry/profile already key the enclosing form. Use the completed review
- * stamp and bounded provider report here, not a second serialization of every
- * leg. Recompute on render (including same-object edits) and at submission. */
+ * stamp and the route's notes here, not a second serialization of every leg.
+ * Recompute on render (including same-object edits) and at submission. */
 const acknowledgementKey = (route: AutoroutingTrialRoute, review: TrialRouteReview | null, allowed: boolean) =>
     allowed && review?.phase === 'complete' && review.basis
-        ? JSON.stringify([
-              review.basis.checkedAt,
-              review.basis.registryFingerprint,
-              route.warnings,
-              route.providerCheck ?? null,
-          ])
+        ? JSON.stringify([review.basis.checkedAt, review.basis.registryFingerprint, route.warnings])
         : null;
 
 /** Key the form to exact inputs so a name/acknowledgement cannot leak onto a
