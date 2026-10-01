@@ -254,6 +254,7 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
                             requestObject.action === 'list' &&
                             [
                                 'partial-poison-list',
+                                'partial-poison-reread',
                                 'read-successor',
                                 'verify-restart',
                                 'old-peer-generation-rescan',
