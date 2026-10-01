@@ -71,6 +71,20 @@ describe('experimental encrypted DM transport framing (not cryptography)', () =>
         );
     });
 
+    it.each(['clientMessageId', 'senderDeviceId', 'recipientDeviceId'] as const)(
+        'rejects a trailing line terminator in %s on both encode and receive',
+        (field) => {
+            for (const ending of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+                const malformed = { ...frame, [field]: frame[field] + ending };
+                expect(() => encodeDirectMessageEnvelope(malformed)).toThrow(InvalidDirectMessageEnvelopeError);
+                // Build raw JSON so receive validation is exercised independently.
+                expect(() => decodeDirectMessageEnvelope(JSON.stringify(malformed))).toThrow(
+                    InvalidDirectMessageEnvelopeError,
+                );
+            }
+        },
+    );
+
     it.each(['message', 'plaintext', 'preview', 'privateKey', 'sessionState', 'debug', 'toJSON'])(
         'refuses extra field %s on both send and receive without echoing its contents',
         (field) => {

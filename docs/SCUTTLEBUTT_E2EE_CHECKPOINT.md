@@ -34,9 +34,10 @@ a substitute for those checks or a way around a bundled dependency's licence.
 
 ## What exists today
 
-This is an isolated framing/delivery prototype plus a real-provider native
-message coordinator, **not functioning E2EE in Thalassa**. Nothing is wired into live chat.
-No app dependency, native plugin, database change, UI badge, production deployment
+This is an isolated framing/delivery prototype, a real-provider native message
+coordinator, and a disposable device-directory/relay experiment, **not functioning
+E2EE in Thalassa**. Nothing is wired into live chat.
+No app dependency, native plugin, live database change, UI badge, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
 
@@ -67,6 +68,58 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 1 October device-directory and relay checkpoint
+
+`experiments/scuttlebutt-e2ee/relay/` adds a canonical, domain-separated Ed25519
+public bundle, an injected-auth gateway boundary and a private PostgreSQL schema.
+This is not an HTTP service or Supabase migration. The SQL gateway role is trusted
+server-side authority; clients cannot be given it. Credentials are fixture-to-user
+mappings in this proof, not real JWT verification. Signatures prove possession
+of the signing key, not an independently verified first identity or device origin
+of later account-authorized requests.
+
+The bounded directory allows one immutable device and one public prekey per
+account, with permanent revocation and exclusive, non-recycled prekey claims.
+The relay stores exact ciphertext-envelope bytes and immutable acceptance/refusal
+decisions. Block/unblock and revoke changes cannot rewrite a prior receipt.
+Both local generations are comparison fields, not server authentication evidence.
+All six private RPCs serialize through one transaction lock and require READ
+COMMITTED. Replacement/recovery, replenishment, native registration, authenticated
+network delivery, inbox reconciliation and scalable concurrency remain future work.
+
+Observed: **19 scenario groups passed** against the hash-pinned PGlite 0.5.8
+PostgreSQL engine with an on-disk disposable database. They include exact role
+denials (SQLSTATE 42501 after asserting session/current identity), cross-account
+ownership, immutable retries/conflicts, exclusive claims, bilateral blocks,
+revocation, malformed input, transaction rollback, the 256-decision owner cap,
+expiry, and orderly close/reopen. This is real SQL execution with **synthetic
+principals and unencrypted fixture bytes**, not a provider-to-relay end-to-end test.
+PGlite is single-connection; independently concurrent PostgreSQL transactions,
+Supabase Auth/PostgREST, network response authentication, power-loss durability,
+two physical phones and independent security review are **not proved**.
+
+The permission harness uses distinct sequential sessions, explicitly setting
+each fixture session's SQL authorization before testing denials. PGlite's
+`username` option only performs SET ROLE, and an aborted LOCAL session-authorization
+fixture did not reliably reset. Neither shortcut was accepted as permission-test
+evidence. No production credential is used, and NOLOGIN research roles do not
+demonstrate a real login.
+
+**259 focused tests passed** across framing, mocked delivery, real bundle-signature
+checks and mocked gateway wiring. The review also found JavaScript's `$` anchor
+accepting a final newline in IDs; both older framing/delivery validators now
+require a full match, with line-terminator regressions. The independent native
+provider/store proof from the preceding checkpoint was not rebuilt in this slice.
+See the relay README for the pinned dependency, reproduction commands, caps,
+trust boundaries and the blocked-inbox cursor limitation. The SQL/files remain
+outside `supabase/migrations`, app imports and the production dependency graph.
+
+Strict TypeScript checks and selected-file ESLint passed for this checkpoint.
+No web/native rebuild or Capacitor sync was needed for these unwired files;
+Shane's primary Xcode project and production remained untouched.
+
+Earlier framing/delivery baseline, retained for provenance:
 
 - **147 focused tests passed**: 43 framing tests and 104 mocked delivery tests,
   with one worker and no app setup. Isolated strict TypeScript checking passed.
@@ -458,10 +511,11 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: integrate the bounded native coordinator with a reviewed authenticated
-account/device lifecycle and an off-by-default app adapter, add lock/crash tests
-on real phones, then authenticated device/prekey
-relay tests in an isolated database. The synthetic single-prekey fixture is not
+Next: connect the native coordinator and this relay experiment through a reviewed
+authenticated account/device lifecycle, including native public bundle signing
+and request-origin binding. Then test the off-by-default adapter and lock/crash
+behaviour on real phones. The injected-auth SQL proof is not live authenticated
+transport. The synthetic single-prekey fixture is not
 a production registration or replenishment design. No new
 Supabase schema should inherit Signal/Kyber bundle fields from the earlier relay
 notes. Single-device pilot first; existing app messages remain untouched. Use

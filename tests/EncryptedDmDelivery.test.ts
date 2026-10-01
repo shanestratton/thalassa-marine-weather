@@ -237,6 +237,39 @@ describe('isolated ciphertext outbox delivery (mock adapters, not functioning E2
         expect(h.send).not.toHaveBeenCalled();
     });
 
+    it.each(['ownerUserId', 'recipientUserId', 'recipientIdentityKeyId'] as const)(
+        'rejects trailing line terminators in outbox %s before calling adapters',
+        async (field) => {
+            for (const ending of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+                const h = harness();
+                const item = record();
+                expect(await h.coordinator.deliver({ ...item, [field]: item[field] + ending }, session)).toBe(
+                    'invalid-record',
+                );
+                expect(h.send).not.toHaveBeenCalled();
+                expect(h.confirm).not.toHaveBeenCalled();
+                expect(h.confirmRejection).not.toHaveBeenCalled();
+            }
+        },
+    );
+
+    it.each(['clientMessageId', 'senderDeviceId', 'recipientDeviceId'] as const)(
+        'rejects trailing line terminators in stored envelope %s',
+        async (field) => {
+            for (const ending of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+                const h = harness();
+                // Exercise an externally stored frame, bypassing the send encoder.
+                const serializedEnvelope = JSON.stringify({ ...frame, [field]: frame[field] + ending });
+                expect(await h.coordinator.deliver({ ...record(), serializedEnvelope }, session)).toBe(
+                    'invalid-record',
+                );
+                expect(h.send).not.toHaveBeenCalled();
+                expect(h.confirm).not.toHaveBeenCalled();
+                expect(h.confirmRejection).not.toHaveBeenCalled();
+            }
+        },
+    );
+
     it.each(['plaintext', 'duplicate-key', 'non-canonical', 'unsupported-protocol'])(
         'validates stored envelope framing before dispatch (%s)',
         async (kind) => {
@@ -264,6 +297,23 @@ describe('isolated ciphertext outbox delivery (mock adapters, not functioning E2
         expect(await h.coordinator.deliver(record(), { ...session, ...patch })).toBe('blocked');
         expect(h.send).not.toHaveBeenCalled();
     });
+
+    it.each(['userId', 'senderDeviceId'] as const)(
+        'rejects trailing line terminators in caller session %s before consulting live state',
+        async (field) => {
+            for (const ending of ['\n', '\r', '\r\n', '\u2028', '\u2029']) {
+                const h = harness();
+                const getCurrentSession = vi.spyOn(h.dependencies, 'getCurrentSession');
+                expect(await h.coordinator.deliver(record(), { ...session, [field]: session[field] + ending })).toBe(
+                    'blocked',
+                );
+                expect(getCurrentSession).not.toHaveBeenCalled();
+                expect(h.send).not.toHaveBeenCalled();
+                expect(h.confirm).not.toHaveBeenCalled();
+                expect(h.confirmRejection).not.toHaveBeenCalled();
+            }
+        },
+    );
 
     it('blocks a record with a sender device different from the authenticated device', async () => {
         const h = harness();

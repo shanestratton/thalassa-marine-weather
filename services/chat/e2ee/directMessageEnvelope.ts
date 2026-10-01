@@ -49,7 +49,8 @@ export class InvalidDirectMessageEnvelopeError extends Error {
 }
 
 function isIdentifier(value: unknown): value is string {
-    return typeof value === 'string' && DEVICE_OR_MESSAGE_ID.test(value);
+    // JavaScript's $ can match before a final line terminator; require the whole ID.
+    return typeof value === 'string' && DEVICE_OR_MESSAGE_ID.exec(value)?.[0] === value;
 }
 
 function validate(value: unknown): DirectMessageEnvelope {
