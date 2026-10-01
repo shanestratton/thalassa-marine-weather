@@ -140,6 +140,12 @@ final class VodozemacDmCoordinator {
         }
     }
 
+    /// Read-only sealed peer context for the isolated relay adapter. This does
+    /// not authenticate a first-use directory key or establish app Auth.
+    func peerForResearch(owner: DmOwnerContext, generation: Int64) throws -> DmPeerContext {
+        try withState { _, state in try Self.requirePeer(owner, generation, state) }
+    }
+
     /// Public bundle signing is limited to the initial unpublished research
     /// account. A consumed one-time prekey must never be republished as fresh.
     func signedBundleForResearch(prekeyId: String, expiresAt: Int64, now: Int64, owner: DmOwnerContext) throws -> String {

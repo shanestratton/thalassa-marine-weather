@@ -95,6 +95,44 @@ or schema is used, and test certificates/database artifacts stay in a fresh
 temporary directory. The previous native-provider/relay proof and this HTTPS
 proof are separate: this does not claim a native-to-live-service encrypted exchange.
 
+## Combined native/local HTTPS research proof
+
+`nativeExchangeProof.mjs` now connects the real native sealed coordinator, strict
+result codec and relay client to `nativeExchangeServer.mjs` over HTTPS. Supply an
+existing completed native-relay build cache and the pinned PGlite archive; it
+does not download/install dependencies or mutate the primary Xcode project:
+
+```sh
+node --experimental-strip-types experiments/scuttlebutt-e2ee/relay/nativeExchangeProof.mjs /absolute/path/native-cache /absolute/path/pglite.tgz
+```
+
+This runner **creates, boots and removes one fresh disposable simulator** using
+an already installed iOS 26.5 runtime. It first requires a real untrusted TLS
+handshake refusal with zero HTTP/Auth calls, then trusts its fresh one-day test
+certificate **only in that simulator**. Native URLSession keeps normal trust;
+there is no URLProtocol mock, custom challenge acceptance or ATS exception. No
+existing simulator, Mac/system trust store, phone, production account or app
+changes. The fixture CA disappears with the disposable device.
+
+Three actual native Olm messages cross the signed gateway/on-disk SQL boundary.
+Lost response, wrong receipt, structural and cryptographic poison, native process
+restart, exact-ciphertext retry, duplicates and SQL reopen are checked. Both
+logical clients share one research app/simulator. Account/token/epoch responses
+and independently exchanged peer pins remain fixtures: this is not live Supabase
+Auth, two physical phones or security review. Cache manifest/lock/source/binary
+hashes are recorded; reuse is not a fresh Rust build or independently attested
+binary provenance. Read the checkpoint for observed run evidence.
+
+The native client validates a complete inbox page before mutations, but commits
+each authenticated row individually. It re-scans from zero within a bounded
+single-peer store; it does not advance/persist a sync cursor. Structural poison
+rejects the whole page. Cryptographic poison may leave prior valid rows durably
+received and then stalls retries, without leaking a successful plaintext batch.
+Owner/peer generation changes hide old history and likewise refuse old rows.
+Recovery/quarantine, scalable sync and durable real account lifecycle remain
+required before app integration; no silent skip, plaintext fallback or security
+badge is added by this prototype.
+
 ## Trust boundary
 
 The gateway host must validate each credential and derive `userId` independently

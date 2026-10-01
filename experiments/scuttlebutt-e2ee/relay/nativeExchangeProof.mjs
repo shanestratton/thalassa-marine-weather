@@ -1,0 +1,373 @@
+/**
+ * Isolated simulator-native Olm → ordinary URLSession HTTPS → on-disk SQL proof.
+ * Usage: node --experimental-strip-types nativeExchangeProof.mjs NATIVE_CACHE PGLITE_ARCHIVE
+ * Creates and removes ONE disposable simulator; never uses an existing device.
+ * Its fresh localhost CA is trusted only in that disposable simulator, after a
+ * negative untrusted-TLS check. No system CA, physical phone or app is changed.
+ * Cached generated bindings/static provider binaries are reused and hashed;
+ * this is not a fresh Rust build or a two-physical-iPhone/auth-account test.
+ */
+import assert from 'node:assert/strict';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+    existsSync,
+    lstatSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    readdirSync,
+    realpathSync,
+    statfsSync,
+    writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { createNativeExchangeServer } from './nativeExchangeServer.mjs';
+
+assert.equal(process.platform, 'darwin');
+assert.equal(process.arch, 'arm64');
+const [cacheArg, archiveArg, ...extra] = process.argv.slice(2);
+assert(
+    cacheArg && archiveArg && !extra.length && [cacheArg, archiveArg].every(isAbsolute),
+    'Provide only the existing verified native-cache directory and pinned PGlite archive',
+);
+assert(!lstatSync(cacheArg).isSymbolicLink() && lstatSync(cacheArg).isDirectory());
+assert(!lstatSync(archiveArg).isSymbolicLink() && lstatSync(archiveArg).isFile());
+const cache = realpathSync(cacheArg),
+    archivePath = realpathSync(archiveArg);
+const here = dirname(fileURLToPath(import.meta.url)),
+    experiment = join(here, '..');
+const nativePin = JSON.parse(readFileSync(join(experiment, 'vodozemac-native-pin.json'), 'utf8'));
+assert.equal(nativePin.shippingApproved, false);
+assert.equal(nativePin.protocol, 'olm-v1');
+const digest = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
+assert.equal(digest(join(experiment, 'vodozemac-native/Cargo.toml')), nativePin.manifestSha256);
+assert.equal(digest(join(experiment, 'vodozemac-native/Cargo.lock')), nativePin.lockfileSha256);
+const bindings = join(cache, 'bindings');
+const swiftBindings = readdirSync(bindings).filter((name) => name.endsWith('.swift'));
+const moduleMaps = readdirSync(bindings).filter((name) => name.endsWith('.modulemap'));
+assert.equal(swiftBindings.length, 1);
+assert.equal(moduleMaps.length, 1);
+const providerArchive = join(cache, 'target/aarch64-apple-ios-sim/debug/libthalassa_vodozemac_native.a');
+const cacheInputs = [providerArchive, ...readdirSync(bindings).map((name) => join(bindings, name))];
+for (const path of cacheInputs) assert(!lstatSync(path).isSymbolicLink() && lstatSync(path).isFile());
+// A previous successful native research run is required before reusing its
+// cache. Its receipt is evidence of execution, NOT an artifact-signing chain.
+const priorReceipts = readdirSync(cache).filter((name) => /^run-[0-9a-f-]+\.json$/.test(name));
+assert(
+    priorReceipts.some((name) => {
+        const path = join(cache, name);
+        if (lstatSync(path).isSymbolicLink() || lstatSync(path).size > 64 * 1024) return false;
+        const value = JSON.parse(readFileSync(path, 'utf8'));
+        return (
+            value.status === 'passed' &&
+            value.observation === 'cleanup-and-uninstall-complete' &&
+            Array.isArray(value.completedPhases) &&
+            value.completedPhases.some((phase) => phase.phase === 'relay-replay')
+        );
+    }),
+    'Cache must belong to a completed native PostgreSQL research proof',
+);
+const cacheHashes = Object.fromEntries(cacheInputs.map((path) => [path, digest(path)]));
+const scratch = mkdtempSync(join(tmpdir(), 'thalassa-native-exchange-'));
+assert(statfsSync(scratch).bavail * statfsSync(scratch).bsize > 3 * 1024 ** 3, 'Keep at least 3 GiB free');
+
+process.title = 'thalassa native exchange waiting';
+let announced = false;
+for (;;) {
+    const check = spawnSync('/usr/bin/pgrep', ['-fl', 'vite build|tsc|vitest'], { encoding: 'utf8' });
+    assert(!check.error && [0, 1].includes(check.status));
+    const others = check.stdout
+        .trim()
+        .split('\n')
+        .filter(
+            (line) =>
+                line &&
+                !line.startsWith(`${process.pid} `) &&
+                !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|tail|grep|rg|pgrep)\s/.test(line),
+        );
+    if (!others.length) break;
+    if (!announced) console.log('Waiting for shared-Mac build slot (native HTTPS exchange).');
+    announced = true;
+    await delay(5000);
+}
+process.title = 'vite build slot: isolated native HTTPS exchange';
+const run = (args, { timeout = 120_000, quiet = false } = {}) => {
+    const result = spawnSync('/usr/bin/xcrun', args, { encoding: 'utf8', timeout, maxBuffer: 1024 * 1024 });
+    if (!quiet && result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    assert(!result.error && result.status === 0, 'Research simulator command failed; no production changes');
+    return result.stdout.trim();
+};
+const bundle = `app.thalassa.research.exchange.${randomUUID().toLowerCase()}`;
+const runID = randomUUID(),
+    aliceID = randomUUID(),
+    bobID = randomUUID();
+const receiptPath = join(scratch, 'exchange-run.json');
+const receipt = {
+    runID,
+    aliceID,
+    bobID,
+    bundle,
+    status: 'running',
+    phase: 'build',
+    completedPhases: [],
+    cacheHashes,
+    providerManifestSha256: nativePin.manifestSha256,
+    providerLockSha256: nativePin.lockfileSha256,
+    fixtureAuth: true,
+    cachedArtifactProvenanceIndependentlyVerified: false,
+    physicalPhoneExecution: false,
+    tlsPolicy: 'ordinary-urlsession-disposable-simulator-root',
+};
+const saveReceipt = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
+saveReceipt();
+console.log(`Nonsecret native exchange receipt: ${receiptPath}`);
+let simulator;
+let relay;
+let failure;
+try {
+    const app = join(scratch, 'NativeExchange.app');
+    mkdirSync(app, { mode: 0o700 });
+    const entitlements = join(scratch, 'research.simulated.xcent'),
+        derEntitlements = entitlements + '.der';
+    writeFileSync(
+        entitlements,
+        `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>application-identifier</key><string>RESEARCH00.${bundle}</string><key>keychain-access-groups</key><array><string>RESEARCH00.${bundle}</string></array></dict></plist>`,
+        { mode: 0o600, flag: 'wx' },
+    );
+    run(['derq', 'query', '-f', 'xml', '-i', entitlements, '-o', derEntitlements, '--raw']);
+    const sources = [
+        join(bindings, swiftBindings[0]),
+        ...[
+            'VodozemacSealedStore.swift',
+            'VodozemacDmFrame.swift',
+            'VodozemacDmCoordinator.swift',
+            'VodozemacRelayCodec.swift',
+            'VodozemacRelayTransport.swift',
+            'VodozemacRelayResult.swift',
+            'VodozemacRelayResultProbe.swift',
+            'VodozemacRelayClient.swift',
+            'VodozemacExchangeProbe.swift',
+        ].map((name) => join(experiment, name)),
+    ];
+    for (const path of sources) assert(!lstatSync(path).isSymbolicLink() && lstatSync(path).isFile());
+    receipt.sourceHashes = Object.fromEntries(sources.map((path) => [path, digest(path)]));
+    saveReceipt();
+    const executable = join(app, 'NativeExchange');
+    const sdkPath = run(['--sdk', 'iphonesimulator', '--show-sdk-path'], { quiet: true });
+    run([
+        '--sdk',
+        'iphonesimulator',
+        'swiftc',
+        '-swift-version',
+        '5',
+        '-j',
+        '1',
+        '-num-threads',
+        '1',
+        '-parse-as-library',
+        '-target',
+        'arm64-apple-ios17.0-simulator',
+        '-sdk',
+        sdkPath,
+        '-module-cache-path',
+        join(scratch, 'modules'),
+        '-I',
+        bindings,
+        '-Xcc',
+        `-fmodule-map-file=${join(bindings, moduleMaps[0])}`,
+        '-Xlinker',
+        '-sectcreate',
+        '-Xlinker',
+        '__TEXT',
+        '-Xlinker',
+        '__entitlements',
+        '-Xlinker',
+        entitlements,
+        '-Xlinker',
+        '-sectcreate',
+        '-Xlinker',
+        '__TEXT',
+        '-Xlinker',
+        '__ents_der',
+        '-Xlinker',
+        derEntitlements,
+        providerArchive,
+        '-lsqlite3',
+        '-framework',
+        'Security',
+        '-o',
+        executable,
+        ...sources,
+    ]);
+    assert(run(['vtool', '-show-build', executable], { quiet: true }).includes('platform IOSSIMULATOR\n'));
+    for (const [path, expected] of Object.entries(cacheHashes))
+        assert.equal(digest(path), expected, 'Cached generated binding/static library must not change during this run');
+    for (const [path, expected] of Object.entries(receipt.sourceHashes))
+        assert.equal(digest(path), expected, 'Native research sources must not change during compilation');
+    writeFileSync(
+        join(app, 'Info.plist'),
+        `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${bundle}</string><key>CFBundleExecutable</key><string>NativeExchange</string><key>CFBundleName</key><string>NativeExchange</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleVersion</key><string>1</string><key>MinimumOSVersion</key><string>17.0</string><key>LSRequiresIPhoneOS</key><true/><key>UIDeviceFamily</key><array><integer>1</integer></array><key>UILaunchScreen</key><dict/><key>NSLocalNetworkUsageDescription</key><string>Disposable local encryption research only.</string><key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/><key>UISceneConfigurations</key><dict><key>UIWindowSceneSessionRoleApplication</key><array><dict><key>UISceneConfigurationName</key><string>Research</string><key>UISceneDelegateClassName</key><string>ThalassaNativeExchangeScene</string></dict></array></dict></dict></dict></plist>`,
+        { mode: 0o600, flag: 'wx' },
+    );
+    const signed = spawnSync('/usr/bin/codesign', ['--force', '--sign', '-', app], {
+        encoding: 'utf8',
+        timeout: 30_000,
+    });
+    assert(!signed.error && signed.status === 0, 'Ad-hoc sign only this isolated simulator app');
+    relay = await createNativeExchangeServer({ archivePath, scratch });
+    receipt.origin = relay.origin;
+    receipt.phase = 'simulator-create';
+    saveReceipt();
+    const runtimes = JSON.parse(run(['simctl', 'list', 'runtimes', '--json'], { quiet: true })).runtimes;
+    const runtime = runtimes.find(
+        (value) =>
+            value.isAvailable &&
+            value.platform === 'iOS' &&
+            value.identifier === 'com.apple.CoreSimulator.SimRuntime.iOS-26-5',
+    );
+    assert(runtime, 'An already installed iOS 26.5 runtime is required; never download runtimes');
+    const deviceType = runtime.supportedDeviceTypes.find((value) => value.productFamily === 'iPhone').identifier;
+    const name = `Thalassa E2EE disposable ${runID}`;
+    const created = run(['simctl', 'create', name, deviceType, runtime.identifier], { quiet: true });
+    assert(/^[0-9A-Fa-f-]{36}$/.test(created), 'Must capture exact newly created simulator ID');
+    simulator = created;
+    receipt.simulator = simulator;
+    receipt.simulatorName = name;
+    saveReceipt();
+    // Every device mutation below targets only the newly returned UUID.
+    const ownDevice = () => {
+        const devices = JSON.parse(run(['simctl', 'list', 'devices', '--json'], { quiet: true })).devices;
+        const matches = Object.values(devices)
+            .flat()
+            .filter((value) => value.udid === simulator);
+        assert.equal(matches.length, 1);
+        assert.equal(matches[0].name, name, 'Never mutate a pre-existing or differently owned simulator');
+        return matches[0];
+    };
+    ownDevice();
+    run(['simctl', 'boot', simulator], { quiet: true });
+    run(['simctl', 'bootstatus', simulator, '-b'], { timeout: 180_000, quiet: true });
+    run(['simctl', 'install', simulator, app], { timeout: 180_000, quiet: true });
+    const container = run(['simctl', 'get_app_container', simulator, bundle, 'data'], { quiet: true });
+    assert(isAbsolute(container));
+    const statusPath = join(container, 'Documents', `exchange-status-${runID.toLowerCase()}.json`);
+    const launch = async (phase) => {
+        ownDevice();
+        receipt.phase = phase;
+        receipt.observation = 'launch-outcome-unknown';
+        delete receipt.pid;
+        saveReceipt();
+        const output = run(
+            [
+                'simctl',
+                'launch',
+                '--terminate-running-process',
+                simulator,
+                bundle,
+                '--exchange',
+                phase,
+                runID,
+                aliceID,
+                bobID,
+                relay.origin,
+            ],
+            { timeout: 180_000, quiet: true },
+        );
+        const pid = Number(output.match(/: (\d+)\s*$/)?.[1]);
+        assert(Number.isSafeInteger(pid) && pid > 0);
+        receipt.pid = pid;
+        receipt.observation = 'awaiting-app-receipt';
+        saveReceipt();
+        const deadline = Date.now() + 60_000;
+        let status;
+        while (Date.now() < deadline) {
+            if (existsSync(statusPath)) {
+                assert(!lstatSync(statusPath).isSymbolicLink() && lstatSync(statusPath).size < 64 * 1024);
+                const candidate = JSON.parse(readFileSync(statusPath, 'utf8'));
+                if (candidate.runID === runID.toLowerCase() && candidate.phase === phase && candidate.pid === pid)
+                    status = candidate;
+                if (status?.status === 'passed' || status?.status === 'failed') break;
+            }
+            await delay(250); // Keep Node HTTPS server available while the app runs.
+        }
+        assert.equal(
+            status?.status,
+            'passed',
+            `Native ${phase} failed or unresolved; only sanitized app receipt inspected`,
+        );
+        receipt.completedPhases.push({ phase, pid, stage: status.stage });
+        receipt.observation = 'app-reported-pass';
+        saveReceipt();
+        console.log(`PASS real native HTTPS exchange phase: ${phase}`);
+    };
+    await launch('tls-refuse');
+    const beforeTrust = relay.counters();
+    assert(beforeTrust.tlsRefusals > 0, 'Native negative check must actually attempt and reject a TLS handshake');
+    assert.equal(beforeTrust.httpRequests, 0, 'Untrusted TLS must not reach the HTTP/Auth gateway');
+    assert.equal(beforeTrust.authRequests, 0);
+    receipt.phase = 'disposable-simulator-trust';
+    saveReceipt();
+    ownDevice();
+    run(['simctl', 'keychain', simulator, 'add-root-cert', relay.certPath], { quiet: true });
+    receipt.rootAddedOnlyToNewSimulator = true;
+    saveReceipt();
+    for (const phase of ['prepare', 'opening', 'retry', 'reply', 'successor', 'verify', 'cleanup']) {
+        await launch(phase);
+        if (phase === 'opening') {
+            await relay.verify({ expectedDecisions: 1, expectedFaults: { lostResponses: 1 } });
+            await relay.reopen();
+        }
+    }
+    receipt.serverVerification = await relay.verify({
+        expectedDecisions: 3,
+        expectedClientIds: ['exchange-opening', 'exchange-reply', 'exchange-successor'],
+        forbiddenPlaintexts: [
+            'Native HTTPS research opening',
+            'Native HTTPS research reply',
+            'Native HTTPS research successor',
+        ],
+        expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 2 },
+    });
+    await relay.reopen();
+    receipt.status = 'passed';
+    receipt.observation = 'native-encrypted-https-sql-proof-passed';
+} catch (error) {
+    failure = error;
+    receipt.status = 'failed';
+    receipt.observation = 'failed-or-incomplete-check-keys-not-reused';
+} finally {
+    // The fresh simulator is solely owned by this runner. Removing it also
+    // removes the deliberately added fixture CA. No existing device is reset.
+    if (simulator) {
+        try {
+            const devices = JSON.parse(run(['simctl', 'list', 'devices', '--json'], { quiet: true })).devices;
+            const target = Object.values(devices)
+                .flat()
+                .find((value) => value.udid === simulator);
+            assert(target && target.name === receipt.simulatorName);
+            if (target.state !== 'Shutdown') run(['simctl', 'shutdown', simulator], { quiet: true });
+            run(['simctl', 'delete', simulator], { quiet: true });
+            receipt.disposableSimulatorRemoved = true;
+        } catch (error) {
+            failure ??= error;
+            receipt.status = 'incomplete';
+            receipt.disposableSimulatorRemoved = false;
+        }
+    }
+    try {
+        if (relay) await relay.close();
+    } catch (error) {
+        failure ??= error;
+        receipt.status = 'incomplete';
+    }
+    saveReceipt();
+}
+console.log(`Research artifacts retained: ${scratch}`);
+if (failure) throw failure;
+console.log('PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.');
+console.log('Disposable simulator and its test CA removed. NOT two phones, live Auth or independent security review.');
