@@ -38,6 +38,16 @@ private func commit(_ store: VodozemacSealedStore, _ revision: Int64, _ state: P
 }
 
 private func runPhase(_ phase: String, runID: UUID, aliceID: UUID, bobID: UUID) throws {
+    if phase == "research-cleanup" {
+        try ProbeProgress.write("exact-failed-run-cleanup")
+        try runResearchCleanup(runID: runID)
+        return
+    }
+    if phase.hasPrefix("relay-") {
+        try ProbeProgress.write("native-signed-relay")
+        try runNativeRelayPhase(phase, runID: runID, aliceID: aliceID, bobID: bobID)
+        return
+    }
     if phase.hasPrefix("dm-") {
         try ProbeProgress.write("dm-restart")
         try runDmCoordinatorPhase(phase, runID: runID, aliceID: aliceID, bobID: bobID)
@@ -168,7 +178,8 @@ private enum ProbeProgress {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--probe"), args.count == i + 5,
               ["prepare", "receive", "reply", "verify", "replay", "cleanup",
-               "dm-prepare", "dm-receive", "dm-reply", "dm-verify", "dm-replay", "dm-cleanup"].contains(args[i + 1]),
+               "dm-prepare", "dm-receive", "dm-reply", "dm-verify", "dm-replay", "dm-cleanup",
+               "relay-prepare", "relay-send", "relay-reply", "relay-verify", "relay-replay", "relay-cleanup", "research-cleanup"].contains(args[i + 1]),
               let run = UUID(uuidString: args[i + 2]), let alice = UUID(uuidString: args[i + 3]),
               let bob = UUID(uuidString: args[i + 4]), alice != bob else { throw ProbeFailure.check }
         return (args[i + 1], run, alice, bob)

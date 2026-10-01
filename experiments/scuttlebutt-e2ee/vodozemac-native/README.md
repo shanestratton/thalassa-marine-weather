@@ -23,6 +23,10 @@ directory, trust-on-first-use or durable mutation exists here.
   account, new session, plaintext and session ID together.
 - `decrypt`: restore only Olm v1 and verify any prekey's outer session keys match
   before upstream decryption; return advanced encrypted session plus plaintext.
+- `sign_public_request`: restore the provider account and sign exact bounded
+  bytes with its own Ed25519 identity; return only public signing key/signature.
+  Does not advance or return the account pickle. Signing itself is not a request
+  policy: the Swift coordinator and server must bind domain, identity and action.
 
 The native caller must authenticate and bind owner, peer identity and session ID
 to its snapshot, reject mismatches in the returned session ID, serialize access,
@@ -37,6 +41,7 @@ registration. This one-prekey API is deliberately not a production key lifecycle
 Keys must be exactly 32 bytes. Public curve keys must be canonical 43-character
 unpadded base64. Plaintext is at most 64 KiB; wire at most 64 KiB + 1024 bytes;
 encrypted pickle at most 256 KiB (within the 1 MiB whole-snapshot budget).
+Public signing input must be nonempty and at most 100 KiB.
 The native caller should reject oversized inbound
 data before crossing UniFFI, whose argument conversion can allocate before these
 Rust checks. Generic errors contain no raw provider details or caller inputs.
@@ -79,6 +84,11 @@ node /absolute/e2ee-worktree/experiments/scuttlebutt-e2ee/vodozemac-native-proof
 Replace the example paths. To execute the synthetic test, append the UDID of an
 explicitly selected, already booted iPhone simulator. Omitting that argument is
 compile-only: it cannot establish Keychain or process-restart behaviour.
+To add the native-to-relay proof, append `--relay-archive /absolute/path/pglite.tgz`
+after that UDID and run Node 24 with `--experimental-strip-types`. Use the pinned
+archive described in `../relay/README.md`; there are no automatic downloads.
+The scratch directory must not already contain `native-relay`, whose database
+is retained for inspection. Never silently reuse or overwrite an earlier proof.
 
 The runner checks manifest/lockfile hashes against `vodozemac-native-pin.json`
 and the provider archive/source against `vodozemac-pin.json`; it uses locked,
@@ -91,6 +101,15 @@ The optional simulator run installs a randomly named research app and launches
 the original six separate process phases: `prepare`, `receive`, `reply`, `verify`,
 `replay`, and `cleanup`, then six `dm-`-prefixed phases for the typed coordinator.
 Phase receipts must match the run ID, phase and launched PID.
+With the optional relay archive, six more `relay-` phases run. They register
+provider-signed native bundles, verify server-reserved public keys against
+explicit native fixture pins, send three real Olm messages through the SQL
+relay, apply committed receipts, decrypt across process restarts and test exact
+retries/tampering/durable deduplication. The bridge uses fresh fixture Auth HTTP
+responses, not live Supabase credentials, and filesystem delivery, not network/TLS.
+Public signature verification in JS proves the Swift array-domain codec agrees
+with the gateway. Neither server nor JS sees native private keys, pickles,
+plaintext or decrypted history. This document describes the harness, not a pass.
 The final replay attempt reopens the receiver's committed state in another
 process and then verifies those sessions can still exchange a new message.
 A successful run cleans up its synthetic stores, Keychain items and app;
@@ -100,6 +119,16 @@ missing observation is **incomplete**, not an app assertion failure. The app can
 finish after the launcher times out. Reconcile its sanitized run/phase/PID receipt
 and saved completed phases before continuing or cleaning up; never blindly replay
 `prepare`. This document does not assert that a simulator run has passed.
+
+For an observed app assertion failure, `--recover-receipt /absolute/path/run-UUID.json`
+instead of `--relay-archive` can rebuild the same disposable research bundle and
+run only exact namespace cleanup. The runner requires matching failed app
+run/phase/PID evidence and a receipt in its own temporary directory. Unknown
+launch outcomes still require manual reconciliation. Cleanup authenticates every
+UUID-bound sealed store before deleting disposable test keys/files, refuses
+unexpected contents/links, and never deletes a Keychain prefix or recursively
+removes a directory. The original failure receipt and database remain; a separate
+recovery receipt records cleanup. This is not a successful encryption rerun.
 
 ## Swift storage proof and limits
 
@@ -117,7 +146,7 @@ rejection, and injected commit/rollback faults. Process relaunches and injected
 faults are **not** sudden-power-loss, actual SQLite I/O-failure, locked-phone,
 two-physical-device or whole-database rollback evidence. Provider key generation
 and transport/device authentication are not a production lifecycle here. There
-is no backend, user traffic or independently reviewed shipping integration.
+is no production backend, user traffic or independently reviewed shipping integration.
 
 The simulator may omit `FileAttributeKey.protectionKey`, so absent simulator
 metadata is reported as **not verified**, not evidence of hardware protection.
@@ -137,6 +166,14 @@ and [Apple's file-protection attribute contract](https://developer.apple.com/doc
 `VodozemacDmCoordinator.swift` owns a typed snapshot rather than treating an
 opaque pickle as a complete app protocol. It is still research-only: no Capacitor
 registration, live credentials, network call, database migration or chat badge.
+
+Its sealed research state is now version 2 and includes the provider's immutable
+public signing key. Old research state refuses rather than silently generating
+new keys or migrating account ownership. Native signed-send preparation accepts
+only the exact durable pending outbox under current owner/peer generations;
+bundle signing is forbidden once a session exists. Every signature is exposed
+only after a sealed-state CAS, fencing a concurrent owner/peer change without
+advancing the provider ratchet. The signing provider never exports private keys.
 
 - Prepare commits the ratchet and immutable exact-ciphertext outbox together.
   A matching retry returns saved bytes without re-encryption; changed content

@@ -8,6 +8,8 @@ export default {
             'tests/EncryptedDmDelivery.test.ts',
             'tests/E2eeResearchDeviceBundle.test.ts',
             'tests/E2eeResearchGateway.test.ts',
+            'tests/E2eeResearchSignedGateway.test.ts',
+            'tests/E2eeResearchSupabaseAuth.test.ts',
         ],
         maxWorkers: 1,
         fileParallelism: false,

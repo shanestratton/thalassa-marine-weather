@@ -69,7 +69,80 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 1 October signed native-to-relay checkpoint
+
+The native provider now signs public bundle and request bytes with its own
+Ed25519 identity. Keys remain in the Keychain-backed sealed native account;
+only public signatures/keys leave the provider. The Swift coordinator accepts
+only its exact durable pending outbox for send signing, checks native owner/peer
+generations, and CASes sealed state before exposing a signature. State version 2
+includes the immutable public signing key; old research state fails closed.
+There is still no Capacitor plugin or live chat import.
+
+The signed gateway authenticates the account and verifies each request against
+the registered immutable device key, not a caller-selected key. The domain binds
+user/device, action, nonce, integer expiry and canonical payload bytes. Proof TTL
+is at most 300 seconds. SQL atomically records request execution with immutable
+message decisions; exact retries cannot repeat block/revoke mutations, and changed
+wire under the same nonce fails. Read/claim retries enforce current lifecycle
+policy. The server role remains trusted and private, not a client credential.
+
+`supabaseAuth.ts` implements fresh bounded GET `/auth/v1/user` verification with
+a trusted HTTPS project origin and public API key. It rejects redirects, invalid
+UUID identity, oversized/stalled responses and transport errors. Its tests use
+HTTP response fixtures, not a live project. Process-local app auth generations
+must not become durable E2EE generations: production native logout/relogin and
+confirmed-auth transition wiring remain outstanding.
+
+Observed on the final source:
+
+- **359 focused tests passed**, across six TypeScript suites; strict selected-file
+  TypeScript and ESLint passed. These include real signature checks but mocked
+  Auth/SQL adapters where identified, not 359 end-to-end security checks.
+- **30 PostgreSQL-engine scenario groups passed**, including nonce conflicts,
+  the 512-request owner cap, post-execution rollback, expiry, grants and real
+  persisted read/claim retry policy. Fixture Auth and fixture ciphertext remain
+  explicit in this SQL-only runner. Database run retained in temporary
+  `thalassa-e2ee-relay-6VsvWW`.
+- **15 host native-boundary tests passed** with unchanged pinned vodozemac 0.11.0
+  Olm v1 and UniFFI 0.29.4; five new signing tests verify exact bytes, tampering,
+  bounds, deterministic signatures and unchanged account/prekey state.
+- Both simulator and unsigned physical-iPhone targets compiled/linked. **All 18
+  separate simulator process phases passed**, including 112 existing coordinator
+  assertions and the new native signing/lifecycle guards. Three actual native Olm
+  messages passed through the signed gateway and on-disk SQL relay, then decrypted
+  only in native code after restarts. Exact signed retries, changed-request refusal,
+  durable inbox deduplication and database reopen passed. Public bundle/request,
+  ciphertext and receipts—not private keys/pickles/plaintext/history—crossed the
+  local bridge. Fresh Auth HTTP responses and out-of-band peer pins are fixtures;
+  filesystem delivery is not TLS or a live authenticated response channel.
+
+Final simulator receipt: `/private/tmp/thalassa-vodo-native.AQR0PF/run-4ec0e5b2-6e1e-4c7d-aa6f-6ab67f16a788.json`.
+It records `passed`, 18 run/phase/PID observations, complete namespace cleanup and
+research app uninstall; physical-device protection is explicitly `false`/unverified.
+The local relay database remains at that scratch directory's `native-relay`.
+
+Review caught an unconditional cached read/claim replay bypassing later blocks or
+revocation. It was fixed and covered by three new SQL regression groups. A native
+probe also incorrectly compared unsorted JSONEncoder byte ordering; it now checks
+semantic state with sorted encoding. That failed test run was not relabelled as a
+pass: its original failure receipt is retained, and a separate verified recovery
+run authenticated and removed only its disposable UUID-bound stores/keys and app.
+Its database was preserved as `native-relay-failed-f5e77d91`. Recovery never applies
+to unknown launch outcomes or production keys.
+
+Agent reviews found no further actionable issue in this slice; they are **not an
+independent security audit**. No physical phones, locked-device/reboot/power-loss
+behavior, live Supabase Auth/transport, independent PostgreSQL connections, real
+account/device lifecycle, complete inbox sync, key renewal/recovery, UI integration
+or security badge are proved. Production schema, website, primary Xcode project
+and existing messages remain untouched. The next integration requires an isolated
+authenticated test backend, native app lifecycle/transport wiring and a two-phone
+pilot; independent security/licence review still gates distribution.
+
 ### 1 October device-directory and relay checkpoint
+
+Historical predecessor checkpoint (before device request signing/native relay bridge):
 
 `experiments/scuttlebutt-e2ee/relay/` adds a canonical, domain-separated Ed25519
 public bundle, an injected-auth gateway boundary and a private PostgreSQL schema.

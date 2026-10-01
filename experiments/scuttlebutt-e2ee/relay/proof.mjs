@@ -15,6 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { deviceBundleSigningBytes, encodeDeviceBundle } from './deviceBundle.ts';
 import { createResearchGateway, encodeResearchOutbox } from './gateway.ts';
 import { encodeDirectMessageEnvelope } from '../../../services/chat/e2ee/directMessageEnvelope.ts';
+import { runSignedSqlProof } from './signedSqlProof.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pin = JSON.parse(readFileSync(join(here, 'pglite-pin.json'), 'utf8'));
@@ -100,6 +101,8 @@ const signatures = {
     claim_prekey: 'text,text,text,text,text',
     send_message: 'text,jsonb',
     list_messages: 'text,text,bigint,integer',
+    lookup_request_key: 'text,text',
+    execute_request: 'text,text,text,text,text,bigint,text',
 };
 let rollbackNextSend = false;
 async function rpc(name, args) {
@@ -435,10 +438,29 @@ try {
             assert.equal(value, record().serializedEnvelope);
         },
     );
+    checks += await runSignedSqlProof(pg, rpc);
+    const decisionsBeforeReopen = Number(
+        (await pg.query('SELECT count(*) AS n FROM e2ee_research.decisions')).rows[0].n,
+    );
+    const requestsBeforeReopen = Number((await pg.query('SELECT count(*) AS n FROM e2ee_research.requests')).rows[0].n);
     // Close/reopen the actual on-disk database; not an in-memory fake/repository cache.
     await pg.close();
     const reopened = await PGlite.create(join(scratch, 'database'));
-    assert.equal(Number((await reopened.query('SELECT count(*) AS n FROM e2ee_research.decisions')).rows[0].n), 256);
+    assert.equal(
+        Number((await reopened.query('SELECT count(*) AS n FROM e2ee_research.decisions')).rows[0].n),
+        decisionsBeforeReopen,
+    );
+    assert.equal(
+        Number((await reopened.query('SELECT count(*) AS n FROM e2ee_research.requests')).rows[0].n),
+        requestsBeforeReopen,
+    );
+    assert.equal(
+        Number(
+            (await reopened.query("SELECT count(*) AS n FROM e2ee_research.decisions WHERE owner_id='alice'")).rows[0]
+                .n,
+        ),
+        256,
+    );
     assert.equal(
         (await reopened.query("SELECT revoked FROM e2ee_research.devices WHERE user_id='bob'")).rows[0].revoked,
         true,

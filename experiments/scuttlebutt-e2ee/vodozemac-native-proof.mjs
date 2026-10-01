@@ -23,8 +23,45 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const crate = join(here, 'vodozemac-native');
-const [cargo, cacheArg, scratchArg, simulator, ...extra] = process.argv.slice(2);
-assert(cargo && cacheArg && scratchArg && !extra.length, 'Provide CARGO CARGO_HOME SCRATCH [BOOTED_SIMULATOR]');
+const [cargo, cacheArg, scratchArg, simulator, optionFlag, optionPath, ...extra] = process.argv.slice(2);
+assert(
+    cargo &&
+        cacheArg &&
+        scratchArg &&
+        !extra.length &&
+        ((!optionFlag && !optionPath) ||
+            (['--relay-archive', '--recover-receipt'].includes(optionFlag) && simulator && isAbsolute(optionPath))),
+    'Provide CARGO CARGO_HOME SCRATCH [BOOTED_SIMULATOR [--relay-archive ARCHIVE | --recover-receipt FAILED_RECEIPT]]',
+);
+const relayArchive = optionFlag === '--relay-archive' ? optionPath : undefined;
+let recovery;
+if (optionFlag === '--recover-receipt') {
+    assert(
+        !lstatSync(optionPath).isSymbolicLink() &&
+            lstatSync(optionPath).isFile() &&
+            lstatSync(optionPath).size < 64 * 1024,
+    );
+    recovery = JSON.parse(readFileSync(optionPath, 'utf8'));
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    assert(
+        [recovery.runID, recovery.aliceID, recovery.bobID].every(
+            (id) => typeof id === 'string' && uuid.exec(id)?.[0] === id,
+        ),
+    );
+    assert(recovery.aliceID !== recovery.bobID && recovery.simulator === simulator && recovery.status === 'failed');
+    assert(
+        recovery.observation === 'app-reported-failure' && Number.isSafeInteger(recovery.pid) && recovery.pid > 0,
+        'Unknown launch outcomes must be reconciled manually, not automatically cleaned',
+    );
+    const bundleSuffix =
+        typeof recovery.bundle === 'string' ? recovery.bundle.slice('app.thalassa.research.vodozemac.'.length) : '';
+    assert(
+        typeof recovery.bundle === 'string' &&
+            recovery.bundle.startsWith('app.thalassa.research.vodozemac.') &&
+            uuid.exec(bundleSuffix)?.[0] === bundleSuffix &&
+            bundleSuffix.length === 36,
+    );
+}
 assert([cargo, cacheArg, scratchArg].every(isAbsolute), 'Absolute paths required');
 assert(process.platform === 'darwin' && process.arch === 'arm64', 'Apple Silicon research runner only');
 const cache = realpathSync(cacheArg);
@@ -41,6 +78,11 @@ function checkOutputTree(directory) {
     }
 }
 checkOutputTree(scratch);
+if (recovery)
+    assert(
+        realpathSync(optionPath).startsWith(scratch + '/'),
+        'Recovery receipt belongs to this exact temporary research directory',
+    );
 assert(statfsSync(scratch).bavail * statfsSync(scratch).bsize > 3 * 1024 ** 3, 'Keep at least 3 GiB free');
 const env = {
     ...process.env,
@@ -177,7 +219,7 @@ const swiftBindings = readdirSync(bindings).filter((name) => name.endsWith('.swi
 const moduleMaps = readdirSync(bindings).filter((name) => name.endsWith('.modulemap'));
 assert.equal(swiftBindings.length, 1);
 assert.equal(moduleMaps.length, 1);
-const bundle = `app.thalassa.research.vodozemac.${randomUUID().toLowerCase()}`;
+const bundle = recovery?.bundle ?? `app.thalassa.research.vodozemac.${randomUUID().toLowerCase()}`;
 const app = join(scratch, 'NativeResearch.app');
 mkdirSync(app, { recursive: true });
 mkdirSync(join(scratch, 'swift-modules'), { recursive: true });
@@ -199,6 +241,9 @@ const sources = [
         'VodozemacDmFrame.swift',
         'VodozemacDmFrameProbe.swift',
         'VodozemacDmCoordinator.swift',
+        'VodozemacRelayCodec.swift',
+        'VodozemacRelayProbe.swift',
+        'VodozemacResearchCleanup.swift',
         'VodozemacDmCoordinatorProbe.swift',
         'VodozemacDmRestartProbe.swift',
         'VodozemacNativeProbe.swift',
@@ -275,8 +320,10 @@ if (simulator) {
             .some((d) => d.udid === simulator && d.state === 'Booted'),
         'Only an explicitly selected booted simulator can run',
     );
-    const ids = [randomUUID(), randomUUID(), randomUUID()];
-    const receiptPath = join(scratch, `run-${ids[0]}.json`);
+    const ids = recovery
+        ? [recovery.runID, recovery.aliceID, recovery.bobID]
+        : [randomUUID(), randomUUID(), randomUUID()];
+    const receiptPath = join(scratch, `${recovery ? 'recovery' : 'run'}-${ids[0]}.json`);
     const receipt = {
         bundle,
         simulator,
@@ -292,26 +339,54 @@ if (simulator) {
     saveReceipt();
     console.log(`Nonsecret run/cleanup receipt: ${receiptPath}`);
     let cleaned = false;
+    let relay;
     try {
+        if (recovery) {
+            const originalContainer = run('xcrun', ['simctl', 'get_app_container', simulator, bundle, 'data'], {
+                capture: true,
+            });
+            assert(isAbsolute(originalContainer));
+            const originalStatus = join(originalContainer, 'Documents', `probe-status-${ids[0]}.json`);
+            assert(!lstatSync(originalStatus).isSymbolicLink());
+            const prior = JSON.parse(readFileSync(originalStatus, 'utf8'));
+            assert(
+                prior.runID === recovery.runID &&
+                    prior.phase === recovery.phase &&
+                    prior.pid === recovery.pid &&
+                    prior.status === 'failed',
+                'Match the original app failure before exact namespace recovery',
+            );
+            receipt.recoveredFrom = optionPath;
+            saveReceipt();
+        }
+        if (relayArchive) {
+            const { createNativeRelayBridge } = await import('./relay/nativeRelayBridge.mjs');
+            relay = await createNativeRelayBridge({ archivePath: relayArchive, scratch });
+        }
         run('xcrun', ['simctl', 'install', simulator, app]);
         const container = run('xcrun', ['simctl', 'get_app_container', simulator, bundle, 'data'], { capture: true });
         assert(isAbsolute(container), 'Expected the exact installed research app container');
         const statusPath = join(container, 'Documents', `probe-status-${ids[0]}.json`);
         receipt.container = container;
-        for (const phase of [
-            'prepare',
-            'receive',
-            'reply',
-            'verify',
-            'replay',
-            'cleanup',
-            'dm-prepare',
-            'dm-receive',
-            'dm-reply',
-            'dm-verify',
-            'dm-replay',
-            'dm-cleanup',
-        ]) {
+        for (const phase of recovery
+            ? ['research-cleanup']
+            : [
+                  'prepare',
+                  'receive',
+                  'reply',
+                  'verify',
+                  'replay',
+                  'cleanup',
+                  'dm-prepare',
+                  'dm-receive',
+                  'dm-reply',
+                  'dm-verify',
+                  'dm-replay',
+                  'dm-cleanup',
+                  ...(relay
+                      ? ['relay-prepare', 'relay-send', 'relay-reply', 'relay-verify', 'relay-replay', 'relay-cleanup']
+                      : []),
+              ]) {
             receipt.phase = phase;
             receipt.observation = 'launch-outcome-unknown';
             delete receipt.pid;
@@ -364,6 +439,7 @@ if (simulator) {
                 console.log(`PASS native DM coordinator: ${status.coordinatorAssertions} assertions`);
             }
             receipt.observation = 'app-reported-pass';
+            if (relay) await relay.afterPhase(phase, join(container, 'Documents'), ids[0]);
             saveReceipt();
             console.log(`PASS native research phase: ${phase}`);
             if (phase === 'replay')
@@ -380,14 +456,22 @@ if (simulator) {
         receipt.status = 'passed';
         receipt.observation = 'cleanup-and-uninstall-complete';
     } finally {
-        // Missing observation is not a failed assertion: the app may finish late.
-        if (!cleaned && receipt.status !== 'failed') receipt.status = 'incomplete';
-        saveReceipt();
-        if (!cleaned)
-            console.log(
-                `Reconcile the saved receipt before retrying; namespace may remain for exact cleanup: ${bundle}`,
-            );
+        try {
+            if (relay) await relay.close();
+        } finally {
+            // Preserve observation even when the database close itself fails.
+            if (!cleaned && receipt.status !== 'failed') receipt.status = 'incomplete';
+            saveReceipt();
+            if (!cleaned)
+                console.log(
+                    `Reconcile the saved receipt before retrying; namespace may remain for exact cleanup: ${bundle}`,
+                );
+        }
     }
-    console.log('PASS process-restart native encryption and encrypted Keychain-backed storage in simulator.');
+    console.log(
+        recovery
+            ? 'PASS exact failed research namespace cleanup (not a new encryption proof).'
+            : 'PASS process-restart native encryption and encrypted Keychain-backed storage in simulator.',
+    );
 } else console.log('NOT RUN: no simulator selected; compilation alone is not restart/Keychain evidence.');
 console.log(`Artifacts: ${scratch}. No production integration, two-phone or independent-security-review claim.`);
