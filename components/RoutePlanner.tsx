@@ -974,6 +974,8 @@ export const RoutePlanner: React.FC<{
                             <DayPlannerEntry
                                 vessel={usingDefaultVessel ? null : vessel}
                                 mapboxToken={mapboxToken ?? ''}
+                                isPro={isPro === true}
+                                onUpgrade={onTriggerUpgrade}
                                 onOpenSaved={(id) => {
                                     requestTracerOpen({ kind: 'load-saved', id });
                                     setPage('map');

@@ -36,6 +36,12 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentity
 import * as EncHazardService from './enc/EncHazardService';
 import { canonicalEncCellId, ENC_CELL_BLOB_MAX_BYTES, ENC_CELL_ID_PATTERN, encCellStorageIdentity } from './enc/types';
 import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
+import {
+    forgetPiCellWithoutDepthAreas,
+    isEncMissingDepthAreaError,
+    planPiCellSync,
+    rememberPiCellWithoutDepthAreas,
+} from './enc/piSyncPlan';
 
 const log = createLogger('EncImportService');
 
@@ -535,29 +541,11 @@ export interface SyncEncFromPiOptions {
 }
 
 /**
- * The identity that decides whether a Pi cell is ALREADY on this device.
- *
- * Exported because the ENC Charts UI has to answer the same question, and
- * answering it differently is worse than not answering it at all. It keyed on
- * `cellId@edition` alone, so a cell the Pi had RE-EXTRACTED — same id, same
- * chart edition, different bytes — looked identical to one already held. The
- * sheet said "Pi charts already in sync", the Sync button never appeared, and
- * the per-chart picker is gated on the same flag, so there was no way to pull
- * it either. (Shane 2026-08-07, after the S-63 mesh fix re-extracted Noumea
- * and Port Vila: the improved charts sat on the Pi, unreachable, while the app
- * insisted everything was current.)
- *
- * `sizeBytes` is the re-extraction signal: the S-57 edition doesn't change
- * when OUR extractor improves, but the byte count does. Unknown size sorts as
- * its own value, so a legacy cell that predates the field re-imports once
- * rather than being pinned forever.
+ * The identity that decides whether a Pi cell is ALREADY on this device, and
+ * the plan built on it, live in ./enc/piSyncPlan so the ENC sheet's count and
+ * this sync read one answer (2026-10-01).
  */
-export function encCellSyncKey(cellId: string, edition: number, sizeBytes?: number, contentSha256?: string): string {
-    if (contentSha256 && /^[a-f0-9]{64}$/.test(contentSha256)) {
-        return `${encCellStorageIdentity(cellId)}@${edition}@sha256:${contentSha256}`;
-    }
-    return `${encCellStorageIdentity(cellId)}@${edition}@${sizeBytes ?? 'unknown'}`;
-}
+export { encCellSyncKey } from './enc/piSyncPlan';
 
 export async function syncEncFromPi(
     onProgress?: (p: EncImportProgress) => void,
@@ -615,10 +603,15 @@ export async function syncEncFromPi(
     // emitter (e.g. SCAMIN baking, rogue-triangle filter): the cell's
     // chart-edition stays unchanged but the byte count shifts. Without
     // this guard, iOS would never pick up the cleaner version.
+    //
+    // Also skip a revision this phone already REFUSED for having no depth
+    // areas (2026-10-01): downloading it again cannot add it. planPiCellSync
+    // is the same plan the ENC sheet counts from, so the count and the sync
+    // cannot disagree.
     const localCells = EncHazardService.getCoverage();
-    const localKeys = new Set(localCells.map((c) => encCellSyncKey(c.id, c.edition, c.sizeBytes, c.contentSha256)));
-    const localKey = encCellSyncKey;
-    let toFetch = installed.filter((c) => !localKeys.has(localKey(c.cellId, c.edition, c.sizeBytes, c.contentSha256)));
+    const plan = planPiCellSync(installed, localCells);
+    let toFetch = plan.pending;
+    const skipped: EncImportSkipped[] = [];
 
     // Explicit selection wins over both proximity ordering and the cap — the
     // caller asked for specific cells, so give them exactly those.
@@ -629,6 +622,14 @@ export async function syncEncFromPi(
         log.warn(
             `explicit cell selection: ${toFetch.length} of ${before} pending cells matched ${[...wanted].join(', ')}`,
         );
+        // A requested chart this phone already refused at this revision is
+        // reported with the refusal, not downloaded and refused again.
+        for (const refused of plan.withoutDepthAreas.filter((c) => wanted.has(c.cellId.toUpperCase()))) {
+            skipped.push({
+                filename: refused.cellId,
+                error: `${refused.cellId}: no DEPARE/DRGARE depth-area coverage; the pack cannot verify water depths.`,
+            });
+        }
     }
 
     if (toFetch.length === 0) {
@@ -639,7 +640,7 @@ export async function syncEncFromPi(
             cellCount: installed.length,
             cellsDone: installed.length,
         });
-        return { cells: [], skipped: [] };
+        return { cells: [], skipped };
     }
 
     // Priority ordering — nearest-cell-first when the caller passed a centre
@@ -681,7 +682,6 @@ export async function syncEncFromPi(
     }
 
     const persisted: EncCell[] = [];
-    const skipped: EncImportSkipped[] = [];
 
     for (let i = 0; i < toFetch.length; i++) {
         assertAuthority();
@@ -720,13 +720,18 @@ export async function syncEncFromPi(
             persisted.push(
                 await EncHazardService.importCell(cells[0], {
                     contentSha256: remote.contentSha256,
+                    // The Pi's own size for this revision: a legacy row with no
+                    // contentSha256 is matched on it (see piSyncPlan).
+                    piSizeBytes: remote.sizeBytes,
                     assertAuthority,
                 }),
             );
+            forgetPiCellWithoutDepthAreas(remote.cellId);
         } catch (err) {
             assertAuthority();
             const msg = err instanceof Error ? err.message : String(err);
             log.warn(`[SyncFromPi] cell ${remote.cellId} failed`, err);
+            if (isEncMissingDepthAreaError(err)) rememberPiCellWithoutDepthAreas(remote);
             skipped.push({ filename: remote.cellId, error: msg });
         }
     }

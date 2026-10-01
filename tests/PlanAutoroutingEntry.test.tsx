@@ -2,7 +2,6 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutoroutingTrialWorkspaceProps } from '../components/autorouting/AutoroutingTrialWorkspace';
-import type { AutoroutingTrialStatus } from '../services/autoroutingTrial';
 
 const mocks = vi.hoisted(() => {
     // Seed the actual URL before uiStore imports and selects its boot view.
@@ -16,6 +15,7 @@ const mocks = vi.hoisted(() => {
         workspace: vi.fn(),
         tracerEvent: vi.fn(),
         passageEvent: vi.fn(),
+        fetch: null as null | { mock: { calls: unknown[][] } },
     };
 });
 
@@ -29,9 +29,11 @@ vi.mock('../components/SignInScreen', () => ({
         <div role="dialog" aria-label="Sign in to plan" data-dismissible={String(Boolean(onClose))} />
     ),
 }));
-vi.mock('../services/autoroutingTrial', () => ({
-    getAutoroutingTrialStatus: mocks.status,
-    calculateAutoroutingTrial: mocks.calculate,
+// Auto's status is worked out on the phone since 2026-10-01 (signed in +
+// installed charts); no edge function is asked whether Auto is offered.
+vi.mock('../services/autoroutingThalassa', () => ({
+    getThalassaAutorouteStatus: mocks.status,
+    calculateThalassaProposal: mocks.calculate,
 }));
 // Exercise the real entry dialog; stop at the costly, separately tested chart.
 vi.mock('../components/autorouting/AutoroutingTrialWorkspace', () => ({
@@ -131,6 +133,10 @@ function expectNoRouteHandoff() {
     expect(mocks.tracerEvent).not.toHaveBeenCalled();
     expect(mocks.passageEvent).not.toHaveBeenCalled();
     expect(mocks.calculate).not.toHaveBeenCalled();
+    // Never the old server trial (zero requests to /functions/v1/autorouting-trial).
+    expect(
+        (mocks.fetch?.mock.calls ?? []).filter(([input]) => String(input).includes('/functions/v1/autorouting-trial')),
+    ).toEqual([]);
 }
 
 beforeEach(() => {
@@ -141,7 +147,8 @@ beforeEach(() => {
     consumeTracerAction();
     clearPassageRequest();
     useUIStore.setState({ currentView: initialViewFromUrl()!, previousView: 'voyage' });
-    mocks.status.mockResolvedValue({ enabled: true, ready: true });
+    mocks.status.mockReturnValue({ enabled: true, ready: true });
+    mocks.fetch = vi.spyOn(globalThis, 'fetch');
     window.addEventListener('thalassa:trace-mode', mocks.tracerEvent);
     window.addEventListener('thalassa:passage-mode', mocks.passageEvent);
 });
@@ -178,21 +185,18 @@ describe('/plan autorouting entry', () => {
         expectNoRouteHandoff();
     });
 
-    it('keeps Auto gated while checking and denied, then hands Manual to the existing chart exactly once', async () => {
-        let resolveStatus!: (status: AutoroutingTrialStatus) => void;
-        mocks.status.mockReturnValue(new Promise<AutoroutingTrialStatus>((resolve) => (resolveStatus = resolve)));
+    it('keeps Auto gated when not enabled, then hands Manual to the existing chart exactly once', async () => {
+        mocks.status.mockReturnValue({ enabled: false, ready: false });
         setSession('plan-skipper');
         render(<PlanEntry />);
 
         const dialog = startPlotting();
-        expect(dialog).toHaveTextContent('Checking Auto routing availability… Manual is ready.');
+        await waitFor(() =>
+            expect(dialog).toHaveTextContent('Auto routing is not enabled for this account. Manual is ready.'),
+        );
         expect(screen.getByRole('button', { name: 'Auto routing' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Manual routing' })).toBeEnabled();
         expect(mocks.status).toHaveBeenCalledTimes(1);
-        expectNoRouteHandoff();
-
-        await act(async () => resolveStatus({ enabled: false, ready: false }));
-        expect(dialog).toHaveTextContent('Auto routing is not enabled for this account. Manual is ready.');
         fireEvent.click(screen.getByRole('button', { name: 'Auto routing' }));
         expect(mocks.workspace).not.toHaveBeenCalled();
         expectNoRouteHandoff();
@@ -209,9 +213,9 @@ describe('/plan autorouting entry', () => {
     });
 
     it.each([false, true])(
-        'opens the enabled trial chart without activating a route (provider ready=%s)',
+        'opens the enabled trial chart without activating a route (charts installed=%s)',
         async (ready) => {
-            mocks.status.mockResolvedValue({ enabled: true, ready });
+            mocks.status.mockReturnValue({ enabled: true, ready });
             setSession('plan-skipper');
             // A confirmed draft opens the trial at once; an unconfirmed one is
             // asked about first (tests/DraftConfirmGates.test.tsx).
@@ -233,9 +237,18 @@ describe('/plan autorouting entry', () => {
                 },
             });
             render(<PlanEntry />);
-            startPlotting();
+            const dialog = startPlotting();
             const auto = screen.getByRole('button', { name: 'Auto routing' });
             await waitFor(() => expect(auto).toBeEnabled());
+            expect(dialog).toHaveTextContent(
+                ready
+                    ? 'Trial · leaving now. Your saved routes and trip legs stay unchanged.'
+                    : 'Install charts for your area to use Auto. Manual is ready.',
+            );
+            expect(dialog).toHaveTextContent(
+                'Thalassa routes it on this phone from your installed charts. Review before saving.',
+            );
+            expect(dialog).toHaveTextContent('Auto is an unsaved trial, not a route cleared for navigation.');
             fireEvent.click(auto);
 
             expect(await screen.findByRole('dialog', { name: 'Autorouting trial workspace' })).toBeInTheDocument();
@@ -250,20 +263,16 @@ describe('/plan autorouting entry', () => {
         },
     );
 
-    it('closes the routing choice on sign-out and ignores the old account’s late trial availability', async () => {
-        let resolveStatus!: (status: AutoroutingTrialStatus) => void;
-        mocks.status.mockReturnValue(new Promise<AutoroutingTrialStatus>((resolve) => (resolveStatus = resolve)));
+    it('closes the routing choice on sign-out without opening Auto for the old account', async () => {
         setSession('plan-skipper');
         const { rerender } = render(<PlanEntry />);
         startPlotting();
-        const signal = mocks.status.mock.calls[0][0] as AbortSignal;
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Auto routing' })).toBeEnabled());
 
         act(() => setSession(null));
         rerender(<PlanEntry />);
         expect(screen.queryByRole('dialog', { name: 'Choose routing mode' })).not.toBeInTheDocument();
         expect(screen.getByRole('dialog', { name: 'Sign in to plan' })).toBeInTheDocument();
-        expect(signal.aborted).toBe(true);
-        await act(async () => resolveStatus({ enabled: true, ready: true }));
         expect(screen.queryByRole('button', { name: 'Auto routing' })).not.toBeInTheDocument();
         expect(mocks.workspace).not.toHaveBeenCalled();
         expectNoRouteHandoff();

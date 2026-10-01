@@ -25,7 +25,9 @@ function validPosition(position: Position): boolean {
 }
 
 /** Snapshot known proposal fields only: no UI review, save state or incidental
- * properties can be carried over as evidence for the edited geometry. */
+ * properties can be carried over as evidence for the edited geometry. The
+ * router's disclosure is left out (2026-10-01): it described the original
+ * line, never the edited one, and it is the bulk of the route in memory. */
 function snapshotOriginal(route: OriginalProposal): OriginalProposal {
     const detached = structuredClone({
         id: route.id,
@@ -33,10 +35,7 @@ function snapshotOriginal(route: OriginalProposal): OriginalProposal {
         createdAt: route.createdAt,
         coordinates: route.coordinates,
         warnings: route.warnings,
-        ...(route.providerCheck ? { providerCheck: route.providerCheck } : {}),
-        ...(route.source ? { source: route.source } : {}),
         ...(route.vesselProfile ? { vesselProfile: route.vesselProfile } : {}),
-        ...(route.canalDeparture ? { canalDeparture: route.canalDeparture } : {}),
     });
     // These fields are already bounded snapshots from the trial boundary. Keep
     // one immutable original, not a growing chain of prior edited proposals.
@@ -49,24 +48,13 @@ function snapshotOriginal(route: OriginalProposal): OriginalProposal {
     return detached;
 }
 
-function handoverIndex(route: OriginalProposal): number | undefined {
-    const handover = route.canalDeparture?.handoverIndex;
-    if (
-        route.canalDeparture !== undefined &&
-        (!Number.isInteger(handover) || handover! <= 0 || handover! >= route.coordinates.length - 1)
-    ) {
-        throw new Error('The canal handover is invalid. Recalculate the proposal.');
-    }
-    return handover;
-}
-
 /**
  * Move one CURRENT display pin without replacing the full path with its sparse
  * display polyline. A fractional pin inserts a vertex and keeps BOTH original
  * neighbours; an integer pin replaces only that one full-path vertex.
  *
- * This is geometry editing, not route approval. All provider/canal evidence is
- * historical after the first move. The caller must replace the route object,
+ * This is geometry editing, not route approval. The router's checks are
+ * historical after the first move: the edited route carries no disclosure. The caller must replace the route object,
  * clear prior review/save UI and recheck every leg; saving remains blocked.
  */
 export function moveAutoroutingDisplayWaypoint(
@@ -74,26 +62,24 @@ export function moveAutoroutingDisplayWaypoint(
     waypoint: TrialDisplayWaypoint,
     position: Position,
 ): { route: AutoroutingTrialRoute; pathIndex: number } {
-    if (!route || route.provider !== 'SevenCs' || !autoroutingProposalGeometryKey(route.coordinates)) {
+    if (!route || route.provider !== 'Thalassa' || !autoroutingProposalGeometryKey(route.coordinates)) {
         throw new Error('The proposal geometry is invalid. Recalculate before moving a waypoint.');
     }
     if (!validPosition(position)) throw new Error('Enter a valid longitude and latitude for this waypoint.');
-    const handover = handoverIndex(route);
     if (
         route.localEdit !== undefined &&
         (!route.localEdit ||
-            route.localEdit.checksInvalidated !== 'provider-and-canal' ||
+            route.localEdit.checksInvalidated !== 'engine' ||
             !Number.isSafeInteger(route.localEdit.revision) ||
             route.localEdit.revision < 1 ||
             route.localEdit.revision >= Number.MAX_SAFE_INTEGER ||
             !Array.isArray(route.localEdit.waypointIndices) ||
             route.localEdit.waypointIndices.length > AUTOROUTING_TRIAL_MAX_POINTS ||
             !Array.from(route.localEdit.waypointIndices).every(
-                (index) =>
-                    Number.isInteger(index) && index > 0 && index < route.coordinates.length - 1 && index !== handover,
+                (index) => Number.isInteger(index) && index > 0 && index < route.coordinates.length - 1,
             ) ||
             !route.localEdit.originalProposal ||
-            route.localEdit.originalProposal.provider !== 'SevenCs' ||
+            route.localEdit.originalProposal.provider !== 'Thalassa' ||
             !autoroutingProposalGeometryKey(route.localEdit.originalProposal.coordinates))
     ) {
         throw new Error('The original proposal evidence is unavailable. Recalculate before editing.');
@@ -106,14 +92,7 @@ export function moveAutoroutingDisplayWaypoint(
     if (pathIndex <= 0 || pathIndex >= route.coordinates.length - 1) {
         throw new Error('Change departure or destination in route setup, then recalculate.');
     }
-    if (pathIndex === handover) {
-        throw new Error('The canal handover is fixed. Change the canal exit in setup and recalculate.');
-    }
-    const current = buildTrialWaypointPlan(
-        route.coordinates,
-        handover === undefined ? [] : [handover],
-        editIndices,
-    ).waypoints.find(
+    const current = buildTrialWaypointPlan(route.coordinates, [], editIndices).waypoints.find(
         (candidate) =>
             candidate.pathIndex === pathIndex &&
             candidate.kind === waypoint.kind &&
@@ -139,7 +118,7 @@ export function moveAutoroutingDisplayWaypoint(
     const revision = (route.localEdit?.revision ?? 0) + 1;
     const localEdit: AutoroutingLocalEdit = Object.freeze({
         revision,
-        checksInvalidated: 'provider-and-canal',
+        checksInvalidated: 'engine',
         waypointIndices: Object.freeze(
             [
                 ...new Set([
@@ -153,17 +132,15 @@ export function moveAutoroutingDisplayWaypoint(
     return {
         pathIndex: movedIndex,
         route: {
-            // Keep the actual provider identity/time as provenance, never invent
-            // a new provider response or freshness timestamp for a local edit.
+            // Keep the actual route identity/time as provenance, never invent
+            // a new route or freshness timestamp for a local edit. No engine:
+            // the router never saw this line.
             id: route.id,
             createdAt: route.createdAt,
-            provider: 'SevenCs',
+            provider: 'Thalassa',
             coordinates,
             warnings: [...route.warnings],
             ...(route.vesselProfile ? { vesselProfile: structuredClone(route.vesselProfile) } : {}),
-            ...(handover !== undefined
-                ? { canalDeparture: { handoverIndex: handover + (inserted && pathIndex < handover ? 1 : 0) } }
-                : {}),
             localEdit,
         },
     };

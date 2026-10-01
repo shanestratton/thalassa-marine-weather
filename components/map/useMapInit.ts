@@ -27,7 +27,7 @@ import { installScaleBarLabel } from './scaleBarLabel';
 import { registerChartMap } from './chartMapRegistry';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
-import { NEEDS_TIDE_AMBER, surveyDashLayers } from './inshoreRouteState';
+import { inshoreRouteLineLayers, surveyDashLayers } from './inshoreRouteState';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -872,111 +872,9 @@ export function useMapInit(opts: UseMapInitOptions) {
             // (surveyDashLayers), so the solid layers leave them out. The dead
             // NtM-lock grey went too (round 4, 2026-09-30: nothing has
             // produced that state since the lock UI was removed on 2026-07-02).
-            const ROUTE_SOLID_FILTER: mapboxgl.FilterSpecification = [
-                'all',
-                ['!=', ['get', 'dashed'], true],
-                ['!=', ['get', 'safety'], 'survey'],
-            ];
-
-            map.addLayer({
-                id: 'route-glow',
-                type: 'line',
-                source: 'route-line',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': [
-                        'match',
-                        ['get', 'safety'],
-                        'safe',
-                        '#00e676',
-                        'caution',
-                        '#ff9100',
-                        'tide',
-                        NEEDS_TIDE_AMBER,
-                        'danger',
-                        '#ff1744',
-                        'unverified',
-                        '#f59e0b',
-                        'channel',
-                        '#facc15',
-                        'harbour',
-                        '#38bdf8',
-                        'offshore',
-                        '#1e40af',
-                        '#2dd4bf',
-                    ],
-                    'line-width': 12,
-                    'line-blur': 10,
-                    'line-opacity': ['match', ['get', 'safety'], 'harbour', 0.3, 0.6],
-                },
-                filter: ROUTE_SOLID_FILTER,
-            });
-
-            map.addLayer({
-                id: 'route-line-layer',
-                type: 'line',
-                source: 'route-line',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': [
-                        'match',
-                        ['get', 'safety'],
-                        'safe',
-                        '#00e676',
-                        'caution',
-                        '#ff9100',
-                        'tide',
-                        NEEDS_TIDE_AMBER,
-                        'danger',
-                        '#ff1744',
-                        'unverified',
-                        '#f59e0b',
-                        'channel',
-                        '#facc15',
-                        'harbour',
-                        '#38bdf8',
-                        'offshore',
-                        '#1e40af',
-                        '#2dd4bf',
-                    ],
-                    'line-width': 3,
-                    'line-opacity': 0.9,
-                },
-                filter: ROUTE_SOLID_FILTER,
-            });
-
-            map.addLayer({
-                id: 'route-core',
-                type: 'line',
-                source: 'route-line',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': [
-                        'match',
-                        ['get', 'safety'],
-                        'safe',
-                        '#b9f6ca',
-                        'caution',
-                        '#ffe0b2',
-                        'tide',
-                        '#ffe0b2',
-                        'danger',
-                        '#ffcdd2',
-                        'unverified',
-                        '#cbd5e1',
-                        'channel',
-                        '#fcd34d',
-                        'harbour',
-                        '#bae6fd',
-                        'offshore',
-                        '#93c5fd',
-                        '#99f6e4',
-                    ],
-                    'line-width': 1.5,
-                },
-                filter: ROUTE_SOLID_FILTER,
-            });
-
+            // The glow / line / core colour table lives in inshoreRouteState
+            // since 2026-10-01, shared with Auto's map (identical paint).
+            for (const spec of inshoreRouteLineLayers('route-line')) map.addLayer(spec as mapboxgl.AnyLayer);
             for (const spec of surveyDashLayers('route-line')) map.addLayer(spec as mapboxgl.AnyLayer);
 
             // route-hit-area layer removed 2026-05-05 — was a wide invisible

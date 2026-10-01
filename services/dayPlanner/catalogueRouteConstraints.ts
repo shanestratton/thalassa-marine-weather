@@ -1,5 +1,10 @@
-import { AUTOROUTING_TRIAL_MAX_CHART_TRACK_CONSTRAINTS, AUTOROUTING_TRIAL_MAX_POINTS } from '../../types/autorouting';
+import { AUTOROUTING_TRIAL_MAX_POINTS } from '../../types/autorouting';
 import type { CataloguePlanBinding, CatalogueRouteConstraint } from './cataloguePlanningTypes';
+
+/** The required-checkpoint budget a catalogue route may ask for (moved here
+ * from types/autorouting on 2026-10-01, when Auto stopped sending checkpoint
+ * constraints to a server; Plan My Day now excludes such trips). */
+const CATALOGUE_MAX_REQUIRED_CHECKPOINTS = 8;
 
 type Point = { lat: number; lon: number };
 
@@ -75,7 +80,7 @@ export function catalogueRouteMustGo(from: Point, to: Point, constraint: Catalog
             !(index === 0 && distanceM(from, point) < 1) &&
             !(index === required.length - 1 && distanceM(to, point) < 1),
     );
-    if (points.length > AUTOROUTING_TRIAL_MAX_CHART_TRACK_CONSTRAINTS)
+    if (points.length > CATALOGUE_MAX_REQUIRED_CHECKPOINTS)
         throw new Error(
             'This catalogue route exceeds the supported required-checkpoint budget; no checkpoints were omitted.',
         );

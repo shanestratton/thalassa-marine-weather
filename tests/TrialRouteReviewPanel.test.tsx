@@ -6,7 +6,7 @@ import type { TrialRouteReview } from '../services/autoroutingReview';
 import type { TraceIssue } from '../services/routeTracer';
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import { TRIAL_GRADE_COLORS } from '../services/autoroutingReview';
-import { providerFeatureFinding } from '../supabase/functions/_shared/autorouting-provider-check';
+import { NEEDS_TIDE_AMBER } from '../components/map/inshoreRouteState';
 import {
     buildTrialDisplayWaypoints,
     displayWaypointForPathIndex,
@@ -56,7 +56,6 @@ function renderPanel(review: TrialRouteReview, selected = 0, route?: Autorouting
         selected,
         onSelect: vi.fn(),
         onFocus: vi.fn(),
-        onLocateProvider: vi.fn(),
         onStop: vi.fn(),
         onRecheck: vi.fn(),
     };
@@ -161,181 +160,95 @@ describe('trial route chart-track advisory groups', () => {
     });
 });
 
-describe('provider findings are not overruled by local chart colours', () => {
-    const route = (providerCheck?: AutoroutingTrialRoute['providerCheck']): AutoroutingTrialRoute => ({
-        id: 'provider-route',
-        provider: 'SevenCs',
-        createdAt: '2026-09-13T01:00:00Z',
+describe("the router's notes and its line colours (2026-10-01)", () => {
+    const route = (overrides: Partial<AutoroutingTrialRoute> = {}): AutoroutingTrialRoute => ({
+        id: 'thalassa-route',
+        provider: 'Thalassa',
+        createdAt: '2026-10-01T01:00:00Z',
         coordinates: [
             [153, -27],
             [153.001, -27],
             [153.002, -27],
         ],
-        warnings: [],
-        providerCheck,
+        warnings: [
+            'Proposal only: not cleared for navigation.',
+            'Bridges and power lines not checked on this chart — known bridges are.',
+        ],
+        engine: {
+            stateMask: ['danger', 'green'],
+            cellsUsed: ['OC-99-SYN001'],
+            distanceNM: 0.1,
+            elapsedMs: 10,
+            backstop: 'verified',
+        },
+        ...overrides,
     });
 
-    it('shows an unsafe provider report in red before an all-green local review without inventing a dangerous leg', () => {
+    it('lists every note whole under what the route must say, before the checks, with no provider report', () => {
         const review = reviewOf([[], []]);
         const original = structuredClone(review);
-        renderPanel(
-            review,
-            0,
-            route({
-                status: 'unsafe',
-                findings: [
-                    {
-                        featureIndex: 17,
-                        featureType: 'danger',
-                        severity: 'danger',
-                        message: 'Provider reported an obstruction.',
-                    },
-                ],
-            }),
-        );
-        const alert = screen.getByRole('alert', { name: 'SevenCs provider report' });
-        expect(alert).toHaveTextContent('SevenCs reported an unsafe proposal');
-        expect(alert).toHaveTextContent('Do not use this proposal for navigation.');
-        expect(alert).toHaveTextContent('Local chart checks below do not override provider findings');
-        expect(alert).toHaveStyle({ color: TRIAL_GRADE_COLORS.danger });
+        renderPanel(review, 0, route());
+        const notes = screen.getByRole('region', { name: 'What this route must say' });
         expect(
-            alert.compareDocumentPosition(screen.getByText('Waypoints & local chart checks')) &
+            within(notes)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(route().warnings);
+        expect(
+            notes.compareDocumentPosition(screen.getByText('Waypoints & local chart checks')) &
                 Node.DOCUMENT_POSITION_FOLLOWING,
         ).toBeTruthy();
+        expect(screen.queryByRole('region', { name: /provider report/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Locate provider finding/ })).not.toBeInTheDocument();
         expect(screen.getByRole('status')).toHaveTextContent('0 danger · 0 caution · 0 incomplete');
         expect(screen.getByText('Leg 1→2: no issue found · 8.0 m least')).toBeVisible();
-        expect(screen.getByText(/Green: no local issue found/)).not.toBeVisible();
-        fireEvent.click(screen.getByText('What the colours mean'));
-        expect(screen.getByText(/Green: no local issue found/)).toBeVisible();
-        expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
         expect(review).toEqual(original);
     });
 
-    it('keeps provider coverage separate from the local canal prefix and retains local unlocated dangers in red', () => {
-        const reviewed = route({
-            status: 'unsafe',
-            findings: [{ featureIndex: 0, severity: 'danger', message: 'Unsafe provider continuation' }],
+    it("explains the router's five colours, and that the checks credit no tide", () => {
+        renderPanel(reviewOf([[], []]), 0, route());
+        const legend = screen.getByRole('region', { name: 'Route line colours' });
+        expect(
+            within(legend)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual([
+            // Red is not only water no tide clears (2026-10-01 review): a
+            // land crossing, decision-1 water and needs-tide water before
+            // the tide chips load are red too.
+            'Red · land, shallow or unchecked — read the route notes',
+            'Amber · a tide clears it',
+            'Amber dots · survey quality',
+            'Yellow · marked channel',
+            'Teal · deep water',
+        ]);
+        expect(within(legend).getAllByRole('listitem')[1].querySelector('span')).toHaveStyle({
+            background: NEEDS_TIDE_AMBER,
         });
-        reviewed.canalDeparture = { handoverIndex: 1 };
-        renderPanel(reviewOf([[{ severity: 'danger', message: 'Insufficient charted depth' }], []]), 0, reviewed);
-        expect(screen.getByRole('alert')).toHaveTextContent('SevenCs section only, not the local canal');
+        expect(legend).toHaveTextContent('The chart checks below credit no tide');
+    });
+
+    it('drops the legend when the line is not in the router colours: unverified or edited', () => {
+        const unverified = route();
+        unverified.engine!.stateMask = null;
+        const { unmount } = renderPanel(reviewOf([[], []]), 0, unverified);
+        expect(screen.queryByRole('region', { name: 'Route line colours' })).not.toBeInTheDocument();
+        unmount();
+        const { engine: _engine, ...original } = route();
+        renderPanel(reviewOf([[], []]), 0, {
+            ...original,
+            localEdit: { revision: 1, checksInvalidated: 'engine', waypointIndices: [1], originalProposal: original },
+        });
+        expect(screen.queryByRole('region', { name: 'Route line colours' })).not.toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'What this route must say' })).toHaveTextContent(
+            'From the original route, before waypoint edits · historical, not checks of this line.',
+        );
+    });
+
+    it('keeps a local danger red whatever the router said', () => {
+        renderPanel(reviewOf([[{ severity: 'danger', message: 'Insufficient charted depth' }], []]), 0, route());
         expect(screen.getByText('Insufficient charted depth')).toHaveStyle({ color: TRIAL_GRADE_COLORS.danger });
         expect(screen.getByText('Leg 1→2: danger · 8.0 m least')).toBeVisible();
-    });
-
-    it.each([undefined, { status: 'not-reported' as const, findings: [] }])(
-        'does not present absent findings as provider clearance',
-        (check) => {
-            renderPanel(reviewOf([[], []]), 0, route(check));
-            expect(screen.getByRole('region', { name: 'SevenCs provider report' })).toHaveTextContent(
-                'Provider clearance is not established',
-            );
-            expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-        },
-    );
-
-    it('distinguishes provider cautions from an unsafe report', () => {
-        renderPanel(
-            reviewOf([[], []]),
-            0,
-            route({
-                status: 'caution',
-                findings: [{ featureIndex: 2, severity: 'caution', message: 'Restricted area requires review.' }],
-            }),
-        );
-        const report = screen.getByRole('region', { name: 'SevenCs provider report' });
-        expect(report).toHaveTextContent('SevenCs reported cautions');
-        expect(report).toHaveStyle({ color: TRIAL_GRADE_COLORS.caution });
-        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    });
-
-    it('locates the exact provider polygon without selecting an invented route leg or replacing local hazards', () => {
-        const geometry = {
-            type: 'Polygon',
-            coordinates: [
-                [
-                    [153, -27],
-                    [153.1, -27],
-                    [153.1, -27.1],
-                    [153, -27],
-                ],
-                [
-                    [153.04, -27.02],
-                    [153.05, -27.02],
-                    [153.05, -27.03],
-                    [153.04, -27.02],
-                ],
-            ],
-        };
-        const finding = providerFeatureFinding(
-            { type: 'danger', severity: 'Danger', UUID: 'original-source-id' },
-            17,
-            geometry,
-        )!;
-        const local = {
-            severity: 'danger' as const,
-            message: 'Local depth danger remains',
-            at: { lat: -27.2, lon: 153.2 },
-        };
-        const { props } = renderPanel(reviewOf([[local], []]), 0, route({ status: 'unsafe', findings: [finding] }));
-        fireEvent.click(screen.getByRole('button', { name: 'Locate provider finding 18' }));
-        expect(props.onLocateProvider).toHaveBeenCalledExactlyOnceWith(finding);
-        expect(props.onSelect).not.toHaveBeenCalled();
-        expect(props.onFocus).not.toHaveBeenCalled();
-        expect(finding.geometry).toEqual(geometry);
-        fireEvent.click(screen.getByRole('button', { name: 'Local depth danger remains ↗' }));
-        expect(props.onFocus).toHaveBeenCalledWith(local.at);
-        expect(screen.getByRole('alert')).toHaveTextContent('SevenCs reported an unsafe proposal');
-    });
-
-    it('keeps unlocated and overall-track warnings readable without misleading locator buttons', () => {
-        const unlocated = providerFeatureFinding(
-            { type: 'danger', severity: 'Warning', description: 'Unknown location' },
-            0,
-        )!;
-        const overall = providerFeatureFinding({ type: 'track', safe: false }, 1, {
-            type: 'LineString',
-            coordinates: [
-                [153, -27],
-                [154, -28],
-            ],
-        })!;
-        const polar = providerFeatureFinding({ type: 'danger', severity: 'Danger' }, 2, {
-            type: 'Point',
-            coordinates: [153, 90],
-        })!;
-        const { props } = renderPanel(
-            reviewOf([[], []]),
-            0,
-            route({ status: 'unsafe', findings: [unlocated, overall, polar] }),
-        );
-        expect(screen.getByRole('alert')).toHaveTextContent('Unknown location');
-        expect(screen.queryByRole('button', { name: /Locate provider finding/ })).not.toBeInTheDocument();
-        expect(props.onLocateProvider).not.toHaveBeenCalled();
-    });
-
-    it('discloses exact primitive provider fields as text only and makes omitted fields explicit', () => {
-        const finding = providerFeatureFinding(
-            {
-                type: 'danger',
-                severity: 'Info',
-                UUID: 'source-id',
-                HTML: '<img src=x onerror=alert(1)>',
-                nested: { unknown: 1 },
-            },
-            4,
-        )!;
-        renderPanel(reviewOf([[], []]), 0, route({ status: 'caution', findings: [finding] }));
-        const report = screen.getByRole('region', { name: 'SevenCs provider report' });
-        expect(report).toHaveTextContent('Provider details · source feature 5');
-        expect(report).toHaveTextContent('UUID');
-        expect(report).toHaveTextContent('source-id');
-        expect(report).toHaveTextContent('<img src=x onerror=alert(1)>');
-        expect(report.querySelector('img')).toBeNull();
-        expect(report).toHaveTextContent(
-            '1 additional source properties are retained only in the original provider report.',
-        );
-        expect(report).toHaveTextContent('severity Info');
     });
 });
 
@@ -441,25 +354,6 @@ describe('sparse waypoint review retains the complete route checks', () => {
         },
     );
 
-    it('protects the canal handover when deriving waypoints without an explicit presentation plan', () => {
-        const review = reviewOf(Array.from({ length: 999 }, () => []));
-        render(
-            <TrialRouteReviewPanel
-                {...sparseProps(review)}
-                route={{
-                    id: 'canal-route',
-                    provider: 'SevenCs',
-                    createdAt: '2026-09-13T01:00:00Z',
-                    coordinates,
-                    warnings: [],
-                    canalDeparture: { handoverIndex: 500 },
-                }}
-            />,
-        );
-        expect(screen.getByText(/● .* · Canal exit/)).toBeVisible();
-        expect(screen.getByText(/7 waypoints · 1000 detailed route points/)).toBeVisible();
-    });
-
     it('maps grouped track locators and paging to sparse display indices, retaining source segment labels', () => {
         const review = reviewOf(Array.from({ length: 999 }, () => []));
         review.legs[555]!.verdict.issues = [trackIssue(140)];
@@ -513,47 +407,6 @@ describe('sparse waypoint review retains the complete route checks', () => {
 });
 
 describe('compact Tracer review disclosures', () => {
-    it('leaves provider dangers visible while grouping other findings without losing their locator', () => {
-        const danger: AutoroutingTrialRoute['providerCheck'] = {
-            status: 'unsafe',
-            findings: [
-                {
-                    featureIndex: 3,
-                    severity: 'danger',
-                    message: 'Provider rock danger',
-                    geometry: { type: 'Point', coordinates: [153.1, -27.1] },
-                },
-                {
-                    featureIndex: 8,
-                    severity: 'caution',
-                    message: 'Provider restricted area',
-                    geometry: { type: 'Point', coordinates: [153.2, -27.2] },
-                },
-            ],
-        };
-        const route: AutoroutingTrialRoute = {
-            id: 'compact-provider',
-            provider: 'SevenCs',
-            createdAt: '2026-09-13T00:00:00Z',
-            coordinates: [
-                [153, -27],
-                [153.3, -27.3],
-            ],
-            warnings: [],
-            providerCheck: danger,
-        };
-        const { props } = renderPanel(reviewOf([[]]), 0, route);
-        const dangerButton = screen.getByRole('button', { name: 'Locate provider finding 4' });
-        expect(dangerButton).toBeVisible();
-        expect(screen.getByText('Provider restricted area ↗')).not.toBeVisible();
-        expect(screen.getByRole('alert')).toHaveTextContent('SevenCs reported an unsafe proposal');
-        fireEvent.click(screen.getByText('1 provider advisory · inspect findings'));
-        const advisoryButton = screen.getByRole('button', { name: 'Locate provider finding 9' });
-        expect(advisoryButton).toBeVisible();
-        fireEvent.click(advisoryButton);
-        expect(props.onLocateProvider).toHaveBeenLastCalledWith(danger.findings[1]);
-    });
-
     it('keeps danger, shallow depth and tide visible while other local notes are expandable', () => {
         const rock = { lat: -27.1, lon: 153.1 };
         const review = reviewOf([
@@ -587,36 +440,5 @@ describe('compact Tracer review disclosures', () => {
         fireEvent.click(button);
         expect(onInspectWaypoint).toHaveBeenCalledExactlyOnceWith(1);
         expect(props.onFocus).toHaveBeenCalledExactlyOnceWith({ lat: -27, lon: 153.001 });
-    });
-
-    it('keeps the original provider status and invalidation visible after local edits', () => {
-        const original = {
-            id: 'historical-provider',
-            provider: 'SevenCs' as const,
-            createdAt: '2026-09-13T00:00:00Z',
-            coordinates: [
-                [153, -27],
-                [153.1, -27.1],
-            ] as [number, number][],
-            warnings: [],
-            providerCheck: {
-                status: 'unsafe' as const,
-                findings: [{ featureIndex: 2, severity: 'danger' as const, message: 'Original provider danger' }],
-            },
-        };
-        const route: AutoroutingTrialRoute = {
-            ...original,
-            providerCheck: undefined,
-            localEdit: {
-                revision: 1,
-                checksInvalidated: 'provider-and-canal',
-                waypointIndices: [1],
-                originalProposal: original,
-            },
-        };
-        renderPanel(reviewOf([[]]), 0, route);
-        expect(screen.getByText('Original provider status: unsafe · historical only.')).toBeVisible();
-        expect(screen.getByText('Original provider danger')).toBeVisible();
-        expect(screen.getByRole('alert')).toHaveTextContent('This report does not check the edited route');
     });
 });

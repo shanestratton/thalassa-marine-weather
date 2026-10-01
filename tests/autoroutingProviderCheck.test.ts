@@ -6,9 +6,9 @@ import {
     snapshotProviderHazardGeometry,
     PROVIDER_HAZARD_MAX_VERTICES,
     type ProviderHazardGeometry,
-    type AutoroutingProviderFinding,
 } from '../supabase/functions/_shared/autorouting-provider-check';
-import { providerHazardMapFeature, providerHazardViewport } from '../services/providerHazardGeometry';
+// The client's hazard locator (services/providerHazardGeometry) went with the
+// SevenCs client on 2026-10-01; these are the edge function's own cases.
 
 const point = [***REMOVED***, -27.1675];
 const ring = [
@@ -70,7 +70,6 @@ describe('exact bounded provider hazard geometry and provenance', () => {
         expect(result.featureIndex).toBe(17); // source feature, not leg 17
         expect(result.geometry).not.toBe(geometry);
         expect(result.geometry?.coordinates).not.toBe(geometry.coordinates);
-        expect(providerHazardMapFeature(result)?.geometry).toEqual(original);
         expect(geometry).toEqual(original);
         const details = snapshotProviderFindingDetails(result)!;
         expect(details.geometry).toEqual(original);
@@ -123,8 +122,6 @@ describe('exact bounded provider hazard geometry and provenance', () => {
         expect(result.severity).toBe('danger');
         expect(result.geometry).toBeUndefined();
         expect(result.provenance?.properties.safe).toBe(false);
-        expect(providerHazardMapFeature(result)).toBeNull();
-        expect(providerHazardViewport(result)).toBeNull();
         expect(snapshotProviderFindingDetails({ ...result, geometry: geometries[2] })).toBeNull();
     });
 
@@ -156,7 +153,6 @@ describe('exact bounded provider hazard geometry and provenance', () => {
         expect(result.severity).toBe('danger');
         expect(result.message).toContain('severity Danger');
         expect(result.geometry).toBeUndefined();
-        expect(providerHazardMapFeature(result)).toBeNull();
     });
 
     it('declines over-budget geometry without thinning vertices or removing its warning', () => {
@@ -206,29 +202,7 @@ describe('exact bounded provider hazard geometry and provenance', () => {
     });
 });
 
-describe('provider hazard camera bounds never replace actual geometry', () => {
-    it('uses bounds across all parts and retains polygon holes in the highlighted feature', () => {
-        const result = finding(geometries[5]);
-        expect(providerHazardViewport(result)).toEqual({
-            bounds: [
-                [153, -27.1],
-                [153.29999999999998, -27],
-            ],
-        });
-        expect(providerHazardMapFeature(result)).toMatchObject({
-            id: 'provider-feature-17',
-            properties: { source: 'SevenCs', sourceFeatureIndex: 17, severity: 'danger' },
-            geometry: geometries[5],
-        });
-        expect(providerHazardMapFeature(result)?.geometry.type).not.toBe('Point');
-    });
-
-    it('keeps an exact point instead of deriving one from a source feature index', () => {
-        const result = finding(geometries[0]);
-        expect(providerHazardViewport(result)).toEqual({ bounds: [point, point] });
-        expect(providerHazardMapFeature(result)?.geometry).toEqual(geometries[0]);
-    });
-
+describe('provider hazard geometry stays exact at the edges', () => {
     it.each([
         { type: 'Point', coordinates: [153, 90] },
         {
@@ -245,21 +219,11 @@ describe('provider hazard camera bounds never replace actual geometry', () => {
                 [-179.9, -27],
             ],
         },
-    ])('retains exact source but declines unsafe Mercator/wrapping focus %j', (geometry) => {
-        const result = finding(geometry);
-        expect(result.geometry).toEqual(geometry);
-        expect(providerHazardViewport(result)).toBeNull();
-        expect(providerHazardMapFeature(result)).toBeNull();
+    ])('retains exact source %j', (geometry) => {
+        expect(finding(geometry).geometry).toEqual(geometry);
     });
 
-    it('returns independent map geometry and refuses fabricated invalid source indices', () => {
-        const result = finding(geometries[0]);
-        const feature = providerHazardMapFeature(result)!;
-        (feature.geometry as GeoJSON.Point).coordinates[0] = 0;
-        expect(result.geometry).toEqual(geometries[0]);
-        for (const featureIndex of [-1, NaN, 1.5, 10_000]) {
-            expect(providerHazardMapFeature({ ...result, featureIndex } as AutoroutingProviderFinding)).toBeNull();
-        }
+    it('snapshots geometry exactly', () => {
         expect(snapshotProviderHazardGeometry(geometries[0])).toEqual(geometries[0]);
     });
 });

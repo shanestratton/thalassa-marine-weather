@@ -1,6 +1,7 @@
 import type { AutoroutingTrialRoute } from '../../types/autorouting';
 import { AUTOROUTING_TRIAL_MAX_POINTS } from '../../types/autorouting';
 import type { TrialRouteReview } from '../autoroutingReview';
+import { dangerWithoutChartedDepth } from '../../components/map/inshoreRouteState';
 import {
     assessPlaceConditionsWindow,
     CONDITIONS_MAX_AGE_MS,
@@ -260,6 +261,10 @@ export function validateDayPlanRequest(request: DayPlanRequest, now: number): vo
         throw new Error('Choose an overnight end after departure and within 36 hours.');
 }
 
+/** Said of every routed leg (2026-10-01). */
+export const DAY_PLAN_ROUTE_NOT_CLEARANCE =
+    'Routed on this phone by Thalassa from your installed charts; a proposal is never navigation clearance.';
+
 /** Missing check coverage is advisory. A completed pass with an explicit danger
  * or tide dependency is ineligible, regardless of other clear segments. */
 export function assessDayPlanRoute(
@@ -270,24 +275,31 @@ export function assessDayPlanRoute(
     validateDayPlanRouteGeometry(route.coordinates);
     if (review?.phase !== 'complete') throw new Error('Route checks did not complete.');
     if (route.localEdit) throw new Error('Edited route evidence is no longer current.');
-    const findings = route.providerCheck?.findings ?? [];
-    if (route.providerCheck?.status === 'unsafe' || findings.some((finding) => finding.severity === 'danger'))
-        throw new Error('The route provider reported a known danger.');
+    // Thalassa's router (2026-10-01): what the route must say — bridges not
+    // checked, survey quality, tide times not loaded, the boat — is already in
+    // route.warnings. A line whose classifications did not arrive is not a plan.
+    if (
+        !route.engine ||
+        !Array.isArray(route.engine.stateMask) ||
+        route.engine.stateMask.length !== route.coordinates.length - 1
+    )
+        throw new Error("The router's safety classifications for this route are incomplete.");
+    // Review fix-ups (2026-10-01): never a plan over charted land, or over
+    // red the chart gives no depth for (land, water no chart vouches for, a
+    // charted hazard's buffer) — the independent review graded one such leg
+    // 'caution', which would have rated it amber.
+    if ((route.engine.hardLandAwayM ?? 0) > 0) throw new Error('The route crosses charted land.');
+    if ((dangerWithoutChartedDepth(route.engine) ?? [0]).length > 0)
+        throw new Error('Part of the route is drawn red with no charted depth behind it.');
     const reasons: string[] = [];
     let incomplete = review.legs.length !== route.coordinates.length - 1;
     const tideDependency =
         /\b(tide[- ]dependent|requires? (?:a )?tide|needs? (?:a )?tide|tidal (?:window|height|clearance)|at high tide|high[- ]tide only)\b/i;
-    if (
-        [...route.warnings, ...findings.map((finding) => finding.message)].some((message) =>
-            tideDependency.test(message),
-        )
-    )
+    if (route.warnings.some((message) => tideDependency.test(message)))
         throw new Error('The route depends on a tide or tidal clearance that this planner cannot verify.');
-    if (!route.providerCheck || route.providerCheck.status === 'not-reported')
-        reasons.push('Provider check coverage is not reported; no provider clearance is implied.');
-    else if (route.providerCheck.status === 'caution') reasons.push('The route provider reported a caution.');
-    else reasons.push('Provider check status is not understood; inspect the original report.');
-    reasons.push(...findings.map((finding) => finding.message), ...route.warnings);
+    // Never green on the router's say-so: as the old provider line did, every
+    // route keeps this reason, so a route check is amber at best.
+    reasons.push(DAY_PLAN_ROUTE_NOT_CLEARANCE, ...route.warnings);
     for (const leg of review.legs) {
         if (!leg) {
             incomplete = true;

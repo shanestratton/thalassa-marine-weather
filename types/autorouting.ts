@@ -1,32 +1,64 @@
-import type { AutoroutingProviderCheck } from '../supabase/functions/_shared/autorouting-provider-check';
 import type { AutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
+import type { InshoreSegmentState } from '../components/map/inshoreRouteState';
+import type { ChartedShallowSpan, PinOffWater, ShallowRunInfo, SurveyRunInfo } from '../services/engine/types';
 export type { AutoroutingDimension, AutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
-export type {
-    AutoroutingProviderCheck,
-    AutoroutingProviderFinding,
-} from '../supabase/functions/_shared/autorouting-provider-check';
 
-/** Thalassa's isolated trial boundary, not the upstream SevenCs wire format. */
+/** Auto's request: two pins and the vessel, routed by Thalassa on this phone. */
 export interface AutoroutingTrialRequest {
     departure: { lat: number; lon: number };
     destination: { lat: number; lon: number };
     draftM: number;
     speedKts: number;
-    /** Omitted only by legacy clients; missing values never become zero dimensions. */
+    /** Omitted only by legacy callers; missing values never become zero dimensions. */
     vesselProfile?: AutoroutingVesselProfile;
-    /** Explicit, ordered chart-track positions for a guided recalculation.
-     * Omit unless the server advertises channelGuidance support. */
-    chartTrackConstraints?: { lat: number; lon: number }[];
 }
 
+/** Computed on the phone (2026-10-01): a signed-in identity and installed
+ * navigation charts. No server call decides whether Auto is offered. */
 export interface AutoroutingTrialStatus {
     enabled: boolean;
     ready: boolean;
-    /** Only explicit true advertises support; older servers omit this field. */
-    channelGuidance?: boolean;
-    /** Explicit true is required before sending a vessel-profile request. */
-    vesselProfile?: boolean;
     message?: string;
+}
+
+/**
+ * What Thalassa's router said about this route (2026-10-01), held in memory
+ * only — never saved, exported or shared. The planner's own Phase 2a
+ * disclosure: per-segment masks, the shallow, survey and tide runs, the pins
+ * and the land backstop. `stateMask` is inshoreSegmentStates() of the result;
+ * null means the masks were missing or did not match the line, so the line is
+ * unverified and cannot be saved.
+ */
+export interface ThalassaRouteDisclosure {
+    stateMask: InshoreSegmentState[] | null;
+    cautionMask?: boolean[];
+    canalMask?: boolean[];
+    channelMask?: boolean[];
+    offshoreMask?: boolean[];
+    chartedShallowMask?: boolean[];
+    landPaintConflictMask?: boolean[];
+    tideDepthM?: (number | null)[];
+    tideNeedM?: number;
+    shallowRuns?: ShallowRunInfo[];
+    chartedShallowSpans?: ChartedShallowSpan[];
+    surveyRuns?: SurveyRunInfo[];
+    surveyUncheckedCells?: string[];
+    structuresUnknownCells?: string[];
+    pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
+    tideCheck?: 'not-loaded';
+    destinationInlandTrimM?: number;
+    cellsUsed: string[];
+    distanceNM: number;
+    elapsedMs: number;
+    seaway?: { edgesUsed: string[]; gateCount: number; gateCompliance: number | null; detourRatio: number };
+    /** The satellite land check: 'unavailable' offline (its cache is in memory only). */
+    backstop: 'verified' | 'unavailable';
+    /** Metres of charted land the route crosses away from a pin's own edge
+     *  (InshoreRouteResult.hardLand; 2026-10-01 review). Auto refuses a route
+     *  with any, so a proposal carries 0, or nothing when the audit did not run. */
+    hardLandAwayM?: number;
+    /** Tide ceilings were loaded before routing (owner decision 11). */
+    tideCeilingsLoaded?: boolean;
 }
 
 /** A proposal only: receipt does not save, verify, follow or publish a route. */
@@ -35,40 +67,32 @@ export interface AutoroutingTrialRoute {
     /** Ordered GeoJSON convention: longitude first. Never silently simplified. */
     coordinates: [number, number][];
     warnings: string[];
-    /** Provider findings apply to its proposal, not to every local review leg.
-     * Omitted by older servers; missing/no findings never means cleared. */
-    providerCheck?: AutoroutingProviderCheck;
-    /** Preserve the server's timestamp; never restamp a cached proposal as new. */
+    /** When the router produced it; never restamped for a cached proposal. */
     createdAt: string;
-    provider: 'SevenCs';
-    /** Exact accepted Thalassa snapshot, not a provider certification of measurements. */
+    provider: 'Thalassa';
+    /** Exact accepted Thalassa snapshot, not a certification of measurements. */
     vesselProfile?: AutoroutingVesselProfile;
-    /** Exact provider payloads for later authority review, held only in memory. */
-    source?: { rtz: string; geoJson: string };
-    /** Local geometry precedes SevenCs. source remains the unmodified provider
-     * continuation, not a provider endorsement of the local canal section. */
-    canalDeparture?: { handoverIndex: number };
-    /** A local edit invalidates the original provider AND canal gate evidence.
-     * canalDeparture then identifies a section boundary only, not a checked exit.
-     * Fresh local checks do not constitute a fresh SevenCs check. Memory only. */
+    /** The router's disclosure for this exact line. Dropped by a local edit:
+     * an edited line was not routed by Thalassa. Memory only. */
+    engine?: ThalassaRouteDisclosure;
+    /** A local edit invalidates the router's checks for the whole line. Fresh
+     * local chart checks do not constitute a fresh route. Memory only. */
     localEdit?: AutoroutingLocalEdit;
 }
 
 export interface AutoroutingLocalEdit {
     readonly revision: number;
-    readonly checksInvalidated: 'provider-and-canal';
+    readonly checksInvalidated: 'engine';
     /** Full-path indices retained as display pins, shifted when a move inserts
-     * a vertex. They are user edit anchors, not validated canal gates. */
+     * a vertex. They are user edit anchors, not checked positions. */
     readonly waypointIndices: readonly number[];
-    /** Deep-frozen, detached original proposal. Findings/source are historical,
+    /** Deep-frozen, detached original proposal. Its warnings are historical,
      * never findings or clearance for the current edited geometry. */
     readonly originalProposal: Readonly<Omit<AutoroutingTrialRoute, 'localEdit'>>;
 }
 
 export const AUTOROUTING_TRIAL_MAX_POINTS = 10_000;
-export const AUTOROUTING_TRIAL_MAX_CHART_TRACK_CONSTRAINTS = 8;
 export const AUTOROUTING_TRIAL_MAX_WARNINGS = 100;
 export const AUTOROUTING_TRIAL_MAX_WARNING_LENGTH = 2_000;
 export const AUTOROUTING_TRIAL_MAX_DRAFT_M = 30;
 export const AUTOROUTING_TRIAL_MAX_SPEED_KTS = 100;
-export const AUTOROUTING_TRIAL_MAX_SOURCE_BYTES = 4 * 1024 * 1024;

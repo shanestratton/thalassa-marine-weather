@@ -23,13 +23,20 @@ vi.mock('../services/enc/EncCellMetadata', async (importOriginal) => ({
 const props = () => {
     const route: AutoroutingTrialRoute = {
         id: 'proposal',
-        provider: 'SevenCs',
+        provider: 'Thalassa',
         createdAt: '2026-09-13T00:00:00Z',
         coordinates: [
             [153, -27],
             [153.1, -27.1],
         ],
         warnings: ['Inspect independently'],
+        engine: {
+            stateMask: ['green'],
+            cellsUsed: ['OC-99-SYN001'],
+            distanceNM: 7.8,
+            elapsedMs: 10,
+            backstop: 'verified',
+        },
     };
     const review: TrialRouteReview = {
         phase: 'complete',
@@ -151,19 +158,15 @@ describe('compact explicit proposal save control', () => {
             expect(mock.save).not.toHaveBeenCalled();
         },
     );
-    it.each(['review completion', 'provider warning', 'provider finding'] as const)(
+    it.each(['review completion', 'route note', 'added route note'] as const)(
         'requires fresh acknowledgement for same-object %s changes without clearing the name',
         (change) => {
             const p = props();
             const { rerender } = render(<AutoroutingProposalSaveCard {...p} />);
             fill();
             if (change === 'review completion') p.review.basis!.checkedAt = '2026-09-13T00:03:00Z';
-            else if (change === 'provider warning') p.route.warnings[0] = 'A different warning needs review';
-            else
-                p.route.providerCheck = {
-                    status: 'caution',
-                    findings: [{ featureIndex: 2, severity: 'caution', message: 'New provider restriction' }],
-                };
+            else if (change === 'route note') p.route.warnings[0] = 'A different warning needs review';
+            else p.route.warnings.push('Bridges and power lines not checked on this chart.');
             rerender(<AutoroutingProposalSaveCard {...p} />);
             expect(screen.getByRole('checkbox')).not.toBeChecked();
             expect(screen.getByRole('textbox')).toHaveValue('Weekend plan');

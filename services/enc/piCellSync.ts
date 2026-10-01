@@ -66,7 +66,10 @@ export async function downloadPiCell(cellId: string): Promise<boolean> {
             // Dynamic import breaks the would-be cycle EncCellStore → piCellSync
             // → EncHazardService → EncCellStore (same pattern as the cloud rung).
             const { importCell } = await import('./EncHazardService');
-            await importCell(validated[0]);
+            // No index row here: keep the held record's Pi identity when these
+            // are the same bytes (2026-10-01 review), so a pull at route time
+            // never makes the sheet offer "Sync 1 chart" for a chart it holds.
+            await importCell(validated[0], { keepPiRevisionWhenUnchanged: true });
             log.warn(`pi cell ${canonicalId} pulled on demand`);
             return true;
         } catch (err) {

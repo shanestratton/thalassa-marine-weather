@@ -689,6 +689,15 @@ export interface EncCell {
      * are treated as "size unknown" → re-import on next sync.
      */
     sizeBytes?: number;
+    /**
+     * The size the PI's index reported for the revision this copy was pulled
+     * from. Not the same number as `sizeBytes`: the Pi measures its own file
+     * (a {cells:[...]} wrapper plus fields the phone drops), the phone the
+     * cell it re-serialised (2026-10-01: OC-61-1P8625 is 1,085,565 on the Pi,
+     * 1,084,874 here). A Pi row with no contentSha256 is matched on this, so
+     * a chart already held stops reading as missing. See piSyncPlan.
+     */
+    piSizeBytes?: number;
     /** Persistent version of the private cloud manifest that supplied this
      * blob. Binds saved route checks to corrected extractor output even when
      * S-57 edition/date and byte metadata otherwise stay unchanged. */

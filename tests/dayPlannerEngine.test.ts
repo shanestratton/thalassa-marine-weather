@@ -58,8 +58,14 @@ const route = (from: DayPlanPoint, to: DayPlanPoint, middle: [number, number][] 
     coordinates: [[from.lon, from.lat], ...middle, [to.lon, to.lat]],
     warnings: [],
     createdAt: new Date(NOW).toISOString(),
-    provider: 'SevenCs',
-    providerCheck: { status: 'not-reported', findings: [] },
+    provider: 'Thalassa',
+    engine: {
+        stateMask: [...middle, [to.lon, to.lat]].map(() => 'green' as const),
+        cellsUsed: ['OC-99-SYN001'],
+        distanceNM: 1,
+        elapsedMs: 10,
+        backstop: 'verified',
+    },
 });
 const review = (proposal: AutoroutingTrialRoute): TrialRouteReview => ({
     phase: 'complete',
@@ -299,7 +305,7 @@ describe('day planner deterministic itinerary construction', () => {
         expect(option.transit.light).toBe('green');
         expect(option.conditions.light).toBe('green');
         expect(option.light).toBe('amber');
-        expect(option.warnings.join(' ')).toMatch(/Provider check coverage is not reported/);
+        expect(option.warnings.join(' ')).toMatch(/a proposal is never navigation clearance/);
     });
 
     it('counts route detours and the independently routed return against the total sailing budget', async () => {
@@ -419,14 +425,50 @@ describe('day planner deterministic itinerary construction', () => {
         const deps = dependencies({
             route: vi.fn(async (from, to) => {
                 const proposal = route(from, to);
-                proposal.providerCheck = { status: 'unsafe', findings: [] };
+                // The router's classifications did not arrive intact.
+                proposal.engine!.stateMask = null;
                 return { route: proposal, review: review(proposal) };
             }),
         });
         const unsafe = await build(req, [candidate('chosen')], deps);
         expect(unsafe.options).toEqual([]);
-        expect(unsafe.excluded[0].reason).toMatch(/known danger/);
+        expect(unsafe.excluded[0].reason).toMatch(/safety classifications/);
         expect(deps.forecast).not.toHaveBeenCalled();
+    });
+
+    // Review fix-ups, 2026-10-01: a leg over charted land, or red with no
+    // charted depth behind it, is never planned — the independent review
+    // graded such a leg 'caution', which rated it amber.
+    it('excludes a stop whose leg crosses charted land or is red with no charted depth', async () => {
+        const req = request({ destinationIds: ['chosen'] });
+        for (const [mutate, reason] of [
+            [
+                (p: ReturnType<typeof route>) => {
+                    p.engine!.hardLandAwayM = 400;
+                },
+                /crosses charted land/,
+            ],
+            [
+                (p: ReturnType<typeof route>) => {
+                    const n = p.engine!.stateMask!.length;
+                    p.engine!.stateMask = p.engine!.stateMask!.map((_, i) => (i === 0 ? 'danger' : 'green'));
+                    p.engine!.cautionMask = Array.from({ length: n }, (_, i) => i === 0);
+                    p.engine!.chartedShallowMask = Array.from({ length: n }, () => false);
+                },
+                /red with no charted depth/,
+            ],
+        ] as const) {
+            const deps = dependencies({
+                route: vi.fn(async (from, to) => {
+                    const proposal = route(from, to);
+                    mutate(proposal);
+                    return { route: proposal, review: review(proposal) };
+                }),
+            });
+            const result = await build(req, [candidate('chosen')], deps);
+            expect(result.options).toEqual([]);
+            expect(result.excluded[0].reason).toMatch(reason);
+        }
     });
 
     it('ranks checked amber coverage before shorter unknown coverage, then by actual sailing time', async () => {
@@ -464,14 +506,14 @@ describe('day planner deterministic itinerary construction', () => {
 });
 
 describe('day planner eligibility and missing chart evidence', () => {
-    it.each(['provider-danger', 'local-danger', 'tide', 'depth', 'checking', 'stale'] as const)(
+    it.each(['unverified-line', 'local-danger', 'tide', 'depth', 'checking', 'stale'] as const)(
         'excludes %s',
         async (kind) => {
             const deps = dependencies({
                 route: vi.fn(async (from, to) => {
                     const proposal = route(from, to);
                     const checked = review(proposal);
-                    if (kind === 'provider-danger') proposal.providerCheck = { status: 'unsafe', findings: [] };
+                    if (kind === 'unverified-line') delete proposal.engine;
                     if (kind === 'local-danger')
                         checked.legs[0]!.verdict.issues.push({ severity: 'danger', message: 'Charted obstruction' });
                     if (kind === 'tide') checked.legs[0]!.verdict.needsTide = true;
@@ -653,6 +695,22 @@ describe('day planner eligibility and missing chart evidence', () => {
         const result = await build(request(), [dest], deps);
         expect(result.options).toEqual([]);
         expect(result.excluded[0].reason).toMatch(/gust/i);
+    });
+
+    it('excludes a catalogue stop whose checkpoints Auto cannot follow, while another stop still plans', async () => {
+        // services/dayPlanner/runtime DAY_PLANNER_CHECKPOINTS_UNSUPPORTED (2026-10-01).
+        const plain = 'This catalogue trip needs checkpoints Auto cannot follow yet. Plot it in Manual.';
+        const deps = dependencies({
+            route: vi.fn(async (from: DayPlanPoint, to: DayPlanPoint, _signal: AbortSignal, constraint?: unknown) => {
+                if (constraint) throw new Error(plain);
+                const proposal = route(from, to);
+                return { route: proposal, review: review(proposal) };
+            }),
+        });
+        const trip = withCatalogue('trip');
+        const result = await build(request(), [trip, candidate('works', -20.15)], deps);
+        expect(result.options.map((option) => option.candidate.destination.id)).toEqual(['works']);
+        expect(result.excluded).toContainEqual({ name: trip.destination.name, reason: plain });
     });
 
     it('continues to another destination after an isolated provider failure', async () => {

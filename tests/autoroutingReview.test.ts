@@ -185,7 +185,7 @@ describe('trial chart-track advisory presentation', () => {
 const route = (coordinates: [number, number][]): AutoroutingTrialRoute => ({
     id: 'test',
     coordinates,
-    provider: 'SevenCs',
+    provider: 'Thalassa',
     createdAt: '2026-09-12T00:00:00Z',
     warnings: [],
 });
@@ -248,20 +248,6 @@ describe('auto proposals use the manual leg grading loop', () => {
         ]);
     });
 
-    it('keeps a locally generated canal leg caution even if chart checks are otherwise clear', async () => {
-        const input = {
-            ...route([
-                [153, -27],
-                [153.001, -27],
-                [153.002, -27],
-            ]),
-            canalDeparture: { handoverIndex: 1 },
-        };
-        const result = await reviewAutoroutingProposal(input, 2.4, new AbortController().signal, vi.fn());
-        expect(result.legs[0]).toMatchObject({ incomplete: true, verdict: { grade: 'caution' } });
-        expect(result.legs[0]?.verdict.issues.some((i) => i.message.includes('Local canal proposal'))).toBe(true);
-        expect(result.legs[1]?.verdict.grade).toBe('clear');
-    });
     it('grades every exact bend, carries draft and strict depth policy, and marks only the final leg as last', async () => {
         const input = route([
             [153, -27],

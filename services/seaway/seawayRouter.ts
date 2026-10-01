@@ -208,6 +208,57 @@ export function applyInnerPortalYield(portals: SeawayPortal[]): SeawayPortal[] {
     );
 }
 
+/**
+ * The live route's own grid, READ-ONLY (exported 2026-10-01 for the
+ * lead-graph shadow, services/seaway/leadGraphSearch): the cache lookup
+ * with the RouteResult's bbox and the exact params the accepted pass was
+ * built with — its relax zones and tide ceilings included. Null on a miss;
+ * a shadow never builds a grid.
+ */
+export function routeCachedGrid(layers: InshoreLayers, req: RouteRequest, direct: RouteResult): NavGrid | null {
+    return getCachedNavGrid(
+        layers,
+        direct.bbox,
+        req.resolutionM ?? 50,
+        req.draftM,
+        req.safetyM ?? 1.0,
+        req.obstructionBufferM ?? 30,
+        direct.debug?.relaxedLndare ?? false,
+        direct.debug?.relaxZones ?? [],
+        // The route's tide ceilings (owner decision 11, 2026-10-01): its grid
+        // blocked water no tide clears, and is keyed by them (and by the
+        // retry's crossed bands, when the route is one).
+        req.tideCeilings ?? [],
+        req.tideBarriers ?? [],
+    );
+}
+
+/**
+ * Per segment of `line`: true where the grid reads land, a blocked cell
+ * or water below the keel margin along it (25 m samples, ends included) —
+ * a shadow route's honest red. Cells off the grid are not judged.
+ * Exported 2026-10-01 for the lead-graph shadow.
+ */
+export function gridCautionSegMask(grid: NavGrid, line: readonly SeawayLatLon[]): boolean[] {
+    const mask: boolean[] = [];
+    for (let i = 0; i + 1 < line.length; i++) {
+        const a = line[i];
+        const b = line[i + 1];
+        const steps = Math.max(1, Math.ceil(gateDistM(a, b) / 25));
+        let red = false;
+        for (let s = 0; s <= steps && !red; s++) {
+            const t = s / steps;
+            const x = Math.floor((a.lon + (b.lon - a.lon) * t - grid.minLon) / grid.dLon);
+            const y = Math.floor((a.lat + (b.lat - a.lat) * t - grid.minLat) / grid.dLat);
+            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+            const d = grid.cells[y * grid.width + x];
+            red = Number.isNaN(d) || d < 0;
+        }
+        mask.push(red);
+    }
+    return mask;
+}
+
 // ── Graph search scaffolding ────────────────────────────────────────
 
 interface GraphNode {
@@ -254,21 +305,7 @@ export function shadowCompare(
     // Same bbox/params INCLUDING the relax params the accepted pass was
     // built with (RouteDebug carries them). Miss ⇒ reasoned report —
     // the shadow never builds.
-    const grid = getCachedNavGrid(
-        layers,
-        direct.bbox,
-        req.resolutionM ?? 50,
-        req.draftM,
-        req.safetyM ?? 1.0,
-        req.obstructionBufferM ?? 30,
-        direct.debug?.relaxedLndare ?? false,
-        direct.debug?.relaxZones ?? [],
-        // The route's tide ceilings (owner decision 11, 2026-10-01): its grid
-        // blocked water no tide clears, and is keyed by them (and by the
-        // retry's crossed bands, when the route is one).
-        req.tideCeilings ?? [],
-        req.tideBarriers ?? [],
-    );
+    const grid = routeCachedGrid(layers, req, direct);
     mark('grid');
     if (!grid) {
         return {
@@ -618,22 +655,7 @@ export function shadowCompare(
         // Honest red for the promoted path: the engine's caution recompute never sees a
         // promoted polyline, so sample each segment against the grid here (25 m step,
         // endpoints inclusive) — land/uncharted/below-keel-margin cells flag the segment.
-        const cautionSegMask: boolean[] = [];
-        for (let i = 0; i + 1 < line.length; i++) {
-            const a = line[i];
-            const b = line[i + 1];
-            const steps = Math.max(1, Math.ceil(gateDistM(a, b) / 25));
-            let red = false;
-            for (let s = 0; s <= steps && !red; s++) {
-                const t = s / steps;
-                const x = Math.floor((a.lon + (b.lon - a.lon) * t - grid.minLon) / grid.dLon);
-                const y = Math.floor((a.lat + (b.lat - a.lat) * t - grid.minLat) / grid.dLat);
-                if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
-                const d = grid.cells[y * grid.width + x];
-                red = Number.isNaN(d) || d < 0;
-            }
-            cautionSegMask.push(red);
-        }
+        const cautionSegMask = gridCautionSegMask(grid, line);
         // segIsChannel accrues one entry per appended vertex after the first —
         // exactly line.length-1 by construction; assert-by-pad against drift.
         while (segIsChannel.length < line.length - 1) segIsChannel.push(false);

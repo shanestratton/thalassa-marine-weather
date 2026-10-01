@@ -34,6 +34,19 @@ export interface HardLandAudit {
     sampledIntervals: number;
     maxRunStart?: [number, number];
     maxRunEnd?: [number, number];
+    /** Every run, by where it lies along the line (metres from the first
+     *  vertex) and its middle ([lon, lat]) — so a caller can tell a run at a
+     *  pin's own edge from one across the way (2026-10-01). */
+    runs: HardLandRun[];
+    /** The line's length as sampled, metres. */
+    lengthM: number;
+}
+
+export interface HardLandRun {
+    fromM: number;
+    toM: number;
+    lengthM: number;
+    mid: [number, number];
 }
 
 /** A longer exact-LNDARE run is not a marina-mouth alignment error. */
@@ -204,7 +217,7 @@ export function auditUnvouchedHardLand(
         typeof p?._scaleRank === 'number' ? p._scaleRank : null,
     );
     if (land.length === 0 || polyline.length < 2) {
-        return { maxRunM: 0, totalM: 0, sampledIntervals: 0 };
+        return { maxRunM: 0, totalM: 0, sampledIntervals: 0, runs: [], lengthM: 0 };
     }
     // OSM-vouched water (the promoted river polygons in FAIRWY carry the same
     // OSM tags as their DEPARE copies; an S-57 FAIRWY never qualifies).
@@ -246,6 +259,22 @@ export function auditUnvouchedHardLand(
     let runStart: [number, number] | undefined;
     let maxRunStart: [number, number] | undefined;
     let maxRunEnd: [number, number] | undefined;
+    // Each run's extent along the line, and the samples it holds (its middle
+    // is the middle sample).
+    const runs: HardLandRun[] = [];
+    let runFromM = 0;
+    let runSamples: [number, number][] = [];
+    let alongM = 0;
+    const closeRun = (): void => {
+        if (runSamples.length === 0) return;
+        runs.push({
+            fromM: runFromM,
+            toM: runFromM + runM,
+            lengthM: runM,
+            mid: runSamples[Math.floor(runSamples.length / 2)],
+        });
+        runSamples = [];
+    };
 
     for (let i = 1; i < polyline.length; i++) {
         const [lonA, latA] = polyline[i - 1];
@@ -266,6 +295,8 @@ export function auditUnvouchedHardLand(
                 !pointNearVouchedLine(lon, lat, wetLines);
             sampledIntervals++;
             if (hardLand) {
+                if (runSamples.length === 0) runFromM = alongM;
+                runSamples.push([lon, lat]);
                 runStart ??= [lon, lat];
                 runM += intervalM;
                 totalM += intervalM;
@@ -275,13 +306,41 @@ export function auditUnvouchedHardLand(
                     maxRunEnd = [lon, lat];
                 }
             } else {
+                closeRun();
                 runM = 0;
                 runStart = undefined;
             }
+            alongM += intervalM;
         }
     }
+    closeRun();
 
-    return { maxRunM, totalM, sampledIntervals, maxRunStart, maxRunEnd };
+    return { maxRunM, totalM, sampledIntervals, maxRunStart, maxRunEnd, runs, lengthM: alongM };
+}
+
+/**
+ * Metres of hard land a route crosses AWAY from a pin's own edge (2026-10-01):
+ * a run that touches an end whose pin is off the water (on land or a drying
+ * bank, or trimmed back to the water's edge) is that pin's own ground, and
+ * the route says so; every other run is land the route crosses. Auto refuses
+ * any of it (services/autoroutingThalassa): the engine's 500 m veto above
+ * lets a shorter run through, and the localized relax retry can make one
+ * (a 400 m land wall beside a far-snapped pin).
+ */
+export function hardLandAwayFromPinEdges(
+    audit: Pick<HardLandAudit, 'runs' | 'lengthM'>,
+    edgeEnds: { origin: boolean; destination: boolean },
+    slackM = 30,
+): { metres: number; at: [number, number] | null } {
+    let metres = 0;
+    let worst: HardLandRun | null = null;
+    for (const run of audit.runs) {
+        if (edgeEnds.origin && run.fromM <= slackM) continue;
+        if (edgeEnds.destination && run.toM >= audit.lengthM - slackM) continue;
+        metres += run.lengthM;
+        if (!worst || run.lengthM > worst.lengthM) worst = run;
+    }
+    return { metres, at: worst ? worst.mid : null };
 }
 
 /**

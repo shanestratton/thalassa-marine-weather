@@ -1170,8 +1170,9 @@ export default function DayPlannerSheet({
                                     {selected.candidate.destination.catalogueQuality === 'catalogue-reference'
                                         ? 'Catalogue evidence and limitations are listed above. Source review is separate from navigation checks.'
                                         : 'OpenStreetMap contributors (ODbL). Regional source references are listed above.'}
-                                    Forecast: Open-Meteo / national weather services. Routing: SevenCs. Model output is
-                                    not a guarantee of conditions or clearance.
+                                    Forecast: Open-Meteo / national weather services. Routing: Thalassa, on this phone
+                                    from your installed charts. Model output is not a guarantee of conditions or
+                                    clearance.
                                 </p>
                             </details>
                             {!savedIds.length && (

@@ -12,6 +12,7 @@
 import { createLogger } from '../../utils/createLogger';
 import * as EncHazardService from './EncHazardService';
 import { parseJsonOffThread } from './EncCellStore';
+import { ENC_NO_DEPTH_AREAS_CODE } from './piSyncPlan';
 import {
     CAUTION_AREA_CLASSES,
     canonicalEncCellId,
@@ -260,6 +261,20 @@ function validateFeatureCollection(
     });
 }
 
+/**
+ * A chart with no DEPARE/DRGARE depth areas: it cannot verify water depths, so
+ * the phone refuses it. Typed (2026-10-01) so the Pi sync can remember the
+ * refusal instead of downloading and refusing the same bytes on every sync;
+ * the message is unchanged because the ENC sheet classifies on it.
+ */
+export class EncMissingDepthAreaError extends Error {
+    readonly code = ENC_NO_DEPTH_AREAS_CODE;
+    constructor(cellId: string) {
+        super(`${cellId}: no DEPARE/DRGARE depth-area coverage; the pack cannot verify water depths.`);
+        this.name = 'EncMissingDepthAreaError';
+    }
+}
+
 function validateCell(value: unknown, index: number, budget: ValidationBudget): EncConversionResult {
     const label = `cells[${index}]`;
     if (!isRecord(value)) throw new Error(`${label} must be an object.`);
@@ -359,7 +374,7 @@ function validateCell(value: unknown, index: number, budget: ValidationBudget): 
     const layers = value.layers as EncConversionResult['layers'];
     const depthAreaCount = (layers.DEPARE?.features.length ?? 0) + (layers.DRGARE?.features.length ?? 0);
     if (depthAreaCount === 0) {
-        throw new Error(`${cellId}: no DEPARE/DRGARE depth-area coverage; the pack cannot verify water depths.`);
+        throw new EncMissingDepthAreaError(cellId);
     }
     if (bounds.positions === 0) throw new Error(`${cellId}: the pack contains no usable chart geometry.`);
     if (

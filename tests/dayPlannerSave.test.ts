@@ -62,16 +62,21 @@ async function fixture(mode: DayPlanRequest['mode'] = 'return'): Promise<DayPlan
             route: async (from, to) => {
                 const route: AutoroutingTrialRoute = {
                     id: `${from.lat}:${to.lat}`,
-                    provider: 'SevenCs',
+                    provider: 'Thalassa',
                     createdAt: new Date(NOW).toISOString(),
                     coordinates: [
                         [from.lon, from.lat],
                         [to.lon, to.lat],
                     ],
                     warnings: ['Independently check the proposed route.'],
-                    providerCheck: { status: 'not-reported', findings: [] },
+                    engine: {
+                        stateMask: ['green'],
+                        cellsUsed: ['OC-99-SYN001'],
+                        distanceNM: 1,
+                        elapsedMs: 10,
+                        backstop: 'verified',
+                    },
                     vesselProfile: structuredClone(profile),
-                    source: { rtz: 'raw licensed RTZ', geoJson: 'raw licensed GeoJSON' },
                 };
                 return {
                     route,
@@ -528,8 +533,10 @@ describe('atomic planned itinerary save', () => {
                 expect(trace.verification).toBeUndefined();
                 expect(trace.passageVoyageId).toBeUndefined();
                 expect(trace.plannedRouteId).toBeUndefined();
+                expect(trace.proposalEvidence!.origin).toBe('thalassa-inshore');
             }
-            expect(localStorage.getItem(key)).not.toContain('raw licensed');
+            // The router's in-memory disclosure (masks, runs) is never saved.
+            expect(localStorage.getItem(key)).not.toContain('stateMask');
             result.traces[0].points[0].lon = 0;
             input.option.legs[0].route.warnings[0] = 'caller changed';
             await expect(result.cloud).resolves.toEqual(['ok', 'ok']);

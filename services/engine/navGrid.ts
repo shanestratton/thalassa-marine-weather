@@ -1577,6 +1577,55 @@ export function buildNavGrid(
         }
     };
 
+    // Charted deep enough for this vessel by the chart itself: an S-57 depth
+    // area (DEPARE / DRGARE) owns the cell as deep, no S-57 band at the owning
+    // survey charts it shallower, and nothing has blocked it (land paint
+    // decision 1 upheld, a berth). OSM-vouched water has no depth to offer.
+    // Decision-1 water whose finest band is deep enough (d1DeepBand) counts
+    // too: the disc leaves it open and it stays what decision 1 made it —
+    // caution, never deep.
+    //
+    // …and only inside a charted DREDGED AREA or FAIRWAY (S-57 DRGARE /
+    // FAIRWY; review fix-up, 2026-10-01): the dredged river mouth the yield
+    // was made for. Natural deep water on a solo lateral's inferred side is
+    // exactly the strip between a reef-edge mark and its reef that the chart
+    // may not show (the Scarborough pattern): it stays closed.
+    const needForDeepM = draftM + safetyM;
+    let dredgedOrFairway: Uint8Array | null = null;
+    const inDredgedOrFairway = (idx: number): boolean => {
+        if (!dredgedOrFairway) {
+            const mask = new Uint8Array(width * height);
+            for (const f of [...(layers.DRGARE?.features ?? []), ...(layers.FAIRWY?.features ?? [])]) {
+                const g = f.geometry;
+                if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+                if (!isS57ChartProps(f.properties as Record<string, unknown> | null)) continue;
+                rasterizePolygonCells(grid, g as Polygon | MultiPolygon, (x, y) => {
+                    mask[y * width + x] = 1;
+                });
+            }
+            dredgedOrFairway = mask;
+        }
+        return dredgedOrFairway[idx] === 1;
+    };
+    const chartedDeepForVessel = (idx: number): boolean =>
+        !Number.isNaN(cells[idx]) &&
+        (d1DeepBand?.[idx] === 1 || (s57DeepAt[idx] !== 0 && s57ShallowAt[idx] === 0 && cells[idx] >= needForDeepM)) &&
+        inDredgedOrFairway(idx);
+    // Beyond the disc's inner reach (a cable, _innerKeepOutM) the CHART speaks
+    // where it charts the water (2026-10-01 review fix-up): a cell an S-57
+    // depth area owns that never dries keeps the chart's own verdict — deep,
+    // or shallow and caution. Water no S-57 band charts (vouched only by OSM
+    // or Mapbox, or unknown), drying and land stay closed to the full reach:
+    // that is where an undrawn fringing reef would lie. Measured on the real
+    // Brisbane cells: closing charted water out to 550–650 m from the
+    // shipping channel's unpaired marks pushed the bay → Lytton route onto a
+    // drying clip and refused it at a 2.5 m tide top.
+    const chartedWaterForVessel = (idx: number): boolean =>
+        !Number.isNaN(cells[idx]) &&
+        (s57DeepAt[idx] !== 0 || s57ShallowAt[idx] !== 0 || d1DeepBand?.[idx] === 1) &&
+        s57DryingAt[idx] === 0;
+    let markDiscYieldedCells = 0;
+
     const handlePointFeature = (f: Feature): void => {
         if (!f.geometry) return;
         // Pair-wings (Step 4.5, masterplan Phase 3) travel in OBSTRN but are
@@ -1601,9 +1650,39 @@ export function buildNavGrid(
             const [lon, lat] = (f.geometry as Point).coordinates;
             blockPointBuffer(lat, lon, isMarkDisc);
         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+            // A SOLO lateral's keep-out (its side inferred from the shore
+            // bearing, InshoreRouter orientHazardsTowardLand) never closes a
+            // charted dredged channel or fairway deep enough for this vessel
+            // (2026-10-01): three such discs closed the dredged Brisbane River
+            // mouth and sent the route over the West Banks. Within a cable of
+            // the mark every other cell stays blocked; beyond it, water an
+            // S-57 depth area charts and that never dries is the chart's, and
+            // uncharted (vouched-only), drying and land cells stay blocked.
+            const discProps = f.properties as {
+                _yieldsToChartedDeep?: unknown;
+                _innerKeepOutM?: unknown;
+                _markerLat?: unknown;
+                _markerLon?: unknown;
+            } | null;
+            const yieldsToDeep = isMarkDisc && discProps?._yieldsToChartedDeep === true;
+            const innerM = typeof discProps?._innerKeepOutM === 'number' ? discProps._innerKeepOutM : Infinity;
+            const markLat = typeof discProps?._markerLat === 'number' ? discProps._markerLat : NaN;
+            const markLon = typeof discProps?._markerLon === 'number' ? discProps._markerLon : NaN;
+            const hasInner = yieldsToDeep && Number.isFinite(innerM) && Number.isFinite(markLat + markLon);
+            // A cell is in the inner reach when its centre is within it.
+            const inInnerReach = (x: number, y: number): boolean => {
+                if (!hasInner) return true;
+                const dyM = (minLat + (y + 0.5) * dLat - markLat) * M_PER_DEG_LAT;
+                const dxM = (minLon + (x + 0.5) * dLon - markLon) * mPerLon;
+                return Math.hypot(dxM, dyM) <= innerM;
+            };
             // For polygon obstructions, treat the polygon area itself as blocked.
             rasterizePolygonCells(grid, f.geometry as Polygon | MultiPolygon, (x, y) => {
                 const idx = y * width + x;
+                if (yieldsToDeep && (inInnerReach(x, y) ? chartedDeepForVessel(idx) : chartedWaterForVessel(idx))) {
+                    markDiscYieldedCells++;
+                    return;
+                }
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
                 obstnBlocked[idx] = 1;
@@ -1621,6 +1700,10 @@ export function buildNavGrid(
     for (const f of wrecksFeatures) handlePointFeature(f);
     for (const f of uwtrocFeatures) handlePointFeature(f);
     markPass('pass3-points', tPassPoints, obstrnFeatures.length + wrecksFeatures.length + uwtrocFeatures.length);
+    if (markDiscYieldedCells > 0)
+        engineLog.warn(
+            `pass3: solo-lateral keep-outs left ${markDiscYieldedCells} cell(s) open — a charted dredged channel or fairway deep enough (≥ ${needForDeepM.toFixed(1)} m) within a cable, or S-57-charted water that never dries beyond it`,
+        );
 
     // ── Pass 4: FAIRWY + DRGARE — mark preferred channel cells ─────
     // A marked channel is PREFERRED (A* rides it at 1.0×, cellCostMultiplier)

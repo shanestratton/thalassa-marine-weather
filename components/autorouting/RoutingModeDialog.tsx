@@ -1,5 +1,6 @@
 import React, { Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
-import { getAutoroutingTrialStatus, type AutoroutingTrialStatus } from '../../services/autoroutingTrial';
+import type { AutoroutingTrialStatus } from '../../services/autoroutingThalassa';
+import { useAutoroutingProvider } from './AutoroutingProviderContext';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -68,6 +69,7 @@ export function RoutingModeDialog({
 }) {
     const pane = usePaneScope();
     const titleId = useId();
+    const provider = useAutoroutingProvider();
     const [phase, setPhase] = useState<'choice' | 'auto' | 'closed'>('choice');
     const [status, setStatus] = useState<AutoroutingTrialStatus | null>(null);
     const scope = useRef(getAuthIdentityScope());
@@ -91,35 +93,25 @@ export function RoutingModeDialog({
     const dialogRef = useFocusTrap<HTMLDivElement>(phase === 'choice', { onEscape: close, initialFocusRef: closeRef });
 
     useEffect(() => {
-        const controller = new AbortController();
         const unsubscribe = subscribeAuthIdentityScope(() => {
             if (!isAuthIdentityScopeCurrent(scope.current)) {
-                controller.abort();
                 setStatus(null);
                 close();
             }
         });
+        // Worked out on the phone since 2026-10-01 (a signed-in identity and
+        // installed navigation charts): no server decides whether Auto is offered.
         if (!scope.current.userId) {
-            setStatus({ enabled: false, ready: false, message: 'Sign in to check Auto routing availability.' });
+            setStatus({ enabled: false, ready: false, message: 'Sign in to use Auto routing. Manual is ready.' });
         } else {
-            void getAutoroutingTrialStatus(controller.signal)
-                .then((next) => {
-                    if (!controller.signal.aborted && isAuthIdentityScopeCurrent(scope.current)) setStatus(next);
-                })
-                .catch(() => {
-                    if (!controller.signal.aborted && isAuthIdentityScopeCurrent(scope.current))
-                        setStatus({
-                            enabled: false,
-                            ready: false,
-                            message: 'Auto routing is temporarily unavailable.',
-                        });
-                });
+            try {
+                setStatus(provider.status());
+            } catch {
+                setStatus({ enabled: false, ready: false, message: 'Auto routing is temporarily unavailable.' });
+            }
         }
-        return () => {
-            controller.abort();
-            unsubscribe();
-        };
-    }, [close]);
+        return unsubscribe;
+    }, [close, provider]);
 
     const chooseManual = () => {
         if (finished.current || phase !== 'choice' || !isAuthIdentityScopeCurrent(scope.current)) return;
@@ -211,7 +203,9 @@ export function RoutingModeDialog({
                         <span className="text-base font-bold">
                             Auto routing <span className="text-micro uppercase tracking-wide">· Trial</span>
                         </span>
-                        <span className="text-sm text-gray-300">Try a SevenCs proposal on a separate chart.</span>
+                        <span className="text-sm text-gray-300">
+                            Thalassa routes it on this phone from your installed charts. Review before saving.
+                        </span>
                     </button>
                 </div>
                 <p role="status" className="mt-4 text-sm text-gray-300">
@@ -219,9 +213,8 @@ export function RoutingModeDialog({
                         ? 'Checking Auto routing availability… Manual is ready.'
                         : status.enabled
                           ? status.ready
-                              ? 'Private trial · leaving now. Your saved routes and trip legs stay unchanged.'
-                              : status.message ||
-                                'Trial setup is in progress. You can still explore the separate chart.'
+                              ? 'Trial · leaving now. Your saved routes and trip legs stay unchanged.'
+                              : status.message || 'Install charts for your area to use Auto. Manual is ready.'
                           : status.message || 'Auto routing is not enabled for this account. Manual is ready.'}
                 </p>
                 <p className="mt-2 text-micro text-amber-300">

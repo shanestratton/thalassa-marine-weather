@@ -316,6 +316,10 @@ export interface RouteDebug {
      *  charted dry land (suburb-centroid class) — the route ends at the
      *  water's edge instead of crawling up the bank. */
     destinationInlandTrimM?: number;
+    /** Metres of tail trimmed off charted land when the destination pin is
+     *  WATER the route could not reach (2026-10-01): a gap to the pin, never
+     *  "the destination is inland". */
+    destinationLandTailTrimM?: number;
     /** Owner decision 7 (round 2, 2026-09-30): the pin sat in charted caution
      *  water (NavGrid.chartedShallow) and the route runs all the way to it —
      *  the stretch past the last deep-enough water is a 'needs tide' tail. */
@@ -403,6 +407,14 @@ export interface RouteDebug {
     hardLandMaxRunM?: number;
     /** Total final-route distance (metres) across the same unvouched land. */
     hardLandTotalM?: number;
+    /** The part of hardLandTotalM away from a pin's own edge (2026-10-01):
+     *  land the route crosses, not the ground a pin off the water — on land,
+     *  on a drying bank, trimmed back to the water's edge — sits on
+     *  (safetyAudit hardLandAwayFromPinEdges). A localized-relaxed rescue of a
+     *  no-tide refusal may cross none; Auto refuses a route that crosses any. */
+    hardLandAwayM?: number;
+    /** The middle of the longest such run, [lon, lat]. */
+    hardLandAwayAt?: [number, number];
     /** Ends of the longest unvouched hard-land run, as [lon, lat]. */
     hardLandRun?: { start: [number, number]; end: [number, number] };
     /** Grid-relaxation params the ACCEPTED pass was built with (absent =

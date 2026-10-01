@@ -1,6 +1,6 @@
 /** Planned-only provenance. This is deliberately NOT a TraceVerification or
  * permission to follow/export/cast off. No raw licensed provider payload here. */
-import type { AutoroutingProviderCheck } from '../types/autorouting';
+import type { AutoroutingProviderCheck } from '../supabase/functions/_shared/autorouting-provider-check';
 import {
     snapshotProviderFindingDetails,
     providerHazardVertexCount,
@@ -20,7 +20,10 @@ export interface AutoroutingReviewBasis {
 }
 export interface SavedAutoroutingProposalEvidence {
     version: 1;
-    origin: 'sevencs-trial';
+    /** 'thalassa-inshore': Auto on the phone, the only origin written since
+     * 2026-10-01. 'sevencs-trial': rows saved before then — read, never
+     * written; only they may carry providerCheck or canalHandoverIndex. */
+    origin: 'sevencs-trial' | 'thalassa-inshore';
     proposalId: string;
     providerCreatedAt: string;
     savedAt: string;
@@ -109,7 +112,9 @@ export function normaliseAutoroutingProposalEvidence(
                 'legs',
             ]) ||
             v.version !== 1 ||
-            v.origin !== 'sevencs-trial' ||
+            (v.origin !== 'sevencs-trial' && v.origin !== 'thalassa-inshore') ||
+            (v.origin === 'thalassa-inshore' &&
+                (v.providerCheck !== undefined || v.canalHandoverIndex !== undefined)) ||
             !text(v.proposalId, 200) ||
             !timestamp(v.providerCreatedAt) ||
             !timestamp(v.savedAt) ||

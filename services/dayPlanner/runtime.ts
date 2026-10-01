@@ -3,31 +3,19 @@ import { lineIntersect } from '@turf/line-intersect';
 import type { MultiPolygon, Polygon } from 'geojson';
 import type { VesselProfile } from '../../types/vessel';
 import type { AutoroutingTrialRequest, AutoroutingTrialRoute } from '../../types/autorouting';
-import { autoroutingVesselWarnings } from '../../supabase/functions/_shared/autorouting-vessel';
 import { AnchorageService } from '../anchorages/AnchorageService';
 import { cachedConditionsForecast, loadPlaceConditions } from '../anchorages/PlaceConditionsService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, subscribeAuthIdentityScope } from '../authIdentityScope';
-import {
-    resolveAutomaticCanalExit,
-    VERIFIED_CANAL_EXIT_PROFILES,
-    type AutomaticCanalExitResolution,
-} from '../automaticCanalExit';
 import { autoroutingProposalGeometryKey } from '../autoroutingProposalEvidence';
 import { reviewAutoroutingProposal } from '../autoroutingReview';
-import { calculateAutoroutingTrial, getAutoroutingTrialStatus } from '../autoroutingTrial';
+import { calculateThalassaProposal, getThalassaAutorouteStatus } from '../autoroutingThalassa';
 import { snapshotAutoroutingVesselProfile } from '../autoroutingVesselProfile';
 import { getRegistryFingerprint, subscribe as subscribeEncRegistry } from '../enc/EncCellMetadata';
 import { FEET_PER_METRE, vesselDraftMetres } from '../units';
-import { verifyCanalExitChart } from '../verifyCanalExitChart';
 import { discoverMappedDayPlanCandidates } from './discovery';
 import { resolvePlanningArea } from './regions';
 import { loadCataloguePlan, revalidateCataloguePlan } from './cataloguePlanning';
 import { CRUISING_CATALOGUE_LIMITATION } from './catalogue';
-import {
-    catalogueRouteMustGo,
-    assertCatalogueRouteCheckpoints,
-    catalogueRouteWarnings,
-} from './catalogueRouteConstraints';
 import {
     buildFlexibleDayPlan,
     DAY_PLAN_DEFAULT_LIMITS,
@@ -44,31 +32,11 @@ import {
 
 export const DAY_PLANNER_TIMEOUT_MS = 240_000;
 
-/** What the skipper can do from Plan My Day, which has no Canal exit control. */
-const DAY_PLANNER_CANAL_NEXT_STEP =
-    'Move the departure to open water outside the canal entrance, or set the canal exit by hand in Auto routing, under Canal / marina.';
-/** The resolver's closing instruction, which points at a control that only
- * Auto routing has. */
-const CHOOSE_ON_CHART = /\s*Choose Canal exit on the chart\.\s*$/i;
-
-/** Plan My Day cannot place a canal exit itself, so no manual-required result
- * from an applicable profile may send the skipper to the chart for one. A
- * retired or out-of-date exit gets its own wording. Any other reason that
- * ends with the resolver's "Choose Canal exit on the chart." (an ambiguous
- * area boundary, conflicting records, a malformed record) keeps its first
- * sentence and gets the Plan My Day next step instead. A reason without that
- * instruction (invalid positions) is passed through. Always still a refusal. */
-export function dayPlannerCanalExitRefusal(
-    exit: Extract<AutomaticCanalExitResolution, { status: 'manual-required' }>,
-): string {
-    const place = exit.profileLabel ? `${exit.profileLabel} ` : '';
-    if (exit.code === 'retired') return `The automatic ${place}canal exit is retired. ${DAY_PLANNER_CANAL_NEXT_STEP}`;
-    if (exit.code === 'out-of-date')
-        return `The reviewed ${place}canal exit is out of date. ${DAY_PLANNER_CANAL_NEXT_STEP}`;
-    if (!CHOOSE_ON_CHART.test(exit.reason)) return exit.reason;
-    const reason = exit.reason.replace(CHOOSE_ON_CHART, '').trim();
-    return reason ? `${reason} ${DAY_PLANNER_CANAL_NEXT_STEP}` : DAY_PLANNER_CANAL_NEXT_STEP;
-}
+/** A catalogue trip whose route must pass required checkpoints (2026-10-01):
+ * Thalassa's router takes two pins, so the candidate is excluded rather than
+ * routed without them. Chaining legs through the checkpoints is a follow-up. */
+export const DAY_PLANNER_CHECKPOINTS_UNSUPPORTED =
+    'This catalogue trip needs checkpoints Auto cannot follow yet. Plot it in Manual.';
 export interface DayPlannerRunOptions {
     signal: AbortSignal;
     mapboxToken: string;
@@ -219,7 +187,8 @@ export async function runDayPlanner(
     const profile = snapshotAutoroutingVesselProfile(capturedVessel);
     const profileKey = JSON.stringify(profile);
     const draftAssumed = profile.draftStatus !== 'measured';
-    const vesselWarnings = autoroutingVesselWarnings(profile);
+    // The provider already lists what it read of the boat (thalassaVesselWarnings).
+    const vesselWarnings: string[] = [];
     if (capturedVessel.estimatedFields?.includes('cruisingSpeed'))
         vesselWarnings.push('Cruising speed is estimated; arrival and return times are estimates.');
     const controller = new AbortController();
@@ -273,11 +242,11 @@ export async function runDayPlanner(
     };
     try {
         check();
-        const status = await wait(getAutoroutingTrialStatus(controller.signal));
-        if (!status.enabled || !status.ready || status.vesselProfile !== true)
-            throw new Error(
-                status.message || 'Plan my day requires available autorouting with vessel-profile support.',
-            );
+        // Thalassa's router on this phone (2026-10-01): a signed-in identity
+        // and installed navigation charts. No server status call.
+        const status = getThalassaAutorouteStatus();
+        if (!status.enabled || !status.ready)
+            throw new Error(status.message || 'Plan my day needs installed charts for Auto routing.');
         const excluded: DayPlanResult['excluded'] = [];
         const candidates: DayPlanCandidate[] = [];
         const coverage: NonNullable<DayPlanResult['coverage']> = {
@@ -415,79 +384,30 @@ export async function runDayPlanner(
             now: Date.now,
             async route(from, to, _signal, constraint) {
                 check();
-                if (constraint && status.channelGuidance !== true)
-                    throw new Error('The route service does not support required catalogue checkpoints.');
-                const mustGo = constraint ? catalogueRouteMustGo(from, to, constraint) : [];
-                const sourceWarnings = constraint
-                    ? catalogueRouteWarnings(
-                          candidates.find((candidate) => {
-                              const variant = candidate.catalogue?.[constraint.direction]?.variant;
-                              return (
-                                  variant?.id === constraint.variant.id &&
-                                  variant.version === constraint.variant.version
-                              );
-                          })?.catalogue,
-                          constraint,
-                      )
-                    : [];
+                // Excluded per candidate (the engine's catch puts it in
+                // `excluded`); the rest of the plan still runs.
+                if (constraint) throw new Error(DAY_PLANNER_CHECKPOINTS_UNSUPPORTED);
                 const routeRequest: AutoroutingTrialRequest = {
                     departure: { ...from },
                     destination: { ...to },
                     speedKts: inputs.speedKts,
                     draftM: inputs.draftM,
                     vesselProfile: structuredClone(profile),
-                    ...(mustGo.length ? { chartTrackConstraints: mustGo } : {}),
                 };
-                let calculateProvider = calculateAutoroutingTrial;
-                if (status.channelGuidance === true) {
-                    const { createChartGuidedTrialCalculator } = await wait(import('../chartGuidedAutorouting'));
-                    calculateProvider = createChartGuidedTrialCalculator({ channelGuidance: true, deadlineAtMs });
-                }
-                // An expired profile elsewhere must not imply a canal here. An
-                // applicable expired/boundary/ambiguous profile must never fall
-                // through to an ordinary provider route.
-                const applicable = VERIFIED_CANAL_EXIT_PROFILES.filter((entry) => contains(entry.departureArea, from));
-                const exit = applicable.length ? resolveAutomaticCanalExit(from, to, applicable) : undefined;
-                if (exit?.status === 'manual-required') throw new Error(dayPlannerCanalExitRefusal(exit));
-                if (constraint && exit?.status === 'resolved')
-                    throw new Error(
-                        'Required catalogue checkpoints cannot be combined with this automatic canal exit. Plot and review this departure separately.',
-                    );
-                let route: AutoroutingTrialRoute;
-                if (exit?.status === 'resolved') {
-                    if (!options.mapboxToken || !(await wait(verifyCanalExitChart(exit.profileId, controller.signal))))
-                        throw new Error(
-                            'The reviewed automatic channel exit cannot be verified. Plot this departure manually.',
-                        );
-                    const { calculateWithCanalDeparture } = await wait(import('../autoroutingCanalDeparture'));
-                    route = await wait(
-                        calculateWithCanalDeparture(
-                            routeRequest,
-                            exit.exit,
-                            options.mapboxToken,
-                            controller.signal,
-                            () => {},
-                            exit,
-                            calculateProvider,
-                        ),
-                    );
-                    const currentExit = resolveAutomaticCanalExit(from, to, applicable);
-                    if (
-                        currentExit.status !== 'resolved' ||
-                        JSON.stringify(currentExit) !== JSON.stringify(exit) ||
-                        !(await wait(verifyCanalExitChart(exit.profileId, controller.signal))) ||
-                        Date.now() >= Date.parse(exit.validUntil)
-                    )
-                        throw new Error('The automatic channel exit changed or expired during planning.');
-                } else route = await wait(calculateProvider(routeRequest, controller.signal));
+                // One engine route per leg, in turn (the engine is synchronous
+                // on the phone). It routes from the berth itself: the retired
+                // automatic canal exit is not consulted, and offline the Newport
+                // estate refuses in the engine's own words (owner decision 2).
+                let route: AutoroutingTrialRoute = await wait(
+                    calculateThalassaProposal(routeRequest, controller.signal),
+                );
                 check();
-                if (constraint) assertCatalogueRouteCheckpoints(route.coordinates, constraint);
-                if (route.provider !== 'SevenCs' || JSON.stringify(route.vesselProfile) !== profileKey)
+                if (route.provider !== 'Thalassa' || JSON.stringify(route.vesselProfile) !== profileKey)
                     throw new Error('The routing response did not preserve the current vessel profile.');
                 route = {
                     ...route,
                     coordinates: route.coordinates.map(([lon, lat]) => [lon, lat]),
-                    warnings: [...new Set([...route.warnings, ...vesselWarnings, ...sourceWarnings])],
+                    warnings: [...new Set([...route.warnings, ...vesselWarnings])],
                 };
                 const geometryKey = autoroutingProposalGeometryKey(route.coordinates);
                 if (!geometryKey) throw new Error('The routing response contains invalid geometry.');

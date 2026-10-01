@@ -1,5 +1,113 @@
 # Isolated autorouting trial
 
+## Auto runs Thalassa's own router on the phone — 2026-10-01
+
+SevenCs is out of the client. Shane, 2026-09-30: "sevenc's has never been
+connected properly, it does not work, it can go at your leisure". Auto now asks
+Thalassa's inshore router (`tryInshoreRoute`, the engine every Pro user already
+runs through the manual ⚡ Auto route and the passage planner) through
+`services/autoroutingThalassa.ts`, on the phone, from the installed charts.
+
+- **Who gets Auto.** Pro route planning, a signed-in identity and a confirmed
+  draft, as before. Whether Calculate is enabled is worked out on the phone:
+  at least one installed navigation chart. No server status call; the old
+  allowlist, switch, expiry and quota no longer decide anything. This widens
+  Auto from Shane's account to every signed-in Pro account with charts; the
+  `· Trial`, "Not for navigation. Unsaved proposal only." and
+  review-required framing is unchanged.
+- **Setup** is departure, destination, Calculate. The Canal / marina vs Open
+  water choice and the canal exit pin went: the router routes from the berth
+  with its own canal tier. Offline, the Newport estate refuses in the engine's
+  own words until the offline water pack lands (owner decision 2).
+- **Always 'safest'.** The tide changes whether and when, never which way.
+  Draft + 0.5 m under the keel at LAT; no air draft set means every bridge and
+  overhead line blocks (owner decision 5). The engine's 85 s watchdog is the
+  only timeout.
+- **Plain refusals, never a straight line.** Over 50 NM, or no installed chart
+  at an end, is said before the engine runs. A corridor gap fetches the missing
+  charts from the cloud once and retries once. Final refusals (no tide clears,
+  overhead clearance) are shown whole.
+- **The satellite land check** runs as in the passage planner. Land refuses;
+  offline (its cache is in memory only) the route is shown with "checked
+  against the installed charts only".
+- **The line** is drawn in the planner's own Phase 2a colours (one shared table,
+  `inshoreRouteLineLayers`), with the tide chips. The independent chart review
+  still grades every leg; it credits no tide, so water the line shows amber can
+  read as danger there. A hand edit drops the router's colours and blocks save.
+- **Saving** is unchanged: review, acknowledge, planned-only. Needs-tide and
+  danger legs still deny save until the Phase 4 review rework. New evidence
+  carries origin `thalassa-inshore`; the cloud constraint accepts it only after
+  migration `20261001120000_saved_proposal_evidence_thalassa_origin.sql` is
+  pushed. Until then saves stay on the device ("sync pending a server update").
+  Older `sevencs-trial` rows still read.
+- **Plan My Day** routes each leg the same way. Catalogue trips with required
+  checkpoints are excluded per stop ("needs checkpoints Auto cannot follow
+  yet"); the rest of the plan still runs.
+
+### Review fix-ups — 2026-10-01, later the same day
+
+A safety and an integrity review of the swap found holes that the new surfaces
+(Auto, Plan My Day) showed and could save. Fixed, each with a synthetic test:
+
+- **Who gets Auto, corrected.** "Pro" is every account while the public beta is
+  on (`PUBLIC_BETA_ACCESS.enabled` makes `isPro` true), so Auto reaches every
+  signed-in account with installed charts. Plan Your Day had no Pro gate at all;
+  it now has the same one (`DayPlannerEntry isPro`). To hold both to Shane's
+  account until he says otherwise, a one-line `scope.userId` allowlist in
+  `getThalassaAutorouteStatus` does it.
+- **Never across charted land.** The engine refuses only a land run over 500 m,
+  and its localized relax retry opens land up to 4 km from a far-snapped pin: a
+  400 m land wall between two pins came back as a red line straight across it.
+  Auto now refuses any charted land a route crosses away from a pin's own edge
+  ("The only way Thalassa found crosses charted land near …"). In the engine,
+  with tides loaded, a relaxed rescue and a decision-11 "way round" must be a
+  way by water; otherwise the strict refusal stands, naming the water no tide
+  clears (owner decision 11).
+- **No route by water.** A route whose far end the engine does not explain (a
+  pin on land, on a drying bank, in water no tide clears, an inland pin) ends
+  more than 500 m from it: Auto says so and draws nothing. It used to show a
+  saveable route that ended 11.6 km short, across a wall.
+- **Red with no charted depth** (land, water no chart vouches for, a charted
+  hazard's buffer) is never saved and never planned by Plan Your Day; inside a
+  relax zone with tides loaded, Auto refuses it.
+- **Offline** (the satellite land check unavailable) the route is shown with its
+  caveat and is not saved until recalculated online.
+- **Notices to Mariners**: the route notes now say what the passage planner
+  says — a current notice the routing follows, and standing notices within
+  500 m of the line.
+- **Reef-edge marks.** A solo lateral's inferred keep-out keeps its reach to the
+  shore again; within a cable of the mark it opens only a charted dredged
+  channel or fairway deep enough, and beyond a cable it leaves to the chart the
+  water an S-57 depth area charts and that never dries. Water no S-57 band
+  charts, drying and land stay closed to its full reach. Measured on the real
+  cells: Newport → Rivergate 23.97 NM, the bay → Lytton Reach 13.62 NM and
+  Newport → Tangalooma 23.35 NM, with and without a 2.5 m tide top, none on
+  charted land.
+- **The lead shadow** reads the lead graph only if the chart overlay has already
+  compiled it; it never reads a chart or awaits inside a route.
+
+### Left for Shane (server side, not done here)
+
+The edge function, its `_shared` modules and its secrets are still deployed and
+in the repo; nothing in the client calls them. When ready:
+
+1. `supabase migration list` first, then `supabase db push`. db push applies
+   EVERY pending migration, this one included —
+   `20261001120000_saved_proposal_evidence_thalassa_origin.sql`, which widens the
+   evidence origin check — so check the list for anything else still pending
+   (20260908150000 was owed on 2026-09-08) before you push.
+2. `supabase functions delete autorouting-trial`
+3. `supabase secrets unset SEVENCS_CLIENT_ID SEVENCS_CLIENT_SECRET SEVENCS_TRIAL_USER_IDS SEVENCS_TRIAL_EXPIRES_AT SEVENCS_TRIAL_ENABLED`
+4. Then a code commit removing `supabase/functions/autorouting-trial/`,
+   `supabase/functions/_shared/autorouting-trial.ts`,
+   `autorouting-provider-check.ts` (keep its types for the legacy evidence
+   reader, or inline them), `autorouting-vessel.ts` (still used by the client's
+   vessel snapshot — move it first), the `[functions.autorouting-trial]` entry in
+   `supabase/config.toml`, its line in `tests/SupabaseEdgeJwtPolicyContract.test.ts`
+   and `tests/AutoroutingTrialEdge.test.ts`.
+
+The sections below are the history of the SevenCs trial.
+
 ## Standalone `/plan` entry verification — 2026-09-13
 
 The current web source already uses the shared Planning home: **Slide to Start
