@@ -74,7 +74,8 @@ function projectEndpoint(value: unknown): string {
     }
 }
 
-async function boundedJson(response: Response, signal: AbortSignal): Promise<unknown> {
+async function boundedJson(response: Response, signal: AbortSignal, checkAvailable: () => void): Promise<unknown> {
+    checkAvailable();
     if (response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
         throw new Error('Invalid Auth response');
     }
@@ -93,21 +94,27 @@ async function boundedJson(response: Response, signal: AbortSignal): Promise<unk
     const decoder = new TextDecoder('utf-8', { fatal: true });
     let complete = false;
     let received = 0;
+    let chunks = 0;
     let serialized = '';
     signal.addEventListener('abort', cancel, { once: true });
     try {
         for (;;) {
-            if (signal.aborted) throw new Error('Auth request unavailable');
+            checkAvailable();
             const { done, value } = await reader.read();
-            if (signal.aborted) throw new Error('Auth request unavailable');
+            checkAvailable();
             if (done) break;
             if (!(value instanceof Uint8Array)) throw new Error('Invalid Auth response');
+            // Empty microtasks cannot run forever before a deadline timer gets
+            // its event-loop turn, even if a transport keeps replenishing them.
+            if (++chunks > MAX_RESPONSE_BYTES) throw new Error('Invalid Auth response');
             received += value.byteLength;
             if (received > MAX_RESPONSE_BYTES) throw new Error('Invalid Auth response');
             serialized += decoder.decode(value, { stream: true });
         }
         serialized += decoder.decode();
+        checkAvailable();
         const parsed: unknown = JSON.parse(serialized);
+        checkAvailable();
         complete = true;
         return parsed;
     } finally {
@@ -137,7 +144,14 @@ export function createSupabaseResearchAuthenticator(
 
     return async (credential) => {
         if (!safeBearer(credential)) return null;
+        const startedAt = performance.now();
         const controller = new AbortController();
+        const checkAvailable = () => {
+            if (controller.signal.aborted || performance.now() - startedAt >= timeoutMs) {
+                controller.abort();
+                throw new Error('Auth request unavailable');
+            }
+        };
         let timer: ReturnType<typeof setTimeout> | undefined;
         const expired = new Promise<null>((resolve) => {
             timer = setTimeout(() => {
@@ -146,6 +160,7 @@ export function createSupabaseResearchAuthenticator(
             }, timeoutMs);
         });
         const authenticate = async (): Promise<{ userId: string } | null> => {
+            checkAvailable();
             const response = await fetchRequest(endpoint, {
                 method: 'GET',
                 headers: {
@@ -159,6 +174,7 @@ export function createSupabaseResearchAuthenticator(
                 signal: controller.signal,
             });
             try {
+                checkAvailable();
                 if (
                     controller.signal.aborted ||
                     response.status !== 200 ||
@@ -166,7 +182,8 @@ export function createSupabaseResearchAuthenticator(
                     (response.url && response.url !== endpoint)
                 )
                     return null;
-                const user = await boundedJson(response, controller.signal);
+                const user = await boundedJson(response, controller.signal, checkAvailable);
+                checkAvailable();
                 if (
                     controller.signal.aborted ||
                     !user ||
@@ -178,7 +195,11 @@ export function createSupabaseResearchAuthenticator(
                 const id = (user as Record<string, unknown>).id;
                 // Extra Auth response fields are ignored, including editable
                 // metadata, roles and any body actor or claimed user identity.
-                return typeof id === 'string' && UUID.exec(id)?.[0] === id ? Object.freeze({ userId: id }) : null;
+                checkAvailable();
+                const principal =
+                    typeof id === 'string' && UUID.exec(id)?.[0] === id ? Object.freeze({ userId: id }) : null;
+                checkAvailable();
+                return principal;
             } finally {
                 // Reject unconsumed bodies too (for example an invalid media
                 // type or declared length), without waiting for cancellation.

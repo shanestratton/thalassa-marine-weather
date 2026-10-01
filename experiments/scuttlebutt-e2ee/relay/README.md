@@ -1,7 +1,8 @@
 # Isolated device-directory and ciphertext-relay research
 
 This directory prototypes a device-signed, account-authorized, single-device relay boundary.
-It is not an HTTP endpoint, Supabase migration, app adapter or deployment. It
+It includes an unmounted Fetch HTTP handler and a native networking research client,
+not a live service, Supabase migration, app adapter or deployment. It
 does not encrypt messages and is not connected to Thalassa chat, push notifications
 or production accounts. An optional simulator bridge exercises it with the real
 native provider and sealed stores; existing app messages are untouched.
@@ -15,6 +16,84 @@ decisions. `proof.mjs` runs those files against an on-disk PGlite database with
 synthetic account credentials and payloads. A test existing in the runner is not
 a claim that it passed; use the completed run output and checkpoint record for
 observed results.
+
+## HTTP and native network contract
+
+`httpGateway.ts` exposes only two exact HTTPS POST endpoints at its configured
+service origin: `/v1/register` accepts the unchanged signed public bundle (4,096
+bytes maximum), and `/v1/dispatch` accepts the unchanged signed request (100 KiB
+maximum). Bodies are canonical printable-ASCII JSON, not a JSON-encoded string
+wrapper. The `Authorization` header carries one bounded RFC 6750 Bearer token;
+only the gateway's fresh Auth result identifies the account. Cookies, Origin/CORS,
+compressed request bodies, unsigned endpoints and alternate origins are refused.
+The host must preserve/reject duplicate headers and supply trusted HTTPS routing;
+no deployment adapter or TLS-termination/proxy configuration is proved here.
+
+Success is HTTP 200 with exact outer framing `{"version":1,"result":...}` and at
+most 2 MiB of complete UTF-8 JSON. Both success and errors use `no-store` and
+`nosniff`; all error bodies are `{"version":1,"error":"request-unresolved"}`.
+Boundary errors may use 400/401/404/405/413/415, downstream failure 503, and a
+deadline 504. None is an authenticated terminal message refusal. Actual accepted
+or refused sends use the existing exact-record receipt inside a successful result.
+Bounded result encoding rejects getters, custom serializers, cycles, sparse arrays,
+non-JSON values and excessive depth/node counts.
+
+Both HTTP and Auth use a timer plus monotonic elapsed checks across body reads,
+downstream work and synchronous parsing/encoding. Tiny or empty stream chunks
+cannot postpone the deadline by continuously replenishing the microtask queue.
+An HTTP timeout or disconnect does **not** cancel/roll back a possibly committed
+SQL operation; its later result is observed, not relabelled as a refusal.
+
+`../VodozemacRelayTransport.swift` provides a per-operation ephemeral URLSession
+with no URL cache, stored credentials or cookies. Only HTTPS configured origins
+are accepted, redirects are refused and TLS uses the system's normal trust
+evaluation—there is no trust-bypass delegate. Declared and streamed response sizes
+are bounded independently. A continuous-clock deadline is checked before dispatch,
+inside the once-only completion gate and after awaiting; a timer also cancels
+stalled requests. The complete response must be valid JSON before extracting its
+strict outer result, preventing mixed UTF-8/UTF-16/32 fragment parsing.
+
+The native client captures account/device, owner generation, credential epoch and
+optional peer generation, checking the supplied current native context before
+resume and after await. The caller must implement a durable authoritative lifecycle
+reader; this research client does **not** integrate app Auth, persist generations,
+refresh tokens, or make a callback/JavaScript assertion authoritative. A transition
+after the preflight check can still reach the server; stale results are discarded,
+and existing coordinator owner/peer/CAS guards remain mandatory before accepting
+a receipt or releasing decrypted content. The client returns public JSON result
+bytes, never a delivery decision or plaintext. Endpoint-specific result validation
+is still the coordinator/adapter's responsibility.
+
+Retry exactly the stored signed request and ciphertext. Once its signature expires,
+reconcile the same durable ciphertext/message ID using a newly signed request with
+a **new** request ID. Changing an existing nonce's expiry/wire conflicts with the
+request ledger. Networking must never re-encrypt an uncertain send or silently
+discard its pending outbox.
+
+Native default ephemeral behaviour and redirect controls are documented by Apple:
+[`ephemeral`](https://developer.apple.com/documentation/foundation/urlsessionconfiguration/ephemeral),
+[`willPerformHTTPRedirection`](<https://developer.apple.com/documentation/foundation/urlsessiontaskdelegate/urlsession(_:task:willperformhttpredirection:newrequest:completionhandler:)>).
+Apple's [`timeoutIntervalForRequest`](https://developer.apple.com/documentation/foundation/urlsessionconfiguration/timeoutintervalforrequest)
+resets on received data; that is why this client also has an independent whole deadline.
+
+New reproduction runners (after checking the shared build slot):
+
+```sh
+node experiments/scuttlebutt-e2ee/relay/nativeTransportProof.mjs
+node --experimental-strip-types experiments/scuttlebutt-e2ee/relay/httpProof.mjs /absolute/path/pglite.tgz
+```
+
+The native runner executes **URLProtocol response fixtures on the Mac** and compiles
+for simulator/iPhone; it does not run a physical phone or prove native TLS/live
+Auth. The HTTP runner uses real localhost HTTPS, normal certificate/hostname
+verification with a fresh request-local fixture CA, real device signatures and
+the pinned on-disk PostgreSQL engine. Auth HTTP responses and ciphertext are
+explicit fixtures. Its Node socket adapter buffers up to 256 KiB before the
+Fetch handler; stalled-body/disconnect/deadline cases remain unit fixtures, not
+socket-level host adapter evidence. No global CA is changed, no production account
+or schema is used, and test certificates/database artifacts stay in a fresh
+temporary directory. The previous native-provider/relay proof and this HTTPS
+proof are separate: this does not claim a native-to-live-service encrypted exchange.
 
 ## Trust boundary
 
@@ -186,7 +265,7 @@ one-heavy-job-at-a-time rule, including native jobs. The runner checks for
 then identifies itself in that build-slot check. It does not automatically detect
 every native build.
 
-For the six focused TypeScript suites, first check the shared build slot with
+For the seven focused TypeScript suites, first check the shared build slot with
 `pgrep -fl "vite build|tsc|vitest"` and wait if another job is running. Then run:
 
 ```sh
@@ -205,7 +284,9 @@ node --max-old-space-size=1024 node_modules/typescript/bin/tsc \
   tests/E2eeResearchDeviceBundle.test.ts tests/E2eeResearchGateway.test.ts \
   experiments/scuttlebutt-e2ee/relay/supabaseAuth.ts experiments/scuttlebutt-e2ee/relay/signedRequest.ts \
   experiments/scuttlebutt-e2ee/relay/signedGateway.ts \
-  tests/E2eeResearchSupabaseAuth.test.ts tests/E2eeResearchSignedGateway.test.ts
+  experiments/scuttlebutt-e2ee/relay/httpGateway.ts \
+  tests/E2eeResearchSupabaseAuth.test.ts tests/E2eeResearchSignedGateway.test.ts \
+  tests/E2eeResearchHttpGateway.test.ts
 ```
 
 Fetch the single pinned public research dependency:

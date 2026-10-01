@@ -334,4 +334,102 @@ describe('research Supabase Auth adapter with mocked HTTP transport', () => {
         expect(cancel).toHaveBeenCalledTimes(1);
         expect(vi.getTimerCount()).toBe(0);
     });
+
+    it('checks monotonic elapsed time before fetch even if the deadline timer has not had a turn', async () => {
+        vi.useFakeTimers();
+        vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(50);
+        const fetch = vi.fn<typeof globalThis.fetch>(async () => json({ id: USER }));
+        const authenticate = createSupabaseResearchAuthenticator({
+            supabaseUrl: ORIGIN,
+            publicApiKey: KEY,
+            fetch,
+            timeoutMs: 50,
+        });
+        await expect(authenticate(TOKEN)).resolves.toBeNull();
+        expect(fetch).not.toHaveBeenCalled();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects a synchronously completed fetch after its elapsed deadline without advancing timers', async () => {
+        vi.useFakeTimers();
+        let monotonicNow = 0;
+        vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
+        const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+            monotonicNow = 50;
+            return json({ id: USER });
+        });
+        const authenticate = createSupabaseResearchAuthenticator({
+            supabaseUrl: ORIGIN,
+            publicApiKey: KEY,
+            fetch,
+            timeoutMs: 50,
+        });
+        await expect(authenticate(TOKEN)).resolves.toBeNull();
+        expect(fetch).toHaveBeenCalledOnce();
+        expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([false, true])(
+        'enforces elapsed deadline during continuously replenished body microtasks (empty chunks: %s)',
+        async (empty) => {
+            vi.useFakeTimers();
+            let monotonicNow = 0;
+            vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
+            const cancel = vi.fn();
+            const bytes = new TextEncoder().encode(JSON.stringify({ id: USER }));
+            let index = 0;
+            const body = new ReadableStream<Uint8Array>(
+                {
+                    pull(controller) {
+                        monotonicNow += 30;
+                        const chunk = empty ? new Uint8Array() : bytes.slice(index, index + 1);
+                        index++;
+                        controller.enqueue(chunk);
+                    },
+                    cancel,
+                },
+                { highWaterMark: 0 },
+            );
+            const response = new Response(body, { headers: { 'content-type': 'application/json' } });
+            const fetch = vi.fn<typeof globalThis.fetch>(async () => response);
+            const authenticate = createSupabaseResearchAuthenticator({
+                supabaseUrl: ORIGIN,
+                publicApiKey: KEY,
+                fetch,
+                timeoutMs: 50,
+            });
+            // No fake-clock/timer advance: body reads themselves move monotonic
+            // time. Both tiny and zero-byte chunks must fail closed at the deadline.
+            await expect(authenticate(TOKEN)).resolves.toBeNull();
+            expect(monotonicNow).toBe(60);
+            expect(cancel).toHaveBeenCalledOnce();
+            expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+            expect(vi.getTimerCount()).toBe(0);
+        },
+    );
+
+    it('rechecks elapsed deadline after synchronous JSON parsing before confirming an Auth principal', async () => {
+        vi.useFakeTimers();
+        let monotonicNow = 0;
+        vi.spyOn(performance, 'now').mockImplementation(() => monotonicNow);
+        const serialized = JSON.stringify({ id: USER });
+        const response = new Response(serialized, { headers: { 'content-type': 'application/json' } });
+        const parse = JSON.parse;
+        vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) => {
+            const parsed: unknown = parse(text, reviver);
+            if (text === serialized) monotonicNow = 50;
+            return parsed;
+        });
+        const fetch = vi.fn<typeof globalThis.fetch>(async () => response);
+        const authenticate = createSupabaseResearchAuthenticator({
+            supabaseUrl: ORIGIN,
+            publicApiKey: KEY,
+            fetch,
+            timeoutMs: 50,
+        });
+        await expect(authenticate(TOKEN)).resolves.toBeNull();
+        expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+    });
 });
