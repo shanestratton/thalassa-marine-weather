@@ -520,6 +520,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // option). The engine's tideAssist profile remains for
                     // tests/expert surfaces.
                     'safest',
+                    // The departure the tide curves are loaded for BEFORE the
+                    // route (owner decision 11, 2026-10-01: water no tide
+                    // clears is avoided) — the chips' own window, so they
+                    // read the same curves from the cache afterwards.
+                    { departureMs: departureTime ? new Date(departureTime).getTime() : Date.now() },
                 ),
                 {
                     error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
@@ -842,6 +847,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         destinationInlandTrimM: inshoreRes.destinationInlandTrimM,
                         structuresUnknownCells: inshoreRes.structuresUnknownCells,
                         pinOffWater: inshoreRes.pinOffWater,
+                        tideCheck: inshoreRes.tideCheck,
                         surveyRuns: inshoreRes.surveyRuns,
                         surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
                         // What this map actually draws as survey dashes (round-3 review,
@@ -965,6 +971,21 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         // conveyor, an opening span and an unset air draft; the
                         // message names which (fix-up, 2026-09-30).
                         title: 'Route not possible — overhead clearance',
+                        message: inshoreRes.error,
+                    });
+                    setRouteAnalysis(null);
+                    return;
+                }
+                // Owner decision 11 (Shane 2026-10-01: "ok avoid water no tide
+                // can clear"): the only way through crosses water no tide
+                // clears for this boat. As final as a bridge — no offshore
+                // fallback, no line; the message names the spot, its charted
+                // depth, the highest tide and what the boat needs.
+                if (inshoreRes.code === 'no-tide-clears') {
+                    log.warn(`[Passage][BAYLEG] REFUSED (no-tide-clears) — no fallback drawn`);
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Route not possible — no tide clears it',
                         message: inshoreRes.error,
                     });
                     setRouteAnalysis(null);

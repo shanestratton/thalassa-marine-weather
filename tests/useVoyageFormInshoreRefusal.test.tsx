@@ -1,0 +1,252 @@
+/**
+ * A final inshore refusal draws no route in the RoutePlanner voyage form
+ * (decision 11 fix-up, 2026-10-01). On 'no-tide-clears' — water no tide
+ * clears for the keel and no way round (owner decision 11: "draw no route and
+ * say why") — or 'air-draft-blocked', the form used to fall back to the GEBCO
+ * bathymetric router, which knows nothing of either: Newport → Rivergate was
+ * drawn through the Boat Passage and the refusal was never shown. Now no
+ * bathymetric, isochrone or corridor route is drawn in its place, and the
+ * plan carries the refusal whole, said again under its summary
+ * (savedInshoreRouteCaveats).
+ */
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { VoyagePlan } from '../types';
+
+const mocks = vi.hoisted(() => ({
+    settings: {
+        vessel: undefined,
+        vesselUnits: 'metric',
+        units: 'metric',
+        isPro: true,
+        mapboxToken: '',
+        currentNrtEnabled: false,
+        comfortParams: undefined,
+    },
+    weather: {
+        weatherData: null as null,
+        voyagePlan: null as VoyagePlan | null,
+        saveVoyagePlan: vi.fn(),
+    },
+    computeVoyagePlan: vi.fn(),
+    reverseGeocode: vi.fn(),
+    gps: vi.fn(),
+    deepAnalysis: vi.fn(),
+    precomputeIsochrone: vi.fn(),
+    getDraftVoyages: vi.fn(),
+    updateVoyage: vi.fn(),
+    parseLocation: vi.fn(),
+    preloadBathymetry: vi.fn(),
+    fetchCurrents: vi.fn(),
+    buildCycloneExclusionField: vi.fn(),
+    fetchWaveField: vi.fn(),
+    planDepartureWindow: vi.fn(),
+    bathymetricEnhance: vi.fn(),
+    isochroneEnhance: vi.fn(),
+    weatherEnhance: vi.fn(),
+    depthEnhance: vi.fn(),
+    multiModelQuery: vi.fn(),
+    tryInshore: vi.fn(),
+}));
+
+vi.mock('../context/SettingsContext', () => ({
+    useSettings: () => ({ settings: mocks.settings }),
+}));
+
+vi.mock('../context/WeatherContext', () => ({
+    useWeather: () => mocks.weather,
+}));
+
+vi.mock('../services/voyageCompute', () => ({
+    computeVoyagePlan: mocks.computeVoyagePlan,
+}));
+
+vi.mock('../services/weatherService', () => ({
+    reverseGeocode: mocks.reverseGeocode,
+}));
+
+vi.mock('../services/GpsService', () => ({
+    GpsService: { getCurrentPosition: mocks.gps },
+}));
+
+vi.mock('../services/geminiService', () => ({
+    fetchDeepVoyageAnalysis: mocks.deepAnalysis,
+}));
+
+vi.mock('../services/IsochronePrecomputeCache', () => ({
+    precomputeIsochrone: mocks.precomputeIsochrone,
+}));
+
+vi.mock('../services/VoyageService', () => ({
+    getDraftVoyages: mocks.getDraftVoyages,
+    updateVoyage: mocks.updateVoyage,
+}));
+
+vi.mock('../services/weather/api/geocoding', () => ({
+    parseLocation: mocks.parseLocation,
+}));
+
+vi.mock('../stores/WindStore', () => ({
+    WindStore: {
+        getState: () => ({ grid: { test: true } }),
+        setGrid: vi.fn(),
+    },
+}));
+
+vi.mock('../services/weather/WindFieldAdapter', () => ({
+    createWindFieldFromGrid: () => ({ test: true }),
+}));
+
+vi.mock('../services/SmartPolarStore', () => ({
+    SmartPolarStore: { exportToPolarData: () => ({ test: true }) },
+}));
+
+vi.mock('../services/defaultPolar', () => ({
+    DEFAULT_CRUISING_POLAR: { test: true },
+}));
+
+vi.mock('../services/BathymetryCache', () => ({
+    preloadBathymetry: mocks.preloadBathymetry,
+}));
+
+vi.mock('../services/OceanCurrentService', () => ({
+    OceanCurrentService: { fetchCurrents: mocks.fetchCurrents },
+}));
+
+vi.mock('../services/weather/CurrentFieldAdapter', () => ({
+    createCurrentFieldFromVectors: () => null,
+}));
+
+vi.mock('../services/cycloneAvoidance', () => ({
+    buildCycloneExclusionField: mocks.buildCycloneExclusionField,
+}));
+
+vi.mock('../services/weather/waveField', () => ({
+    fetchWaveField: mocks.fetchWaveField,
+}));
+
+vi.mock('../services/weather/WaveFieldAdapter', () => ({
+    createWaveFieldFromSamples: () => null,
+}));
+
+vi.mock('../services/departureWindow', async (importOriginal) => {
+    const original = await importOriginal<typeof import('../services/departureWindow')>();
+    return { ...original, planDepartureWindow: mocks.planDepartureWindow };
+});
+
+vi.mock('../services/bathymetricRouter', () => ({
+    enhanceVoyagePlanWithBathymetry: mocks.bathymetricEnhance,
+}));
+
+vi.mock('../services/isochroneEnhancer', () => ({
+    enhanceVoyagePlanWithIsochrone: mocks.isochroneEnhance,
+}));
+
+vi.mock('../services/weatherRouter', () => ({
+    enhanceVoyagePlanWithWeather: mocks.weatherEnhance,
+}));
+
+vi.mock('../services/WeatherRoutingService', () => ({
+    computeRoute: () => ({ segments: [] }),
+    enhanceRouteWithDepth: mocks.depthEnhance,
+}));
+
+vi.mock('../services/weather/MultiModelWeatherService', () => ({
+    recommendModels: () => [],
+    queryMultiModel: mocks.multiModelQuery,
+}));
+
+vi.mock('../services/InshoreRouter', () => ({
+    tryInshoreRoute: mocks.tryInshore,
+    inshoreRouteToGeoJSON: vi.fn(),
+}));
+
+import { useVoyageForm } from '../hooks/useVoyageForm';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { savedInshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
+
+const REFUSAL =
+    'No route for 2.4 m draft: the only way through crosses the Boat Passage, charted to dry 2.2 m; ' +
+    'the highest tide in the next 14 days is 2.5 m and you need 2.9 m.';
+
+const plan = (): VoyagePlan => ({
+    origin: 'Newport',
+    destination: 'Rivergate',
+    departureDate: '2026-10-02',
+    distanceApprox: '22 NM',
+    durationApprox: '4 hours',
+    overview: 'test route',
+    waypoints: [],
+    originCoordinates: { lat: -27.2135, lon: 153.0875 },
+    destinationCoordinates: { lat: -27.4268, lon: 153.1267 },
+});
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    setAuthIdentityScope(null);
+    setAuthIdentityScope('account-a');
+    mocks.weather.voyagePlan = null;
+    mocks.computeVoyagePlan.mockResolvedValue(plan());
+    mocks.reverseGeocode.mockResolvedValue('Friendly place');
+    mocks.gps.mockResolvedValue(null);
+    mocks.preloadBathymetry.mockResolvedValue(null);
+    mocks.fetchCurrents.mockResolvedValue({ vectors: [] });
+    mocks.buildCycloneExclusionField.mockResolvedValue(null);
+    mocks.fetchWaveField.mockResolvedValue([]);
+    mocks.bathymetricEnhance.mockImplementation(async (value: VoyagePlan) => ({
+        ...value,
+        routeGeoJSON: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+    }));
+    mocks.isochroneEnhance.mockResolvedValue(null);
+    mocks.weatherEnhance.mockImplementation(async (value: VoyagePlan) => value);
+    mocks.depthEnhance.mockResolvedValue({ minDepth: null, shallowSegments: 0, segments: [] });
+    mocks.multiModelQuery.mockResolvedValue(null);
+});
+
+afterEach(() => {
+    setAuthIdentityScope(null);
+    vi.useRealTimers();
+});
+
+/** Calculate, let the enhancement run, and hand back every plan saved. */
+async function calculate(): Promise<VoyagePlan[]> {
+    vi.useFakeTimers();
+    const rendered = renderHook(() => useVoyageForm(vi.fn()));
+    act(() => {
+        rendered.result.current.setOrigin('Newport');
+        rendered.result.current.setDestination('Rivergate');
+    });
+    await act(async () => {
+        await rendered.result.current.handleCalculate();
+    });
+    for (let i = 0; i < 20; i++) {
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(100);
+        });
+    }
+    rendered.unmount();
+    return mocks.weather.saveVoyagePlan.mock.calls.map((c) => c[0] as VoyagePlan);
+}
+
+describe('a final inshore refusal draws no route in the voyage form', () => {
+    for (const code of ['no-tide-clears', 'air-draft-blocked'] as const) {
+        it(`${code}: no bathymetric, isochrone or corridor route, and the refusal said whole`, async () => {
+            mocks.tryInshore.mockResolvedValue({ error: REFUSAL, code });
+            const saved = await calculate();
+            expect(mocks.tryInshore).toHaveBeenCalled();
+            expect(mocks.bathymetricEnhance).not.toHaveBeenCalled();
+            expect(mocks.isochroneEnhance).not.toHaveBeenCalled();
+            expect(mocks.weatherEnhance).not.toHaveBeenCalled();
+            const last = saved[saved.length - 1];
+            expect(last.routeGeoJSON).toBeUndefined();
+            expect(last.__inshoreRouting).toMatchObject({ status: 'failed', error: REFUSAL, errorCode: code });
+            expect(savedInshoreRouteCaveats(last)).toEqual([REFUSAL]);
+        });
+    }
+
+    it('any other inshore failure still falls back to the bathymetric route (unchanged)', async () => {
+        mocks.tryInshore.mockResolvedValue({ error: 'Origin is on land', code: 'origin-on-land' });
+        await calculate();
+        expect(mocks.bathymetricEnhance).toHaveBeenCalledOnce();
+    });
+});

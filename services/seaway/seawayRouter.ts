@@ -263,6 +263,11 @@ export function shadowCompare(
         req.obstructionBufferM ?? 30,
         direct.debug?.relaxedLndare ?? false,
         direct.debug?.relaxZones ?? [],
+        // The route's tide ceilings (owner decision 11, 2026-10-01): its grid
+        // blocked water no tide clears, and is keyed by them (and by the
+        // retry's crossed bands, when the route is one).
+        req.tideCeilings ?? [],
+        req.tideBarriers ?? [],
     );
     mark('grid');
     if (!grid) {

@@ -471,7 +471,10 @@ describe('each shallow stretch is judged by the tide of its OWN place (round-4 r
         }).chips;
         expect(out.map((c) => c.tone)).toEqual(['amber', 'red', 'red']);
         expect(out[0].text).toMatch(/^clears /);
-        expect(out[1].text).toBe('no tide in 14 days clears it — needs +1.4 m, highest 1.0 m');
+        // RE-PINNED 14 → 13 days (decision 11 fix-up, 2026-10-01): the top is
+        // read from the departure on, never a tide already past — this curve
+        // starts a day before it, as the proxy's do (yesterday 00:00).
+        expect(out[1].text).toBe('no tide in 13 days clears it — needs +1.4 m, highest 1.0 m');
         expect(out[2].text).toBe('tide times not loaded here — needs +1.4 m');
     });
 
@@ -504,9 +507,12 @@ describe('each shallow stretch is judged by the tide of its OWN place (round-4 r
 describe('the highest tide is read over the 14 days the app loads (round-4 review)', () => {
     it('red words name the days the top was read over, never "never"', () => {
         const out = chips([shallowRun(-2)], tideOver(2.5, 14));
+        // RE-PINNED 14 → 13 days (decision 11 fix-up, 2026-10-01): read from
+        // the departure on; the curve's first day (from yesterday 00:00, as
+        // the proxy anchors it) is past.
         expect(out[0]).toMatchObject({
             tone: 'red',
-            text: 'no tide in 14 days clears it — needs +4.9 m, highest 2.5 m',
+            text: 'no tide in 13 days clears it — needs +4.9 m, highest 2.5 m',
         });
     });
 });
@@ -631,5 +637,49 @@ describe('the planner colours the tide against the router’s own draft + UKC (r
         expect(planner).toContain('inshoreRes.tideNeedM');
         expect(planner).toContain('needM: tideNeedM');
         expect(readFileSync('services/inshoreRouterEngine.ts', 'utf8')).toContain('tideNeedM: req.draftM + safetyM');
+    });
+});
+
+describe('decision 11 fix-up (2026-10-01) — a band some tide clears is not "no tide clears it"', () => {
+    // The router routes a 0–2 m band at a 2.5 m top (2 + 2.5 ≥ 2.9: nothing
+    // proved), and the chip on that same water said "no tide in 14 days
+    // clears it", reading the band's 0 m end — the skipper saw the router
+    // take water the app said no tide clears. Still red (decision 10: its
+    // 0 m end needs more than the tide), but worded for what it is.
+    it('a 0–2 m band at a 2.5 m top: red, "its 0 m end needs +2.9 m … check the chart"', () => {
+        const curve = tide(2.5);
+        expect(draw(channelWithShallow(0), curveHighestM(curve))).toEqual(['channel', 'danger', 'channel']);
+        const out = chips([shallowRun(0, { deepestM: 2 })], curve);
+        expect(out).toHaveLength(1);
+        expect(out[0].tone).toBe('red');
+        expect(out[0].text).toBe('charted 0–2 m: its 0 m end needs +2.9 m, highest 2.5 m — check the chart');
+    });
+
+    it('a drying band (−2..0) is still water no tide clears, and says so', () => {
+        const out = chips([shallowRun(-2, { deepestM: 0 })], tide(2.5));
+        expect(out[0].text).toBe('no tide in 4 days clears it — needs +4.9 m, highest 2.5 m');
+    });
+
+    it('a top read from the departure on: yesterday’s higher tide is not counted', () => {
+        // The curve starts 30 h before the departure (the proxy anchors it at
+        // yesterday 00:00) with a 3.5 m high then; from the departure on its
+        // highs reach 2.5 m. A tide that has already happened must not lift
+        // the top.
+        const step = (6 * 60 + 12) * 60;
+        const t0 = DEPART_MS / 1000 - 30 * 3600;
+        const extremes = Array.from({ length: 20 }, (_, k) => ({
+            dt: t0 + k * step,
+            date: '',
+            height: k % 2 === 0 ? 0 : k === 1 ? 3.5 : 2.5,
+            type: (k % 2 === 0 ? 'Low' : 'High') as 'Low' | 'High',
+        }));
+        const curve = buildTideCurve({ status: 200, responseDatum: 'LAT', extremes });
+        if (!curve) throw new Error('fixture tide did not build');
+        expect(curveHighestM(curve)).toBeCloseTo(3.5, 6);
+        expect(curveHighestM(curve, DEPART_MS)).toBeCloseTo(2.5, 2);
+        const out = chips([shallowRun(-0.5, { deepestM: 0 })], curve);
+        // 2.9 + 0.5 = 3.4 m: the past 3.5 m high would have cleared it.
+        expect(out[0].tone).toBe('red');
+        expect(out[0].text).toMatch(/^no tide in \d+ days? clears it — needs \+3\.4 m, highest 2\.5 m$/);
     });
 });

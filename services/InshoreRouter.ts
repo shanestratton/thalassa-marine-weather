@@ -44,7 +44,22 @@ import type { EncCell } from './enc/types';
 import { readS57 } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
-import type { ChartedShallowSpan, NavGrid, ShallowRunInfo, SurveyRunInfo, SurveyUncheckedCell } from './engine/types';
+import type {
+    ChartedShallowSpan,
+    NavGrid,
+    PinOffWater,
+    ShallowRunInfo,
+    SurveyRunInfo,
+    SurveyUncheckedCell,
+    TideCeiling,
+} from './engine/types';
+import {
+    classifyNoTideRuns,
+    NO_TIDE_CLIP_TOLERANCE_M,
+    routeCrossesUncheckedShallow,
+    tideCeilingLookup,
+} from './engine/tideCeiling';
+import { routeAreaTideCeilings } from './routing/tideCeilings';
 import {
     cellFinenessRank,
     shadowingCells,
@@ -244,6 +259,8 @@ export function promotedSeawayRoute(
         elapsedMs: number;
         surveyUncheckedCells?: readonly SurveyUncheckedCell[];
         structuresUnknownCells?: string[];
+        /** It crosses water a tide must clear where no tide was loaded (decision 11). */
+        tideCheck?: 'not-loaded';
     },
 ): InshoreRouteResult {
     const segCount = Math.max(0, g.polyline.length - 1);
@@ -311,6 +328,7 @@ export function promotedSeawayRoute(
         cellsUsed: base.cellsUsed,
         elapsedMs: base.elapsedMs,
         ...(base.structuresUnknownCells?.length ? { structuresUnknownCells: base.structuresUnknownCells } : {}),
+        ...(base.tideCheck ? { tideCheck: base.tideCheck } : {}),
         debug: {
             seaway: {
                 edgesUsed: g.edgesUsed,
@@ -338,9 +356,27 @@ export function seawayGraphSafetyFault(
     layers: InshoreLayers,
     engine: { polyline: readonly [number, number][]; debug?: { hardLandTotalM?: number } },
     strict?: { grid: NavGrid | undefined },
+    /** Decision 11 (2026-10-01): the tide ceilings the engine routed with,
+     *  and its draft + safety. */
+    noTide?: { tideCeilings?: readonly TideCeiling[]; needM: number },
 ): string | null {
     const bar = polylineCrossesClearanceBar(polyline, layers.OBSTRN?.features ?? []);
     if (bar) return `passes under a ${String(bar.properties._structure)} this mast cannot clear`;
+    // Never through water no tide clears (owner decision 11, 2026-10-01) —
+    // the engine route cannot take it, and neither may a graph route. The
+    // engine's own rule (fix-up, 2026-10-01; tideCeiling classifyNoTideRuns):
+    // only a clip — a corner with a way round it right there, no more than
+    // NO_TIDE_CLIP_TOLERANCE_M — is kept; the graph cannot redraw a creek,
+    // and a crossing of any width declines it.
+    if (noTide) {
+        const lookup = tideCeilingLookup(noTide.tideCeilings);
+        const sorted = classifyNoTideRuns(layers, polyline, lookup, noTide.needM, {
+            toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
+        });
+        const across = [...sorted.crossings, ...sorted.splices];
+        if (across.length > 0)
+            return `crosses ${Math.round(across.reduce((m, c) => m + c.run.lengthM, 0))} m of water no tide clears`;
+    }
     const graph = auditUnvouchedHardLand(layers, polyline);
     const engineTotalM = engine.debug?.hardLandTotalM ?? auditUnvouchedHardLand(layers, engine.polyline).totalM;
     if (graph.maxRunM > MAX_UNVOUCHED_HARD_LAND_RUN_M || graph.totalM > engineTotalM + 1) {
@@ -451,7 +487,18 @@ export interface InshoreRouteResult {
      *  pin (round 3, 2026-09-30). The route notice says so. A pin in
      *  charted-shallow water gets the route all the way to it instead, its
      *  tail a 'needs tide' shallowRuns entry (endpointTail). */
-    pinOffWater?: { origin?: 'land' | 'drying'; destination?: 'land' | 'drying' };
+    pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
+    /**
+     * Owner decision 11 (2026-10-01): 'not-loaded' when the route crosses
+     * water a tide must clear (a band charted no deeper than draft + UKC) in
+     * a place no tide curve was loaded for before it was computed (offline,
+     * no station, a non-LAT datum, past the per-route cap, a fetch that timed
+     * out — fix-up, 2026-10-01: it used to mean "none loaded anywhere", said
+     * of all-deep routes and never of a partial load). The router cannot
+     * prove water no tide clears there: that stretch routed as before, and
+     * the route says so in one plain caveat.
+     */
+    tideCheck?: 'not-loaded';
     /**
      * Cells this route used whose chart data carries no bridge / overhead
      * cable / overhead pipe layers (converted before schema 2 — "not
@@ -626,6 +673,13 @@ export async function tryInshoreRoute(
      *  to the near-direct crossing over a modest deep detour); 'safest'
      *  (default) never lets tide change preference. */
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
+    /**
+     * Owner decision 11 (2026-10-01): `departureMs` is the departure the tide
+     * curves are loaded for (the chips' own window, so they share the cache;
+     * default now). `tideCeilings` hands in the highest tide per place
+     * instead of loading it — an empty list means none is known.
+     */
+    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] } = {},
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     // Loud entry log so we can tell from a noisy console whether this
     // function is even being called. createLogger silences info() in
@@ -637,7 +691,13 @@ export async function tryInshoreRoute(
 
     // Dedupe check — quantise to 4 decimal places (~11 m precision)
     // so tiny float jitter between callers still hits the same key.
-    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}`;
+    // …and the tides it routes with (decision 11 fix-up, 2026-10-01): handed-in
+    // ceilings by their quantised set, else the departure's hour — a promise
+    // computed with other tides is never shared.
+    const tideKey = opts.tideCeilings
+        ? `tc${tideCeilingLookup(opts.tideCeilings).key}`
+        : `dep${Math.floor((opts.departureMs ?? Date.now()) / 3_600_000)}`;
+    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}_${tideKey}`;
     const inflight = inflightRouteRequests.get(dedupeKey);
     if (inflight) {
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
@@ -653,7 +713,7 @@ export async function tryInshoreRoute(
     // returns a skipper-readable failure instead of an opaque throw.
     const INSHORE_WATCHDOG_MS = 85_000;
     const promise = withDeadline(
-        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile),
+        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile, opts),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
@@ -702,6 +762,7 @@ async function tryInshoreRouteInner(
     draftM: number,
     airDraftM: number | null = null,
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
+    opts: { departureMs?: number; tideCeilings?: readonly TideCeiling[] } = {},
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
@@ -726,6 +787,29 @@ async function tryInshoreRouteInner(
             code: 'coverage-gap',
         };
     }
+
+    // ── The highest tide per place, BEFORE routing (owner decision 11) ──
+    // Shane 2026-10-01: "ok avoid water no tide can clear". The router makes
+    // water no tide the app knows clears for this boat impassable, so it needs
+    // the tides first: one curve per 0.25° bucket of the route's area, the
+    // same 14-day curves (and cache entries) the tide chips read afterwards.
+    // Loaded alongside the cells, the OSM water and the marks (fix-up,
+    // 2026-10-01: it waited for them, up to 8 s more before every route), and
+    // awaited just before the engine runs. A place with no ceiling proves
+    // nothing there; where the finished route crosses water a tide must clear
+    // in such a place, it says so in one plain caveat (tideCheck).
+    // With no network and no boat Pi there is nowhere to load a tide from
+    // (the app bundles no tidal planes — searched 2026-10-01; WorldTides via
+    // the Pi's cache or the Supabase proxy is the only source): skip the
+    // fetches rather than wait out their timeouts before every offline route.
+    const tideReachable = piCache.isAvailable() || typeof navigator === 'undefined' || navigator.onLine !== false;
+    const tideCeilingsLoad: Promise<readonly TideCeiling[]> = opts.tideCeilings
+        ? Promise.resolve(opts.tideCeilings)
+        : tideReachable
+          ? routeAreaTideCeilings(origin, destination, opts.departureMs ?? Date.now())
+                .then((r) => r.ceilings)
+                .catch(() => [] as TideCeiling[])
+          : Promise.resolve([] as TideCeiling[]);
 
     // Find every installed cell whose bbox intersects the route's lat/lon
     // envelope. We load them all from device storage and concat features
@@ -769,6 +853,9 @@ async function tryInshoreRouteInner(
         // Survey-quality zones (owner decision 9, 2026-09-30): ranked like the
         // depth bands, read only by the route's survey disclosure.
         M_QUAL: { type: 'FeatureCollection', features: [] },
+        // Named sea areas (owner decision 11, 2026-10-01): only to name the
+        // water no tide clears when it is the only way through.
+        SEAARE: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
     // Cells whose data carries no M_QUAL layer at all ("not extracted"): the
@@ -905,6 +992,11 @@ async function tryInshoreRouteInner(
             (merged.M_QUAL!.features as unknown[]).push(...mqual.features);
         } else {
             surveyUncheckedCells.push({ id: cell.id, bbox: cell.bbox, rank: cellFinenessRank(scale) });
+        }
+        // Named sea areas (decision 11): the refusal names the spot.
+        const seaare = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.SEAARE;
+        if (seaare?.features && Array.isArray(seaare.features)) {
+            (merged.SEAARE!.features as unknown[]).push(...seaare.features);
         }
         cellsUsed.push(cell.id);
     }
@@ -1729,6 +1821,18 @@ async function tryInshoreRouteInner(
         log.warn(
             `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0} COASTLINE=${merged.COASTLINE?.features.length ?? 0}, calling routeInshore`,
         );
+    // The tides started loading with the cells (above).
+    const tideCeilings = await tideCeilingsLoad;
+    /** The finished route crosses water a tide must clear where no tide was
+     *  loaded (fix-up, 2026-10-01): offline, a bucket past the cap, a fetch
+     *  that timed out. Only then the caveat — an all-deep route never needed
+     *  a tide, and a partial load used to say nothing. */
+    const tideUnchecked = (polyline: readonly [number, number][]): boolean =>
+        routeCrossesUncheckedShallow(merged, polyline, tideCeilingLookup(tideCeilings), draftM + routeOpts.safetyM);
+    log.warn(
+        `[noTide] ${tideCeilings.length} place(s) with a tide ceiling for this route${tideCeilings.length > 0 ? `: ${tideCeilings.map((c) => `${c.lat.toFixed(2)},${c.lon.toFixed(2)} top ${c.highestM.toFixed(2)} m / ${c.days} d`).join('; ')}` : ' — water no tide clears cannot be proved here'}`,
+    );
+
     // 60 m hazard buffer (engine default 30 m).
     //
     // 100 m made things WORSE — at that radius, seaward hazards'
@@ -1759,6 +1863,9 @@ async function tryInshoreRouteInner(
         routeProfile,
         // The cells with no M_QUAL layer (survey disclosure, decision 9).
         surveyUncheckedCells,
+        // The highest tide per place (decision 11): water no tide clears is
+        // impassable. Part of the grid cache key.
+        ...(tideCeilings.length > 0 ? { tideCeilings } : {}),
     } as const;
 
     // ── Cloud-first: try Pi-cache before falling back to on-device ──
@@ -1959,6 +2066,7 @@ async function tryInshoreRouteInner(
                               merged,
                               result as Parameters<typeof seawayGraphSafetyFault>[2],
                               routeOpts.unchartedPolicy === 'strict' ? { grid: report.grid } : undefined,
+                              { tideCeilings, needM: routeOpts.draftM + routeOpts.safetyM },
                           )
                         : null;
                     if (promotionBlockReason) {
@@ -1976,6 +2084,7 @@ async function tryInshoreRouteInner(
                             elapsedMs,
                             surveyUncheckedCells,
                             structuresUnknownCells: structuresUnknownOn(g.polyline),
+                            ...(tideUnchecked(g.polyline) ? { tideCheck: 'not-loaded' as const } : {}),
                         });
                     }
                     log.warn(
@@ -2047,6 +2156,7 @@ async function tryInshoreRouteInner(
         ...((result as { surveyUncheckedCells?: string[] }).surveyUncheckedCells?.length
             ? { surveyUncheckedCells: (result as { surveyUncheckedCells?: string[] }).surveyUncheckedCells }
             : {}),
+        ...(tideUnchecked(result.polyline) ? { tideCheck: 'not-loaded' as const } : {}),
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,
@@ -2087,6 +2197,8 @@ export function inshoreRouteToGeoJSON(
             // …and its survey stretches (owner decision 9, 2026-09-30).
             ...(result.surveyRuns?.length ? { surveyRuns: result.surveyRuns } : {}),
             ...(result.surveyUncheckedCells?.length ? { surveyUncheckedCells: result.surveyUncheckedCells } : {}),
+            // …and that it was routed with no tide loaded (decision 11).
+            ...(result.tideCheck ? { tideCheck: result.tideCheck } : {}),
             origin: { lat: origin.lat, lon: origin.lon },
             destination: { lat: destination.lat, lon: destination.lon },
         },

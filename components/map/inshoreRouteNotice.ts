@@ -4,15 +4,20 @@
  * showing. Pure, so the choice between them is testable.
  */
 import type { PassageNotice } from './usePassagePlanner';
-import type { SurveyRunInfo } from '../../services/engine/types';
+import type { PinOffWater, SurveyRunInfo } from '../../services/engine/types';
 
 export interface InshoreRouteNoticeInput {
     /** The router's per-segment safety classifications arrived intact. */
     stateMaskOk: boolean;
     destinationInlandTrimM?: number;
     structuresUnknownCells?: readonly string[];
-    /** A pin on charted land or a drying bank (InshoreRouteResult.pinOffWater). */
-    pinOffWater?: { origin?: 'land' | 'drying'; destination?: 'land' | 'drying' };
+    /** A pin on charted land, a drying bank or in water no tide clears
+     *  (InshoreRouteResult.pinOffWater). */
+    pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
+    /** The route crosses water a tide must clear where no tide curve was
+     *  loaded before routing (InshoreRouteResult.tideCheck, owner decision
+     *  11): water no tide clears could not be ruled out there. */
+    tideCheck?: 'not-loaded';
     /** The route's survey stretches (InshoreRouteResult.surveyRuns, owner
      *  decision 9) and the cells whose survey quality was not checked. */
     surveyRuns?: readonly SurveyRunInfo[];
@@ -114,17 +119,30 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     // Decision 7's limit is never drying (round 3, 2026-09-30): the route
     // stops at the edge of the bank or the land — it no longer runs on across
     // the drying ground to the pin — and says so.
-    const pin = (which: 'departure' | 'destination', off: 'land' | 'drying' | undefined): void => {
+    const pin = (which: 'departure' | 'destination', off: PinOffWater | undefined): void => {
         const verb = which === 'departure' ? 'starts' : 'stops';
         if (off === 'drying') {
             out.push(`Your ${which} pin is on a drying bank — the route ${verb} at its edge. It dries at low water.`);
         } else if (off === 'land') {
             out.push(`Your ${which} pin is on charted land — the route ${verb} at the water's edge.`);
+        } else if (off === 'no-tide') {
+            // Owner decision 11 (2026-10-01): water that never dries but no
+            // tide the app knows clears for this boat.
+            out.push(
+                `Your ${which} pin is in water no tide clears for your boat — the route ${verb} at the edge of water a tide does.`,
+            );
         }
     };
     pin('departure', input.pinOffWater?.origin);
     // The inland-trim notice already says the destination pin is on land.
     pin('destination', input.destinationInlandTrimM ? undefined : input.pinOffWater?.destination);
+    // Owner decision 11 (2026-10-01): where the route crosses water a tide
+    // must clear and no tide was loaded for that place (offline, or a partial
+    // load — fix-up, 2026-10-01), the router could not rule out water no tide
+    // clears — one plain line, never a refusal.
+    if (input.tideCheck === 'not-loaded') {
+        out.push('Tide times not loaded — this route may cross water no tide clears. Check before you go.');
+    }
     out.push(...surveyCaveats(input));
     return out;
 }
@@ -159,9 +177,28 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
     const offWater = !!(input.pinOffWater?.origin || input.pinOffWater?.destination);
     return {
         severity: 'warn',
-        title: gaps > 0 ? 'Bridges and power lines not checked' : offWater ? 'Pin off the water' : 'Survey quality',
+        title:
+            gaps > 0
+                ? 'Bridges and power lines not checked'
+                : offWater
+                  ? 'Pin off the water'
+                  : input.tideCheck === 'not-loaded'
+                    ? 'Tide times not loaded'
+                    : 'Survey quality',
         message: caveats.join(' '),
     };
+}
+
+/**
+ * A refusal no other router may draw past (decision 11 fix-up, 2026-10-01):
+ * a bridge or power line the mast cannot clear ('air-draft-blocked'), or water
+ * no tide clears for the keel with no way round ('no-tide-clears', owner
+ * decision 11: "draw no route and say why"). The bathymetric, isochrone and
+ * corridor routers know nothing of either, so a plan they drew in its place
+ * went through the very water or under the very bridge the refusal named.
+ */
+export function isFinalInshoreRefusal(code: unknown): boolean {
+    return code === 'no-tide-clears' || code === 'air-draft-blocked';
 }
 
 /**
@@ -177,7 +214,7 @@ export function savedInshoreRouteCaveats(
     plan:
         | {
               routeGeoJSON?: { properties?: unknown } | null;
-              __inshoreRouting?: { status?: string; caveats?: unknown } | null;
+              __inshoreRouting?: { status?: string; caveats?: unknown; error?: unknown; errorCode?: unknown } | null;
           }
         | null
         | undefined,
@@ -189,18 +226,30 @@ export function savedInshoreRouteCaveats(
         const strings = (v: unknown): string[] | undefined =>
             Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
         const off = p.pinOffWater as { origin?: unknown; destination?: unknown } | undefined;
-        const side = (v: unknown): 'land' | 'drying' | undefined => (v === 'land' || v === 'drying' ? v : undefined);
+        const side = (v: unknown): PinOffWater | undefined =>
+            v === 'land' || v === 'drying' || v === 'no-tide' ? v : undefined;
         return inshoreRouteCaveats({
             structuresUnknownCells: strings(p.structuresUnknownCells),
             pinOffWater:
                 off && typeof off === 'object'
                     ? { origin: side(off.origin), destination: side(off.destination) }
                     : undefined,
+            ...(p.tideCheck === 'not-loaded' ? { tideCheck: 'not-loaded' as const } : {}),
             surveyRuns: Array.isArray(p.surveyRuns) ? (p.surveyRuns as SurveyRunInfo[]) : undefined,
             surveyUncheckedCells: strings(p.surveyUncheckedCells),
         });
     }
     const saved = plan.__inshoreRouting;
+    // A final refusal is what the plan must say instead of a route (fix-up,
+    // 2026-10-01): whole — the spot, its depth, the tide and the need.
+    if (
+        saved?.status === 'failed' &&
+        isFinalInshoreRefusal(saved.errorCode) &&
+        typeof saved.error === 'string' &&
+        saved.error.trim() !== ''
+    ) {
+        return [saved.error];
+    }
     if (saved?.status === 'success' && Array.isArray(saved.caveats)) {
         return saved.caveats.filter((c): c is string => typeof c === 'string' && c.trim() !== '');
     }

@@ -245,7 +245,21 @@ export async function fetchTideCurve(
             ? Math.min(TIDE_CURVE_MAX_DAYS, Math.max(1, Math.round(opts.days)))
             : undefined;
 
-    const key = cacheKey(lat, lon, startMs, endMs) + (daysAsked !== undefined ? `,${daysAsked}d` : '');
+    // A whole-span curve (opts.days: the route's colour, its chips and the
+    // router's tide ceilings) is the same data whatever the window — the
+    // proxy anchors it at yesterday 00:00 — so it is keyed by its bucket and
+    // days alone, and fetched at the bucket's CENTRE (fix-up, 2026-10-01):
+    // every route and chip over the same water shares one curve, here and in
+    // the Pi's tide cache, which keys on the exact spot. Keyed by the 6 h
+    // window too, and fetched wherever the route happened to pass, each new
+    // route missed both caches and spent the public proxy's 12 an hour.
+    if (daysAsked !== undefined) {
+        const [cLat, cLon] = tideCurveBucket(lat, lon).split(',').map(Number);
+        lat = cLat;
+        lon = cLon;
+    }
+    const key =
+        daysAsked !== undefined ? `${tideCurveBucket(lat, lon)},${daysAsked}d` : cacheKey(lat, lon, startMs, endMs);
     const hit = cache.get(key);
     if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) {
         return hit.curve;

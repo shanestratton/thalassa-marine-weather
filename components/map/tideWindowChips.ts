@@ -25,7 +25,10 @@
  *
  * Doctrine (masterplan §5, enforced in review): tide changes FEASIBILITY AND
  * TIMING, never geometry or preference — this file is display-only and runs
- * AFTER the route has rendered, off the compute path.
+ * AFTER the route has rendered, off the compute path. One exception, owner
+ * decision 11 (2026-10-01): water NO tide the app knows clears for the boat
+ * is impassable to the router (services/engine/tideCeiling), which reads the
+ * same curves before it routes (services/routing/tideCeilings).
  *
  * Field rules honoured here:
  *  - ONE tide-curve fetch per 0.25° bucket of the tide cache, at most
@@ -70,15 +73,28 @@ import { withTimeout } from '../../utils/deadline';
 import { createLogger } from '../../utils/createLogger';
 import { NEEDS_TIDE_AMBER, tideTopAlong, tideTopSpots, type InshoreRoutePiece } from './inshoreRouteState';
 import { haversineM } from '../../services/engine/geometry';
+import {
+    curveHighestM,
+    curveSpanDays,
+    ROUTE_TIDE_CURVES_MAX,
+    TIDE_WINDOW_HORIZON_MS,
+} from '../../services/tides/curveHighest';
+
+// The curve's top and span live with the tide service's pure helpers (owner
+// decision 11, 2026-10-01: the router reads them BEFORE routing — services/
+// routing/tideCeilings); re-exported so the chips keep one import.
+export { curveHighestM, curveSpanDays };
 
 const log = createLogger('tideWindow');
 
-const HORIZON_MS = 24 * 3600_000; // window search horizon from departure
+// The window search horizon from departure — the router's tide ceilings
+// fetch the same window, so both read one cache entry (one constant since
+// the decision 11 fix-up, 2026-10-01).
+const HORIZON_MS = TIDE_WINDOW_HORIZON_MS;
 const CURVE_FETCH_TIMEOUT_MS = 12_000;
-const DAY_MS = 24 * 3600_000;
 
 /** The most tide curves one route fetches (one per 0.25° bucket). */
-export const MAX_TIDE_CURVES = 4;
+export const MAX_TIDE_CURVES = ROUTE_TIDE_CURVES_MAX;
 
 /** A chip never grows wider than this: longer words wrap (round-3 review,
  * 2026-09-30 — a one-line 11 px pill ran ~450–600 px wide with its survey
@@ -152,6 +168,9 @@ export interface TideChipOptions {
      *  the pieces it drew, which the chips are worked from. Not called
      *  without a curve: the line is already red. */
     onTide?: (highestAt: (lon: number, lat: number) => number | null) => readonly InshoreRoutePiece[] | void;
+    /** The clock the tops are read from, with the departure (fix-up,
+     *  2026-10-01); default now. */
+    nowMs?: number;
 }
 
 /**
@@ -274,33 +293,6 @@ export function routeChipPlan(
 /** A chip's words: its own reason first, then the survey's. */
 const joinChip = (first: string, survey: readonly string[]): string => [first, ...survey].join(' · ');
 
-/** Sweep step for a curve's top when it carries no maxHeightM. */
-const HIGHEST_SWEEP_MS = 5 * 60_000;
-
-/**
- * The highest tide the app knows at the curve's station, m above LAT (owner
- * decision 10, 2026-09-30): the top of the loaded curve over its FULL span —
- * days of it, not only the 24 h window — since WorldTides sends no highest
- * astronomical tide. The curve's own maxHeightM when it agrees with what the
- * curve actually yields (heightAt refuses a mismatched HW/LW pair, and so
- * must this), else a 5-minute sweep. Null when the curve yields nothing.
- */
-export function curveHighestM(curve: TideCurve): number | null {
-    const [a, b] = curve.rangeMs;
-    let swept = -Infinity;
-    if (Number.isFinite(a) && Number.isFinite(b) && b >= a) {
-        for (let t = a; t <= b; t += HIGHEST_SWEEP_MS) {
-            const h = curve.heightAt(t);
-            if (h !== null && h > swept) swept = h;
-        }
-        const end = curve.heightAt(b);
-        if (end !== null && end > swept) swept = end;
-    }
-    if (!Number.isFinite(swept)) return null;
-    const top = curve.maxHeightM;
-    return typeof top === 'number' && Number.isFinite(top) && top >= swept && top <= swept + 0.05 ? top : swept;
-}
-
 /** A chip to place: where, what it says, and the colour of the line it names. */
 export interface RouteChip {
     lat: number;
@@ -397,12 +389,6 @@ export function tideFetchPlan(
         .map(([bucket, b]) => ({ bucket, lat: b.lat, lon: b.lon }));
 }
 
-/** Whole days a curve spans (at least 1) — what its top was read over. */
-export function curveSpanDays(curve: TideCurve): number {
-    const [a, b] = curve.rangeMs;
-    return Math.max(1, Math.round((b - a) / DAY_MS));
-}
-
 /**
  * Words for water no tide the app knows clears (owner decision 10; round-4
  * review, 2026-09-30): the rise it needs and the top of the tide over the
@@ -411,6 +397,28 @@ export function curveSpanDays(curve: TideCurve): number {
  */
 export function noTideClearsWords(riseM: number, highestM: number, days: number): string {
     return `no tide in ${days} day${days === 1 ? '' : 's'} clears it — needs +${fmtM(riseM)}, highest ${fmtM(highestM)}`;
+}
+
+/**
+ * Words for the shallow end of a band some tide clears elsewhere (decision 11
+ * fix-up, 2026-10-01): its charted shallowest needs more than the highest
+ * tide, but its deepest charted value plus that tide reaches what the keel
+ * needs — "charted 0–2 m: its 0 m end needs +2.9 m, highest 2.5 m — check
+ * the chart". Still red (decision 10); never "no tide clears it", which the
+ * router reserves for water it proved and will not route through (decision
+ * 11) — the skipper saw the router take water the chip said no tide clears.
+ * Without a deeper charted value, or where none reaches, noTideClearsWords.
+ */
+export function shallowEndWords(
+    depthM: number,
+    deepestM: number | undefined,
+    riseM: number,
+    highestM: number,
+    days: number,
+): string {
+    if (deepestM === undefined || !(deepestM > depthM) || deepestM + highestM < depthM + riseM - 1e-9)
+        return noTideClearsWords(riseM, highestM, days);
+    return `charted ${fmtDepth(depthM)}–${fmtDepth(deepestM)} m: its ${fmtDepth(depthM)} m end needs +${fmtM(riseM)}, highest ${fmtM(highestM)} — check the chart`;
 }
 
 /**
@@ -470,8 +478,13 @@ export function tideRunChips(input: {
     pieces?: readonly TidePiece[];
     liftable?: readonly TidePiece[];
     canalMask?: readonly boolean[];
+    /** The clock (fix-up, 2026-10-01): a curve's top is read from the later
+     *  of this and the departure on — never a tide that has happened. The
+     *  planner passes now; absent, the departure. */
+    nowMs?: number;
 }): { chips: RouteChip[]; placed: string[] } {
     const { plan, draftM, departureMs } = input;
+    const fromMs = Math.max(input.nowMs ?? departureMs, departureMs);
     const tideSafetyM = input.tideSafetyM ?? DEFAULT_TIDE_SAFETY_M;
     const needM = draftM + tideSafetyM;
     const curves = input.curves ?? oneCurve(input.curve ?? null);
@@ -485,7 +498,7 @@ export function tideRunChips(input: {
         const curve = curves.at(lon, lat);
         if (!curve) return null;
         if (!memo.has(curve)) {
-            const highestM = curveHighestM(curve);
+            const highestM = curveHighestM(curve, fromMs);
             const field = highestM !== null ? tideFieldFromCurve(curve) : null;
             memo.set(curve, highestM !== null && field ? { curve, highestM, field } : null);
         }
@@ -501,7 +514,7 @@ export function tideRunChips(input: {
                 highestM: null,
                 highestAt: (lon, lat) => {
                     const t = tideAt(lon, lat);
-                    if (t) days = Math.min(days, curveSpanDays(t.curve));
+                    if (t) days = Math.min(days, curveSpanDays(t.curve, fromMs));
                     return t ? t.highestM : null;
                 },
             },
@@ -586,7 +599,9 @@ export function tideRunChips(input: {
         const spotWords = (): string | null => {
             const t = tideAt(minAt[0], minAt[1]);
             if (!t) return notLoaded(riseM);
-            return riseM > t.highestM + 1e-9 ? noTideClearsWords(riseM, t.highestM, curveSpanDays(t.curve)) : null;
+            return riseM > t.highestM + 1e-9
+                ? shallowEndWords(depth, run.deepestM, riseM, t.highestM, curveSpanDays(t.curve, fromMs))
+                : null;
         };
         const lift = liftable ? inRunOf(run, liftable) : null;
         if (lift && lift.length === 0) {
@@ -631,8 +646,13 @@ export function tideRunChips(input: {
                     const low = liftHere.reduce((a, b) => ((b.depthM as number) < (a.depthM as number) ? b : a));
                     const need = needM - (low.depthM as number);
                     const top = topAlong(low.coordinates);
+                    // The run's deepest is its shallowest spot's: read only
+                    // where this stretch is that depth.
+                    const deepest = low.depthM === depth ? run.deepestM : undefined;
                     red(
-                        top === null ? notLoaded(need) : noTideClearsWords(need, top.top, top.days),
+                        top === null
+                            ? notLoaded(need)
+                            : shallowEndWords(low.depthM as number, deepest, need, top.top, top.days),
                         midpointOf(low.coordinates),
                     );
                 } else {
@@ -746,8 +766,12 @@ export async function annotateTideWindows(opts: TideChipOptions): Promise<void> 
         // Redraw the line in what the tide can clear (decision 10) — before
         // the chips, which are worked from the line as drawn, so a chip never
         // names a colour the line does not show.
+        // From the later of now and the departure on (fix-up, 2026-10-01):
+        // the router's ceilings read the same.
+        const nowMs = opts.nowMs ?? Date.now();
+        const fromMs = Math.max(nowMs, departureMs);
         const tops = new Map<string, number | null>();
-        for (const [k, c] of byBucket) tops.set(k, curveHighestM(c));
+        for (const [k, c] of byBucket) tops.set(k, curveHighestM(c, fromMs));
         const drawn =
             byBucket.size > 0 ? opts.onTide?.((lon, lat) => tops.get(tideCurveBucket(lat, lon)) ?? null) : undefined;
         const { chips, placed } = tideRunChips({
@@ -755,6 +779,7 @@ export async function annotateTideWindows(opts: TideChipOptions): Promise<void> 
             curves,
             draftM,
             departureMs,
+            nowMs,
             tideSafetyM,
             ...(drawn ? { pieces: drawn } : {}),
             ...(liftable ? { liftable } : {}),

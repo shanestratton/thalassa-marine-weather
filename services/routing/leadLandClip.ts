@@ -123,6 +123,10 @@ export interface IndexedArea {
 export interface IndexedDepthArea extends IndexedArea {
     /** DRVAL1, or null where the band carries none (no depth claim). */
     drval1: number | null;
+    /** DRVAL2 — the deepest the band admits — or null where it carries none
+     *  (owner decision 11, 2026-10-01: chartedDepthRangeAt). Optional so a
+     *  hand-built area without it reads as "not charted". */
+    drval2?: number | null;
 }
 
 /** One layer set, indexed once: the land paint and the charted depth bands
@@ -288,6 +292,7 @@ export function buildChartAreaIndex(layers: ClipLayers): ChartAreaIndex {
             depth.push({
                 ...indexArea(g, readNum(f.properties, '_scaleRank')),
                 drval1: readNum(f.properties, 'DRVAL1'),
+                drval2: readNum(f.properties, 'DRVAL2'),
             });
         }
     }
@@ -390,6 +395,48 @@ export function chartedDepthAt(areas: readonly IndexedDepthArea[], lon: number, 
         if (depth === null || a.drval1 < depth) depth = a.drval1;
     }
     return depth;
+}
+
+/**
+ * The bands that own the depth at a point (chartedDepthAt's owners: the
+ * finest survey, every band tied with it, every unranked band) — empty when
+ * none covers it. Decision 11 (2026-10-01) reads them to close the very band
+ * a route crossed (services/engine/tideCeiling noTideBarriersAt).
+ */
+export function chartedDepthOwnersAt(areas: readonly IndexedDepthArea[], lon: number, lat: number): IndexedDepthArea[] {
+    const covering = areas.filter((a) => pointInArea(a, lon, lat));
+    if (covering.length === 0) return [];
+    return depthSurveyOwners(covering.map((a) => a.rank)).owners.map((i) => covering[i]);
+}
+
+/**
+ * The charted depth RANGE at a point (owner decision 11, Shane 2026-10-01:
+ * "avoid water no tide can clear"): the same owning bands as chartedDepthAt
+ * (the finest survey, every band tied with it, every unranked band), their
+ * shallowest DRVAL1 and their DEEPEST DRVAL2 — the most the chart admits
+ * the water there can be. `deepestM` is null when any owning band carries no
+ * DRVAL2: the chart then does not bound the depth, and nothing can be proved
+ * from it. Null when no band covers the point.
+ */
+export function chartedDepthRangeAt(
+    areas: readonly IndexedDepthArea[],
+    lon: number,
+    lat: number,
+): { shallowestM: number | null; deepestM: number | null } | null {
+    const owners = chartedDepthOwnersAt(areas, lon, lat);
+    if (owners.length === 0) return null;
+    let shallowestM: number | null = null;
+    let deepestM: number | null = null;
+    let shallowUnknown = false;
+    let deepUnknown = false;
+    for (const a of owners) {
+        if (a.drval1 === null) shallowUnknown = true;
+        else if (shallowestM === null || a.drval1 < shallowestM) shallowestM = a.drval1;
+        const d2 = a.drval2 ?? null;
+        if (d2 === null) deepUnknown = true;
+        else if (deepestM === null || d2 > deepestM) deepestM = d2;
+    }
+    return { shallowestM: shallowUnknown ? null : shallowestM, deepestM: deepUnknown ? null : deepestM };
 }
 
 /** Parameters t ∈ (0,1) where segment a→b crosses any edge of the areas. */

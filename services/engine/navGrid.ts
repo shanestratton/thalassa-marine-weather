@@ -4,8 +4,8 @@
  */
 import type { Feature, LineString, MultiLineString, Polygon, MultiPolygon, Point, Position } from 'geojson';
 import { M_PER_DEG_LAT, BLOCKED, UNKNOWN_OPEN, CAUTION, ENGINE_DEBUG, engineLog } from './constants';
-import type { InshoreLayers, RelaxZone, NavGrid } from './types';
-import { mPerDegLon, haversineM, rasterizePolygonCells, bresenhamCells, latLonToGrid } from './geometry';
+import type { InshoreLayers, RelaxZone, NavGrid, TideBarrier, TideCeiling } from './types';
+import { mPerDegLon, haversineM, rasterizePolygonCells, bresenhamCells, latLonToGrid, geometryBbox } from './geometry';
 import { computeCentreFactor } from './aStar';
 import { navLineLeads } from '../leadingLine';
 import {
@@ -17,6 +17,7 @@ import {
 } from '../enc/scaleShadow';
 import { isS57ChartProps, readS57 } from '../enc/types';
 import { isAuthoritativeOsmWater } from './chartWaterEvidence';
+import { tideCeilingLookup } from './tideCeiling';
 
 /**
  * Process-wide cache for buildNavGrid output. Keyed by the inputs that
@@ -61,6 +62,21 @@ export function navGridBytes(grid: NavGrid): number {
     return total;
 }
 
+/** The cache key's part for the crossed bands a retry closed ('' when none):
+ *  each band's extent, deepest value and rank (decision 11 fix-up,
+ *  2026-10-01). */
+function tideBarriersKey(barriers: readonly TideBarrier[]): string {
+    return barriers
+        .map(
+            (b) =>
+                `${geometryBbox(b.geometry)
+                    .map((v) => v.toFixed(6))
+                    .join(',')}@${b.deepestM}r${b.rank ?? 'u'}`,
+        )
+        .sort()
+        .join('|');
+}
+
 /**
  * Evict oldest entries until the cache fits `targetBytes`. Exported so the
  * native memory-warning listener can dump the lot (target 0) when iOS says
@@ -99,6 +115,8 @@ export function navGridCacheKey(
     relaxedLndare: boolean,
     relaxZones: RelaxZone[],
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
+    tideCeilings: readonly TideCeiling[] = [],
+    tideBarriers: readonly TideBarrier[] = [],
 ): string {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
@@ -143,7 +161,14 @@ export function navGridCacheKey(
                       return `${p?._noticeKey ?? '?'}@${p?.depthM ?? '?'}`;
                   })
                   .join('|')}`;
-    return `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${routeProfile}_${sig}_r${rankSig}_ntm${ntmSig}`;
+    // The highest tide per place (owner decision 11, 2026-10-01), quantised
+    // as the build reads it: a grid that blocked water no tide clears at a
+    // 2.5 m top must never serve a request with another top, or none.
+    // …and the crossed bands the engine's retry closed (tideBarriers).
+    const tideKey = tideCeilingLookup(tideCeilings).key;
+    const barrierKey = tideKey ? tideBarriersKey(tideBarriers) : '';
+    const tidePart = tideKey ? `_tide${tideKey}${barrierKey ? `_tb${barrierKey}` : ''}` : '';
+    return `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${routeProfile}_${sig}_r${rankSig}_ntm${ntmSig}${tidePart}`;
 }
 
 /**
@@ -164,6 +189,8 @@ export function getCachedNavGrid(
     obstructionBufferM: number,
     relaxedLndare: boolean = false,
     relaxZones: RelaxZone[] = [],
+    tideCeilings: readonly TideCeiling[] = [],
+    tideBarriers: readonly TideBarrier[] = [],
 ): NavGrid | null {
     const key = navGridCacheKey(
         layers,
@@ -174,6 +201,9 @@ export function getCachedNavGrid(
         obstructionBufferM,
         relaxedLndare,
         relaxZones,
+        'safest',
+        tideCeilings,
+        tideBarriers,
     );
     const cached = navGridCache.get(key);
     if (!cached) return null;
@@ -191,6 +221,8 @@ export function buildNavGridCached(
     relaxedLndare: boolean = false,
     relaxZones: RelaxZone[] = [],
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
+    tideCeilings: readonly TideCeiling[] = [],
+    tideBarriers: readonly TideBarrier[] = [],
 ): { grid: NavGrid; cacheHit: boolean } {
     const key = navGridCacheKey(
         layers,
@@ -202,6 +234,8 @@ export function buildNavGridCached(
         relaxedLndare,
         relaxZones,
         routeProfile,
+        tideCeilings,
+        tideBarriers,
     );
     const cached = navGridCache.get(key);
     if (cached) {
@@ -218,6 +252,8 @@ export function buildNavGridCached(
         relaxedLndare,
         relaxZones,
         routeProfile,
+        tideCeilings,
+        tideBarriers,
     );
     const bytes = navGridBytes(grid);
     // Make room by BYTES first (the incoming grid is always admitted), then
@@ -319,6 +355,21 @@ export function buildNavGrid(
      * profile. 'safest' (default) leaves the mask absent. Part of the cache key.
      */
     routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
+    /**
+     * The highest tide known per place (owner decision 11, 2026-10-01): water
+     * whose charted bands' deepest value plus that tide is still short of
+     * draft + safety is blocked (NavGrid.noTideClears). Empty: nothing is
+     * proved, and the grid is exactly as without. Part of the cache key.
+     */
+    tideCeilings: readonly TideCeiling[] = [],
+    /**
+     * The charted bands a route crossed through water no tide clears with no
+     * local way round them (the engine's retry, fix-up 2026-10-01): every
+     * cell each one touches is closed where it is proved — a bar narrower
+     * than a cell included, which the default build leaves open. Part of the
+     * cache key.
+     */
+    tideBarriers: readonly TideBarrier[] = [],
 ): NavGrid {
     // Per-pass timing — a single Newport→Brisbane build was clocked at
     // 37.8 s and accounted for 97% of the route compute. Without per-
@@ -468,6 +519,25 @@ export function buildNavGrid(
     // non-chart bands (public bathymetry). Pass 2 reads it against OSM water
     // under land paint. Reset and restored with the other depth claims.
     const s57DryingAt = new Uint8Array(width * height);
+    // WATER NO TIDE CLEARS (owner decision 11, Shane 2026-10-01): the DEEPEST
+    // the cell's owning S-57 bands admit (DRVAL2), so the pass below can
+    // prove water that even the place's highest tide cannot clear. Tracked
+    // only when the request carries tide ceilings — without them the grid is
+    // exactly as before. Ranked bands at the owning survey (reset when a
+    // strictly finer survey claims the cell, like every depth claim here) and
+    // unranked bands (never reset: their scale is unknown, so they own the
+    // cell alongside, as the shallowest-wins rule has them) are kept apart;
+    // a band with no DRVAL2 marks the cell unknown, and nothing is proved
+    // there.
+    const tideLookup = tideCeilingLookup(tideCeilings);
+    const tideProof = tideLookup.size > 0;
+    const rankedDeepestM = tideProof ? new Float32Array(width * height).fill(NaN) : null;
+    const rankedDeepUnknown = tideProof ? new Uint8Array(width * height) : null;
+    const unrankedDeepestM = tideProof ? new Float32Array(width * height).fill(NaN) : null;
+    const unrankedDeepUnknown = tideProof ? new Uint8Array(width * height) : null;
+    // Every S-57 depth band with its DRVAL2 and rank, for the pass below to
+    // find the proved cells a band a tide clears still touches.
+    const tideBands: { g: Polygon | MultiPolygon; drval2: number | null; rank: number | null }[] = [];
     // CHART WATER UNDER LAND PAINT (owner decision 1, 2026-09-30;
     // services/enc/scaleShadow.ts finerBandBeatsLand). Per cell, the finest
     // S-57 depth band (DEPARE or DRGARE) that covers it — `bandRank` — and
@@ -661,6 +731,10 @@ export function buildNavGrid(
         // the canal — it's a canal either way, just caution-flagged if shallow.
         const isMapboxWater = props?.['_source'] === 'mapbox-water';
         const neverDries = bandNeverDries(typeof drval1 === 'number' ? drval1 : null);
+        // Decision 11: the deepest this band admits (null: it does not say).
+        const drval2Raw = tideProof && isS57Depare ? readS57(props, 'DRVAL2') : null;
+        const drval2 = typeof drval2Raw === 'number' && Number.isFinite(drval2Raw) ? drval2Raw : null;
+        if (tideProof && isS57Depare) tideBands.push({ g, drval2, rank });
 
         // Scanline-rasterize the polygon and apply cell updates inside
         // the per-cell callback. ~25× faster than the old "per cell,
@@ -699,6 +773,10 @@ export function buildNavGrid(
                         s57ShallowAt[idx] = 0;
                         s57DeepAt[idx] = 0;
                         s57DryingAt[idx] = 0;
+                        if (rankedDeepestM && rankedDeepUnknown) {
+                            rankedDeepestM[idx] = NaN;
+                            rankedDeepUnknown[idx] = 0;
+                        }
                         // A coarser S-57 band's own protection goes with its
                         // claim: kept, it let a coarse deep band outrank a
                         // finer shallow one whenever the coarse one came
@@ -729,6 +807,14 @@ export function buildNavGrid(
                     }
                 }
                 depareRank[idx] = held === RANK_UNCLAIMED || cmp > 0 ? rank : tiedSurveyRank(rank, held);
+            }
+            // Decision 11: every S-57 band that owns the cell bounds its
+            // depth; the deepest of them is what a tide must beat.
+            if (tideProof && isS57Depare) {
+                const deepM = rank === null ? unrankedDeepestM! : rankedDeepestM!;
+                const unknown = rank === null ? unrankedDeepUnknown! : rankedDeepUnknown!;
+                if (drval2 === null) unknown[idx] = 1;
+                else if (Number.isNaN(deepM[idx]) || drval2 > deepM[idx]) deepM[idx] = drval2;
             }
             // This band's S-57 tier (0: not an S-57 band) — see s57ShallowAt.
             const s57Tier = !isS57Depare ? 0 : rank === null ? S57_UNRANKED : S57_RANKED;
@@ -2143,6 +2229,137 @@ export function buildNavGrid(
         if (leadOnlyPreferred) grid.leadOnlyPreferred = leadOnlyPreferred;
         markPass('unvouched-mask', tPassUnvouched, unvouchedCount);
     }
+    // ── Water no tide clears (owner decision 11, 2026-10-01) ─────────
+    // Shane: "ok avoid water no tide can clear". PROOF, not suspicion: a
+    // caution cell an S-57 band charts shallow is proved unclearable only
+    // when the DEEPEST value its owning bands admit (DRVAL2, tracked in
+    // Pass 1) plus the highest tide known for its place is still short of
+    // draft + safety. A 0–2 m band at a 2.5 m top is not (2 + 2.5 ≥ 2.9); a
+    // −2.2..0 m drying band is (0 + 2.5 < 2.9). A band with no DRVAL2, a
+    // place with no ceiling, water no S-57 band charts shallow and a current
+    // NtM survey zone (a least depth, not a bound) prove nothing — they route
+    // as before, decision 10's red and chip unchanged.
+    //
+    // A 50 m cell is classed by its centre, so a proved cell may still hold
+    // water a tide clears: one that a band a tide clears TOUCHES (its ring
+    // passes through the cell; a coarser survey's band under a finer one's
+    // claim does not count) stays open (fix-up, 2026-10-01: a 30 m creek
+    // through drying flats had no cell centre in it, every cell along it was
+    // closed, and the route was refused for "the only way through" the flats).
+    // Every other proved cell is blocked — NaN like land; the carves never
+    // tunnel them (NavGrid.noTideClears). The engine holds the finished route
+    // to the chart itself (tideCeiling classifyNoTideRuns): a clip, a creek's
+    // local way, or a crossing that is refused — and then routed again with
+    // the crossed bands closed (`tideBarriers`: every cell each one touches,
+    // where it is proved).
+    if (tideProof && rankedDeepestM && rankedDeepUnknown && unrankedDeepestM && unrankedDeepUnknown) {
+        const tPassTide = Date.now();
+        const needM = draftM + safetyM;
+        const ntmRise = grid.ntmRiseM;
+        const proved = new Uint8Array(width * height);
+        let provedCount = 0;
+        for (let y = 0; y < height; y++) {
+            const cellLat = minLat + (y + 0.5) * dLat;
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (!(cells[idx] < 0) || s57ShallowAt[idx] === 0) continue;
+                if (ntmRise !== undefined && !Number.isNaN(ntmRise[idx])) continue;
+                if (rankedDeepUnknown[idx] === 1 || unrankedDeepUnknown[idx] === 1) continue;
+                const r = rankedDeepestM[idx];
+                const u = unrankedDeepestM[idx];
+                const deepest = Number.isNaN(r) ? u : Number.isNaN(u) ? r : Math.max(r, u);
+                if (Number.isNaN(deepest)) continue;
+                const tide = tideLookup.at(cellLat, minLon + (x + 0.5) * dLon);
+                if (!tide || deepest + tide.highestM >= needM - 1e-6) continue;
+                proved[idx] = 1;
+                provedCount++;
+            }
+        }
+        const gridMaxLon = minLon + width * dLon;
+        const gridMaxLat = minLat + height * dLat;
+        /** Each cell a band's rings pass through (Bresenham per edge, edges
+         *  clear of the grid skipped). */
+        const ringCells = (g: Polygon | MultiPolygon, visit: (idx: number) => void): void => {
+            const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+            for (const poly of polys) {
+                for (const ring of poly) {
+                    for (let i = 0; i + 1 < ring.length; i++) {
+                        const [ax, ay] = ring[i];
+                        const [bx, by] = ring[i + 1];
+                        if (Math.max(ax, bx) < minLon || Math.min(ax, bx) > gridMaxLon) continue;
+                        if (Math.max(ay, by) < minLat || Math.min(ay, by) > gridMaxLat) continue;
+                        const cellsOnEdge = bresenhamCells(
+                            Math.floor((ax - minLon) / dLon),
+                            Math.floor((ay - minLat) / dLat),
+                            Math.floor((bx - minLon) / dLon),
+                            Math.floor((by - minLat) / dLat),
+                        );
+                        for (const c of cellsOnEdge) {
+                            if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
+                            visit(c.y * width + c.x);
+                        }
+                    }
+                }
+            }
+        };
+        /** A band's claim on a cell a strictly finer survey owns is not read. */
+        const outSurveyed = (rank: number | null, idx: number): boolean =>
+            rank !== null && depareRank[idx] !== RANK_UNCLAIMED && compareSurveyRanks(rank, depareRank[idx]) < 0;
+        const tideAtCell = (idx: number) =>
+            tideLookup.at(minLat + (Math.floor(idx / width) + 0.5) * dLat, minLon + ((idx % width) + 0.5) * dLon);
+        let noTideClears: Uint8Array | null = null;
+        let blockedCount = 0;
+        let keptOpen = 0;
+        if (provedCount > 0) {
+            // A band a tide clears (or whose depth it does not bound) that
+            // touches a proved cell keeps it open.
+            const touchedClearable = new Uint8Array(width * height);
+            for (const b of tideBands) {
+                ringCells(b.g, (idx) => {
+                    if (proved[idx] !== 1 || touchedClearable[idx] === 1 || outSurveyed(b.rank, idx)) return;
+                    if (b.drval2 !== null) {
+                        const tide = tideAtCell(idx);
+                        if (!tide || b.drval2 + tide.highestM < needM - 1e-6) return;
+                    }
+                    touchedClearable[idx] = 1;
+                });
+            }
+            for (let idx = 0; idx < cells.length; idx++) {
+                if (proved[idx] !== 1) continue;
+                if (touchedClearable[idx] === 1) keptOpen++;
+                else (noTideClears ??= new Uint8Array(width * height))[idx] = 1;
+            }
+        }
+        // The engine's retry: the crossed bands, closed wherever they are
+        // proved — inside them and every cell their rings pass through.
+        let barrierCount = 0;
+        for (const b of tideBarriers) {
+            const close = (idx: number): void => {
+                if (Number.isNaN(cells[idx]) || noTideClears?.[idx] === 1) return;
+                if (ntmRise !== undefined && !Number.isNaN(ntmRise[idx])) return;
+                if (outSurveyed(b.rank, idx)) return;
+                const tide = tideAtCell(idx);
+                if (!tide || b.deepestM + tide.highestM >= needM - 1e-6) return;
+                (noTideClears ??= new Uint8Array(width * height))[idx] = 1;
+                barrierCount++;
+            };
+            rasterizePolygonCells(grid, b.geometry, (x, y) => close(y * width + x));
+            ringCells(b.geometry, close);
+        }
+        if (noTideClears) {
+            for (let idx = 0; idx < cells.length; idx++) {
+                if (noTideClears[idx] !== 1) continue;
+                cells[idx] = NaN;
+                blockedCount++;
+            }
+            grid.noTideClears = noTideClears;
+        }
+        markPass('passNoTide', tPassTide, provedCount);
+        engineLog.warn(
+            `[noTide] ${blockedCount} cell(s) blocked — no tide known here clears them for ${needM.toFixed(1)} m (${provedCount} proved, ${keptOpen} kept open by water a tide clears${tideBarriers.length > 0 ? `, ${barrierCount} closed by ${tideBarriers.length} crossed band(s)` : ''}; ${tideLookup.size} place(s) with a tide ceiling)`,
+        );
+    }
+
     // ── Charted caution water (see NavGrid.chartedShallow) ────────────
     // Owner decision 7 (2026-09-30): a pin in charted-shallow water gets a
     // route ALL the way to it, the stretch past the last deep-enough water
