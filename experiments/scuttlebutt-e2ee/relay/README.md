@@ -132,8 +132,11 @@ binary provenance. Read the checkpoint for observed run evidence.
 The native client validates a complete inbox page before mutations, but commits
 each authenticated row individually. It re-scans from zero within a bounded
 single-peer store; it does not advance/persist a sync cursor. Structural poison
-rejects the whole page. Cryptographic poison may leave prior valid rows durably
-received and then stalls retries, without leaking a successful plaintext batch.
+rejects the whole page. Typed incoming-message failures are retained in a sealed
+unresolved ledger without committing speculative session/account/prekey changes;
+later valid rows may proceed. This does not classify intent or establish permanent
+failure: a legitimate message beyond the provider's gap limit can also be unresolved.
+The adapter returns counts, not successful plaintext for failed rows or read receipts.
 Owner/peer generation changes still hide old history. Under the same immutable
 device/key scope, a separate read-only helper recognises exact previously saved
 envelopes as **historical**, so they do not stall later rows. It neither decrypts
@@ -141,13 +144,24 @@ them again nor re-tags/restores old plaintext. Strict direct receive remains
 generation-bound, and old pending sends are never rebound after reauthentication.
 Unseen older ciphertext cannot be distinguished from a newly arriving message
 by these wire fields. Device/key replacement is unsupported, not handled by this
-helper. The sealed coordinator snapshot is now version 3; older research stores
+helper. The sealed coordinator snapshot is now version 4; older research stores
 are refused, never silently recreated/migrated into active identities.
 
-Poison recovery/quarantine remains a separate gate: the current provider error
-conflates decrypt failures with restored-state failures, so catching every error
-and continuing would be unsafe. A typed provider error boundary, fresh bindings/
-binary proof, bounded sealed unresolved queue and atomic retry are required first.
+The unchanged pinned provider is wrapped by a narrow `MessageNotOpened` boundary:
+local pickle/key/configuration/output failures never become deferred-message
+results. Local provider restoration precedes incoming wire inspection. Only this
+typed failure or an isolated authenticated-content binding failure can defer;
+identity/frame/metadata conflicts, capacity, storage and CAS errors still stop.
+The queue retains exact server ID, record fields and ciphertext under the original
+local owner/peer generations. Those bindings survive successful promotion. A
+rescan never retries crypto, evicts ciphertext, restores old history or rebinds an
+old queue. Explicit same-generation retry atomically promotes a successful receive;
+a failed retry retains the exact original payload with a fencing CAS. A single
+16-row inbox-plus-unresolved budget and the sealed-store byte cap fail closed,
+without eviction. Capacity/retention policy and scalable recovery remain shipping
+work; this research queue is not a production mailbox or user-facing retry UI.
+Read the checkpoint for fresh-build and simulator execution evidence; source
+review alone does not establish that the new native error boundary was executed.
 Scalable sync, actual Auth lifecycle/attestation, device/prekey renewal and
 independent review remain required before app integration. No silent discard,
 plaintext fallback or security badge is added by this prototype.

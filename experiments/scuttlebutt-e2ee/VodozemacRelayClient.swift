@@ -8,8 +8,11 @@ struct DmRelayInboxReport: Equatable {
     let stored: Int
     let duplicates: Int
     let historical: Int
-    init(stored: Int, duplicates: Int, historical: Int = 0) {
+    let unresolved: Int
+    let historicalUnresolved: Int
+    init(stored: Int, duplicates: Int, historical: Int = 0, unresolved: Int = 0, historicalUnresolved: Int = 0) {
         self.stored = stored; self.duplicates = duplicates; self.historical = historical
+        self.unresolved = unresolved; self.historicalUnresolved = historicalUnresolved
     }
 }
 
@@ -125,9 +128,11 @@ final class VodozemacRelayClient {
     // owner/peer generation are explicitly counted as historical, without
     // restoring plaintext or rebinding history. Device/key identity is immutable
     // in this research store. Unseen rows still need guarded native decryption.
-    // Canonical but undecryptable ciphertext also stalls the bounded rescan.
-    // Duplicate handling is native and
-    // durable. A scalable sealed per-owner sync cursor remains future work.
+    // Typed incoming-message failures enter the bounded sealed unresolved ledger
+    // without advancing crypto; later valid rows can continue. Rescans only count
+    // exact queued rows, never automatically retry/evict/rebind them. All key,
+    // storage, structural, identity and capacity failures still abort. A scalable
+    // sealed per-owner sync cursor remains future work.
     // Only counts leave this adapter; plaintext stays in guarded native history.
     func syncInboxForResearch(requestId: String, expiresAt: Int64, now: Int64,
                              credential: DmRelayNetworkCredential,
@@ -143,23 +148,22 @@ final class VodozemacRelayClient {
         try check(credential, currentContext)
         // Validate the COMPLETE batch before any ratchet/inbox mutation.
         let rows = try DmRelayResultCodec.inbox(data, owner: own, identity: identity, peer: peer, afterId: 0, batch: 16)
-        var stored = 0, duplicates = 0, historical = 0
+        var stored = 0, duplicates = 0, historical = 0, unresolved = 0, historicalUnresolved = 0
         for row in rows {
             try check(credential, currentContext)
-            switch try coordinator.knownInboundForResearch(row.record.serializedEnvelope, owner: own, peerGeneration: generation,
-                                                           credentialEpoch: credential.context.credentialEpoch) {
-            case .current: duplicates += 1; continue
-            case .historical: historical += 1; continue
-            case .unknown: break
-            }
-            switch try coordinator.receive(row.record.serializedEnvelope, owner: own, peerGeneration: generation,
-                                            credentialEpoch: credential.context.credentialEpoch) {
+            switch try coordinator.receiveOrDeferForResearch(serverId: row.serverId,
+                serializedEnvelope: row.record.serializedEnvelope, relayRecord: row.record, owner: own, peerGeneration: generation,
+                credentialEpoch: credential.context.credentialEpoch) {
             case .stored: stored += 1
             case .duplicate: duplicates += 1
+            case .historical: historical += 1
+            case .deferred: unresolved += 1
+            case .historicalUnresolved: historicalUnresolved += 1
             }
         }
         _ = try coordinator.peerForResearch(owner: own, generation: generation)
         try check(credential, currentContext)
-        return DmRelayInboxReport(stored: stored, duplicates: duplicates, historical: historical)
+        return DmRelayInboxReport(stored: stored, duplicates: duplicates, historical: historical,
+                                  unresolved: unresolved, historicalUnresolved: historicalUnresolved)
     }
 }

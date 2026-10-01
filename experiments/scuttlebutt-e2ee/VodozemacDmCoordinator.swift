@@ -57,6 +57,14 @@ struct DmReceivedMessage: Codable, Equatable {
     let serializedEnvelope: String
     let ownerGeneration: Int64
     let peerGeneration: Int64
+    let relayServerId: Int64?
+    let relayRecord: DmOutboxRecord?
+    init(clientMessageId: String, text: String, serializedEnvelope: String, ownerGeneration: Int64, peerGeneration: Int64,
+         relayServerId: Int64? = nil, relayRecord: DmOutboxRecord? = nil) {
+        self.clientMessageId = clientMessageId; self.text = text; self.serializedEnvelope = serializedEnvelope
+        self.ownerGeneration = ownerGeneration; self.peerGeneration = peerGeneration
+        self.relayServerId = relayServerId; self.relayRecord = relayRecord
+    }
 }
 
 enum DmReceiveResult: Equatable {
@@ -71,6 +79,12 @@ struct DmLifecycleSnapshot: Equatable {
 }
 
 enum DmKnownInbound: Equatable { case unknown, current, historical }
+
+// Only successful stored results carry plaintext, after their durable commit.
+// Deferred means retained for explicit retry, never accepted/read/deleted.
+enum DmInboundSyncResult: Equatable {
+    case stored(DmReceivedMessage), duplicate, historical, deferred, historicalUnresolved
+}
 
 /// One owner/device, one pinned peer and conversation per bounded research store.
 /// The per-instance lock forbids interleaving. Every mutation also CASes the whole
@@ -99,6 +113,17 @@ final class VodozemacDmCoordinator {
         var status: OutboxStatus
         var reason: DmRejectionReason?
     }
+    private enum UnresolvedReason: String, Codable { case messageNotOpened, contentNotBound }
+    private struct UnresolvedItem: Codable {
+        let serverId: Int64
+        let clientMessageId: String
+        let serializedEnvelope: String
+        let relayRecord: DmOutboxRecord?
+        let ownerGeneration: Int64
+        let peerGeneration: Int64
+        let reason: UnresolvedReason
+    }
+    private enum CandidateFailure: Error { case contentNotBound }
     private struct State: Codable {
         let version: Int
         var owner: DmOwnerContext
@@ -114,6 +139,7 @@ final class VodozemacDmCoordinator {
         var session: Session?
         var outbox: [OutboxItem]
         var inbox: [DmReceivedMessage]
+        var unresolved: [UnresolvedItem]
     }
 
     init(store: VodozemacSealedStore, beforeCommitForResearch: (() throws -> Void)? = nil) throws {
@@ -134,9 +160,9 @@ final class VodozemacDmCoordinator {
             throw DmCoordinatorError.conflict
         }
         let account = try newAccount(pickleKey: store.providerPickleKey())
-        let state = State(version: 3, owner: owner, ownerActive: true, credentialEpoch: UUID(), conversationId: conversationId,
+        let state = State(version: 4, owner: owner, ownerActive: true, credentialEpoch: UUID(), conversationId: conversationId,
             identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
-            account: account.accountPickle, peer: nil, session: nil, outbox: [], inbox: [])
+            account: account.accountPickle, peer: nil, session: nil, outbox: [], inbox: [], unresolved: [])
         try validate(state)
         try store.commit(expectedRevision: before.revision, payload: JSONEncoder().encode(state))
         return try VodozemacDmCoordinator(store: store)
@@ -406,6 +432,9 @@ final class VodozemacDmCoordinator {
             guard envelope.senderDeviceId == peer.deviceId, envelope.recipientDeviceId == owner.deviceId else {
                 throw DmCoordinatorError.conflict
             }
+            guard !state.unresolved.contains(where: { $0.clientMessageId == envelope.clientMessageId }) else {
+                throw DmCoordinatorError.conflict // Only explicit retry can promote a queued row.
+            }
             if let old = state.inbox.first(where: { $0.clientMessageId == envelope.clientMessageId }) {
                 guard old.serializedEnvelope.utf8.elementsEqual(serializedEnvelope.utf8),
                       old.ownerGeneration == owner.generation, old.peerGeneration == peerGeneration else {
@@ -413,35 +442,145 @@ final class VodozemacDmCoordinator {
                 }
                 return .duplicate
             }
-            guard state.inbox.count < Self.capacity else { throw DmCoordinatorError.capacity }
+            guard state.inbox.count + state.unresolved.count < Self.capacity else { throw DmCoordinatorError.capacity }
             let key = try store.providerPickleKey()
-            let advanced: Session
-            let plaintext: Data
-            if let session = state.session {
-                // Even prekey-type messages may belong to an established session.
-                // Never replace/reset a session on an authentication failure.
-                let opened = try decrypt(sessionPickle: session.pickle, pickleKey: key, wire: envelope.wire)
-                guard opened.sessionId == session.id else { throw DmCoordinatorError.conflict }
-                advanced = Session(pickle: opened.sessionPickle, id: opened.sessionId)
-                plaintext = opened.plaintext
-            } else {
-                guard Self.initiates(peer.deviceId, owner.deviceId) else { throw DmCoordinatorError.unavailable }
-                let opened = try openSession(accountPickle: state.account, pickleKey: key,
-                    pinnedSenderCurve: peer.curve, wire: envelope.wire)
-                state.account = opened.accountPickle
-                advanced = Session(pickle: opened.sessionPickle, id: opened.sessionId)
-                plaintext = opened.plaintext
-            }
-            let expected = Self.context(state, peer: peer, messageId: envelope.clientMessageId,
-                                        sessionId: advanced.id, outbound: false)
-            let text = try DmContentCodec.decode(plaintext, expected: expected)
-            let message = DmReceivedMessage(clientMessageId: envelope.clientMessageId, text: text,
-                serializedEnvelope: serializedEnvelope, ownerGeneration: owner.generation, peerGeneration: peerGeneration)
-            state.session = advanced
-            state.inbox.append(message)
+            let message: DmReceivedMessage
+            do { message = try Self.openCandidate(serializedEnvelope, envelope: envelope, peer: peer, state: &state, key: key) }
+            catch CandidateFailure.contentNotBound { throw DmFrameError.invalidInput }
             try persist(state, revision: revision, fault: fault)
             return .stored(message) // Plaintext is never exposed before commit.
         }
+    }
+
+    /// Bounded native-only unresolved ledger. No caller-supplied failure reason
+    /// is trusted. Only the provider's typed incoming-message failure or a
+    /// narrowly isolated authenticated-content failure can retain ciphertext.
+    /// Storage/key/identity/frame/CAS/capacity errors remain fatal to the batch.
+    func receiveOrDeferForResearch(serverId: Int64, serializedEnvelope: String,
+                                  relayRecord: DmOutboxRecord? = nil,
+                                  owner: DmOwnerContext, peerGeneration: Int64, credentialEpoch: UUID,
+                                  fault: VodozemacSealedStore.CommitFault = .none) throws -> DmInboundSyncResult {
+        try withState { revision, state in
+            let peer = try Self.requirePeer(owner, peerGeneration, state)
+            try Self.requireEpoch(credentialEpoch, state)
+            guard (1...Self.generationMax).contains(serverId) else { throw DmCoordinatorError.invalidInput }
+            let envelope = try DmEnvelope.decode(serializedEnvelope)
+            guard envelope.senderDeviceId == peer.deviceId, envelope.recipientDeviceId == owner.deviceId else {
+                throw DmCoordinatorError.conflict
+            }
+            if let record = relayRecord { try Self.validateInboundRecord(record, envelope: serializedEnvelope, state: state, peer: peer) }
+            if let saved = state.unresolved.first(where: { $0.serverId == serverId || $0.clientMessageId == envelope.clientMessageId }) {
+                guard saved.serverId == serverId, saved.clientMessageId == envelope.clientMessageId,
+                      saved.serializedEnvelope.utf8.elementsEqual(serializedEnvelope.utf8),
+                      Self.exactOptionalRecord(saved.relayRecord, relayRecord) else {
+                    throw DmCoordinatorError.conflict
+                }
+                // Rescans NEVER retry decryption, even after other messages have
+                // advanced the session. Explicit native retry is required.
+                return saved.ownerGeneration == owner.generation && saved.peerGeneration == peerGeneration
+                    ? .deferred : .historicalUnresolved
+            }
+            if let old = state.inbox.first(where: { $0.clientMessageId == envelope.clientMessageId || $0.relayServerId == serverId }) {
+                guard old.clientMessageId == envelope.clientMessageId,
+                      old.serializedEnvelope.utf8.elementsEqual(serializedEnvelope.utf8) else { throw DmCoordinatorError.conflict }
+                if let bound = old.relayServerId {
+                    guard bound == serverId, Self.exactOptionalRecord(old.relayRecord, relayRecord) else { throw DmCoordinatorError.conflict }
+                }
+                return old.ownerGeneration == owner.generation && old.peerGeneration == peerGeneration ? .duplicate : .historical
+            }
+            guard state.inbox.count + state.unresolved.count < Self.capacity else { throw DmCoordinatorError.capacity }
+            let key = try store.providerPickleKey()
+            var trial = state // Speculative account/OTK/session changes MUST NOT enter a deferred commit.
+            var reason: UnresolvedReason?
+            var message: DmReceivedMessage?
+            do {
+                message = try Self.openCandidate(serializedEnvelope, envelope: envelope, peer: peer, state: &trial, key: key,
+                                                 serverId: serverId, relayRecord: relayRecord)
+            } catch NativeCryptoError.MessageNotOpened { reason = .messageNotOpened }
+              catch CandidateFailure.contentNotBound { reason = .contentNotBound }
+            if let message = message {
+                try persist(trial, revision: revision, fault: fault)
+                return .stored(message)
+            }
+            guard let reason = reason else { throw DmCoordinatorError.unavailable }
+            state.unresolved.append(UnresolvedItem(serverId: serverId, clientMessageId: envelope.clientMessageId,
+                serializedEnvelope: serializedEnvelope, relayRecord: relayRecord, ownerGeneration: owner.generation,
+                peerGeneration: peerGeneration, reason: reason))
+            try persist(state, revision: revision, fault: fault)
+            return .deferred // No plaintext or rejected/read receipt.
+        }
+    }
+
+    /// Retry the exact saved row, under its original local lifecycle only.
+    /// Success atomically promotes queue -> inbox with the advanced ratchet.
+    /// Failure retains original ciphertext and crypto state, with a sealed CAS
+    /// even for a repeated failed attempt. Nothing is silently evicted/rebound.
+    func retryUnresolvedForResearch(serverId: Int64, owner: DmOwnerContext, peerGeneration: Int64,
+                                   credentialEpoch: UUID,
+                                   fault: VodozemacSealedStore.CommitFault = .none) throws -> DmInboundSyncResult {
+        try withState { revision, state in
+            let peer = try Self.requirePeer(owner, peerGeneration, state)
+            try Self.requireEpoch(credentialEpoch, state)
+            guard let index = state.unresolved.firstIndex(where: { $0.serverId == serverId }) else { throw DmCoordinatorError.conflict }
+            let saved = state.unresolved[index]
+            guard saved.ownerGeneration == owner.generation, saved.peerGeneration == peerGeneration else {
+                throw DmCoordinatorError.unavailable
+            }
+            let envelope = try DmEnvelope.decode(saved.serializedEnvelope)
+            let key = try store.providerPickleKey()
+            var trial = state
+            trial.unresolved.remove(at: index)
+            var message: DmReceivedMessage?
+            do {
+                message = try Self.openCandidate(saved.serializedEnvelope, envelope: envelope, peer: peer, state: &trial, key: key,
+                                                 serverId: saved.serverId, relayRecord: saved.relayRecord)
+            } catch NativeCryptoError.MessageNotOpened { /* Retain original state. */ }
+              catch CandidateFailure.contentNotBound { /* Retain original state. */ }
+            if let message = message {
+                try persist(trial, revision: revision, fault: fault)
+                return .stored(message)
+            }
+            try persist(state, revision: revision, fault: fault)
+            return .deferred
+        }
+    }
+
+    func unresolvedCountForResearch(owner: DmOwnerContext, peerGeneration: Int64) throws -> Int {
+        try withState { _, state in
+            _ = try Self.requirePeer(owner, peerGeneration, state)
+            return state.unresolved.filter { $0.ownerGeneration == owner.generation && $0.peerGeneration == peerGeneration }.count
+        }
+    }
+
+    /// Operates on a caller-owned trial snapshot only, never persistence.
+    private static func openCandidate(_ serializedEnvelope: String, envelope: DmEnvelope, peer: DmPeerContext,
+                                      state: inout State, key: Data, serverId: Int64? = nil,
+                                      relayRecord: DmOutboxRecord? = nil) throws -> DmReceivedMessage {
+        let advanced: Session
+        let plaintext: Data
+        if let session = state.session {
+            let opened = try decrypt(sessionPickle: session.pickle, pickleKey: key, wire: envelope.wire)
+            guard opened.sessionId == session.id else { throw DmCoordinatorError.conflict }
+            advanced = Session(pickle: opened.sessionPickle, id: opened.sessionId)
+            plaintext = opened.plaintext
+        } else {
+            guard initiates(peer.deviceId, state.owner.deviceId) else { throw DmCoordinatorError.unavailable }
+            let opened = try openSession(accountPickle: state.account, pickleKey: key, pinnedSenderCurve: peer.curve, wire: envelope.wire)
+            state.account = opened.accountPickle
+            advanced = Session(pickle: opened.sessionPickle, id: opened.sessionId)
+            plaintext = opened.plaintext
+        }
+        let expected = context(state, peer: peer, messageId: envelope.clientMessageId, sessionId: advanced.id, outbound: false)
+        try DmContentCodec.validateContext(expected) // Local metadata failure is NOT deferred.
+        let text: String
+        do { text = try DmContentCodec.decode(plaintext, expected: expected) }
+        catch DmFrameError.invalidInput { throw CandidateFailure.contentNotBound }
+        let message = DmReceivedMessage(clientMessageId: envelope.clientMessageId, text: text,
+            serializedEnvelope: serializedEnvelope, ownerGeneration: state.owner.generation, peerGeneration: peer.generation,
+            relayServerId: serverId, relayRecord: relayRecord)
+        state.session = advanced
+        state.inbox.append(message)
+        return message
     }
 
     /// Explicit read-only rescan reconciliation. Identities are immutable in
@@ -575,6 +714,22 @@ final class VodozemacDmCoordinator {
             && a.serializedEnvelope.utf8.elementsEqual(b.serializedEnvelope.utf8)
     }
 
+    private static func exactOptionalRecord(_ a: DmOutboxRecord?, _ b: DmOutboxRecord?) -> Bool {
+        switch (a, b) {
+        case (nil, nil): return true
+        case (.some(let a), .some(let b)): return exactRecord(a, b)
+        default: return false
+        }
+    }
+
+    private static func validateInboundRecord(_ record: DmOutboxRecord, envelope: String, state: State, peer: DmPeerContext) throws {
+        guard record.serializedEnvelope.utf8.elementsEqual(envelope.utf8), record.ownerUserId == peer.userId,
+              record.recipientUserId == state.owner.userId, record.recipientIdentityKeyId == state.identityKeyId,
+              (0...generationMax).contains(record.ownerSessionGeneration),
+              (0...generationMax).contains(record.recipientIdentityGeneration) else { throw DmCoordinatorError.conflict }
+        _ = try DmRelayCodec.outboxWire(record)
+    }
+
     private static func initiates(_ device: String, _ peer: String) -> Bool {
         device.utf8.lexicographicallyPrecedes(peer.utf8)
     }
@@ -620,8 +775,8 @@ final class VodozemacDmCoordinator {
     private static func validate(_ state: State) throws {
         // Older research snapshots are refused, never recreated/migrated into
         // a newly active identity. A shipping migration remains separate work.
-        guard state.version == 3, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
-              state.outbox.count <= capacity, state.inbox.count <= capacity else {
+        guard state.version == 4, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
+              state.outbox.count <= capacity, state.inbox.count + state.unresolved.count <= capacity else {
             throw DmCoordinatorError.unsupportedState
         }
         try validateOwner(state.owner)
@@ -631,7 +786,7 @@ final class VodozemacDmCoordinator {
         try validateKey(state.signingKey)
         try validateKey(state.prekey)
         guard let peer = state.peer else {
-            guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty else {
+            guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty, state.unresolved.isEmpty else {
                 throw DmCoordinatorError.unsupportedState
             }
             return
@@ -644,7 +799,9 @@ final class VodozemacDmCoordinator {
             }
         } else if !state.outbox.isEmpty || !state.inbox.isEmpty { throw DmCoordinatorError.unsupportedState }
         guard Set(state.outbox.map(\.messageId)).count == state.outbox.count,
-              Set(state.inbox.map(\.clientMessageId)).count == state.inbox.count else {
+              Set(state.inbox.map(\.clientMessageId) + state.unresolved.map(\.clientMessageId)).count == state.inbox.count + state.unresolved.count,
+              Set(state.inbox.compactMap(\.relayServerId) + state.unresolved.map(\.serverId)).count
+                == state.inbox.compactMap(\.relayServerId).count + state.unresolved.count else {
             throw DmCoordinatorError.unsupportedState
         }
         for item in state.outbox {
@@ -667,6 +824,25 @@ final class VodozemacDmCoordinator {
                   (0...peer.generation).contains(message.peerGeneration),
                   message.text.utf8.count <= DmContentCodec.maxTextBytes else {
                 throw DmCoordinatorError.unsupportedState
+            }
+            if let serverId = message.relayServerId {
+                guard (1...generationMax).contains(serverId) else { throw DmCoordinatorError.unsupportedState }
+            }
+            if let record = message.relayRecord {
+                guard message.relayServerId != nil else { throw DmCoordinatorError.unsupportedState }
+                try validateInboundRecord(record, envelope: message.serializedEnvelope, state: state, peer: peer)
+            }
+        }
+        for item in state.unresolved {
+            let frame = try DmEnvelope.decode(item.serializedEnvelope)
+            guard (1...generationMax).contains(item.serverId), item.clientMessageId == frame.clientMessageId,
+                  frame.senderDeviceId == peer.deviceId, frame.recipientDeviceId == state.owner.deviceId,
+                  (0...state.owner.generation).contains(item.ownerGeneration),
+                  (0...peer.generation).contains(item.peerGeneration) else {
+                throw DmCoordinatorError.unsupportedState
+            }
+            if let record = item.relayRecord {
+                try validateInboundRecord(record, envelope: item.serializedEnvelope, state: state, peer: peer)
             }
         }
     }
