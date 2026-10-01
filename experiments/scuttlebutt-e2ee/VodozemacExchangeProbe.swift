@@ -142,6 +142,8 @@ private func runExchange(_ args: ExchangeArguments) async throws {
         _ = try runDmCoordinatorProbe(root: FileManager.default.temporaryDirectory)
         let lifecycleChecks = try runLifecycleProbeForResearch()
         print("PASS isolated native lifecycle assertions: \(lifecycleChecks)")
+        let unresolvedChecks = try runUnresolvedProbeForResearch()
+        print("PASS isolated native unresolved assertions: \(unresolvedChecks)")
         let now = Int64(Date().timeIntervalSince1970)
         for (person, prekey) in [(alice, "alice-prekey"), (bob, "bob-prekey")] {
             try await person.client.registerForResearch(prekeyId: prekey, expiresAt: now + 3600, now: now,
@@ -187,18 +189,15 @@ private func runExchange(_ args: ExchangeArguments) async throws {
             throw ExchangeFailure.assertion("malformed-batch-accepted")
         } catch is DmCoordinatorError { /* Whole batch validated before mutation. */ }
         try exchangeRequire(try stateBytes(bStore) == bobBefore, "bad-final-row-preserves-entire-inbox")
-        // Structural validation cannot prove ciphertext authenticity. A valid
-        // first row commits; an undecryptable second row fails closed. A repeat
-        // must not roll back/reveal/re-encrypt the committed first receive.
-        for _ in 0..<2 {
-            do {
-                _ = try await bob.sync("partial-poison-list")
-                throw ExchangeFailure.assertion("poison-ciphertext-accepted")
-            } catch is NativeCryptoError { /* Authentication/replay refused. */ }
-              catch is DmFrameError { /* Authenticated context refused. */ }
-              catch is DmCoordinatorError { /* Context/session refused. */ }
+        // Structural validity doesn't prove ciphertext authenticity. Preserve
+        // the exact poisoned row without plaintext or speculative ratchet state.
+        for attempt in 0..<2 {
+            let report = try await bob.sync("partial-poison-list")
+            try exchangeRequire(report == DmRelayInboxReport(stored: attempt == 0 ? 1 : 0,
+                duplicates: attempt == 0 ? 0 : 1, unresolved: 1), "typed-poison-retained-not-delivered")
             try exchangeRequire(try b.history(owner: bo, peerGeneration: generation).map(\.text) == [ExchangeFixture.opening],
                                 "partial-receive-durable-poison-not-stored")
+            try exchangeRequire(try b.unresolvedCountForResearch(owner: bo, peerGeneration: generation) == 1, "one-exact-unresolved-row")
         }
         let first = try await bob.sync("opening-read")
         try exchangeRequire(first == DmRelayInboxReport(stored: 0, duplicates: 1), "partial-receive-rescan-duplicate")
@@ -206,6 +205,7 @@ private func runExchange(_ args: ExchangeArguments) async throws {
         try exchangeRequire(duplicated == DmRelayInboxReport(stored: 0, duplicates: 1), "durable-duplicate-no-plaintext")
         try exchangeRequire(try b.history(owner: bo, peerGeneration: generation).map(\.text) == [ExchangeFixture.opening], "native-opening-history")
     case "reply":
+        try exchangeRequire(try b.unresolvedCountForResearch(owner: bo, peerGeneration: generation) == 1, "unresolved-survives-process-restart")
         let record = try b.prepare(clientMessageId: "exchange-reply", text: ExchangeFixture.reply, owner: bo, peerGeneration: generation)
         try exchangeRequire(try DmEnvelope.decode(record.serializedEnvelope).wire.messageType == 1, "real-olm-reply-session")
         let receipt = try await bob.send(record, nonce: "send-reply")
@@ -217,10 +217,14 @@ private func runExchange(_ args: ExchangeArguments) async throws {
         let receipt = try await alice.send(record, nonce: "send-successor")
         try exchangeRequire(receipt == .accepted(record), "successor-committed")
         let result = try await bob.sync("read-successor")
-        try exchangeRequire(result == DmRelayInboxReport(stored: 1, duplicates: 1), "rescan-retains-old-and-new")
+        try exchangeRequire(result == DmRelayInboxReport(stored: 1, duplicates: 1, unresolved: 1), "poison-before-successor-does-not-block-new")
     case "verify":
         let result = try await bob.sync("verify-restart")
-        try exchangeRequire(result == DmRelayInboxReport(stored: 0, duplicates: 2), "process-restart-durable-inbox")
+        try exchangeRequire(result == DmRelayInboxReport(stored: 0, duplicates: 2, unresolved: 1), "process-restart-durable-inbox-and-unresolved")
+        let beforePoisonRetry = try stateBytes(bStore)
+        try exchangeRequire(try b.retryUnresolvedForResearch(serverId: 2, owner: bo, peerGeneration: generation,
+            credentialEpoch: bob.credential.context.credentialEpoch) == .deferred, "explicit-poison-retry-retains-row")
+        try exchangeRequire(try stateBytes(bStore) == beforePoisonRetry, "failed-retry-preserves-entire-payload")
         try exchangeRequire(try a.pending(owner: ao, peerGeneration: generation).isEmpty && b.pending(owner: bo, peerGeneration: generation).isEmpty,
                             "process-restart-durable-receipts")
         try exchangeRequire(try a.history(owner: ao, peerGeneration: generation).map(\.text) == [ExchangeFixture.reply], "native-reply-history")
@@ -230,7 +234,12 @@ private func runExchange(_ args: ExchangeArguments) async throws {
         try exchangeRequire(blocked == generation + 1 && reaccepted == generation + 2, "peer-lifecycle-monotonic")
         let changedPeer = try ExchangeParticipant(coordinator: b, owner: bo, origin: args.origin, generation: reaccepted)
         let peerRescan = try await changedPeer.sync("old-peer-generation-rescan")
-        try exchangeRequire(peerRescan == DmRelayInboxReport(stored: 0, duplicates: 0, historical: 2), "old-peer-known-reconciliation")
+        try exchangeRequire(peerRescan == DmRelayInboxReport(stored: 0, duplicates: 0, historical: 2, historicalUnresolved: 1), "old-peer-known-reconciliation")
+        do {
+            _ = try b.retryUnresolvedForResearch(serverId: 2, owner: bo, peerGeneration: reaccepted,
+                credentialEpoch: changedPeer.credential.context.credentialEpoch)
+            throw ExchangeFailure.assertion("old-peer-unresolved-rebound")
+        } catch DmCoordinatorError.unavailable { /* Old queue cannot be rebound. */ }
         try exchangeRequire(try b.history(owner: bo, peerGeneration: reaccepted).isEmpty, "old-peer-history-hidden")
         // Even a caller returning its captured context cannot defeat the sealed
         // credential epoch. Renewal must fence HTTP before a request is sent.
@@ -268,7 +277,7 @@ private func runExchange(_ args: ExchangeArguments) async throws {
         try exchangeRequire(resumed.active && resumed.owner.generation == bo.generation + 2, "native-resume-generation")
         let current = try ExchangeParticipant(coordinator: b, owner: resumed.owner, origin: args.origin, generation: reaccepted)
         let ownerRescan = try await current.sync("old-generation-rescan")
-        try exchangeRequire(ownerRescan == DmRelayInboxReport(stored: 0, duplicates: 0, historical: 2), "old-owner-known-reconciliation")
+        try exchangeRequire(ownerRescan == DmRelayInboxReport(stored: 0, duplicates: 0, historical: 2, historicalUnresolved: 1), "old-owner-known-reconciliation")
         try exchangeRequire(try b.history(owner: resumed.owner, peerGeneration: reaccepted).isEmpty, "old-generation-history-hidden")
     case "recovery":
         try exchangeRequire(bobOwner.generation == bo.generation + 2, "resumed-owner-process-restart")
@@ -276,11 +285,11 @@ private func runExchange(_ args: ExchangeArguments) async throws {
         let receipt = try await alice.send(record, nonce: "send-recovery")
         try exchangeRequire(receipt == .accepted(record), "recovery-new-ciphertext-committed")
         let report = try await bob.sync("recovery-after-restart")
-        try exchangeRequire(report == DmRelayInboxReport(stored: 1, duplicates: 0, historical: 2), "recovered-inbox-new-message")
+        try exchangeRequire(report == DmRelayInboxReport(stored: 1, duplicates: 0, historical: 2, historicalUnresolved: 1), "recovered-inbox-new-message")
         try exchangeRequire(try b.history(owner: bobOwner, peerGeneration: bobGeneration).map(\.text) == [ExchangeFixture.recovery],
                             "recovered-current-history-only")
         let duplicate = try await bob.sync("recovery-rescan")
-        try exchangeRequire(duplicate == DmRelayInboxReport(stored: 0, duplicates: 1, historical: 2), "recovered-known-exact-rescan")
+        try exchangeRequire(duplicate == DmRelayInboxReport(stored: 0, duplicates: 1, historical: 2, historicalUnresolved: 1), "recovered-known-exact-rescan")
     default: throw ExchangeFailure.configuration
     }
 }
@@ -323,6 +332,7 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
             } catch {
                 let stage: String
                 if case ExchangeFailure.assertion(let label) = error { stage = "check-" + label }
+                else if case DmUnresolvedProbeError.assertion(let label) = error { stage = "unresolved-check-" + label }
                 else if error is DmCoordinatorError { stage = "native-state-or-result-refused" }
                 else if error is DmRelayTransportError { stage = "network-unresolved" }
                 else if error is VodozemacSealedStoreError { stage = "sealed-store-refused" }

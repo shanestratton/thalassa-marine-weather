@@ -11,8 +11,11 @@
 //! and the returned plaintext have copies outside these buffers' control.
 
 use vodozemac::{
-    Curve25519PublicKey,
-    olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle},
+    Curve25519PublicKey, DecodeError,
+    olm::{
+        Account, AccountPickle, DecryptionError, OlmMessage, Session, SessionConfig,
+        SessionCreationError, SessionPickle,
+    },
 };
 use zeroize::Zeroizing;
 
@@ -32,6 +35,12 @@ pub enum NativeCryptoError {
     InvalidInput,
     #[error("Native crypto operation failed")]
     OperationFailed,
+    // Only this narrowly classified incoming-message failure may be considered
+    // for native quarantine. It is NOT evidence of malicious intent or permanent
+    // failure: out-of-order/replayed traffic can also fail to open. No local
+    // pickle/config/key/store/encrypt failure becomes this variant.
+    #[error("Incoming native message not opened")]
+    MessageNotOpened,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -139,10 +148,49 @@ fn store_session(session: &Session, key: &[u8; 32]) -> Result<String, NativeCryp
 
 fn decode_wire(wire: WireMessage) -> Result<OlmMessage, NativeCryptoError> {
     if wire.message_type > 1 || wire.body.is_empty() || wire.body.len() > MAX_WIRE_BYTES {
-        return Err(NativeCryptoError::InvalidInput);
+        return Err(NativeCryptoError::MessageNotOpened);
     }
-    OlmMessage::from_parts(wire.message_type as usize, &wire.body)
-        .map_err(|_| NativeCryptoError::OperationFailed)
+    OlmMessage::from_parts(wire.message_type as usize, &wire.body).map_err(message_decode_error)
+}
+
+// Exhaustive matches deliberately track the pinned upstream error vocabulary.
+// A provider upgrade adding a failure mode must require a new classification;
+// a catch-all must never silently turn an internal/state failure into a row
+// that the caller can skip. Nothing formats upstream error details.
+fn message_decode_error(error: DecodeError) -> NativeCryptoError {
+    match error {
+        DecodeError::MessageType(_)
+        | DecodeError::MissingVersion
+        | DecodeError::MessageTooShort(_)
+        | DecodeError::InvalidVersion(_, _)
+        | DecodeError::InvalidKey(_)
+        | DecodeError::InvalidMacLength(_, _)
+        | DecodeError::Signature(_)
+        | DecodeError::ProtoBufError(_)
+        | DecodeError::Base64(_) => NativeCryptoError::MessageNotOpened,
+    }
+}
+
+fn message_decryption_error(error: DecryptionError) -> NativeCryptoError {
+    match error {
+        DecryptionError::InvalidMAC(_)
+        | DecryptionError::InvalidMACLength(_, _)
+        | DecryptionError::InvalidPadding(_)
+        | DecryptionError::NonContributoryKey
+        | DecryptionError::MissingMessageKey(_)
+        | DecryptionError::TooBigMessageGap(_, _) => NativeCryptoError::MessageNotOpened,
+    }
+}
+
+fn inbound_session_error(error: SessionCreationError) -> NativeCryptoError {
+    match error {
+        SessionCreationError::MissingOneTimeKey(_)
+        | SessionCreationError::MismatchedIdentityKey(_, _)
+        | SessionCreationError::NonContributoryKey => NativeCryptoError::MessageNotOpened,
+        SessionCreationError::Decryption(error) => message_decryption_error(error),
+        // No protocol/configuration downgrade, fallback or automatic reset.
+        SessionCreationError::MismatchedSessionConfig { .. } => NativeCryptoError::OperationFailed,
+    }
 }
 
 /// Synthetic single-prekey account. Does not publish or authenticate anything.
@@ -256,13 +304,15 @@ pub fn open_session(
     let pickle_key = Zeroizing::new(pickle_key);
     let key = key_bytes(&pickle_key)?;
     let sender = curve_key(&pinned_sender_curve)?;
-    let OlmMessage::PreKey(prekey) = decode_wire(wire)? else {
-        return Err(NativeCryptoError::InvalidInput);
-    };
+    // Establish that local state is usable before examining untrusted wire.
+    // Damaged ciphertext cannot mask a corrupt/wrong-key account as skippable.
     let mut account = account_from(&account_pickle, key)?;
+    let OlmMessage::PreKey(prekey) = decode_wire(wire)? else {
+        return Err(NativeCryptoError::MessageNotOpened);
+    };
     let opened = account
         .create_inbound_session(SessionConfig::version_1(), sender, &prekey)
-        .map_err(|_| NativeCryptoError::OperationFailed)?;
+        .map_err(inbound_session_error)?;
     let plaintext = Zeroizing::new(opened.plaintext);
     if plaintext.len() > MAX_PLAINTEXT_BYTES {
         return Err(NativeCryptoError::OperationFailed);
@@ -285,20 +335,28 @@ pub fn decrypt(
 ) -> Result<DecryptedMessage, NativeCryptoError> {
     let pickle_key = Zeroizing::new(pickle_key);
     let key = key_bytes(&pickle_key)?;
-    let wire = decode_wire(wire)?;
+    // Restore/authenticate the local session first. State/configuration errors
+    // remain fail-closed even when an attacker also supplies malformed wire.
     let mut session = session_from(&session_pickle, key)?;
+    let wire = decode_wire(wire)?;
+    let message_version = match &wire {
+        OlmMessage::Normal(message) => message.version(),
+        OlmMessage::PreKey(prekey) => prekey.message().version(),
+    };
+    // The pinned provider's Olm v1 message version is 3 (truncated MAC).
+    // Existing-session decryption otherwise reports a v4/config mismatch as
+    // InvalidMACLength, which must not turn a protocol change into quarantine.
+    if message_version != 3 {
+        return Err(NativeCryptoError::OperationFailed);
+    }
     // Upstream decrypt authenticates the inner message; on an existing session
     // it does not compare the surrounding prekey header to that session.
     if let OlmMessage::PreKey(prekey) = &wire {
         if prekey.session_keys() != session.session_keys() {
-            return Err(NativeCryptoError::OperationFailed);
+            return Err(NativeCryptoError::MessageNotOpened);
         }
     }
-    let plaintext = Zeroizing::new(
-        session
-            .decrypt(&wire)
-            .map_err(|_| NativeCryptoError::OperationFailed)?,
-    );
+    let plaintext = Zeroizing::new(session.decrypt(&wire).map_err(message_decryption_error)?);
     if plaintext.len() > MAX_PLAINTEXT_BYTES {
         return Err(NativeCryptoError::OperationFailed);
     }

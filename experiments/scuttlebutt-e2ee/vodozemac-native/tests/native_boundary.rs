@@ -7,7 +7,10 @@ use thalassa_vodozemac_native::{
 };
 use vodozemac::{
     Ed25519PublicKey, Ed25519Signature,
-    olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle},
+    olm::{
+        Account, AccountPickle, DecryptionError, OlmMessage, PreKeyMessage, Session, SessionConfig,
+        SessionCreationError, SessionPickle,
+    },
 };
 
 fn must<T>(result: Result<T, NativeCryptoError>) -> T {
@@ -56,6 +59,114 @@ fn established() -> (String, String, String) {
         reply.session_pickle,
         session.session_id,
     )
+}
+
+fn restored_account(pickle: &str, key: &[u8; 32]) -> Account {
+    Account::from_pickle(
+        AccountPickle::from_encrypted(pickle, key)
+            .unwrap_or_else(|_| panic!("restore synthetic account fixture")),
+    )
+}
+
+fn restored_session(pickle: &str, key: &[u8; 32]) -> Session {
+    Session::from_pickle(
+        SessionPickle::from_encrypted(pickle, key)
+            .unwrap_or_else(|_| panic!("restore synthetic session fixture")),
+    )
+}
+
+fn corrupted_pickle(pickle: &str) -> String {
+    let mut changed = pickle.as_bytes().to_vec();
+    changed[8] = if changed[8] == b'A' { b'B' } else { b'A' };
+    String::from_utf8(changed).expect("synthetic pickle is Base64 ASCII")
+}
+
+fn damaged_wires() -> Vec<WireMessage> {
+    vec![
+        WireMessage {
+            message_type: 2,
+            body: vec![0],
+        },
+        WireMessage {
+            message_type: 1,
+            body: Vec::new(),
+        },
+        WireMessage {
+            message_type: 0,
+            body: vec![0],
+        },
+        WireMessage {
+            message_type: 1,
+            body: vec![3],
+        },
+        WireMessage {
+            message_type: 1,
+            body: vec![0; MAX_WIRE_BYTES + 1],
+        },
+    ]
+}
+
+fn wire_from_provider(message: OlmMessage) -> WireMessage {
+    let (message_type, body) = message.to_parts();
+    WireMessage {
+        message_type: message_type as u32,
+        body,
+    }
+}
+
+fn append_varint(bytes: &mut Vec<u8>, mut value: u64) {
+    while value >= 128 {
+        bytes.push((value as u8 & 0x7f) | 0x80);
+        value >>= 7;
+    }
+    bytes.push(value as u8);
+}
+
+// Rebuild synthetic public protobuf wire, never pickle/provider internals.
+// This lets tests present structurally valid but unsupported-version traffic
+// without enabling the provider's experimental features or changing crypto.
+fn prekey_with_inner(prekey: &PreKeyMessage, inner: &[u8]) -> WireMessage {
+    let mut body = vec![3];
+    for (tag, key) in [
+        (0x0a, prekey.one_time_key()),
+        (0x12, prekey.base_key()),
+        (0x1a, prekey.identity_key()),
+    ] {
+        body.extend([tag, 32]);
+        body.extend(key.as_bytes());
+    }
+    body.push(0x22);
+    append_varint(&mut body, inner.len() as u64);
+    body.extend(inner);
+    WireMessage {
+        message_type: 0,
+        body,
+    }
+}
+
+fn unsupported_config_wire(wire: &WireMessage) -> WireMessage {
+    let decoded = OlmMessage::from_parts(wire.message_type as usize, &wire.body)
+        .unwrap_or_else(|_| panic!("decode synthetic configuration fixture"));
+    let (mut inner, prekey) = match decoded {
+        OlmMessage::Normal(message) => (message.to_bytes(), None),
+        OlmMessage::PreKey(prekey) => (prekey.message().to_bytes(), Some(prekey)),
+    };
+    assert!(
+        inner[0] == 3,
+        "fixture begins with supported truncated-MAC message"
+    );
+    // v4 expects 32 MAC bytes rather than v3's 8; extend by the difference.
+    // This is not a valid authenticated v4 message, but its encoding is valid
+    // and identifies a protocol/configuration mismatch before auth is tried.
+    inner[0] = 4;
+    inner.extend([0; 24]);
+    match prekey {
+        Some(prekey) => prekey_with_inner(&prekey, &inner),
+        None => WireMessage {
+            message_type: 1,
+            body: inner,
+        },
+    }
 }
 
 #[test]
@@ -301,13 +412,13 @@ fn tampering_rejects_and_retry_with_unchanged_input_succeeds_then_replay_fails()
     *changed.body.last_mut().expect("synthetic message has MAC") ^= 1;
     assert!(matches!(
         decrypt(bob.clone(), vec![9; 32], changed),
-        Err(NativeCryptoError::OperationFailed)
+        Err(NativeCryptoError::MessageNotOpened)
     ));
     let received = must(decrypt(bob, vec![9; 32], sent.wire.clone()));
     assert!(received.plaintext == b"authenticated");
     assert!(matches!(
         decrypt(received.session_pickle, vec![9; 32], sent.wire),
-        Err(NativeCryptoError::OperationFailed)
+        Err(NativeCryptoError::MessageNotOpened)
     ));
 }
 
@@ -324,30 +435,42 @@ fn three_out_of_order_messages_decrypt_once_each() {
         let received = must(decrypt(bob, vec![9; 32], messages[index].clone()));
         assert!(received.plaintext == [index as u8]);
         bob = received.session_pickle;
-        assert!(decrypt(bob.clone(), vec![9; 32], messages[index].clone()).is_err());
+        assert!(matches!(
+            decrypt(bob.clone(), vec![9; 32], messages[index].clone()),
+            Err(NativeCryptoError::MessageNotOpened)
+        ));
     }
 }
 
 #[test]
 fn wrong_pickle_key_and_corrupted_pickle_reject() {
     let (alice, bob, _) = established();
-    assert!(encrypt(alice.clone(), vec![8; 32], b"no".to_vec()).is_err());
+    assert!(matches!(
+        encrypt(alice.clone(), vec![8; 32], b"no".to_vec()),
+        Err(NativeCryptoError::OperationFailed)
+    ));
     let sent = must(encrypt(alice.clone(), vec![7; 32], b"yes".to_vec()));
-    assert!(decrypt(bob, vec![8; 32], sent.wire).is_err());
+    assert!(matches!(
+        decrypt(bob, vec![8; 32], sent.wire),
+        Err(NativeCryptoError::OperationFailed)
+    ));
     let mut corrupted = alice.into_bytes();
     corrupted[8] = if corrupted[8] == b'A' { b'B' } else { b'A' };
     let corrupted = String::from_utf8(corrupted).expect("base64 ASCII fixture");
-    assert!(encrypt(corrupted, vec![7; 32], b"no".to_vec()).is_err());
+    assert!(matches!(
+        encrypt(corrupted, vec![7; 32], b"no".to_vec()),
+        Err(NativeCryptoError::OperationFailed)
+    ));
     let (account, peer) = accounts();
-    assert!(
+    assert!(matches!(
         start_session(
             account.account_pickle,
             vec![8; 32],
             peer.identity_curve,
             peer.one_time_key
-        )
-        .is_err()
-    );
+        ),
+        Err(NativeCryptoError::OperationFailed)
+    ));
 }
 
 #[test]
@@ -365,26 +488,26 @@ fn pinned_sender_and_opening_tamper_fail_without_consuming_prekey() {
         vec![7; 32],
         b"opening".to_vec(),
     ));
-    assert!(
+    assert!(matches!(
         open_session(
             bob.account_pickle.clone(),
             vec![9; 32],
             other.identity_curve,
             sent.wire.clone()
-        )
-        .is_err()
-    );
+        ),
+        Err(NativeCryptoError::MessageNotOpened)
+    ));
     let mut tampered = sent.wire.clone();
     *tampered.body.last_mut().expect("synthetic opening has MAC") ^= 1;
-    assert!(
+    assert!(matches!(
         open_session(
             bob.account_pickle.clone(),
             vec![9; 32],
             alice.identity_curve.clone(),
             tampered
-        )
-        .is_err()
-    );
+        ),
+        Err(NativeCryptoError::MessageNotOpened)
+    ));
     let opened = must(open_session(
         bob.account_pickle,
         vec![9; 32],
@@ -393,15 +516,15 @@ fn pinned_sender_and_opening_tamper_fail_without_consuming_prekey() {
     ));
     assert!(opened.plaintext == b"opening");
     // New account snapshot consumed the single prekey. Reusing it is rejected.
-    assert!(
+    assert!(matches!(
         open_session(
             opened.account_pickle,
             vec![9; 32],
             alice.identity_curve,
             sent.wire
-        )
-        .is_err()
-    );
+        ),
+        Err(NativeCryptoError::MessageNotOpened)
+    ));
 }
 
 #[test]
@@ -446,12 +569,15 @@ fn existing_session_checks_prekey_outer_header_before_inner_decryption() {
         raw.decrypt(&decoded).is_ok(),
         "upstream alone ignores existing-session outer keys"
     );
-    assert!(decrypt(opened.session_pickle.clone(), vec![9; 32], altered).is_err());
+    assert!(matches!(
+        decrypt(opened.session_pickle.clone(), vec![9; 32], altered),
+        Err(NativeCryptoError::MessageNotOpened)
+    ));
     assert!(must(decrypt(opened.session_pickle, vec![9; 32], second.wire)).plaintext == b"second");
 }
 
 #[test]
-fn malformed_types_sizes_and_keys_reject_before_provider_work() {
+fn malformed_wire_is_message_failure_but_local_bounds_remain_input_failure() {
     for size in [0, 31, 33] {
         assert!(matches!(
             new_account(vec![1; size]),
@@ -479,7 +605,7 @@ fn malformed_types_sizes_and_keys_reject_before_provider_work() {
     ] {
         assert!(matches!(
             decrypt(bob.clone(), vec![9; 32], wire),
-            Err(NativeCryptoError::InvalidInput)
+            Err(NativeCryptoError::MessageNotOpened)
         ));
     }
     assert!(matches!(
@@ -513,8 +639,388 @@ fn malformed_types_sizes_and_keys_reject_before_provider_work() {
             account.identity_curve,
             normal.wire
         ),
-        Err(NativeCryptoError::InvalidInput)
+        Err(NativeCryptoError::MessageNotOpened)
     ));
+}
+
+#[test]
+fn damaged_wire_never_masks_local_restore_failure_and_valid_retry_uses_exact_snapshot() {
+    let (alice_session, bob_session, _) = established();
+    let (alice, bob) = accounts();
+    let bad_session = corrupted_pickle(&bob_session);
+    let bad_account = corrupted_pickle(&bob.account_pickle);
+    for wire in damaged_wires() {
+        assert!(matches!(
+            decrypt(bad_session.clone(), vec![9; 32], wire.clone()),
+            Err(NativeCryptoError::OperationFailed)
+        ));
+        assert!(matches!(
+            decrypt(bob_session.clone(), vec![8; 32], wire.clone()),
+            Err(NativeCryptoError::OperationFailed)
+        ));
+        assert!(matches!(
+            open_session(
+                bad_account.clone(),
+                vec![9; 32],
+                alice.identity_curve.clone(),
+                wire.clone()
+            ),
+            Err(NativeCryptoError::OperationFailed)
+        ));
+        assert!(matches!(
+            open_session(
+                bob.account_pickle.clone(),
+                vec![8; 32],
+                alice.identity_curve.clone(),
+                wire.clone()
+            ),
+            Err(NativeCryptoError::OperationFailed)
+        ));
+        assert!(matches!(
+            decrypt(bob_session.clone(), vec![9; 32], wire.clone()),
+            Err(NativeCryptoError::MessageNotOpened)
+        ));
+        assert!(matches!(
+            open_session(
+                bob.account_pickle.clone(),
+                vec![9; 32],
+                alice.identity_curve.clone(),
+                wire.clone()
+            ),
+            Err(NativeCryptoError::MessageNotOpened)
+        ));
+        for bad_pickle in [String::new(), "x".repeat(MAX_PICKLE_BYTES + 1)] {
+            assert!(matches!(
+                decrypt(bad_pickle.clone(), vec![9; 32], wire.clone()),
+                Err(NativeCryptoError::InvalidInput)
+            ));
+            assert!(matches!(
+                open_session(
+                    bad_pickle,
+                    vec![9; 32],
+                    alice.identity_curve.clone(),
+                    wire.clone()
+                ),
+                Err(NativeCryptoError::InvalidInput)
+            ));
+        }
+        assert!(matches!(
+            decrypt(bob_session.clone(), vec![9; 31], wire.clone()),
+            Err(NativeCryptoError::InvalidInput)
+        ));
+        assert!(matches!(
+            open_session(
+                bob.account_pickle.clone(),
+                vec![9; 31],
+                alice.identity_curve.clone(),
+                wire.clone()
+            ),
+            Err(NativeCryptoError::InvalidInput)
+        ));
+        assert!(matches!(
+            open_session(
+                bob.account_pickle.clone(),
+                vec![9; 32],
+                "invalid pinned key".into(),
+                wire
+            ),
+            Err(NativeCryptoError::InvalidInput)
+        ));
+    }
+    // Error returns contain neither an advanced pickle nor any plaintext.
+    // Original full pickle bytes still restore identically, and valid traffic
+    // succeeds using those same inputs after every attempted damaged message.
+    assert!(
+        restored_session(&bob_session, &[9; 32])
+            .pickle()
+            .encrypt(&[9; 32])
+            == bob_session
+    );
+    assert!(
+        restored_account(&bob.account_pickle, &[9; 32])
+            .pickle()
+            .encrypt(&[9; 32])
+            == bob.account_pickle
+    );
+    let sent = must(encrypt(
+        alice_session,
+        vec![7; 32],
+        b"after damaged normal messages".to_vec(),
+    ));
+    assert!(
+        must(decrypt(bob_session, vec![9; 32], sent.wire)).plaintext
+            == b"after damaged normal messages"
+    );
+    let session = must(start_session(
+        alice.account_pickle,
+        vec![7; 32],
+        bob.identity_curve,
+        bob.one_time_key,
+    ));
+    let sent = must(encrypt(
+        session.session_pickle,
+        vec![7; 32],
+        b"after damaged opening messages".to_vec(),
+    ));
+    let opened = must(open_session(
+        bob.account_pickle,
+        vec![9; 32],
+        alice.identity_curve,
+        sent.wire,
+    ));
+    assert!(opened.plaintext == b"after damaged opening messages");
+}
+
+#[test]
+fn unsupported_protocol_configuration_is_never_a_deferable_message_error() {
+    let (alice, bob) = accounts();
+    let session = must(start_session(
+        alice.account_pickle,
+        vec![7; 32],
+        bob.identity_curve,
+        bob.one_time_key,
+    ));
+    let first = must(encrypt(
+        session.session_pickle,
+        vec![7; 32],
+        b"first".to_vec(),
+    ));
+    let unsupported = unsupported_config_wire(&first.wire);
+    let OlmMessage::PreKey(decoded) = OlmMessage::from_parts(0, &unsupported.body)
+        .unwrap_or_else(|_| panic!("unsupported opening configuration is structurally valid"))
+    else {
+        panic!("synthetic configuration fixture is a prekey message");
+    };
+    let mut raw_account = restored_account(&bob.account_pickle, &[9; 32]);
+    assert!(matches!(
+        raw_account.create_inbound_session(
+            SessionConfig::version_1(),
+            decoded.identity_key(),
+            &decoded
+        ),
+        Err(SessionCreationError::MismatchedSessionConfig { .. })
+    ));
+    assert!(matches!(
+        open_session(
+            bob.account_pickle.clone(),
+            vec![9; 32],
+            alice.identity_curve.clone(),
+            unsupported
+        ),
+        Err(NativeCryptoError::OperationFailed)
+    ));
+    assert!(raw_account.pickle().encrypt(&[9; 32]) == bob.account_pickle);
+    let opened = must(open_session(
+        bob.account_pickle,
+        vec![9; 32],
+        alice.identity_curve,
+        first.wire,
+    ));
+    let second = must(encrypt(
+        first.session_pickle,
+        vec![7; 32],
+        b"second".to_vec(),
+    ));
+    assert!(matches!(
+        decrypt(
+            opened.session_pickle.clone(),
+            vec![9; 32],
+            unsupported_config_wire(&second.wire)
+        ),
+        Err(NativeCryptoError::OperationFailed)
+    ));
+    assert!(must(decrypt(opened.session_pickle, vec![9; 32], second.wire)).plaintext == b"second");
+
+    let (alice_session, bob_session, _) = established();
+    let normal = must(encrypt(
+        alice_session,
+        vec![7; 32],
+        b"normal configuration".to_vec(),
+    ));
+    assert!(normal.wire.message_type == 1);
+    let unsupported = unsupported_config_wire(&normal.wire);
+    let decoded = OlmMessage::from_parts(1, &unsupported.body)
+        .unwrap_or_else(|_| panic!("unsupported normal configuration is structurally valid"));
+    let mut raw = restored_session(&bob_session, &[9; 32]);
+    assert!(matches!(
+        raw.decrypt(&decoded),
+        Err(DecryptionError::InvalidMACLength(_, _))
+    ));
+    assert!(matches!(
+        decrypt(bob_session.clone(), vec![9; 32], unsupported),
+        Err(NativeCryptoError::OperationFailed)
+    ));
+    assert!(raw.pickle().encrypt(&[9; 32]) == bob_session);
+    assert!(
+        must(decrypt(bob_session, vec![9; 32], normal.wire)).plaintext == b"normal configuration"
+    );
+}
+
+#[test]
+fn incoming_noncontributory_key_is_typed_and_does_not_consume_prekey() {
+    let (alice, bob) = accounts();
+    let session = must(start_session(
+        alice.account_pickle,
+        vec![7; 32],
+        bob.identity_curve,
+        bob.one_time_key,
+    ));
+    let sent = must(encrypt(
+        session.session_pickle,
+        vec![7; 32],
+        b"contributory retry".to_vec(),
+    ));
+    let mut damaged = sent.wire.clone();
+    assert!(
+        damaged.body[35] == 0x12 && damaged.body[36] == 32,
+        "synthetic base-key protobuf prefix"
+    );
+    damaged.body[37..69].fill(0);
+    let OlmMessage::PreKey(decoded) = OlmMessage::from_parts(0, &damaged.body)
+        .unwrap_or_else(|_| panic!("zero synthetic base key remains structurally valid"))
+    else {
+        panic!("synthetic noncontributory fixture is a prekey message");
+    };
+    let mut raw = restored_account(&bob.account_pickle, &[9; 32]);
+    assert!(matches!(
+        raw.create_inbound_session(SessionConfig::version_1(), decoded.identity_key(), &decoded),
+        Err(SessionCreationError::NonContributoryKey)
+    ));
+    assert!(matches!(
+        open_session(
+            bob.account_pickle.clone(),
+            vec![9; 32],
+            alice.identity_curve.clone(),
+            damaged
+        ),
+        Err(NativeCryptoError::MessageNotOpened)
+    ));
+    assert!(raw.pickle().encrypt(&[9; 32]) == bob.account_pickle);
+    assert!(
+        must(open_session(
+            bob.account_pickle,
+            vec![9; 32],
+            alice.identity_curve,
+            sent.wire
+        ))
+        .plaintext
+            == b"contributory retry"
+    );
+}
+
+#[test]
+fn incoming_excessive_gap_is_typed_without_advancing_saved_state() {
+    let (alice, bob, _) = established();
+    let sent = must(encrypt(alice, vec![7; 32], b"gap retry".to_vec()));
+    let OlmMessage::Normal(message) = OlmMessage::from_parts(1, &sent.wire.body)
+        .unwrap_or_else(|_| panic!("decode synthetic gap fixture"))
+    else {
+        panic!("synthetic gap fixture is a normal message");
+    };
+    let mut body = vec![3, 0x0a, 32];
+    body.extend(message.ratchet_key().as_bytes());
+    body.push(0x10);
+    append_varint(&mut body, 1_000_000);
+    body.push(0x22);
+    append_varint(&mut body, message.ciphertext().len() as u64);
+    body.extend(message.ciphertext());
+    body.extend(&sent.wire.body[sent.wire.body.len() - 8..]);
+    let decoded = OlmMessage::from_parts(1, &body)
+        .unwrap_or_else(|_| panic!("excessive gap remains structurally valid"));
+    let mut raw = restored_session(&bob, &[9; 32]);
+    assert!(matches!(
+        raw.decrypt(&decoded),
+        Err(DecryptionError::TooBigMessageGap(_, _))
+    ));
+    assert!(matches!(
+        decrypt(
+            bob.clone(),
+            vec![9; 32],
+            WireMessage {
+                message_type: 1,
+                body
+            }
+        ),
+        Err(NativeCryptoError::MessageNotOpened)
+    ));
+    assert!(raw.pickle().encrypt(&[9; 32]) == bob);
+    assert!(must(decrypt(bob, vec![9; 32], sent.wire)).plaintext == b"gap retry");
+}
+
+#[test]
+fn authenticated_oversized_plaintext_remains_output_failure_not_deferable_message() {
+    let (alice, bob, _) = established();
+    let mut raw_sender = restored_session(&alice, &[7; 32]);
+    // A real peer can encrypt more than this boundary's accepted output size.
+    // Bypass only the adapter's input cap in this synthetic fixture, not crypto.
+    let large = raw_sender
+        .encrypt(&vec![42; MAX_PLAINTEXT_BYTES + 1])
+        .unwrap_or_else(|_| panic!("encrypt synthetic oversized incoming plaintext"));
+    let large_wire = wire_from_provider(large);
+    assert!(
+        large_wire.body.len() <= MAX_WIRE_BYTES,
+        "fixture reaches post-auth output cap"
+    );
+    let decoded = OlmMessage::from_parts(large_wire.message_type as usize, &large_wire.body)
+        .unwrap_or_else(|_| panic!("decode synthetic oversized plaintext fixture"));
+    let mut raw_receiver = restored_session(&bob, &[9; 32]);
+    let plaintext = raw_receiver
+        .decrypt(&decoded)
+        .unwrap_or_else(|_| panic!("oversized fixture authenticates with real provider"));
+    assert!(plaintext.len() == MAX_PLAINTEXT_BYTES + 1);
+    assert!(matches!(
+        decrypt(bob.clone(), vec![9; 32], large_wire),
+        Err(NativeCryptoError::OperationFailed)
+    ));
+    assert!(restored_session(&bob, &[9; 32]).pickle().encrypt(&[9; 32]) == bob);
+    let small = wire_from_provider(
+        raw_sender
+            .encrypt(b"after oversized normal message")
+            .unwrap_or_else(|_| panic!("encrypt synthetic retry after output cap")),
+    );
+    assert!(must(decrypt(bob, vec![9; 32], small)).plaintext == b"after oversized normal message");
+
+    let (alice, bob) = accounts();
+    let session = must(start_session(
+        alice.account_pickle,
+        vec![7; 32],
+        bob.identity_curve,
+        bob.one_time_key,
+    ));
+    let mut raw_sender = restored_session(&session.session_pickle, &[7; 32]);
+    let large = wire_from_provider(
+        raw_sender
+            .encrypt(&vec![42; MAX_PLAINTEXT_BYTES + 1])
+            .unwrap_or_else(|_| panic!("encrypt synthetic oversized opening plaintext")),
+    );
+    assert!(large.message_type == 0 && large.body.len() <= MAX_WIRE_BYTES);
+    assert!(matches!(
+        open_session(
+            bob.account_pickle.clone(),
+            vec![9; 32],
+            alice.identity_curve.clone(),
+            large
+        ),
+        Err(NativeCryptoError::OperationFailed)
+    ));
+    let original = restored_account(&bob.account_pickle, &[9; 32]);
+    assert!(original.pickle().encrypt(&[9; 32]) == bob.account_pickle);
+    assert!(original.stored_one_time_key_count() == 1);
+    let small = wire_from_provider(
+        raw_sender
+            .encrypt(b"after oversized opening message")
+            .unwrap_or_else(|_| panic!("encrypt synthetic opening retry after output cap")),
+    );
+    assert!(
+        must(open_session(
+            bob.account_pickle,
+            vec![9; 32],
+            alice.identity_curve,
+            small
+        ))
+        .plaintext
+            == b"after oversized opening message"
+    );
 }
 
 #[test]
@@ -534,4 +1040,7 @@ fn maximum_and_empty_plaintext_roundtrip_without_truncation() {
 fn errors_never_include_provider_details_or_input() {
     assert!(NativeCryptoError::InvalidInput.to_string() == "Invalid native crypto input");
     assert!(NativeCryptoError::OperationFailed.to_string() == "Native crypto operation failed");
+    assert!(
+        NativeCryptoError::MessageNotOpened.to_string() == "Incoming native message not opened"
+    );
 }

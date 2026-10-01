@@ -250,16 +250,29 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
                             responseBytes = Buffer.from(JSON.stringify(value));
                             counters.malformedLists++;
                         }
-                        if (requestObject.action === 'list' && requestObject.requestId === 'partial-poison-list') {
+                        if (
+                            requestObject.action === 'list' &&
+                            [
+                                'partial-poison-list',
+                                'read-successor',
+                                'verify-restart',
+                                'old-peer-generation-rescan',
+                                'old-generation-rescan',
+                                'recovery-after-restart',
+                                'recovery-rescan',
+                            ].includes(requestObject.requestId)
+                        ) {
                             const value = JSON.parse(responseBytes.toString('utf8'));
-                            assert(Array.isArray(value.result) && value.result.length === 1);
+                            assert(Array.isArray(value.result) && value.result.length >= 1);
+                            assert.equal(value.result[0].serverId, 1);
+                            assert(value.result.length === 1 || value.result[1].serverId > 2);
                             const original = value.result[0];
                             const envelope = JSON.parse(original.serializedEnvelope);
                             // Structurally valid, but changing the outer message
                             // ID cannot authenticate that ID inside native content.
                             // This response-only fixture never enters the SQL ledger.
                             envelope.clientMessageId = 'exchange-poison';
-                            value.result.push({
+                            value.result.splice(1, 0, {
                                 ...original,
                                 serverId: original.serverId + 1,
                                 serializedEnvelope: encodeDirectMessageEnvelope(envelope),

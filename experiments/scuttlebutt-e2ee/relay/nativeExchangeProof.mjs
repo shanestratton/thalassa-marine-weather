@@ -152,6 +152,7 @@ try {
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
             'VodozemacLifecycleProbe.swift',
+            'VodozemacUnresolvedProbe.swift',
             'VodozemacRelayClient.swift',
             'VodozemacExchangeProbe.swift',
         ].map((name) => join(experiment, name)),
@@ -366,7 +367,7 @@ try {
             'Native HTTPS research successor',
             'Native HTTPS research recovery',
         ],
-        expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 2 },
+        expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 8 },
     });
     await relay.reopen();
     receipt.status = 'passed';
