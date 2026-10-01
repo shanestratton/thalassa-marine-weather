@@ -69,6 +69,71 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 1 October isolated HTTP/native networking checkpoint
+
+Added an **unmounted** HTTPS-only Fetch handler around the existing signed
+gateway and a separate bounded native URLSession client. Only registration and
+signed dispatch are exposed; no unsigned client RPC, live backend, app plugin,
+production migration, private-message UI or current-phone build was changed.
+The native credential context is caller-supplied research state; durable app Auth
+and token lifecycle wiring remain outstanding. No homemade/PQ third ratchet was
+added; the provider remains unchanged vodozemac/Olm v1 Double Ratchet.
+
+The transport preserves exact public request/ciphertext bytes, disables redirects,
+cookies/cache/stored credentials, uses default system TLS trust and drops stale
+owner/credential/peer-context results. It returns public JSON bytes, not a message
+decision: the coordinator must still validate the exact receipt and CAS native
+state before acceptance/decryption. HTTP errors, cancellation and expiry remain
+unresolved even if SQL later commits; they never invent terminal refusals.
+
+Review found timer-only deadline gaps in both native and server components:
+delayed callbacks or continuously replenished microtasks could outlast the deadline.
+They now also check monotonic elapsed time before/after work and before returning
+success. Review also found that parsing a result fragment alone could auto-detect
+UTF-16/32 inside an invalid UTF-8 outer response; complete-document validation now
+precedes strict outer framing and extraction. Both have regression coverage.
+
+Observed:
+
+- **474 focused TypeScript tests passed** across seven suites. These include
+  mocked HTTP/Auth/SQL adapters and real signature checks where identified,
+  not 474 real network or cryptographic end-to-end exchanges.
+  Strict selected-file TypeScript checking, selected-file ESLint, formatting and
+  proof-runner syntax checks also passed.
+- **11 native URLSession fixture scenario groups passed on the Mac**, including
+  actual redirect callbacks, exact transmitted request streams, declared/streamed
+  bounds, malformed/mixed-encoding responses, pre-resume/post-await lifecycle
+  fences, stalled/dripping streams, slow context reads and cancellation races.
+  Probe bodies/Auth are fixtures. Default TLS trust and challenge behaviour are
+  not demonstrated by URLProtocol interception; no native-to-service TLS or
+  physical-phone execution claim is made.
+- The same native client/probe compiled and linked for simulator and iPhone.
+  `vtool` confirmed `IOSSIMULATOR`/`IOS` Mach-O platforms with minimum iOS 17.
+  No simulator/physical-phone installation or execution occurred in this slice.
+  Final native artifacts: temporary `thalassa-native-network-Zz64aR`.
+- **9 actual localhost HTTPS/PostgreSQL-engine scenario groups passed**: ordinary
+  TLS rejects the untrusted fixture certificate; request-local CA/hostname trust
+  permits the owned loopback service. Real Ed25519 requests traverse the signed
+  gateway and committed on-disk SQL relay; retries/tampering/conflicts, fresh Auth
+  responses, blocks, revocation and database close/reopen passed. Auth responses
+  and ciphertext are explicit fixtures, not live Supabase identities or native
+  encrypted messages. Final database/certificate artifacts remain in temporary
+  `thalassa-e2ee-http-1ii6zT`; no global CA was installed.
+
+The Node proof host buffers up to 256 KiB before its Fetch adapter; unit fixtures,
+not real-socket tests, cover stalled uploads/disconnect/deadline behaviour. Native
+network fixtures and the real HTTPS fixture exchange are **separate** from the
+preceding real-native-provider/local-SQL exchange. They are not combined proof of
+two native clients using live Auth/TLS. Endpoint-specific client result validation,
+real auth/logout generations, inbox sync, device/prekey renewal/recovery, multiple
+independent PostgreSQL connections, physical-phone/locked-device/crash checks and
+independent security/licence review remain gates. Agent review is not an audit.
+
+See `experiments/scuttlebutt-e2ee/relay/README.md` for endpoint/retry semantics and
+the two self-contained reproduction commands. All research stays on the isolated
+side branch; the primary Xcode project, production accounts/schema, website and
+existing messages are untouched.
+
 ### 1 October signed native-to-relay checkpoint
 
 The native provider now signs public bundle and request bytes with its own
