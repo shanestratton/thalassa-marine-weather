@@ -149,6 +149,9 @@ try {
             'VodozemacDmCoordinatorProbe.swift',
             'VodozemacRelayCodec.swift',
             'VodozemacRelayTransport.swift',
+            'VodozemacSupabaseAuth.swift',
+            'VodozemacAuthSession.swift',
+            'VodozemacAuthProbe.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
             'VodozemacLifecycleProbe.swift',
@@ -334,6 +337,10 @@ try {
             'passed',
             `Native ${phase} failed or unresolved (${status?.stage ?? 'missing'}); only sanitized app receipt inspected`,
         );
+        if (phase === 'prepare') {
+            assert(Number.isSafeInteger(status.authFixtureAssertions) && status.authFixtureAssertions > 0);
+            receipt.nativeAuthFixtureAssertions = status.authFixtureAssertions;
+        }
         receipt.completedPhases.push({ phase, pid, stage: status.stage });
         receipt.observation = 'app-reported-pass';
         saveReceipt();

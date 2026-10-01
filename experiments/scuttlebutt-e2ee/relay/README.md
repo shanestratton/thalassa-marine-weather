@@ -98,6 +98,36 @@ or schema is used, and test certificates/database artifacts stay in a fresh
 temporary directory. The previous native-provider/relay proof and this HTTPS
 proof are separate: this does not claim a native-to-live-service encrypted exchange.
 
+## Native Auth continuation (unwired)
+
+`../VodozemacSupabaseAuth.swift` verifies a supplied access token afresh at the
+trusted configured project's `/auth/v1/user`, using ordinary system TLS and a
+bounded ephemeral URLSession. Only its unique canonical top-level user UUID is
+used; metadata/local JWT claims cannot choose an actor. Public-key configuration,
+exact origin/URL, redirects, UTF-8, duplicate IDs, header/body caps and monotonic
+timeout are checked. See [Supabase's server getUser boundary](https://supabase.com/docs/reference/swift/auth-getuser).
+
+`../VodozemacAuthSession.swift` is native continuation for one existing immutable
+owner/device store, not a login SDK or Capacitor plugin. Native store UUID owns
+the device label; the trusted issuer is sealed on first successful continuation.
+Restart has no bearer/readiness. Each verification clears the prior lease and
+reserves a durable epoch BEFORE HTTP. Full-lifecycle tickets and sealed CAS fence
+refresh/logout/account-switch races. Accepted renewal preserves pending ciphertext;
+resume advances owner generation without reviving historical sends. Bearers remain
+in memory, with a fixed maximum 60-second monotonic verified lease captured before
+awaiting Auth (including network time), not restarted after OS suspension or slow
+storage, and not on disk or in JS. Verification failure does not restore a prior token.
+
+Local logout clears memory first and retries only unconditional deactivation's
+competing revision at most three times; exhaustion is failure, not a guarantee
+that another session is inactive. Expected-ticket mismatches never retry. There is
+no remote logout/revocation claim. Initial verified identity provisioning, account
+store selection, SDK token/event acquisition, device registration/replenishment
+and app wiring still need implementation. Research coordinator entry points are
+not a shipping authorization API. The new Auth probe deliberately uses mocked
+URLProtocol responses alongside real native crypto/sealed state. It does not
+prove live Supabase, TLS, a physical phone or an independent security review.
+
 ## Combined native/local HTTPS research proof
 
 `nativeExchangeProof.mjs` now connects the real native sealed coordinator, strict

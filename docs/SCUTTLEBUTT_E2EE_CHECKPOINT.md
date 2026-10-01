@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 1 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 2 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
 ## Shared-Mac workflow — owner's 1 October rules
 
@@ -68,6 +68,81 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 2 October native Auth continuation slice
+
+`VodozemacSupabaseAuth.swift` is a concrete, bounded native HTTPS verifier for a
+configured trusted project's `/auth/v1/user`. It returns only a unique canonical
+top-level account UUID. Bearer JWT claims, metadata and caller-supplied account or
+device labels never select the native scope. The trusted public API key cannot be
+a service-role/secret key. System TLS, exact final URL, no redirects/cookies/cache,
+strict UTF-8/JSON, a 512 KiB cap, cancellation and an independent monotonic deadline
+remain mandatory. This matches the server-validation boundary described in
+[Supabase's getUser documentation](https://supabase.com/docs/reference/swift/auth-getuser).
+
+`VodozemacAuthSession.swift` continues ONE existing immutable native identity,
+requiring a canonical account UUID and a device ID equal to its native store UUID.
+No missing key/store is recreated. The first verified continuation seals the
+trusted project origin; a different project/account cannot rebind that store.
+Version 5 research snapshots are explicit: prior snapshots refuse, without
+automatic migration, recreation or relabelling as authenticated identities.
+Supabase confirms an account, not possession of a hardware device or permission
+to enrol one. Initial attested provisioning and the account/device store directory
+are NOT implemented by this slice.
+
+Construction/restart supplies no usable bearer even if sealed state is active.
+Every verification clears its in-memory lease and reserves a durable epoch before
+HTTP. Native tickets plus full lifecycle equality and sealed CAS prevent late
+same-account refreshes, account switches, logout or competing coordinator writes
+from publishing stale credentials. Accepted same-account renewal retains owner
+generation and exact pending ciphertext; signed-out resume advances generation
+without rebinding old outbox/history. Tokens stay in memory only, with a maximum
+60-second monotonic verification lease captured BEFORE awaiting Auth (conservatively
+including network time), not restarted after suspension or completion storage work,
+and rechecked after native validation. Expiry/refusal/cancellation never restores
+the prior lease. No secure-erasure guarantee is made for Swift memory.
+
+Local logout clears tickets/bearers first and durably deactivates native state.
+Unconditional deactivation retries only a competing sealed revision, at most three
+times from fresh state. Storage/key errors and expected-ticket mismatches are never
+retried. Exhaustion reports failure: this adapter stays unready, but does NOT claim
+that every competing session is durably signed out. A future app must surface
+failed logout and keep one native session authority per scope. Already-dispatched
+server requests may still commit; this is not remote logout or token revocation.
+
+Observed validation: **20 real-provider Rust boundary tests passed** in the fresh
+native rebuild. Simulator and physical-iPhone target compilation/linking passed;
+compilation is not phone execution. The final
+`thalassa-native-exchange-eikImL/exchange-run.json` reported **passed**, including
+**211 native Auth fixture assertions**, nine simulator process launches and four
+actual native encrypted messages over ordinary URLSession HTTPS and on-disk SQL.
+Lost-response/exact-ciphertext retry, poisoned inbox/recovery and SQL reopen checks
+passed, with eight poisoned responses, zero stale-context HTTP requests and zero
+unexpected host failures. Executed native source hashes were unchanged after the
+run; the disposable simulator and its test CA were removed. The seven existing
+TypeScript research suites passed **474 tests**, followed by strict selected-file
+type checks. These are distinct kinds of evidence, not hundreds of live encrypted
+phone conversations.
+
+Earlier attempts were not counted as passes: one stopped during preparation with
+an unspecific sanitized failure label; its cause was not established. Ordinary
+Auth fixture deadlines were made less scheduling-sensitive and expected-positive
+steps received fixed non-secret diagnostic labels. Another run passed the 211
+Auth assertions but stopped on the existing poison rescan. The probe had reused
+one nonce while recomputing signed expiry, conflicting if the calls crossed a
+second boundary. Independent rescans now use different nonces; SQL's exact-wire
+replay protection is unchanged. Both failed runs removed their owned simulators.
+
+`VodozemacAuthProbe.swift` uses explicit URLProtocol Auth fixtures plus real native
+provider/Keychain/sealed storage. It tests scope/issuer binding, stale async responses,
+cancellation, storage/CAS failure, exact ciphertext retention, bounded logout and
+deterministic clock-boundary cases. Such fixtures do NOT establish live Supabase
+sign-in. The ordinary transport is not a mocked implementation, but these tests
+mock its Auth responses. No live token, login SDK event bridge, initial enrolment,
+refresh-token acquisition, app plugin, production schema or deployment is included.
+Existing direct coordinator APIs remain research-only; they are not a shipping
+authorization boundary. Peer trust, device registration/prekey lifecycle, two real
+phones, licensing/dependency checks and independent security review remain gates.
 
 ### 1 October typed incoming-message failure and sealed retry slice
 
