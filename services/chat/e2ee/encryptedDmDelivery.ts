@@ -142,7 +142,8 @@ function hasExactDataFields(value: unknown, fields: readonly string[]): value is
 }
 
 function isIdentifier(value: unknown): value is string {
-    return typeof value === 'string' && IDENTIFIER.test(value);
+    // JavaScript's $ can match before a final line terminator; require the whole ID.
+    return typeof value === 'string' && IDENTIFIER.exec(value)?.[0] === value;
 }
 
 function copySession(value: unknown): EncryptedDmDeliverySession | null {
