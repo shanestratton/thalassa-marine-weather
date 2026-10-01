@@ -69,6 +69,74 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 1 October complete native/local HTTPS exchange checkpoint
+
+The previously separate provider/network/SQL pieces now have an isolated native
+client and one combined reproduction runner. `VodozemacRelayClient.swift` signs
+only the sealed coordinator's durable outbox, sends over the bounded URLSession
+transport, validates the exact endpoint result, and settles the record through
+the existing native owner/peer/CAS guards. It never re-encrypts an uncertain send.
+`VodozemacRelayResult.swift` rejects duplicate keys, numeric/Boolean confusion,
+unsafe generations/cursors, extra fields, wrong identities/devices and changed
+receipt ciphertext bytes. A claim is rechecked for expiry after awaiting using
+monotonic elapsed time plus current native wall time, not just captured time.
+
+Observed final run: temporary `thalassa-native-exchange-aSUXN0/exchange-run.json`
+reported passed, including **eight separate simulator process-launch phases**:
+
+- Before trust installation, normal native URLSession refused the fresh loopback
+  certificate. The server observed failed TLS and no HTTP/Auth requests. After
+  adding that certificate only to a newly created disposable simulator, the same
+  client exchanged real signed public requests over ordinary HTTPS. There is no
+  URLProtocol mock, TLS challenge override or ATS exception in this exchange.
+- **Three actual Olm messages** (opening, reply and successor) travelled through
+  the signed HTTP gateway and committed on-disk SQL relay, then authenticated and
+  decrypted in the native Keychain-backed sealed coordinators. Native plaintext
+  history checks passed; the relay's device/decision/request rows did not contain
+  the three known test plaintext strings. This is a scoped check, not proof that
+  every possible server artifact contains no secret.
+- The opening send committed at SQL, but its response was deliberately lost.
+  Native outbox stayed pending across process restart. A wrong receipt was
+  refused without changing its ratchet/outbox payload. A new signed request
+  reconciled the **same ciphertext and message ID**; exactly one decision existed.
+- A malformed final inbox row caused the whole structural batch to be refused
+  before ratchet/inbox payload mutation. A canonical but cryptographically invalid
+  final row instead allowed the first valid receive to commit, then failed closed.
+  Repeating that response preserved the first receive, returned no successful
+  plaintext batch, and did not store the poison message. Normal rescan/duplicates
+  subsequently passed. Signing-only sealed CAS revisions can increase on these
+  requests; the tests assert unchanged payload where appropriate, not an unchanged
+  entire database file.
+- Owner-generation changes and peer block/reaccept hid old native history and
+  refused old-generation rescans. These tests expose a remaining recovery limit;
+  they do **not** establish successful logout/relogin or unblock reconciliation.
+- SQL close/reopen, native process restarts, exact durable receipts and native
+  duplicates passed. Twelve bounded native result-parser fixture groups also ran
+  during preparation; those individual parser tests use fixture ciphertext and
+  real Ed25519 signature checks, not additional encrypted exchanges.
+- The existing seven TypeScript research suites were rerun: **474 tests passed**,
+  followed by strict selected-file type checks. Changed Markdown/MJS formatting,
+  both new proof-script syntax checks and diff whitespace checks passed.
+
+The runner reused previously tested generated bindings/static provider artifacts,
+verified the pinned manifest/lock and recorded immutable artifact/source hashes.
+This was not a fresh Rust dependency rebuild or independently signed artifact
+provenance. It compiled the new integration for the simulator; it did not execute
+or install on a physical iPhone. Both logical native clients ran in one disposable
+research app/simulator, not on two independent devices. Auth HTTP responses,
+account IDs, credential epochs and out-of-band peer pins remain fixtures.
+
+The bounded inbox rescans from zero and has no advancing cursor. This avoids
+skipping temporarily hidden rows but currently stalls on old-generation duplicates
+or permanent cryptographic poison. Generation-safe reconciliation/quarantine,
+durable real Auth/refresh/logout state, scalable inbox sync, device/prekey
+renewal/recovery, independent PostgreSQL connections, two physical phones,
+locked-device/crash checks and independent security/licence review remain gates.
+No Thalassa plugin/UI, live backend, production schema/account, primary phone
+project or master deployment was changed. The fresh simulator, its fixture CA and
+native test keys were removed; nonsecret receipts and local research artifacts
+were retained. Agent review is not an independent security audit.
+
 ### 1 October isolated HTTP/native networking checkpoint
 
 Added an **unmounted** HTTPS-only Fetch handler around the existing signed
