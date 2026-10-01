@@ -1,5 +1,37 @@
 # Isolated autorouting trial
 
+## Opt-in switch: Auto route (trial) — 2026-10-01, night
+
+Phase 3's local gate (Pro, signed in, installed charts) opened Auto and Plan
+Your Day to every signed-in tester with charts, because `isPro` is true for
+every account while `PUBLIC_BETA_ACCESS.enabled`. A router built this week must
+not reach them before Shane has proved it in the Whitsundays, so both are now
+opt-in. Claude's call under Shane's delegation (2026-10-01: "any questions
+please answer with whatever your recommendation is").
+
+- **The switch.** Settings → Preferences → Routing → "Auto route (trial)",
+  "Thalassa's own router. Not for navigation — review every route." Off by
+  default; stored as `autorouteTrialEnabled` with the other Preferences
+  switches (per account; it syncs with the account's settings). Read through
+  `services/autorouteTrialSwitch.ts`.
+- **Auto.** `getThalassaAutorouteStatus` is closed while it is off, so the
+  routing choice keeps Auto disabled and says "Auto route (trial) is off. Turn
+  it on in Settings → Preferences. Manual is ready." `calculateThalassaProposal`
+  refuses in the same words before the engine runs, whoever asks.
+- **Plan Your Day.** A Pro tap with the switch off opens nothing and says "Plan
+  Your Day routes with Auto route (trial), which is off. Turn it on in Settings
+  → Preferences." Switched off while the planner is open, it shuts. The runtime
+  (`runDayPlanner`) refuses in those words before any status, reference or
+  routing work.
+- **Unchanged.** Pro, signed in and installed charts still apply on top; a free
+  account is still offered the upgrade first. The manual planner's ⚡ Auto route
+  and the passage planner do not read the switch. To widen Auto to every
+  tester later, default the switch on (or drop it) — a decision for Shane.
+- Tests: `tests/AutorouteTrialSwitch.test.tsx` (real settings store, closed by
+  default for a beta Pro account, open when switched on, Plan Your Day the
+  same), plus the switch cases in `tests/autoroutingThalassa.test.ts` and
+  `tests/dayPlannerRuntime.test.ts`.
+
 ## Auto runs Thalassa's own router on the phone — 2026-10-01
 
 SevenCs is out of the client. Shane, 2026-09-30: "sevenc's has never been
@@ -17,8 +49,10 @@ runs through the manual ⚡ Auto route and the passage planner) through
   review-required framing is unchanged.
 - **Setup** is departure, destination, Calculate. The Canal / marina vs Open
   water choice and the canal exit pin went: the router routes from the berth
-  with its own canal tier. Offline, the Newport estate refuses in the engine's
-  own words until the offline water pack lands (owner decision 2).
+  with its own canal tier. Offline, the Newport estate routes from the phone's
+  harbour water pack when its area is saved, and otherwise refuses and says
+  the area's water isn't on this phone yet (owner decision 2; water pack
+  since 2026-10-02).
 - **Always 'safest'.** The tide changes whether and when, never which way.
   Draft + 0.5 m under the keel at LAT; no air draft set means every bridge and
   overhead line blocks (owner decision 5). The engine's 85 s watchdog is the

@@ -850,6 +850,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         tideCheck: inshoreRes.tideCheck,
                         surveyRuns: inshoreRes.surveyRuns,
                         surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
+                        // Where the canal water came from offline (Phase 2b, 2026-10-01).
+                        waterPack: inshoreRes.waterPack,
                         // What this map actually draws as survey dashes (round-3 review,
                         // 2026-09-30): the caveat's colour words follow it.
                         surveyAmber: surveyAmberMetres(

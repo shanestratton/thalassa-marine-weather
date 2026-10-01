@@ -220,3 +220,68 @@ describe('a saved inshore route says its caveats again when it is shown', () => 
         expect(savedInshoreRouteCaveats({ routeGeoJSON: { properties: { source: 'isochrone' } } })).toEqual([]);
     });
 });
+
+// Phase 2b (2026-10-01): a route whose canal water came from the phone's
+// offline pack or the Pi's stale copy says so, with the date and the OSM
+// credit — next to the route, on the notice, and again on the saved plan.
+describe('the offline water pack on the route (owner decision 2)', () => {
+    const SAVED = new Date(2026, 8, 28, 12).getTime();
+    const geo = (properties: Record<string, unknown>) => ({ properties: { source: 'inshore-router', ...properties } });
+
+    it('is a caveat of its own, first, and the notice names it', () => {
+        const caveats = inshoreRouteCaveats({
+            waterPack: { source: 'pack', dataAsOf: SAVED, missing: ['destination'], offline: true },
+            structuresUnknownCells: [],
+        });
+        expect(caveats[0]).toMatch(
+            /^Canal and marina water on this route came from the harbour water saved on this phone on 28 Sep \(© OpenStreetMap contributors\)/,
+        );
+        expect(caveats[1]).toBe(
+            "Harbour water for the destination isn't saved on this phone, so that end was routed on the charts alone.",
+        );
+        const notice = inshoreRouteNotice({
+            stateMaskOk: true,
+            waterPack: { source: 'pack', dataAsOf: SAVED, missing: [] },
+            ntmLockBanner: null,
+        });
+        expect(notice?.title).toBe('Saved harbour water');
+        expect(notice?.message).toMatch(/saved on this phone on 28 Sep/);
+    });
+
+    it('an online route, or one with no water-pack facts, says nothing new', () => {
+        expect(inshoreRouteCaveats({ waterPack: { source: 'online', missing: [] } })).toEqual([]);
+        expect(inshoreRouteCaveats({})).toEqual([]);
+        expect(inshoreRouteNotice({ stateMaskOk: true, ntmLockBanner: null })).toBeNull();
+    });
+
+    it('a saved route rebuilds the words from its own facts, and ignores malformed ones', () => {
+        expect(
+            savedInshoreRouteCaveats({
+                routeGeoJSON: geo({ waterPack: { source: 'pi-stale', dataAsOf: SAVED, missing: [] } }),
+            })[0],
+        ).toMatch(/^Canal and marina water came from the boat's Pi, saved 28 Sep/);
+        // Malformed facts: no words, or only the words the valid part
+        // supports — each pinned exactly (2026-10-02; the loop's disjunctive
+        // checks passed vacuously on []).
+        const dateless =
+            'Canal and marina water on this route came from the harbour water saved on this phone (© OpenStreetMap contributors), not a live download. Check it against the chart.';
+        const said = (waterPack: unknown) => savedInshoreRouteCaveats({ routeGeoJSON: geo({ waterPack }) });
+        expect(said('pack')).toEqual([]);
+        expect(said({ source: 'satellite', missing: [] })).toEqual([]);
+        expect(said({ source: 'pack', missing: 'departure' })).toEqual([dateless]);
+        expect(said({ source: 'pack', dataAsOf: 'yesterday', missing: ['harbour'] })).toEqual([dateless]);
+        expect(said({ source: 'none', missing: ['destination'], offline: 'yes' })).toEqual([
+            "Harbour water for the destination couldn't be downloaded and isn't saved on this phone, so that end was routed on the charts alone.",
+        ]);
+    });
+
+    it('a saved route keeps whether the phone was offline, and says so again in the same words', () => {
+        expect(
+            savedInshoreRouteCaveats({
+                routeGeoJSON: geo({ waterPack: { source: 'none', missing: ['destination'], offline: true } }),
+            }),
+        ).toEqual([
+            "Harbour water for the destination isn't saved on this phone, so that end was routed on the charts alone.",
+        ]);
+    });
+});

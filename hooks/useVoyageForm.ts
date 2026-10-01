@@ -815,6 +815,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                                 tideCheck: inshoreRes.tideCheck,
                                                 surveyRuns: inshoreRes.surveyRuns,
                                                 surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
+                                                // Canal water from the offline pack (Phase 2b).
+                                                waterPack: inshoreRes.waterPack,
                                             }),
                                         },
                                     };

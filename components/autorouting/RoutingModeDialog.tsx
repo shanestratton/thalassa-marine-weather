@@ -99,8 +99,10 @@ export function RoutingModeDialog({
                 close();
             }
         });
-        // Worked out on the phone since 2026-10-01 (a signed-in identity and
-        // installed navigation charts): no server decides whether Auto is offered.
+        // Worked out on the phone since 2026-10-01 (a signed-in identity, the
+        // Auto route (trial) switch in Preferences, off by default, and
+        // installed navigation charts): no server decides whether Auto is
+        // offered. Switched off, the status line says where the switch is.
         if (!scope.current.userId) {
             setStatus({ enabled: false, ready: false, message: 'Sign in to use Auto routing. Manual is ready.' });
         } else {

@@ -377,6 +377,27 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </Row>
             </Section>
 
+            {/* Auto routing and Plan Your Day run Thalassa's own router only
+                with this on. Off by default (2026-10-01): Pro is every account
+                while the public beta is on, and the router must not reach
+                every tester before Shane has proved it in the Whitsundays.
+                The manual planner's ⚡ Auto route does not read it. */}
+            <Section title="Routing">
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">Auto route (trial)</p>
+                        <p className="text-xs text-gray-400">
+                            Thalassa's own router. Not for navigation — review every route.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="Auto route (trial)"
+                        checked={settings.autorouteTrialEnabled === true}
+                        onChange={(on) => onSave({ autorouteTrialEnabled: on })}
+                    />
+                </Row>
+            </Section>
+
             {/* Chart overlays live here, off by default (Shane 2026-09-29: new
                 chart overlays start off; switches live in Preferences). The
                 first is the inshore router's lead graph (Phase 1), drawn from

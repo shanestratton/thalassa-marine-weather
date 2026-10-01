@@ -60,6 +60,11 @@ vi.mock('../services/routing/tideCeilings', async (original) => ({
 vi.mock('../services/routing/landBackstop', () => ({
     inshoreRouteCrossesLand: async () => ({ status: 'verified', crossesLand: false, runs: [] }),
 }));
+// The skipper has switched Settings → Preferences → "Auto route (trial)" on
+// (off by default since 2026-10-01; tests/AutorouteTrialSwitch.test.tsx).
+vi.mock('../stores/settingsStore', () => ({
+    useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: true } }) },
+}));
 
 import { calculateThalassaProposal } from '../services/autoroutingThalassa';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
