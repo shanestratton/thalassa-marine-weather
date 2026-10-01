@@ -2,7 +2,8 @@
 -- Deliberately not a Supabase migration, and not an app/deployment dependency.
 -- The gateway must authenticate the account and verify bundle signatures before
 -- calling these RPCs. An actor argument is trusted gateway input, not JWT proof.
--- Device ownership here is account authorization, NOT device-key possession.
+-- The signed-request gateway also verifies device-key possession before its
+-- execute_request RPC. SQL validates the binding, not Ed25519 cryptography.
 -- One global transaction lock serializes this bounded pilot, including lifecycle
 -- changes. This is intentionally not a scalable relay or a concurrency proof.
 -- RPCs require READ COMMITTED; a snapshot established before waiting for the
@@ -144,6 +145,136 @@ EXCEPTION WHEN others THEN
     RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
 END $$;
 
+CREATE FUNCTION e2ee_research.parse_outbox(raw text) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog
+AS $$
+DECLARE value jsonb; envelope jsonb; canonical text;
+BEGIN
+    IF raw IS NULL OR octet_length(raw) NOT BETWEEN 1 AND 100000
+       OR raw COLLATE "C" ~ '[^ -~]' THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    value := raw::jsonb;
+    IF jsonb_typeof(value) <> 'object'
+       OR (SELECT count(*) FROM jsonb_object_keys(value)) <> 6
+       OR NOT value ?& ARRAY['ownerUserId','ownerSessionGeneration','recipientUserId',
+                            'recipientIdentityKeyId','recipientIdentityGeneration','serializedEnvelope']
+       OR EXISTS (SELECT 1 FROM jsonb_each(value) AS entry
+                  WHERE entry.key NOT IN ('ownerSessionGeneration','recipientIdentityGeneration')
+                    AND jsonb_typeof(entry.value) <> 'string')
+       OR NOT e2ee_research.valid_id(value->>'ownerUserId')
+       OR NOT e2ee_research.valid_id(value->>'recipientUserId')
+       OR e2ee_research.same_text(value->>'ownerUserId', value->>'recipientUserId')
+       OR NOT e2ee_research.valid_id(value->>'recipientIdentityKeyId')
+       OR NOT e2ee_research.valid_uint(value->'ownerSessionGeneration')
+       OR NOT e2ee_research.valid_uint(value->'recipientIdentityGeneration') THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    envelope := e2ee_research.parse_envelope(value->>'serializedEnvelope');
+    IF e2ee_research.same_text(envelope->>'senderDeviceId', envelope->>'recipientDeviceId') THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    canonical := format('{"ownerUserId":"%s","ownerSessionGeneration":%s,"recipientUserId":"%s","recipientIdentityKeyId":"%s","recipientIdentityGeneration":%s,"serializedEnvelope":%s}',
+        value->>'ownerUserId', value->>'ownerSessionGeneration', value->>'recipientUserId',
+        value->>'recipientIdentityKeyId', value->>'recipientIdentityGeneration',
+        to_json(value->>'serializedEnvelope')::text);
+    IF NOT e2ee_research.same_text(raw, canonical) THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    RETURN value;
+EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+END $$;
+
+-- These bytes are the same canonical frame verified by the trusted gateway.
+-- SQL validates structure/canonical encoding but cannot verify Ed25519 here.
+CREATE FUNCTION e2ee_research.parse_request(raw text) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog
+AS $$
+DECLARE value jsonb; canonical text;
+BEGIN
+    IF raw IS NULL OR octet_length(raw) NOT BETWEEN 1 AND 102400
+       OR raw COLLATE "C" ~ '[^ -~]' THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    value := raw::jsonb;
+    IF jsonb_typeof(value) <> 'object'
+       OR (SELECT count(*) FROM jsonb_object_keys(value)) <> 9
+       OR NOT value ?& ARRAY['version','protocol','userId','deviceId','action','requestId','expiresAt','payload','signature']
+       OR value->'version' <> '1'::jsonb OR value->>'protocol' <> 'olm-v1'
+       OR EXISTS (SELECT 1 FROM jsonb_each(value) AS entry WHERE entry.key NOT IN ('version','expiresAt')
+                  AND jsonb_typeof(entry.value) <> 'string')
+       OR NOT e2ee_research.valid_id(value->>'userId')
+       OR NOT e2ee_research.valid_id(value->>'deviceId')
+       OR NOT e2ee_research.valid_id(value->>'requestId')
+       OR value->>'action' NOT IN ('revoke','block','claim','send','list')
+       OR NOT e2ee_research.valid_uint(value->'expiresAt')
+       OR (value->>'expiresAt')::bigint = 0
+       OR value->>'payload' COLLATE "C" ~ '[^ -~]'
+       OR NOT e2ee_research.valid_key(value->>'signature', 64) THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    canonical := format('{"version":1,"protocol":"olm-v1","userId":"%s","deviceId":"%s","action":"%s","requestId":"%s","expiresAt":%s,"payload":%s,"signature":"%s"}',
+        value->>'userId', value->>'deviceId', value->>'action', value->>'requestId',
+        value->>'expiresAt', to_json(value->>'payload')::text, value->>'signature');
+    IF NOT e2ee_research.same_text(raw, canonical) THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    RETURN value;
+EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+END $$;
+
+CREATE FUNCTION e2ee_research.parse_request_payload(action text, payload text) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog
+AS $$
+DECLARE value jsonb; canonical text;
+BEGIN
+    IF payload IS NULL OR octet_length(payload) NOT BETWEEN 1 AND 102400
+       OR payload COLLATE "C" ~ '[^ -~]' THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    IF action = 'send' THEN RETURN e2ee_research.parse_outbox(payload); END IF;
+    value := payload::jsonb;
+    IF jsonb_typeof(value) <> 'array' THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    CASE action
+    WHEN 'revoke' THEN
+        IF jsonb_array_length(value) <> 0 THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        canonical := '[]';
+    WHEN 'block' THEN
+        IF jsonb_array_length(value) <> 2 OR jsonb_typeof(value->0) <> 'string'
+           OR NOT e2ee_research.valid_id(value->>0) OR jsonb_typeof(value->1) <> 'boolean' THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        canonical := format('["%s",%s]', value->>0, value->>1);
+    WHEN 'claim' THEN
+        IF jsonb_array_length(value) <> 3
+           OR EXISTS (SELECT 1 FROM jsonb_array_elements(value) AS item(value)
+                      WHERE jsonb_typeof(item.value) <> 'string' OR NOT e2ee_research.valid_id(item.value #>> '{}')) THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        canonical := format('["%s","%s","%s"]', value->>0, value->>1, value->>2);
+    WHEN 'list' THEN
+        IF jsonb_array_length(value) <> 2 OR NOT e2ee_research.valid_uint(value->0)
+           OR NOT e2ee_research.valid_uint(value->1) OR (value->>1)::bigint NOT BETWEEN 1 AND 16 THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        canonical := format('[%s,%s]', value->>0, value->>1);
+    ELSE
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END CASE;
+    IF NOT e2ee_research.same_text(payload, canonical) THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    RETURN value;
+EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+END $$;
+
 CREATE TABLE e2ee_research.devices (
     user_id e2ee_research.identifier PRIMARY KEY,
     device_id e2ee_research.identifier NOT NULL UNIQUE,
@@ -205,12 +336,29 @@ CREATE TABLE e2ee_research.decisions (
     CHECK (e2ee_research.parse_envelope(serialized_envelope)->>'clientMessageId' = client_message_id)
 );
 
+-- Append-only through the gateway RPC: no updates, eviction or direct grants.
+-- Fixed pilot capacity is a fail-closed research limit, not production sizing.
+CREATE TABLE e2ee_research.requests (
+    owner_id e2ee_research.identifier NOT NULL,
+    device_id e2ee_research.identifier NOT NULL,
+    request_id e2ee_research.identifier NOT NULL,
+    request_wire text NOT NULL CHECK (octet_length(request_wire) BETWEEN 1 AND 102400
+                                     AND request_wire COLLATE "C" !~ '[^ -~]'),
+    outcome jsonb NOT NULL,
+    PRIMARY KEY (owner_id, device_id, request_id),
+    FOREIGN KEY (owner_id, device_id) REFERENCES e2ee_research.devices(user_id, device_id),
+    CHECK (e2ee_research.parse_request(request_wire)->>'userId' = owner_id),
+    CHECK (e2ee_research.parse_request(request_wire)->>'deviceId' = device_id),
+    CHECK (e2ee_research.parse_request(request_wire)->>'requestId' = request_id)
+);
+
 -- No client policies or direct gateway table access. Table-owner definer RPCs
 -- perform all account checks; their deliberate RLS bypass is part of the boundary.
 ALTER TABLE e2ee_research.devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE e2ee_research.blocks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE e2ee_research.claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE e2ee_research.decisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE e2ee_research.requests ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON ALL TABLES IN SCHEMA e2ee_research FROM PUBLIC, e2ee_research_gateway;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA e2ee_research FROM PUBLIC, e2ee_research_gateway;
 
@@ -413,6 +561,102 @@ BEGIN
     RETURN result;
 END $$;
 
+-- Return an immutable registered key even after revocation so the gateway can
+-- authenticate exact retries. Only execute_request decides current authority.
+CREATE FUNCTION e2ee_research.lookup_request_key(actor text, device text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $$
+DECLARE registered e2ee_research.devices;
+BEGIN
+    PERFORM e2ee_research.lock_pilot();
+    IF NOT e2ee_research.valid_id(actor) OR NOT e2ee_research.valid_id(device) THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    SELECT * INTO registered FROM e2ee_research.devices WHERE user_id = actor AND device_id = device;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023'; END IF;
+    RETURN jsonb_build_object('signingKey', e2ee_research.parse_bundle(registered.signed_bundle)->>'signingKey');
+END $$;
+
+CREATE FUNCTION e2ee_research.execute_request(actor text, device text, request_id text, action text,
+                                             payload text, expires_at bigint, request_wire text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+AS $$
+DECLARE request jsonb; arguments jsonb; existing e2ee_research.requests;
+        registered e2ee_research.devices; envelope jsonb; outcome jsonb; now_seconds bigint;
+BEGIN
+    PERFORM e2ee_research.lock_pilot();
+    request := e2ee_research.parse_request(request_wire);
+    IF NOT e2ee_research.valid_id(actor) OR NOT e2ee_research.valid_id(device)
+       OR NOT e2ee_research.valid_id(request_id) OR action IS NULL OR payload IS NULL OR expires_at IS NULL
+       OR NOT e2ee_research.same_text(actor, request->>'userId')
+       OR NOT e2ee_research.same_text(device, request->>'deviceId')
+       OR NOT e2ee_research.same_text(request_id, request->>'requestId')
+       OR NOT e2ee_research.same_text(action, request->>'action')
+       OR NOT e2ee_research.same_text(payload, request->>'payload')
+       OR expires_at <> (request->>'expiresAt')::bigint THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    SELECT * INTO existing FROM e2ee_research.requests entry
+    WHERE entry.owner_id = actor AND entry.device_id = device AND entry.request_id = execute_request.request_id;
+    IF FOUND THEN
+        IF NOT e2ee_research.same_text(existing.request_wire, execute_request.request_wire) THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        -- Send/block/revoke receipts describe an immutable committed decision,
+        -- not current permission. Reads and key claims still require authority
+        -- at replay time; an old nonce must not bypass revocation or a block.
+        arguments := e2ee_research.parse_request_payload(action, payload);
+        IF action = 'claim' THEN
+            PERFORM e2ee_research.claim_prekey(actor, device, arguments->>0, arguments->>1, arguments->>2);
+        ELSIF action = 'list' THEN
+            -- Revalidate the recipient and current policy with the same read
+            -- operation, but do not add newly arrived messages to the snapshot.
+            PERFORM e2ee_research.list_messages(actor, device, (arguments->>0)::bigint, (arguments->>1)::integer);
+            SELECT COALESCE(jsonb_agg(item.value ORDER BY item.ordinality), '[]'::jsonb) INTO outcome
+            FROM jsonb_array_elements(existing.outcome) WITH ORDINALITY AS item(value, ordinality)
+            WHERE NOT e2ee_research.is_blocked(actor, item.value->>'ownerUserId');
+            RETURN outcome;
+        END IF;
+        -- The gateway separately rejects expired signed wires before this RPC.
+        RETURN existing.outcome;
+    END IF;
+    now_seconds := floor(extract(epoch FROM clock_timestamp()))::bigint;
+    SELECT * INTO registered FROM e2ee_research.devices WHERE user_id = actor AND device_id = device;
+    IF NOT FOUND OR expires_at <= now_seconds OR expires_at > now_seconds + 300
+       OR (SELECT count(*) FROM e2ee_research.requests WHERE owner_id = actor) >= 512 THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    arguments := e2ee_research.parse_request_payload(action, payload);
+    CASE action
+    WHEN 'revoke' THEN
+        outcome := e2ee_research.revoke_device(actor, device);
+    WHEN 'block' THEN
+        IF registered.revoked OR e2ee_research.same_text(actor, arguments->>0) THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        outcome := e2ee_research.set_block(actor, arguments->>0, (arguments->>1)::boolean);
+    WHEN 'claim' THEN
+        outcome := e2ee_research.claim_prekey(actor, device, arguments->>0, arguments->>1, arguments->>2);
+    WHEN 'send' THEN
+        envelope := e2ee_research.parse_envelope(arguments->>'serializedEnvelope');
+        IF NOT e2ee_research.same_text(actor, arguments->>'ownerUserId')
+           OR NOT e2ee_research.same_text(device, envelope->>'senderDeviceId') THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        -- Includes old immutable acceptance and a new durable revoked refusal.
+        outcome := e2ee_research.send_message(actor, arguments);
+    WHEN 'list' THEN
+        outcome := e2ee_research.list_messages(actor, device, (arguments->>0)::bigint, (arguments->>1)::integer);
+    ELSE
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END CASE;
+    INSERT INTO e2ee_research.requests(owner_id, device_id, request_id, request_wire, outcome)
+    VALUES (actor, device, request_id, request_wire, outcome);
+    -- Exceptions roll back both the operation and its ledger row. The host may
+    -- return this outcome only after the surrounding transaction has committed.
+    RETURN outcome;
+END $$;
+
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA e2ee_research FROM PUBLIC, e2ee_research_gateway;
 GRANT EXECUTE ON FUNCTION e2ee_research.register_device(text, text) TO e2ee_research_gateway;
 GRANT EXECUTE ON FUNCTION e2ee_research.revoke_device(text, text) TO e2ee_research_gateway;
@@ -420,5 +664,7 @@ GRANT EXECUTE ON FUNCTION e2ee_research.set_block(text, text, boolean) TO e2ee_r
 GRANT EXECUTE ON FUNCTION e2ee_research.claim_prekey(text, text, text, text, text) TO e2ee_research_gateway;
 GRANT EXECUTE ON FUNCTION e2ee_research.send_message(text, jsonb) TO e2ee_research_gateway;
 GRANT EXECUTE ON FUNCTION e2ee_research.list_messages(text, text, bigint, integer) TO e2ee_research_gateway;
+GRANT EXECUTE ON FUNCTION e2ee_research.lookup_request_key(text, text) TO e2ee_research_gateway;
+GRANT EXECUTE ON FUNCTION e2ee_research.execute_request(text, text, text, text, text, bigint, text) TO e2ee_research_gateway;
 RESET ROLE;
 COMMIT;

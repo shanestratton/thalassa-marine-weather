@@ -1,10 +1,14 @@
 //! Real-provider tests using newly generated synthetic accounts; no app secrets.
 //! Deliberately avoid Debug-printing messages, keys or encrypted state on failure.
 use thalassa_vodozemac_native::{
-    AccountState, MAX_PICKLE_BYTES, MAX_PLAINTEXT_BYTES, MAX_WIRE_BYTES, NativeCryptoError,
-    WireMessage, decrypt, encrypt, new_account, open_session, start_session,
+    AccountState, MAX_PICKLE_BYTES, MAX_PLAINTEXT_BYTES, MAX_PUBLIC_REQUEST_BYTES, MAX_WIRE_BYTES,
+    NativeCryptoError, WireMessage, decrypt, encrypt, new_account, open_session,
+    sign_public_request, start_session,
 };
-use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle};
+use vodozemac::{
+    Ed25519PublicKey, Ed25519Signature,
+    olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle},
+};
 
 fn must<T>(result: Result<T, NativeCryptoError>) -> T {
     result.unwrap_or_else(|_| panic!("synthetic native-boundary operation failed"))
@@ -73,6 +77,192 @@ fn account_contains_one_published_private_prekey_and_public_identity() {
     );
     assert!(restored.curve25519_key().to_base64() == account.identity_curve);
     assert!(restored.ed25519_key().to_base64() == account.signing_key);
+}
+
+#[test]
+fn public_request_signature_verifies_exact_bytes_with_real_provider_identity() {
+    let account = must(new_account(vec![7; 32]));
+    // Synthetic context plus binary request bytes: the native signer must not
+    // interpret text, discard NULs, or transform the caller's canonical bytes.
+    let message = b"synthetic public request context v1\0register\0wire\0\xff";
+    let signed = must(sign_public_request(
+        account.account_pickle.clone(),
+        vec![7; 32],
+        message.to_vec(),
+    ));
+    let restored = Account::from_pickle(
+        AccountPickle::from_encrypted(&account.account_pickle, &[7; 32])
+            .unwrap_or_else(|_| panic!("restore synthetic signing account")),
+    );
+    assert!(signed.signing_key == account.signing_key);
+    assert!(signed.signing_key == restored.ed25519_key().to_base64());
+    assert!(signed.signature == restored.sign(message).to_base64());
+    assert!(signed.signing_key.len() == 43 && signed.signature.len() == 86);
+    for encoded in [&signed.signing_key, &signed.signature] {
+        assert!(
+            encoded
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'/'),
+            "public signing output uses unpadded standard Base64"
+        );
+    }
+    let key = Ed25519PublicKey::from_base64(&signed.signing_key)
+        .unwrap_or_else(|_| panic!("parse synthetic signing public key"));
+    let signature = Ed25519Signature::from_base64(&signed.signature)
+        .unwrap_or_else(|_| panic!("parse synthetic public request signature"));
+    assert!(key.to_base64() == signed.signing_key);
+    assert!(signature.to_base64() == signed.signature);
+    assert!(key.verify(message, &signature).is_ok());
+}
+
+#[test]
+fn public_request_signature_rejects_context_payload_and_wrong_account() {
+    let (account, other) = accounts();
+    let message = b"synthetic public request context v1\0register\0wire";
+    let signed = must(sign_public_request(
+        account.account_pickle,
+        vec![7; 32],
+        message.to_vec(),
+    ));
+    let key = Ed25519PublicKey::from_base64(&account.signing_key)
+        .unwrap_or_else(|_| panic!("parse synthetic pinned signing key"));
+    let signature = Ed25519Signature::from_base64(&signed.signature)
+        .unwrap_or_else(|_| panic!("parse synthetic public request signature"));
+    assert!(key.verify(message, &signature).is_ok());
+    let mut changed_context = message.to_vec();
+    changed_context[0] ^= 1;
+    assert!(key.verify(&changed_context, &signature).is_err());
+    let mut changed_payload = message.to_vec();
+    *changed_payload
+        .last_mut()
+        .expect("synthetic request has payload") ^= 1;
+    assert!(key.verify(&changed_payload, &signature).is_err());
+    assert!(
+        key.verify(&message[..message.len() - 1], &signature)
+            .is_err()
+    );
+    let other_key = Ed25519PublicKey::from_base64(&other.signing_key)
+        .unwrap_or_else(|_| panic!("parse synthetic other signing key"));
+    assert!(other_key.verify(message, &signature).is_err());
+    let other_signed = must(sign_public_request(
+        other.account_pickle,
+        vec![9; 32],
+        message.to_vec(),
+    ));
+    let other_signature = Ed25519Signature::from_base64(&other_signed.signature)
+        .unwrap_or_else(|_| panic!("parse synthetic other request signature"));
+    assert!(key.verify(message, &other_signature).is_err());
+}
+
+#[test]
+fn repeated_public_request_signing_preserves_account_and_private_prekey() {
+    let (alice, bob) = accounts();
+    let original_pickle = bob.account_pickle.clone();
+    let message = b"synthetic public request context v1\0register\0wire";
+    let first = must(sign_public_request(
+        bob.account_pickle.clone(),
+        vec![9; 32],
+        message.to_vec(),
+    ));
+    let second = must(sign_public_request(
+        bob.account_pickle.clone(),
+        vec![9; 32],
+        message.to_vec(),
+    ));
+    assert!(first.signing_key == second.signing_key);
+    assert!(
+        first.signature == second.signature,
+        "provider signing is deterministic"
+    );
+    let restored = Account::from_pickle(
+        AccountPickle::from_encrypted(&original_pickle, &[9; 32])
+            .unwrap_or_else(|_| panic!("restore synthetic account after signing")),
+    );
+    // The pinned provider encrypts a pickle deterministically. Compare its full
+    // state before/after the same immutable signing operation used by the API.
+    let before_provider_signing = restored.pickle().encrypt(&[9; 32]);
+    assert!(before_provider_signing == original_pickle);
+    assert!(first.signature == restored.sign(message).to_base64());
+    assert!(restored.pickle().encrypt(&[9; 32]) == before_provider_signing);
+    assert!(restored.curve25519_key().to_base64() == bob.identity_curve);
+    assert!(restored.ed25519_key().to_base64() == bob.signing_key);
+    assert!(restored.one_time_keys().is_empty());
+    assert!(restored.stored_one_time_key_count() == 1);
+    let session = must(start_session(
+        alice.account_pickle,
+        vec![7; 32],
+        bob.identity_curve,
+        bob.one_time_key,
+    ));
+    let sent = must(encrypt(
+        session.session_pickle,
+        vec![7; 32],
+        b"opening after public request signing".to_vec(),
+    ));
+    let opened = must(open_session(
+        original_pickle,
+        vec![9; 32],
+        alice.identity_curve,
+        sent.wire,
+    ));
+    assert!(opened.plaintext == b"opening after public request signing");
+}
+
+#[test]
+fn public_request_signing_accepts_exact_bounds_and_rejects_invalid_input() {
+    let account = must(new_account(vec![7; 32]));
+    let key = Ed25519PublicKey::from_base64(&account.signing_key)
+        .unwrap_or_else(|_| panic!("parse synthetic signing key for bounds"));
+    for size in [1, MAX_PUBLIC_REQUEST_BYTES] {
+        let message = vec![42; size];
+        let signed = must(sign_public_request(
+            account.account_pickle.clone(),
+            vec![7; 32],
+            message.clone(),
+        ));
+        let signature = Ed25519Signature::from_base64(&signed.signature)
+            .unwrap_or_else(|_| panic!("parse synthetic bounds signature"));
+        assert!(key.verify(&message, &signature).is_ok());
+    }
+    for size in [0, MAX_PUBLIC_REQUEST_BYTES + 1] {
+        // Invalid message bounds take precedence over provider pickle parsing.
+        assert!(matches!(
+            sign_public_request(
+                "malformed synthetic pickle".into(),
+                vec![7; 32],
+                vec![42; size]
+            ),
+            Err(NativeCryptoError::InvalidInput)
+        ));
+    }
+    for size in [0, 31, 33] {
+        assert!(matches!(
+            sign_public_request(account.account_pickle.clone(), vec![7; size], vec![42]),
+            Err(NativeCryptoError::InvalidInput)
+        ));
+    }
+    for pickle in [String::new(), "x".repeat(MAX_PICKLE_BYTES + 1)] {
+        assert!(matches!(
+            sign_public_request(pickle, vec![7; 32], vec![42]),
+            Err(NativeCryptoError::InvalidInput)
+        ));
+    }
+}
+
+#[test]
+fn public_request_signing_rejects_wrong_pickle_key_and_corrupted_pickle_generically() {
+    let account = must(new_account(vec![7; 32]));
+    assert!(matches!(
+        sign_public_request(account.account_pickle.clone(), vec![8; 32], vec![42]),
+        Err(NativeCryptoError::OperationFailed)
+    ));
+    let mut corrupted = account.account_pickle.into_bytes();
+    corrupted[8] = if corrupted[8] == b'A' { b'B' } else { b'A' };
+    let corrupted = String::from_utf8(corrupted).expect("synthetic pickle is Base64 ASCII");
+    assert!(matches!(
+        sign_public_request(corrupted, vec![7; 32], vec![42]),
+        Err(NativeCryptoError::OperationFailed)
+    ));
 }
 
 #[test]
