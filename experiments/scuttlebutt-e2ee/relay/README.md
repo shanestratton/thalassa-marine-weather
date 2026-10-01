@@ -53,11 +53,14 @@ inside the once-only completion gate and after awaiting; a timer also cancels
 stalled requests. The complete response must be valid JSON before extracting its
 strict outer result, preventing mixed UTF-8/UTF-16/32 fragment parsing.
 
-The native client captures account/device, owner generation, credential epoch and
+The native transport captures account/device, owner generation, credential epoch and
 optional peer generation, checking the supplied current native context before
-resume and after await. The caller must implement a durable authoritative lifecycle
-reader; this research client does **not** integrate app Auth, persist generations,
-refresh tokens, or make a callback/JavaScript assertion authoritative. A transition
+resume and after await. The research relay adapter now additionally checks the
+coordinator's sealed active flag, durable generation/credential epoch and accepted
+peer in one native snapshot, **after** evaluating that external reader. Captured
+epochs also fence native signing/receipt/receive transactions and their sealed CAS.
+Account attestation and bearer tokens remain fixtures: this does **not** integrate
+app Auth, refresh tokens, or make a callback/JavaScript assertion authoritative. A transition
 after the preflight check can still reach the server; stale results are discarded,
 and existing coordinator owner/peer/CAS guards remain mandatory before accepting
 a receipt or releasing decrypted content. The client returns public JSON result
@@ -114,11 +117,14 @@ there is no URLProtocol mock, custom challenge acceptance or ATS exception. No
 existing simulator, Mac/system trust store, phone, production account or app
 changes. The fixture CA disappears with the disposable device.
 
-Three actual native Olm messages cross the signed gateway/on-disk SQL boundary.
+Four actual native Olm messages are required by the current reproduction runner
+to cross the signed gateway/on-disk SQL boundary, including one after durable
+same-account sign-out/resume and process restart.
 Lost response, wrong receipt, structural and cryptographic poison, native process
 restart, exact-ciphertext retry, duplicates and SQL reopen are checked. Both
-logical clients share one research app/simulator. Account/token/epoch responses
-and independently exchanged peer pins remain fixtures: this is not live Supabase
+logical clients share one research app/simulator. Account/token attestation
+and independently exchanged peer pins remain fixtures; epoch/generation/active
+state is now native-owned and persisted: this is not live Supabase
 Auth, two physical phones or security review. Cache manifest/lock/source/binary
 hashes are recorded; reuse is not a fresh Rust build or independently attested
 binary provenance. Read the checkpoint for observed run evidence.
@@ -128,10 +134,23 @@ each authenticated row individually. It re-scans from zero within a bounded
 single-peer store; it does not advance/persist a sync cursor. Structural poison
 rejects the whole page. Cryptographic poison may leave prior valid rows durably
 received and then stalls retries, without leaking a successful plaintext batch.
-Owner/peer generation changes hide old history and likewise refuse old rows.
-Recovery/quarantine, scalable sync and durable real account lifecycle remain
-required before app integration; no silent skip, plaintext fallback or security
-badge is added by this prototype.
+Owner/peer generation changes still hide old history. Under the same immutable
+device/key scope, a separate read-only helper recognises exact previously saved
+envelopes as **historical**, so they do not stall later rows. It neither decrypts
+them again nor re-tags/restores old plaintext. Strict direct receive remains
+generation-bound, and old pending sends are never rebound after reauthentication.
+Unseen older ciphertext cannot be distinguished from a newly arriving message
+by these wire fields. Device/key replacement is unsupported, not handled by this
+helper. The sealed coordinator snapshot is now version 3; older research stores
+are refused, never silently recreated/migrated into active identities.
+
+Poison recovery/quarantine remains a separate gate: the current provider error
+conflates decrypt failures with restored-state failures, so catching every error
+and continuing would be unsafe. A typed provider error boundary, fresh bindings/
+binary proof, bounded sealed unresolved queue and atomic retry are required first.
+Scalable sync, actual Auth lifecycle/attestation, device/prekey renewal and
+independent review remain required before app integration. No silent discard,
+plaintext fallback or security badge is added by this prototype.
 
 ## Trust boundary
 
