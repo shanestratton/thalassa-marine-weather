@@ -129,6 +129,9 @@ final class VodozemacDmCoordinator {
         var owner: DmOwnerContext
         var ownerActive: Bool
         var credentialEpoch: UUID
+        // Optional only for pre-Auth research stores. First verified native
+        // continuation pins its trusted issuer; no later project replacement.
+        var authProjectOrigin: String?
         let conversationId: String
         let identityKeyId: String
         let signingKey: String
@@ -160,7 +163,7 @@ final class VodozemacDmCoordinator {
             throw DmCoordinatorError.conflict
         }
         let account = try newAccount(pickleKey: store.providerPickleKey())
-        let state = State(version: 4, owner: owner, ownerActive: true, credentialEpoch: UUID(), conversationId: conversationId,
+        let state = State(version: 5, owner: owner, ownerActive: true, credentialEpoch: UUID(), authProjectOrigin: nil, conversationId: conversationId,
             identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
             account: account.accountPickle, peer: nil, session: nil, outbox: [], inbox: [], unresolved: [])
         try validate(state)
@@ -173,6 +176,73 @@ final class VodozemacDmCoordinator {
     // Reading this exposes only identifiers/status, never keys or message text.
     func lifecycleForResearch() throws -> DmLifecycleSnapshot {
         try withState { _, state in Self.lifecycle(state) }
+    }
+
+    // Auth binds this existing native identity to its native-created store ID.
+    // This is not a hardware attestation or server device registration.
+    func authScopeForResearch() throws -> (lifecycle: DmLifecycleSnapshot, storeID: UUID, projectOrigin: String?) {
+        try withState { _, state in (Self.lifecycle(state), store.storeID, state.authProjectOrigin) }
+    }
+
+    /// Reserve a durable epoch BEFORE token verification leaves the process.
+    /// A concurrent adapter/restart/refresh makes the old response unusable even
+    /// when both tokens resolve to the same account. No keys or records rebound.
+    @discardableResult
+    func beginAuthVerificationForResearch(expected: DmLifecycleSnapshot) throws -> DmLifecycleSnapshot {
+        try withState { revision, state in
+            guard Self.lifecycle(state) == expected else { throw DmCoordinatorError.unavailable }
+            state.credentialEpoch = UUID()
+            try persist(state, revision: revision)
+            return Self.lifecycle(state)
+        }
+    }
+
+    /// Used only after the concrete native Supabase adapter verifies /user.
+    /// Expected scope/epoch is part of the sealed CAS, not a caller assertion.
+    /// An active renewal keeps pending ciphertext in its original generation;
+    /// resuming a signed-out owner advances it and cannot revive old records.
+    @discardableResult
+    func completeAuthVerificationForResearch(expected: DmLifecycleSnapshot,
+                                             verifiedUserId: String, projectOrigin: String) throws -> DmLifecycleSnapshot {
+        try withState { revision, state in
+            guard Self.lifecycle(state) == expected,
+                  state.owner.userId.utf8.elementsEqual(verifiedUserId.utf8),
+                  state.owner.deviceId == store.storeID.uuidString.lowercased(),
+                  state.authProjectOrigin == nil || state.authProjectOrigin == projectOrigin else {
+                throw DmCoordinatorError.unavailable
+            }
+            if !state.ownerActive { try Self.advanceOwner(&state) }
+            else { state.credentialEpoch = UUID() }
+            state.ownerActive = true
+            state.authProjectOrigin = projectOrigin
+            try persist(state, revision: revision)
+            return Self.lifecycle(state)
+        }
+    }
+
+    /// The auth adapter clears all in-memory credentials first. A late account
+    /// mismatch may deactivate only its exact reserved lifecycle. Local logout
+    /// deliberately closes the current scope, including a competing renewal.
+    @discardableResult
+    func deactivateAuthScopeForResearch(expected: DmLifecycleSnapshot? = nil) throws -> DmLifecycleSnapshot {
+        // Local unconditional logout retries only a competing sealed revision,
+        // from fresh state, within a fixed bound. Storage/key failures propagate.
+        // Expected-ticket mismatches MUST NOT close somebody else's newer lease.
+        for index in 0..<3 {
+            do {
+                return try withState { revision, state in
+                    if let expected, Self.lifecycle(state) != expected { throw DmCoordinatorError.unavailable }
+                    if state.ownerActive, state.owner.generation < Self.generationMax { try Self.advanceOwner(&state) }
+                    else { state.credentialEpoch = UUID() }
+                    state.ownerActive = false
+                    try persist(state, revision: revision)
+                    return Self.lifecycle(state)
+                }
+            } catch VodozemacSealedStoreError.staleRevision {
+                if expected != nil || index == 2 { throw VodozemacSealedStoreError.staleRevision }
+            }
+        }
+        throw DmCoordinatorError.unavailable
     }
 
     func validateRelayContextForResearch(owner: DmOwnerContext, credentialEpoch: UUID, peerGeneration: Int64?) throws {
@@ -775,11 +845,18 @@ final class VodozemacDmCoordinator {
     private static func validate(_ state: State) throws {
         // Older research snapshots are refused, never recreated/migrated into
         // a newly active identity. A shipping migration remains separate work.
-        guard state.version == 4, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
+        guard state.version == 5, !state.account.isEmpty, state.account.utf8.count <= 256 * 1024,
               state.outbox.count <= capacity, state.inbox.count + state.unresolved.count <= capacity else {
             throw DmCoordinatorError.unsupportedState
         }
         try validateOwner(state.owner)
+        if let origin = state.authProjectOrigin {
+            guard let parts = URLComponents(string: origin), parts.scheme == "https", parts.host != nil,
+                  parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
+                  parts.path.isEmpty, parts.url?.absoluteString == origin else {
+                throw DmCoordinatorError.unsupportedState
+            }
+        }
         try DmContentCodec.validateIdentifier(state.identityKeyId)
         try DmContentCodec.validateIdentifier(state.conversationId)
         try validateKey(state.curve)
