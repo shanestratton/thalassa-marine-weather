@@ -25,6 +25,7 @@ import { type ProvisionItem } from './PassageProvisionsService';
 import { getCachedActiveVoyage } from './VoyageService';
 import { triggerHaptic } from '../utils/system';
 import { convertQuantity, toPurchasable } from './PurchaseUnits';
+import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -565,6 +566,62 @@ function notifyStoresChanged(): void {
     }
 }
 
+// ── Shared galley (sharedBinders) ──────────────────────────────────────────
+
+/**
+ * The grocery list kept with no passage is the galley's. While a skipper
+ * shares their galley, it is theirs: the sailor's own items stay on the
+ * device, hidden, and come back when the share ends.
+ */
+function inGalleyList(voyageId: string | null): ((item: ShoppingItem) => boolean) | null {
+    if (voyageId !== null) return null;
+    const galleyOwner = galleyShareOwner();
+    return galleyOwner ? (item) => item.voyage_id === null && (item.user_id?.trim() || '') === galleyOwner : null;
+}
+
+/** The owner a new grocery item with no passage carries while a galley is shared. */
+function galleyItemOwner(voyageId: string | null, ownerUserId: string | null | undefined): string | null {
+    return (voyageId === null ? galleyShareOwner() : null) ?? ownerUserId ?? null;
+}
+
+/**
+ * Ticking a grocery item bought also adds it to Ship's Stores, and unticking
+ * takes it back out. In a shared galley the crew member may not be allowed to
+ * edit the skipper's stores (Stores view-only, or not shared): the tick still
+ * counts, and the Stores part is skipped — never an error, and never a stores
+ * row in the crew's own binder. Passage lists keep their own rules (their
+ * page lets only a stores editor tick).
+ */
+function skipsStoresReceipt(item: ShoppingItem, ownerUserId: string | null | undefined): boolean {
+    if (item.voyage_id !== null) return false;
+    const owner = (ownerUserId ?? item.user_id ?? '').trim();
+    return !!owner && !binderWriteGranted('stores', owner);
+}
+
+/** What a tick did. `storesSkipped`: bought, but Ship's Stores was left as it is. */
+export interface PurchaseOutcome {
+    storesSkipped: boolean;
+    /**
+     * Untick refused, nothing queued: this purchase put stock in Ship's
+     * Stores, and only someone who may edit those Stores can take it back out
+     * (the server refuses the untick too: 42501, 20261003100000).
+     */
+    needsStoresEditor?: boolean;
+}
+
+/**
+ * Did a Stores tick put this purchase in Ship's Stores? Its receipt marker
+ * says so, or (a purchase made before the marker) the Stores row it added,
+ * which a crew member with Stores view has on the device.
+ */
+function hasStoresReceipt(item: ShoppingItem): boolean {
+    if (readPurchaseReceipt(item.notes)) return true;
+    return query<InventoryEntry>(
+        INVENTORY_TABLE,
+        (candidate) => candidate.id === item.id && candidate.description === purchaseProvenance(item.id),
+    ).length > 0;
+}
+
 /**
  * Generate a shopping list from passage provision shortfalls.
  */
@@ -582,7 +639,7 @@ export async function generateShoppingList(
 
         const item: ShoppingItem = {
             id: generateUUID(),
-            user_id: ownerUserId ?? null,
+            user_id: galleyItemOwner(voyageId, ownerUserId),
             ingredient_name: sf.ingredient_name,
             required_qty: sf.shortfall_qty,
             unit: sf.unit,
@@ -622,6 +679,8 @@ export async function bulkAddToShoppingList(
 ): Promise<number> {
     const now = new Date().toISOString();
     let count = 0;
+    const galleyList = inGalleyList(voyageId);
+    const owner = galleyItemOwner(voyageId, ownerUserId);
 
     for (const ing of ingredients) {
         if (ing.totalQty <= 0) continue;
@@ -633,6 +692,7 @@ export async function bulkAddToShoppingList(
                 i.ingredient_name.toLowerCase() === ing.name.toLowerCase() &&
                 normalizeUnit(i.unit) === normalizeUnit(ing.unit) &&
                 i.voyage_id === voyageId &&
+                (!galleyList || galleyList(i)) &&
                 !i.purchased,
         );
 
@@ -644,7 +704,7 @@ export async function bulkAddToShoppingList(
         } else {
             const item: ShoppingItem = {
                 id: generateUUID(),
-                user_id: ownerUserId ?? null,
+                user_id: owner,
                 ingredient_name: ing.name,
                 required_qty: Math.round(ing.totalQty * 10) / 10,
                 unit: ing.unit,
@@ -689,11 +749,12 @@ export function markPurchased(
     purchaseRetailer?: string,
     expectedVoyageId?: string | null,
     expectedOwnerUserId?: string | null,
-): Promise<void> {
+): Promise<PurchaseOutcome> {
     if (actualCost !== undefined && (!Number.isFinite(actualCost) || actualCost < 0)) {
         return Promise.reject(new RangeError('Purchase cost must be a finite number greater than or equal to zero.'));
     }
 
+    let outcome: PurchaseOutcome = { storesSkipped: false };
     return serializeItemMutation(shoppingItemId, async () => {
         const item = query<ShoppingItem>(TABLE, (candidate) => candidate.id === shoppingItemId)[0];
         if (!item) return;
@@ -703,10 +764,13 @@ export function markPurchased(
         if (expectedOwnerUserId && item.user_id && item.user_id !== expectedOwnerUserId) {
             throw new Error('The shopping item does not belong to the selected vessel.');
         }
+        const storesSkipped = skipsStoresReceipt(item, expectedOwnerUserId);
+        outcome = { storesSkipped };
 
         // A prior attempt may have durably committed the shopping outbox before
         // the derived local Stores mirror. Repair that mirror on retry.
         if (item.purchased) {
+            if (storesSkipped) return;
             const storedReceipt = readPurchaseReceipt(item.notes);
             if (!storedReceipt) return;
             const purchase = recordedInventoryPurchaseFor(item);
@@ -750,7 +814,11 @@ export function markPurchased(
             purchase_retailer: retailer,
             purchased_quantity: purchase.quantity,
             purchased_unit: purchase.unit,
-            notes: writePurchaseReceipt(item.notes, receipt),
+            // No receipt marker when Ship's Stores is skipped, not even the one
+            // an earlier tick and untick left: every device's startup repair
+            // (reconcileGroceryInventoryMirror) rebuilds its Stores mirror from
+            // it, and would add stock the server never added.
+            notes: storesSkipped ? stripPurchaseReceipt(item.notes) : writePurchaseReceipt(item.notes, receipt),
             purchase_revision: nextPurchaseRevision(item),
             purchase_operation_id: purchaseOperationId,
             updated_at: new Date().toISOString(),
@@ -762,19 +830,21 @@ export function markPurchased(
         await updateLocal<ShoppingItem>(TABLE, shoppingItemId, updatedItem);
 
         let mirrorError: unknown;
-        try {
-            await ensureInventoryReceipt(updatedItem, purchase, receipt);
-        } catch (error) {
-            mirrorError = error;
+        if (!storesSkipped) {
+            try {
+                await ensureInventoryReceipt(updatedItem, purchase, receipt);
+            } catch (error) {
+                mirrorError = error;
+            }
         }
 
         triggerHaptic('medium');
         syncNow().catch(() => {
             /* offline — will sync later */
         });
-        notifyStoresChanged();
+        if (!storesSkipped) notifyStoresChanged();
         if (mirrorError) throw mirrorError;
-    });
+    }).then(() => outcome);
 }
 
 /**
@@ -802,11 +872,15 @@ export async function addManualItem(opts: {
     const voyage = getCachedActiveVoyage?.();
     const hasExplicitVoyage = Object.prototype.hasOwnProperty.call(opts, 'voyageId');
     const voyageId = hasExplicitVoyage ? (opts.voyageId ?? null) : (voyage?.id ?? null);
-    const ownerUserId = opts.ownerUserId ?? (voyage?.id === voyageId ? voyage.user_id : null);
+    const ownerUserId = galleyItemOwner(
+        voyageId,
+        opts.ownerUserId ?? (voyage?.id === voyageId ? voyage.user_id : null),
+    );
     if (hasExplicitVoyage && voyageId && !ownerUserId) {
         throw new Error('The selected voyage owner must be verified before adding shared shopping items.');
     }
     const now = new Date().toISOString();
+    const galleyList = inGalleyList(voyageId);
 
     // Check for existing unpurchased item with same name to avoid duplicates
     const existing = query<ShoppingItem>(
@@ -816,6 +890,7 @@ export async function addManualItem(opts: {
             normalizeUnit(i.unit) === normalizeUnit(unit) &&
             i.voyage_id === voyageId &&
             (!ownerUserId || !i.user_id || i.user_id === ownerUserId) &&
+            (!galleyList || galleyList(i)) &&
             !i.purchased,
     );
 
@@ -875,7 +950,8 @@ export function unmarkPurchased(
     shoppingItemId: string,
     expectedVoyageId?: string | null,
     expectedOwnerUserId?: string | null,
-): Promise<void> {
+): Promise<PurchaseOutcome> {
+    let outcome: PurchaseOutcome = { storesSkipped: false };
     return serializeItemMutation(shoppingItemId, async () => {
         const item = query<ShoppingItem>(TABLE, (candidate) => candidate.id === shoppingItemId)[0];
         if (!item) return;
@@ -889,7 +965,16 @@ export function unmarkPurchased(
             ...item,
             user_id: expectedOwnerUserId ?? item.user_id,
         };
+        const storesSkipped = skipsStoresReceipt(item, expectedOwnerUserId);
+        outcome = { storesSkipped };
+        if (storesSkipped && scopedItem.purchased && hasStoresReceipt(scopedItem)) {
+            // Unticking would leave the stock in the skipper's Stores (they are
+            // not this sailor's to edit), and his next tick would adopt it.
+            outcome = { storesSkipped, needsStoresEditor: true };
+            return;
+        }
         if (!scopedItem.purchased) {
+            if (storesSkipped) return;
             const possibleGhost = query<InventoryEntry>(
                 INVENTORY_TABLE,
                 (candidate) =>
@@ -912,26 +997,30 @@ export function unmarkPurchased(
             purchased_quantity: null,
             purchased_unit: null,
             // Retain the machine-readable receipt until the next purchase so a
-            // crash before local mirror reversal is recoverable offline.
-            notes: scopedItem.notes,
+            // crash before local mirror reversal is recoverable offline. With
+            // Ship's Stores skipped there is no mirror here to recover, and a
+            // marker would send the skipper's startup repair after his Stores.
+            notes: storesSkipped ? stripPurchaseReceipt(scopedItem.notes) : scopedItem.notes,
             purchase_revision: nextPurchaseRevision(scopedItem),
             purchase_operation_id: generateUUID(),
         } as Partial<ShoppingItem>);
 
         let mirrorError: unknown;
-        try {
-            await reverseInventoryReceipt(scopedItem, receipt);
-        } catch (error) {
-            mirrorError = error;
+        if (!storesSkipped) {
+            try {
+                await reverseInventoryReceipt(scopedItem, receipt);
+            } catch (error) {
+                mirrorError = error;
+            }
         }
 
         triggerHaptic('light');
         syncNow().catch(() => {
             /* offline */
         });
-        notifyStoresChanged();
+        if (!storesSkipped) notifyStoresChanged();
         if (mirrorError) throw mirrorError;
-    });
+    }).then(() => outcome);
 }
 
 /**
@@ -950,6 +1039,9 @@ export async function reconcileGroceryInventoryMirror(): Promise<{ repaired: num
             await serializeItemMutation(item.id, async () => {
                 const current = query<ShoppingItem>(TABLE, (candidate) => candidate.id === item.id)[0];
                 if (!current) return;
+                // A shared galley's purchase this account may not put in the
+                // skipper's Stores: no local Stores mirror for it either.
+                if (skipsStoresReceipt(current, null)) return;
 
                 // Old clients wrote inventory through their own outbox and did
                 // not persist this receipt marker. Manufacturing a deterministic
@@ -1001,9 +1093,13 @@ export async function removeUnpurchasedProvisionItems(): Promise<number> {
 export function getShoppingList(voyageId?: string | null, ownerUserId?: string | null): ShoppingListSummary {
     let items: ShoppingItem[];
     if (voyageId !== undefined) {
+        const galleyList = inGalleyList(voyageId);
         items = query<ShoppingItem>(
             TABLE,
-            (i) => i.voyage_id === voyageId && (!ownerUserId || !i.user_id || i.user_id === ownerUserId),
+            (i) =>
+                i.voyage_id === voyageId &&
+                (!ownerUserId || !i.user_id || i.user_id === ownerUserId) &&
+                (!galleyList || galleyList(i)),
         );
     } else {
         items = getAll<ShoppingItem>(TABLE);

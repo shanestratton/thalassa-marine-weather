@@ -26,10 +26,10 @@ export function sharedBinderCopy(source: BinderSource): string | null {
     return `Shared from ${source.vesselName ?? SKIPPER_BOAT_FALLBACK} — you're crew${source.canWrite ? '' : ' · view only'}`;
 }
 
-/** "Bringing in Test Boat's binder…", for a shared binder still arriving. */
-export function bringingInCopy(source: BinderSource): string {
+/** "Bringing in Test Boat's binder…" (or galley…), for a shared one still arriving. */
+export function bringingInCopy(source: BinderSource, what: 'binder' | 'galley' = 'binder'): string {
     const boat = source.mode === 'shared' && source.vesselName ? `${source.vesselName}'s` : "your skipper's";
-    return `Bringing in ${boat} binder…`;
+    return `Bringing in ${boat} ${what}…`;
 }
 
 interface SharedBinderLineProps {
@@ -65,7 +65,9 @@ export const SharedBinderLine: React.FC<SharedBinderLineProps> = ({ register, so
             </p>
             {switching && (
                 <ModalSheet isOpen={true} onClose={() => setSwitching(false)} title="Switch boat" maxWidth="max-w-sm">
-                    <p className="text-xs text-gray-400 mb-3">Show the binder shared from:</p>
+                    <p className="text-xs text-gray-400 mb-3">
+                        Show the {register === 'galley' ? 'galley' : 'binder'} shared from:
+                    </p>
                     <div className="space-y-2">
                         {skippers.map((skipper) => {
                             const selected = skipper.ownerId === source.ownerId;

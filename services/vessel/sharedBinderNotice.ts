@@ -11,13 +11,15 @@
  * whichever page is open.
  */
 import { toast } from '../../components/Toast';
-import { binderVesselName } from './sharedBinders';
+import { binderVesselName, type BinderRegister } from './sharedBinders';
 import { onSyncComplete } from './SyncService';
 
 export interface SharedBinderLoss {
     discardedShared?: number;
     rehomedShared?: number;
     sharedOwnerIds?: string[];
+    /** The registers those changes were to; all 'galley' says galley. */
+    sharedRegisters?: BinderRegister[];
 }
 
 function count(value: number | undefined): number {
@@ -34,7 +36,10 @@ export function sharedBinderLossMessage(
     if (!dropped && !moved) return null;
     const owners = loss.sharedOwnerIds ?? [];
     const name = owners.length === 1 ? vesselName(owners[0])?.trim() : null;
-    const binder = name ? `${name}'s binder` : "your skipper's binder";
+    // A shared galley (2026-10-03) is no binder to the sailor who lost it.
+    const registers = loss.sharedRegisters ?? [];
+    const noun = registers.length > 0 && registers.every((register) => register === 'galley') ? 'galley' : 'binder';
+    const binder = name ? `${name}'s ${noun}` : `your skipper's ${noun}`;
     const parts: string[] = [];
     if (dropped) {
         parts.push(
@@ -45,8 +50,8 @@ export function sharedBinderLossMessage(
         const where = dropped ? 'to it' : `to ${binder}`;
         parts.push(
             moved === 1
-                ? `1 item you added ${where} is in your own binder now`
-                : `${moved} items you added ${where} are in your own binder now`,
+                ? `1 item you added ${where} is in your own ${noun} now`
+                : `${moved} items you added ${where} are in your own ${noun} now`,
         );
     }
     return `${parts.join(', and ')} — it's no longer shared with you to edit.`;

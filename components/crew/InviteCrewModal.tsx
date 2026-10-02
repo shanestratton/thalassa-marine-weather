@@ -35,7 +35,9 @@ export const INVITE_ROLE_OPTIONS: ReadonlyArray<{ role: CrewRole; label: string;
     {
         role: 'deckhand',
         label: 'Deckhand',
-        hint: "Ship's stores and galley, plus whatever you tick below.",
+        // Not "stores and galley": both follow their ticks now (storesPermissions,
+        // and the Galley share since 2026-10-03), whatever the role.
+        hint: 'Crew on deck: they get whatever you tick below.',
     },
     {
         role: 'navigator',

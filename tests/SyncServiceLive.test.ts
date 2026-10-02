@@ -95,6 +95,19 @@ vi.mock('../services/vessel/sharedBinders', () => ({
         maintenance_history: 'maintenance',
         ship_documents: 'documents',
     },
+    // The galley (2026-10-03) is not live in these suites: before the server
+    // can share a galley, sync treats its tables exactly as it always did.
+    binderRegisterForRow: (table: string) =>
+        (
+            ({
+                inventory_items: 'stores',
+                equipment_register: 'equipment',
+                maintenance_tasks: 'maintenance',
+                maintenance_history: 'maintenance',
+                ship_documents: 'documents',
+            }) as Record<string, string>
+        )[table] ?? null,
+    isGalleyShareLive: () => false,
 }));
 
 function builder(table: string) {

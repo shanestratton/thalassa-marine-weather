@@ -40,7 +40,9 @@ import {
 } from './LocalDatabase';
 import {
     anySkipperGrantsWrite,
+    binderRegisterForRow,
     binderWriteGranted,
+    isGalleyShareLive,
     refreshSharedBinders,
     TABLE_REGISTER,
     type BinderRegister,
@@ -70,6 +72,8 @@ interface SyncResult {
     rehomedShared?: number;
     /** The skippers whose binders those changes were meant for. */
     sharedOwnerIds?: string[];
+    /** Which of their registers (so the notice can say galley, not binder). */
+    sharedRegisters?: BinderRegister[];
     /**
      * Local rows removed because the server no longer shows them (deleted on
      * another device, or no longer shared). `pulled` cannot count these.
@@ -691,6 +695,7 @@ async function runSyncCycle(): Promise<SyncResult> {
         result.discardedShared = pushResult.discarded;
         result.rehomedShared = pushResult.rehomed;
         result.sharedOwnerIds = pushResult.ownerIds;
+        result.sharedRegisters = pushResult.registers;
         if (pushResult.errors.length > 0) {
             result.errors.push(...pushResult.errors);
         }
@@ -765,6 +770,16 @@ async function requireAuthenticatedIdentity(expectedUserId: string): Promise<str
 // ── Phase 1: PUSH ──────────────────────────────────────────────
 
 /**
+ * Binder tables whose queued changes are never judged here. A meal plan with
+ * no passage is a galley row, but a passage Meal Planner share kept with no
+ * voyage also lets crew write it (can_access_passage), and the share
+ * snapshot does not track that: dropping such a change would lose a cook's
+ * edit the server takes. The server decides, as it does for every non-binder
+ * table.
+ */
+const ORPHAN_UNCHECKED_TABLES: ReadonlySet<string> = new Set(['meal_plans']);
+
+/**
  * A queued change to a SKIPPER'S binder row (by its local row, or for an
  * INSERT its payload user_id) whose register the fresh share snapshot no
  * longer lets this sailor write. Rows the sailor owns never qualify.
@@ -773,20 +788,25 @@ function orphanedSharedMutation(
     item: SyncQueueItem,
     authenticatedUserId: string,
 ): { owner: string; register: BinderRegister } | null {
-    const register = TABLE_REGISTER[item.table_name];
-    if (!register) return null;
-    let owner = '';
-    const local = getById<{ user_id?: unknown }>(item.table_name, item.record_id);
-    if (local) {
-        owner = typeof local.user_id === 'string' ? local.user_id.trim() : '';
-    } else if (item.mutation_type === 'INSERT') {
+    if (!TABLE_REGISTER[item.table_name] || ORPHAN_UNCHECKED_TABLES.has(item.table_name)) return null;
+    let row: { user_id?: unknown; voyage_id?: unknown } | null = getById<{ user_id?: unknown }>(
+        item.table_name,
+        item.record_id,
+    );
+    if (!row && item.mutation_type === 'INSERT') {
         try {
-            const payload = JSON.parse(item.payload) as { user_id?: unknown };
-            owner = typeof payload.user_id === 'string' ? payload.user_id.trim() : '';
+            row = JSON.parse(item.payload) as { user_id?: unknown; voyage_id?: unknown };
         } catch {
             return null;
         }
     }
+    if (!row) return null;
+    const register = binderRegisterForRow(item.table_name, row);
+    if (!register) return null;
+    // Before the server can share a galley, it is the server's call, as it
+    // always was: nothing here drops or moves a galley change.
+    if (register === 'galley' && !isGalleyShareLive()) return null;
+    const owner = typeof row.user_id === 'string' ? row.user_id.trim() : '';
     if (!owner || owner === authenticatedUserId) return null;
     return binderWriteGranted(register, owner) ? null : { owner, register };
 }
@@ -848,11 +868,20 @@ async function pushMutations(
     discarded: number;
     rehomed: number;
     ownerIds: string[];
+    registers: BinderRegister[];
     restoreFromServer: boolean;
 }> {
     const queue = getFullQueue();
     if (queue.length === 0) {
-        return { count: 0, errors: [], discarded: 0, rehomed: 0, ownerIds: [], restoreFromServer: false };
+        return {
+            count: 0,
+            errors: [],
+            discarded: 0,
+            rehomed: 0,
+            ownerIds: [],
+            registers: [],
+            restoreFromServer: false,
+        };
     }
 
     let succeeded = 0;
@@ -863,6 +892,7 @@ async function pushMutations(
     const blockedRecords = new Set<string>();
     const discardedRecords = new Set<string>();
     const orphanOwners = new Set<string>();
+    const orphanRegisters = new Set<BinderRegister>();
 
     // Process in persisted FIFO order. A failed predecessor fences every later
     // mutation for that same record, while unrelated records can continue.
@@ -895,7 +925,10 @@ async function pushMutations(
             binderSnapshotFresh && item.owner_user_id === authenticatedUserId && !discardedRecords.has(recordKey)
                 ? orphanedSharedMutation(item, authenticatedUserId)
                 : null;
-        if (orphan) orphanOwners.add(orphan.owner);
+        if (orphan) {
+            orphanOwners.add(orphan.owner);
+            orphanRegisters.add(orphan.register);
+        }
         const rehome = orphan ? rehomeChanges(item, orphan.register, authenticatedUserId) : null;
         if (rehome) {
             assertDatabaseSession(databaseSession);
@@ -970,7 +1003,15 @@ async function pushMutations(
         await updateSyncMeta({ lastPushTimestamp: new Date().toISOString() });
     }
 
-    return { count: succeeded, errors, discarded, rehomed, ownerIds: [...orphanOwners], restoreFromServer };
+    return {
+        count: succeeded,
+        errors,
+        discarded,
+        rehomed,
+        ownerIds: [...orphanOwners],
+        registers: [...orphanRegisters],
+        restoreFromServer,
+    };
 }
 
 async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: string): Promise<void> {
@@ -1430,8 +1471,12 @@ async function pullUpdates(
     // listening. Best effort: a failure is retried by the next cycle and never
     // fails this one, whose incremental pull stands on its own.
     if (sweepDeletions && !reconcileSnapshot) {
+        const galleyLive = isGalleyShareLive();
         for (const table of SYNCABLE_TABLES) {
             if (!TABLE_REGISTER[table] || missingOptionalTables.has(table)) continue;
+            // The galley tables join the sweep once the server can share a
+            // galley; before that this cycle reads exactly what it always did.
+            if (TABLE_REGISTER[table] === 'galley' && !galleyLive) continue;
             try {
                 assertDatabaseSession(databaseSession);
                 const swept = await sweepDeletedRows(table, completedWatermark, databaseSession);

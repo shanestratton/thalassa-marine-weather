@@ -28,6 +28,12 @@ interface RecipeEditorProps {
     onClose: () => void;
     onSaved: () => void;
     recipe?: StoredRecipe;
+    /**
+     * Set while a new recipe goes into a skipper's shared galley: the boat's
+     * name, or null when unknown. The recipe stays personal to the skipper's
+     * galley (createCustomRecipe), so the community choice is not offered.
+     */
+    sharedGalleyBoat?: string | null;
 }
 
 const MEAL_TAGS = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Dessert', 'Sea-Friendly', 'Quick'];
@@ -61,7 +67,8 @@ function instructionsForEditing(instructions: string): string {
     }
 }
 
-export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, recipe }) => {
+export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, recipe, sharedGalleyBoat }) => {
+    const intoSharedGalley = !recipe && sharedGalleyBoat !== undefined;
     const isEditing = Boolean(recipe);
     const [step, setStep] = useState(1);
     const [saving, setSaving] = useState(false);
@@ -479,42 +486,49 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved, re
                         </div>
 
                         {/* Visibility toggle */}
-                        <div style={GLASS} role="group" aria-labelledby={visibilityLabelId} className="p-4">
-                            <p
-                                id={visibilityLabelId}
-                                className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3"
-                            >
-                                Who can see this recipe?
+                        {intoSharedGalley ? (
+                            <p style={GLASS} className="p-4 text-xs font-semibold text-sky-200">
+                                This recipe goes into {sharedGalleyBoat ? `${sharedGalleyBoat}'s` : "your skipper's"}{' '}
+                                galley, where the crew can see it. Only the skipper can share it with the community.
                             </p>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    onClick={() => setVisibility('personal')}
-                                    aria-pressed={visibility === 'personal'}
-                                    className={`p-4 rounded-xl border-2 text-center transition-all ${
-                                        visibility === 'personal'
-                                            ? 'border-cyan-500/50 bg-cyan-500/10'
-                                            : 'border-white/10 bg-white/2'
-                                    }`}
+                        ) : (
+                            <div style={GLASS} role="group" aria-labelledby={visibilityLabelId} className="p-4">
+                                <p
+                                    id={visibilityLabelId}
+                                    className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3"
                                 >
-                                    <span className="text-2xl block mb-1">🔒</span>
-                                    <span className="text-xs font-bold text-white block">Personal</span>
-                                    <span className="text-[11px] text-gray-500 block mt-0.5">Only you</span>
-                                </button>
-                                <button
-                                    onClick={() => setVisibility('shared')}
-                                    aria-pressed={visibility === 'shared'}
-                                    className={`p-4 rounded-xl border-2 text-center transition-all ${
-                                        visibility === 'shared'
-                                            ? 'border-amber-500/50 bg-amber-500/10'
-                                            : 'border-white/10 bg-white/2'
-                                    }`}
-                                >
-                                    <span className="text-2xl block mb-1">🌍</span>
-                                    <span className="text-xs font-bold text-white block">Community</span>
-                                    <span className="text-[11px] text-gray-500 block mt-0.5">All sailors</span>
-                                </button>
+                                    Who can see this recipe?
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        onClick={() => setVisibility('personal')}
+                                        aria-pressed={visibility === 'personal'}
+                                        className={`p-4 rounded-xl border-2 text-center transition-all ${
+                                            visibility === 'personal'
+                                                ? 'border-cyan-500/50 bg-cyan-500/10'
+                                                : 'border-white/10 bg-white/2'
+                                        }`}
+                                    >
+                                        <span className="text-2xl block mb-1">🔒</span>
+                                        <span className="text-xs font-bold text-white block">Personal</span>
+                                        <span className="text-[11px] text-gray-500 block mt-0.5">Only you</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setVisibility('shared')}
+                                        aria-pressed={visibility === 'shared'}
+                                        className={`p-4 rounded-xl border-2 text-center transition-all ${
+                                            visibility === 'shared'
+                                                ? 'border-amber-500/50 bg-amber-500/10'
+                                                : 'border-white/10 bg-white/2'
+                                        }`}
+                                    >
+                                        <span className="text-2xl block mb-1">🌍</span>
+                                        <span className="text-xs font-bold text-white block">Community</span>
+                                        <span className="text-[11px] text-gray-500 block mt-0.5">All sailors</span>
+                                    </button>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 )}
             </div>

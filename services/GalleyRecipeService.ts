@@ -8,7 +8,7 @@
  *  - Ready-in-minutes prominently tracked for galley timing
  */
 
-import { getAll, insertLocal, query, updateLocal, generateUUID } from './vessel/LocalDatabase';
+import { insertLocal, query, updateLocal, generateUUID } from './vessel/LocalDatabase';
 import { supabase } from './supabase';
 import { compressImage } from './ProfilePhotoService';
 import { createLogger } from '../utils/createLogger';
@@ -27,6 +27,7 @@ import {
 import { safeExternalHttpUrl, safeImageUrl } from '../utils/safeUrl';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { fetchSpoonacular } from './spoonacularProxy';
+import { galleyShareOwner, isOwnBinderRow } from './vessel/sharedBinders';
 
 const log = createLogger('GalleyRecipe');
 
@@ -401,9 +402,18 @@ export async function persistRecipe(meal: GalleyMeal): Promise<StoredRecipe> {
     return record;
 }
 
-/** Get all locally stored recipes */
+/**
+ * The recipe library of the galley this account is using. While a skipper
+ * shares their galley it is the skipper's recipes only (the sailor's own stay
+ * on the device, hidden, and come back when the share ends). Otherwise it is
+ * every recipe on the device, as before, except another sailor's personal
+ * recipe left behind by a galley share that has ended: only a share brings
+ * those, and they go at the next full sync.
+ */
 export function getStoredRecipes(): StoredRecipe[] {
-    return getAll<StoredRecipe>(RECIPE_TABLE);
+    const galleyOwner = galleyShareOwner();
+    if (galleyOwner) return query<StoredRecipe>(RECIPE_TABLE, (recipe) => recipe.user_id === galleyOwner);
+    return query<StoredRecipe>(RECIPE_TABLE, (recipe) => isOwnBinderRow(recipe) || recipe.visibility === 'shared');
 }
 
 /**
@@ -1994,7 +2004,13 @@ export interface CreateRecipeInput {
  */
 export async function createCustomRecipe(input: CreateRecipeInput): Promise<StoredRecipe | null> {
     const now = new Date().toISOString();
-    const userId = await getCurrentRecipeUserId();
+    const signedInUserId = await getCurrentRecipeUserId();
+    // In a skipper's shared galley the recipe goes into the skipper's library,
+    // and stays personal: sharing it with the community is the skipper's call
+    // (the database refuses a crew-added community recipe).
+    const galleyOwner = signedInUserId ? galleyShareOwner() : null;
+    const userId = galleyOwner ?? signedInUserId;
+    const visibility: RecipeVisibility = galleyOwner ? 'personal' : input.visibility;
 
     const recipe: StoredRecipe = {
         id: generateUUID(),
@@ -2012,7 +2028,7 @@ export async function createCustomRecipe(input: CreateRecipeInput): Promise<Stor
         })),
         is_favorite: false,
         is_custom: true,
-        visibility: input.visibility,
+        visibility,
         tags: input.tags,
         created_at: now,
         updated_at: now,

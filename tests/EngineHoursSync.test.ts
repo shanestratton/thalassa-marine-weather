@@ -69,6 +69,19 @@ vi.mock('../services/vessel/sharedBinders', () => ({
         vessel_engine_hours: 'maintenance',
         ship_documents: 'documents',
     },
+    binderRegisterForRow: (table: string) =>
+        (
+            ({
+                inventory_items: 'stores',
+                equipment_register: 'equipment',
+                maintenance_tasks: 'maintenance',
+                maintenance_history: 'maintenance',
+                vessel_engine_hours: 'maintenance',
+                ship_documents: 'documents',
+            }) as Record<string, string>
+        )[table] ?? null,
+    // The galley (2026-10-03) is not live here: sync reads as it always did.
+    isGalleyShareLive: () => false,
 }));
 
 vi.mock('../services/vessel/LocalEngineHoursService', () => ({

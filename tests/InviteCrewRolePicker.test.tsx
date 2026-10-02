@@ -292,6 +292,41 @@ describe('InviteCrewModal role picker (2026-09-08)', () => {
         expect(screen.getByText(/nav, weather and the log/i)).toBeInTheDocument();
     });
 
+    it('offers the Galley as an option on the invite, off until ticked (2026-10-03)', () => {
+        const onToggleRegister = vi.fn();
+        render(
+            <InviteCrewModal
+                inviteEmail=""
+                inviteRole="deckhand"
+                inviteRegisters={[]}
+                inviteLoading={false}
+                inviteError={null}
+                inviteSuccess={false}
+                onEmailChange={vi.fn()}
+                onRoleChange={vi.fn()}
+                onToggleRegister={onToggleRegister}
+                onInvite={vi.fn()}
+            />,
+        );
+        const galley = screen.getByRole('button', { name: 'Share Galley & Meals' });
+        expect(galley).toHaveAttribute('aria-pressed', 'false');
+        fireEvent.click(galley);
+        expect(onToggleRegister).toHaveBeenCalledWith('galley');
+        // The deckhand hint no longer promises the galley without the tick.
+        expect(screen.queryByText(/stores and galley/i)).not.toBeInTheDocument();
+    });
+
+    it('a crew code carries the Galley only when it is ticked', () => {
+        expect(crewCodePermissions('deckhand', []).can_view_galley).toBe(false);
+        expect(crewCodePermissions('co-skipper', ['stores']).can_view_galley).toBe(false);
+        expect(crewCodePermissions('deckhand', ['galley']).can_view_galley).toBe(true);
+        // share_galley is what the redeem reads (20261003100000): a code from
+        // an older build, with can_view_galley true off the preset, shares none.
+        expect(crewCodePermissions('deckhand', []).share_galley).toBe(false);
+        expect(crewCodePermissions('navigator', ['stores']).share_galley).toBe(false);
+        expect(crewCodePermissions('deckhand', ['galley']).share_galley).toBe(true);
+    });
+
     it('names the co-skipper as the relief or delivery skipper', () => {
         render(<ModalHarness />);
         fireEvent.click(screen.getByRole('radio', { name: 'Co-skipper' }));

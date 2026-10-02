@@ -17,7 +17,7 @@ import { scaleIngredient, type RecipeIngredient, type GalleyMeal } from './Galle
 import { convertQuantity } from './PurchaseUnits';
 import { triggerHaptic } from '../utils/system';
 import { getMyCrew } from './CrewService';
-import { binderWriteGranted } from './vessel/sharedBinders';
+import { binderWriteGranted, galleyShareOwner } from './vessel/sharedBinders';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -85,7 +85,10 @@ export async function scheduleMeal(
     ownerUserId: string | null = null,
 ): Promise<MealPlan> {
     const now = new Date().toISOString();
-    const owner = ownerUserId?.trim() || '';
+    // A meal with no passage goes into the galley this account is using: the
+    // skipper's while they share their galley (sharedBinders), never the
+    // sailor's own hidden one.
+    const owner = (!voyageId ? galleyShareOwner() : null) ?? (ownerUserId?.trim() || '');
     if (voyageId && !owner) {
         throw new Error('An authoritative voyage owner is required to schedule a shared meal.');
     }
@@ -148,26 +151,38 @@ export async function unscheduleMeal(mealPlanId: string): Promise<boolean> {
 
 // ── Querying ───────────────────────────────────────────────────────────────
 
+/**
+ * The meals with no passage are the galley's. While a skipper shares their
+ * galley only theirs show; the sailor's own stay on the device, hidden, and
+ * come back when the share ends. Unshared, nothing is filtered (as before).
+ */
+function inSelectedVoyage(voyageId: string | null | undefined): (meal: MealPlan) => boolean {
+    if (voyageId === undefined) return () => true;
+    if (voyageId !== null) return (meal) => meal.voyage_id === voyageId;
+    const galleyOwner = galleyShareOwner();
+    return galleyOwner
+        ? (meal) => meal.voyage_id === null && normalizeOwnerId(meal.user_id) === galleyOwner
+        : (meal) => meal.voyage_id === null;
+}
+
 /** Get all meal plans for a voyage */
 export function getMealPlans(voyageId?: string | null): MealPlan[] {
     if (voyageId !== undefined) {
-        return query<MealPlan>(TABLE, (m) => m.voyage_id === voyageId);
+        return query<MealPlan>(TABLE, inSelectedVoyage(voyageId));
     }
     return getAll<MealPlan>(TABLE);
 }
 
 /** Get meals for a specific date */
 export function getMealsForDate(date: string, voyageId?: string | null): MealPlan[] {
-    return query<MealPlan>(TABLE, (m) => {
-        const dateMatch = m.planned_date === date;
-        const voyageMatch = voyageId === undefined || m.voyage_id === voyageId;
-        return dateMatch && voyageMatch;
-    });
+    const voyageMatch = inSelectedVoyage(voyageId);
+    return query<MealPlan>(TABLE, (m) => m.planned_date === date && voyageMatch(m));
 }
 
 /** Get meals by status, optionally constrained to one selected voyage. */
 export function getMealsByStatus(status: MealStatus, voyageId?: string | null): MealPlan[] {
-    return query<MealPlan>(TABLE, (m) => m.status === status && (voyageId === undefined || m.voyage_id === voyageId));
+    const voyageMatch = inSelectedVoyage(voyageId);
+    return query<MealPlan>(TABLE, (m) => m.status === status && voyageMatch(m));
 }
 
 // ── Ingredient Reservation ─────────────────────────────────────────────────
@@ -185,7 +200,7 @@ function normalizeOwnerId(ownerUserId: string | null | undefined): string | null
 function resolveMealOwner(voyageId?: string | null, explicitOwnerUserId?: string | null): string | null {
     const explicitOwner = normalizeOwnerId(explicitOwnerUserId);
     const owners = new Set(
-        query<MealPlan>(TABLE, (meal) => voyageId === undefined || meal.voyage_id === voyageId)
+        query<MealPlan>(TABLE, inSelectedVoyage(voyageId))
             .map((meal) => normalizeOwnerId(meal.user_id))
             .filter((owner): owner is string => owner !== null),
     );
@@ -211,10 +226,10 @@ export function getReservedIngredients(voyageId?: string | null, ownerUserId?: s
     const owner = resolveMealOwner(voyageId, ownerUserId);
     if (!owner) return [];
 
+    const voyageMatch = inSelectedVoyage(voyageId);
     const activeMeals = query<MealPlan>(TABLE, (m) => {
         const statusMatch = m.status === 'reserved' || m.status === 'cooking';
-        const voyageMatch = voyageId === undefined || m.voyage_id === voyageId;
-        return statusMatch && voyageMatch && normalizeOwnerId(m.user_id) === owner;
+        return statusMatch && voyageMatch(m) && normalizeOwnerId(m.user_id) === owner;
     });
 
     const aggregated = new Map<string, ReservedIngredient>();
@@ -440,6 +455,11 @@ async function saveLeftoversOnce(mealPlanId: string, servingsRemaining: number):
         if (!meal || meal.status !== 'completed') return false;
         const mealOwner = normalizeOwnerId(meal.user_id);
         if (!mealOwner) return false;
+        // Leftovers are a Ship's Stores entry. Crew who may not edit the
+        // skipper's stores (a shared galley or passage, stores view-only or
+        // unshared) save none: never a stores row the database refuses, and
+        // never one moved into the crew's own stores (sharedBinders).
+        if (!binderWriteGranted('stores', mealOwner)) return false;
 
         const itemName = `${meal.title} (Leftovers)`;
         const notes = `Leftovers from ${meal.planned_date} ${meal.meal_slot}`;

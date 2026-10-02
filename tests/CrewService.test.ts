@@ -159,6 +159,48 @@ describe('ROLE_DEFAULT_PERMISSIONS', () => {
     });
 });
 
+describe('the Galley share follows its tick (2026-10-03)', () => {
+    it('is offered on the invite, after the binders', () => {
+        expect(INVITE_REGISTERS).toContain('galley');
+        expect(INVITE_REGISTERS.indexOf('galley')).toBeGreaterThan(INVITE_REGISTERS.indexOf('documents'));
+        expect(REGISTER_LABELS.galley).toBe('Galley & Meals');
+    });
+
+    it('grants can_view_galley only when ticked, whatever the role preset says', () => {
+        // Every preset but punter says true; a code rebuilds 'galley' from the flag.
+        expect(ROLE_DEFAULT_PERMISSIONS.deckhand.can_view_galley).toBe(true);
+        expect(crewInvitePermissions('deckhand', []).can_view_galley).toBe(false);
+        expect(crewInvitePermissions('co-skipper', ['stores']).can_view_galley).toBe(false);
+        expect(crewInvitePermissions('punter', ['galley']).can_view_galley).toBe(true);
+    });
+
+    it('unticking it on the roster withdraws it; other flags survive', () => {
+        const kept = syncPassagePermissions(['stores'], {
+            ...ROLE_DEFAULT_PERMISSIONS.navigator,
+            can_view_galley: true,
+        });
+        expect(kept.can_view_galley).toBe(false);
+        expect(kept.can_view_nav).toBe(true);
+        expect(syncPassagePermissions(['galley']).can_view_galley).toBe(true);
+    });
+
+    it('writes share_galley, the key a crew code is redeemed from, only from the tick', () => {
+        // redeem_manifest_invite (20261003100000) shares a galley only on
+        // share_galley: codes minted by an older build carry can_view_galley
+        // true from the role preset, and nobody ticked those.
+        expect(crewInvitePermissions('deckhand', []).share_galley).toBe(false);
+        expect(crewInvitePermissions('co-skipper', ['stores']).share_galley).toBe(false);
+        expect(crewInvitePermissions('punter', ['galley']).share_galley).toBe(true);
+        expect(syncPassagePermissions(['galley']).share_galley).toBe(true);
+        const unticked = syncPassagePermissions(['stores'], {
+            ...ROLE_DEFAULT_PERMISSIONS.navigator,
+            share_galley: true,
+        });
+        expect(unticked.share_galley).toBe(false);
+        expect(unticked.can_view_galley).toBe(false);
+    });
+});
+
 describe('syncPassagePermissions', () => {
     it('derives the parent gate and exact child grants from shared passage registers', () => {
         const permissions = syncPassagePermissions(['passage_meals', 'passage_checklist']);
@@ -312,6 +354,9 @@ describe('inviteCrew carries the chosen role (2026-09-08)', () => {
             // Stores follow the tick (2026-10-02): not ticked, not shared.
             can_view_stores: false,
             can_edit_stores: false,
+            // So does the Galley (2026-10-03), whatever the preset says.
+            can_view_galley: false,
+            share_galley: false,
         });
         // The vessel-level preset survives the merge — this is the bug the
         // design's `{...preset, ...syncPassagePermissions(registers)}` spread

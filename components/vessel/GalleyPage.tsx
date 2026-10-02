@@ -4,6 +4,12 @@
  * Opened from the Boat Binder's Reference group on the Vessel hub.
  * Renders Chef's Plate cards for all active meals + recipe browser.
  * Works fully offline — recipes are persisted to LocalDatabase.
+ *
+ * Shared galley (Shane 2026-10-03, "can we share the galley as well with
+ * invitees"): while a skipper shares their Galley with this sailor, the page
+ * shows and uses the SKIPPER's galley (recipes, and the meals and grocery list
+ * kept with no passage) in place of the sailor's own, live, with the
+ * "Shared from <boat> — you're crew" line under the title.
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -36,6 +42,9 @@ import {
 } from '../../services/PassagePlanService';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
+import { useBinderSource } from '../../hooks/useBinderSource';
+import { isGalleyShareLive } from '../../services/vessel/sharedBinders';
+import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 
 interface GalleyPageProps {
     onBack: () => void;
@@ -43,13 +52,19 @@ interface GalleyPageProps {
 
 const GALLEY_TABS = ['active', 'recipes'] as const;
 
-function personalGalleyStatus(userId: string | null): PassageStatus {
+/**
+ * The galley kept with no passage: the sailor's own, or the skipper's while
+ * they share it (`galleyOwner`). Crew in a shared galley can tick grocery
+ * items bought (canEditStores here means "may tick"); whether Ship's Stores
+ * gets the receipt is the Stores share's call (ShoppingListService).
+ */
+function personalGalleyStatus(userId: string | null, galleyOwner: string | null = null): PassageStatus {
     if (!userId) return NO_PASSAGE_ACCESS;
     return {
         visible: true,
         voyageId: null,
-        ownerUserId: userId,
-        isOwner: true,
+        ownerUserId: galleyOwner ?? userId,
+        isOwner: !galleyOwner,
         canEditStores: true,
         canViewMeals: true,
         canViewChat: false,
@@ -75,6 +90,15 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const [showSignIn, setShowSignIn] = useState(false);
     const restoreShoppingFocusRef = useRef(false);
     const shoppingListButtonRef = useRef<HTMLButtonElement>(null);
+    const reloadGalleyRef = useRef<() => void>(() => undefined);
+    const { source: galley, fetchingSkipperBinder: fetchingSkipperGalley } = useBinderSource('galley', {
+        reload: () => reloadGalleyRef.current(),
+        rowCount: activeMeals.length + savedRecipes.length,
+    });
+    const galleyOwner = galley.mode === 'shared' ? galley.ownerId : null;
+    // Recipes and meal plans are on the realtime publication only once the
+    // galley can be shared (migration 20261003100000); until then no channel.
+    const galleyLive = isGalleyShareLive();
     const identityOwnsRenderedData =
         resolvedIdentityKey === renderIdentityScope.key && renderIdentityScope.userId === currentUserId;
     const visiblePassageStatus = identityOwnsRenderedData ? passageStatus : NO_PASSAGE_ACCESS;
@@ -114,7 +138,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             const selectedVoyageId = getActivePassageId() ?? cachedVoyage?.id ?? null;
 
             if (!selectedVoyageId) {
-                setPassageStatus(personalGalleyStatus(currentUserId));
+                setPassageStatus(personalGalleyStatus(currentUserId, galleyOwner));
                 setPassageAccessLoaded(true);
                 return;
             }
@@ -153,7 +177,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
             window.removeEventListener('thalassa:passage-changed', resolveScope);
             window.removeEventListener('thalassa:active-voyage-changed', resolveScope);
         };
-    }, [currentUserId]);
+    }, [currentUserId, galleyOwner]);
 
     const handleTabKeyDown = useCallback(
         (event: React.KeyboardEvent<HTMLButtonElement>, currentTab: (typeof GALLEY_TABS)[number]) => {
@@ -205,7 +229,18 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
         refreshSavedRecipes();
     }, [refreshActiveMeals, refreshSavedRecipes, refreshShoppingSummary]);
 
+    // A sync that brought rows in, or the galley changing hands, reloads all three.
+    reloadGalleyRef.current = () => {
+        refreshActiveMeals();
+        refreshShoppingSummary();
+        refreshSavedRecipes();
+    };
+
     useRealtimeSync('shopping_list', refreshShoppingSummary);
+    // One channel each, so a table the server is not publishing cannot take
+    // the grocery list's channel down with it.
+    useRealtimeSync('meal_plans', refreshActiveMeals, galleyLive);
+    useRealtimeSync('recipes', refreshSavedRecipes, galleyLive);
 
     const handleCookNow = useCallback((meal: MealPlan) => {
         triggerHaptic('medium');
@@ -252,6 +287,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     title="Galley"
                     // Same parent crumb as its binder siblings (Stores, Maintenance…).
                     breadcrumbs={['Boat Binder', 'Galley']}
+                    status={<SharedBinderLine register="galley" source={galley} />}
                     subtitle={
                         /* The bold tracked count its binder siblings wear (Stores,
                            Documents, Checklists, Diary); a regular-weight caption
@@ -344,7 +380,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                         tabIndex={0}
                         className="space-y-4 p-4"
                     >
-                        {visibleActiveMeals.length === 0 ? (
+                        {visibleActiveMeals.length === 0 && fetchingSkipperGalley ? (
+                            <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
+                                {bringingInCopy(galley, 'galley')}
+                            </p>
+                        ) : visibleActiveMeals.length === 0 ? (
                             // Not a dead end: the action goes where meals are actually
                             // planned — the Departure Brief on the Passage Planning page
                             // ('crew' view). Signed out, that page is a sign-in wall
@@ -546,7 +586,9 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     >
                         <div className="flex items-center justify-between gap-3 pb-1">
                             <div className="min-w-0">
-                                <p className="text-xs font-bold text-white">Your recipe library</p>
+                                <p className="text-xs font-bold text-white">
+                                    {galley.mode === 'shared' ? "The skipper's recipe library" : 'Your recipe library'}
+                                </p>
                                 <p className="text-xs text-gray-400">Saved recipes open offline</p>
                             </div>
                             <Button
@@ -571,7 +613,11 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                             </Button>
                         </div>
 
-                        {visibleSavedRecipes.length === 0 ? (
+                        {visibleSavedRecipes.length === 0 && fetchingSkipperGalley ? (
+                            <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
+                                {bringingInCopy(galley, 'galley')}
+                            </p>
+                        ) : visibleSavedRecipes.length === 0 ? (
                             <EmptyState
                                 icon={<ClipboardIcon className="h-8 w-8 [stroke-width:1.5]" />}
                                 title="No saved recipes"
@@ -653,6 +699,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 <RecipeEditor
                     key={editorRecipe === 'new' ? 'new' : editorRecipe.id}
                     recipe={editorRecipe === 'new' ? undefined : editorRecipe}
+                    sharedGalleyBoat={galley.mode === 'shared' ? galley.vesselName : undefined}
                     onSaved={refreshSavedRecipes}
                     onClose={() => setEditorRecipe(null)}
                 />

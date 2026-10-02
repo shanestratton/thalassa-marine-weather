@@ -34,6 +34,8 @@ import {
 } from '../../services/authIdentityScope';
 
 import { ZONE_EMOJI } from '../chat/galleyTokens';
+import { useBinderSource } from '../../hooks/useBinderSource';
+import { SharedBinderLine, SKIPPER_BOAT_FALLBACK } from './SharedBinderLine';
 import { CartIcon, CheckCircleIcon, CheckIcon, ClipboardIcon, ClockIcon } from '../Icons';
 
 interface GroceryListPageProps {
@@ -106,6 +108,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
     const [filter, setFilter] = useState<'all' | 'remaining' | 'purchased'>('remaining');
     const [purchasingId, setPurchasingId] = useState<string | null>(null);
     const [pageError, setPageError] = useState<string | null>(null);
+    /** A quiet word after a tick in a shared galley that left Ship's Stores alone. */
+    const [storesNote, setStoresNote] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [focusRequest, setFocusRequest] = useState(0);
 
@@ -137,6 +141,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
     const visibleSummary = stateOwnsRenderedScope ? summary : null;
     const visibleBudget = stateOwnsRenderedScope ? budget : null;
     const visiblePageError = stateOwnsRenderedScope ? pageError : null;
+    const visibleStoresNote = stateOwnsRenderedScope ? storesNote : null;
     const visibleIsLoading = stateOwnsRenderedScope ? isLoading : true;
     const permissionsLoadedForScope = stateOwnsRenderedScope && permissions.loaded;
     const canManageShoppingList =
@@ -183,11 +188,24 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         }
     }, [currentUserId, dataScopeKey, operationIsCurrent, scopeOwnerUserId, scopeVoyageId]);
 
+    // The grocery list kept with no passage is the galley's: the skipper's
+    // while they share their galley (ShoppingListService filters and stamps).
+    const { source: galley } = useBinderSource('galley', { reload: loadList });
+    const galleyBoat = galley.mode === 'shared' ? (galley.vesselName ?? SKIPPER_BOAT_FALLBACK) : null;
+    const storesSkippedNote = useCallback(
+        (bought: boolean) =>
+            `${bought ? 'Bought' : 'Back on the list'} — Ship's Stores on ${galleyBoat ?? SKIPPER_BOAT_FALLBACK} ${
+                bought ? "isn't shared with you to edit, so it wasn't added there" : 'was left as it is'
+            }.`,
+        [galleyBoat],
+    );
+
     useEffect(() => {
         setLoadedDataScopeKey(null);
         setSummary(null);
         setBudget(null);
         setPageError(null);
+        setStoresNote(null);
         setIsLoading(true);
         setPurchasingId(null);
         setPriceItem(null);
@@ -340,9 +358,11 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         setPageError(null);
         triggerHaptic('medium');
         const store = storeName.trim() || undefined;
+        setStoresNote(null);
         try {
-            await markPurchased(purchasedItem.id, cost, store, scopeVoyageId, scopeOwnerUserId);
+            const outcome = await markPurchased(purchasedItem.id, cost, store, scopeVoyageId, scopeOwnerUserId);
             if (!operationIsCurrent(operationScope, operationDataScopeKey)) return;
+            if (outcome?.storesSkipped) setStoresNote(storesSkippedNote(true));
             focusListAfterMutationRef.current = filter === 'remaining';
             resetPriceDialog();
             loadList();
@@ -370,6 +390,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         scopeOwnerUserId,
         scopeVoyageId,
         storeName,
+        storesSkippedNote,
     ]);
 
     // Skip price → just mark purchased
@@ -384,8 +405,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         setPriceInvalid(false);
         setPageError(null);
         triggerHaptic('medium');
+        setStoresNote(null);
         try {
-            await markPurchased(
+            const outcome = await markPurchased(
                 purchasedItem.id,
                 undefined,
                 storeName.trim() || undefined,
@@ -393,6 +415,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                 scopeOwnerUserId,
             );
             if (!operationIsCurrent(operationScope, operationDataScopeKey)) return;
+            if (outcome?.storesSkipped) setStoresNote(storesSkippedNote(true));
             focusListAfterMutationRef.current = filter === 'remaining';
             resetPriceDialog();
             loadList();
@@ -419,6 +442,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
         scopeOwnerUserId,
         scopeVoyageId,
         storeName,
+        storesSkippedNote,
     ]);
 
     // Untick — revert a purchased item back to "needs buying"
@@ -430,10 +454,18 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             if (!operationIsCurrent(operationScope, operationDataScopeKey)) return;
             setPurchasingId(item.id);
             setPageError(null);
+            setStoresNote(null);
             triggerHaptic('light');
             try {
-                await unmarkPurchased(item.id, scopeVoyageId, scopeOwnerUserId);
+                const outcome = await unmarkPurchased(item.id, scopeVoyageId, scopeOwnerUserId);
                 if (!operationIsCurrent(operationScope, operationDataScopeKey)) return;
+                // The skipper's tick put it in Ship's Stores, which this crew
+                // member may not edit: it stays bought, nothing queued.
+                if (outcome?.needsStoresEditor) {
+                    setStoresNote("Only someone who can edit Ship's Stores can put this back on the list.");
+                } else if (outcome?.storesSkipped) {
+                    setStoresNote(storesSkippedNote(false));
+                }
                 focusListAfterMutationRef.current = filter === 'purchased';
                 loadList();
                 setFocusRequest((request) => request + 1);
@@ -459,6 +491,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
             purchasingId,
             scopeOwnerUserId,
             scopeVoyageId,
+            storesSkippedNote,
         ],
     );
 
@@ -528,6 +561,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                     title="Grocery list"
                     onBack={onBack}
                     breadcrumbs={['Galley', 'Grocery list']}
+                    status={scopeVoyageId === null ? <SharedBinderLine register="galley" source={galley} /> : undefined}
                     subtitle={
                         visibleSummary ? (
                             <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
@@ -598,6 +632,15 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack, passag
                     >
                         {visiblePageError}
                     </div>
+                )}
+
+                {visibleStoresNote && (
+                    <p
+                        role="status"
+                        className="mx-4 mt-3 rounded-xl border border-white/10 bg-white/4 px-3 py-2 text-xs font-semibold text-gray-300"
+                    >
+                        {visibleStoresNote}
+                    </p>
                 )}
 
                 {!permissionsLoadedForScope ? (

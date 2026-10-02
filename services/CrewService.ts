@@ -80,16 +80,18 @@ export const PASSAGE_REGISTERS: SharedRegister[] = [
 ];
 
 /**
- * Registers offered in the "+ Invite Crew" modal — six shareable
+ * Registers offered in the "+ Invite Crew" modal — seven shareable
  * access levels surfaced at invite time. Instruments first: Shane
  * 2026-09-07, "when we invite a crew member, we need a toggle that says
  * share instrument panel" — the live panel is invite-only, off unless
  * this is ticked, and the vessel_telemetry read policy checks it.
- * Galley deliberately omitted:
- * meal-planning crew assignment happens per-passage via the Voyage
- * Provisioning card in the Departure Brief group, not as a blanket
- * vessel-wide grant. Checklist added so crew can be granted access to
- * the passage readiness checks at invite time.
+ * Galley added 2026-10-03 (Shane: "can we share the galley as well with
+ * invitees (as an option)"): off unless ticked; ticked, the crew member
+ * sees and uses the skipper's Galley (recipes, and the meal plans and
+ * grocery list kept with no passage) in place of their own. Meal planning
+ * for a passage is still the Departure Brief's Meal Planner share.
+ * Checklist added so crew can be granted access to the passage readiness
+ * checks at invite time.
  */
 export const INVITE_REGISTERS: SharedRegister[] = [
     'instruments',
@@ -97,6 +99,7 @@ export const INVITE_REGISTERS: SharedRegister[] = [
     'equipment',
     'maintenance',
     'documents',
+    'galley',
     'passage_checklist',
 ];
 
@@ -152,6 +155,14 @@ export interface CrewPermissions {
     can_edit_log: boolean;
     /** The live Instrument Panel (vessel_telemetry) — the skipper's explicit share. */
     can_view_instruments: boolean;
+    /**
+     * The Galley tick itself (2026-10-03). redeem_manifest_invite shares the
+     * skipper's galley from this key, not from can_view_galley: every role
+     * preset but punter says can_view_galley true, so a code minted by an
+     * older build carries it without anyone ticking Galley. Only
+     * syncPassagePermissions writes it, from the tick.
+     */
+    share_galley?: boolean;
     // Passage Planning child card permissions
     can_view_passage: boolean;
     can_view_passage_meals: boolean;
@@ -178,8 +189,14 @@ export const DEFAULT_PERMISSIONS: CrewPermissions = {
 /**
  * Keep the legacy/shared-register selector and the canonical JSONB passage
  * flags in sync. Existing vessel-level permission flags are preserved; only
- * the four one-to-one passage flags, their parent gate, and the Instrument
- * Panel share are derived here.
+ * the four one-to-one passage flags, their parent gate, the Instrument
+ * Panel share and the Galley share are derived here.
+ *
+ * can_view_galley and share_galley follow the Galley tick (2026-10-03), as
+ * the stores flags follow the Stores tick: a crew code carries no
+ * shared_registers, and redeem_manifest_invite rebuilds 'galley' from
+ * share_galley (20261003100000), so a role preset that said true shares no
+ * galley nobody ticked.
  */
 export function syncPassagePermissions(
     registers: SharedRegister[],
@@ -195,6 +212,8 @@ export function syncPassagePermissions(
         ...current,
         can_view_passage: canViewMeals || canViewChat || canViewRoute || canViewChecklist,
         can_view_instruments: registers.includes('instruments'),
+        can_view_galley: registers.includes('galley'),
+        share_galley: registers.includes('galley'),
         can_view_passage_meals: canViewMeals,
         can_view_passage_chat: canViewChat,
         can_view_passage_route: canViewRoute,
