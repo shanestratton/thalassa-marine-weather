@@ -66,6 +66,23 @@ const widgets: MetricWidget[] = [
     { id: 'period2', label: 'PER. 2', icon: <GaugeIcon />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
 ];
 
+// ?daySlots=1 (2026-10-02): the day card in the Glass carousel's slot heights,
+// measured in the app: 109 px at 375x667 (where it was cut off), 156 px at
+// 375x800 and 197 px at 390x844. The card has to fit each without clipping.
+const DAY_SLOTS = new URLSearchParams(window.location.search).get('daySlots') === '1' ? [109, 156, 197] : [];
+const shortDay = {
+    highTemp: 23,
+    lowTemp: 21,
+    condition: 'Light Drizzle',
+    windSpeed: 12.5,
+    windGust: 23.1,
+    windDegree: 110,
+    waveHeight: 2,
+    swellPeriod: 8,
+    precipChance: 40,
+    tideSummary: 'High 08:12 · Low 14:30',
+};
+
 function Fixture() {
     const [mode, setMode] = useState<'light' | 'dark' | 'night'>('light');
     useLayoutEffect(() => {
@@ -137,6 +154,25 @@ function Fixture() {
                         }}
                     />
                 </section>
+                {DAY_SLOTS.map((slot) => (
+                    // Framed as HeroSlide frames it: a bordered, rounded,
+                    // overflow-hidden box of the slot's height.
+                    <section
+                        key={slot}
+                        data-testid={`day-slot-${slot}`}
+                        className="relative w-full rounded-2xl overflow-hidden border border-white/8 bg-white/4"
+                        style={{ height: slot }}
+                    >
+                        {/* As in the app: at 390x844 the day label row above the
+                            carousel names the day, so the card draws no heading. */}
+                        <DailySummaryCard
+                            units={units}
+                            dateLabel="Sat 3 Oct"
+                            daily={shortDay}
+                            showDateHeading={slot !== 197}
+                        />
+                    </section>
+                ))}
                 <section data-testid="tide-card" className="bg-white/8 rounded-xl p-2" style={{ height: 180 }}>
                     <TideGraph
                         unit="m"
