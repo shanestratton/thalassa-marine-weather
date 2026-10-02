@@ -30,6 +30,8 @@ import { Button } from '../ui/Button';
 import { toast } from '../Toast';
 import { SwipeableInventoryCard } from './inventory/SwipeableInventoryCard';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
+import { useBinderSource } from '../../hooks/useBinderSource';
+import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import {
@@ -128,6 +130,16 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
 
     // Realtime sync — crew edits appear instantly
     useRealtimeSync('inventory_items', loadItems);
+
+    // Whose stores these are (shared binders, 2026-10-02): the skipper's while
+    // this sailor is crew on a boat that shares Ship's Stores. Nobody deletes
+    // from a skipper's stores, and a view-only share hides every edit.
+    const { source: binder, fetchingSkipperBinder } = useBinderSource('stores', {
+        reload: () => void loadItems(),
+        rowCount: items.length,
+    });
+    const sharedBinder = binder.mode === 'shared';
+    const viewOnly = binder.mode === 'shared' && !binder.canWrite;
 
     const { ref: listRef, flash } = useSuccessFlash();
 
@@ -395,7 +407,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         }
     };
 
-    if (showScanner && inventoryDataIsCurrent) {
+    if (showScanner && inventoryDataIsCurrent && !viewOnly) {
         const scannerIdentity = inventoryData.identity;
         return (
             <InventoryScanner
@@ -417,7 +429,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     title="Ship's Stores"
                     onBack={onBack}
                     breadcrumbs={['Boat Binder', "Ship's Stores"]}
-                    status={<OfflineBadge />}
+                    status={
+                        <>
+                            <OfflineBadge />
+                            <SharedBinderLine register="stores" source={binder} />
+                        </>
+                    }
                     subtitle={
                         // One count while the stores are empty: '0 items · 0 units'
                         // said the zero twice (UX scorecard run 7).
@@ -537,6 +554,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         </div>
                     ) : loadError ? (
                         <LoadErrorState what="your stores" onRetry={loadItems} />
+                    ) : fetchingSkipperBinder && !searchQuery ? (
+                        <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
+                            {bringingInCopy(binder)}
+                        </p>
                     ) : groupedItems.length === 0 ? (
                         <EmptyState
                             icon={
@@ -560,7 +581,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 // one path, not two (UX scorecard run 6).
                                 searchQuery
                                     ? 'Try a different search term.'
-                                    : 'Spares, provisions and consumables, and where each is stowed. Tap Add item below, then scan its barcode or type it in.'
+                                    : viewOnly
+                                      ? "Nothing in the skipper's stores yet."
+                                      : 'Spares, provisions and consumables, and where each is stowed. Tap Add item below, then scan its barcode or type it in.'
                             }
                             className="py-16"
                         />
@@ -585,10 +608,19 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                                 item={item}
                                                 isExpanded={expandedId === item.id}
                                                 onTap={() => setExpandedId(expandedId === item.id ? null : item.id)}
-                                                onDelete={() => handleDelete(item.id, inventoryData.identity)}
-                                                onEdit={() => openEdit(item, inventoryData.identity)}
-                                                onQuantityAdjust={(id, delta) =>
-                                                    handleQuantityAdjust(id, delta, inventoryData.identity)
+                                                onDelete={
+                                                    sharedBinder
+                                                        ? undefined
+                                                        : () => handleDelete(item.id, inventoryData.identity)
+                                                }
+                                                onEdit={
+                                                    viewOnly ? undefined : () => openEdit(item, inventoryData.identity)
+                                                }
+                                                onQuantityAdjust={
+                                                    viewOnly
+                                                        ? undefined
+                                                        : (id, delta) =>
+                                                              handleQuantityAdjust(id, delta, inventoryData.identity)
                                                 }
                                             />
                                         ))}
@@ -604,25 +636,29 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     className="shrink-0 px-4 pt-2 bg-slate-950"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <TapToAction
-                        label="Add item"
-                        icon={
-                            <svg
-                                className="w-4 h-4"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                            </svg>
-                        }
-                        onConfirm={() => {
-                            triggerHaptic('medium');
-                            setShowScanner(true);
-                        }}
-                        theme="emerald"
-                    />
+                    {/* A view-only share has no Add (and so no Scan): the
+                        skipper's stores are theirs to stock. */}
+                    {!viewOnly && (
+                        <TapToAction
+                            label="Add item"
+                            icon={
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                            }
+                            onConfirm={() => {
+                                triggerHaptic('medium');
+                                setShowScanner(true);
+                            }}
+                            theme="emerald"
+                        />
+                    )}
                 </div>
             </div>
 

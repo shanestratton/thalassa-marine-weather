@@ -15,6 +15,8 @@ const boot = vi.hoisted(() => ({
     startSyncEngine: vi.fn(),
     stopSyncEngine: vi.fn(),
     requestFullReconciliation: vi.fn(),
+    watchSharedBinderLoss: vi.fn(),
+    stopSharedBinderLoss: vi.fn(),
     pushForegroundToast: vi.fn(),
     clearBadge: vi.fn(),
     appAddListener: vi.fn(),
@@ -73,6 +75,7 @@ vi.mock('../services/vessel', () => ({
     startSyncEngine: boot.startSyncEngine,
     stopSyncEngine: boot.stopSyncEngine,
     requestFullReconciliation: boot.requestFullReconciliation,
+    watchSharedBinderLoss: boot.watchSharedBinderLoss,
 }));
 vi.mock('../stores/authStore', () => ({
     useAuthStore: (selector: (state: { authChecked: boolean; user: { id: string } | null }) => unknown) =>
@@ -104,6 +107,7 @@ beforeEach(() => {
     boot.getUnreadDMCount.mockResolvedValue(7);
     boot.startInternetProbe.mockImplementation(() => boot.stopInternetProbe);
     boot.initLocalDatabase.mockResolvedValue(undefined);
+    boot.watchSharedBinderLoss.mockImplementation(() => boot.stopSharedBinderLoss);
     boot.appAddListener.mockImplementation((_event: string, handler: (state: { isActive: boolean }) => void) => {
         // Keep the FIRST registration. Two things listen for appStateChange
         // now — the bootstrap itself and webContentKill's session watch — and
@@ -129,6 +133,8 @@ describe('useAppBootstrap', () => {
             expect(boot.startInternetProbe).toHaveBeenCalledOnce();
             expect(boot.autoStart).toHaveBeenCalledOnce();
             expect(boot.startSyncEngine).toHaveBeenCalledOnce();
+            // Changes to a skipper's binder a sync could not keep get a toast.
+            expect(boot.watchSharedBinderLoss).toHaveBeenCalledOnce();
             expect(pushService.onForegroundPush).toBeTypeOf('function');
             expect(pushService.onNotificationTap).toBeTypeOf('function');
             expect(boot.appStateHandler).toBeTypeOf('function');
@@ -204,6 +210,7 @@ describe('useAppBootstrap', () => {
             // The identity-aware bootstrap first tears down any previous
             // account's engine, then tears down this account on unmount.
             expect(boot.stopSyncEngine).toHaveBeenCalledTimes(2);
+            expect(boot.stopSharedBinderLoss).toHaveBeenCalledOnce();
             expect(pushService.onForegroundPush).toBeNull();
             expect(pushService.onNotificationTap).toBeNull();
         });

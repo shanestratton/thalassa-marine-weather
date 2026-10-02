@@ -23,11 +23,14 @@ export {
     syncNow,
     forceFullPull,
     requestFullReconciliation,
+    isFullReconciliationPending,
     getSyncStatus,
     onSyncComplete,
     onStatusChange,
 } from './SyncService';
 export type { SyncStatus } from './SyncService';
+// Says so when a sync could not keep changes to a skipper's binder.
+export { watchSharedBinderLoss } from './sharedBinderNotice';
 
 // Local-first services
 export { LocalInventoryService } from './LocalInventoryService';

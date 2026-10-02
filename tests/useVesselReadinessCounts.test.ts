@@ -38,7 +38,18 @@ vi.mock('../services/vessel/LocalEquipmentService', () => ({
     LocalEquipmentService: { getAll: () => equip },
 }));
 
+const syncListeners = vi.hoisted(
+    () => [] as ((result: { pushed: number; pulled: number; errors: string[]; discardedShared?: number }) => void)[],
+);
+vi.mock('../services/vessel/SyncService', () => ({
+    onSyncComplete: (listener: (typeof syncListeners)[number]) => {
+        syncListeners.push(listener);
+        return () => syncListeners.splice(syncListeners.indexOf(listener), 1);
+    },
+}));
+
 import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
+import { reloadSharedBindersFromStorage } from '../services/vessel/sharedBinders';
 
 describe('useVesselReadinessCounts', () => {
     beforeEach(() => {
@@ -149,5 +160,39 @@ describe('useVesselReadinessCounts', () => {
             resolveA([{ id: 'late-a', is_active: true, next_due_date: PAST, updated_at: PAST }]);
         });
         await waitFor(() => expect(result.current.overdueCount).toBe(0));
+    });
+
+    // ── Shared binders (2026-10-02): the badges count the binder on show ──
+
+    it('refetches every count when the binders change hands', async () => {
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+
+        // The skipper's binder takes over: none of its tasks are overdue.
+        maintTasks = [{ id: 's1', is_active: true, next_due_date: FUTURE, updated_at: FUTURE }];
+        cloudTasks = [...maintTasks];
+        docs = [];
+        equip = [];
+        act(() => reloadSharedBindersFromStorage());
+
+        await waitFor(() => {
+            expect(result.current.overdueCount).toBe(0);
+            expect(result.current.expiringDocsCount).toBe(0);
+            expect(result.current.expiringEquipCount).toBe(0);
+        });
+    });
+
+    it('refetches after a background sync pulls rows, and not after an empty one', async () => {
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => expect(result.current.expiringDocsCount).toBe(1));
+        await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+
+        docs = [];
+        act(() => syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 0, errors: [] })));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(result.current.expiringDocsCount).toBe(1);
+
+        act(() => syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 3, errors: [] })));
+        await waitFor(() => expect(result.current.expiringDocsCount).toBe(0));
     });
 });

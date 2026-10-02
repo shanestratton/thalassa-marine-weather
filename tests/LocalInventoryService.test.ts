@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
 import type { InventoryItem } from '../types';
 
 const database = vi.hoisted(() => {
@@ -119,5 +120,30 @@ describe('LocalInventoryService quantity integrity', () => {
         expect(database.rows.get('different-unit')?.quantity).toBe(500);
         expect(database.rows.get('different-locker')?.quantity).toBe(1);
         expect(database.rows.get('receipt')?.quantity).toBe(1000);
+    });
+});
+
+describe('LocalInventoryService dedup on a crew device (shared binders 2026-10-02)', () => {
+    afterEach(() => {
+        setAuthIdentityScope(null);
+        localStorage.clear();
+    });
+
+    it("never merges or deletes rows in a skipper's stores (A16)", async () => {
+        database.rows.clear();
+        database.deltaLocal.mockClear();
+        database.deleteLocal.mockClear();
+        setAuthIdentityScope('crew-1');
+        database.rows.set('s-1', inventoryItem('s-1', { user_id: 'skipper-1' }));
+        database.rows.set('s-2', inventoryItem('s-2', { user_id: 'skipper-1' }));
+        database.rows.set('c-1', inventoryItem('c-1', { user_id: 'crew-1' }));
+        database.rows.set('c-2', inventoryItem('c-2', { user_id: '' }));
+
+        await expect(LocalInventoryService.deduplicateByName()).resolves.toBe(1);
+
+        expect(database.rows.has('s-1')).toBe(true);
+        expect(database.rows.has('s-2')).toBe(true);
+        expect(database.deleteLocal).toHaveBeenCalledTimes(1);
+        expect(database.deleteLocal).toHaveBeenCalledWith('inventory_items', 'c-2');
     });
 });

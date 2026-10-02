@@ -7,30 +7,50 @@
  * The "Log Service" action writes to BOTH local_maintenance_history
  * AND updates local_maintenance_tasks — then queues both mutations.
  */
-import { getAll, getById, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
+import { getById, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
+import {
+    assertBinderDeletable,
+    assertBinderWritable,
+    binderInsertOwner,
+    binderRowFilter,
+    canSeedOwnBinder,
+} from './sharedBinders';
+import { getAuthIdentityScope } from '../authIdentityScope';
 import { calculateStatus, sortByUrgency, type TaskWithStatus } from '../MaintenanceService';
 import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
 import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '../../types';
 
 const TASKS_TABLE = 'maintenance_tasks';
 const HISTORY_TABLE = 'maintenance_history';
+// The skipper's R&M while the sailor is crew on a boat that shares it,
+// otherwise the sailor's own (sharedBinders.ts). Tasks and history share it.
+const REGISTER = 'maintenance' as const;
+
+/** The task to change, refusing (before anything is queued) an edit the share forbids. */
+function writableTask(id: string): MaintenanceTask | null {
+    const task = getById<MaintenanceTask>(TASKS_TABLE, id);
+    assertBinderWritable(REGISTER, task);
+    return task;
+}
 
 export class LocalMaintenanceService {
     // ── TASKS (READ) ──
 
     /** Get all active tasks (from local cache) */
     static getTasks(): MaintenanceTask[] {
-        return query<MaintenanceTask>(TASKS_TABLE, (t) => t.is_active);
+        const inBinder = binderRowFilter(REGISTER);
+        return query<MaintenanceTask>(TASKS_TABLE, (t) => inBinder(t) && t.is_active);
     }
 
     /** Get all tasks including paused */
     static getAllTasks(): MaintenanceTask[] {
-        return getAll<MaintenanceTask>(TASKS_TABLE);
+        return query<MaintenanceTask>(TASKS_TABLE, binderRowFilter(REGISTER));
     }
 
     /** Get tasks by category */
     static getByCategory(category: MaintenanceCategory): MaintenanceTask[] {
-        return query<MaintenanceTask>(TASKS_TABLE, (t) => t.category === category && t.is_active);
+        const inBinder = binderRowFilter(REGISTER);
+        return query<MaintenanceTask>(TASKS_TABLE, (t) => inBinder(t) && t.category === category && t.is_active);
     }
 
     /** Get tasks with traffic light status, sorted by urgency */
@@ -45,11 +65,12 @@ export class LocalMaintenanceService {
     static async createTask(
         task: Omit<MaintenanceTask, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
     ): Promise<MaintenanceTask> {
+        const owner = binderInsertOwner(REGISTER);
         const now = new Date().toISOString();
         const record: MaintenanceTask = {
             ...task,
             id: generateUUID(),
-            user_id: '',
+            user_id: owner,
             created_at: now,
             updated_at: now,
         };
@@ -61,6 +82,7 @@ export class LocalMaintenanceService {
 
     /** Update a task */
     static async updateTask(id: string, updates: Partial<MaintenanceTask>): Promise<MaintenanceTask | null> {
+        writableTask(id);
         const updated = await updateLocal<MaintenanceTask>(TASKS_TABLE, id, updates);
         dispatchDataChange(DATA_EVENTS.MAINTENANCE);
         return updated;
@@ -68,6 +90,7 @@ export class LocalMaintenanceService {
 
     /** Soft-delete (pause) a task */
     static async deactivateTask(id: string): Promise<void> {
+        writableTask(id);
         await updateLocal<MaintenanceTask>(TASKS_TABLE, id, {
             is_active: false,
         } as Partial<MaintenanceTask>);
@@ -76,6 +99,7 @@ export class LocalMaintenanceService {
 
     /** Hard-delete a task */
     static async deleteTask(id: string): Promise<void> {
+        assertBinderDeletable(REGISTER, getById<MaintenanceTask>(TASKS_TABLE, id));
         await deleteLocal(TASKS_TABLE, id);
         dispatchDataChange(DATA_EVENTS.MAINTENANCE);
     }
@@ -96,7 +120,7 @@ export class LocalMaintenanceService {
         notes: string | null,
         cost: number | null,
     ): Promise<{ historyId: string; nextDueDate: string | null; nextDueHours: number | null }> {
-        const task = getById<MaintenanceTask>(TASKS_TABLE, taskId);
+        const task = writableTask(taskId);
         if (!task) throw new Error('Task not found');
 
         const now = new Date().toISOString();
@@ -126,9 +150,11 @@ export class LocalMaintenanceService {
         }
 
         // ── 1. INSERT history record ──
+        // History belongs to whoever owns the task: on a skipper's shared R&M
+        // that is the skipper, so their binder keeps the record.
         const historyRecord: MaintenanceHistory = {
             id: generateUUID(),
-            user_id: '',
+            user_id: task.user_id || (getAuthIdentityScope().userId ?? ''),
             task_id: taskId,
             completed_at: now,
             engine_hours_at_service: engineHours,
@@ -162,13 +188,14 @@ export class LocalMaintenanceService {
 
     /** Get service history for a specific task */
     static getHistory(taskId: string): MaintenanceHistory[] {
-        const items = query<MaintenanceHistory>(HISTORY_TABLE, (h) => h.task_id === taskId);
+        const inBinder = binderRowFilter(REGISTER);
+        const items = query<MaintenanceHistory>(HISTORY_TABLE, (h) => inBinder(h) && h.task_id === taskId);
         return items.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
     }
 
     /** Get all history (recent first) */
     static getAllHistory(limit: number = 50): MaintenanceHistory[] {
-        return getAll<MaintenanceHistory>(HISTORY_TABLE)
+        return query<MaintenanceHistory>(HISTORY_TABLE, binderRowFilter(REGISTER))
             .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
             .slice(0, limit);
     }
@@ -202,6 +229,11 @@ export class LocalMaintenanceService {
      * Matching the cloud MaintenanceService.seedDefaults() API.
      */
     static async seedDefaults(): Promise<number> {
+        // Never into a skipper's shared R&M, and never before the server has
+        // confirmed this account's crew memberships once: a crew device that
+        // seeded first put 40 duplicate defaults in the skipper's binder.
+        if (!canSeedOwnBinder(REGISTER)) return 0;
+        const owner = binderInsertOwner(REGISTER);
         const { DEFAULT_MAINTENANCE_TASKS } = await import('../../components/vessel/maintenance/defaultTasks');
 
         const now = new Date();
@@ -214,7 +246,7 @@ export class LocalMaintenanceService {
 
             const record: MaintenanceTask = {
                 id: generateUUID(),
-                user_id: '',
+                user_id: owner,
                 title: t.title,
                 description: t.description,
                 category: t.category,

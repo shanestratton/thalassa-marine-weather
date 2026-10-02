@@ -369,22 +369,34 @@ export function useAppBootstrap() {
 
         let active = true;
         let stopSync: (() => void) | null = null;
+        let stopLossNotice: (() => void) | null = null;
         import('../services/vessel')
-            .then(({ initLocalDatabase, startSyncEngine, stopSyncEngine, requestFullReconciliation }) => {
-                // A superseded dynamic import must never stop B's newly
-                // started singleton engine.
-                if (!active || !isAuthIdentityScopeCurrent(actionScope)) return;
-                stopSync = stopSyncEngine;
-                stopSyncEngine();
+            .then(
+                ({
+                    initLocalDatabase,
+                    startSyncEngine,
+                    stopSyncEngine,
+                    requestFullReconciliation,
+                    watchSharedBinderLoss,
+                }) => {
+                    // A superseded dynamic import must never stop B's newly
+                    // started singleton engine.
+                    if (!active || !isAuthIdentityScopeCurrent(actionScope)) return;
+                    stopSync = stopSyncEngine;
+                    stopSyncEngine();
 
-                initLocalDatabase(actionScope.userId)
-                    .then(() => {
-                        if (!active || !actionScope.userId || !isAuthIdentityScopeCurrent(actionScope)) return;
-                        startSyncEngine();
-                        void requestFullReconciliation();
-                    })
-                    .catch((e) => console.error('[App] Local DB init failed:', e));
-            })
+                    initLocalDatabase(actionScope.userId)
+                        .then(() => {
+                            if (!active || !actionScope.userId || !isAuthIdentityScopeCurrent(actionScope)) return;
+                            startSyncEngine();
+                            // Changes to a skipper's binder a sync could not keep
+                            // get a toast, whichever page is open (2026-10-02).
+                            stopLossNotice = watchSharedBinderLoss();
+                            void requestFullReconciliation();
+                        })
+                        .catch((e) => console.error('[App] Local DB init failed:', e));
+                },
+            )
             .catch((error) => {
                 if (active && isAuthIdentityScopeCurrent(actionScope)) {
                     console.error('[App] Local DB services could not be loaded:', error);
@@ -393,6 +405,7 @@ export function useAppBootstrap() {
         return () => {
             active = false;
             stopSync?.();
+            stopLossNotice?.();
         };
     }, [authChecked, authenticatedUserId, identityScope]);
 

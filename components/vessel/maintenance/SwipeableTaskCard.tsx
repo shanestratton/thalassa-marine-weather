@@ -48,7 +48,8 @@ export function readableStatusLabel(label: string): string {
 interface SwipeableTaskCardProps {
     task: TaskWithStatus;
     onTap: () => void;
-    onDelete: () => void;
+    /** Omitted on a skipper's shared R&M: no swipe-to-delete at all. */
+    onDelete?: () => void;
 }
 
 export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTap, onDelete }) => {
@@ -59,7 +60,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
     const revealed = swipeOffset > 0;
     const confirmDelete = () => {
         resetSwipe();
-        onDelete();
+        onDelete?.();
     };
 
     return (
@@ -67,31 +68,33 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
             {/* Delete button (revealed on swipe). Hidden from assistive tech
                 until the swipe reveals it — opacity alone left VoiceOver
                 reading "Delete" before every one of the task headings. */}
-            <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                aria-hidden={revealed ? undefined : true}
-                role={revealed ? 'button' : undefined}
-                aria-label={revealed ? `Delete ${task.title}` : undefined}
-                tabIndex={revealed ? 0 : -1}
-                onClick={confirmDelete}
-                onKeyDown={(e) => {
-                    if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
-                    e.preventDefault();
-                    confirmDelete();
-                }}
-            >
-                <div className="text-center text-white" aria-hidden="true">
-                    <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                    </svg>
-                    <span className="text-label font-bold">Delete</span>
+            {onDelete && (
+                <div
+                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    aria-hidden={revealed ? undefined : true}
+                    role={revealed ? 'button' : undefined}
+                    aria-label={revealed ? `Delete ${task.title}` : undefined}
+                    tabIndex={revealed ? 0 : -1}
+                    onClick={confirmDelete}
+                    onKeyDown={(e) => {
+                        if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                        e.preventDefault();
+                        confirmDelete();
+                    }}
+                >
+                    <div className="text-center text-white" aria-hidden="true">
+                        <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                        </svg>
+                        <span className="text-label font-bold">Delete</span>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Main card (slides on swipe). A tap anywhere on it opens the
                 same options sheet as its ⋮ — the ⋮ was the only target on a
@@ -113,7 +116,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                             : 'border-l-gray-500'
                 }`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                ref={ref}
+                ref={onDelete ? ref : undefined}
             >
                 {/* No per-card category badge: cards only render inside their
                     category group, whose header already names it. */}

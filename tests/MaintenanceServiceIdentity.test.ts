@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { reloadSharedBindersFromStorage } from '../services/vessel/sharedBinders';
 import { supabase } from '../services/supabase';
 import type { MaintenanceTask } from '../types';
 
@@ -333,14 +334,27 @@ describe('MaintenanceService identity and vessel ownership', () => {
         expect(from).toHaveBeenCalledTimes(2);
     });
 
-    it('seeds crew defaults under the resolved owner and returns zero after stale insert completion', async () => {
+    it("never seeds a crew member's defaults into the skipper's binder (2026-10-01 duplicates)", async () => {
         const ownerQuery = queryFor({ data: null, error: null });
         const crewQuery = queryFor({ data: [crewMembership('captain-1')], error: null });
+        const insertQuery = queryFor({ error: null });
+        from.mockImplementation((table: string) => {
+            if (table === 'vessel_identity') return ownerQuery;
+            if (table === 'vessel_crew') return crewQuery;
+            if (table === 'maintenance_tasks') return insertQuery;
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        await expect(MaintenanceService.seedDefaults()).resolves.toBe(0);
+        expect(insertQuery.insert).not.toHaveBeenCalled();
+    });
+
+    it('seeds own defaults under the owner and returns zero after stale insert completion', async () => {
+        const ownerQuery = queryFor({ data: { owner_id: 'account-a' }, error: null });
         const insertResult = deferred<{ error: null }>();
         const insertQuery = queryFor(insertResult.promise);
         from.mockImplementation((table: string) => {
             if (table === 'vessel_identity') return ownerQuery;
-            if (table === 'vessel_crew') return crewQuery;
             if (table === 'maintenance_tasks') return insertQuery;
             throw new Error(`Unexpected table: ${table}`);
         });
@@ -349,10 +363,97 @@ describe('MaintenanceService identity and vessel ownership', () => {
         await vi.waitFor(() => expect(insertQuery.insert).toHaveBeenCalledOnce());
         const rows = insertQuery.insert.mock.calls[0][0] as { user_id: string }[];
         expect(rows.length).toBeGreaterThan(20);
-        expect(new Set(rows.map((row) => row.user_id))).toEqual(new Set(['captain-1']));
+        expect(new Set(rows.map((row) => row.user_id))).toEqual(new Set(['account-a']));
 
         setAuthIdentityScope('account-b');
         insertResult.resolve({ error: null });
         await expect(pending).resolves.toBe(0);
+    });
+});
+
+// ── Shared binders (2026-10-02) ──────────────────────────────────────────
+//
+// A crew member who ALSO owns a vessel: while the R&M on show is the
+// skipper's, the cloud reads follow it, so the Vessel-tile overdue badge and
+// the PDF export count the same tasks as the list.
+
+describe('MaintenanceService follows the shared R&M binder', () => {
+    const getUser = supabase!.auth.getUser as ReturnType<typeof vi.fn>;
+    const from = supabase!.from as ReturnType<typeof vi.fn>;
+    const snapshotKey = 'thalassa_shared_binders_v1::user%3Aaccount-a';
+
+    function shareMaintenanceFrom(ownerId: string) {
+        localStorage.setItem(
+            snapshotKey,
+            JSON.stringify({
+                version: 1,
+                userId: 'account-a',
+                confirmedAt: '2026-10-02T00:00:00.000Z',
+                skippers: [
+                    {
+                        ownerId,
+                        vesselName: 'Test Boat',
+                        lastAcceptedAt: '2026-10-01T00:00:00.000Z',
+                        registers: {
+                            stores: { read: false, write: false },
+                            equipment: { read: false, write: false },
+                            maintenance: { read: true, write: true },
+                            documents: { read: false, write: false },
+                        },
+                    },
+                ],
+            }),
+        );
+        reloadSharedBindersFromStorage();
+    }
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('account-a');
+        getUser.mockReset().mockResolvedValue(authUser('account-a'));
+        from.mockReset();
+    });
+    afterEach(() => {
+        localStorage.removeItem(snapshotKey);
+        reloadSharedBindersFromStorage();
+    });
+
+    it("reads the skipper's tasks (A15), though the crew member owns a vessel too", async () => {
+        shareMaintenanceFrom('skipper-1');
+        const crewQuery = queryFor({ data: [{ ...crewMembership('skipper-1') }], error: null });
+        const ownerQuery = queryFor({ data: { owner_id: 'account-a' }, error: null });
+        const taskQuery = queryFor({ data: [taskRow('skipper-1', 'task-s')], error: null });
+        from.mockImplementation((table: string) => {
+            if (table === 'vessel_crew') return crewQuery;
+            if (table === 'vessel_identity') return ownerQuery;
+            if (table === 'maintenance_tasks') return taskQuery;
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const tasks = await MaintenanceService.getTasks();
+
+        expect(tasks.map((task) => task.id)).toEqual(['task-s']);
+        expect(taskQuery.eq).toHaveBeenCalledWith('user_id', 'skipper-1');
+        expect(crewQuery.eq).toHaveBeenCalledWith('owner_id', 'skipper-1');
+        expect(ownerQuery.select).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the own vessel when the server no longer confirms the share', async () => {
+        shareMaintenanceFrom('skipper-1');
+        const crewQuery = queryFor({ data: [], error: null });
+        const ownerQuery = queryFor({ data: { owner_id: 'account-a' }, error: null });
+        const taskQuery = queryFor({ data: [taskRow('account-a', 'task-own')], error: null });
+        from.mockImplementation((table: string) => {
+            if (table === 'vessel_crew') return crewQuery;
+            if (table === 'vessel_identity') return ownerQuery;
+            if (table === 'maintenance_tasks') return taskQuery;
+            throw new Error(`Unexpected table: ${table}`);
+        });
+
+        const tasks = await MaintenanceService.getTasks();
+
+        expect(tasks.map((task) => task.id)).toEqual(['task-own']);
+        expect(taskQuery.eq).toHaveBeenCalledWith('user_id', 'account-a');
     });
 });

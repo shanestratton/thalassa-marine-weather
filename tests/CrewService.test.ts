@@ -34,6 +34,7 @@ import {
     ROLE_DEFAULT_PERMISSIONS,
     syncPassagePermissions,
     crewInvitePermissions,
+    storesPermissions,
     inviteCrew,
     acceptInvite,
     declineInvite,
@@ -303,11 +304,14 @@ describe('inviteCrew carries the chosen role (2026-09-08)', () => {
             can_view_passage_chat: false,
             can_view_passage_route: false,
             can_view_instruments: true,
+            // Stores follow the tick (2026-10-02): not ticked, not shared.
+            can_view_stores: false,
+            can_edit_stores: false,
         });
         // The vessel-level preset survives the merge — this is the bug the
         // design's `{...preset, ...syncPassagePermissions(registers)}` spread
         // would have introduced (every flag reset to false).
-        expect((row.permissions as Record<string, boolean>).can_edit_stores).toBe(true);
+        expect((row.permissions as Record<string, boolean>).can_view_nav).toBe(true);
         expect((row.permissions as Record<string, boolean>).can_edit_log).toBe(true);
     });
 
@@ -363,7 +367,7 @@ describe('inviteCrew carries the chosen role (2026-09-08)', () => {
 describe('crewInvitePermissions', () => {
     it('keeps the role preset as the base and lets the registers decide passage flags', () => {
         const permissions = crewInvitePermissions('co-skipper', ['passage_chat']);
-        expect(permissions.can_edit_stores).toBe(true);
+        expect(permissions.can_edit_log).toBe(true);
         expect(permissions.can_view_nav).toBe(true);
         expect(permissions.can_view_passage).toBe(true);
         expect(permissions.can_view_passage_chat).toBe(true);
@@ -389,9 +393,98 @@ describe('crewInvitePermissions', () => {
         const punter = crewInvitePermissions('punter', ['stores']);
         expect(punter.can_view_stores).toBe(true);
         expect(punter.can_edit_stores).toBe(false);
-        // An unticked preset is left alone in both directions.
         expect(crewInvitePermissions('punter', ['instruments']).can_view_stores).toBe(false);
-        expect(crewInvitePermissions('deckhand', ['instruments']).can_view_stores).toBe(true);
+    });
+
+    it("shares stores only when Ship's Stores is ticked, whatever the role preset (shared binders 2026-10-02)", () => {
+        // A deckhand or navigator invited WITHOUT Stores used to keep the
+        // preset's can_view_stores, so the skipper's stores were readable.
+        for (const role of ['deckhand', 'navigator', 'co-skipper'] as const) {
+            const unticked = crewInvitePermissions(role, ['instruments']);
+            expect(unticked.can_view_stores).toBe(false);
+            expect(unticked.can_edit_stores).toBe(false);
+        }
+        // Ticked: everyone can look; only a preset that edits can edit.
+        expect(crewInvitePermissions('co-skipper', ['stores'])).toMatchObject({
+            can_view_stores: true,
+            can_edit_stores: true,
+        });
+        expect(crewInvitePermissions('navigator', ['stores'])).toMatchObject({
+            can_view_stores: true,
+            can_edit_stores: false,
+        });
+    });
+});
+
+describe('updateCrewPermissions follows the Stores tick (shared binders 2026-10-02)', () => {
+    beforeEach(() => {
+        setAuthIdentityScope('skipper-1');
+        supabaseMocks.getUser.mockResolvedValue({ data: { user: { id: 'skipper-1' } }, error: null });
+    });
+    afterEach(() => {
+        setAuthIdentityScope(null);
+        supabaseMocks.getUser.mockReset();
+        supabaseMocks.from.mockReset();
+    });
+
+    it('reads the role and clears both stores flags when Stores is unticked', async () => {
+        const table = vesselCrewTable({
+            permissions: { ...ROLE_DEFAULT_PERMISSIONS['co-skipper'] },
+            role: 'co-skipper',
+        });
+        supabaseMocks.from.mockReturnValue(table.query);
+        const { updateCrewPermissions } = await import('../services/CrewService');
+
+        expect(await updateCrewPermissions('row-1', ['equipment', 'maintenance'])).toBe(true);
+
+        expect((table.query.select as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('permissions, role');
+        const patch = table.update.mock.calls[0][0] as { permissions: Record<string, boolean> };
+        expect(patch.permissions.can_view_stores).toBe(false);
+        expect(patch.permissions.can_edit_stores).toBe(false);
+        // Everything else on the row is kept.
+        expect(patch.permissions.can_edit_log).toBe(true);
+    });
+
+    it("re-ticking Stores restores a co-skipper's edit and gives a navigator view only", async () => {
+        for (const [role, edit] of [
+            ['co-skipper', true],
+            ['navigator', false],
+        ] as const) {
+            const table = vesselCrewTable({
+                permissions: { ...ROLE_DEFAULT_PERMISSIONS[role], can_view_stores: false, can_edit_stores: false },
+                role,
+            });
+            supabaseMocks.from.mockReturnValue(table.query);
+            const { updateCrewPermissions } = await import('../services/CrewService');
+            expect(await updateCrewPermissions('row-1', ['stores'])).toBe(true);
+            const patch = table.update.mock.calls[0][0] as { permissions: Record<string, boolean> };
+            expect(patch.permissions.can_view_stores).toBe(true);
+            expect(patch.permissions.can_edit_stores).toBe(edit);
+        }
+    });
+});
+
+describe('storesPermissions (roster edits)', () => {
+    it("unticking Stores really unshares, and re-ticking restores the role's edit", () => {
+        expect(
+            storesPermissions('co-skipper', ['equipment'], { can_view_stores: true, can_edit_stores: true }),
+        ).toEqual({
+            can_view_stores: false,
+            can_edit_stores: false,
+        });
+        expect(storesPermissions('co-skipper', ['stores'], { can_view_stores: false, can_edit_stores: false })).toEqual(
+            { can_view_stores: true, can_edit_stores: true },
+        );
+        // An edit grant already on the row is kept while ticked.
+        expect(storesPermissions('deckhand', ['stores'], { can_edit_stores: true })).toEqual({
+            can_view_stores: true,
+            can_edit_stores: true,
+        });
+        // Unknown role: view only, never an invented edit.
+        expect(storesPermissions('captain-ish', ['stores'], {})).toEqual({
+            can_view_stores: true,
+            can_edit_stores: false,
+        });
     });
 });
 

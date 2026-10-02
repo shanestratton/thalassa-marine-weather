@@ -12,7 +12,10 @@
  *      (dispatched by the maintenance / document / equipment services
  *      on every mutation),
  *   3. re-fetches everything on `visibilitychange` → visible (catches
- *      changes synced from another device while backgrounded).
+ *      changes synced from another device while backgrounded),
+ *   4. re-fetches everything when the binders on show change hands
+ *      (sharedBinders: crewing on a skipper's boat) and after a background
+ *      sync pulls rows, so the badges count the same binder the lists show.
  *
  * Maintenance pulls from BOTH the offline-first local cache AND the
  * cloud, merged newest-`updated_at`-wins via mergeByUpdatedAt — so a
@@ -28,6 +31,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import { subscribeSharedBinders } from '../services/vessel/sharedBinders';
 
 /** Expiry look-ahead window for docs + equipment warranty badges. */
 const EXPIRY_WINDOW_MS = 30 * 86_400_000; // 30 days
@@ -165,6 +169,24 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
             void refetchEquip();
         };
 
+        const refetchAll = () => {
+            void refetchMaintenance();
+            void refetchDocs();
+            void refetchEquip();
+        };
+        const unsubscribeBinders = subscribeSharedBinders(refetchAll);
+        let unsubscribeSync: (() => void) | null = null;
+        void import('../services/vessel/SyncService')
+            .then(({ onSyncComplete }) => {
+                if (cancelled) return;
+                unsubscribeSync = onSyncComplete((result) => {
+                    if (result.pulled > 0 || (result.discardedShared ?? 0) > 0) refetchAll();
+                });
+            })
+            .catch(() => {
+                /* no background sync in this build: the other triggers still apply */
+            });
+
         if (typeof window !== 'undefined') {
             window.addEventListener(DATA_EVENTS.MAINTENANCE, onMaintenance);
             window.addEventListener(DATA_EVENTS.DOCUMENTS, onDocs);
@@ -173,6 +195,8 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
         }
         return () => {
             cancelled = true;
+            unsubscribeBinders();
+            unsubscribeSync?.();
             maintenanceEpoch++;
             documentsEpoch++;
             equipmentEpoch++;

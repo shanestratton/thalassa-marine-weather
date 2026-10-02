@@ -18,7 +18,8 @@ interface EquipmentDetailProps {
     item: EquipmentItem;
     onBack: () => void;
     onEdit: () => void;
-    onDelete: () => void;
+    /** Omitted on a skipper's shared Equipment: deletes there are the skipper's. */
+    onDelete?: () => void;
 }
 
 export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit, onDelete }) => {
@@ -219,13 +220,15 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                     )}
 
                     {/* Delete button */}
-                    <button
-                        aria-label={`Delete ${item.equipment_name}`}
-                        onClick={onDelete}
-                        className="w-full py-3 bg-red-500/10 border border-red-500/20 rounded-2xl text-sm font-bold text-red-400 hover:bg-red-500/20 transition-all active:scale-[0.98]"
-                    >
-                        Delete equipment
-                    </button>
+                    {onDelete && (
+                        <button
+                            aria-label={`Delete ${item.equipment_name}`}
+                            onClick={onDelete}
+                            className="w-full py-3 bg-red-500/10 border border-red-500/20 rounded-2xl text-sm font-bold text-red-400 hover:bg-red-500/20 transition-all active:scale-[0.98]"
+                        >
+                            Delete equipment
+                        </button>
+                    )}
                 </div>
 
                 {/* Edit FAB */}

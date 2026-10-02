@@ -22,9 +22,19 @@ import {
     prunePulledTable,
     getLocalDatabaseSession,
     isLocalDatabaseSessionCurrent,
+    getById,
+    bulkDelete,
+    rewriteQueuedInsert,
     type LocalDatabaseSession,
     type SyncQueueItem,
 } from './LocalDatabase';
+import {
+    anySkipperGrantsWrite,
+    binderWriteGranted,
+    refreshSharedBinders,
+    TABLE_REGISTER,
+    type BinderRegister,
+} from './sharedBinders';
 
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
@@ -37,6 +47,18 @@ interface SyncResult {
     pushed: number;
     pulled: number;
     errors: string[];
+    /**
+     * Queued changes to a skipper's binder rows dropped because a fresh share
+     * snapshot shows the skipper no longer grants write (sharedBinders.ts).
+     */
+    discardedShared?: number;
+    /**
+     * Rows the sailor ADDED to such a binder that were kept by moving them
+     * into the sailor's own binder instead (nobody else could take them).
+     */
+    rehomedShared?: number;
+    /** The skippers whose binders those changes were meant for. */
+    sharedOwnerIds?: string[];
 }
 
 type SyncListener = (result: SyncResult) => void;
@@ -89,6 +111,7 @@ let engineStarted = false;
 let fullReconciliationRequestVersion = 0;
 let fullReconciliationCompletedVersion = 0;
 let fullReconciliationFollowup: Promise<SyncResult> | null = null;
+let forcedPullInFlight = false;
 const listeners: SyncListener[] = [];
 const statusListeners: StatusListener[] = [];
 
@@ -239,10 +262,26 @@ export function requestFullReconciliation(): Promise<SyncResult> {
     return fullReconciliationFollowup;
 }
 
+/**
+ * True while a requested full reconciliation has not completed yet, or one is
+ * pulling right now. A shared binder that is still empty uses this to say
+ * "Bringing in the skipper's binder…" rather than "nothing here".
+ */
+export function isFullReconciliationPending(): boolean {
+    return forcedPullInFlight || fullReconciliationRequestVersion > fullReconciliationCompletedVersion;
+}
+
 async function runSyncCycle(): Promise<SyncResult> {
     setStatus('syncing');
-    const result: SyncResult = { pushed: 0, pulled: 0, errors: [] };
-    const reconciliationVersionAtStart = fullReconciliationRequestVersion;
+    const result: SyncResult = {
+        pushed: 0,
+        pulled: 0,
+        errors: [],
+        discardedShared: 0,
+        rehomedShared: 0,
+        sharedOwnerIds: [],
+    };
+    let reconciliationVersionAtStart = fullReconciliationRequestVersion;
 
     try {
         const databaseSession = getLocalDatabaseSession();
@@ -252,7 +291,31 @@ async function runSyncCycle(): Promise<SyncResult> {
         const authenticatedUserId = await requireAuthenticatedIdentity(databaseSession.identity);
         assertDatabaseSession(databaseSession);
 
-        const forceFull = reconciliationVersionAtStart > fullReconciliationCompletedVersion;
+        // Whose binders this account sees (sharedBinders.ts), refreshed BEFORE
+        // the push so the outbox is judged against the current shares. Any
+        // change of owner, register, read, write or selection forces the full
+        // reconciliation below: rows of a new share can be older than the
+        // incremental watermark, and rows of an ended share must be pruned.
+        // It is requested (not just forced) so a failed pull retries it. A
+        // failed refresh keeps the cached snapshot: no forced pull, and no
+        // queued change is discarded on its say-so.
+        let binderSnapshotFresh = false;
+        try {
+            const binders = await refreshSharedBinders();
+            binderSnapshotFresh = binders.fresh;
+            if (binders.changed) {
+                fullReconciliationRequestVersion += 1;
+                reconciliationVersionAtStart = fullReconciliationRequestVersion;
+            }
+        } catch (error) {
+            log.warn(
+                '[SyncService] Shared binder refresh failed; keeping the cached snapshot:',
+                error instanceof Error ? error.message : error,
+            );
+        }
+        assertDatabaseSession(databaseSession);
+
+        let forceFull = reconciliationVersionAtStart > fullReconciliationCompletedVersion;
 
         // Failed mutations must not wait for an offline→online edge. This also
         // retries requests that failed because a session was temporarily
@@ -261,15 +324,29 @@ async function runSyncCycle(): Promise<SyncResult> {
         assertDatabaseSession(databaseSession);
 
         // ── Phase 1: PUSH (drain outbox) ──
-        const pushResult = await pushMutations(databaseSession, authenticatedUserId);
+        const pushResult = await pushMutations(databaseSession, authenticatedUserId, binderSnapshotFresh);
         result.pushed = pushResult.count;
+        result.discardedShared = pushResult.discarded;
+        result.rehomedShared = pushResult.rehomed;
+        result.sharedOwnerIds = pushResult.ownerIds;
         if (pushResult.errors.length > 0) {
             result.errors.push(...pushResult.errors);
         }
         assertDatabaseSession(databaseSession);
+        // A dropped edit of a skipper's row left the local copy as the sailor
+        // edited it. Pull every table in full now, so the server's copy comes
+        // back (still readable) or the row is pruned (no longer shared).
+        if (pushResult.restoreFromServer) {
+            fullReconciliationRequestVersion += 1;
+            reconciliationVersionAtStart = fullReconciliationRequestVersion;
+            forceFull = true;
+        }
 
         // ── Phase 2: PULL (incremental fetch) ──
-        const pullResult = await pullUpdates(forceFull, databaseSession);
+        if (forceFull) forcedPullInFlight = true;
+        const pullResult = await pullUpdates(forceFull, databaseSession).finally(() => {
+            forcedPullInFlight = false;
+        });
         result.pulled = pullResult.count;
         if (pullResult.errors.length > 0) {
             result.errors.push(...pullResult.errors);
@@ -321,20 +398,107 @@ async function requireAuthenticatedIdentity(expectedUserId: string): Promise<str
 
 // ── Phase 1: PUSH ──────────────────────────────────────────────
 
+/**
+ * A queued change to a SKIPPER'S binder row (by its local row, or for an
+ * INSERT its payload user_id) whose register the fresh share snapshot no
+ * longer lets this sailor write. Rows the sailor owns never qualify.
+ */
+function orphanedSharedMutation(
+    item: SyncQueueItem,
+    authenticatedUserId: string,
+): { owner: string; register: BinderRegister } | null {
+    const register = TABLE_REGISTER[item.table_name];
+    if (!register) return null;
+    let owner = '';
+    const local = getById<{ user_id?: unknown }>(item.table_name, item.record_id);
+    if (local) {
+        owner = typeof local.user_id === 'string' ? local.user_id.trim() : '';
+    } else if (item.mutation_type === 'INSERT') {
+        try {
+            const payload = JSON.parse(item.payload) as { user_id?: unknown };
+            owner = typeof payload.user_id === 'string' ? payload.user_id.trim() : '';
+        } catch {
+            return null;
+        }
+    }
+    if (!owner || owner === authenticatedUserId) return null;
+    return binderWriteGranted(register, owner) ? null : { owner, register };
+}
+
+/**
+ * What an orphaned INSERT (a row the sailor ADDED, which never reached the
+ * server) should be re-stamped with to land in the sailor's own binder, or
+ * null when it must be dropped instead:
+ *  - while any skipper still grants write on the register, the database's
+ *    crew_rewrite_user_id would move a self-stamped row into THAT skipper's
+ *    binder, another boat's;
+ *  - a service log entry only moves with its task (the task's INSERT comes
+ *    first in the outbox, so a re-homed task is already the sailor's).
+ * An attachment reference into someone else's vault folder is cleared; a
+ * local file still uploads, now to the sailor's own folder.
+ */
+function rehomeChanges(
+    item: SyncQueueItem,
+    register: BinderRegister,
+    authenticatedUserId: string,
+): Record<string, unknown> | null {
+    if (item.mutation_type !== 'INSERT' || anySkipperGrantsWrite(register)) return null;
+    let payload: Record<string, unknown>;
+    try {
+        payload = JSON.parse(item.payload) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+    if (item.table_name === 'maintenance_history') {
+        const taskId = typeof payload.task_id === 'string' ? payload.task_id : '';
+        const task = taskId ? getById<{ user_id?: unknown }>('maintenance_tasks', taskId) : null;
+        const taskOwner = typeof task?.user_id === 'string' ? task.user_id.trim() : '';
+        if (taskOwner !== authenticatedUserId) return null;
+    }
+    const changes: Record<string, unknown> = { user_id: authenticatedUserId };
+    const fileField = FILE_URI_FIELDS[item.table_name as SyncableTable];
+    const fileUri = fileField ? payload[fileField] : null;
+    if (
+        fileField &&
+        typeof fileUri === 'string' &&
+        fileUri.startsWith(VESSEL_VAULT_URI_PREFIX) &&
+        !fileUri.startsWith(`${VESSEL_VAULT_URI_PREFIX}${authenticatedUserId}/`)
+    ) {
+        changes[fileField] = null;
+    }
+    return changes;
+}
+
 async function pushMutations(
     databaseSession: LocalDatabaseSession,
     authenticatedUserId: string,
-): Promise<{ count: number; errors: string[] }> {
+    binderSnapshotFresh = false,
+): Promise<{
+    count: number;
+    errors: string[];
+    discarded: number;
+    rehomed: number;
+    ownerIds: string[];
+    restoreFromServer: boolean;
+}> {
     const queue = getFullQueue();
-    if (queue.length === 0) return { count: 0, errors: [] };
+    if (queue.length === 0) {
+        return { count: 0, errors: [], discarded: 0, rehomed: 0, ownerIds: [], restoreFromServer: false };
+    }
 
     let succeeded = 0;
+    let discarded = 0;
+    let rehomed = 0;
+    let restoreFromServer = false;
     const errors: string[] = [];
     const blockedRecords = new Set<string>();
+    const discardedRecords = new Set<string>();
+    const orphanOwners = new Set<string>();
 
     // Process in persisted FIFO order. A failed predecessor fences every later
     // mutation for that same record, while unrelated records can continue.
-    for (const item of queue) {
+    for (const queuedItem of queue) {
+        let item = queuedItem;
         assertDatabaseSession(databaseSession);
         const recordKey = `${item.table_name}\u0000${item.record_id}`;
         if (item.status === 'failed') {
@@ -349,6 +513,52 @@ async function pushMutations(
             continue;
         }
         if (blockedRecords.has(recordKey)) continue;
+
+        // The skipper unshared (or the sailor left) while this change was
+        // queued: RLS would refuse it forever and fence every later change to
+        // the row. Only on a FRESH snapshot, and never for the sailor's own
+        // rows. A row the sailor ADDED moves into their own binder when
+        // nobody else can take it; otherwise the change is dropped. A dropped
+        // add never reached the server, so its local row goes too; a dropped
+        // edit keeps the row and a full pull restores (or prunes) it.
+        // SyncResult carries the counts, so the app can say so.
+        const orphan =
+            binderSnapshotFresh && item.owner_user_id === authenticatedUserId && !discardedRecords.has(recordKey)
+                ? orphanedSharedMutation(item, authenticatedUserId)
+                : null;
+        if (orphan) orphanOwners.add(orphan.owner);
+        const rehome = orphan ? rehomeChanges(item, orphan.register, authenticatedUserId) : null;
+        if (rehome) {
+            assertDatabaseSession(databaseSession);
+            try {
+                const rewritten = await rewriteQueuedInsert(item.id, rehome);
+                if (!rewritten) throw new Error('queued add not found');
+                item = rewritten;
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : 'could not move it';
+                errors.push(`${item.table_name}/${item.record_id}: ${msg}`);
+                blockedRecords.add(recordKey);
+                continue;
+            }
+            rehomed += 1;
+            log.warn(
+                `[SyncService] Moved a queued add on ${item.table_name}/${item.record_id} into this account's own binder: the skipper no longer shares that binder with it`,
+            );
+            // Pushed below as the sailor's own row.
+        } else if (orphan || (binderSnapshotFresh && discardedRecords.has(recordKey))) {
+            assertDatabaseSession(databaseSession);
+            await removeSynced([item.id]);
+            if (!discardedRecords.has(recordKey)) {
+                discardedRecords.add(recordKey);
+                if (item.mutation_type === 'INSERT') await bulkDelete(item.table_name, [item.record_id]);
+                else restoreFromServer = true;
+            }
+            discarded += 1;
+            log.warn(
+                `[SyncService] Dropped a queued ${item.mutation_type} on ${item.table_name}/${item.record_id}: the skipper no longer shares that binder with this account`,
+            );
+            continue;
+        }
 
         try {
             if (item.owner_user_id !== databaseSession.identity || item.owner_user_id !== authenticatedUserId) {
@@ -383,7 +593,7 @@ async function pushMutations(
         await updateSyncMeta({ lastPushTimestamp: new Date().toISOString() });
     }
 
-    return { count: succeeded, errors };
+    return { count: succeeded, errors, discarded, rehomed, ownerIds: [...orphanOwners], restoreFromServer };
 }
 
 async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: string): Promise<void> {
@@ -453,8 +663,16 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
             // the same record ID. Once the database points at the replacement,
             // remove every displaced deterministic variant. Cleanup failure
             // keeps the UPDATE queued; a retry is safe after the DB commit.
+            // Only the row's owner has attachments to tidy: a crew edit of a
+            // skipper's record must not list or clean the crew's own folder.
             const fileField = FILE_URI_FIELDS[table];
-            if (fileField && Object.prototype.hasOwnProperty.call(row, fileField)) {
+            const localRow = fileField ? getById<{ user_id?: unknown }>(table, item.record_id) : null;
+            const rowOwner = typeof localRow?.user_id === 'string' ? localRow.user_id.trim() : '';
+            if (
+                fileField &&
+                Object.prototype.hasOwnProperty.call(row, fileField) &&
+                (!rowOwner || rowOwner === authenticatedUserId)
+            ) {
                 await reconcileVaultObjects(table, authenticatedUserId, item.record_id, row[fileField]);
             }
             break;

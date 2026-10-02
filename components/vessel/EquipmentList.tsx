@@ -37,6 +37,8 @@ import {
     FALLBACK_CATEGORY_ICON,
 } from './equipment/SwipeableEquipmentCard';
 import { EquipmentDetail } from './equipment/EquipmentDetail';
+import { useBinderSource } from '../../hooks/useBinderSource';
+import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -174,6 +176,14 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         () => (dataScopeKey === getAuthIdentityScope().key ? items : []),
         [dataScopeKey, items],
     );
+    // Whose register this is (shared binders, 2026-10-02): the skipper's while
+    // this sailor is crew on a boat that shares Equipment. Crew may edit it
+    // (the database has no view-only form), but deletes are the skipper's.
+    const { source: binder, fetchingSkipperBinder } = useBinderSource('equipment', {
+        reload: loadItems,
+        rowCount: visibleItems.length,
+    });
+    const sharedBinder = binder.mode === 'shared';
     // Memoised on the two inputs that matter — this used to re-filter, re-sort
     // and re-group on every keystroke in the eight add/edit form fields
     // (InventoryList does the same).
@@ -384,7 +394,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     item={selectedItem}
                     onBack={() => setSelectedItem(null)}
                     onEdit={() => openEditForm(selectedItem)}
-                    onDelete={() => handleDelete(selectedItem.id)}
+                    onDelete={sharedBinder ? undefined : () => handleDelete(selectedItem.id)}
                 />
 
                 {/* Edit Equipment Modal */}
@@ -490,7 +500,12 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     }
                     onBack={onBack}
                     breadcrumbs={['Boat Binder', 'Equipment']}
-                    status={<OfflineBadge />}
+                    status={
+                        <>
+                            <OfflineBadge />
+                            <SharedBinderLine register="equipment" source={binder} />
+                        </>
+                    }
                     // The menu's one action, Export to PDF, has nothing to export
                     // while the register is empty, so the ⋮ waits for the first
                     // item instead of opening onto a disabled row (UX scorecard
@@ -591,6 +606,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         </div>
                     ) : loadError ? (
                         <LoadErrorState what="your equipment" onRetry={loadItems} />
+                    ) : fetchingSkipperBinder && !searchQuery ? (
+                        <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
+                            {bringingInCopy(binder)}
+                        </p>
                     ) : groupedItems.length === 0 ? (
                         <EmptyState
                             icon={
@@ -639,7 +658,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                                     triggerHaptic('light');
                                                     setSelectedItem(item);
                                                 }}
-                                                onDelete={() => handleDelete(item.id)}
+                                                onDelete={sharedBinder ? undefined : () => handleDelete(item.id)}
                                                 onContextMenu={() => {
                                                     triggerHaptic('light');
                                                     setContextItem(item);
@@ -859,29 +878,31 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                     <span className="text-sm font-bold text-sky-400">Edit equipment</span>
                                 </button>
 
-                                {/* Delete */}
-                                <button
-                                    aria-label={`Delete ${contextItem.equipment_name}`}
-                                    onClick={() => {
-                                        handleDelete(contextItem.id);
-                                    }}
-                                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors active:scale-[0.98]"
-                                >
-                                    <svg
-                                        className="w-5 h-5 text-red-400 shrink-0"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
+                                {/* Delete — the skipper's alone on a shared register */}
+                                {!sharedBinder && (
+                                    <button
+                                        aria-label={`Delete ${contextItem.equipment_name}`}
+                                        onClick={() => {
+                                            handleDelete(contextItem.id);
+                                        }}
+                                        className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors active:scale-[0.98]"
                                     >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                        />
-                                    </svg>
-                                    <span className="text-sm font-bold text-red-400">Delete equipment</span>
-                                </button>
+                                        <svg
+                                            className="w-5 h-5 text-red-400 shrink-0"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                            />
+                                        </svg>
+                                        <span className="text-sm font-bold text-red-400">Delete equipment</span>
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>,

@@ -1302,6 +1302,21 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setInviteSuccess(false);
     };
 
+    /**
+     * Accepting or leaving changes whose binders this account sees (shared
+     * binders, 2026-10-02). The skipper's rows can be older than the
+     * incremental sync cursor, and an ended share's rows must be pruned, so
+     * ask for a full reconciliation now rather than at the next launch, as
+     * JoinVessel does. Fire and forget: the periodic engine retries.
+     */
+    const reconcileBinders = () => {
+        void import('../services/vessel/SyncService')
+            .then(({ requestFullReconciliation }) => requestFullReconciliation())
+            .catch(() => {
+                /* will retry through the periodic engine */
+            });
+    };
+
     const handleSoftDelete = (member: CrewMember, mode: 'captain' | 'crew') => {
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
@@ -1323,7 +1338,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         try {
             const removed = mode === 'captain' ? await removeCrew(member.id) : await leaveVessel(member.id);
             if (!scopeStillOwnsPage(scope)) return;
-            if (removed) return;
+            if (removed) {
+                if (mode === 'crew') reconcileBinders();
+                return;
+            }
             throw new Error('Crew mutation was rejected');
         } catch {
             if (!scopeStillOwnsPage(scope)) return;
@@ -1390,6 +1408,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (!scopeStillOwnsPage(scope)) return;
         if (ok) {
             toast.success('Invite accepted!');
+            reconcileBinders();
             void loadData();
         } else {
             toast.error(
