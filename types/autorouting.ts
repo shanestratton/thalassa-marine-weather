@@ -1,6 +1,12 @@
 import type { AutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 import type { InshoreSegmentState } from '../components/map/inshoreRouteState';
-import type { ChartedShallowSpan, PinOffWater, ShallowRunInfo, SurveyRunInfo } from '../services/engine/types';
+import type {
+    CautionNearShallow,
+    ChartedShallowSpan,
+    PinOffWater,
+    ShallowRunInfo,
+    SurveyRunInfo,
+} from '../services/engine/types';
 import type { BackstopChartVerdict } from '../services/routing/landBackstop';
 export type { AutoroutingDimension, AutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 
@@ -42,6 +48,8 @@ export interface ThalassaRouteDisclosure {
     cautionWhy?: number[];
     /** The charted depth under each SHALLOW caution segment, else null. */
     cautionDepthM?: (number | null)[];
+    /** The shallow band each NEAR_SHALLOW segment passes too close to, else null. */
+    cautionNearShallow?: (CautionNearShallow | null)[];
     tideDepthM?: (number | null)[];
     tideNeedM?: number;
     shallowRuns?: ShallowRunInfo[];

@@ -45,6 +45,7 @@ import { readS57 } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import type {
+    CautionNearShallow,
     ChartedShallowSpan,
     NavGrid,
     PinOffWater,
@@ -342,6 +343,7 @@ export function promotedSeawayRoute(
                   landPaintConflictMask: runs.landPaintConflictMask,
                   cautionWhy: runs.cautionWhy,
                   cautionDepthM: runs.cautionDepthM,
+                  cautionNearShallow: runs.cautionNearShallow,
               }
             : {}),
         surveyRuns: survey.surveyRuns,
@@ -507,6 +509,9 @@ export interface InshoreRouteResult {
     /** Per segment: the charted depth under a SHALLOW caution segment
      *  (engine RouteResult.cautionDepthM), else null. */
     cautionDepthM?: (number | null)[];
+    /** Per segment: the shallow band a NEAR_SHALLOW segment passes too close
+     *  to (engine RouteResult.cautionNearShallow), else null. */
+    cautionNearShallow?: (CautionNearShallow | null)[];
     /** Metres of overland tail trimmed off an inland destination pin —
      *  present only when the trim fired (route ends at the water's edge). */
     destinationInlandTrimM?: number;
@@ -2366,6 +2371,12 @@ async function tryInshoreRouteInner(
             : {}),
         ...((result as { cautionDepthM?: (number | null)[] }).cautionDepthM
             ? { cautionDepthM: (result as { cautionDepthM?: (number | null)[] }).cautionDepthM }
+            : {}),
+        ...((result as { cautionNearShallow?: (CautionNearShallow | null)[] }).cautionNearShallow
+            ? {
+                  cautionNearShallow: (result as { cautionNearShallow?: (CautionNearShallow | null)[] })
+                      .cautionNearShallow,
+              }
             : {}),
         ...((result as { chartedShallowSpans?: ChartedShallowSpan[] }).chartedShallowSpans
             ? { chartedShallowSpans: (result as { chartedShallowSpans?: ChartedShallowSpan[] }).chartedShallowSpans }

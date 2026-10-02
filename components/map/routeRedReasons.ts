@@ -10,9 +10,11 @@
  * the map draws (inshoreRoutePieces' 'danger') carries its reason here, and
  * the route review lists it under the leg it is on. Red the chart under the
  * line does not support (caution for its 50 m cells alone, CAUTION_WHY
- * GRID_ONLY) is no longer drawn at all (inshoreSegmentStates).
+ * GRID_ONLY) is no longer drawn at all (inshoreSegmentStates); a line that
+ * would be but passes too close to a shallow band (NEAR_SHALLOW, round-2
+ * review fix-up 2, 2026-10-03) keeps its red and says how close, to what.
  */
-import { CAUTION_WHY, type ChartedShallowSpan } from '../../services/engine/types';
+import { CAUTION_WHY, type CautionNearShallow, type ChartedShallowSpan } from '../../services/engine/types';
 import { tideTopAlong, type InshoreRoutePiece, type RouteTide } from './inshoreRouteState';
 
 export interface RedReasonMasks {
@@ -21,6 +23,8 @@ export interface RedReasonMasks {
     landPaintConflictMask?: readonly boolean[];
     cautionWhy?: readonly number[];
     cautionDepthM?: readonly (number | null)[];
+    /** Per segment: the shallow band a NEAR_SHALLOW segment passes too close to. */
+    cautionNearShallow?: readonly (CautionNearShallow | null)[];
     tideDepthM?: readonly (number | null)[];
     chartedShallowSpans?: readonly ChartedShallowSpan[];
     /** Draft + UKC the router judged depth against. */
@@ -51,6 +55,7 @@ const STRUCTURE = 'touches a berth, pontoon or bridge the router keeps closed �
 const BLOCKED =
     "touches a cell the router's chart grid keeps closed (land, the shore's keep-out or water no tide clears) — check it on the chart";
 const GRID = "the router's chart grid reads shallow, uncharted or disputed water here";
+const NEAR = 'passes too close to water charted shallower than this boat needs';
 
 const metres = (m: number): string => `${m.toFixed(1)} m`;
 
@@ -85,6 +90,26 @@ function shallowWords(
     return top === null
         ? `${charted}${need}; no tide data here shows a tide that clears it`
         : `${charted}${need}; the highest tide here (${metres(top)}) does not clear it`;
+}
+
+/**
+ * A line kept red for its clearance (CAUTION_WHY NEAR_SHALLOW; round-2 review
+ * fix-up 2, 2026-10-03): how close it passes to which water, and the
+ * clearance the router keeps — "passes 5 m from water charted to dry 3.0 m —
+ * the router keeps 30 m off it".
+ */
+function nearWords(near: CautionNearShallow | null | undefined): string {
+    if (!near || !Number.isFinite(near.clearanceM) || !Number.isFinite(near.requiredM)) return NEAR;
+    const d = near.depthM;
+    const water =
+        typeof d === 'number' && Number.isFinite(d)
+            ? d < 0
+                ? `water charted to dry ${metres(-d)}`
+                : `water charted ${metres(d)}`
+            : 'charted water with no depth given';
+    const where =
+        near.clearanceM < 1 ? `runs on the edge of ${water}` : `passes ${Math.round(near.clearanceM)} m from ${water}`;
+    return `${where} — the router keeps ${Math.round(near.requiredM)} m off it`;
 }
 
 /**
@@ -133,6 +158,8 @@ export function routeRedStretches(
         if (why & CAUTION_WHY.DISAGREE || (!why && fits(masks.landPaintConflictMask) && masks.landPaintConflictMask[i]))
             parts.push(DISAGREE);
         if (why & CAUTION_WHY.UNCHARTED) parts.push(UNCHARTED);
+        if (why & CAUTION_WHY.NEAR_SHALLOW)
+            parts.push(nearWords(fits(masks.cautionNearShallow) ? masks.cautionNearShallow[i] : null));
         if (why & CAUTION_WHY.HAZARD) parts.push(HAZARD);
         if (why & CAUTION_WHY.WING) parts.push(WING);
         if (why & CAUTION_WHY.LAND) parts.push(LAND);

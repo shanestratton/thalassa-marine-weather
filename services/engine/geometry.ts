@@ -68,6 +68,76 @@ export function pointInGeometry(lon: number, lat: number, geom: Polygon | MultiP
 }
 
 /**
+ * Metres between the segments a→b and c→d ([lon, lat]), in a local plane of
+ * kx metres per degree of longitude and ky per degree of latitude: 0 where
+ * they cross or touch. Exact for that plane — what a keep-out is measured
+ * with (round-2 review fix-up, 2026-10-03: a route's clearance from a shallow
+ * band's edge, and a hazard area's buffer).
+ */
+export function segmentDistanceM(
+    a: readonly number[],
+    b: readonly number[],
+    c: readonly number[],
+    d: readonly number[],
+    kx: number,
+    ky: number,
+): number {
+    // Everything relative to a, in metres.
+    const bx = (b[0] - a[0]) * kx;
+    const by = (b[1] - a[1]) * ky;
+    const cx = (c[0] - a[0]) * kx;
+    const cy = (c[1] - a[1]) * ky;
+    const dx = (d[0] - a[0]) * kx;
+    const dy = (d[1] - a[1]) * ky;
+    const side = (ox: number, oy: number, px: number, py: number, qx: number, qy: number): number =>
+        (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
+    const d1 = side(cx, cy, dx, dy, 0, 0);
+    const d2 = side(cx, cy, dx, dy, bx, by);
+    const d3 = side(0, 0, bx, by, cx, cy);
+    const d4 = side(0, 0, bx, by, dx, dy);
+    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+    /** Point p to the segment u→v. */
+    const toSeg = (px: number, py: number, ux: number, uy: number, vx: number, vy: number): number => {
+        const ex = vx - ux;
+        const ey = vy - uy;
+        const l2 = ex * ex + ey * ey;
+        const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ux) * ex + (py - uy) * ey) / l2)) : 0;
+        return Math.hypot(px - (ux + t * ex), py - (uy + t * ey));
+    };
+    return Math.min(
+        toSeg(0, 0, cx, cy, dx, dy),
+        toSeg(bx, by, cx, cy, dx, dy),
+        toSeg(cx, cy, 0, 0, bx, by),
+        toSeg(dx, dy, 0, 0, bx, by),
+    );
+}
+
+/**
+ * Metres from the segment a→b ([lon, lat]) to a polygon area: 0 where the
+ * segment enters it (an end inside, or any edge crossed), else the nearest
+ * approach to any of its rings — holes included. kx / ky as segmentDistanceM.
+ */
+export function segmentGeometryDistanceM(
+    a: readonly number[],
+    b: readonly number[],
+    geom: Polygon | MultiPolygon,
+    kx: number,
+    ky: number,
+): number {
+    if (pointInGeometry(a[0], a[1], geom) || pointInGeometry(b[0], b[1], geom)) return 0;
+    let best = Infinity;
+    const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    for (const poly of polys)
+        for (const ring of poly)
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const m = segmentDistanceM(a, b, ring[j], ring[i], kx, ky);
+                if (m < best) best = m;
+                if (best === 0) return 0;
+            }
+    return best;
+}
+
+/**
  * Compute the bbox of a polygon/multipolygon geometry as
  * [minLon, minLat, maxLon, maxLat]. Used to skip cells that can't
  * possibly be inside the polygon.

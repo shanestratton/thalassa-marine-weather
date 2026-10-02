@@ -2,6 +2,7 @@ import type { AutoroutingTrialRoute } from '../../types/autorouting';
 import { AUTOROUTING_TRIAL_MAX_POINTS } from '../../types/autorouting';
 import type { TrialRouteReview } from '../autoroutingReview';
 import { dangerWithoutChartedDepth } from '../../components/map/inshoreRouteState';
+import { CAUTION_WHY } from '../engine/types';
 import {
     assessPlaceConditionsWindow,
     CONDITIONS_MAX_AGE_MS,
@@ -289,8 +290,15 @@ export function assessDayPlanRoute(
     // charted hazard's buffer) — the independent review graded one such leg
     // 'caution', which would have rated it amber.
     if ((route.engine.hardLandAwayM ?? 0) > 0) throw new Error('The route crosses charted land.');
-    if ((dangerWithoutChartedDepth(route.engine) ?? [0]).length > 0)
-        throw new Error('Part of the route is drawn red with no charted depth behind it.');
+    const unchecked = dangerWithoutChartedDepth(route.engine);
+    if ((unchecked ?? [0]).length > 0)
+        throw new Error(
+            // Too close to a shallow band (NEAR_SHALLOW, round-2 review fix-up 2,
+            // 2026-10-03) has charted depth under it: say so.
+            unchecked && unchecked.every((i) => route.engine!.cautionWhy?.[i] === CAUTION_WHY.NEAR_SHALLOW)
+                ? 'Part of the route is drawn red where it passes too close to water charted shallower than this boat needs.'
+                : 'Part of the route is drawn red with no charted depth behind it.',
+        );
     const reasons: string[] = [];
     let incomplete = review.legs.length !== route.coordinates.length - 1;
     const tideDependency =

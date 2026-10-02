@@ -3,6 +3,7 @@ import type { AutoroutingTrialRoute } from '../types/autorouting';
 import type { TrialRouteReview } from '../services/autoroutingReview';
 import type { ConditionsForecast, ConditionsHour } from '../services/anchorages/placeConditions';
 import type { CatalogueRouteConstraint } from '../services/dayPlanner/cataloguePlanningTypes';
+import { CAUTION_WHY } from '../services/engine/types';
 import {
     assessDayPlanRoute,
     assessDayPlanTransit,
@@ -456,6 +457,21 @@ describe('day planner deterministic itinerary construction', () => {
                     p.engine!.chartedShallowMask = Array.from({ length: n }, () => false);
                 },
                 /red with no charted depth/,
+            ],
+            [
+                // Round-2 review fix-up 2 (2026-10-03): red for passing too
+                // close to a shallow band — charted depth under the line, so
+                // said so, and still never planned.
+                (p: ReturnType<typeof route>) => {
+                    const n = p.engine!.stateMask!.length;
+                    p.engine!.stateMask = p.engine!.stateMask!.map((_, i) => (i === 0 ? 'danger' : 'green'));
+                    p.engine!.cautionMask = Array.from({ length: n }, (_, i) => i === 0);
+                    p.engine!.chartedShallowMask = Array.from({ length: n }, () => false);
+                    p.engine!.cautionWhy = Array.from({ length: n }, (_, i) =>
+                        i === 0 ? CAUTION_WHY.NEAR_SHALLOW : 0,
+                    );
+                },
+                /passes too close to water charted shallower than this boat needs/,
             ],
         ] as const) {
             const deps = dependencies({

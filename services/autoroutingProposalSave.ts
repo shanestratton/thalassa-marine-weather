@@ -1,5 +1,6 @@
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import { dangerWithoutChartedDepth } from '../components/map/inshoreRouteState';
+import { CAUTION_WHY } from './engine/types';
 import type { TrialRouteReview } from './autoroutingReview';
 import { saveTrace, type SavedTrace, type TracePoint } from './routeTracer';
 import { getRegistryFingerprint } from './enc/EncCellMetadata';
@@ -49,9 +50,16 @@ export function evaluateAutoroutingProposalSave(
     // Red with no charted depth behind it — land, water no chart vouches for,
     // a charted hazard's buffer: nothing on the chart says the boat floats
     // there, whatever the independent review graded it.
-    if ((dangerWithoutChartedDepth(route.engine) ?? [0]).length > 0)
+    // A line kept red for passing too close to a shallow band (NEAR_SHALLOW,
+    // round-2 review fix-up 2, 2026-10-03) has charted depth under it, so the
+    // words say what it is; it is not saved either — it was red, and blocked,
+    // before GRID_ONLY, and the clearance is what the router could not prove.
+    const unchecked = dangerWithoutChartedDepth(route.engine);
+    if ((unchecked ?? [0]).length > 0)
         return deny(
-            'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
+            unchecked && unchecked.every((i) => route.engine!.cautionWhy?.[i] === CAUTION_WHY.NEAR_SHALLOW)
+                ? 'Part of this route is drawn red where it passes too close to water charted shallower than this boat needs. It cannot be saved.'
+                : 'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
         );
     // The satellite land check could not finish (offline, or online and it
     // failed: 2026-10-02, the field route timed out on Wi-Fi + 4G and was told
