@@ -66,7 +66,11 @@ describe('shared binder loss notice', () => {
             "1 item you added to Test Boat's galley is in your own galley now — it's no longer shared with you to edit.",
         );
         expect(
-            sharedBinderLossMessage({ discardedShared: 2, sharedOwnerIds: ['skipper-gone'], sharedRegisters: ['galley'] }),
+            sharedBinderLossMessage({
+                discardedShared: 2,
+                sharedOwnerIds: ['skipper-gone'],
+                sharedRegisters: ['galley'],
+            }),
         ).toBe("2 changes to your skipper's galley weren't saved — it's no longer shared with you to edit.");
         // A binder and the galley in one sync: the binder copy, as before.
         expect(

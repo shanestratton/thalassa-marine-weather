@@ -193,7 +193,10 @@ describe('the galley crew share migration', () => {
         expect(squash(next)).toContain(normalised);
 
         const restored = squash(stripComments(next))
-            .replace(galleyCase, "CASE WHEN coalesce((invite.permissions->>'can_view_galley')::boolean, false) THEN 'galley' END")
+            .replace(
+                galleyCase,
+                "CASE WHEN coalesce((invite.permissions->>'can_view_galley')::boolean, false) THEN 'galley' END",
+            )
             .replace(normalised, 'invite.permissions,');
         expect(restored).toBe(squash(stripComments(before)));
         expect(body).toContain('REVOKE ALL ON FUNCTION public.redeem_manifest_invite(TEXT, TEXT) FROM PUBLIC, anon;');
