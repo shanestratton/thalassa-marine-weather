@@ -7,15 +7,51 @@ import Foundation
 
 enum DmAuthSessionError: Error { case unavailable }
 
+/// Minted by native directory authority, never a JS/caller Boolean assertion.
+/// The implementation must serialize directory epoch changes through the ENTIRE
+/// synchronous operation, including its account-store CAS. Acquire this guard
+/// before the AuthSession lock; never call it while that lock is already held.
+protocol DmNativeAuthScopeGuard {
+    func withCurrentScope<T>(_ operation: () throws -> T) throws -> T
+}
+
+// Deterministic native fixture seams. Async hooks run outside every authority
+// and session lock; the synchronous hook observes an already-held scope gate.
+struct DmAuthMutationHooksForResearch {
+    var beforeBegin: (() async throws -> Void)?
+    var beforeComplete: (() async throws -> Void)?
+    var insideComplete: (() throws -> Void)?
+    init(beforeBegin: (() async throws -> Void)? = nil,
+         beforeComplete: (() async throws -> Void)? = nil,
+         insideComplete: (() throws -> Void)? = nil) {
+        self.beforeBegin = beforeBegin; self.beforeComplete = beforeComplete; self.insideComplete = insideComplete
+    }
+}
+
 /// A single native owner/device scope. No identity is created/replaced by login.
 /// On construction/restart readiness is empty, regardless of persisted active
 /// status. Every auth attempt fences captured relay work BEFORE awaiting /user.
 /// A bearer is retained in memory only after a guarded sealed commit succeeds.
 final class VodozemacAuthSession {
+    /// Opaque, in-memory native capability for ONE durably reserved attempt.
+    /// A facade may map an opaque JS fence to this value, but must never expose
+    /// or reconstruct it from JS. Restart invalidates it. The original scope
+    /// guard is retained so consumption cannot substitute weaker authority.
+    final class VerificationReservation: CustomStringConvertible, CustomDebugStringConvertible {
+        fileprivate let sessionID: UUID
+        fileprivate let attemptID: UUID
+        fileprivate let scopeGuard: DmNativeAuthScopeGuard
+        fileprivate init(sessionID: UUID, attemptID: UUID, scopeGuard: DmNativeAuthScopeGuard) {
+            self.sessionID = sessionID; self.attemptID = attemptID; self.scopeGuard = scopeGuard
+        }
+        var description: String { "VerificationReservation(<native-only>)" }
+        var debugDescription: String { description }
+    }
     private struct Attempt {
         let id: UUID
         let reserved: DmLifecycleSnapshot
         let expires: ContinuousClock.Instant
+        var consumed = false
     }
     private struct Lease {
         let lifecycle: DmLifecycleSnapshot
@@ -25,9 +61,11 @@ final class VodozemacAuthSession {
     private let coordinator: VodozemacDmCoordinator
     private let authenticator: VodozemacSupabaseAuth
     private let clock: () -> ContinuousClock.Instant
+    private let sessionID = UUID()
     private let lock = NSLock()
     private var attempt: Attempt?
     private var lease: Lease?
+    private var guardedInvocation: UUID?
 
     convenience init(coordinator: VodozemacDmCoordinator, authenticator: VodozemacSupabaseAuth) throws {
         try self.init(coordinator: coordinator, authenticator: authenticator, clockForResearch: { ContinuousClock.now })
@@ -54,6 +92,8 @@ final class VodozemacAuthSession {
     /// Same-account refresh preserves the owner generation and exact ciphertext.
     @discardableResult
     func authenticate(bearer: String) async throws -> DmLifecycleSnapshot {
+        // Direct single-scope RESEARCH escape hatch. It does not authenticate a
+        // directory selection; AccountDirectory must use the guarded overload.
         guard !Task.isCancelled else { throw DmAuthSessionError.unavailable }
         let pending = try begin()
         do {
@@ -71,8 +111,135 @@ final class VodozemacAuthSession {
         }
     }
 
-    private func begin() throws -> Attempt {
+    @discardableResult
+    func authenticate(bearer: String, scopeGuard: DmNativeAuthScopeGuard) async throws -> DmLifecycleSnapshot {
+        try await authenticateForResearch(bearer: bearer, scopeGuard: scopeGuard, hooks: .init())
+    }
+
+    /// Call BEFORE asking the login SDK for a token. Success has durably rotated
+    /// the credential epoch under native scope authority and cleared the prior
+    /// in-memory lease. Same-owner active renewal preserves owner generation,
+    /// pending records and exact ciphertext. Token acquisition does not extend
+    /// the original sixty-second attempt/lease deadline.
+    func reserveVerification(scopeGuard: DmNativeAuthScopeGuard) throws -> VerificationReservation {
+        try reserveVerification(invocation: clearReadiness(), scopeGuard: scopeGuard)
+    }
+
+    /// Consume the exact earlier native reservation, using its original guard.
+    /// No begin/epoch rotation occurs here. A stale, expired, foreign or already
+    /// consumed reservation cannot dispatch Auth or clear another attempt/lease.
+    /// Only a successful claim consumes it; pre-claim cancellation may retry
+    /// within the original deadline unless the native facade discards its fence.
+    @discardableResult
+    func authenticate(bearer: String, reservation: VerificationReservation) async throws -> DmLifecycleSnapshot {
+        try await authenticateForResearch(bearer: bearer, reservation: reservation, hooks: .init())
+    }
+
+    @discardableResult
+    func authenticateForResearch(bearer: String, scopeGuard: DmNativeAuthScopeGuard,
+                                hooks: DmAuthMutationHooksForResearch) async throws -> DmLifecycleSnapshot {
+        // Clear local credentials even when the directory gate refuses before
+        // begin. Release the session lock before acquiring directory authority.
+        let invocation = clearReadiness()
+        do {
+            guard !Task.isCancelled else { throw DmAuthSessionError.unavailable }
+            try await hooks.beforeBegin?()
+            let reservation = try reserveVerification(invocation: invocation, scopeGuard: scopeGuard)
+            return try await authenticateForResearch(bearer: bearer, reservation: reservation, hooks: hooks)
+        } catch {
+            abandonInvocation(invocation)
+            throw DmAuthSessionError.unavailable
+        }
+    }
+
+    private func reserveVerification(invocation: UUID, scopeGuard: DmNativeAuthScopeGuard) throws -> VerificationReservation {
+        var reserved: Attempt?
+        do {
+            return try scopeGuard.withCurrentScope {
+                guard !Task.isCancelled else { throw DmAuthSessionError.unavailable }
+                let pending = try begin(guardedInvocation: invocation)
+                reserved = pending
+                return VerificationReservation(sessionID: sessionID, attemptID: pending.id, scopeGuard: scopeGuard)
+            }
+        } catch {
+            if let reserved { abandonGuarded(reserved, accepted: nil) }
+            abandonInvocation(invocation)
+            throw DmAuthSessionError.unavailable
+        }
+    }
+
+    @discardableResult
+    func authenticateForResearch(bearer: String, reservation: VerificationReservation,
+                                hooks: DmAuthMutationHooksForResearch) async throws -> DmLifecycleSnapshot {
+        guard reservation.sessionID == sessionID else { throw DmAuthSessionError.unavailable }
+        var claimed: Attempt?
+        var accepted: DmLifecycleSnapshot?
+        do {
+            let pending = try reservation.scopeGuard.withCurrentScope {
+                let pending = try consume(reservation)
+                // Only a successful claimant owns cleanup. Duplicate consumers
+                // must not abandon an in-flight consumer of the same attempt.
+                claimed = pending
+                return pending
+            }
+            let user = try await authenticator.authenticate(bearer: bearer, currentAttempt: {
+                (try? reservation.scopeGuard.withCurrentScope { self.isCurrent(pending) }) ?? false
+            })
+            guard !Task.isCancelled else { throw DmAuthSessionError.unavailable }
+            try await hooks.beforeComplete?()
+            return try reservation.scopeGuard.withCurrentScope {
+                try hooks.insideComplete?()
+                let lifecycle = try complete(pending, userId: user, bearer: bearer, expires: pending.expires)
+                accepted = lifecycle
+                return lifecycle
+            }
+        } catch {
+            if let claimed { abandonGuarded(claimed, accepted: accepted) }
+            throw DmAuthSessionError.unavailable
+        }
+    }
+
+    private func consume(_ reservation: VerificationReservation) throws -> Attempt {
         lock.lock(); defer { lock.unlock() }
+        guard reservation.sessionID == sessionID, !Task.isCancelled,
+              var pending = attempt, pending.id == reservation.attemptID, !pending.consumed,
+              clock() < pending.expires, try coordinator.lifecycleForResearch() == pending.reserved,
+              clock() < pending.expires else { throw DmAuthSessionError.unavailable }
+        pending.consumed = true
+        attempt = pending
+        return pending
+    }
+
+    private func clearReadiness() -> UUID {
+        lock.lock(); defer { lock.unlock() }
+        attempt = nil; lease = nil
+        let invocation = UUID()
+        guardedInvocation = invocation
+        return invocation
+    }
+
+    private func abandonInvocation(_ invocation: UUID) {
+        lock.lock(); defer { lock.unlock() }
+        if guardedInvocation == invocation { guardedInvocation = nil }
+    }
+
+    private func abandonGuarded(_ pending: Attempt, accepted: DmLifecycleSnapshot?) {
+        lock.lock(); defer { lock.unlock() }
+        if attempt?.id == pending.id { attempt = nil; lease = nil }
+        // The account commit may have succeeded before the index authority
+        // transaction reported failure. Clear only this operation's lease;
+        // never erase readiness installed by a newer competing verification.
+        if attempt == nil, let accepted, lease?.lifecycle == accepted { lease = nil }
+    }
+
+    private func begin(guardedInvocation: UUID? = nil) throws -> Attempt {
+        lock.lock(); defer { lock.unlock() }
+        // A guarded call can wait outside this lock for directory authority.
+        // Once a newer invocation clears readiness, the older waiter must not
+        // reserve a fresh epoch from that newer scope or erase its lease.
+        if let guardedInvocation {
+            guard self.guardedInvocation == guardedInvocation else { throw DmAuthSessionError.unavailable }
+        } else { self.guardedInvocation = nil }
         // Clear first, including on subsequent read/CAS/storage failure.
         attempt = nil; lease = nil
         let scope = try coordinator.authScopeForResearch()
@@ -131,7 +298,7 @@ final class VodozemacAuthSession {
     @discardableResult
     func signOut() throws -> DmLifecycleSnapshot {
         lock.lock(); defer { lock.unlock() }
-        attempt = nil; lease = nil
+        attempt = nil; lease = nil; guardedInvocation = nil
         return try coordinator.deactivateAuthScopeForResearch()
     }
 

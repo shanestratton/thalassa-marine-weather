@@ -31,10 +31,12 @@ private struct ExchangeArguments {
     }
     var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
     var root: URL { documents.appendingPathComponent("native-exchange-" + run.uuidString.lowercased()) }
-    func status(_ value: String, stage: String, authFixtureAssertions: Int = 0) throws {
+    func status(_ value: String, stage: String, authFixtureAssertions: Int = 0,
+                accountDirectoryFixtureAssertions: Int = 0) throws {
         let json: [String: Any] = ["runID": run.uuidString.lowercased(), "phase": phase, "status": value,
             "stage": stage, "pid": ProcessInfo.processInfo.processIdentifier, "physicalDeviceProtectionVerified": false,
-            "authFixtureAssertions": authFixtureAssertions]
+            "authFixtureAssertions": authFixtureAssertions,
+            "accountDirectoryFixtureAssertions": accountDirectoryFixtureAssertions]
         let path = documents.appendingPathComponent("exchange-status-" + run.uuidString.lowercased() + ".json")
         try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: path, options: [.atomic])
     }
@@ -86,8 +88,9 @@ private struct ExchangeParticipant {
     }
 }
 
-private func runExchange(_ args: ExchangeArguments) async throws -> Int {
+private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int) {
     var authFixtureAssertions = 0
+    var accountDirectoryFixtureAssertions = 0
     if args.phase == "tls-refuse" {
         // Valid transport input reaches TLS: host separately requires an actual
         // failed TLS handshake and zero HTTP/Auth/SQL calls before CA install.
@@ -101,7 +104,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> Int {
             _ = try await transport.register(bundle: body, credential: credential, currentContext: { context })
             throw ExchangeFailure.assertion("untrusted-tls-accepted")
         } catch is DmRelayTransportError { /* Expected; no trust bypass. */ }
-        return 0
+        return (0, 0)
     }
     if args.phase == "prepare" {
         try exchangeRequire(!FileManager.default.fileExists(atPath: args.root.path), "fresh-store-namespace")
@@ -121,7 +124,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> Int {
         try aStore.destroyForTesting(); try bStore.destroyForTesting()
         try exchangeRequire(try FileManager.default.contentsOfDirectory(atPath: args.root.path).isEmpty, "exact-empty-cleanup")
         try FileManager.default.removeItem(at: args.root)
-        return 0
+        return (0, 0)
     }
     let ao = ExchangeFixture.alice, bo = ExchangeFixture.bob, generation = ExchangeFixture.peerGeneration
     let a: VodozemacDmCoordinator, b: VodozemacDmCoordinator
@@ -149,6 +152,9 @@ private func runExchange(_ args: ExchangeArguments) async throws -> Int {
         let authChecks = try await runAuthSessionProbeForResearch()
         authFixtureAssertions = authChecks
         print("PASS isolated native Auth fixture assertions: \(authChecks)")
+        let directoryChecks = try await runAccountDirectoryProbeForResearch()
+        accountDirectoryFixtureAssertions = directoryChecks
+        print("PASS isolated native account directory fixture assertions: \(directoryChecks)")
         let now = Int64(Date().timeIntervalSince1970)
         for (person, prekey) in [(alice, "alice-prekey"), (bob, "bob-prekey")] {
             try await person.client.registerForResearch(prekeyId: prekey, expiresAt: now + 3600, now: now,
@@ -301,7 +307,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> Int {
         try exchangeRequire(duplicate == DmRelayInboxReport(stored: 0, duplicates: 1, historical: 2, historicalUnresolved: 1), "recovered-known-exact-rescan")
     default: throw ExchangeFailure.configuration
     }
-    return authFixtureAssertions
+    return (authFixtureAssertions, accountDirectoryFixtureAssertions)
 }
 
 @main
@@ -335,8 +341,9 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
             do {
                 let args = try ExchangeArguments.read()
                 try args.status("running", stage: "native-https-exchange")
-                let authFixtureAssertions = try await runExchange(args)
-                try args.status("passed", stage: "complete", authFixtureAssertions: authFixtureAssertions)
+                let checks = try await runExchange(args)
+                try args.status("passed", stage: "complete", authFixtureAssertions: checks.0,
+                                accountDirectoryFixtureAssertions: checks.1)
                 print("PASS isolated native HTTPS exchange phase: " + args.phase)
                 fflush(stdout); exit(0)
             } catch {
@@ -344,6 +351,7 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
                 if case ExchangeFailure.assertion(let label) = error { stage = "check-" + label }
                 else if case DmUnresolvedProbeError.assertion(let label) = error { stage = "unresolved-check-" + label }
                 else if case DmAuthProbeError.assertion(let label) = error { stage = "auth-check-" + label }
+                else if case DmAccountDirectoryProbeError.assertion(let label) = error { stage = "directory-check-" + label }
                 else if error is DmCoordinatorError { stage = "native-state-or-result-refused" }
                 else if error is DmRelayTransportError { stage = "network-unresolved" }
                 else if error is VodozemacSealedStoreError { stage = "sealed-store-refused" }

@@ -37,7 +37,7 @@ a substitute for those checks or a way around a bundled dependency's licence.
 This is an isolated framing/delivery prototype, a real-provider native message
 coordinator, and a disposable device-directory/relay experiment, **not functioning
 E2EE in Thalassa**. Nothing is wired into live chat.
-No app dependency, native plugin, live database change, UI badge, production deployment
+No app dependency, native plugin, live database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
 
@@ -68,6 +68,97 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 2 October account directory and private message screen slice
+
+The isolated branch now includes native account-directory selection and a
+disabled-by-default SDK/native adapter contract with an injected private-message
+screen. The contract is not an implemented Capacitor plugin. The ordinary app
+continues its existing chat path; only explicitly injected research fixtures
+enter the new subtree. Its notice says “Encryption test—not reviewed”. No
+runtime switch, app installation, Capacitor sync or live chat cutover occurred.
+
+The native directory creates its own bounded account/store identifiers after
+server Auth verification. Its authenticated index holds writer authority across
+account lifecycle checks and mutations. An obsolete selection/logout cannot
+deactivate a newer winner; selecting an account in the gap before the old
+deactivation advances its generation without exposing old pending ciphertext.
+Missing/corrupt stores remain unavailable. Cross-database crash atomicity,
+whole-database rollback detection and physical Keychain behavior are not proved.
+
+The screen adapter fences SDK account generations, native readiness and runtime
+replacement. It clears old runtime history/drafts/permissions, bounds outstanding
+event validation to 32, suppresses stale completions, and never downgrades native
+acceptance/read state. Native failures do not invoke legacy sends, subscriptions
+or the plaintext offline queue. These are tested screen/SDK contracts, not live
+authentication or functioning E2EE in Thalassa.
+
+Native continuation also has a split reservation API: durably fence the old
+credential before acquiring an SDK token, then consume that exact native-only,
+single-use reservation under its original authority guard and 60-second deadline.
+Same-owner renewal preserves pending ciphertext; a stale, duplicate, foreign or
+expired reservation cannot dispatch Auth or erase a newer winning lease. The SDK
+adapter now awaits successful fencing before `getSession`; merely queuing the
+native call is insufficient. Mapping those reservations to opaque plugin fences
+and integrating directory access remain unimplemented facade work.
+
+Observed checks on 2 October:
+
+- **111 tests in six files passed**, including SDK/native-port mocks and hook/UI
+  fixtures. The focused `pilot/tsconfig.json` check passed. This is not a full
+  repository typecheck or application build.
+- A disposable simulator ran nine process phases with **four actual native Olm
+  encrypted messages** over ordinary URLSession HTTPS and on-disk SQL. It passed
+  **266 Auth fixture assertions and 181 account-directory fixture assertions**,
+  including the logout/selection gap races and actual SQLite writer exclusion.
+  Auth responses were fixtures; both logical endpoints shared one simulator.
+- The exact simulator-tested Swift sources compiled and linked for physical
+  iOS, **unsigned and never installed or executed**. Both runs reused cached,
+  hashed provider binaries/bindings; this is not a fresh Rust build or independent
+  binary-provenance attestation. The disposable simulator and its test CA were
+  removed; temporary research receipts and build artifacts were retained.
+
+Reproduce in the isolated worktree, one heavy job at a time:
+
+```sh
+node experiments/scuttlebutt-e2ee/pilot/checks.mjs tests types
+node --experimental-strip-types experiments/scuttlebutt-e2ee/relay/nativeExchangeProof.mjs NATIVE_CACHE PINNED_PGLITE_ARCHIVE
+node experiments/scuttlebutt-e2ee/pilot/deviceCompile.mjs NATIVE_CACHE SUCCESSFUL_EXCHANGE_RECEIPT
+```
+
+Successful local receipts:
+
+- Simulator: `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-t4tOMl/exchange-run.json`.
+- Physical target compile: `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-H0eB6P/compile.json`.
+
+The physical-target runner disables linker ad-hoc signing, explicitly checks
+that `codesign` finds no signature, and rechecks all provider/header/binding/source
+hashes after compile. Scoped lint and formatting checks passed. A multiline
+`pgrep -l` shell command caused false build-slot waits; the research guards now
+ignore non-PID continuation lines while retaining real competing process records.
+
+Failures are retained, not replaced by these passes. A fresh native runner timed
+out after 600 seconds in `cargo metadata`; its execution outcome was unresolved.
+An explicit 20-second diagnostic also timed out. No fresh Rust/provider test pass
+is claimed for this slice. The first exchange build failed because the cleanup
+branch still returned an integer after the probe result became a tuple. That
+wiring error was corrected and the later simulator/device-target runs passed.
+Its failed receipt remains in `thalassa-native-exchange-NdwwAj/exchange-run.json`
+under the same temporary parent.
+Another attempt (`thalassa-native-exchange-kZDrDX/exchange-run.json`) failed
+compilation because its Auth probe changed during the build. That runner began
+before the final test edit was frozen; it installed nothing. The frozen rerun
+above passed. Earlier successful receipts remain, but do not cover the later
+split-reservation edit.
+
+The owner approved a separate free Supabase test project. Its organization is
+`Thalassa Encryption Testing`; project creation and credentials are a separate
+setup step, not evidence of a deployed authenticated relay. No production schema
+or accounts were changed by this slice. [The review brief](SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md)
+and [physical device plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md) distinguish the
+remaining gates. Next: implement the real native facade/plugin and isolated live
+relay, then run iPhone–iPad acceptance before external security review and any
+release decision. Do not merge this research as completed encryption.
 
 ### 2 October native Auth continuation slice
 

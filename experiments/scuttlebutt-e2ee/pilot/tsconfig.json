@@ -1,0 +1,20 @@
+{
+    "extends": "../../../tsconfig.json",
+    "compilerOptions": { "types": ["node", "vite/client"] },
+    "include": [
+        "../../../env.d.ts",
+        "../../../types/tz-lookup.d.ts",
+        "../../../tests/setup.ts",
+        "../../../services/chat/e2ee/privateMessagePilot.ts",
+        "../../../services/chat/e2ee/nativePrivateMessagePilot.ts",
+        "../../../hooks/chat/useChatDMs.ts",
+        "../../../components/ChatPage.tsx",
+        "../../../components/chat/ChatDMView.tsx",
+        "../../../tests/PrivateMessagePilot.test.ts",
+        "../../../tests/NativePrivateMessagePilot.test.ts",
+        "../../../tests/hooks/ChatDMEncryptionPilot.test.tsx",
+        "../../../tests/hooks/ChatDMBlocking.test.tsx",
+        "../../../tests/ChatPage.test.tsx",
+        "../../../tests/ChatSelfConversation.test.tsx"
+    ]
+}
