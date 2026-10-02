@@ -121,6 +121,11 @@ describe('warnings pill and sun chip', () => {
     });
 
     it('speaks sunrise, sunset and the moon in words', () => {
+        // Midday LOCAL time, so it holds in any runner timezone. Unpinned, it
+        // failed on GitHub at 06:15 UTC: just after the 05:42 sunrise the chip
+        // rightly shows 'Golden hour' instead of the times (2026-10-02).
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(2026, 8, 26, 12, 0));
         render(<CompactHeaderRow alerts={[]} sunrise="05:42" sunset="17:53" moonPhase="🌕" moonPhaseName="Full" />);
         const chip = screen.getByRole('group', { name: 'Sun and moon' });
         expect(chip).toHaveTextContent(/Sunrise 05:42/);
