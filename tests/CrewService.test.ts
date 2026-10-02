@@ -9,6 +9,8 @@
  */
 
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const supabaseMocks = vi.hoisted(() => ({
@@ -38,6 +40,8 @@ import {
     inviteCrew,
     acceptInvite,
     declineInvite,
+    withAlwaysSharedRegisters,
+    ALWAYS_SHARED_REGISTERS,
     type CrewRole,
 } from '../services/CrewService';
 
@@ -294,14 +298,15 @@ describe('inviteCrew carries the chosen role (2026-09-08)', () => {
         const row = table.insert.mock.calls[0][0] as Record<string, unknown>;
         expect(row.role).toBe('co-skipper');
         expect(row.voyage_id).toBe('voyage-1');
-        expect(row.shared_registers).toEqual(['instruments', 'passage_checklist']);
+        // Crew Chat is every crew member's by default (Shane 2026-10-02).
+        expect(row.shared_registers).toEqual(['instruments', 'passage_checklist', 'passage_chat']);
         expect(row.permissions).toEqual({
             ...ROLE_DEFAULT_PERMISSIONS['co-skipper'],
             // Passage flags follow the ticked registers, not the preset.
             can_view_passage: true,
             can_view_passage_checklist: true,
             can_view_passage_meals: false,
-            can_view_passage_chat: false,
+            can_view_passage_chat: true,
             can_view_passage_route: false,
             can_view_instruments: true,
             // Stores follow the tick (2026-10-02): not ticked, not shared.
@@ -325,11 +330,15 @@ describe('inviteCrew carries the chosen role (2026-09-08)', () => {
         const row = table.insert.mock.calls[0][0] as Record<string, unknown>;
         expect(row.role).toBe('deckhand');
         expect(row).not.toHaveProperty('voyage_id');
-        expect(row.permissions).toEqual(crewInvitePermissions('deckhand', ['stores']));
+        expect(row.permissions).toEqual(crewInvitePermissions('deckhand', ['stores', 'passage_chat']));
         const permissions = row.permissions as Record<string, boolean>;
         expect(permissions.can_view_stores).toBe(true);
         expect(permissions.can_view_instruments).toBe(false);
-        expect(permissions.can_view_passage).toBe(false);
+        // Crew Chat comes with every invite (2026-10-02), so the passage is
+        // visible for its chat; meals, route and checklist stay off.
+        expect(permissions.can_view_passage_chat).toBe(true);
+        expect(permissions.can_view_passage_meals).toBe(false);
+        expect(permissions.can_view_passage_route).toBe(false);
         expect(permissions.can_edit_log).toBe(false);
     });
 
@@ -349,7 +358,7 @@ describe('inviteCrew carries the chosen role (2026-09-08)', () => {
         const patch = table.update.mock.calls[0][0] as Record<string, unknown>;
         expect(patch.status).toBe('pending');
         expect(patch.role).toBe('navigator');
-        expect(patch.permissions).toEqual(crewInvitePermissions('navigator', ['passage_route']));
+        expect(patch.permissions).toEqual(crewInvitePermissions('navigator', ['passage_route', 'passage_chat']));
     });
 
     it('refuses to change role on an accepted or pending row', async () => {
@@ -556,5 +565,33 @@ describe('acceptInvite and declineInvite report failure (2026-10-02)', () => {
         await expect(declineInvite('invite-1')).resolves.toBe(false);
         supabaseMocks.from.mockReturnValue(answerTable({ data: [{ id: 'invite-1' }], error: null }).query);
         await expect(declineInvite('invite-1')).resolves.toBe(true);
+    });
+});
+
+describe('Crew Chat is shared with every crew member, no tick box (Shane 2026-10-02)', () => {
+    it('adds passage_chat to whatever was ticked, once', () => {
+        expect(ALWAYS_SHARED_REGISTERS).toEqual(['passage_chat']);
+        expect(withAlwaysSharedRegisters(['stores'])).toEqual(['stores', 'passage_chat']);
+        expect(withAlwaysSharedRegisters(['passage_chat', 'stores'])).toEqual(['passage_chat', 'stores']);
+        expect(withAlwaysSharedRegisters([])).toEqual(['passage_chat']);
+    });
+
+    it('applies it on invite and on every roster edit', () => {
+        const src = readFileSync(resolve(__dirname, '../services/CrewService.ts'), 'utf8');
+        const invite = src.slice(
+            src.indexOf('export async function inviteCrew'),
+            src.indexOf('export async function getMyCrew'),
+        );
+        const update = src.slice(
+            src.indexOf('export async function updateCrewPermissions'),
+            src.indexOf('export async function removeCrew'),
+        );
+        expect(invite).toContain('registers = withAlwaysSharedRegisters(registers);');
+        expect(update).toContain('registers = withAlwaysSharedRegisters(registers);');
+    });
+
+    it('is not offered as a tick box in the access editor', () => {
+        const form = readFileSync(resolve(__dirname, '../components/crewManagement/EditCrewAccessForm.tsx'), 'utf8');
+        expect(form).toContain('ALL_REGISTERS.filter((reg) => !ALWAYS_SHARED_REGISTERS.includes(reg))');
     });
 });
