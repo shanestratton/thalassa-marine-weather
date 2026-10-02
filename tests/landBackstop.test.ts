@@ -37,6 +37,20 @@ import { cellFinenessRank } from '../services/enc/scaleShadow';
 
 const d = (depth: number | null, i = 0): DepthResult => ({ lat: -27 - i * 0.001, lon: 153, depth_m: depth });
 
+/** NOAA ETOPO as the backstop asks for it (GebcoDepthService.queryRouteRelief,
+ *  one grid request per route since 2026-10-02). */
+function etopo(depthAt: (lat: number, lon: number, index: number) => number | null) {
+    return vi.spyOn(GebcoDepthService, 'queryRouteRelief').mockImplementation(async (points) => {
+        const depths = points.map(({ lat, lon }, index) => ({ lat, lon, depth_m: depthAt(lat, lon, index) }));
+        const missing = depths.filter((x) => x.depth_m === null).length;
+        return {
+            depths,
+            failure: missing > 0 ? { kind: 'partial' as const, missing, total: points.length } : null,
+            requests: 1,
+        };
+    });
+}
+
 describe('findLandRuns', () => {
     it('clean water → no runs', () => {
         expect(findLandRuns([d(-20), d(-15), d(-8), d(-30)])).toEqual([]);
@@ -78,9 +92,7 @@ describe('inshoreRouteCrossesLand', () => {
     });
 
     it('verifies a fully sampled below-sea-level ocean route', async () => {
-        vi.spyOn(GebcoDepthService, 'queryRouteDepths').mockImplementation(async (points) =>
-            points.map(({ lat, lon }) => ({ lat, lon, depth_m: -25 })),
-        );
+        etopo(() => -25);
 
         await expect(inshoreRouteCrossesLand(route)).resolves.toMatchObject({
             status: 'verified',
@@ -89,9 +101,7 @@ describe('inshoreRouteCrossesLand', () => {
     });
 
     it('rejects a positive-elevation island run', async () => {
-        vi.spyOn(GebcoDepthService, 'queryRouteDepths').mockImplementation(async (points) =>
-            points.map(({ lat, lon }, index) => ({ lat, lon, depth_m: index === 0 ? -25 : 4 })),
-        );
+        etopo((_lat, _lon, index) => (index === 0 ? -25 : 4));
 
         await expect(inshoreRouteCrossesLand(route)).resolves.toMatchObject({
             status: 'verified',
@@ -100,9 +110,7 @@ describe('inshoreRouteCrossesLand', () => {
     });
 
     it('reports null depth coverage as unavailable instead of clear', async () => {
-        vi.spyOn(GebcoDepthService, 'queryRouteDepths').mockImplementation(async (points) =>
-            points.map(({ lat, lon }, index) => ({ lat, lon, depth_m: index === 1 ? null : -25 })),
-        );
+        etopo((_lat, _lon, index) => (index === 1 ? null : -25));
 
         const result = await inshoreRouteCrossesLand(route);
         expect(result.status).toBe('unavailable');
@@ -182,13 +190,7 @@ const OVERVIEW = 3_500_000; // band 1, like AU130120
 
 /** ETOPO reads land (4 m) between these longitudes, sea (-20 m) elsewhere. */
 function etopoLandBetween(...spans: [number, number][]): void {
-    vi.spyOn(GebcoDepthService, 'queryRouteDepths').mockImplementation(async (points) =>
-        points.map(({ lat, lon }) => ({
-            lat,
-            lon,
-            depth_m: spans.some(([w, e]) => lon >= w && lon <= e) ? 4 : -20,
-        })),
-    );
+    etopo((_lat, lon) => (spans.some(([w, e]) => lon >= w && lon <= e) ? 4 : -20));
 }
 
 describe('the satellite land check where the charts say water', () => {
@@ -347,13 +349,15 @@ describe('the satellite land check where the charts say water', () => {
 
     it('unavailable ETOPO stays unavailable whatever the charts say', async () => {
         const water: ChartWaterProbe = () => 'water';
-        vi.spyOn(GebcoDepthService, 'queryRouteDepths').mockImplementation(async (points) =>
-            points.map(({ lat, lon }, i) => ({ lat, lon, depth_m: i === 1 ? null : 4 })),
-        );
+        etopo((_lat, _lon, i) => (i === 1 ? null : 4));
         const result = await inshoreRouteCrossesLand(EAST, { chartWater: water });
         expect(result.status).toBe('unavailable');
         expect(result.crossesLand).toBe(false);
-        vi.spyOn(GebcoDepthService, 'queryRouteDepths').mockResolvedValue([]);
+        vi.spyOn(GebcoDepthService, 'queryRouteRelief').mockResolvedValue({
+            depths: [],
+            failure: { kind: 'bad-answer' },
+            requests: 1,
+        });
         await expect(inshoreRouteCrossesLand(EAST, { chartWater: water })).resolves.toMatchObject({
             status: 'unavailable',
         });

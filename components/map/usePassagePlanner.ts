@@ -64,7 +64,13 @@ import {
     surveyAmberMetres,
 } from './inshoreRouteState';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
-import { chartedLandFinding, landBackstopFinding, landBackstopTitle } from '../../services/routing/landBackstopWords';
+import {
+    backstopUnavailableWords,
+    chartedLandFinding,
+    landBackstopFinding,
+    landBackstopTitle,
+} from '../../services/routing/landBackstopWords';
+import { CAUTION_WHY } from '../../services/engine/types';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -583,8 +589,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     dispatchPassageNotice({
                         severity: 'warn',
                         title: unavailable ? 'Inshore route not verified' : landBackstopTitle(backstop),
+                        // What actually happened (2026-10-02: Auto said
+                        // "offline" for a check that had timed out online).
                         message: unavailable
-                            ? 'Satellite land verification is unavailable, so Thalassa will not present this route as checked. Sync chart data or reconnect, then retry. Falling back to offshore planning.'
+                            ? `The satellite land check couldn't be done just now: ${backstopUnavailableWords(backstop.unavailable)}. Thalassa will not present this route as checked — plan it again to retry. Falling back to offshore planning.`
                             : `${landBackstopFinding(backstop)} Unverified reference packs cannot clear this warning. Falling back to offshore planning.`,
                     });
                 } else {
@@ -788,7 +796,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 distance: inshoreLegs[index].nm,
                             })) as IsochroneResult['route'],
                             routeCoordinates: inshorePoly,
-                            shallowFlags: inshorePoly.map((_, index) => cautionMask?.[Math.max(0, index - 1)] ?? false),
+                            // Caution for its 50 m cells alone is not shallow
+                            // water under the line (round 2, 2026-10-02).
+                            shallowFlags: inshorePoly.map((_, index) => {
+                                const i = Math.max(0, index - 1);
+                                return (
+                                    (cautionMask?.[i] ?? false) && inshoreRes.cautionWhy?.[i] !== CAUTION_WHY.GRID_ONLY
+                                );
+                            }),
                             totalDistanceNM: Math.round(inshoreRes.distanceNM * 10) / 10,
                             totalDurationHours: Math.round(inshoreDuration * 10) / 10,
                             arrivalTime: arrivalDate.toISOString(),

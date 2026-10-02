@@ -43,6 +43,8 @@ import {
     type InshoreRoutePiece,
 } from '../map/inshoreRouteState';
 import { annotateTideWindows } from '../map/tideWindowChips';
+import { routeRedStretches } from '../map/routeRedReasons';
+import { isBackstopLandRefusal } from '../../services/routing/landBackstopWords';
 import { AutoroutingProposalSaveCard } from './AutoroutingProposalSaveCard';
 import { TrialTracerShell } from './TrialTracerShell';
 import { TrialWaypointEditor } from './TrialWaypointEditor';
@@ -210,6 +212,44 @@ export function AutoroutingTrialWorkspace({
     const passageNm = (displayWaypoints.at(-1)?.distanceM ?? 0) / 1852;
     const [savedProposal, setSavedProposal] = useState<AutoroutingTrialRoute | null>(null);
     const { review, stop: stopReview, recheck } = useAutoroutingReview(proposal, draft, draftAssumed);
+    // Review's Retry for the satellite land check (2026-10-02: the field route
+    // timed out online and was told "offline"). It re-runs the check alone:
+    // the router's proposal stays the one the map and the chart review key on,
+    // and the rechecked copy — the same id and line — is what the notes and
+    // Save read. A new route, an edit or a clear leaves it behind (`base`).
+    const [backstopRetry, setBackstopRetry] = useState<{
+        base: AutoroutingTrialRoute;
+        route: AutoroutingTrialRoute;
+    } | null>(null);
+    // Which proposal a retry is running for, and a retry's failure that was
+    // not land (fix-up review, 2026-10-03): both belong to one proposal, so a
+    // new route is never held or told off by an old route's retry.
+    const [backstopRetrying, setBackstopRetrying] = useState<AutoroutingTrialRoute | null>(null);
+    const [backstopRetryError, setBackstopRetryError] = useState<{
+        base: AutoroutingTrialRoute;
+        message: string;
+    } | null>(null);
+    // The proposal on screen now, for a retry that answers later (a ~27 s
+    // wait on a slow link): it acts only if its own proposal still is.
+    const proposalRef = useRef(proposal);
+    proposalRef.current = proposal;
+    const shownProposal = proposal && backstopRetry?.base === proposal ? backstopRetry.route : proposal;
+    const backstopUnavailable =
+        !!shownProposal &&
+        !reviewProposal &&
+        !shownProposal.localEdit &&
+        shownProposal.engine?.backstop === 'unavailable';
+    // Retry needs the charts' verdict at every satellite sample, which the
+    // proposal keeps only when the router could build its chart probe
+    // (calculateThalassaProposal: one per sample of this very line).
+    const backstopCharts = shownProposal?.engine?.backstopCharts;
+    const backstopRetryable =
+        backstopUnavailable &&
+        Array.isArray(backstopCharts) &&
+        backstopCharts.length >= 2 &&
+        !!provider.recheckBackstop;
+    const backstopRetryingNow = !!proposal && backstopRetrying === proposal;
+    const backstopRetryMessage = proposal && backstopRetryError?.base === proposal ? backstopRetryError.message : '';
     useEffect(() => {
         if (reviewProposal) onReviewChange?.(review);
     }, [reviewProposal, review, onReviewChange]);
@@ -234,7 +274,11 @@ export function AutoroutingTrialWorkspace({
         pending.current?.abort();
         pending.current = null;
         setBusy(false);
+        proposalRef.current = null;
         setProposal(null);
+        setBackstopRetry(null);
+        setBackstopRetrying(null);
+        setBackstopRetryError(null);
         setUndoProposal(null);
         setPanelPage('setup');
         setSavedProposal(null);
@@ -597,6 +641,28 @@ export function AutoroutingTrialWorkspace({
         },
         [tideNeedM],
     );
+    // Why each red stretch is red, cut at the display waypoints, for the route
+    // review (round 2, 2026-10-02: the field route's legs were red on the map
+    // while their checks said "no issue found", and nothing said why) — the
+    // same pieces and the same tide the map draws.
+    const redStretches = useMemo(() => {
+        const engine = proposal?.engine;
+        if (!proposal || !engine || !engineStateMask(proposal)) return [];
+        const highestAt = tideTop?.route === proposal ? tideTop.highestAt : null;
+        const tide = {
+            depthM: routeTideDepths({ polyline: proposal.coordinates, ...engine }),
+            needM: tideNeedM,
+            highestM: null,
+            ...(highestAt ? { highestAt } : {}),
+        };
+        return routeRedStretches(
+            proposal.coordinates,
+            routePieces(proposal, highestAt),
+            { ...engine, tideNeedM },
+            tide,
+            displayWaypoints.map((waypoint) => waypoint.pathIndex),
+        );
+    }, [proposal, tideTop, tideNeedM, routePieces, displayWaypoints]);
     const enginePainted = !!engineStateMask(proposal);
     useEffect(() => {
         const map = mapRef.current;
@@ -738,6 +804,7 @@ export function AutoroutingTrialWorkspace({
             localSpotFocused.current = true;
             setSavedProposal(null);
             setUndoProposal(proposal);
+            proposalRef.current = moved.route;
             setProposal(moved.route);
             setSelectedWaypoint(displayWaypointForPathIndex(plan.waypoints, moved.pathIndex));
             cancelMove();
@@ -756,6 +823,7 @@ export function AutoroutingTrialWorkspace({
         setSavedProposal(null);
         setInspectingWaypoint(false);
         setSelectedWaypoint(0);
+        proposalRef.current = undoProposal;
         setProposal(undoProposal);
         setUndoProposal(null);
         setPanelPage('review');
@@ -910,6 +978,43 @@ export function AutoroutingTrialWorkspace({
             }
         }
     };
+    const retryBackstop = async () => {
+        const base = proposal;
+        const route = shownProposal;
+        if (!base || !route || !backstopRetryable || backstopRetryingNow || !provider.recheckBackstop) return;
+        const scope = getAuthIdentityScope();
+        // Its answer is this proposal's only while this proposal is shown: a
+        // new route, an edit or a clear in the meantime leaves it behind
+        // (fix-up review, 2026-10-03: an old route's land refusal removed the
+        // new route and showed itself as the new route's).
+        const current = () => isAuthIdentityScopeCurrent(scope) && proposalRef.current === base;
+        setBackstopRetrying(base);
+        setBackstopRetryError(null);
+        try {
+            const next = await provider.recheckBackstop(route);
+            if (current()) setBackstopRetry({ base, route: next });
+        } catch (failure) {
+            if (!current() || failure instanceof DOMException) return;
+            if (isBackstopLandRefusal(failure)) {
+                // Land after all: the route must not be shown (Auto's
+                // refusal), exactly as if the router had found it.
+                invalidate();
+                setError(failure.message);
+                setPanelExpanded(true);
+                return;
+            }
+            // Anything else is not land: the route stays, Save stays off.
+            setBackstopRetryError({
+                base,
+                message:
+                    failure instanceof Error && failure.message
+                        ? failure.message
+                        : 'The satellite land check could not be retried.',
+            });
+        } finally {
+            setBackstopRetrying((retrying) => (retrying === base ? null : retrying));
+        }
+    };
     const clear = () => {
         invalidate();
         setDeparture(emptyPosition());
@@ -1056,10 +1161,10 @@ export function AutoroutingTrialWorkspace({
                             {dangerReported && (
                                 <span className="block font-bold">Danger reported · review required</span>
                             )}
-                            {proposal && proposal.warnings.length > 0 && (
+                            {shownProposal && shownProposal.warnings.length > 0 && (
                                 <span className="block">
-                                    {proposal.warnings.length} route {proposal.warnings.length === 1 ? 'note' : 'notes'}{' '}
-                                    · review required
+                                    {shownProposal.warnings.length} route{' '}
+                                    {shownProposal.warnings.length === 1 ? 'note' : 'notes'} · review required
                                 </span>
                             )}
                             {proposal?.localEdit && (
@@ -1290,7 +1395,7 @@ export function AutoroutingTrialWorkspace({
                         {proposal && (
                             <div hidden={panelPage !== 'review'}>
                                 <TrialRouteReviewPanel
-                                    route={proposal}
+                                    route={shownProposal ?? proposal}
                                     coordinates={proposal.coordinates}
                                     waypoints={displayWaypoints}
                                     sparse={waypointPlan.sparse}
@@ -1310,6 +1415,7 @@ export function AutoroutingTrialWorkspace({
                                     }}
                                     onStop={stopReview}
                                     onRecheck={recheck}
+                                    redStretches={redStretches}
                                 />
                             </div>
                         )}
@@ -1338,9 +1444,42 @@ export function AutoroutingTrialWorkspace({
                         )}
                         {proposal && typeof draft === 'number' && !reviewProposal && (
                             <div hidden={panelPage !== 'review'}>
+                                {backstopUnavailable && (
+                                    <section
+                                        aria-label="Satellite land check"
+                                        className="mb-2 space-y-2 rounded-lg border border-amber-300/30 p-2 text-micro"
+                                    >
+                                        <p className="text-amber-200">
+                                            Satellite land check couldn&apos;t be done just now:{' '}
+                                            {shownProposal?.engine?.backstopReason ??
+                                                "the satellite relief didn't come back for the whole route"}
+                                            .{' '}
+                                            {backstopRetryable
+                                                ? 'Retry runs the check again on this route — not the route.'
+                                                : 'Recalculate to run it again.'}
+                                        </p>
+                                        {backstopRetryable && (
+                                            <button
+                                                type="button"
+                                                className={`${buttonClass} w-full`}
+                                                disabled={backstopRetryingNow}
+                                                onClick={() => void retryBackstop()}
+                                            >
+                                                {backstopRetryingNow
+                                                    ? 'Checking satellite relief…'
+                                                    : 'Retry satellite check'}
+                                            </button>
+                                        )}
+                                        {backstopRetryMessage && (
+                                            <p role="alert" className="text-amber-100">
+                                                {backstopRetryMessage}
+                                            </p>
+                                        )}
+                                    </section>
+                                )}
                                 <AutoroutingProposalSaveCard
                                     key={proposal.id}
-                                    route={proposal}
+                                    route={shownProposal ?? proposal}
                                     review={review}
                                     draftM={draft}
                                     draftAssumed={draftAssumed}

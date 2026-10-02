@@ -305,4 +305,24 @@ describe('the voyage form refuses charted land the engine measured, as Auto does
         expect(mocks.bathymetricEnhance).not.toHaveBeenCalled();
         expect(saved.some((p) => p.__inshoreRouting?.status === 'success')).toBe(true);
     });
+
+    // 2026-10-02: a check that timed out online was called "offline" by Auto.
+    it('a satellite check that could not finish: not accepted as checked, saying what happened', async () => {
+        mocks.tryInshore.mockResolvedValue(route({ totalM: 0, awayM: 0 }));
+        mocks.crossesLand.mockResolvedValue({
+            status: 'unavailable',
+            crossesLand: false,
+            runs: [],
+            samplesChecked: 0,
+            samplesRequested: 2,
+            unavailable: { kind: 'quota', status: 429 },
+        });
+        const saved = await calculate();
+        const refused = saved.find((p) => p.__inshoreRouting?.status === 'failed');
+        expect(refused?.__inshoreRouting).toMatchObject({
+            errorCode: 'land-backstop-unavailable',
+            error: "The satellite land check couldn't be done just now: today's allowance of satellite checks for this account is used up — the inshore route was not accepted as checked.",
+        });
+        expect(saved.some((p) => p.__inshoreRouting?.status === 'success')).toBe(false);
+    });
 });

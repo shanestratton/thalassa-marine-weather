@@ -32,8 +32,9 @@ import type {
     SurveyRunReason,
     SurveyUncheckedCell,
 } from './types';
-import { AMBER_SURVEY_REASONS } from './types';
-import { haversineM, latLonToGrid } from './geometry';
+import { AMBER_SURVEY_REASONS, CAUTION_WHY } from './types';
+import { forEachCellOnSegment, haversineM, latLonToGrid } from './geometry';
+import { UNKNOWN_OPEN } from './constants';
 import {
     areaGeometry,
     chartAreaIndexFor,
@@ -83,6 +84,12 @@ export interface ShallowRunOutput {
     tideDepthM: (number | null)[];
     /** The longest caution run (m), for the engine's keel-margin log line. */
     shallowMaxM: number;
+    /** Per segment: why a caution segment is caution (CAUTION_WHY bits, 0
+     *  where it is not caution) — RouteResult.cautionWhy. */
+    cautionWhy: number[];
+    /** Per segment: the shallowest charted depth under a caution segment's
+     *  line where it is below the floor, else null — RouteResult.cautionDepthM. */
+    cautionDepthM: (number | null)[];
 }
 
 /** Below this a chip is noise, not pilotage info. */
@@ -428,10 +435,103 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
             }
         }
     }
+    // Why each caution segment is caution, read EXACTLY along its line (round
+    // 2, 2026-10-02: the field route's North Molle corner drew red where only
+    // the 50 m cells touched a 2 m shore band; the line itself charted 5 m+,
+    // the leg review said "no issue found" and nothing said why). A segment
+    // is caution for its CELLS alone (GRID_ONLY) only when both hold:
+    //   • its line reads clean — a chart depth everywhere, none below the
+    //     floor, no decision-1 water, no hazard's buffer;
+    //   • some cell the line touches is a shallow chart band's CAUTION, and
+    //     every cell that could have made it caution is a shallow chart
+    //     band's alone: never a blocked cell (land, a mark's disc, a hazard's
+    //     buffer, a berth, a bridge bar, water no tide clears — navGrid writes
+    //     every one as NaN, and gridCautionSegMask and the tier/bridge
+    //     samplers flag a segment for any of them), decision-1 or
+    //     coast-closing water, relaxed or carved land, a wing (passing outside
+    //     a lateral mark), nor water no evidence vouches for.
+    // EVERY cell the line touches is read (forEachCellOnSegment), corners
+    // included: whichever sampler flagged the segment, the cell it found is
+    // among them (fix-up review, 2026-10-03 — this reader skipped blocked
+    // cells, sampled ~25 m, and called a segment with no caution cell at all
+    // GRID_ONLY, so a mark's disc over 10–15 m water was drawn green and
+    // saved). It is then not drawn red, and no run (so no chip) claims it. A
+    // charted tail (decision 7) is never GRID_ONLY: it is the pin's own water.
+    /** Why a blocked (NaN) cell is blocked, as a CAUTION_WHY bit. Land the
+     *  line only touches is BLOCKED, not LAND: LAND is land the router OPENED
+     *  (a relax zone, a carve), and the land audit owns land it crosses. */
+    const blockedWhy = (idx: number): number => {
+        if (grid.markDiscBlocked?.[idx] === 1) return CAUTION_WHY.MARK;
+        if (grid.berthBlocked?.[idx] === 1 || grid.clearanceBarred?.[idx] === 1) return CAUTION_WHY.STRUCTURE;
+        if (grid.obstnBlocked?.[idx] === 1) return CAUTION_WHY.HAZARD;
+        return CAUTION_WHY.BLOCKED;
+    };
+    /** What, besides a shallow band, made a CAUTION cell caution (0: nothing). */
+    const cautionFlags = (idx: number): number => {
+        let bits = 0;
+        if (grid.wingCaution?.[idx] === 1) bits |= CAUTION_WHY.WING;
+        if (grid.landBlocked?.[idx] === 1 || grid.relaxMask?.[idx] === 1) bits |= CAUTION_WHY.LAND;
+        if (grid.markDiscBlocked?.[idx] === 1) bits |= CAUTION_WHY.MARK;
+        else if (grid.obstnBlocked?.[idx] === 1) bits |= CAUTION_WHY.HAZARD;
+        if (grid.berthBlocked?.[idx] === 1 || grid.clearanceBarred?.[idx] === 1) bits |= CAUTION_WHY.STRUCTURE;
+        return bits;
+    };
+    /** The cells the line a→b touches that could have made it caution: why
+     *  (CAUTION_WHY bits), and whether they are a shallow chart band's alone
+     *  — at least one such cell, and nothing else. */
+    const cautionCells = (
+        a: readonly [number, number],
+        b: readonly [number, number],
+    ): { bits: number; onlyShallowBand: boolean } => {
+        const sd = grid.shallowDepthM;
+        let bits = 0;
+        let other = !sd;
+        let shallowBand = false;
+        forEachCellOnSegment(grid, a, b, (idx) => {
+            const v = grid.cells[idx];
+            if (Number.isNaN(v)) {
+                bits |= blockedWhy(idx);
+                other = true;
+                return;
+            }
+            if (v === UNKNOWN_OPEN && grid.unvouched?.[idx] === 1) {
+                other = true;
+                return;
+            }
+            if (!(v < 0)) return; // charted depth or vouched open water: not what made it caution
+            const flags = cautionFlags(idx);
+            bits |= flags;
+            if (flags !== 0 || !sd || Number.isNaN(sd[idx]) || grid.wetConflict?.[idx] === 1) other = true;
+            else shallowBand = true;
+        });
+        return { bits, onlyShallowBand: shallowBand && !other };
+    };
+    const facts: (LineFacts | null)[] = new Array(segCount).fill(null);
+    const cautionWhy: number[] = new Array(segCount).fill(0);
+    for (let i = 0; i < segCount; i++) {
+        if (!caution[i]) continue;
+        const f = factsOf(polyline[i], polyline[i + 1]);
+        facts[i] = f;
+        let why = 0;
+        if (Number.isFinite(f.min)) why |= CAUTION_WHY.SHALLOW;
+        if (f.uncharted) why |= CAUTION_WHY.UNCHARTED;
+        if (f.conflict) why |= CAUTION_WHY.DISAGREE;
+        if (hazardMask?.[i]) why |= CAUTION_WHY.HAZARD;
+        const cells = cautionCells(polyline[i], polyline[i + 1]);
+        why |= cells.bits;
+        const tail = (destinationTailStartSeg >= 0 && i >= destinationTailStartSeg) || i <= originTailEndSeg;
+        if (why === 0)
+            why =
+                depthBands.length > 0 && hazardMask && !tail && cells.onlyShallowBand
+                    ? CAUTION_WHY.GRID_ONLY
+                    : CAUTION_WHY.UNEXPLAINED;
+        cautionWhy[i] = why;
+    }
     const units: RunUnit[] = [];
     for (let i = 0; i < segCount; i++) {
-        if (caution[i]) units.push({ seg: i, t0: 0, t1: 1, span: null });
-        else for (const u of spansBySeg.get(i) ?? []) units.push(u);
+        if (caution[i]) {
+            if (cautionWhy[i] !== CAUTION_WHY.GRID_ONLY) units.push({ seg: i, t0: 0, t1: 1, span: null });
+        } else for (const u of spansBySeg.get(i) ?? []) units.push(u);
     }
 
     let shallowMaxM = 0;
@@ -560,7 +660,7 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
         // depth, whether any of it has no chart depth, whether any of it is
         // decision-1 water. run.minDepthM comes from the same pieces.
         const i = u.seg;
-        const f = factsOf(polyline[i], polyline[i + 1]);
+        const f = facts[i] ?? factsOf(polyline[i], polyline[i + 1]);
         if (f.finestMin < runFinestMin) runFinestMin = f.finestMin;
         if (f.uncharted) {
             // Only the bands' reading names a run uncharted (decision-1
@@ -606,7 +706,19 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
             ? segMinDepth[i]
             : null,
     );
-    return { shallowRuns, chartedShallowMask, chartedShallowSpans, landPaintConflictMask, tideDepthM, shallowMaxM };
+    const cautionDepthM: (number | null)[] = segMinDepth.map((d, i) =>
+        caution[i] && Number.isFinite(d) && d < cautionFloorM ? d : null,
+    );
+    return {
+        shallowRuns,
+        chartedShallowMask,
+        chartedShallowSpans,
+        landPaintConflictMask,
+        tideDepthM,
+        shallowMaxM,
+        cautionWhy,
+        cautionDepthM,
+    };
 }
 
 // ── Survey quality along the route (owner decision 9, 2026-09-30) ──────────

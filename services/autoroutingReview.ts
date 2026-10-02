@@ -268,3 +268,16 @@ export function trialReviewFeatures(
     });
     return { type: 'FeatureCollection', features };
 }
+
+/**
+ * Where a route note applies, for the notes list (2026-10-02): a note about a
+ * pin names its leg; everything else is about the whole route. The notes are
+ * the proposal's own words (saved with it), so this reads them rather than
+ * changing what they are.
+ */
+export function routeNoteWhere(note: string, waypointCount: number): string {
+    const last = Math.max(2, waypointCount);
+    if (/\bdeparture\b/i.test(note) && !/\bdestination\b/i.test(note)) return 'Leg 1→2';
+    if (/\bdestination\b/i.test(note) && !/\bdeparture\b/i.test(note)) return `Leg ${last - 1}→${last}`;
+    return 'Whole route';
+}

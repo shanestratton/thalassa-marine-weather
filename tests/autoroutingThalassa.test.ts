@@ -28,7 +28,10 @@ vi.mock('../services/InshoreRouter', () => ({
     hasEncCoverageForRoute: m.hasEncCoverageForRoute,
     MAX_INSHORE_NM: 50,
 }));
-vi.mock('../services/routing/landBackstop', () => ({ inshoreRouteCrossesLand: m.crossesLand }));
+vi.mock('../services/routing/landBackstop', async (original) => ({
+    ...(await original<Record<string, unknown>>()),
+    inshoreRouteCrossesLand: m.crossesLand,
+}));
 vi.mock('../services/enc/cloudCellSync', () => ({ downloadCloudCellsForBBox: m.fill }));
 vi.mock('../services/enc/EncCellMetadata', async (original) => ({
     ...(await original<Record<string, unknown>>()),
@@ -353,9 +356,110 @@ describe('calculateThalassaProposal', () => {
         m.crossesLand.mockResolvedValue({ status: 'unavailable', crossesLand: false, runs: [] });
         const route = await calculateThalassaProposal(request());
         expect(route.warnings).toContain(
-            'Satellite land check unavailable (offline): checked against the installed charts only.',
+            "Satellite land check couldn't be done just now: the satellite relief didn't come back for the whole route. Checked against the installed charts only — retry the check in Review before saving.",
         );
         expect(route.engine?.backstop).toBe('unavailable');
+    });
+
+    // Shane's phone, 2026-10-02 06:21, on Wi-Fi and 4G: "The satellite land
+    // check has not run for this route (offline)". It had timed out.
+    it('says what stopped the satellite check — "offline" only when the phone is', async () => {
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        const verdicts = ['water', 'water', 'water'];
+        m.crossesLand.mockResolvedValue({
+            status: 'unavailable',
+            crossesLand: false,
+            runs: [],
+            unavailable: { kind: 'timeout', waitedMs: 12_000 },
+            chartVerdicts: verdicts,
+        });
+        const route = await calculateThalassaProposal(request());
+        const note =
+            "Satellite land check couldn't be done just now: the satellite relief service didn't answer within 12 s. Checked against the installed charts only — retry the check in Review before saving.";
+        expect(route.warnings).toContain(note);
+        expect(route.warnings.join(' ')).not.toMatch(/offline/i);
+        expect(route.engine).toMatchObject({
+            backstop: 'unavailable',
+            backstopReason: "the satellite relief service didn't answer within 12 s",
+            backstopCharts: verdicts,
+        });
+        // The proposal is still plain data (it is cloned and saved).
+        expect(() => structuredClone(route)).not.toThrow();
+        m.crossesLand.mockResolvedValue({
+            status: 'unavailable',
+            crossesLand: false,
+            runs: [],
+            unavailable: { kind: 'offline' },
+        });
+        const offline = await calculateThalassaProposal(request());
+        expect(offline.warnings.some((w) => w.includes('this phone is offline'))).toBe(true);
+    });
+
+    it("Review's Retry re-runs the satellite check alone, on the same line and proposal", async () => {
+        const { recheckThalassaBackstop } = await import('../services/autoroutingThalassa');
+        const { isBackstopLandRefusal } = await import('../services/routing/landBackstopWords');
+        const { samplePolyline } = await import('../services/routing/landBackstop');
+        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        const verdicts = samplePolyline(polyline).map(() => 'water');
+        m.crossesLand.mockResolvedValue({
+            status: 'unavailable',
+            crossesLand: false,
+            runs: [],
+            unavailable: { kind: 'timeout', waitedMs: 12_000 },
+            chartVerdicts: verdicts,
+        });
+        const route = await calculateThalassaProposal(request());
+        m.tryInshoreRoute.mockClear();
+        m.crossesLand.mockClear();
+
+        // Still failing: the note says what happened this time, in its place.
+        m.crossesLand.mockResolvedValue({
+            status: 'unavailable',
+            crossesLand: false,
+            runs: [],
+            unavailable: { kind: 'quota', status: 429 },
+        });
+        const still = await recheckThalassaBackstop(route);
+        expect(m.tryInshoreRoute).not.toHaveBeenCalled();
+        expect(m.crossesLand).toHaveBeenCalledWith(route.coordinates, { chartVerdicts: verdicts });
+        expect(still.id).toBe(route.id);
+        expect(still.coordinates).toBe(route.coordinates);
+        expect(still.engine?.backstop).toBe('unavailable');
+        expect(still.warnings).toHaveLength(route.warnings.length);
+        expect(still.warnings).toContain(
+            "Satellite land check couldn't be done just now: today's allowance of satellite checks for this account is used up. Checked against the installed charts only — retry the check in Review before saving.",
+        );
+
+        // It runs: verified, the note gone, nothing else changed.
+        m.crossesLand.mockResolvedValue({ status: 'verified', crossesLand: false, runs: [] });
+        const checked = await recheckThalassaBackstop(still);
+        expect(m.tryInshoreRoute).not.toHaveBeenCalled();
+        expect(checked).toMatchObject({ id: route.id, engine: { backstop: 'verified' } });
+        expect(checked.engine).not.toHaveProperty('backstopReason');
+        expect(checked.engine).not.toHaveProperty('backstopCharts');
+        expect(checked.warnings).toEqual(route.warnings.filter((w) => !/^Satellite land check/.test(w)));
+
+        // It finds land: Auto's refusal, as if the route had found it.
+        m.crossesLand.mockResolvedValue({
+            status: 'verified',
+            crossesLand: true,
+            runs: [{ startIdx: 3, samples: 2, lat: -31.01, lon: 161.02, charts: 'land' }],
+        });
+        const land = await recheckThalassaBackstop(route).catch((failure: unknown) => failure);
+        expect(land).toBeInstanceOf(Error);
+        expect((land as Error).message).toBe(
+            'Satellite relief shows land near 31.010° S, 161.020° E, and the installed charts show land or drying ground there too. The route is not shown. Plot this passage in Manual. Nothing changed.',
+        );
+        // Typed, so Review removes the route for land and for nothing else
+        // (fix-up review, 2026-10-03).
+        expect(isBackstopLandRefusal(land)).toBe(true);
+
+        // No kept chart evidence (or an edited line): Recalculate, never a
+        // check without the charts — and never taken for land.
+        const { backstopCharts: _charts, ...bare } = route.engine!;
+        const notKept = await recheckThalassaBackstop({ ...route, engine: bare }).catch((failure: unknown) => failure);
+        expect((notKept as Error).message).toMatch(/Recalculate/);
+        expect(isBackstopLandRefusal(notKept)).toBe(false);
     });
 
     it('says when the route ends short of a pin', async () => {

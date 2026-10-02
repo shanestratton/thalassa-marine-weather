@@ -2835,18 +2835,26 @@ function routeInshoreOnceEnds(
     // charted vouches a depth (uncharted/conflict caution): a window computed from
     // a null would be fabricated, so callers must skip those runs.
     // The finest survey's depth (fix-up, 2026-09-30): services/engine/shallowRuns.
-    const { shallowRuns, chartedShallowMask, chartedShallowSpans, landPaintConflictMask, tideDepthM, shallowMaxM } =
-        collectShallowRuns({
-            layers,
-            grid,
-            polyline: finalPolyline,
-            caution: finalCaution,
-            draftM: req.draftM,
-            safetyM,
-            destinationTailStartSeg,
-            originTailEndSeg,
-            hazardMask: nearHazard,
-        });
+    const {
+        shallowRuns,
+        chartedShallowMask,
+        chartedShallowSpans,
+        landPaintConflictMask,
+        tideDepthM,
+        shallowMaxM,
+        cautionWhy,
+        cautionDepthM,
+    } = collectShallowRuns({
+        layers,
+        grid,
+        polyline: finalPolyline,
+        caution: finalCaution,
+        draftM: req.draftM,
+        safetyM,
+        destinationTailStartSeg,
+        originTailEndSeg,
+        hazardMask: nearHazard,
+    });
     // Survey quality on the route (owner decision 9, 2026-09-30): amber
     // stretches and the 'not checked' cells, from the finished geometry —
     // disclosure only, never a cost or a refusal (engine/shallowRuns).
@@ -2933,6 +2941,8 @@ function routeInshoreOnceEnds(
         tideNeedM: req.draftM + safetyM,
         ...(chartedShallowSpans.length > 0 ? { chartedShallowSpans } : {}),
         landPaintConflictMask,
+        cautionWhy,
+        cautionDepthM,
         surveyRuns: survey.surveyRuns,
         ...(survey.uncheckedCells.length > 0 ? { surveyUncheckedCells: survey.uncheckedCells } : {}),
         ...(debug.destinationInlandTrimM ? { destinationInlandTrimM: debug.destinationInlandTrimM } : {}),

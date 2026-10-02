@@ -37,7 +37,11 @@ import {
     type PassageEnhancementToken,
 } from '../services/passageEnhancementEvents';
 import { departureOnLocalDate, derivePassageSummarySchedule } from '../services/passageSummarySchedule';
-import { chartedLandFinding, landBackstopFinding } from '../services/routing/landBackstopWords';
+import {
+    backstopUnavailableWords,
+    chartedLandFinding,
+    landBackstopFinding,
+} from '../services/routing/landBackstopWords';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 /**
@@ -815,7 +819,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                         __inshoreRouting: {
                                             status: 'failed',
                                             error: unavailable
-                                                ? 'Satellite land verification is unavailable — the inshore route was not accepted as checked.'
+                                                ? `The satellite land check couldn't be done just now: ${backstopUnavailableWords(backstop.unavailable)} — the inshore route was not accepted as checked.`
                                                 : `${landBackstopFinding(backstop)} The route fell back to offshore planning.`,
                                             errorCode: unavailable ? 'land-backstop-unavailable' : 'land-backstop',
                                             cellsUsed: inshoreRes.cellsUsed,

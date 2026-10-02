@@ -12,6 +12,76 @@
  * all three say it in Auto's words.
  */
 import type { LandBackstopResult, LandRun } from './landBackstop';
+import type { ReliefFailure } from '../GebcoDepthService';
+
+/**
+ * Why the satellite land check could not finish, in a skipper's words
+ * (2026-10-02). Shane's phone was online — Wi-Fi and 4G — and was told the
+ * check "has not run (offline)": the request had outlasted its deadline. Only
+ * a phone that says it is offline is called offline; everything else names
+ * what happened. A clause, lower case, no full stop: callers wrap it.
+ */
+export function backstopUnavailableWords(failure: ReliefFailure | null | undefined): string {
+    switch (failure?.kind) {
+        case 'offline':
+            return 'this phone is offline';
+        case 'timeout': {
+            // The whole wait (fix-up review, 2026-10-03): two 12 s attempts
+            // are not "within 12 s".
+            const s = Math.round((failure.waitedMs ?? 0) / 1000);
+            const n = failure.attempts ?? 1;
+            return n > 1
+                ? `the satellite relief service didn't answer (tried ${n === 2 ? 'twice' : `${n} times`}, ${s} s each)`
+                : `the satellite relief service didn't answer within ${s} s`;
+        }
+        case 'network':
+            return "the request didn't get through (network error)";
+        case 'auth':
+            return "you're not signed in, or the session has expired";
+        case 'quota':
+            // Without a session the public key asked: its allowance is per IP.
+            return failure.sharedKey
+                ? "today's allowance of satellite checks for this connection is used up — without your sign-in it is shared with everyone on this network"
+                : "today's allowance of satellite checks for this account is used up";
+        case 'server':
+            return `the satellite relief service answered with an error (HTTP ${failure.status ?? '?'})`;
+        case 'bad-answer':
+            return `the satellite relief service sent an answer Thalassa couldn't read${failure.status ? ` (HTTP ${failure.status})` : ''}`;
+        case 'partial':
+            return `${failure.missing ?? '?'} of ${failure.total ?? '?'} points along the route came back without satellite relief`;
+        default:
+            return "the satellite relief didn't come back for the whole route";
+    }
+}
+
+/**
+ * Auto's land refusal from a RE-RUN of the satellite check (Review's Retry,
+ * recheckThalassaBackstop): the one failure of a retry that takes the route
+ * away. Any other failure — no chart evidence kept, a cancelled account —
+ * leaves the route shown with Save still off (fail closed), and says why
+ * beside Retry (fix-up review, 2026-10-03: every failure removed the route).
+ */
+export class BackstopLandRefusal extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'BackstopLandRefusal';
+    }
+}
+
+/** True for Auto's land refusal from a retry of the satellite check. */
+export function isBackstopLandRefusal(failure: unknown): failure is BackstopLandRefusal {
+    return failure instanceof Error && failure.name === 'BackstopLandRefusal';
+}
+
+/** Auto's route note while the check could not finish (2026-10-02). */
+export function backstopUnavailableNote(words: string): string {
+    return `Satellite land check couldn't be done just now: ${words}. Checked against the installed charts only — retry the check in Review before saving.`;
+}
+
+/** Why Save stays off while the check could not finish (fail closed). */
+export function backstopUnavailableSaveReason(words: string): string {
+    return `The satellite land check couldn't be done just now: ${words}. Retry the check before saving.`;
+}
 
 /** "20.270° S, 148.724° E" — Auto's own way of saying a place. */
 export function landBackstopPlace(lat: number, lon: number): string {

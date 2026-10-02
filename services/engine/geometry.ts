@@ -214,6 +214,64 @@ export function latLonToGrid(grid: NavGrid, lat: number, lon: number): { x: numb
 }
 
 /**
+ * Every grid cell the straight segment a→b ([lon, lat]) touches: a supercover
+ * walk (Amanatides–Woo), with both neighbours where the line passes exactly
+ * through a cell corner. A fixed-step sampler can step over a corner the line
+ * clips for a metre; this cannot (round-2 fix-up review, 2026-10-03: the
+ * route's caution reasons missed the cell a 25 m sampler had flagged). Cells
+ * off the grid are skipped. The visit order is along the line.
+ */
+export function forEachCellOnSegment(
+    grid: NavGrid,
+    a: readonly [number, number],
+    b: readonly [number, number],
+    visit: (idx: number) => void,
+): void {
+    const fx0 = (a[0] - grid.minLon) / grid.dLon;
+    const fy0 = (a[1] - grid.minLat) / grid.dLat;
+    const fx1 = (b[0] - grid.minLon) / grid.dLon;
+    const fy1 = (b[1] - grid.minLat) / grid.dLat;
+    if (!(Number.isFinite(fx0) && Number.isFinite(fy0) && Number.isFinite(fx1) && Number.isFinite(fy1))) return;
+    const at = (x: number, y: number): void => {
+        if (x >= 0 && y >= 0 && x < grid.width && y < grid.height) visit(y * grid.width + x);
+    };
+    let x = Math.floor(fx0);
+    let y = Math.floor(fy0);
+    const dx = fx1 - fx0;
+    const dy = fy1 - fy0;
+    const sx = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const sy = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+    const tDx = sx !== 0 ? 1 / Math.abs(dx) : Infinity;
+    const tDy = sy !== 0 ? 1 / Math.abs(dy) : Infinity;
+    // The line's parameter (0..1) at the next vertical / horizontal cell edge.
+    let tx = sx > 0 ? (x + 1 - fx0) * tDx : sx < 0 ? (fx0 - x) * tDx : Infinity;
+    let ty = sy > 0 ? (y + 1 - fy0) * tDy : sy < 0 ? (fy0 - y) * tDy : Infinity;
+    at(x, y);
+    let n = Math.abs(Math.floor(fx1) - x) + Math.abs(Math.floor(fy1) - y);
+    while (n > 0) {
+        if (Math.abs(tx - ty) <= 1e-9) {
+            // Exactly through a corner: it touches both neighbours too.
+            at(x + sx, y);
+            at(x, y + sy);
+            x += sx;
+            y += sy;
+            tx += tDx;
+            ty += tDy;
+            n -= 2;
+        } else if (tx < ty) {
+            x += sx;
+            tx += tDx;
+            n -= 1;
+        } else {
+            y += sy;
+            ty += tDy;
+            n -= 1;
+        }
+        at(x, y);
+    }
+}
+
+/**
  * Bresenham's line algorithm. Iterates the cells touched by the line
  * from (x0,y0) to (x1,y1). Used to test whether two cells have an
  * unobstructed straight-line path between them.

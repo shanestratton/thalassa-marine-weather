@@ -337,7 +337,13 @@ export function promotedSeawayRoute(
               }
             : {}),
         ...(runs && runs.chartedShallowSpans.length > 0 ? { chartedShallowSpans: runs.chartedShallowSpans } : {}),
-        ...(runs ? { landPaintConflictMask: runs.landPaintConflictMask } : {}),
+        ...(runs
+            ? {
+                  landPaintConflictMask: runs.landPaintConflictMask,
+                  cautionWhy: runs.cautionWhy,
+                  cautionDepthM: runs.cautionDepthM,
+              }
+            : {}),
         surveyRuns: survey.surveyRuns,
         ...(survey.uncheckedCells.length > 0 ? { surveyUncheckedCells: survey.uncheckedCells } : {}),
         distanceNM: g.lengthM / 1852,
@@ -494,6 +500,13 @@ export interface InshoreRouteResult {
     /** Per segment: caution over decision-1 water (engine
      *  RouteResult.landPaintConflictMask) — it beats a marked channel's yellow. */
     landPaintConflictMask?: boolean[];
+    /** Per segment: why a caution segment is caution, read exactly along its
+     *  line (engine RouteResult.cautionWhy, CAUTION_WHY bits; round 2,
+     *  2026-10-02) — GRID_ONLY is not drawn red; every other reason is named. */
+    cautionWhy?: number[];
+    /** Per segment: the charted depth under a SHALLOW caution segment
+     *  (engine RouteResult.cautionDepthM), else null. */
+    cautionDepthM?: (number | null)[];
     /** Metres of overland tail trimmed off an inland destination pin —
      *  present only when the trim fired (route ends at the water's edge). */
     destinationInlandTrimM?: number;
@@ -2348,6 +2361,12 @@ async function tryInshoreRouteInner(
             ? { tideNeedM: (result as { tideNeedM?: number }).tideNeedM }
             : {}),
         landPaintConflictMask: (result as { landPaintConflictMask?: boolean[] }).landPaintConflictMask,
+        ...((result as { cautionWhy?: number[] }).cautionWhy
+            ? { cautionWhy: (result as { cautionWhy?: number[] }).cautionWhy }
+            : {}),
+        ...((result as { cautionDepthM?: (number | null)[] }).cautionDepthM
+            ? { cautionDepthM: (result as { cautionDepthM?: (number | null)[] }).cautionDepthM }
+            : {}),
         ...((result as { chartedShallowSpans?: ChartedShallowSpan[] }).chartedShallowSpans
             ? { chartedShallowSpans: (result as { chartedShallowSpans?: ChartedShallowSpan[] }).chartedShallowSpans }
             : {}),

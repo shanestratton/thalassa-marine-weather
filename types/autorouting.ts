@@ -1,6 +1,7 @@
 import type { AutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 import type { InshoreSegmentState } from '../components/map/inshoreRouteState';
 import type { ChartedShallowSpan, PinOffWater, ShallowRunInfo, SurveyRunInfo } from '../services/engine/types';
+import type { BackstopChartVerdict } from '../services/routing/landBackstop';
 export type { AutoroutingDimension, AutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 
 /** Auto's request: two pins and the vessel, routed by Thalassa on this phone. */
@@ -37,6 +38,10 @@ export interface ThalassaRouteDisclosure {
     offshoreMask?: boolean[];
     chartedShallowMask?: boolean[];
     landPaintConflictMask?: boolean[];
+    /** Why each caution segment is caution (engine CAUTION_WHY bits). */
+    cautionWhy?: number[];
+    /** The charted depth under each SHALLOW caution segment, else null. */
+    cautionDepthM?: (number | null)[];
     tideDepthM?: (number | null)[];
     tideNeedM?: number;
     shallowRuns?: ShallowRunInfo[];
@@ -51,8 +56,16 @@ export interface ThalassaRouteDisclosure {
     distanceNM: number;
     elapsedMs: number;
     seaway?: { edgesUsed: string[]; gateCount: number; gateCompliance: number | null; detourRatio: number };
-    /** The satellite land check: 'unavailable' offline (its cache is in memory only). */
+    /** The satellite land check: 'unavailable' when it could not finish —
+     *  offline, or online and it failed (backstopReason says which). */
     backstop: 'verified' | 'unavailable';
+    /** Why the check could not finish, in the skipper's words
+     *  (landBackstopWords.backstopUnavailableWords; 2026-10-02). */
+    backstopReason?: string;
+    /** The charts' verdict at each satellite sample of this exact line, kept
+     *  while the check is unavailable so Review's Retry re-runs the check
+     *  alone (recheckThalassaBackstop), never the route. */
+    backstopCharts?: BackstopChartVerdict[];
     /** Metres of charted land the route crosses away from a pin's own edge
      *  (InshoreRouteResult.hardLand; 2026-10-01 review). Auto refuses a route
      *  with any, so a proposal carries 0, or nothing when the audit did not run. */
