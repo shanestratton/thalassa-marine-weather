@@ -65,6 +65,27 @@
  * phone. The chart-only refusals below are that case and stay as pinned; the
  * offline route WITH the pack is tests/waterPack/offlineNewportCanal.test.ts
  * (23.52 NM, 0 m unvouched land, from the canal pin). No re-pins here.
+ *
+ * Owner decision 12 (Shane, 2026-10-02, "Trust the detailed chart"; re-pinned
+ * in the D12 fix-up, 2026-10-03, every number measured in its own process):
+ * the overview and general cells' land paint over the harbour cell's
+ * never-drying bands is no dispute any more — the canal mouth, the bay
+ * approaches and much of the river read as the detailed chart's own water.
+ * The canal itself stays decision-1 water under AU428153's (1:90,000) land,
+ * so the Newport pin is still no charted pin (decision 2), but the relaxed
+ * route out of it now reaches that water over 135 m of charted canal bank
+ * instead of 922 m:
+ *
+ *   case                    fix-up (2026-09-30)   D12 (2026-10-03)
+ *   newport-shane, strict   REFUSED 922 m         23.96 NM, 135 m (away 210 m: every caller refuses)
+ *   newport-shane, perm.    24.62 NM, 125 m       23.96 NM, 135 m
+ *   Tangalooma, strict      REFUSED 1,248 m       REFUSED 1,250 m
+ *   Tangalooma, permissive  23.95 NM, 594 m       23.86 NM, 594 m, 28 m off the (deep-water) pin
+ *
+ * The engine's veto refuses only a run over 500 m; what keeps decision 2 for
+ * the skipper is the callers' rule — any charted land away from a pin's own
+ * edge (debug.hardLandAwayM) is refused by Auto, the passage planner, the day
+ * planner and the voyage form. That is pinned below too.
  */
 import { describe, expect, it } from 'vitest';
 import { haversineM } from '../services/engine/geometry';
@@ -72,7 +93,7 @@ import { auditUnvouchedHardLand } from '../services/engine/safetyAudit';
 import { routeInshore, type RouteRequest } from '../services/inshoreRouterEngine';
 import { navLineLeads } from '../services/leadingLine';
 import { assembleLayers, loadFixture } from './helpers/corridorFixture';
-import { HIGHEST_TIDE_SWEEP_M, nonRedOverShallow } from './helpers/nonRedOverShallow';
+import { chartedDryingM, HIGHEST_TIDE_SWEEP_M, nonRedOverShallow } from './helpers/nonRedOverShallow';
 
 const fx = loadFixture('newport-shane.corridor.json.gz');
 // The OSM overlay production merges on top (the rivergate capture's: marina
@@ -125,6 +146,11 @@ function run(req: RouteRequest, strict: boolean, osm: typeof fx.osm = fx.osm) {
         caution: (r.cautionMask ?? []).filter(Boolean).length,
         points: r.polyline.length,
         auditMaxRunM: audit.maxRunM,
+        // What every caller refuses on (Auto, the passage planner, the day
+        // planner, the voyage form): charted land away from a pin's own edge.
+        hardLandAwayM: r.debug?.hardLandAwayM ?? 0,
+        originChartedPin: r.debug?.originChartedPin === true,
+        dryingM: chartedDryingM(r, layers),
         endGapM: haversineM(req.toLat, req.toLon, endLat, endLon),
         nonRedDryM: sum('dryM'),
         nonRedShallowM: sum('shallowM'),
@@ -159,24 +185,45 @@ describe(
         // 'needs tide' tail that crossed ~60 m of hard land. Decision-1 water
         // is a charted pin now only when its finest band is itself deep enough
         // (Tangalooma's 10–15 m, the Rivergate dredged area's 9.1 m).
-        it('newport-shane, strict (the production policy): refuses — the offline canal gets no route (decision 2)', () => {
+        //
+        // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12; measured in its
+        // own process): REFUSED 922 m → an engine route, 23.96 NM, whose
+        // longest charted-land run is 135 m (the canal bank beside the pin),
+        // under the engine's 500 m veto. The pin is still decision-1 water
+        // under AU428153's land, so it is still no charted pin (decision 2,
+        // pinned directly in tests/engine/chartedEndpointTail.test.ts); the
+        // relaxed route now leaves through the canal mouth's charted 0 m
+        // water, which decision 12 no longer disputes. Its 210 m of charted
+        // land away from the pin's edge is what every caller refuses on, so
+        // the offline canal still gets no route in the app. Kept apart from
+        // the permissive pin below on purpose: the same route.
+        it('newport-shane, strict (the production policy): the offline canal still gets no route a caller accepts (decision 2)', () => {
             const r = run(fx.request, true);
-            expect(r.refused, JSON.stringify(r)).toBe(true);
-            if (!r.refused) return;
-            expect(r.code).toBe('hard-land-crossing');
-            within(r.hardLandMaxRunM, 922, 0.05);
+            expect(r.refused, JSON.stringify(r)).toBe(false);
+            if (r.refused) return;
+            expect(r.originChartedPin).toBe(false);
+            expect(r.hardLandAwayM).toBeGreaterThan(0);
+            within(r.distanceNM, 23.959, 0.02);
+            within(r.auditMaxRunM, 135.3, 0.05);
         });
 
         // RE-PIN (2026-09-30): 19.62 NM, audit 2590 m (Phase 1) → 24.62 NM,
         // 125 m, caution 50 (round 1) → 22.85 NM, 47 m, caution 60 (round 2)
         // → 24.62 NM, 125 m, caution 50 again (fix-up: decision 2, as above).
-        it('newport-shane, permissive: 24.62 NM with a ~125 m audit land run (known bad, pinned as is)', () => {
+        //
+        // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12; own process):
+        // 24.62 NM, 125 m, caution 27 → 23.96 NM, 135 m, caution 61 — the same
+        // route as strict (above). The extra caution segments are the canal
+        // mouth's and the bay's charted 0–2 m water, red by its own depth now
+        // instead of by the dispute, and the river end's 5.9 km decision-1
+        // tail (AU428153's land over the harbour cell), which stays.
+        it('newport-shane, permissive: 23.96 NM with a ~135 m audit land run (known bad, pinned as is)', () => {
             const r = run(fx.request, false);
             expect(r.refused).toBe(false);
             if (r.refused) return;
-            within(r.distanceNM, 24.619, 0.02);
-            within(r.auditMaxRunM, 124.9, 0.05);
-            expect(r.caution).toBeLessThanOrEqual(50);
+            within(r.distanceNM, 23.959, 0.02);
+            within(r.auditMaxRunM, 135.3, 0.05);
+            expect(r.caution).toBeLessThanOrEqual(61);
         });
 
         // RE-PIN (2026-09-30): REFUSED 742 m (Phase 1) → REFUSED 1248 m
@@ -197,14 +244,22 @@ describe(
         // (a deep finest band under the overview's land paint), the Newport
         // end is the offline canal again (decision 2) and relaxes charted land
         // as permissive does. Known bad, pinned as is.
-        it('Newport → Tangalooma, permissive: 23.95 NM to the pin, a ~594 m audit land run (known bad, pinned as is)', () => {
+        //
+        // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12; own process):
+        // 23.95 → 23.86 NM (inside the pin), the same 594 m, caution 19 → 9.
+        // The Tangalooma pin's water is OC-61-351824's 5 m+ under only the
+        // overview cells' land paint: no dispute now, so it is plain deep
+        // water and the route ends 28 m from it, as a route to any deep-water
+        // pin does (it ran to the exact pin only as a decision-7 charted pin) —
+        // the corridor golden's Tangalooma re-pin, the same reason.
+        it('Newport → Tangalooma, permissive: 23.86 NM to the pin, a ~594 m audit land run (known bad, pinned as is)', () => {
             const r = run(TANGALOOMA, false);
             expect(r.refused).toBe(false);
             if (r.refused) return;
             within(r.distanceNM, 23.954, 0.02);
             within(r.auditMaxRunM, 594.1, 0.05);
-            expect(r.caution).toBeLessThanOrEqual(19);
-            expect(r.endGapM).toBeLessThan(1);
+            expect(r.caution).toBeLessThanOrEqual(9);
+            expect(r.endGapM).toBeLessThan(50);
         });
     },
 );
@@ -292,10 +347,23 @@ describe(
 // caution segment, nothing else — the same 24.718 NM, the same four shallow
 // runs (6,681, 15,416 and 440 m at 0 m; 1,565 m at 2 m). Rivergate kept all
 // four gate vertices already: unchanged.
+//
+// RE-PIN the caps (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust
+// the detailed chart"; each measured in its own process; distances inside
+// ±2%, audit still 0 m): newport-shane caution 37 → 26, points 52 → 44
+// (24.718 → 24.731 NM); Newport -> Rivergate caution 35 → 21, points 44 → 32
+// (23.904 → 23.983 NM). The overview and general cells' land paint over the
+// harbour cell's never-drying bands is no dispute: 15,102 m and 8,449 m of
+// 'charts disagree' go to 0 and 322 m (the 1:90,000 coastline over the
+// harbour survey, decision 1, stays). DRYING ground is pinned now too
+// (review, 2026-10-03): the first D12 build let drying detailed bands count,
+// and the Rivergate route rode NAVLNE 2387/2785 across the river mouth's
+// −2.2 m bank — 30 m of drying ground crossed became 1,116 m, with every
+// figure here green. Measured now: 0 m on both (HEAD 0 and 30 m).
 describe('GOLDEN: chart leads + OSM overlay (the production shape), strict', { timeout: ROUTE_TEST_TIMEOUT_MS }, () => {
     it.each([
-        ['newport-shane', { ...fx.request, obstructionBufferM: 60 }, 24.54, 37, 52],
-        ['Newport -> Rivergate', osmRivergate.request, 23.93, 35, 44],
+        ['newport-shane', { ...fx.request, obstructionBufferM: 60 }, 24.54, 26, 44],
+        ['Newport -> Rivergate', osmRivergate.request, 23.93, 21, 32],
     ] as const)('%s routes (%s NM), with no unvouched charted land', (_name, req, nm, maxCaution, maxPoints) => {
         const r = run(req, true, osmRivergate.osm);
         expect(r.refused, JSON.stringify(r)).toBe(false);
@@ -304,6 +372,9 @@ describe('GOLDEN: chart leads + OSM overlay (the production shape), strict', { t
         within(r.distanceNM, nm, 0.02);
         expect(r.caution).toBeLessThanOrEqual(maxCaution);
         expect(r.points).toBeLessThanOrEqual(maxPoints);
+        // No tide data (the first draw, offline, a failed tide fetch): the
+        // finest survey's drying ground the route crosses.
+        expect(r.dryingM).toBeLessThanOrEqual(30);
         // Nothing the finest S-57 survey charts drying or too shallow for the
         // keel is drawn anything but red (round-3 review, 2026-09-30) — or,
         // since owner decision 10 (2026-09-30), needs-tide amber where the

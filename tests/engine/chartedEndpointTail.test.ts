@@ -127,14 +127,19 @@ describe('decision 7 — a pin in charted-shallow water gets the route all the w
         expect(r.debug?.originChartedPin).toBe(true);
     });
 
+    // Re-ranked (D12 fix-up, 2026-10-03): the land paint was an overview
+    // cell's (_scaleRank 1000), which owner decision 12 now ignores over a
+    // detailed chart's never-drying band — this case is decision 1 only
+    // between two DETAILED charts now (an approach cell's land over a harbour
+    // cell's band). Its D12 twin is below.
     it('decision-1 water: a finer never-drying band under coarser land paint is a charted pin too', () => {
         const layers: InshoreLayers = {
             DEPARE: fc(
                 band(153.38, DEEP_E, 10, { _scaleRank: 3000 }),
                 band(DEEP_E, SHALLOW_E, 8, { _scaleRank: 5000 }),
             ),
-            // Overview land paint bulging over the finer cell's 8 m band.
-            LNDARE: fc(rect(153.47, -27.53, 153.52, -27.47, { acronym: 'LNDARE', _scaleRank: 1000 })),
+            // An approach cell's coastline bulging over the harbour cell's 8 m band.
+            LNDARE: fc(rect(153.47, -27.53, 153.52, -27.47, { acronym: 'LNDARE', _scaleRank: 4000 })),
         };
         const q = req(153.41, 153.475);
         const r = routeInshore(layers, q);
@@ -143,6 +148,28 @@ describe('decision 7 — a pin in charted-shallow water gets the route all the w
         expect(endGap(r, q)).toBeLessThan(1);
         expect(r.cautionMask?.[r.cautionMask.length - 1]).toBe(true);
         expect(r.shallowRuns?.some((s) => s.endpointTail === 'destination')).toBe(true);
+    });
+
+    // Owner decision 12 (2026-10-02): the same band under only an OVERVIEW
+    // cell's land paint is no dispute — plain 8 m water, deep enough for the
+    // keel: the route reaches the pin with nothing caution and no tail.
+    it('decision 12: the same 8 m band under only the overview’s land is plain deep water — no caution, no tail', () => {
+        const lat = -26.4;
+        const layers: InshoreLayers = {
+            DEPARE: fc(
+                bandAt(lat, 153.38, DEEP_E, 10, { _scaleRank: 3000 }),
+                bandAt(lat, DEEP_E, SHALLOW_E, 8, { _scaleRank: 5000 }),
+            ),
+            LNDARE: fc(rect(153.47, lat - 0.03, 153.52, lat + 0.03, { acronym: 'LNDARE', _scaleRank: 1000 })),
+        };
+        const q = reqAt(lat, 153.41, 153.475);
+        const r = routeInshore(layers, q);
+        expect(isResult(r), 'error' in r ? r.error : '').toBe(true);
+        if (!isResult(r)) return;
+        expect(endGap(r, q)).toBeLessThan(60);
+        expect(r.cautionMask?.some(Boolean)).toBe(false);
+        expect(r.shallowRuns?.some((s) => s.endpointTail)).toBe(false);
+        expect(r.landPaintConflictMask?.some(Boolean) ?? false).toBe(false);
     });
 });
 
@@ -313,8 +340,38 @@ const reqAt = (lat: number, fromLon: number, toLon: number): RouteRequest => ({
 });
 
 describe('decision 2 binds decision-1 water: only a DEEP finest band under land paint is a charted pin', () => {
-    it('a 0–2 m finer band under coarser land paint (the offline Newport canal) is no charted pin', () => {
+    // Re-ranked and pinned directly (D12 fix-up, 2026-10-03; review low): the
+    // offline Newport canal's 0–2 m harbour band lies under AU428153's
+    // (1:90,000, usage band 4) land paint as well as the overview's, and that
+    // band-4 land is what keeps decision 2 there now — decision 12 ignores
+    // only overview and general land. This case had overview land
+    // (_scaleRank 1000) and so tested decision 12 by accident.
+    it('a 0–2 m finer band under a detailed chart’s coarser land paint (the offline Newport canal) is no charted pin', () => {
         const lat = -27.3;
+        const layers: InshoreLayers = {
+            DEPARE: fc(
+                bandAt(lat, 153.38, DEEP_E, 10, { _scaleRank: 3000 }),
+                bandAt(lat, DEEP_E, SHALLOW_E, 0, { _scaleRank: 5000 }),
+            ),
+            // The approach cell's land over the harbour cell's canal band, with
+            // the overview's over both.
+            LNDARE: fc(
+                rect(153.47, lat - 0.03, 153.52, lat + 0.03, { acronym: 'LNDARE', _scaleRank: 4000 }),
+                rect(153.47, lat - 0.03, 153.52, lat + 0.03, { acronym: 'LNDARE', _scaleRank: 1000 }),
+            ),
+        };
+        const r = routeInshore(layers, reqAt(lat, 153.41, 153.475));
+        expect(isResult(r), 'error' in r ? r.error : '').toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.destinationChartedPin).toBeUndefined();
+        expect(r.shallowRuns?.some((s) => s.endpointTail)).toBe(false);
+    });
+
+    // Decision 12's twin: under ONLY the overview's land paint the 0–2 m band
+    // is no dispute, so it is charted-shallow water — a pin there is a
+    // charted pin (decision 7), exactly as with no land paint at all (below).
+    it('decision 12: the same band under only the overview’s land paint is a charted pin, as with none', () => {
+        const lat = -26.3;
         const layers: InshoreLayers = {
             DEPARE: fc(
                 bandAt(lat, 153.38, DEEP_E, 10, { _scaleRank: 3000 }),
@@ -325,8 +382,9 @@ describe('decision 2 binds decision-1 water: only a DEEP finest band under land 
         const r = routeInshore(layers, reqAt(lat, 153.41, 153.475));
         expect(isResult(r), 'error' in r ? r.error : '').toBe(true);
         if (!isResult(r)) return;
-        expect(r.debug?.destinationChartedPin).toBeUndefined();
-        expect(r.shallowRuns?.some((s) => s.endpointTail)).toBe(false);
+        expect(r.debug?.destinationChartedPin).toBe(true);
+        expect(r.shallowRuns?.find((s) => s.endpointTail === 'destination')?.minDepthM).toBe(0);
+        expect(r.landPaintConflictMask?.some(Boolean) ?? false).toBe(false);
     });
 
     it('the same shallow band with NO land paint over it is still a charted pin', () => {
@@ -356,7 +414,10 @@ describe('the tail’s charted depth is the FINEST survey’s', () => {
                 // band-2 rcid 1476 class): coarser, so it charts nothing here.
                 bandAt(lat, 153.38, 153.52, 0, { _scaleRank: 2000 }),
             ),
-            LNDARE: fc(rect(153.47, lat - 0.03, 153.52, lat + 0.03, { acronym: 'LNDARE', _scaleRank: 1000 })),
+            // An approach cell's land paint (re-ranked from the overview's,
+            // D12 fix-up 2026-10-03: decision 12 ignores overview land over
+            // the 8 m band, so only a detailed chart's keeps the tail).
+            LNDARE: fc(rect(153.47, lat - 0.03, 153.52, lat + 0.03, { acronym: 'LNDARE', _scaleRank: 4000 })),
         };
         const r = routeInshore(layers, reqAt(lat, 153.41, 153.475));
         expect(isResult(r)).toBe(true);

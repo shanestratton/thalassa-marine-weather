@@ -209,7 +209,9 @@ describe('leadGraphForView — the overlay cache follows chart content, not just
  * band — so decision 1 reads the same on the chart as in the route. A coarse
  * cell's land paint over a finer cell's 10 m band leaves the lead on water
  * ('needs tide · a coarser chart shows land'); two cells that do not say
- * their scale leave the land paint standing and the lead is cut away.
+ * their scale leave the land paint standing and the lead is cut away. Since
+ * owner decision 12 (2026-10-02) an overview or general cell's land over a
+ * detailed chart's never-drying band is no dispute at all.
  */
 describe("leadGraphForView — the cell's own scale decides decision 1, as in the router", () => {
     const land: Feature = {
@@ -236,11 +238,24 @@ describe("leadGraphForView — the cell's own scale decides decision 1, as in th
         store.blobs.set('FINE', { ...bandScale, ...blob(10) });
     }
 
+    // Re-ranked (D12 fix-up, 2026-10-03): the land paint was a GENERAL cell's
+    // (1:350,001, usage band 2), which owner decision 12 now ignores over a
+    // detailed chart's never-drying band — decision 1 is between two detailed
+    // charts here now (1:90,000 land over the 1:12,000 band). Its D12 twin
+    // follows.
     it('a finer compilation scale beats the coarser land paint: the lead stays, needs tide', async () => {
-        install({ nativeScale: 350_001 }, { nativeScale: 12_000 });
+        install({ nativeScale: 90_000 }, { nativeScale: 12_000 });
         const g = await leadGraphForView(VIEW, 2, false, 18);
         expect(g?.edges[0].depth).toMatchObject({ class: 'needs-tide' });
         expect(g?.edges[0].depth.review[0]).toBe('land-paint');
+    });
+
+    it('decision 12: a general cell’s land paint over the 1:12,000 band is no dispute — the lead is clear on its 10 m', async () => {
+        install({ nativeScale: 350_001 }, { nativeScale: 12_000 });
+        const g = await leadGraphForView(VIEW, 2, false, 18);
+        expect(g?.edges[0].depth).toMatchObject({ class: 'clear', minDepthM: 10 });
+        expect(g?.edges[0].depth.review).not.toContain('land-paint');
+        expect(g?.clippedLandM ?? 0).toBe(0);
     });
 
     it('cells that do not say their scale: the land paint stands and the lead is cut there', async () => {

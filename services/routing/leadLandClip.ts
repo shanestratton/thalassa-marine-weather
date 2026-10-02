@@ -39,9 +39,14 @@
  * (DRVAL1 < 0) or one with no DRVAL1, under a band charted at the same or a
  * coarser scale, and wherever the ranks are unknown — an unranked LNDARE or
  * unranked bands covering the point — because the comparison cannot be made
- * (fail safe). A chart FAIRWY carries no depth and is not water here. Injected
- * OSM/Mapbox water (no S-57 identity) is NOT chart evidence and never
- * un-lands anything.
+ * (fail safe). Owner decision 12 (2026-10-02, "Trust the detailed chart")
+ * comes first: overview or general land paint (usage band 1–2) over a
+ * detailed chart's (band 3+) depth area that never dries is no land paint at
+ * all — open water whose depth is the detailed chart's, never a conflict
+ * (scaleShadow overviewLandYields). Over a detailed DRYING band that land
+ * paint stands, as decision 1 has it. A chart FAIRWY carries no depth and is
+ * not water here. Injected OSM/Mapbox water (no S-57 identity) is NOT chart
+ * evidence and never un-lands anything.
  *
  * Every merge that feeds this module ranks LNDARE, DEPARE and DRGARE: the
  * lead compiler's mergeLeadCells, and the router's own merges (InshoreRouter
@@ -70,6 +75,7 @@ import {
     finerBandBeatsLand,
     finestSurveyOwners,
     landRankKey,
+    overviewLandYields,
 } from '../enc/scaleShadow';
 import { isS57ChartProps } from '../enc/types';
 
@@ -397,9 +403,11 @@ function finestBandsAt(
 
 /**
  * The land verdict at a point (decision 1, see the header): OPEN outside the
- * land paint; CONFLICT where the finest covering bands never dry and are
- * charted strictly finer than every land claim there; LAND otherwise —
- * including wherever a covering land claim or the owning bands carry no rank.
+ * land paint, and where the only land paint is an overview or general cell's
+ * over a detailed chart's never-drying depth area (decision 12); CONFLICT
+ * where the finest covering bands never dry and are charted strictly finer
+ * than every land claim there; LAND otherwise — including wherever a covering
+ * land claim or the owning bands carry no rank.
  */
 function landVerdictAt(index: ChartAreaIndex, lon: number, lat: number): LandVerdict {
     let inLand = false;
@@ -419,6 +427,7 @@ function landVerdictAt(index: ChartAreaIndex, lon: number, lat: number): LandVer
     if (!inLand) return OPEN;
     if (landRank === null) return LAND;
     const bands = finestBandsAt(index.depth, lon, lat);
+    if (bands && overviewLandYields(bands.rank, bands.neverDries, landRank)) return OPEN;
     return bands && bands.neverDries && finerBandBeatsLand(bands.rank, landRank) ? CONFLICT : LAND;
 }
 

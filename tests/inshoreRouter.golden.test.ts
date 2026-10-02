@@ -32,7 +32,7 @@ import { collectSurveyRuns } from '../services/engine/shallowRuns';
 import { cellFinenessRank } from '../services/enc/scaleShadow';
 import { inshoreRoutePieces, inshoreSegmentStates, surveyAmberMetres } from '../components/map/inshoreRouteState';
 import { loadFixture, assembleLayers } from './helpers/corridorFixture';
-import { HIGHEST_TIDE_SWEEP_M, nonRedOverShallow } from './helpers/nonRedOverShallow';
+import { chartedDryingM, HIGHEST_TIDE_SWEEP_M, nonRedOverShallow } from './helpers/nonRedOverShallow';
 import { CORRIDOR_CELL_SCALE } from './helpers/corridorCellRanks';
 import { encLayer } from './helpers/encCells';
 
@@ -92,6 +92,19 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
     // band's CAUTION to deep in one feature order only; the route now keeps
     // off that charted shallow water (navGrid Pass 1, shallowest wins). With
     // that one rule reverted it measures 22.47 again. Caution 9 → 9.
+    //
+    // D12 (2026-10-02; owner decision 12, Shane: "Trust the detailed chart";
+    // fix-up 2026-10-03, measured in its own process): 23.24 → 23.23 NM,
+    // inside the pin, 38 → 34 points. All 9,453 m of the route's 'charts
+    // disagree' was the overview and general cells' land paint (usage bands
+    // 1–2) over never-drying bands of the approach cell OC-61-351824 and the
+    // harbour cells (10ENB5 = AU5BNE01, 1:12,000; 10RCS5, 1:22,000), with no
+    // OSM water there — probed along HEAD's stretch: 0–14 m under band-1 or
+    // band-1–2 land only. Decision 12 ignores that land, so it goes. Where
+    // AU428153's own (1:90,000) land lies over ENB5's water on this route the
+    // river is OSM-vouched water, and decision 1 never applied there, before
+    // or after. Charted drying ground crossed stays 30 m (pinned below), land
+    // 0 m.
     it('distance pinned at 23.22 NM ±2%', () => {
         expectConnected(r);
         expect(r.distanceNM).toBeGreaterThan(23.22 * 0.98);
@@ -116,6 +129,17 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
     it('crosses no unvouched charted land (was the 47.1 m river-mouth sliver)', () => {
         expectConnected(r);
         expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
+    });
+
+    // PINNED (D12 fix-up review, 2026-10-03): nothing pinned the drying
+    // ground a route crosses, so the first decision-12 build — which let
+    // overview land yield to a detailed DRYING band — moved this route's
+    // charted drying ground 30 → 279 m (a 249 m run at the Newport canal
+    // mouth) with every pin here green. No tide data here: it is all red,
+    // and Save stays blocked, but the proposal got worse. 30 m measured.
+    it('crosses no more charted drying ground than it did (30 m, the river mouth)', () => {
+        expectConnected(r);
+        expect(chartedDryingM(r, layers)).toBeLessThanOrEqual(30);
     });
 
     // Round-3 review (2026-09-30): the river mouth's charted drying bank drew
@@ -155,9 +179,15 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
     // cell's drying and 0–2 m bands 10 m deep (navGrid Pass 1), so the route
     // through the mouth runs red over the chart's own shallow water — 23.22 →
     // 23.24 NM, 37 → 38 points, and 2,994 m of drying ground crossed → 30 m.
-    it('caution cells at or below the lock-in baseline (25)', () => {
+    //
+    // RE-PIN 25 → 22, D12 (2026-10-02, fix-up 2026-10-03; own process): the
+    // overview's land over the approach and harbour cells' never-drying water
+    // is no longer 'charts disagree' caution (owner decision 12); 38 → 34
+    // points. The drying and shallow water stays red (the decision-10 sweep
+    // above is unchanged), and the drying ground crossed stays 30 m.
+    it('caution cells at or below the lock-in baseline (22)', () => {
         expectConnected(r);
-        expect(cautionCount(r)).toBeLessThanOrEqual(25);
+        expect(cautionCount(r)).toBeLessThanOrEqual(22);
     });
 
     it('phaseTimings present and loosely bounded', () => {
@@ -326,38 +356,52 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
     //   • 19.91 → 20.35 (fix-up): a charted shallow S-57 band now stands
     //     against a later GMRT public-bathymetry deep band (grade D) — the
     //     same fix as Rivergate's re-pin. Caution 7 → 18 (15 → 18 from this).
+    //
+    // D12 (2026-10-02; owner decision 12; own process): 20.36 → 20.18 NM,
+    // inside the pin (−0.9%). The overview and general cells' Moreton Island
+    // land paint over OC-61-351824's water no longer makes 'charts disagree'
+    // caution, so the 1,906 m decision-1 tail to the pin is gone (below).
+    // Re-measured in the fix-up (2026-10-03: decision 12 only over bands that
+    // never dry, and its water keeps decision 1's protection from the land
+    // skin), unchanged: 20.18 NM, 27 points, caution 15, 0 m of charted land
+    // and 0 m of drying ground. Without that protection it crossed 1.6 km of
+    // charted land at the Newport canal mouth.
     it('distance pinned at 20.35 NM ±2%', () => {
         expectConnected(r);
         expect(r.distanceNM).toBeGreaterThan(20.35 * 0.98);
         expect(r.distanceNM).toBeLessThan(20.35 * 1.02);
     });
 
-    // Owner decision 7 (2026-09-30): the Tangalooma pin sits in charted
+    // Owner decision 7 (2026-09-30): the Tangalooma pin sat in charted
     // decision-1 water (a finer never-drying band under the overview's land
-    // paint). The route reaches the pin, and the stretch past the last water
-    // deep enough for the keel is its 'needs tide' tail — caution — never a
+    // paint). The route reached the pin, and the stretch past the last water
+    // deep enough for the keel was its 'needs tide' tail — caution — never a
     // shortcut over land.
     //
     // Fix-up (2026-09-30): the tail's depth is the FINEST survey's. Round 2
     // pinned `minDepthM not null` — the 0 m of a coarser general cell's
     // generalised band, so the chip asked for +2.9 m of tide ("no window in
-    // 24 h") over water the finest survey charts deep enough. Now the tail
-    // carries no tide window and says why: caution only because a coarser
-    // chart paints land there, the finest survey's depth beside it.
-    it('reaches the pin, its tail named for the coarser land paint, with no unvouched charted land', () => {
+    // 24 h") over water the finest survey charts deep enough.
+    //
+    // RE-PIN, D12 (2026-10-02; owner decision 12, Shane: "Trust the detailed
+    // chart"; measured in its own process): the land paint over the pin and
+    // the 1,906 m tail is the overview and general cells' (OC-61-051031 /
+    // OC-61-051032, usage bands 1–2) over the 1:90,000 OC-61-351824's 5 m+
+    // water. That land is ignored now, so the pin is plain charted water deep
+    // enough for the keel: no tail, no 'charts disagree' anywhere on the route
+    // (4,302 m before, 0 after), and the route ends 28 m from the pin, as a
+    // route to any deep-water pin does (it ran to the exact pin only as a
+    // decision-7 charted pin).
+    it('reaches the pin through the detailed chart’s own water: no tail, nothing disputed, no unvouched charted land', () => {
         expectConnected(r);
         expect(snapM(r, fx.request).to).toBeLessThan(150);
-        const tail = r.shallowRuns?.find((s) => s.endpointTail === 'destination');
-        expect(tail, JSON.stringify(r.shallowRuns)).toBeDefined();
-        expect(tail!.endSeg).toBe(r.polyline.length - 2);
-        expect(tail!.minDepthM).toBeNull();
-        expect(tail!.coarserLandPaint).toBe(true);
-        expect(tail!.finestDepthM).toBeGreaterThanOrEqual(fx.request.draftM + (fx.request.safetyM ?? 1));
-        expect(r.cautionMask?.[r.cautionMask.length - 1]).toBe(true);
+        expect(r.shallowRuns?.find((s) => s.endpointTail === 'destination')).toBeUndefined();
+        expect(r.landPaintConflictMask?.some(Boolean) ?? false).toBe(false);
+        expect(r.shallowRuns?.some((s) => s.chartsDisagree || s.coarserLandPaint) ?? false).toBe(false);
         expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
     });
 
-    it('caution cells at or below the lock-in baseline (25)', () => {
+    it('caution cells at or below the lock-in baseline (15)', () => {
         expectConnected(r);
         // RE-PIN 10→11 (3-tier Phase 4 + along-segment caution, 42bf48c8):
         // route distance is byte-identical (18.43 NM pinned green), only the
@@ -398,7 +442,12 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         // always had (navGrid chartedShallow: OSM water under land paint is
         // not a charted pin). 20.36 NM, the 1,906 m decision-1 tail to the
         // pin and 0 m of land all unchanged.
-        expect(cautionCount(r)).toBeLessThanOrEqual(25);
+        //
+        // RE-PIN 25 → 15, D12 (2026-10-02; owner decision 12; own process):
+        // the 4,302 m of 'charts disagree' — the overview and general cells'
+        // land over OC-61-351824's water, the pin's tail included — is not
+        // caution any more; 35 → 27 points, 0 m of land.
+        expect(cautionCount(r)).toBeLessThanOrEqual(15);
     });
 
     // RE-PIN (owner decision 10, 2026-09-30): red OR needs-tide amber where

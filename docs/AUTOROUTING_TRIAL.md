@@ -187,6 +187,168 @@ A safety and an integrity review of the swap found holes that the new surfaces
   (Rivergate) and 6.2 m (Tangalooma) from a 2 m band and are red again, with
   that reason; no pinned golden value moved.
 
+### Owner decision 12 — trust the detailed chart (2026-10-02, field round 2)
+
+Shane, 2026-10-02: "Trust the detailed chart". His third route crossed Cid
+Harbour (between Cid Island and Whitsunday Island). The map drew the harbour
+as brown land with 16–35 m soundings inside it, and the leg was red, "Danger
+reported · review required", with Save blocked. On the Pi's cells at
+148.935° E, 20.255° S, the 1:3,500,000 overview AU130120 paints land, the
+1:1,500,000 AU230140 charts 0–30 m, and the 1:90,000 AU421148 charts
+10–15 m.
+
+- **The rule.** Wherever a chart of usage band 3 or finer (1:350,000 or finer
+  by compilation scale, or a band-3+ cell name) charts a depth area (DEPARE or
+  DRGARE) that never dries (DRVAL1 ≥ 0), land paint from overview and general
+  cells (bands 1–2) is no dispute. That spot is not decision-1 "charts
+  disagree" water. The detailed chart's own depth decides the colour: deep,
+  or shallow — red, or needs-tide amber where a tide clears it (decision 10).
+  Such a spot keeps decision 1's protection, so neither the coastline strip
+  nor the 1-cell land skin can seal a detailed chart's charted channel.
+- **Drying bands keep their land (my call, fix-up 2026-10-03, reversing the
+  first build).** The first build let a detailed DRYING band count too. Its
+  land paint was then ignored, and the drying bank became routable caution
+  that the lead land clip read as water. The production-shape Newport →
+  Rivergate route rode NAVLNE 2387/2785 across the Brisbane River mouth's
+  −2.2 m bank, under the overview's land: 30 m of drying ground crossed
+  became 1,116 m. The lead compiler kept 8,121 m of leads over drying bands
+  that HEAD clips. All of it was drawn red and Save stayed blocked, but the
+  proposals got worse and no golden pinned drying metres. Decision 1 never
+  lets a drying band beat land paint, and decision 12 does not either now.
+  Cid Harbour (10–15 m) and the Airlie approach (1.8 m) never dry, so they
+  are unaffected. Shane can reverse this call.
+- **What stays.** Decision 1 between two detailed charts. A detailed chart's
+  own land still wins over coarser water, such as an island the overview
+  leaves out. Land also stands over a detailed band that dries or charts no
+  depth. Land of unknown scale (an OSM breakwater) stays, and decision 1 is
+  unchanged where only overview and general cells chart a spot.
+- **One rule, everywhere.** `services/enc/scaleShadow.ts` holds it:
+  `overviewLandYields`, `DETAILED_CHART_MIN_BAND = 3`, and
+  `isDetailedChartRank` over the same fineness rank (`cellFinenessRank`:
+  nativeScale / CSCL / usage band). These read it:
+    - the grid (navGrid Pass 2 drops the land claim, so no caution,
+      `wetConflict` or land skin comes from it), and with it the shallow-run
+      sampler, the tide chips, the red reasons and the Auto review's leg
+      checker, which all read that grid;
+    - the lead land clip (`leadLandClip`: such a lead is on open water at the
+      band's depth, not 'needs tide' for land paint);
+    - the land audits and the D11 proof's land test (`chartWaterEvidence`
+      `landPaintStanding` / `chartLandVerdict`, read by `safetyAudit`
+      `hardLandAtPoint` and `auditUnvouchedHardLand`);
+    - the satellite check's chart evidence (`backstopVerdict`). Its scale rule
+      is the same line: `BACKSTOP_MIN_VOUCH_BAND = DETAILED_CHART_MIN_BAND`.
+- **The leg review says why (review fix-up, 2026-10-03).** Until the chart
+  layer draws the detailed chart over the overview (item (f)), the map still
+  shows the overview's brown land under a green Cid Harbour line. Each leg
+  over such ground now carries a note, "overview chart shows land here;
+  detailed chart charts water" (`grid.overviewLandIgnored`, routeTracer). It
+  is an 'info' note and never changes the grade. Ship decision 12 in the same
+  push as (f); the note is the fallback, not the fix.
+- **Measured on the real cells** (read-only copies from the Pi, in scratch,
+  deleted after; `tests/repro/detailedChartOverviewLandRealCells.local.test.ts`,
+  no tide data; "after" is the fix-up's final code):
+    - Cid Harbour, straight legs from the northern entrance to an anchorage,
+      the south-west arm and out west: before, every leg was a caution, "depth
+      data conflicts here — treat as unproven". After, every leg reads clear,
+      least 10, 15 and 8 m, with the note above.
+    - Cid Harbour, routed in to the anchorage: before, 1.74 NM with a 1,843 m
+      red "charts disagree" tail. After, 1.64 NM, nothing red, and the review
+      is clear.
+    - Cid Harbour, routed out from the anchorage: before, 4.67 NM round the
+      north of Cid Island with 1,846 m red. After, 2.08 NM through the
+      south-west arm, nothing red, and the review is clear.
+    - Coral Sea Marina → Daydream Island: before, 8.07 NM, 3,689 m red, of
+      which 3,340 m was "charts disagree" (the marina approach's charted 1.8 m
+      under the overview's land). After, 8.00 NM, 16 points, no "charts
+      disagree". The approach stays red for its own depth over 2,635 m
+      ("charted 1.8 m — needs +1.1 m tide"; amber when a tide clears it,
+      decision 10). The first build's line also ran 1,149 m over land the
+      router had opened; with the protection kept, it does not. One finding
+      is not fixed here: the new line's 5.9 km chord to Daydream clips the
+      north-east corner of a charted obstruction area in AU421148 (foul ground
+      that covers and uncovers, 208 × 285 m, near 20°14.0′ S, 148°46.2′ E). It
+      is drawn red, "within the keep-out of a charted rock, wreck or
+      obstruction", and Save stays blocked. Before D12, the overview's land
+      paint over the water west of it kept the route farther north. The grid
+      blocks a polygon hazard only at the centres of the cells it covers, with
+      no keep-out (a point hazard gets `obstructionBufferM`). The router's grid
+      blocked none of that segment's cells, and only the exact hazard check
+      catches it. That belongs with item (a) (a chord must be at least as safe
+      as what it replaces) and a grid keep-out for hazard areas.
+    - Newport → Rivergate on the Pi's five Brisbane cells, through the app
+      path with the golden capture's OSM overlay (the engine check that never
+      finished in the first build): before, 23.96 NM, 44 points, 24.2 km red,
+      8,575 m "charts disagree" (7,643 m of it under overview and general
+      land) and a 706 m red run down to −2.2 m. After, 23.97 NM, 30 points,
+      16.8 km red, 322 m "charts disagree", and no drying run. All 322 m is
+      a detailed chart's land: AU428153's (1:90,000) coastline over
+      AU5SCR01's (1:22,000) 0 m band in the Newport canal. The Rivergate reach
+      rides the OSM overlay's river water (yellow), as it did before. Decision
+      1 never applied there, because OSM-vouched water under land paint stays
+      navigable. The first build's geometry count still stands: 204 spots of
+      AU5BNE01-charted water lie under AU428153's land along that reach. That
+      is a fact about the charts, though, not red on any route the router
+      draws today.
+- **Goldens** (each measured in its own process, re-pinned with "D12"
+  reasons):
+    - Corridor Rivergate: 23.24 → 23.23 NM, 38 → 34 points, caution 25 → 22,
+      "charts disagree" 9,453 → 0 m, land 0 m. Drying ground crossed stays
+      30 m and is pinned now. All 9,453 m was the overview and general cells'
+      land over never-drying bands of OC-61-351824, 10ENB5 and 10RCS5, with
+      no OSM water there. Where AU428153's own land lies over 10ENB5's water
+      on this route, that water is OSM-vouched.
+    - Corridor Tangalooma: 20.36 → 20.18 NM, 35 → 27 points, caution
+      25 → 15. Its 1,906 m destination tail and all 4,302 m of "charts
+      disagree" are gone, so the pin is plain deep water and the route ends
+      28 m from it. Land 0 m, drying 0 m.
+    - Production shape (chart leads + OSM overlay, strict): newport-shane
+      24.72 → 24.73 NM, caution 37 → 26, points 52 → 44. Newport → Rivergate
+      23.90 → 23.98 NM, caution 35 → 21, points 44 → 32. "Charts disagree"
+      goes 15,102 → 0 m and 8,449 → 322 m, drying ground 0 → 0 m and
+      30 → 0 m (now pinned ≤ 30 m with no tide data), and land stays 0 m.
+    - Chart-only characterisation (no OSM overlay, decision 2's offline
+      canal): the strict run used to refuse (hard-land-crossing, 922 m). It
+      now returns an engine route, 23.96 NM, over 135 m of the canal's charted
+      bank. That is under the engine's 500 m veto, but the route has 210 m of
+      charted land away from the pin's edge, and every caller (Auto, the
+      passage planner, the day planner, the voyage form) refuses that. Decision
+      2 still holds in the app, and Auto still says the harbour water isn't on
+      the phone. The pin itself is still no charted pin: AU428153's band-4
+      land keeps the canal decision-1 water (pinned directly in
+      `chartedEndpointTail`). Permissive: 24.62 → 23.96 NM. Tangalooma
+      strict refuses as before (1,250 m). Tangalooma permissive goes
+      23.95 → 23.86 NM and ends 28 m off its now deep-water pin.
+    - Lead compiler (Moreton, ranked): the same 110 spans and 18,210 m
+      clipped. The 'land-paint' review drops from 71 edges to 18, and ten deep
+      spans (5–14 m) go from 'needs tide' to 'needs review' (survey ungraded,
+      decision 4). None is clear.
+    - Seaway corpus: directNM 23.24 → 23.23, 20.36 → 20.18 and 17.85 → 22.75.
+      Every shadow outcome is unchanged. The first build had turned the marks
+      row into a degenerate 'graph' row (entry = exit node, 1 of 5 gates),
+      which was not a success.
+    - `threeTierNewport` (chart-only newport-shane): kinks near gates 2 → 4.
+      The route used to leave the canal due east over 2.2 km of charted land.
+      It now runs north through the entrance channel, and the tier-2 grid
+      search steps 71 m sideways and back at marks 3, 4, 5 and 7. That is a
+      50 m-grid artefact for item (a), and the production shape has 1 such
+      kink.
+    - `noTideFixtureOffsets`: at five nudged alignments the Newport canal
+      entrance is cut off from the bay. It was before as well: HEAD's "routes"
+      there crossed 857–875 m of unvouched charted land, which the file never
+      checked, and the strict policy refuses such a route (measured at
+      Tangalooma k = 7 and 10 and Rivergate k = 10). With the tide ceilings those
+      alignments now refuse with 'no-tide-clears' (the bridge runs across the
+      canal mouth's drying flats). Tangalooma k = 7 routes with no land at
+      all. Routed alignments now pin land too.
+- **Left for the next stages.** Item (a): the Airlie reef-corner chord, a
+  grid keep-out for hazard areas, and the tier-2 stepping at the Newport
+  gates. Item (f): the scale-ordered chart display, which should ship in the
+  same push as this. Also left: the Newport canal entrance that some grid
+  alignments cut off (this predates decision 12). And when a relaxed rescue
+  crosses charted land away from a pin, the engine still prefers it with no
+  tide data (`relaxedRescueFault` runs only with tide ceilings). The callers
+  refuse that route, but the engine's own refusal would say so sooner.
+
 ### Left for Shane (server side, not done here)
 
 The edge function, its `_shared` modules and its secrets are still deployed and

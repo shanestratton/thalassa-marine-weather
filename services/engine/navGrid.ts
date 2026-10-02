@@ -13,6 +13,7 @@ import {
     compareSurveyRanks,
     finerBandBeatsLand,
     landRankKey,
+    overviewLandYields,
     tiedSurveyRank,
 } from '../enc/scaleShadow';
 import { isS57ChartProps, readS57 } from '../enc/types';
@@ -546,10 +547,12 @@ export function buildNavGrid(
     // on the cell: only a strictly FINER never-drying band beats it (shallow
     // water: CAUTION, never deep); a drying, undepthed, equal or coarser band
     // — or an unknown rank on either side — leaves the land paint standing.
-    // Unranked S-57 bands sit below every ranked one, as in leadLandClip:
-    // they own a cell only when no ranked band covers it, and then the rank
-    // is unknown (RANK_UNRANKED) and cannot beat anything. Allocated only
-    // when there is land paint to read it against.
+    // Owner decision 12 (2026-10-02) is asked first: an overview or general
+    // cell's land paint (band 1–2) over a detailed chart's (band 3+) BAND_WET
+    // bands is no dispute at all. Unranked S-57 bands sit below every ranked
+    // one, as in leadLandClip: they own a cell only when no ranked band covers
+    // it, and then the rank is unknown (RANK_UNRANKED) and cannot beat
+    // anything. Allocated only when there is land paint to read it against.
     const RANK_UNRANKED = -32767;
     const BAND_WET = 1;
     const BAND_NO = 2;
@@ -589,6 +592,16 @@ export function buildNavGrid(
         bandState[idx] === BAND_WET &&
         bandRank[idx] !== RANK_UNRANKED &&
         finerBandBeatsLand(bandRank[idx], landRank);
+    /** Decision 12: the finest land paint here is an overview or general
+     * cell's, and the bands that own the cell are a detailed chart's that all
+     * never dry — the dispute is ignored (scaleShadow overviewLandYields). A
+     * subset of finerBandBeatsLandAt's cells. */
+    const overviewLandYieldsAt = (idx: number, landRank: number): boolean =>
+        !!bandRank &&
+        !!bandState &&
+        bandRank[idx] !== RANK_UNCLAIMED &&
+        bandRank[idx] !== RANK_UNRANKED &&
+        overviewLandYields(bandRank[idx], bandState[idx] === BAND_WET, landRank);
     // Cells where the wet claim actually RESOLVED a land conflict (a subset
     // of wetChartClaim). Exposed as grid.wetConflict: routable mid-route at
     // 40× caution, but endpoint snapping must PREFER honest water — a
@@ -1049,6 +1062,9 @@ export function buildNavGrid(
     // Decision-1 water whose finest band is deep enough for this keel (see
     // grid.chartedShallow). Allocated on the first such cell.
     let d1DeepBand: Uint8Array | null = null;
+    // Cells whose overview / general land paint decision 12 ignored (see
+    // grid.overviewLandIgnored). Allocated on the first such cell.
+    let overviewLandIgnored: Uint8Array | null = null;
     for (const f of lndare) {
         const g = f.geometry;
         if (!landRankAt || !g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
@@ -1078,6 +1094,31 @@ export function buildNavGrid(
         for (let idx = 0; idx < landRankAt.length; idx++) {
             const held = landRankAt[idx];
             if (held === LAND_NONE) continue;
+            // OWNER DECISION 12 (Shane, 2026-10-02, "Trust the detailed
+            // chart"): land paint from overview and general cells only
+            // (usage band 1–2: the finest land claim here is one) over a
+            // detailed chart's (band 3+) depth area that never dries is no
+            // dispute — no decision-1 'charts disagree' caution, no
+            // wetConflict, and the cell keeps the depth Pass 1 gave it from
+            // the detailed chart (deep, or shallow CAUTION). Cid Harbour: the
+            // 1:3,500,000 AU130120 paints it land, the 1:90,000 AU421148
+            // charts 10–15 m. Every such cell is decision-1 water (a band-3+
+            // band is strictly finer than band-1–2 land), and it keeps
+            // decision 1's protection: the coastline strip and the Pass-6 land
+            // skin seal it no more than they did (fix-up 2026-10-03: without
+            // it the Newport canal mouth's charted 0 m cells were skinned shut
+            // beside the band-4 land, and the Rivergate golden crossed 48.8 m
+            // of charted land, Tangalooma 1.6 km). Over a detailed DRYING
+            // band the land stands (decision 1, below). A detailed chart's own
+            // land (an island the overview leaves out; the Brisbane River's
+            // 1:90,000 coastline over the 1:12,000 survey) still goes to
+            // decision 1, as does land of unknown scale.
+            if (held !== LAND_UNRANKED && overviewLandYieldsAt(idx, held)) {
+                protectedCells[idx] = 1;
+                (overviewLandIgnored ??= new Uint8Array(width * height))[idx] = 1;
+                landRankAt[idx] = LAND_NONE;
+                continue;
+            }
             // OSM-vouched water (marina / canal / dock / river, or the canal
             // carve) under chart land paint: trust OSM, keep it navigable —
             // unchanged by decision 1 — UNLESS the chart's own S-57 band on
@@ -1130,6 +1171,7 @@ export function buildNavGrid(
         }
     }
 
+    if (overviewLandIgnored) grid.overviewLandIgnored = overviewLandIgnored;
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
 
     // ── Pass 2b: OSM coastline (lines) — block the thin land/water boundary ─

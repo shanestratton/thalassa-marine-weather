@@ -319,6 +319,22 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
         // bands nor beats land paint over a drying band (navGrid Pass 1/2;
         // see the goldens' re-pins). newport-rivergate-marks and dog-leg:
         // unchanged.
+        // RE-PIN directNM (D12 fix-up, 2026-10-03; owner decision 12, Shane:
+        // "Trust the detailed chart"; every shadow outcome unchanged;
+        // regenerated, each golden measured in its own process):
+        //   • newport-rivergate 23.24 → 23.23 and newport-tangalooma 20.36 →
+        //     20.18: the overview cells' land paint over the finer cells'
+        //     never-drying water is no 'charts disagree' caution (see the
+        //     goldens' re-pins; Tangalooma's decision-1 tail is gone).
+        //   • newport-rivergate-marks 17.85 → 22.75: this chart-only,
+        //     permissive capture still relaxes the charted Newport peninsula
+        //     (decision 2; audit 1,729 → 1,486 m), but past it the overview's
+        //     land over the harbour cells' bands no longer prices the bay as
+        //     40× caution, so it leaves by another way and 'charts disagree'
+        //     goes 15,815 → 3,979 m. Its shadow stays fail / no-compliant-path
+        //     (the first D12 build turned it into a degenerate 'graph' row —
+        //     entry = exit node BC#0/h19, 1 of 5 gates, 0 % on the graph — which
+        //     is no success, and is gone with drying bands keeping their land).
         const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as { rows: ArbitrationRow[] };
         expect(rows).toEqual(baseline.rows);
     });

@@ -79,3 +79,28 @@ export function nonRedOverShallow(
 /** The highest tides a D10 check sweeps (round-4 review, 2026-09-30: the
  *  goldens asked only at 2.5 m, and the uncharted amber began at 2.6 m). */
 export const HIGHEST_TIDE_SWEEP_M: readonly (number | null)[] = [null, 1, 1.5, 2, 2.5, 2.6, 3, 3.5, 4, 5, 6];
+
+/**
+ * Metres of a route over ground the finest S-57 survey charts DRYING (< 0),
+ * whatever colour it is drawn, sampled every 5 m against the chart's own bands
+ * (D12 fix-up review, 2026-10-03). Red keeps such a stretch honest, but the
+ * goldens pinned no drying metres, so the first decision-12 build's routes
+ * could ride a lead across the Brisbane River mouth's −2.2 m bank — 30 m of
+ * drying ground crossed became 1,116 m — with every pinned figure green.
+ */
+export function chartedDryingM(r: RouteResult, layers: InshoreLayers): number {
+    const depth = chartAreaIndexFor(layers).depth;
+    let m = 0;
+    for (let i = 0; i + 1 < r.polyline.length; i++) {
+        const [lonA, latA] = r.polyline[i];
+        const [lonB, latB] = r.polyline[i + 1];
+        const segM = haversineM(latA, lonA, latB, lonB);
+        const steps = Math.max(1, Math.ceil(segM / 5));
+        for (let k = 0; k < steps; k++) {
+            const t = (k + 0.5) / steps;
+            const d = chartedDepthAt(depth, lonA + (lonB - lonA) * t, latA + (latB - latA) * t);
+            if (d !== null && d < 0) m += segM / steps;
+        }
+    }
+    return m;
+}

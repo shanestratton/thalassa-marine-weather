@@ -13,14 +13,22 @@
  *     there, and never dries (services/enc/scaleShadow.ts). A drying,
  *     undepthed, equal-scale, coarser or unranked band leaves the land paint
  *     standing.
+ *   • Owner decision 12 (2026-10-02) first: land paint from overview and
+ *     general cells only (usage band 1–2) is no land at all where a detailed
+ *     chart (band 3+) charts a depth that never dries (landPaintStanding;
+ *     scaleShadow overviewLandYields) — the spot is the detailed chart's
+ *     water, never decision-1 'charts disagree'. Over a detailed DRYING band
+ *     the land paint stands, as decision 1 has it.
  *   • A FAIRWY is a route area, not a depth claim: never water evidence.
  */
 import {
     bandNeverDries,
+    DETAILED_CHART_MIN_BAND,
     finerBandBeatsLand,
     finestSurveyOwners,
+    isDetailedChartRank,
     landRankKey,
-    usageBandOfRank,
+    overviewLandYields,
 } from '../enc/scaleShadow';
 import { isS57ChartProps, readS57 } from '../enc/types';
 
@@ -81,6 +89,44 @@ export function bandClaimOf(props: Record<string, unknown> | null | undefined): 
     const rank = typeof props._scaleRank === 'number' ? props._scaleRank : null;
     const raw = readS57(props, 'DRVAL1');
     return { rank, neverDries: bandNeverDries(typeof raw === 'number' ? raw : null) };
+}
+
+/**
+ * The land paint that STANDS at one spot (owner decision 12, Shane
+ * 2026-10-02: "Trust the detailed chart"): none where the finest land paint
+ * there is an overview or general chart's (usage band 1–2) and the depth bands
+ * that own the spot (the finest survey and every band tied with it) are a
+ * detailed chart's (band 3+) that all never dry — scaleShadow
+ * overviewLandYields, the grid's own rule (navGrid Pass 2). Otherwise all of
+ * it, unchanged: a detailed chart's land, land of unknown scale, and land over
+ * a drying, undepthed, unranked or small-scale band keep decision 1.
+ */
+export function landPaintStanding(
+    bands: readonly BandClaim[],
+    landRanks: readonly (number | null)[],
+): readonly (number | null)[] {
+    if (landRanks.length === 0) return landRanks;
+    let land = -Infinity;
+    for (const r of landRanks) {
+        if (r === null) return landRanks; // unknown scale: it stands
+        const key = landRankKey(r);
+        if (key > land) land = key;
+    }
+    const { owners, rank } = finestSurveyOwners(bands.map((b) => b.rank));
+    const neverDry = owners.length > 0 && owners.every((i) => bands[i].neverDries);
+    return overviewLandYields(rank, neverDry, land) ? [] : landRanks;
+}
+
+/** What the charts say of land at one spot, given every S-57 band and every
+ * land paint covering it: 'open' — no land paint stands (none, or decision 12
+ * ignores it); 'conflict' — decision-1 water, a finer never-drying band under
+ * coarser land paint (water, never clear: the charts disagree); 'land'. */
+export type ChartLandVerdict = 'open' | 'conflict' | 'land';
+
+export function chartLandVerdict(bands: readonly BandClaim[], landRanks: readonly (number | null)[]): ChartLandVerdict {
+    const land = landPaintStanding(bands, landRanks);
+    if (land.length === 0) return 'open';
+    return finestBandBeatsLand(bands, land) ? 'conflict' : 'land';
 }
 
 /**
@@ -146,11 +192,12 @@ export type ChartWaterProbe = (lon: number, lat: number) => ChartWaterVerdict;
  * never vouch: they generalise small islands away (Armit Island, ~1 km,
  * exists only from the 1:90,000 AU421148 up), and an island they leave out
  * is exactly what ETOPO is there to catch (Claude's call, 2026-10-02).
+ * The same line as owner decision 12's "detailed chart" (scaleShadow
+ * DETAILED_CHART_MIN_BAND): one rule, never forked.
  */
-export const BACKSTOP_MIN_VOUCH_BAND = 3;
+export const BACKSTOP_MIN_VOUCH_BAND = DETAILED_CHART_MIN_BAND;
 
-const detailed = (rank: number | null): rank is number =>
-    rank !== null && usageBandOfRank(rank) >= BACKSTOP_MIN_VOUCH_BAND;
+const detailed = isDetailedChartRank;
 
 /** OSM `water=*` still-water subtags — inland ponds, not a way in or out. */
 const STILL_WATER = new Set(['reservoir', 'pond', 'basin', 'lagoon', 'wastewater']);
@@ -198,7 +245,9 @@ export function backstopVerdict(
     bands: readonly BandClaim[],
     landRanks: readonly (number | null)[],
 ): ChartWaterVerdict {
-    const charts = chartsVerdict(bands, landRanks);
+    // Decision 12: overview land the detailed chart's depth overrides is not
+    // land here either (it already could not vouch or make 'land' alone).
+    const charts = chartsVerdict(bands, landPaintStanding(bands, landRanks));
     return charts !== 'water' && osmWater ? 'osm-water' : charts;
 }
 
