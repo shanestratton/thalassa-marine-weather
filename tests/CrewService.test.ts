@@ -35,6 +35,8 @@ import {
     syncPassagePermissions,
     crewInvitePermissions,
     inviteCrew,
+    acceptInvite,
+    declineInvite,
     type CrewRole,
 } from '../services/CrewService';
 
@@ -390,5 +392,76 @@ describe('crewInvitePermissions', () => {
         // An unticked preset is left alone in both directions.
         expect(crewInvitePermissions('punter', ['instruments']).can_view_stores).toBe(false);
         expect(crewInvitePermissions('deckhand', ['instruments']).can_view_stores).toBe(true);
+    });
+});
+
+// ── Accept / decline never fail silently (field bug 2026-10-02) ─────────
+//
+// Every accept failed in the database (the bridge trigger's helper had gone
+// missing) and acceptInvite returned false with no trace, so the crew
+// member's Accept button simply did nothing. A database error and an update
+// that changed no row are both failures, and both are logged.
+
+function answerTable(updateResult: { data: unknown; error: unknown }) {
+    const query: Record<string, unknown> = {};
+    let updating = false;
+    const chain = vi.fn(() => query);
+    const update = vi.fn(() => {
+        updating = true;
+        return query;
+    });
+    Object.assign(query, {
+        select: chain,
+        eq: chain,
+        update,
+        single: vi.fn(() => Promise.resolve({ data: { owner_id: 'skipper-1', crew_user_id: 'crew-9' }, error: null })),
+        then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+            Promise.resolve(updating ? updateResult : { data: null, error: null }).then(resolve, reject),
+    });
+    return { query, update };
+}
+
+describe('acceptInvite and declineInvite report failure (2026-10-02)', () => {
+    beforeEach(() => {
+        setAuthIdentityScope('crew-9');
+        supabaseMocks.getUser.mockResolvedValue({
+            data: { user: { id: 'crew-9', email: 'mate@example.com' } },
+            error: null,
+        });
+    });
+
+    afterEach(() => {
+        setAuthIdentityScope(null);
+        supabaseMocks.getUser.mockReset();
+        supabaseMocks.from.mockReset();
+    });
+
+    it('accept: a database error is a failure', async () => {
+        const table = answerTable({
+            data: null,
+            error: { message: 'function public.user_name_parts(uuid) does not exist' },
+        });
+        supabaseMocks.from.mockReturnValue(table.query);
+        await expect(acceptInvite('invite-1')).resolves.toBe(false);
+        expect(table.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('accept: an update that changed no row is a failure', async () => {
+        supabaseMocks.from.mockReturnValue(answerTable({ data: [], error: null }).query);
+        await expect(acceptInvite('invite-1')).resolves.toBe(false);
+    });
+
+    it('accept: one row changed is a success', async () => {
+        supabaseMocks.from.mockReturnValue(answerTable({ data: [{ id: 'invite-1' }], error: null }).query);
+        await expect(acceptInvite('invite-1')).resolves.toBe(true);
+    });
+
+    it('decline: a database error or no row changed is a failure; one row is a success', async () => {
+        supabaseMocks.from.mockReturnValue(answerTable({ data: null, error: { message: 'denied' } }).query);
+        await expect(declineInvite('invite-1')).resolves.toBe(false);
+        supabaseMocks.from.mockReturnValue(answerTable({ data: [], error: null }).query);
+        await expect(declineInvite('invite-1')).resolves.toBe(false);
+        supabaseMocks.from.mockReturnValue(answerTable({ data: [{ id: 'invite-1' }], error: null }).query);
+        await expect(declineInvite('invite-1')).resolves.toBe(true);
     });
 });
