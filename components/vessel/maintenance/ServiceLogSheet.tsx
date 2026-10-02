@@ -3,7 +3,7 @@
  * Extracted from MaintenanceHub to reduce component size.
  */
 import React, { useId, useRef } from 'react';
-import type { TaskWithStatus } from '../../../services/MaintenanceService';
+import { isLocalToday, type TaskWithStatus } from '../../../services/MaintenanceService';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { OverlayPortal } from '../../ui/OverlayPortal';
 import { CheckIcon, EditIcon } from '../../icons/UIIcons';
@@ -24,6 +24,18 @@ interface ServiceLogSheetProps {
     onClose: () => void;
 }
 
+/**
+ * '7:34 pm' when the task was last logged earlier today (local day), else
+ * null. Logging again stays allowed: this only says it has been done, which
+ * the sheet never did (a daily check was logged nine times on 2026-10-02).
+ * The clock form is the one FoundingSkipperInbox uses ('Updated 7:34 pm').
+ */
+function loggedTodayAt(lastCompleted: string | null | undefined): string | null {
+    if (!lastCompleted || !isLocalToday(lastCompleted)) return null;
+    const at = new Date(lastCompleted);
+    return Number.isNaN(at.getTime()) ? null : at.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+}
+
 export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
     task,
     engineHours,
@@ -41,6 +53,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
         initialFocusRef: closeButtonRef,
         onEscape: onClose,
     });
+    const alreadyLoggedAt = loggedTodayAt(task.last_completed);
 
     return (
         <OverlayPortal className="flex items-center justify-center p-4" onClick={onClose} role="presentation">
@@ -123,6 +136,12 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
                         className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white placeholder-gray-500 resize-none h-20 outline-hidden focus:border-sky-500/30"
                     />
                 </div>
+
+                {alreadyLoggedAt && (
+                    <p className="mb-3 text-xs font-semibold text-emerald-400">
+                        Already logged today at {alreadyLoggedAt}
+                    </p>
+                )}
 
                 {/* Action buttons */}
                 <div className="flex gap-3">

@@ -43,6 +43,12 @@ export interface SyncMeta {
     lastPullTimestamp: string | null; // ISO timestamp of last successful pull
     lastPushTimestamp: string | null; // ISO timestamp of last successful push
     lastFullPullTimestamp?: string | null; // ISO timestamp of last authoritative snapshot
+    /**
+     * Tables a server may not have yet (SyncService OPTIONAL_TABLES) that
+     * this device has read in full from it, and when. A table absent here is
+     * not live on this device: nothing is written for it.
+     */
+    optionalTablesReadAt?: Record<string, string> | null;
     deviceId: string; // Unique device identifier
     ownerUserId: string | null; // Scope integrity check for cursor/cache files
 }
@@ -135,6 +141,8 @@ const TABLE_FILES: Record<string, string> = {
     meal_plans: 'vessel_meal_plans.json',
     shopping_list: 'vessel_shopping_list.json',
     crew_profiles: 'vessel_crew_profiles.json',
+    // One engine-hours reading per skipper (LocalEngineHoursService).
+    vessel_engine_hours: 'vessel_engine_hours.json',
 };
 
 const LEGACY_SYNC_QUEUE_FILE = 'vessel_sync_queue.json';

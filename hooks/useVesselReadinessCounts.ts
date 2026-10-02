@@ -72,9 +72,14 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
         const refetchMaintenance = async () => {
             const requestEpoch = ++maintenanceEpoch;
             try {
-                const [{ LocalMaintenanceService }, { MaintenanceService }] = await Promise.all([
+                const [
+                    { LocalMaintenanceService },
+                    { MaintenanceService, calculateStatus },
+                    { LocalEngineHoursService },
+                ] = await Promise.all([
                     import('../services/vessel/LocalMaintenanceService'),
                     import('../services/MaintenanceService'),
+                    import('../services/vessel/LocalEngineHoursService'),
                 ]);
                 if (cancelled || requestEpoch !== maintenanceEpoch || !isAuthIdentityScopeCurrent(actionScope)) return;
 
@@ -90,10 +95,20 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
                 // Newest-wins merge so a fresh local tick isn't clobbered
                 // by a stale cloud row (the original "1 Overdue" bug).
                 const merged = mergeByUpdatedAt(localTasks, cloudTasks);
-                const now = Date.now();
-                const overdue = merged.filter(
-                    (t) => t.is_active && t.next_due_date && Date.parse(t.next_due_date) < now,
-                ).length;
+                // The same red R&M shows (calculateStatus): overdue by LOCAL
+                // calendar day, so a daily task due at 7:34 pm today is "Due
+                // today" in both places rather than overdue here from 7:35,
+                // and overdue by engine hours too, counted from the R&M
+                // binder's shared reading. With no reading, hour-based tasks
+                // are judged on their date alone, as R&M does.
+                const engineHours = LocalEngineHoursService.getReading(actionScope).hours;
+                const now = new Date();
+                const overdue = merged.filter((t) => {
+                    if (!t.is_active) return false;
+                    const byHours = engineHours !== null && t.next_due_hours !== null && t.next_due_hours !== undefined;
+                    const judged = byHours ? t : { ...t, next_due_hours: null };
+                    return calculateStatus(judged, engineHours ?? 0, now).status === 'red';
+                }).length;
                 setScopedCounts((current) => ({
                     scope: actionScope,
                     counts: {

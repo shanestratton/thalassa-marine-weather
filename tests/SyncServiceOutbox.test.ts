@@ -645,8 +645,8 @@ describe('SyncService durable outbox', () => {
         const [firstResult, secondResult] = await Promise.all([first, second]);
 
         expect(secondResult).toBe(firstResult);
-        // One pull for each configured table, not one set per caller.
-        expect(harness.from).toHaveBeenCalledTimes(12);
+        // One pull for each configured table (13 with vessel_engine_hours), not one set per caller.
+        expect(harness.from).toHaveBeenCalledTimes(13);
     });
 
     it('does not advance the shared pull watermark after a partial table failure', async () => {
@@ -889,7 +889,7 @@ describe('SyncService durable outbox', () => {
             (_, index) => harness.from.mock.calls[index]?.[0] === 'inventory_items',
         )?.value;
         expect(inventoryBuilder.gt).toHaveBeenCalledWith('updated_at', '1970-01-01T00:00:00.000Z');
-        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(13);
         expect(harness.state.meta.lastFullPullTimestamp).toBe('2026-07-23T12:00:00.000Z');
     });
 
@@ -918,7 +918,7 @@ describe('SyncService durable outbox', () => {
             (_, index) => harness.from.mock.calls[index]?.[0] === 'inventory_items',
         )?.value;
         expect(inventoryBuilder.gt).toHaveBeenCalledWith('updated_at', '1970-01-01T00:00:00.000Z');
-        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(13);
     });
 
     // ── Shared binders (2026-10-02) ─────────────────────────────────────
@@ -948,7 +948,7 @@ describe('SyncService durable outbox', () => {
         expect(result.errors).toEqual([]);
         expect(harness.refreshSharedBinders).toHaveBeenCalledTimes(1);
         expect(pullSince()).toBe('1970-01-01T00:00:00.000Z');
-        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(13);
         expect(isFullReconciliationPending()).toBe(false);
     });
 
@@ -1029,7 +1029,7 @@ describe('SyncService durable outbox', () => {
         expect(harness.state.localRows.has('inventory_items:stores-s')).toBe(true);
         expect(harness.state.localRows.has('inventory_items:stores-own')).toBe(true);
         expect(pullSince()).toBe('1970-01-01T00:00:00.000Z');
-        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(13);
         expect(isFullReconciliationPending()).toBe(false);
         // Nothing for the skipper's rows reached the server.
         expect(harness.state.upsertPayloads).toEqual([]);
@@ -1059,7 +1059,7 @@ describe('SyncService durable outbox', () => {
         expect(harness.state.localRows.has('inventory_items:stores-s')).toBe(true);
         expect(harness.rpc).not.toHaveBeenCalledWith('apply_inventory_quantity_delta', expect.anything());
         expect(pullSince()).toBe('1970-01-01T00:00:00.000Z');
-        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(13);
         expect(isFullReconciliationPending()).toBe(false);
         expect(harness.state.queue).toEqual([]);
     });
