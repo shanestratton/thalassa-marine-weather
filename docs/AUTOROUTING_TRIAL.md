@@ -164,6 +164,28 @@ A safety and an integrity review of the swap found holes that the new surfaces
   the charts' verdicts (otherwise "Recalculate to run it again."). The words
   give the whole wait ("tried twice, 12 s each"), and a used-up allowance on
   the public key (no session) is "this connection's", not the account's.
+- **Review fix-ups 2 (2026-10-03): the grid cell only, measured.** "The grid
+  cell only" asked just that the line not enter the shallow band, and such a
+  line runs 0–35 m from it by construction: a line 0.5 m off a steep-to reef
+  drying 3 m, or along its very edge, went from red to green and saveable. Now
+  the line must also keep its distance, measured exactly against the band's own
+  edges — 30 m from a band that dries or never clears the keel (the engine's
+  rock keep-out), 10 m from one whose deep end does (a 2–5 m band beside 5 m+
+  water) — from every such band owning a caution cell within reach, not only
+  the cells the line touches. Short of it the segment stays red, Save stays
+  off, and Review says so: "passes 5 m from water charted to dry 3.0 m — the
+  router keeps 30 m off it". Measured first on the real cells (AU421148, copied
+  to scratch and deleted): the North Molle corner keeps 12.3 m+ from its
+  2–5 m band, 31.6 m+ from its 0–2 m band and 43 m+ from the reef drying
+  3.6 m, so it stays green; the 30 m is not the app's 60 m point-hazard buffer
+  (an A\* tuning), which would have turned the corner red again. A Notice to
+  Mariners survey's sub-floor cell is never "the grid cell only" (its depth is
+  read on a 5 m walk), and a charted hazard AREA (foul ground, an obstruction
+  area) now gets the same keep-out a charted rock gets in the route's hazard
+  check, measured against its edges instead of a point test every 10 m. On the
+  golden corridors two long bay chords that c0309771 drew green pass 3.7 m
+  (Rivergate) and 6.2 m (Tangalooma) from a 2 m band and are red again, with
+  that reason; no pinned golden value moved.
 
 ### Left for Shane (server side, not done here)
 

@@ -9,7 +9,7 @@
  */
 import type { FeatureCollection, LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
 import type { InshoreLayers, NavGrid } from './types';
-import { geometryBbox, haversineM, latLonToGrid, pointInGeometry } from './geometry';
+import { geometryBbox, haversineM, latLonToGrid, pointInGeometry, segmentGeometryDistanceM } from './geometry';
 import { UNKNOWN_OPEN } from './constants';
 import { navLineLeads } from '../leadingLine';
 import { navLinesOnWater } from '../routing/leadLandClip';
@@ -455,9 +455,11 @@ export function unvouchedAlong(
  * chords between cell centres, and every splice that rides off the grid —
  * leads and RECTRC snaps validate against LAND only, on purpose, so a lead is
  * never vetoed by the wreck it guides past (2026-06-11). Per segment: true
- * where it passes within `bufferM` of a charted point hazard, or through a
- * charted hazard area, whose depth over it is unknown or shallower than
- * `needM` — the lead review's own test (leadReview LEAD_HAZARD_BUFFER_M).
+ * where it passes within `bufferM` of a charted point hazard, or through or
+ * within `bufferM` of a charted hazard area (exactly, against its rings —
+ * round-2 review fix-up 2, 2026-10-03), whose depth over it is unknown or
+ * shallower than `needM` — the lead review's own test (leadReview
+ * LEAD_HAZARD_BUFFER_M).
  * The engine flags those segments caution (red outside a marked channel)
  * rather than refusing the route. Synthetic router furniture (clearance bars,
  * mark discs, OSM reefs) carries no S-57 identity and is not read.
@@ -514,21 +516,18 @@ export function hazardBufferSegments(
             }
         }
         if (segs[i] || areaBoxes.length === 0) continue;
-        const segM = haversineM(ay, ax, by, bx);
-        const steps = Math.max(1, Math.ceil(segM / 10));
+        // An area gets the same keep-out a point does, measured exactly
+        // (round-2 review fix-up 2, 2026-10-03): it used to be a point-in-area
+        // test every 10 m, so a line 1 m beside foul ground that covers and
+        // uncovers, or across a strip of it narrower than 10 m between two
+        // samples, was clear of every hazard's buffer — and GRID_ONLY then
+        // drew it green. Through the area, or within `bufferM` of its rings.
         for (const { a, b } of areaBoxes) {
-            if (
-                b[2] < Math.min(ax, bx) ||
-                b[0] > Math.max(ax, bx) ||
-                b[3] < Math.min(ay, by) ||
-                b[1] > Math.max(ay, by)
-            )
-                continue;
-            for (let k = 0; k <= steps && !segs[i]; k++) {
-                const t = k / steps;
-                if (pointInGeometry(ax + (bx - ax) * t, ay + (by - ay) * t, a)) segs[i] = true;
+            if (b[2] < minX || b[0] > maxX || b[3] < minY || b[1] > maxY) continue;
+            if (segmentGeometryDistanceM(polyline[i], polyline[i + 1], a, kx, ky) < bufferM) {
+                segs[i] = true;
+                break;
             }
-            if (segs[i]) break;
         }
     }
     return segs;

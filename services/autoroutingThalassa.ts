@@ -493,6 +493,7 @@ export async function calculateThalassaProposal(
         ...(ok.landPaintConflictMask ? { landPaintConflictMask: [...ok.landPaintConflictMask] } : {}),
         ...(ok.cautionWhy ? { cautionWhy: [...ok.cautionWhy] } : {}),
         ...(ok.cautionDepthM ? { cautionDepthM: [...ok.cautionDepthM] } : {}),
+        ...(ok.cautionNearShallow ? { cautionNearShallow: copy(ok.cautionNearShallow) } : {}),
         ...(ok.tideDepthM ? { tideDepthM: [...ok.tideDepthM] } : {}),
         ...(typeof ok.tideNeedM === 'number' ? { tideNeedM: ok.tideNeedM } : {}),
         ...(ok.shallowRuns ? { shallowRuns: copy(ok.shallowRuns) } : {}),

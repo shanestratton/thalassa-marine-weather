@@ -63,7 +63,7 @@
  * means zero, not "no 25 m sample happened to land ashore".
  */
 import type { MultiPolygon, Polygon, Position } from 'geojson';
-import { geometryBbox, haversineM } from '../engine/geometry';
+import { geometryBbox, haversineM, segmentDistanceM } from '../engine/geometry';
 import {
     bandNeverDries,
     depthSurveyOwners,
@@ -272,6 +272,51 @@ export function pointInArea(area: IndexedArea, lon: number, lat: number): boolea
         if (!inHole) return true;
     }
     return false;
+}
+
+/**
+ * Metres from the segment a→b to an indexed area, exactly (geometry
+ * segmentDistanceM over its ring edges): 0 where the segment enters it, else
+ * the nearest approach to any ring, holes included. Only edges within
+ * `reachM` (by latitude, and the area's bbox) are read, so the answer is
+ * exact below `reachM` and some value ≥ `reachM` (Infinity) beyond it —
+ * GRID_ONLY's clearance from a shallow band (round-2 review fix-up 2,
+ * 2026-10-03; services/engine/shallowRuns nearShallowBand).
+ */
+export function segmentAreaDistanceM(
+    area: IndexedArea,
+    a: readonly number[],
+    b: readonly number[],
+    reachM: number,
+): number {
+    const midLat = (a[1] + b[1]) / 2;
+    const kx = 111_320 * Math.cos((midLat * Math.PI) / 180);
+    const ky = 111_320;
+    const padLat = reachM / ky;
+    const padLon = reachM / Math.max(kx, 1);
+    const lat0 = Math.min(a[1], b[1]) - padLat;
+    const lat1 = Math.max(a[1], b[1]) + padLat;
+    const [minLon, minLat, maxLon, maxLat] = area.bbox;
+    if (
+        maxLon < Math.min(a[0], b[0]) - padLon ||
+        minLon > Math.max(a[0], b[0]) + padLon ||
+        maxLat < lat0 ||
+        minLat > lat1
+    )
+        return Infinity;
+    if (pointInArea(area, a[0], a[1]) || pointInArea(area, b[0], b[1])) return 0;
+    let best = Infinity;
+    for (const r of area.rings) {
+        const ring = r.ring;
+        const n = ring.length;
+        forEachEdgeNear(r, lat0, lat1, (i) => {
+            if (best === 0) return;
+            const m = segmentDistanceM(a, b, ring[i === 0 ? n - 1 : i - 1], ring[i], kx, ky);
+            if (m < best) best = m;
+        });
+        if (best === 0) return 0;
+    }
+    return best;
 }
 
 /** Build the index for a layer set. Cheap (bboxes only); memoized on the

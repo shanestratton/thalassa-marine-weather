@@ -52,7 +52,11 @@ const fc = (...features: Feature[]): FeatureCollection => ({ type: 'FeatureColle
 // One detailed chart: 10 m water to the north, a 2–5 m band along an invented
 // shore to the south. The 50 m grid classes a cell by its centre: the row the
 // line runs in has its centre 10 m inside the 2 m band, the line itself runs
-// east 9 m north of the band's edge — in 10 m water the whole way.
+// east 12 m north of the band's edge — in 10 m water the whole way, and clear
+// of the 10 m GRID_ONLY keeps from such a band (round-2 review fix-up 2,
+// 2026-10-03: this line sat 9 m off, which now keeps its red — the field
+// route's North Molle corner measured 12.3 m at its closest;
+// tests/engine/gridOnlyClearance.test.ts).
 const W = 170.0;
 const SOUTH = -41.006;
 const D_LAT = 50 / 111_320;
@@ -64,7 +68,7 @@ const layers: InshoreLayers = {
         rect(W, -41.002, W + 0.02, EDGE, { acronym: 'DEPARE', DRVAL1: 2, DRVAL2: 5, _scaleRank: RANK }),
     ),
 } as InshoreLayers;
-const LAT = SOUTH + 12.88 * D_LAT; // 9 m off the 2 m band, in 10 m water
+const LAT = SOUTH + 12.94 * D_LAT; // 12 m off the 2 m band, in 10 m water
 const polyline: [number, number][] = [
     [W + 0.002, LAT],
     [W + 0.009, LAT],
@@ -435,14 +439,24 @@ describe('a blocked cell on the line is never the grid alone (production encodin
     describe('every cell the line touches, corners included', () => {
         // Row 20 for 9.77 cells, then over the corner of cell (21, 21) for
         // 0.03 of a cell (~1.5 m), then on along row 21. All 10 m water by the
-        // chart; cells (14, 20) and (15, 20) hold a shore band's 2 m.
+        // chart under the line; cell (20, 20) holds a shore band's 2 m — a
+        // small 2–5 m band round its centre, ~14 m clear of the line (the
+        // clearance GRID_ONLY keeps from such a band is 10 m; round-2 review
+        // fix-up 2, 2026-10-03 — a caution cell no chart band explains is
+        // never the grid's alone).
         const CLIP: [number, number][] = [at(12.2, 20.5), at(23.5, 20.5 + (11.3 * 0.5) / 9.77)];
-        let g = withCell(grid, 14, 20, CAUTION, [], 2);
-        g = withCell(g, 15, 20, CAUTION, [], 2);
+        const g = withCell(grid, 20, 20, CAUTION, [], 2);
+        const [s0, s1] = [at(20.2, 20.3), at(20.8, 20.65)];
+        const shoreLayers = {
+            DEPARE: fc(
+                ...(layers.DEPARE as FeatureCollection).features,
+                rect(s0[0], s0[1], s1[0], s1[1], { acronym: 'DEPARE', DRVAL1: 2, DRVAL2: 5, _scaleRank: RANK }),
+            ),
+        } as InshoreLayers;
         const clipIdx = 21 * grid.width + 21;
         const run = (gg: typeof grid) =>
             collectShallowRuns({
-                layers,
+                layers: shoreLayers,
                 grid: gg,
                 polyline: CLIP,
                 caution: [true],

@@ -24,6 +24,7 @@
  * part of a run — so a tide chip — like any caution (the backstop below).
  */
 import type {
+    CautionNearShallow,
     ChartedShallowSpan,
     InshoreLayers,
     NavGrid,
@@ -33,18 +34,20 @@ import type {
     SurveyUncheckedCell,
 } from './types';
 import { AMBER_SURVEY_REASONS, CAUTION_WHY } from './types';
-import { forEachCellOnSegment, haversineM, latLonToGrid } from './geometry';
+import { forEachCellOnSegment, haversineM, latLonToGrid, segmentDistanceM } from './geometry';
 import { UNKNOWN_OPEN } from './constants';
 import {
     areaGeometry,
     chartAreaIndexFor,
     chartedDepthAt,
+    chartedDepthOwnersAt,
     chartedDepthRangeAt,
     indexArea,
     isS57Feature,
     piecesAlong,
     pointInArea,
     readNum,
+    segmentAreaDistanceM,
     type IndexedArea,
     type IndexedDepthArea,
 } from '../routing/leadLandClip';
@@ -90,6 +93,9 @@ export interface ShallowRunOutput {
     /** Per segment: the shallowest charted depth under a caution segment's
      *  line where it is below the floor, else null — RouteResult.cautionDepthM. */
     cautionDepthM: (number | null)[];
+    /** Per segment: the shallow band a NEAR_SHALLOW segment passes too close
+     *  to, else null — RouteResult.cautionNearShallow. */
+    cautionNearShallow: (CautionNearShallow | null)[];
 }
 
 /** Below this a chip is noise, not pilotage info. */
@@ -323,6 +329,137 @@ function chartSampler(
 }
 
 /**
+ * The least a line keeps from a shallow band whose deep end clears the keel
+ * (DRVAL2 ≥ draft + UKC: a contour-continuous band, e.g. 2–5 m beside the
+ * 5–10 m the line is in — its edge is the 5 m contour). Round-2 review
+ * fix-up 2, 2026-10-03: a 4.9 m beam puts 2.45 m of hull each side of the
+ * line before any GPS error; 10 m covers that, and a catamaran's, with GPS to
+ * spare. Measured on the real cells, Shane's North Molle corner keeps 12.3 m
+ * from its 2–5 m band at its closest.
+ */
+export const SHALLOW_BAND_CLEARANCE_M = 10;
+
+/**
+ * The least a line keeps from a shallow band that dries, charts no depth, or
+ * whose deepest value never clears the keel (DRVAL2 < draft + UKC: a cliff —
+ * its edge steps straight from water deep enough to water that is not): the
+ * engine's own rock keep-out (RouteRequest.obstructionBufferM's default).
+ * Round-2 review fix-up 2, 2026-10-03. Not the app's 60 m point-hazard
+ * buffer: that is an A* tuning (it joins a chain of rocks' buffers into one
+ * no-go strip, InshoreRouter), and at 60 m the North Molle corner — 43.0 m
+ * from its reef drying 3.6 m and 31.6 m from its 0–2 m band, measured on the
+ * real cells — would be red again while its leg review says "no issue found".
+ */
+export const SHALLOW_CLIFF_CLEARANCE_M = 30;
+
+/**
+ * How close the straight line a→b comes to the shallow chart bands round it
+ * — what GRID_ONLY must prove before a caution segment is drawn green
+ * (round-2 review fix-up 2, 2026-10-03), and what a chord that replaces
+ * segments must prove too (field round 2's any-angle string pulling).
+ *
+ * Why: GRID_ONLY said "the 50 m cell holds shallower water than the line
+ * does" and asked only that the line not ENTER the shallow band. By
+ * construction such a line runs 0–35 m from that band, so a line metres off
+ * a steep-to drying reef, or along its very edge, was drawn green and saved
+ * where it had been red (a passage 80 m wide between two reefs drying 3 m:
+ * GRID_ONLY 5.4 m from the reef; AU421148 has ~170 km of such cliff edges).
+ *
+ * The bands: every S-57 band that OWNS the centre of a shallow-band CAUTION
+ * cell (chartedDepthOwnersAt — the grid's own finest-survey rule) within
+ * reach of the line, and is shallower there than draft + UKC. The cells the
+ * line touches, and every such cell whose centre lies within the largest
+ * clearance plus half a cell's diagonal of it: a 2–5 m cell under the line
+ * must not hide a drying band 15 m off in the next one. Each band's distance
+ * is exact (segmentAreaDistanceM against its rings; a part of it a finer
+ * survey shadows counts too — when unsure, the red stays). It asks for:
+ *   • `cliffClearanceM` (SHALLOW_CLIFF_CLEARANCE_M for the route) where it
+ *     dries (DRVAL1 < 0), charts no depth, or its deepest value never clears
+ *     the keel (DRVAL2 < floor, or none) — its edge is a step to too-shallow;
+ *   • SHALLOW_BAND_CLEARANCE_M where its deep end clears the keel.
+ *
+ * `unmeasured`: a cell the line touches is caution for a depth no S-57 band
+ * owning its centre explains (a Notice to Mariners survey's stamp, water the
+ * chart index does not hold) — nothing to measure, so nothing is proved.
+ * `near`: the band that falls shortest of its clearance (null: none does).
+ */
+export function nearShallowBand(input: {
+    grid: NavGrid;
+    depthBands: readonly IndexedDepthArea[];
+    floorM: number;
+    cliffClearanceM: number;
+    a: readonly [number, number];
+    b: readonly [number, number];
+}): { unmeasured: boolean; near: CautionNearShallow | null } {
+    const { grid, floorM, a, b } = input;
+    const sd = grid.shallowDepthM;
+    if (!sd) return { unmeasured: true, near: null };
+    const cliffM = Math.max(0, input.cliffClearanceM);
+    const reachM = Math.max(cliffM, SHALLOW_BAND_CLEARANCE_M);
+    const midLat = (a[1] + b[1]) / 2;
+    const kx = 111_320 * Math.cos((midLat * Math.PI) / 180);
+    const ky = 111_320;
+    const halfDiagM = 0.5 * Math.hypot(grid.dLon * kx, grid.dLat * ky);
+    const padLon = (reachM + 2 * halfDiagM) / Math.max(kx, 1);
+    const padLat = (reachM + 2 * halfDiagM) / ky;
+    const box = [
+        Math.min(a[0], b[0]) - padLon,
+        Math.min(a[1], b[1]) - padLat,
+        Math.max(a[0], b[0]) + padLon,
+        Math.max(a[1], b[1]) + padLat,
+    ];
+    const near = input.depthBands.filter(
+        (x) => !(x.bbox[2] < box[0] || x.bbox[0] > box[2] || x.bbox[3] < box[1] || x.bbox[1] > box[3]),
+    );
+    const touched = new Set<number>();
+    forEachCellOnSegment(grid, a, b, (idx) => touched.add(idx));
+    const isShallowCell = (idx: number): boolean => grid.cells[idx] < 0 && !Number.isNaN(sd[idx]);
+    const ntm = (idx: number): boolean => (grid.ntmRiseM?.[idx] ?? 0) > 0;
+    const bands = new Set<IndexedDepthArea>();
+    let unmeasured = false;
+    const take = (idx: number, mustExplain: boolean): void => {
+        if (ntm(idx)) {
+            if (mustExplain) unmeasured = true;
+            return;
+        }
+        const x = idx % grid.width;
+        const y = (idx - x) / grid.width;
+        const lon = grid.minLon + (x + 0.5) * grid.dLon;
+        const lat = grid.minLat + (y + 0.5) * grid.dLat;
+        const owners = chartedDepthOwnersAt(near, lon, lat).filter((o) => o.drval1 === null || o.drval1 < floorM);
+        if (owners.length === 0 && mustExplain) unmeasured = true;
+        for (const o of owners) bands.add(o);
+    };
+    for (const idx of touched) if (isShallowCell(idx)) take(idx, true);
+    // Every shallow-band cell whose centre is within reach (+ half a diagonal).
+    const x0 = Math.max(0, Math.floor((box[0] - grid.minLon) / grid.dLon));
+    const x1 = Math.min(grid.width - 1, Math.floor((box[2] - grid.minLon) / grid.dLon));
+    const y0 = Math.max(0, Math.floor((box[1] - grid.minLat) / grid.dLat));
+    const y1 = Math.min(grid.height - 1, Math.floor((box[3] - grid.minLat) / grid.dLat));
+    for (let y = y0; y <= y1; y++)
+        for (let x = x0; x <= x1; x++) {
+            const idx = y * grid.width + x;
+            if (touched.has(idx) || !isShallowCell(idx)) continue;
+            const c: [number, number] = [grid.minLon + (x + 0.5) * grid.dLon, grid.minLat + (y + 0.5) * grid.dLat];
+            if (segmentDistanceM(a, b, c, c, kx, ky) > reachM + halfDiagM) continue;
+            take(idx, false);
+        }
+    let worst: CautionNearShallow | null = null;
+    for (const band of bands) {
+        const d1 = band.drval1;
+        const d2 = band.drval2 ?? null;
+        const cliff = d1 === null || d1 < 0 || d2 === null || d2 < floorM;
+        const requiredM = cliff ? cliffM : SHALLOW_BAND_CLEARANCE_M;
+        const clearanceM = segmentAreaDistanceM(band, a, b, requiredM);
+        if (!(clearanceM < requiredM)) continue;
+        // The band that falls furthest short of what it asks for.
+        if (!worst || requiredM - clearanceM > worst.requiredM - worst.clearanceM)
+            worst = { clearanceM, depthM: d1, requiredM };
+    }
+    return { unmeasured, near: worst };
+}
+
+/**
  * The chart's own facts along the straight line a→b, as a key (round 4,
  * 2026-09-30) — what collectShallowRuns reads on a caution segment, read the
  * same way (chartSampler factsOf, exact since the round-4 review): the
@@ -457,6 +594,16 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
     // GRID_ONLY, so a mark's disc over 10–15 m water was drawn green and
     // saved). It is then not drawn red, and no run (so no chip) claims it. A
     // charted tail (decision 7) is never GRID_ONLY: it is the pin's own water.
+    // Nor is a line that does not keep its CLEARANCE from the shallow bands
+    // round it (round-2 review fix-up 2, 2026-10-03; nearShallowBand): not
+    // entering the band was all GRID_ONLY asked, and by construction its line
+    // runs 0–35 m from that band, so a line metres off a steep-to drying reef,
+    // or along its very edge, went from red to green and Save. It keeps its
+    // red, named (NEAR_SHALLOW: "passes 5 m from water charted to dry 3.0 m"),
+    // and a cell a Notice to Mariners survey stamped below the floor is never
+    // a shallow band's here: its depth is read on a 5 m walk, so a line
+    // clipping a 1.2 m survey cell's corner could read the chart's 10 m.
+    const cautionNearShallow: (CautionNearShallow | null)[] = new Array(segCount).fill(null);
     /** Why a blocked (NaN) cell is blocked, as a CAUTION_WHY bit. Land the
      *  line only touches is BLOCKED, not LAND: LAND is land the router OPENED
      *  (a relax zone, a carve), and the land audit owns land it crosses. */
@@ -501,7 +648,14 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
             if (!(v < 0)) return; // charted depth or vouched open water: not what made it caution
             const flags = cautionFlags(idx);
             bits |= flags;
-            if (flags !== 0 || !sd || Number.isNaN(sd[idx]) || grid.wetConflict?.[idx] === 1) other = true;
+            if (
+                flags !== 0 ||
+                !sd ||
+                Number.isNaN(sd[idx]) ||
+                grid.wetConflict?.[idx] === 1 ||
+                (grid.ntmRiseM?.[idx] ?? 0) > 0 // an NtM survey's sub-floor stamp
+            )
+                other = true;
             else shallowBand = true;
         });
         return { bits, onlyShallowBand: shallowBand && !other };
@@ -520,11 +674,23 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
         const cells = cautionCells(polyline[i], polyline[i + 1]);
         why |= cells.bits;
         const tail = (destinationTailStartSeg >= 0 && i >= destinationTailStartSeg) || i <= originTailEndSeg;
-        if (why === 0)
-            why =
-                depthBands.length > 0 && hazardMask && !tail && cells.onlyShallowBand
-                    ? CAUTION_WHY.GRID_ONLY
-                    : CAUTION_WHY.UNEXPLAINED;
+        if (why === 0) {
+            why = CAUTION_WHY.UNEXPLAINED;
+            if (depthBands.length > 0 && hazardMask && !tail && cells.onlyShallowBand) {
+                const clear = nearShallowBand({
+                    grid,
+                    depthBands,
+                    floorM: cautionFloorM,
+                    cliffClearanceM: SHALLOW_CLIFF_CLEARANCE_M,
+                    a: polyline[i],
+                    b: polyline[i + 1],
+                });
+                if (clear.near) {
+                    why = CAUTION_WHY.NEAR_SHALLOW;
+                    cautionNearShallow[i] = clear.near;
+                } else if (!clear.unmeasured) why = CAUTION_WHY.GRID_ONLY;
+            }
+        }
         cautionWhy[i] = why;
     }
     const units: RunUnit[] = [];
@@ -718,6 +884,7 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
         shallowMaxM,
         cautionWhy,
         cautionDepthM,
+        cautionNearShallow,
     };
 }
 

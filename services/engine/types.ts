@@ -590,15 +590,26 @@ export interface SurveyRunInfo {
  *     the shore's buffer (the land audit owns land it crosses), water no
  *     tide clears, …;
  *   • GRID_ONLY — none of those, at least one cell the line touches is a
- *     shallow chart band's CAUTION, and every caution cell it touches is a
- *     shallow chart band's alone: the 50 m cell holds shallower water than
- *     the line does (a shore band touching the cell). Not drawn red. Every
- *     cell the line touches counts (forEachCellOnSegment), corners included,
- *     and a blocked (NaN) one always rules it out — navGrid writes land, a
- *     mark's disc, a hazard's buffer, a berth and a bridge bar as blocked,
- *     never as CAUTION (fix-up review, 2026-10-03);
- *   • UNEXPLAINED — none of those, and no exact reading or no shallow band's
- *     cell to prove it is the cells' alone: red, said as the grid's.
+ *     shallow chart band's CAUTION, every caution cell it touches is a
+ *     shallow chart band's alone, AND the line keeps its clearance from every
+ *     such band within reach (shallowRuns nearShallowBand: 30 m from one that
+ *     dries or never clears the keel, 10 m from one whose deep end does): the
+ *     50 m cell holds shallower water than the line does and the line is
+ *     measured clear of it. Not drawn red. Every cell the line touches counts
+ *     (forEachCellOnSegment), corners included; a blocked (NaN) one always
+ *     rules it out — navGrid writes land, a mark's disc, a hazard's buffer, a
+ *     berth and a bridge bar as blocked, never as CAUTION (fix-up review,
+ *     2026-10-03) — and so does a Notice to Mariners survey's sub-floor
+ *     stamp (its depth is read on a 5 m walk, not exactly; round-2 review
+ *     fix-up 2, 2026-10-03);
+ *   • NEAR_SHALLOW — GRID_ONLY in every other way, but the line comes closer
+ *     to a shallow band than that clearance (RouteResult.cautionNearShallow
+ *     says how close, to what): red, "passes 5 m from water charted to dry
+ *     3.0 m" (round-2 review fix-up 2, 2026-10-03 — a line metres off a
+ *     steep-to drying reef had been drawn green and saved);
+ *   • UNEXPLAINED — none of those, and no exact reading, no shallow band's
+ *     cell, or no band to measure the clearance from, to prove it is the
+ *     cells' alone: red, said as the grid's.
  */
 export const CAUTION_WHY = {
     SHALLOW: 1,
@@ -612,7 +623,22 @@ export const CAUTION_WHY = {
     MARK: 256,
     STRUCTURE: 512,
     BLOCKED: 1024,
+    NEAR_SHALLOW: 2048,
 } as const;
+
+/**
+ * How close a NEAR_SHALLOW segment's line comes to the shallow band it is red
+ * for (RouteResult.cautionNearShallow; round-2 review fix-up 2, 2026-10-03).
+ */
+export interface CautionNearShallow {
+    /** Metres from the line to the band (0: on its edge). */
+    clearanceM: number;
+    /** The band's shallowest charted depth (DRVAL1; negative dries; null: none charted). */
+    depthM: number | null;
+    /** The clearance that band asks for (m): the rock keep-out where it dries
+     *  or never clears the keel, 10 m where its deep end does. */
+    requiredM: number;
+}
 
 /** The reasons that draw a stretch amber (all but 'survey-unchecked') — in
  *  dashes since owner decision 10 (2026-09-30): solid amber is needs-tide. */
@@ -715,6 +741,9 @@ export interface RouteResult {
     /** Per segment: the shallowest charted depth under a caution segment's
      *  line where it is below draft + safety (the SHALLOW reason), else null. */
     cautionDepthM?: (number | null)[];
+    /** Per segment: the shallow band a NEAR_SHALLOW segment passes too close
+     *  to, and how close (round-2 review fix-up 2, 2026-10-03), else null. */
+    cautionNearShallow?: (CautionNearShallow | null)[];
     /** Metres of overland tail trimmed off an inland destination pin —
      *  present only when the trim fired (route ends at the water's edge). */
     destinationInlandTrimM?: number;

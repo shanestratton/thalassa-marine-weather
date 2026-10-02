@@ -2844,6 +2844,7 @@ function routeInshoreOnceEnds(
         shallowMaxM,
         cautionWhy,
         cautionDepthM,
+        cautionNearShallow,
     } = collectShallowRuns({
         layers,
         grid,
@@ -2943,6 +2944,7 @@ function routeInshoreOnceEnds(
         landPaintConflictMask,
         cautionWhy,
         cautionDepthM,
+        cautionNearShallow,
         surveyRuns: survey.surveyRuns,
         ...(survey.uncheckedCells.length > 0 ? { surveyUncheckedCells: survey.uncheckedCells } : {}),
         ...(debug.destinationInlandTrimM ? { destinationInlandTrimM: debug.destinationInlandTrimM } : {}),
