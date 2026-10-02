@@ -44,7 +44,13 @@ vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-import { getCachedIdentity, saveIdentity, syncIdentity, type VesselIdentity } from '../services/VesselIdentityService';
+import {
+    fetchVesselNameForOwner,
+    getCachedIdentity,
+    saveIdentity,
+    syncIdentity,
+    type VesselIdentity,
+} from '../services/VesselIdentityService';
 
 const USER_ID = 'user-1';
 const CACHE_KEY = 'thalassa_vessel_identity';
@@ -408,5 +414,65 @@ describe('VesselIdentityService hostile save handling', () => {
         await expect(pending).resolves.toBeNull();
         setAuthIdentityScope(USER_ID);
         expect(getCachedIdentity()).toBeNull();
+    });
+});
+
+// The Crew Chat card names the skipper's vessel for crew (Shane 2026-10-02:
+// "it is the correct group, but it is just saying the wrong vessel"). The read
+// is by the skipper's owner id; RLS only answers it for accepted crew.
+describe('fetchVesselNameForOwner (Crew Chat card, 2026-10-02)', () => {
+    it("reads only the named skipper's vessel name and trims it", async () => {
+        const nameQuery = query({ data: { owner_id: 'skipper-1', vessel_name: '  Albatross ' }, error: null });
+        const client = installClient({ vessel_identity: [nameQuery] });
+
+        await expect(fetchVesselNameForOwner('skipper-1')).resolves.toBe('Albatross');
+        expect(client.from).toHaveBeenCalledWith('vessel_identity');
+        expect(nameQuery.select).toHaveBeenCalledWith('owner_id,vessel_name');
+        expect(nameQuery.eq).toHaveBeenCalledWith('owner_id', 'skipper-1');
+        expect(nameQuery.maybeSingle).toHaveBeenCalled();
+    });
+
+    it("never touches the account's own cached identity", async () => {
+        cacheRecord(USER_ID, 'owner', identity(USER_ID, { vessel_name: 'Kestrel' }));
+        installClient({
+            vessel_identity: [query({ data: { owner_id: 'skipper-1', vessel_name: 'Albatross' }, error: null })],
+        });
+
+        await expect(fetchVesselNameForOwner('skipper-1')).resolves.toBe('Albatross');
+        expect(getCachedIdentity()?.vessel_name).toBe('Kestrel');
+    });
+
+    it.each([
+        ['another owner', { data: { owner_id: 'someone-else', vessel_name: 'Albatross' }, error: null }],
+        ['no row (not accepted crew)', { data: null, error: null }],
+        ['a blank name', { data: { owner_id: 'skipper-1', vessel_name: '   ' }, error: null }],
+        ['a non-text name', { data: { owner_id: 'skipper-1', vessel_name: 42 }, error: null }],
+        ['an error', { data: null, error: { message: 'denied' } }],
+    ])('returns null for %s', async (_label, result) => {
+        installClient({ vessel_identity: [query(result)] });
+
+        await expect(fetchVesselNameForOwner('skipper-1')).resolves.toBeNull();
+    });
+
+    it('does not call the server when signed out or without an owner', async () => {
+        const client = installClient({});
+
+        await expect(fetchVesselNameForOwner('')).resolves.toBeNull();
+        setAuthIdentityScope(null);
+        await expect(fetchVesselNameForOwner('skipper-1')).resolves.toBeNull();
+        expect(client.from).not.toHaveBeenCalled();
+    });
+
+    it('discards a name that arrives after an account switch', async () => {
+        const read = deferred<QueryResult>();
+        const nameQuery = query(read.promise);
+        installClient({ vessel_identity: [nameQuery] });
+        const pending = fetchVesselNameForOwner('skipper-1');
+        await vi.waitFor(() => expect(nameQuery.maybeSingle).toHaveBeenCalled());
+
+        setAuthIdentityScope('user-2');
+        read.resolve({ data: { owner_id: 'skipper-1', vessel_name: 'Albatross' }, error: null });
+
+        await expect(pending).resolves.toBeNull();
     });
 });

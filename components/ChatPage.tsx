@@ -101,6 +101,64 @@ async function boundedChatLoad<T>(task: Promise<T>, onTimeout?: () => void, sign
         if (cancel) signal?.removeEventListener('abort', cancel);
     }
 }
+
+/** The skippers' vessel names a crew member's Crew Chat card may show, by skipper id. */
+interface CrewVesselNames {
+    /** The account the names were read for. */
+    viewerId: string;
+    names: ReadonlyMap<string, string>;
+}
+
+/**
+ * How long the crew card waits for the skippers' vessel names before it shows
+ * with the generic wording. A normal link answers well inside this; on a slow
+ * one the card shows and the name lands when the read does.
+ */
+const CREW_VESSEL_NAME_WAIT_MS = 2500;
+/** Accepted memberships are normally one; never fan out without a bound. */
+const MAX_CREW_VESSEL_NAME_READS = 8;
+
+/**
+ * Read the vessel name of every skipper this account is accepted crew for,
+ * BEFORE the Crew Chat card can show, so the card paints once with the right
+ * name instead of swapping "on the vessel" for it a beat later on every visit
+ * (review 2026-10-02). Waits at most CREW_VESSEL_NAME_WAIT_MS; a later answer
+ * is still stored while this init is current. Never throws.
+ */
+async function readCrewVesselNames(
+    memberships: ReadonlyArray<{ owner_id: string }>,
+    viewerId: string,
+    isCurrent: () => boolean,
+    store: (names: CrewVesselNames) => void,
+): Promise<void> {
+    const ownerIds = [...new Set(memberships.map((membership) => membership.owner_id))]
+        .filter((ownerId) => !!ownerId && ownerId !== viewerId)
+        .slice(0, MAX_CREW_VESSEL_NAME_READS);
+    if (ownerIds.length === 0) return;
+    const reads = import('../services/VesselIdentityService')
+        .then(({ fetchVesselNameForOwner }) =>
+            Promise.all(ownerIds.map(async (ownerId) => [ownerId, await fetchVesselNameForOwner(ownerId)] as const)),
+        )
+        .then((entries) => {
+            if (!isCurrent()) return;
+            const names = new Map<string, string>();
+            for (const [ownerId, name] of entries) if (name) names.set(ownerId, name);
+            store({ viewerId, names });
+        })
+        .catch(() => {
+            /* non-critical — the card keeps its generic wording */
+        });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const wait = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, CREW_VESSEL_NAME_WAIT_MS);
+    });
+    try {
+        await Promise.race([reads, wait]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -310,6 +368,23 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 : null,
         [hasCrewMembership, channels, memberChannelIds, currentUserId],
     );
+    // The card opens the skipper's group, so it names the skipper's vessel,
+    // not the crew member's own boat from settings (Shane 2026-10-02: "it is
+    // the correct group, but it is just saying the wrong vessel"). The names
+    // are read in init, before the card can show (see readCrewVesselNames).
+    // Only a name read for THIS group's owner by THIS account reaches the
+    // card: a stale one from another sign-in never does.
+    const [crewVesselNames, setCrewVesselNames] = useState<CrewVesselNames | null>(null);
+    const crewChatOwnerId = crewChatChannel?.owner_id;
+    const crewChatVesselName =
+        crewChatOwnerId && crewVesselNames && crewVesselNames.viewerId === currentUserId
+            ? crewVesselNames.names.get(crewChatOwnerId)
+            : undefined;
+    // The account's own boat belongs only on a skipper's own card. A crew-only
+    // account's card can show before the skipper's group is known (its
+    // membership check still in flight), and must not name the crew member's
+    // own boat meanwhile: it reads "on the vessel" until the group resolves.
+    const ownCrewChatVesselName = hasOwnedCrew ? settings.vessel?.name : undefined;
     const joinRequestCancelRef = useRef<HTMLButtonElement>(null);
     const joinRequestDialogRef = useFocusTrap<HTMLDivElement>(joinRequestChannel !== null, {
         initialFocusRef: joinRequestCancelRef,
@@ -514,6 +589,12 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                     if (!isCurrent()) return;
                     const [myCrew, myMemberships] = await Promise.all([getMyCrew(), getMyMemberships()]);
                     if (!isCurrent()) return;
+                    // Crew: name the skippers' vessels before the card can
+                    // show, so it paints once with the right name.
+                    if (myMemberships.length > 0 && identity.userId) {
+                        await readCrewVesselNames(myMemberships, identity.userId, isCurrent, setCrewVesselNames);
+                        if (!isCurrent()) return;
+                    }
                     setHasOwnedCrew(myCrew.length > 0);
                     setHasCrewMembership(myMemberships.length > 0);
                 } catch {
@@ -939,7 +1020,8 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                             setProposalParentId={setProposalParentId}
                             hasCrewInvited={canOpenCrewChat || crewChatChannel !== null}
                             crewChatChannel={crewChatChannel}
-                            vesselName={settings.vessel?.name}
+                            vesselName={ownCrewChatVesselName}
+                            crewChatVesselName={crewChatVesselName}
                         />
                     )}
 
