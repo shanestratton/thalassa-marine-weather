@@ -16,7 +16,7 @@ import { navLinesOnWater } from '../routing/leadLandClip';
 import {
     backstopVerdict,
     bandClaimOf,
-    finestBandBeatsLand,
+    chartLandVerdict,
     isAuthoritativeOsmWater,
     isBackstopOsmWater,
     type BandClaim,
@@ -170,9 +170,11 @@ function pointNearVouchedLine(lon: number, lat: number, lines: readonly IndexedL
 /**
  * Is this POINT charted hard land — inside chart land paint with no water
  * evidence there (OSM-vouched water, or decision-1 water: a finer never-drying
- * band beating the land paint)? The audit's own polygon rule below, for one
- * point, WITHOUT the 125 m lead / canal corridor (a lead beside a pin does not
- * make the pin water). The engine asks it of each pin (round 2, 2026-09-30):
+ * band beating the land paint)? Overview land a detailed chart's depth
+ * overrides is no land paint at all (owner decision 12, 2026-10-02:
+ * chartWaterEvidence chartLandVerdict). The audit's own polygon rule below,
+ * for one point, WITHOUT the 125 m lead / canal corridor (a lead beside a pin
+ * does not make the pin water). The engine asks it of each pin (round 2, 2026-09-30):
  * a pin in decision-1 water is shallow water, not "on land", so the route runs
  * to it; a pin on hard land keeps today's nearest-water ending. Returns a
  * predicate, memoized per layer set, so the strict, relaxed and fine passes
@@ -201,7 +203,7 @@ function buildHardLandAtPoint(layers: InshoreLayers): (lon: number, lat: number)
         const landRanks = tagsAt(lon, lat, land);
         if (landRanks.length === 0) return false;
         if (pointInIndexedAreas(lon, lat, osmWater)) return false;
-        return !finestBandBeatsLand(tagsAt(lon, lat, bands), landRanks);
+        return chartLandVerdict(tagsAt(lon, lat, bands), landRanks) === 'land';
     };
 }
 
@@ -249,7 +251,9 @@ export function backstopChartWaterProbe(
  * (services/engine/chartWaterEvidence.ts): OSM-vouched engineered water, or —
  * owner decision 1 — an S-57 DEPARE / DRGARE band charted at a strictly finer
  * scale than the finest land paint on the spot that never dries. Those points
- * are the sources disagreeing (caution-worthy, not unambiguously land).
+ * are the sources disagreeing (caution-worthy, not unambiguously land). Owner
+ * decision 12 (2026-10-02): overview land (band 1–2) over a detailed chart's
+ * (band 3+) depth area is no land paint at all (chartLandVerdict 'open').
  * Everything else — a drying, undepthed, equal-scale, coarser or unranked
  * band, a bare bathymetry-derived band, a FAIRWY (a route area, not a depth)
  * — leaves the land paint standing: an exact hard-land hit.
@@ -278,7 +282,7 @@ export function auditUnvouchedHardLand(
     // S-57 depth bands, each with its decision-1 claim.
     const bands = indexTaggedAreas<BandClaim>([layers.DEPARE, layers.DRGARE], (p) => bandClaimOf(p) ?? undefined);
     const waterUnderLand = (lon: number, lat: number, landRanks: readonly (number | null)[]): boolean =>
-        pointInIndexedAreas(lon, lat, osmWater) || finestBandBeatsLand(tagsAt(lon, lat, bands), landRanks);
+        pointInIndexedAreas(lon, lat, osmWater) || chartLandVerdict(tagsAt(lon, lat, bands), landRanks) !== 'land';
     // These line layers are explicit navigation evidence. The grid carves or
     // prefers a narrow corridor around them, so the independent vector audit
     // must honour the same physical-water claim without treating all relaxed

@@ -584,13 +584,21 @@ describe('lead compiler — Moreton Bay corridor (four overlapping cells, merged
         expect(conflictSpans).toBeGreaterThan(10);
     });
 
-    it("RECTRC 2655 lies wholly on the overview's land paint: dropped unranked, needs tide when a finer band beats it", () => {
+    // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
+    // detailed chart"): ranked, the land paint over RECTRC 2655 is the
+    // overview cells' only, over a detailed chart's never-drying 0 m band, so
+    // it is no dispute any more (landConflictM 421 → 0, no 'land-paint'
+    // review). It is still 'needs tide' — by its own charted 0 m.
+    it("RECTRC 2655 lies wholly on the overview's land paint: dropped unranked; ranked, the detailed chart's own 0 m — needs tide, no dispute", () => {
         expect(spansOf(g, 2655)).toHaveLength(0);
         const r = compileLeadGraph(moretonRanked, 1.9);
         const s = spansOf(r, 2655);
         expect(s).toHaveLength(1);
-        expect(s[0].depth.landConflictM).toBeGreaterThan(s[0].lengthM - 1);
-        expect(forward(r).find((e) => e.spanId === s[0].id)!.depth.class).toBe('needs-tide');
+        expect(s[0].depth.landConflictM ?? 0).toBe(0);
+        expect(s[0].depth.minDepthM).toBe(0);
+        const e = forward(r).find((x) => x.spanId === s[0].id)!;
+        expect(e.depth.class).toBe('needs-tide');
+        expect(e.depth.review).not.toContain('land-paint');
     });
 });
 
@@ -1499,6 +1507,19 @@ describe('lead compiler — fixture totals, pinned', () => {
     // 28,324 → 18,210 m) — but every span that runs over such paint is
     // 'needs tide' ('land-paint'), never clear. The capture has no M_QUAL:
     // nothing is graded (decision 4), so no span is clear either way.
+    //
+    // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
+    // detailed chart"; measured in its own process): the same 110 spans and
+    // 18,210 m clipped (the first D12 build, which let drying detailed bands
+    // count, had 115 spans and 8,121 m of leads over drying ground under the
+    // overview's land — reverted). Where only the overview cells' land paint
+    // lies over a detailed chart's never-drying band, a span is no longer in
+    // dispute: 'land-paint' 71 → 18 edges. Ten deep spans that were 'needs
+    // tide' only for that paint (least 5–14 m: RECTRC 2386, 2658, 2659,
+    // 2921, 2946 and five buoyed-channel spans) are 'needs review' — survey
+    // ungraded (decision 4), never clear; the rest stay 'needs tide' by their
+    // own charted depth. The 18 left in dispute are a detailed chart's land
+    // over a finer band (decision 1), all still 'needs tide'.
     it('Moreton corridor, ranked as production merges it, at a 1.9 m draft', () => {
         const g = compileLeadGraph(moretonRanked, 1.9);
         expect(summary(g)).toEqual({
@@ -1509,17 +1530,17 @@ describe('lead compiler — fixture totals, pinned', () => {
             dropped: { duplicate: 16, 'coincides-with-recommended-track': 1, 'on-land': 5 },
             kinds: { 'recommended-track': 39, 'leading-line': 34, channel: 37 },
             classes: {
-                'recommended-track:needs-review': 15,
-                'recommended-track:needs-tide': 24,
+                'recommended-track:needs-review': 20,
+                'recommended-track:needs-tide': 19,
                 'leading-line:needs-review': 2,
                 'leading-line:needs-tide': 32,
-                'channel:needs-review': 5,
-                'channel:needs-tide': 32,
+                'channel:needs-review': 10,
+                'channel:needs-tide': 27,
             },
         });
         expect(Math.round(g.clippedLandM)).toBe(18_210);
         const landPaint = forward(g).filter((e) => e.depth.review.includes('land-paint'));
-        expect(landPaint.length).toBe(71);
+        expect(landPaint.length).toBe(18);
         for (const e of landPaint) expect(e.depth.class).toBe('needs-tide');
     });
 });

@@ -576,7 +576,9 @@ export interface SurveyRunInfo {
  *   • SHALLOW — the finest survey (or a current NtM survey) charts water under
  *     the line shallower than draft + safety;
  *   • UNCHARTED — part of the line has no chart depth under it;
- *   • DISAGREE — decision-1 water: a finer band under a coarser chart's land;
+ *   • DISAGREE — decision-1 water: a finer band under a coarser chart's land
+ *     (never an overview or general cell's land over a detailed chart's
+ *     depth: owner decision 12 ignores that land);
  *   • HAZARD — inside a charted rock's, wreck's or obstruction's buffer
  *     (the hazard mask, or a hazard's blocked cell the line touches);
  *   • WING — it crosses a pair-wing's cell: outside a lateral mark;
@@ -724,7 +726,9 @@ export interface RouteResult {
     /**
      * Per-segment flag, length `polyline.length - 1`: the segment is caution
      * over decision-1 water (owner decision 1: a finer never-drying band under
-     * a coarser chart's land paint — shallow water, never deep). The renderer
+     * a coarser chart's land paint — shallow water, never deep; since owner
+     * decision 12, 2026-10-02, never overview or general land over a detailed
+     * chart's depth area, which is ignored, not disputed). The renderer
      * lets it beat a marked channel's yellow, as charted-shallow water does
      * (round-3 review, 2026-09-30). Absent on cloud/legacy results.
      */
@@ -989,12 +993,24 @@ export interface NavGrid {
     /**
      * Per-cell wet-chart-land-conflict flag (1 = a coarse LNDARE painted over
      * a finer cell's wet DEPARE band and the wet claim won — the cell is
-     * honest CAUTION, protected from the land buffer). Routable mid-route;
+     * honest CAUTION, protected from the land buffer; never set where owner
+     * decision 12 ignores overview land over a detailed chart's depth area,
+     * navGrid Pass 2). Routable mid-route;
      * endpoint snapping PREFERS honest water over these so a geocoded
      * land pin never departs from a phantom conflict creek. Optional for
      * cached-grid back-compat.
      */
     wetConflict?: Uint8Array;
+    /**
+     * Per-cell flag (owner decision 12, 2026-10-02): 1 = an overview or
+     * general chart's land paint (usage band 1–2) covers the cell and was
+     * ignored, because a detailed chart (band 3+) charts never-drying depth
+     * there (navGrid Pass 2). The cell is that chart's water, depth and all;
+     * the flag only lets the leg review say why a route runs where the
+     * overview chart draws land (routeTracer, an 'info' note — never a
+     * grade). Absent when no cell qualified, and on cached grids.
+     */
+    overviewLandIgnored?: Uint8Array;
     /**
      * Per-cell localized-relax flag (1 = LNDARE softened to CAUTION inside an
      * endpoint relax zone). Exposed so the relax-retry acceptance can detect

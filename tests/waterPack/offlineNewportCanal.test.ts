@@ -6,7 +6,9 @@
  * The charts alone paint the canal estate as land: newport-shane's only chart
  * water there is the harbour cell's 0–2 m band under every cell's land paint,
  * and tests/inshoreRouter.chartLeads.test.ts pins that the strict router
- * refuses it (hard-land-crossing, ~922 m). The OSM overlay carries the canal.
+ * refuses it (hard-land-crossing, ~922 m; since owner decision 12, D12 fix-up
+ * 2026-10-03, an engine route over 135 m of the canal bank that every caller
+ * refuses — below). The OSM overlay carries the canal.
  * Offline, with no Pi and no cloud, the only OSM water left is the pack.
  *
  * The pack here is filled through the real WaterPackStore (an in-memory
@@ -77,7 +79,8 @@ import {
     type OsmRouteOverlay,
 } from '../../services/OsmRouteOverlayService';
 import { WaterPackStore, __resetWaterPackStoreForTests } from '../../services/waterPack/WaterPackStore';
-import { applyWaterPack, waterPackUseFor } from '../../services/waterPack/waterPackWords';
+import { waterPackRefusal, waterPackUseFor } from '../../services/waterPack/waterPackWords';
+import { chartedLandFinding } from '../../services/routing/landBackstopWords';
 import type { Bbox } from '../../services/waterPack/waterPackTiles';
 
 const fx = loadFixture('newport-shane.corridor.json.gz');
@@ -157,6 +160,18 @@ describe('offline Newport canal with the water pack (owner decision 2)', { timeo
         expect(haversineM(ORIGIN.lat, ORIGIN.lon, startLat, startLon)).toBeLessThanOrEqual(50);
     });
 
+    // RE-PIN (D12 fix-up, 2026-10-03; owner decision 12, Shane: "Trust the
+    // detailed chart"; measured in its own process): the engine no longer
+    // refuses this itself (hard-land-crossing, 922 m). Decision 12 no longer
+    // disputes the overview's land over the harbour cell's charted 0 m water
+    // at the canal mouth, so the strict route's relaxed rescue reaches that
+    // water over 135 m of the canal's charted bank — under the engine's 500 m
+    // veto. The pin is still decision-1 water under AU428153's land (no charted
+    // pin, decision 2), and the route's 210 m of charted land away from the
+    // pin's edge is what every caller refuses on: Auto says so through the
+    // same water-pack words (autoroutingThalassa: chartedLandFinding, then
+    // waterPackRefusal with the missing ends). Still no route; still the
+    // harbour water not on this phone, first.
     it('an empty pack: still no route — and the refusal says the harbour water is not on this phone yet', async () => {
         const overlay = await getOsmRouteOverlay(inshoreOverlayBbox(ORIGIN, DESTINATION));
         expect(overlay.provenance).toEqual({ source: 'none', coverage: 'none', presentTiles: [], offline: true });
@@ -164,18 +179,22 @@ describe('offline Newport canal with the water pack (owner decision 2)', { timeo
         expect(use).toEqual({ source: 'none', missing: ['departure', 'destination'], offline: true });
 
         const r = routeInshore(productionLayers(overlay), { ...fx.request, unchartedPolicy: 'strict' });
-        expect('error' in r).toBe(true);
-        if (!('error' in r)) return;
-        expect(r.code).toBe('hard-land-crossing');
-        within(r.debug?.hardLandMaxRunM, 922, 0.05);
-        const said = applyWaterPack({ error: r.error, code: r.code }, use);
-        expect(said.code).toBe('hard-land-crossing');
+        expect('error' in r).toBe(false);
+        if ('error' in r) return;
+        expect(r.debug?.originChartedPin).toBeUndefined();
+        const finding = chartedLandFinding({
+            totalM: r.debug?.hardLandTotalM,
+            awayM: r.debug?.hardLandAwayM,
+            awayAt: r.debug?.hardLandAwayAt,
+        });
+        expect(finding, JSON.stringify(r.debug?.hardLandAwayM)).not.toBeNull();
+        const said = waterPackRefusal(`${finding} No route. Nothing changed.`, use);
         expect(
-            said.error.startsWith(
+            said.startsWith(
                 "No route: the harbour water for the departure and the destination isn't on this phone yet",
             ),
         ).toBe(true);
-        expect(said.error).toContain(r.error);
+        expect(said).toContain(finding!);
         expect(cloud.invoke).not.toHaveBeenCalled();
     });
 

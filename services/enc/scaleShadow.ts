@@ -261,6 +261,12 @@ export function landRankKey(rank: number): number {
  * engine grid (services/engine/navGrid.ts Pass 2) and the final land audit
  * (services/engine/chartWaterEvidence.ts) all decide it here, so the overlay,
  * the router and the audit agree.
+ *
+ * Owner decision 12 (2026-10-02) is asked FIRST (overviewLandYields): an
+ * overview or general chart's land paint (band 1–2) over a detailed chart's
+ * (band 3+) never-drying depth area is no land at all, so this decision — and
+ * its caution — is left to two charts of which the land paint is a detailed
+ * one, and to the small-scale cells alone.
  */
 export function finerBandBeatsLand(bandRank: number | null | undefined, landRank: number | null | undefined): boolean {
     if (
@@ -273,6 +279,70 @@ export function finerBandBeatsLand(bandRank: number | null | undefined, landRank
     }
     // A band known by its usage band alone could be the coarsest cell in it.
     return bandRank > landRankKey(landRank);
+}
+
+/**
+ * The coarsest usage band that counts as a DETAILED chart: 3, coastal
+ * (compilation scale 1:350,000 or finer, or a band-3+ cell name). Bands 1–2
+ * (overview and general cells, e.g. 1:3,500,000 and 1:1,500,000) generalise
+ * a coastline by hundreds of metres and leave small islands out. One rule for
+ * owner decision 12 (overviewLandYields below) and the satellite land check's
+ * scale rule (services/engine/chartWaterEvidence BACKSTOP_MIN_VOUCH_BAND).
+ */
+export const DETAILED_CHART_MIN_BAND = 3;
+
+/** A fineness rank (cellFinenessRank) of a detailed chart — usage band 3 or
+ * finer. An unranked (null) or malformed rank is not. */
+export function isDetailedChartRank(rank: number | null | undefined): rank is number {
+    return typeof rank === 'number' && Number.isFinite(rank) && usageBandOfRank(rank) >= DETAILED_CHART_MIN_BAND;
+}
+
+/**
+ * Owner decision 12 (Shane, 2026-10-02, "Trust the detailed chart"): an
+ * OVERVIEW or GENERAL chart's land paint (usage band 1–2) is IGNORED wherever
+ * a DETAILED chart (band 3+) charts a depth area that never dries — it is not
+ * land, not decision-1 'charts disagree' water, and the detailed chart's own
+ * depth decides the spot (deep, or shallow and red / needs tide). Cid Harbour,
+ * 2026-10-02: the 1:3,500,000 AU130120 paints the harbour land where the
+ * 1:90,000 AU421148 charts 10–15 m, and the route was red "Danger reported".
+ *
+ *   • `bandRank` — the rank of the depth bands that OWN the spot (the finest
+ *     survey and every band tied with it: finestSurveyOwners, the grid's
+ *     bandRank); it must be a detailed chart's (isDetailedChartRank);
+ *   • `bandsNeverDry` — every owning band charts a DRVAL1 ≥ 0 (bandNeverDries,
+ *     decision 1's own test). A DRYING detailed band keeps decision 1: the
+ *     land paint stands over it (Claude's call, fix-up 2026-10-03, reversing
+ *     the first build's "drying bands count"). Ignored there, the land turned
+ *     a charted drying bank into routable caution that the lead clip read as
+ *     water — the Brisbane River mouth's ENB5 −2.2..0 under the overview's
+ *     land took a 1,085 m lead crossing that HEAD blocks. An undepthed band
+ *     gives no depth at all: the land stands too (fail safe);
+ *   • `landRank` — the FINEST land paint on the spot (a rank, or its
+ *     landRankKey: the usage band is the same). Only overview and general
+ *     land (band ≤ 2) yields. A detailed chart's land — a small island the
+ *     overview leaves out, or the 1:90,000 coastline over the 1:12,000
+ *     Brisbane River survey — never does: decision 1 still decides between two
+ *     detailed charts. Unranked land (unknown scale, such as an OSM
+ *     breakwater) never yields either.
+ *
+ * Every spot it holds at is decision-1 water too (a band-3+ band is strictly
+ * finer than band-1–2 land): decision 12 only takes that water's dispute
+ * away. The grid (navGrid Pass 2), the lead land clip (leadLandClip) and the
+ * land audits and the satellite check's chart evidence (chartWaterEvidence)
+ * all ask it here, so the route, its colours, the leads and the audits agree.
+ */
+export function overviewLandYields(
+    bandRank: number | null | undefined,
+    bandsNeverDry: boolean,
+    landRank: number | null | undefined,
+): boolean {
+    return (
+        bandsNeverDry &&
+        isDetailedChartRank(bandRank) &&
+        typeof landRank === 'number' &&
+        Number.isFinite(landRank) &&
+        usageBandOfRank(landRank) < DETAILED_CHART_MIN_BAND
+    );
 }
 
 /** A depth band that never dries (decision 1): a charted DRVAL1 ≥ 0. A
