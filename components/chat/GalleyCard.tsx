@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import {
@@ -28,6 +28,7 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import { galleyShareOwner, getSharedBindersState, subscribeSharedBinders } from '../../services/vessel/sharedBinders';
 
 const provisionedStorageKey = (voyageId: string, scope?: AuthIdentityScope): string =>
     authScopedStorageKey(`thalassa_provisioned:${voyageId}`, scope);
@@ -140,6 +141,18 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     };
     const hasMealAccess = perms.visible && perms.canViewMeals;
     const canRecordPurchase = hasMealAccess && perms.canEditStores;
+    // Re-render when the galley changes hands: a skipper starts or stops
+    // sharing their galley, or this sailor switches boat.
+    useSyncExternalStore(subscribeSharedBinders, getSharedBindersState, getSharedBindersState);
+    // Whose meals and grocery list this card reads and writes. A passage: its
+    // verified owner. No passage: the galley this account is using, the
+    // skipper's while they share it (sharedBinders), else its own. The voyage
+    // is passed as null, never undefined: undefined reads every row on the
+    // device, so the crew's own hidden galley (and every passage) showed mixed
+    // in with the skipper's (2026-10-03).
+    const scopeOwnerUserId = perms.voyageId
+        ? perms.ownerUserId
+        : (galleyShareOwner() ?? getAuthIdentityScope().userId ?? perms.ownerUserId);
     const [expanded, setExpanded] = useState(false);
     const [activeTab, setActiveTab] = useState<'' | 'food' | 'shopping' | 'recipes'>('');
     const [activeMeals, setActiveMeals] = useState<MealPlan[]>([]);
@@ -335,24 +348,36 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     }, [expanded, hasMealAccess, identityKey, perms.ownerUserId, perms.voyageId]);
 
     const refreshActiveMeals = useCallback(() => {
-        const reserved = getMealsByStatus('reserved', perms.voyageId ?? undefined);
-        const cooking = getMealsByStatus('cooking', perms.voyageId ?? undefined);
+        // No passage: only the galley owner's meals (and ownerless legacy
+        // rows), the same rule getShoppingList applies to the list. Unshared,
+        // the meal reader keeps every no-passage row, so a skipper's meals
+        // left on the device after his share ended counted here until the
+        // next full pull pruned them, while the list beside them was already
+        // the crew's own (2026-10-03).
+        const inGalley = (meal: MealPlan) => {
+            if (perms.voyageId || !scopeOwnerUserId) return true;
+            const owner = meal.user_id?.trim();
+            return !owner || owner === scopeOwnerUserId;
+        };
+        const reserved = getMealsByStatus('reserved', perms.voyageId).filter(inGalley);
+        const cooking = getMealsByStatus('cooking', perms.voyageId).filter(inGalley);
         setActiveMeals([...cooking, ...reserved]);
-    }, [perms.voyageId]);
+    }, [perms.voyageId, scopeOwnerUserId]);
     // Stable identity matters: MealCalendar lists these props in its own
     // useCallback deps, so an inline closure re-created its handlers on
     // every GalleyCard render.
     const refreshShopping = useCallback(
-        () => setShoppingSummary(getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId)),
-        [perms.voyageId, perms.ownerUserId],
+        () => setShoppingSummary(getShoppingList(perms.voyageId, scopeOwnerUserId)),
+        [perms.voyageId, scopeOwnerUserId],
     );
 
-    // Load active meals and shopping status
+    // Load active meals and shopping status. refreshShopping changes with the
+    // galley's owner, so a share starting or ending reloads both.
     useEffect(() => {
         if (!hasMealAccess || !expanded) return;
         refreshActiveMeals();
-        setShoppingSummary(getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId));
-    }, [expanded, hasMealAccess, perms.ownerUserId, perms.voyageId, refreshActiveMeals]);
+        refreshShopping();
+    }, [expanded, hasMealAccess, refreshActiveMeals, refreshShopping]);
 
     const handleToggle = useCallback(() => {
         setExpanded((v) => !v);
@@ -388,8 +413,8 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
             setShoppingActionError(null);
             triggerHaptic('medium');
             try {
-                await markPurchased(itemId, undefined, undefined, perms.voyageId, perms.ownerUserId);
-                setShoppingSummary(getShoppingList(perms.voyageId ?? undefined, perms.ownerUserId));
+                await markPurchased(itemId, undefined, undefined, perms.voyageId, scopeOwnerUserId);
+                refreshShopping();
                 window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
             } catch {
                 setShoppingActionError('That purchase could not be recorded. Your shopping list was left unchanged.');
@@ -397,7 +422,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                 setPurchasingItemId(null);
             }
         },
-        [canRecordPurchase, perms.ownerUserId, perms.voyageId, purchasingItemId],
+        [canRecordPurchase, perms.voyageId, purchasingItemId, refreshShopping, scopeOwnerUserId],
     );
 
     if (!hasMealAccess) return null;
@@ -479,7 +504,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                     mealDays={mealDays}
                                     crewCount={effectiveCrewCount}
                                     voyageId={perms.voyageId}
-                                    ownerUserId={perms.ownerUserId}
+                                    ownerUserId={scopeOwnerUserId}
                                     voyageName={voyage?.id === perms.voyageId ? voyage.voyage_name : null}
                                     activeMeals={activeMeals}
                                     onMealsChanged={refreshActiveMeals}
