@@ -1436,14 +1436,19 @@ const App: React.FC = () => {
                                                 Stretch the pane's inner surface down by exactly the allowance
                                                 the container removed: pages behave as if the bar still overlaid
                                                 them, the frame clips the excess, and every page's own clearance
-                                                lands at the frame bottom. One rule, all pages. */}
+                                                lands at the frame bottom. One rule, all pages.
+                                                The overhang is published as a variable so a page that sizes itself
+                                                to what the pane SHOWS can take it off again: the Instrument
+                                                Panel's snap pages do (Shane 2026-10-02). */}
                                                 <div
                                                     className="absolute inset-x-0 top-0"
                                                     style={
                                                         splitActive
-                                                            ? {
-                                                                  height: 'calc(100% + 4.5rem + env(safe-area-inset-bottom))',
-                                                              }
+                                                            ? ({
+                                                                  '--split-page-overhang':
+                                                                      'calc(4.5rem + env(safe-area-inset-bottom))',
+                                                                  height: 'calc(100% + var(--split-page-overhang))',
+                                                              } as React.CSSProperties)
                                                             : { height: '100%' }
                                                     }
                                                 >
