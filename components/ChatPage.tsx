@@ -15,7 +15,7 @@
  * - Mod action menus
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { lazyRetry } from '../utils/lazyRetry';
 import { useAuthStore } from '../stores/authStore';
@@ -291,6 +291,25 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         handleRequestAccess,
         handleSubmitJoinRequest,
     } = proposalHook;
+
+    // Crew reach the skipper's Crew Chat through the channel they are already a
+    // member of (Shane 2026-10-02: Crew Chat is every crew member's by default,
+    // no tick box). No passage selection or passage-chat grant is needed: the
+    // channel membership is what the database checks to read it.
+    const crewChatChannel = useMemo(
+        () =>
+            hasCrewMembership
+                ? (channels.find(
+                      (ch) =>
+                          ch.is_private &&
+                          ch.icon === '👥' &&
+                          memberChannelIds.has(ch.id) &&
+                          !!ch.owner_id &&
+                          ch.owner_id !== currentUserId,
+                  ) ?? null)
+                : null,
+        [hasCrewMembership, channels, memberChannelIds, currentUserId],
+    );
     const joinRequestCancelRef = useRef<HTMLButtonElement>(null);
     const joinRequestDialogRef = useFocusTrap<HTMLDivElement>(joinRequestChannel !== null, {
         initialFocusRef: joinRequestCancelRef,
@@ -918,7 +937,8 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                             memberChannelIds={memberChannelIds}
                             proposalParentId={proposalParentId}
                             setProposalParentId={setProposalParentId}
-                            hasCrewInvited={canOpenCrewChat}
+                            hasCrewInvited={canOpenCrewChat || crewChatChannel !== null}
+                            crewChatChannel={crewChatChannel}
                             vesselName={settings.vessel?.name}
                         />
                     )}

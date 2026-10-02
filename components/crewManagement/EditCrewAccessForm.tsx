@@ -10,6 +10,7 @@
 import React from 'react';
 import {
     ALL_REGISTERS,
+    ALWAYS_SHARED_REGISTERS,
     REGISTER_ICONS,
     REGISTER_LABELS,
     type CrewMember,
@@ -133,7 +134,7 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
                     Shared Registers
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                    {ALL_REGISTERS.map((reg) => {
+                    {ALL_REGISTERS.filter((reg) => !ALWAYS_SHARED_REGISTERS.includes(reg)).map((reg) => {
                         const selected = editRegisters.includes(reg);
                         return (
                             <button

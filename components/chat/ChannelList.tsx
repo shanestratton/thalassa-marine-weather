@@ -67,6 +67,8 @@ interface ChannelListProps {
     setProposalParentId: (id: string | null) => void;
     /** Whether the skipper has invited crew or the user is on a crew — gates the Crew Chat button */
     hasCrewInvited?: boolean;
+    /** The skipper's Crew Chat a crew member is already in: the card opens it directly. */
+    crewChatChannel?: ChatChannel | null;
     /** Vessel name from settings — shown in the Crew Chat subtitle. */
     vesselName?: string;
 }
@@ -94,6 +96,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     proposalParentId,
     setProposalParentId,
     hasCrewInvited = false,
+    crewChatChannel = null,
     vesselName,
 }) => {
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
@@ -289,6 +292,11 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                 <button
                     aria-label="Crew Chat (Private Group)"
                     onClick={async () => {
+                        // Crew: open the skipper's Crew Chat they are already in.
+                        if (crewChatChannel) {
+                            onOpenChannel(crewChatChannel);
+                            return;
+                        }
                         try {
                             const { getActivePassageId } = await import('../../services/PassagePlanService');
                             const { getDraftVoyages } = await import('../../services/VoyageService');

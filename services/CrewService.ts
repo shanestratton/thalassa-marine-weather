@@ -100,6 +100,19 @@ export const INVITE_REGISTERS: SharedRegister[] = [
     'passage_checklist',
 ];
 
+/**
+ * Shared with every crew member, always, with no tick box: Crew Chat (Shane
+ * 2026-10-02, "we dont need a tick box claude, it should be the default").
+ * Invites and roster edits add these whatever was ticked, and the access
+ * editor doesn't offer them.
+ */
+export const ALWAYS_SHARED_REGISTERS: SharedRegister[] = ['passage_chat'];
+
+/** The registers as ticked, plus the ones every crew member always gets. */
+export function withAlwaysSharedRegisters(registers: SharedRegister[]): SharedRegister[] {
+    return [...registers, ...ALWAYS_SHARED_REGISTERS.filter((register) => !registers.includes(register))];
+}
+
 /** All registers combined */
 export const ALL_REGISTERS: SharedRegister[] = [...VESSEL_REGISTERS, ...PASSAGE_REGISTERS];
 
@@ -397,6 +410,7 @@ export async function inviteCrew(
     voyageId?: string,
     role: CrewRole = 'deckhand',
 ): Promise<{ success: boolean; error?: string }> {
+    registers = withAlwaysSharedRegisters(registers);
     if (!supabase) return { success: false, error: 'Not connected' };
     const scope = captureAuthenticatedScope();
     if (!scope) return { success: false, error: 'Not authenticated' };
@@ -532,6 +546,7 @@ export async function getMyCrew(voyageId?: string): Promise<CrewMember[]> {
  * Update which registers are shared with a specific crew member.
  */
 export async function updateCrewPermissions(crewId: string, registers: SharedRegister[]): Promise<boolean> {
+    registers = withAlwaysSharedRegisters(registers);
     if (!supabase) return false;
     const scope = captureAuthenticatedScope();
     if (!scope) return false;
