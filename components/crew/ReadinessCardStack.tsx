@@ -20,7 +20,7 @@ import { CustomsClearanceCard } from '../passage/CustomsClearanceCard';
 import { isSameCountry } from '../../data/customsDb';
 import { GalleyCard } from '../chat/GalleyCard';
 import { DelegationBadge } from './DelegationBadge';
-import { VesselProfileSummary } from '../passage/VesselProfileSummary';
+import { VesselProfileSummary, type VesselProfileOverride } from '../passage/VesselProfileSummary';
 import { WeatherWindowCard } from '../passage/WeatherWindowCard';
 import { OceanCurrentsCard } from '../passage/OceanCurrentsCard';
 import { type PassageStatus } from '../../services/PassagePlanService';
@@ -74,7 +74,14 @@ interface ReadinessCardStackProps {
     onProvisionedChange?: (v: boolean) => void;
     /** Persist the full ISO departure and its route-derived ETA. */
     onDepartureTimeChange?: (voyageId: string, departureTime: string, eta: string | null) => void;
+    /** Crewing view (2026-10-03): the skipper's boat, shown in place of the account's own vessel. */
+    crewVesselProfile?: VesselProfileOverride | null;
+    /** Replaces the "plan a route / pick a passage" hint (crew do not plan the skipper's routes). */
+    noPassageHint?: string;
 }
+
+/** A passage you don't own whose boat has no profile here (VesselProfileSummary needs a name). */
+const UNKNOWN_SKIPPER_VESSEL: VesselProfileOverride = { name: "The skipper's boat", fullProfile: false };
 
 /* ── Chevron icon reused by all cards ── */
 const ChevronDown = () => (
@@ -275,6 +282,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     onCurrentsChange,
     onProvisionedChange,
     onDepartureTimeChange,
+    crewVesselProfile,
+    noPassageHint,
 }) => {
     const activeVoyage = draftVoyages.find((v) => v.id === selectedPassageId);
     const departPort = activeVoyage?.departure_port;
@@ -290,6 +299,12 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     const canViewRoute = hasVerifiedPassageAccess && passageStatus.canViewRoute;
     const canViewMeals = hasVerifiedPassageAccess && passageStatus.canViewMeals;
     const canViewChecklist = hasVerifiedPassageAccess && passageStatus.canViewChecklist;
+    // Someone else's passage sails on THEIR boat (Shane 2026-10-03: "it
+    // should all pertain to the vessel that the punter has been invited on").
+    // undefined: your own passage, read your own boat. null: a passage you
+    // don't own with no profile of its boat here — never your own boat.
+    const passageVessel: VesselProfileOverride | null | undefined =
+        hasVerifiedPassageAccess && !passageStatus.isOwner ? (crewVesselProfile ?? null) : undefined;
     const [provisioningStatus, setProvisioningStatus] = useState<{ voyageId: string; ready: boolean } | null>(null);
     const provisioningReady =
         canCountReadiness && provisioningStatus?.voyageId === selectedPassageId && provisioningStatus.ready;
@@ -412,9 +427,10 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             {!hasPassage && (
                 <div className="mb-4 rounded-xl border border-white/6 bg-white/2 px-4 py-3 text-center">
                     <p className="text-sm text-gray-400">
-                        {draftVoyages.length === 0
-                            ? 'Plan a route to start ticking off your passage readiness.'
-                            : 'Pick an active passage above to start ticking off your readiness checks.'}
+                        {noPassageHint ??
+                            (draftVoyages.length === 0
+                                ? 'Plan a route to start ticking off your passage readiness.'
+                                : 'Pick an active passage above to start ticking off your readiness checks.')}
                     </p>
                 </div>
             )}
@@ -455,6 +471,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         plannedRouteId={activeVoyage.plannedRouteId}
                         distanceNm={activeVoyage.distanceNm}
                         onDepartureTimeChange={passageStatus.isOwner ? handleActiveDepartureTimeChange : undefined}
+                        allowFloatPlan={passageStatus.isOwner}
+                        passageVessel={passageVessel}
                     />
                 </div>
             )}
@@ -505,6 +523,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             departureTime={activeVoyage?.departure_time}
                             onDepartureTimeChange={passageStatus.isOwner ? handleActiveDepartureTimeChange : undefined}
                             onReviewedChange={onWeatherWindowChange}
+                            vesselOverride={passageVessel}
                         />
                     </CardAccordion>
 
@@ -527,6 +546,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             routeCoordinates={activeVoyage?.routeCoordinates}
                             distanceNM={activeVoyage?.distanceNm}
                             onReviewedChange={onCurrentsChange}
+                            vesselOverride={passageVessel}
                         />
                     </CardAccordion>
                 </details>
@@ -612,6 +632,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                     passageDurationHours={activeVoyage?.durationHours}
                                     voyageName={activeVoyage?.voyage_name || null}
                                     onReviewedChange={onWatchChange}
+                                    readOnly={!passageStatus.isOwner}
                                 />
                             </CardAccordion>
 
@@ -744,7 +765,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         {...delegationProps}
                         {...cardAccordionProps('vessel', 'vessel_profile')}
                     >
-                        <VesselProfileSummary voyageId={selectedPassageId} onReviewedChange={onVesselProfileChange} />
+                        <VesselProfileSummary
+                            voyageId={selectedPassageId}
+                            onReviewedChange={onVesselProfileChange}
+                            vesselOverride={passageVessel === null ? UNKNOWN_SKIPPER_VESSEL : passageVessel}
+                        />
                     </CardAccordion>
 
                     {/* VR-2: ESSENTIAL RESERVES */}

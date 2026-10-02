@@ -45,7 +45,24 @@ vi.mock('../components/passage/PassageRouteMap', () => ({
 }));
 
 vi.mock('../components/passage/SharePassageButton', () => ({
-    default: () => <div data-testid="share-passage" />,
+    default: ({
+        briefData,
+        allowFloatPlan,
+    }: {
+        briefData: { vesselName?: string; speed?: number } | null;
+        allowFloatPlan?: boolean;
+    }) => (
+        <div
+            data-testid="share-passage"
+            data-vessel={briefData?.vesselName ?? ''}
+            data-speed={String(briefData?.speed)}
+            data-float-plan={String(allowFloatPlan)}
+        />
+    ),
+}));
+
+const settingsState = vi.hoisted(() => ({
+    value: { vessel: { name: 'Kestrel', cruisingSpeed: 6 } } as { vessel: { name: string; cruisingSpeed: number } },
 }));
 
 vi.mock('../components/TrackMapViewer', () => ({
@@ -53,7 +70,7 @@ vi.mock('../components/TrackMapViewer', () => ({
 }));
 
 vi.mock('../context/SettingsContext', () => ({
-    useSettings: () => ({ settings: { vessel: { cruisingSpeed: 6 } } }),
+    useSettings: () => ({ settings: settingsState.value }),
 }));
 
 vi.mock('../hooks/useReadinessSync', () => ({
@@ -150,5 +167,43 @@ describe('PassageSummaryCard route title', () => {
         const [departureIso, etaIso] = onDepartureTimeChange.mock.calls[0];
         expect(Date.parse(etaIso) - Date.parse(departureIso)).toBeGreaterThan(18 * 3_600_000);
         expect(Date.parse(etaIso) - Date.parse(departureIso)).toBeLessThan(20 * 3_600_000);
+    });
+
+    it("on the skipper's passage, the brief and the timings are the skipper's boat, never your own", () => {
+        // Your own boat is fast, and your own chart happens to hold the same run.
+        settingsState.value = { vessel: { name: 'Kestrel', cruisingSpeed: 12 } };
+        passageState.value = { ...passageState.value, hasRoute: true, vesselName: 'Kestrel' };
+        const routeCoordinates = [
+            { lat: -27, lon: 153 },
+            { lat: -26, lon: 153 },
+            { lat: -26, lon: 154 },
+        ];
+        const props = {
+            voyageId: 'skipper-passage',
+            departPort: 'Start',
+            destPort: 'Finish',
+            departureTime: '2099-01-01T01:00:00.000Z',
+            routeCoordinates,
+            allowFloatPlan: false,
+        };
+        try {
+            const { unmount } = render(
+                <PassageSummaryCard {...props} passageVessel={{ name: 'Wandering Albatross', cruisingSpeed: 8 }} />,
+            );
+            const share = screen.getByTestId('share-passage');
+            expect(share).toHaveAttribute('data-vessel', 'Wandering Albatross');
+            expect(share).toHaveAttribute('data-speed', '8');
+            expect(share).toHaveAttribute('data-float-plan', 'false');
+            expect(screen.getByText(/14h/)).toBeInTheDocument();
+            unmount();
+
+            // No profile of the skipper's boat yet: no boat name, the default speed.
+            render(<PassageSummaryCard {...props} passageVessel={null} />);
+            expect(screen.getByTestId('share-passage')).toHaveAttribute('data-vessel', '');
+            expect(screen.getByTestId('share-passage')).toHaveAttribute('data-speed', '6');
+            expect(screen.getByText(/19h/)).toBeInTheDocument();
+        } finally {
+            settingsState.value = { vessel: { name: 'Kestrel', cruisingSpeed: 6 } };
+        }
     });
 });

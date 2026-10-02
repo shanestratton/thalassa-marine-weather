@@ -66,6 +66,15 @@ interface PassageSummaryCardProps {
     plannedRouteId?: string;
     /** Called with the full, now-safe ISO departure and its derived ETA. */
     onDepartureTimeChange?: (departureTime: string, eta: string | null) => void;
+    /** False on a passage the viewer does not own: the float plan is the skipper's (2026-10-03). */
+    allowFloatPlan?: boolean;
+    /**
+     * The boat this passage sails on, when it is not the viewer's own (the
+     * crewing view, 2026-10-03): the skipper's, or null when there is no
+     * profile of it here. It names the shared brief and paces the duration
+     * estimate. Omitted: the viewer's own vessel profile.
+     */
+    passageVessel?: { name?: string; cruisingSpeed?: number } | null;
 }
 
 /**
@@ -251,6 +260,8 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     routeCoordinates,
     plannedRouteId,
     onDepartureTimeChange,
+    allowFloatPlan = true,
+    passageVessel,
 }) => {
     const identityScope = useReadinessIdentityScope();
     const passage = usePassageStore();
@@ -263,6 +274,10 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     // boat's cruising speed in Settings → Vessel Profile and this card
     // re-derives the displayed duration on the next render.
     const { settings } = useSettings();
+    // Someone else's passage is paced and named by THEIR boat, never yours.
+    const foreignBoat = passageVessel !== undefined;
+    const cruisingSpeedKt = foreignBoat ? passageVessel?.cruisingSpeed : settings.vessel?.cruisingSpeed;
+    const foreignBoatName = passageVessel?.name?.trim() || undefined;
 
     // A full ISO override keeps the native time picker, ETA, weather samples,
     // and persisted voyage in the same timezone-safe representation. The old
@@ -647,10 +662,10 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 routeCoordinates: savedRoutePoints,
                 fallbackDistanceNm,
                 departureTime: candidateDeparture,
-                cruisingSpeedKt: settings.vessel?.cruisingSpeed,
+                cruisingSpeedKt,
                 now,
             }),
-        [fallbackDistanceNm, savedRoutePoints, settings.vessel?.cruisingSpeed],
+        [fallbackDistanceNm, savedRoutePoints, cruisingSpeedKt],
     );
     const now = useMemo(() => new Date(clockMs), [clockMs]);
     const passageSchedule = useMemo(
@@ -756,7 +771,11 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             totalDistanceNM: effectiveDistance,
             estimatedDuration: passageSchedule.durationHours ?? 0,
             speed: passageSchedule.cruisingSpeedKt,
-            vesselName: passageMatchesVoyage ? (passage.vesselName ?? undefined) : settings.vessel?.name,
+            vesselName: foreignBoat
+                ? foreignBoatName
+                : passageMatchesVoyage
+                  ? (passage.vesselName ?? undefined)
+                  : settings.vessel?.name,
             turnWaypoints: shareTurnWaypoints.map((wp) => ({
                 name: wp.name,
                 lat: wp.lat,
@@ -781,6 +800,8 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         passage.turnWaypoints,
         passage.vesselName,
         settings.vessel?.name,
+        foreignBoat,
+        foreignBoatName,
     ]);
 
     // Difficulty summary
@@ -810,7 +831,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                     )}
                 </div>
                 {/* Share button */}
-                {briefData && <SharePassageButton briefData={briefData} className="shrink-0" />}
+                {briefData && (
+                    <SharePassageButton briefData={briefData} className="shrink-0" allowFloatPlan={allowFloatPlan} />
+                )}
             </div>
 
             {/* ── Route Map ──

@@ -134,6 +134,10 @@ import { useTripRoute } from '../hooks/useTripRoute';
 import { type MetricChipData, type SkipperDeviceControlProps, type VesselHubProps } from './vesselHub/types';
 import { useGuardianTileState } from './vesselHub/useGuardianTileState';
 import { usePendingCrewInvites } from './vesselHub/usePendingCrewInvites';
+import { useCrewingVessel } from '../hooks/useCrewingVessel';
+import { useCrewVesselView } from '../hooks/useCrewVesselView';
+import { crewVesselAboard, crewVesselName } from '../services/crew/crewVesselView';
+import { SKIPPER_BOAT_FALLBACK } from './vessel/SharedBinderLine';
 import { useTripLogActive } from './vesselHub/useTripLogActive';
 
 // The four pinned navigation-station controls are operational safety tools,
@@ -560,9 +564,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const passageVessel = (ctx as { vessel?: { crewCount?: number } }).vessel;
     const crewCountSet = typeof passageVessel?.crewCount === 'number' && Number.isFinite(passageVessel.crewCount);
     const configuredPassageCrewCount = crewCountSet ? vesselCrewAboard(passageVessel) : 0;
+    // Crewing on a skipper's boat (2026-10-03): the row names that boat and
+    // counts its people, from the cached crew view, not the account's own crew.
+    const { vessel: crewingVessel } = useCrewingVessel();
+    const crewingOwnerId = authenticatedUserId ? (crewingVessel?.ownerId ?? null) : null;
+    const { view: crewingBoatView } = useCrewVesselView(crewingOwnerId, 0, { live: false });
     const loadPassageCrew = useCallback(async () => {
         const scope = getAuthIdentityScope();
-        if (scope.userId !== authenticatedUserId) return;
+        if (scope.userId !== authenticatedUserId || crewingOwnerId) return;
         try {
             const c = await getMyCrew();
             if (!isAuthIdentityScopeCurrent(scope)) return;
@@ -573,11 +582,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         } catch {
             /* offline — keep previous count */
         }
-    }, [authenticatedUserId, configuredPassageCrewCount]);
+    }, [authenticatedUserId, configuredPassageCrewCount, crewingOwnerId]);
     useEffect(() => {
         setPassageCrewCount(0);
         void loadPassageCrew();
     }, [loadPassageCrew]);
+    const passageCrewCountShown = crewingOwnerId ? (crewVesselAboard(crewingBoatView) ?? 0) : passageCrewCount;
+    const crewingBoatName = crewingOwnerId
+        ? crewVesselName(crewingVessel?.vesselName, crewingBoatView) || SKIPPER_BOAT_FALLBACK
+        : null;
     useRealtimeSync('vessel_crew', loadPassageCrew);
 
     // ── Saved-route library count ──
@@ -1443,10 +1456,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         status={
                             pendingCrewInvites > 0
                                 ? `${pendingCrewInvites} crew ${pendingCrewInvites === 1 ? 'invite' : 'invites'} pending`
-                                : 'Readiness checks & cast off'
+                                : crewingBoatName
+                                  ? `Crewing on ${crewingBoatName}`
+                                  : 'Readiness checks & cast off'
                         }
                         statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                        value={passageCrewCount > 0 ? `${passageCrewCount} crew` : undefined}
+                        value={passageCrewCountShown > 0 ? `${passageCrewCountShown} crew` : undefined}
                         valueColor="#e2e8f0"
                         onClick={() => {
                             triggerHaptic('light');

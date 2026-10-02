@@ -97,4 +97,28 @@ describe('VesselProfileSummary passage confirmation', () => {
             'true',
         );
     });
+
+    it("on the skipper's boat, a profile not available yet reads neutrally and never sends crew to chase the skipper", () => {
+        render(
+            <VesselProfileSummary
+                voyageId="skipper-passage"
+                vesselOverride={{ name: 'Wandering Albatross', type: 'sail', fullProfile: false }}
+            />,
+        );
+        expect(screen.getByText('Wandering Albatross')).toBeInTheDocument();
+        expect(screen.getByText(/full profile isn.t available yet/i)).toBeInTheDocument();
+        expect(screen.queryByText(/ask the skipper/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Serene Summer/)).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /confirm vessel/i })).not.toBeInTheDocument();
+    });
+
+    it("the skipper's full profile without a cruising speed still says so", () => {
+        render(
+            <VesselProfileSummary
+                voyageId="skipper-passage"
+                vesselOverride={{ name: 'Wandering Albatross', type: 'sail', fullProfile: true }}
+            />,
+        );
+        expect(screen.getByText(/has no cruising speed yet/i)).toBeInTheDocument();
+    });
 });

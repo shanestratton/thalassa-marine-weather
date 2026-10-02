@@ -14,6 +14,7 @@ import {
     isWeatherWindowResultAcceptable,
     type WeatherWindowResult,
     type DepartureWindow,
+    type WeatherWindowVessel,
 } from '../../services/WeatherWindowService';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
@@ -51,6 +52,12 @@ interface WeatherWindowCardProps {
     /** Parent-owned route scheduler; receives the accepted full ISO time. */
     onDepartureTimeChange?: (departureTime: string, eta?: string | null) => void;
     onReviewedChange?: (ready: boolean) => void;
+    /**
+     * The boat this passage sails on, when it is not the viewer's own (the
+     * crewing view, 2026-10-03): the skipper's, or null when there is no
+     * profile of it here. Omitted: the viewer's own vessel profile.
+     */
+    vesselOverride?: WeatherWindowVessel | null;
 }
 
 const STORAGE_KEY = 'thalassa_accepted_window';
@@ -91,6 +98,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     departureTime,
     onDepartureTimeChange,
     onReviewedChange,
+    vesselOverride,
 }) => {
     const identityScope = useReadinessIdentityScope();
     // Resolve the chosen departure date — priority order:
@@ -142,6 +150,40 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     const [showAll, setShowAll] = useState(false);
     const [freshnessNowMs, setFreshnessNowMs] = useState(() => Date.now());
     const { settings } = useSettings();
+    // The boat being scored: the skipper's on a passage you don't own, never
+    // your own (2026-10-03). Keyed on its fields, so a parent re-minting the
+    // same boat never re-runs the analysis.
+    const ownVessel = settings.vessel;
+    const hasOverride = vesselOverride !== undefined;
+    const overrideType = vesselOverride?.type;
+    const overrideSpeed = vesselOverride?.cruisingSpeed;
+    const overrideMaxWind = vesselOverride?.maxWindSpeed;
+    const overrideMaxWave = vesselOverride?.maxWaveHeight;
+    const overrideLength = vesselOverride?.length;
+    const overrideHullType = vesselOverride?.hullType;
+    const overrideKnown = vesselOverride !== null;
+    const scoredVessel = useMemo<WeatherWindowVessel | null | undefined>(() => {
+        if (!hasOverride) return undefined;
+        if (!overrideKnown) return null;
+        return {
+            type: overrideType,
+            cruisingSpeed: overrideSpeed,
+            maxWindSpeed: overrideMaxWind,
+            maxWaveHeight: overrideMaxWave,
+            length: overrideLength,
+            hullType: overrideHullType,
+        };
+    }, [
+        hasOverride,
+        overrideKnown,
+        overrideType,
+        overrideSpeed,
+        overrideMaxWind,
+        overrideMaxWave,
+        overrideLength,
+        overrideHullType,
+    ]);
+    const vessel: WeatherWindowVessel | null | undefined = hasOverride ? scoredVessel : ownVessel;
 
     // Determine departure coordinates
     const lat = departure?.lat ?? null;
@@ -168,20 +210,14 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         () =>
             passageDataFingerprint('weather-window-vessel-inputs', {
                 vessel: {
-                    type: settings.vessel?.type,
-                    cruisingSpeedKts: settings.vessel?.cruisingSpeed,
-                    maxWindKts: settings.vessel?.maxWindSpeed,
-                    maxWaveHeight: settings.vessel?.maxWaveHeight,
+                    type: vessel?.type,
+                    cruisingSpeedKts: vessel?.cruisingSpeed,
+                    maxWindKts: vessel?.maxWindSpeed,
+                    maxWaveHeight: vessel?.maxWaveHeight,
                 },
                 comfort: settings.comfortParams,
             }),
-        [
-            settings.vessel?.type,
-            settings.vessel?.cruisingSpeed,
-            settings.vessel?.maxWindSpeed,
-            settings.vessel?.maxWaveHeight,
-            settings.comfortParams,
-        ],
+        [vessel?.type, vessel?.cruisingSpeed, vessel?.maxWindSpeed, vessel?.maxWaveHeight, settings.comfortParams],
     );
     const analysisInputFingerprint = useMemo(
         () =>
@@ -258,7 +294,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         setLoading(true);
         setError(null);
         try {
-            const data = await WeatherWindowService.analyse(lat, lon, voyageId, courseBearing);
+            const data = await WeatherWindowService.analyse(lat, lon, voyageId, courseBearing, scoredVessel);
             if (!isOperationCurrent()) return;
             setResult(data);
             setResultInputFingerprint(analysisInputFingerprint);
@@ -269,7 +305,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         } finally {
             if (isOperationCurrent()) setLoading(false);
         }
-    }, [identityScope, lat, lon, voyageId, courseBearing, analysisInputFingerprint]);
+    }, [identityScope, lat, lon, voyageId, courseBearing, analysisInputFingerprint, scoredVessel]);
 
     // Auto-analyse on mount
     useEffect(() => {
@@ -288,10 +324,10 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                   departureIso: new Date(acceptedWindow.time).toISOString(),
                   routeFingerprint,
                   vessel: {
-                      type: settings.vessel?.type,
-                      cruisingSpeedKts: settings.vessel?.cruisingSpeed,
-                      maxWindKts: settings.vessel?.maxWindSpeed,
-                      maxWaveHeight: settings.vessel?.maxWaveHeight,
+                      type: vessel?.type,
+                      cruisingSpeedKts: vessel?.cruisingSpeed,
+                      maxWindKts: vessel?.maxWindSpeed,
+                      maxWaveHeight: vessel?.maxWaveHeight,
                   },
                   comfort: settings.comfortParams ?? {},
                   analysisContextFingerprint: result.analysisContextFingerprint,
@@ -377,10 +413,10 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                     departureIso: newDepartureIso,
                     routeFingerprint,
                     vessel: {
-                        type: settings.vessel?.type,
-                        cruisingSpeedKts: settings.vessel?.cruisingSpeed,
-                        maxWindKts: settings.vessel?.maxWindSpeed,
-                        maxWaveHeight: settings.vessel?.maxWaveHeight,
+                        type: vessel?.type,
+                        cruisingSpeedKts: vessel?.cruisingSpeed,
+                        maxWindKts: vessel?.maxWindSpeed,
+                        maxWaveHeight: vessel?.maxWaveHeight,
                     },
                     comfort: settings.comfortParams ?? {},
                     analysisContextFingerprint: result.analysisContextFingerprint,
@@ -436,7 +472,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             resultMatchesInputs,
             result,
             routeFingerprint,
-            settings.vessel,
+            vessel,
             settings.comfortParams,
             setAcceptance,
             voyageId,

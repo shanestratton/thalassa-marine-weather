@@ -36,6 +36,12 @@ interface OceanCurrentsCardProps {
     distanceNM?: number;
     activeVoyage?: Voyage | null;
     onReviewedChange?: (ready: boolean) => void;
+    /**
+     * The boat this passage sails on, when it is not the viewer's own (the
+     * crewing view, 2026-10-03): the skipper's, or null when there is no
+     * profile of it here. Omitted: the viewer's own vessel profile.
+     */
+    vesselOverride?: { cruisingSpeed?: number } | null;
 }
 
 const STORAGE_KEY = 'thalassa_currents_ack';
@@ -47,6 +53,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     routeCoordinates,
     distanceNM,
     onReviewedChange,
+    vesselOverride,
 }) => {
     const identityScope = useReadinessIdentityScope();
     const [briefing, setBriefing] = useState<CurrentBriefing | null>(null);
@@ -76,10 +83,11 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     // Reads from settings.vessel (canonical store from onboarding) —
     // was reading from VesselProfileService.load() which lived in a
     // separate localStorage key and could diverge from the user's
-    // actual vessel profile.
+    // actual vessel profile. On a passage you don't own it is the skipper's
+    // boat, never your own (2026-10-03).
     const dist = distanceNM ?? (hasCoords ? calculateDistance(depLat!, depLon!, destLat!, destLon!) : 0);
     const { settings } = useSettings();
-    const speed = settings.vessel?.cruisingSpeed || 6;
+    const speed = (vesselOverride !== undefined ? vesselOverride?.cruisingSpeed : settings.vessel?.cruisingSpeed) || 6;
     const routeFingerprint = useMemo(
         () => passageRouteFingerprint(routeCoordinates, departure, destination),
         [routeCoordinates, departure, destination],

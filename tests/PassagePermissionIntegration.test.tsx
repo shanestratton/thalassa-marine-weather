@@ -9,13 +9,27 @@ vi.mock('../data/customsDb', () => ({
     isSameCountry: vi.fn(() => false),
 }));
 
+/** What a mocked card was told about the boat: 'own' (undefined), 'unknown' (null) or the boat's name. */
+const { boatOf } = vi.hoisted(() => ({
+    boatOf: (vessel: { name?: string } | null | undefined) =>
+        vessel === undefined ? 'own' : vessel === null ? 'unknown' : (vessel.name ?? ''),
+}));
+
 vi.mock('../components/passage/PassageSummaryCard', () => ({
     PassageSummaryCard: ({
         onDepartureTimeChange,
+        passageVessel,
+        allowFloatPlan,
     }: {
         onDepartureTimeChange?: (departureTime: string, eta: string | null) => void;
+        passageVessel?: { name?: string } | null;
+        allowFloatPlan?: boolean;
     }) => (
-        <div data-testid="passage-summary-card">
+        <div
+            data-testid="passage-summary-card"
+            data-boat={boatOf(passageVessel)}
+            data-float-plan={String(allowFloatPlan)}
+        >
             Passage summary
             <button
                 type="button"
@@ -28,13 +42,25 @@ vi.mock('../components/passage/PassageSummaryCard', () => ({
     ),
 }));
 vi.mock('../components/passage/WeatherWindowCard', () => ({
-    WeatherWindowCard: () => <div data-testid="weather-window-card">Weather window</div>,
+    WeatherWindowCard: ({ vesselOverride }: { vesselOverride?: { name?: string } | null }) => (
+        <div data-testid="weather-window-card" data-boat={boatOf(vesselOverride)}>
+            Weather window
+        </div>
+    ),
 }));
 vi.mock('../components/passage/OceanCurrentsCard', () => ({
-    OceanCurrentsCard: () => <div data-testid="ocean-currents-card">Ocean currents</div>,
+    OceanCurrentsCard: ({ vesselOverride }: { vesselOverride?: { name?: string } | null }) => (
+        <div data-testid="ocean-currents-card" data-boat={boatOf(vesselOverride)}>
+            Ocean currents
+        </div>
+    ),
 }));
 vi.mock('../components/passage/WatchScheduleCard', () => ({
-    WatchScheduleCard: () => <div data-testid="watch-schedule-card">Watch schedule</div>,
+    WatchScheduleCard: ({ readOnly }: { readOnly?: boolean }) => (
+        <div data-testid="watch-schedule-card" data-read-only={String(Boolean(readOnly))}>
+            Watch schedule
+        </div>
+    ),
 }));
 vi.mock('../components/passage/CustomsClearanceCard', () => ({
     CustomsClearanceCard: () => <div data-testid="customs-card">Customs</div>,
@@ -47,8 +73,19 @@ vi.mock('../components/passage/AidToNavigationCard', () => ({
     ),
 }));
 vi.mock('../components/passage/VesselProfileSummary', () => ({
-    VesselProfileSummary: ({ voyageId }: { voyageId?: string }) => (
-        <div data-testid="vessel-profile-card" data-voyage-id={voyageId}>
+    VesselProfileSummary: ({
+        voyageId,
+        vesselOverride,
+    }: {
+        voyageId?: string;
+        vesselOverride?: { name?: string; fullProfile?: boolean } | null;
+    }) => (
+        <div
+            data-testid="vessel-profile-card"
+            data-voyage-id={voyageId}
+            data-boat={boatOf(vesselOverride ?? undefined)}
+            data-full-profile={String(vesselOverride?.fullProfile)}
+        >
             Vessel profile
         </div>
     ),
@@ -355,6 +392,50 @@ describe('passage permission integration', () => {
         expect(screen.getByTestId('navigation-card')).toBeInTheDocument();
         expect(screen.getByTestId('vessel-profile-card')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /assign/i })).not.toBeInTheDocument();
+    });
+
+    it("on a passage you don't own, every card reads the skipper's boat and the watch bill is read-only", () => {
+        const crewStatus: PassageStatus = { ...ownerStatus, isOwner: false, canEditStores: false };
+        const skipperBoat = { name: 'Wandering Albatross', cruisingSpeed: 6.5, fullProfile: true };
+        renderStack(crewStatus, [], { crewVesselProfile: skipperBoat });
+
+        for (const card of [
+            'passage-summary-card',
+            'weather-window-card',
+            'ocean-currents-card',
+            'vessel-profile-card',
+        ]) {
+            expect(screen.getByTestId(card)).toHaveAttribute('data-boat', 'Wandering Albatross');
+        }
+        expect(screen.getByTestId('passage-summary-card')).toHaveAttribute('data-float-plan', 'false');
+        expect(screen.getByTestId('watch-schedule-card')).toHaveAttribute('data-read-only', 'true');
+    });
+
+    it("with no profile of the skipper's boat yet, cards never fall back to your own boat", () => {
+        renderStack({ ...ownerStatus, isOwner: false, canEditStores: false });
+
+        for (const card of ['passage-summary-card', 'weather-window-card', 'ocean-currents-card']) {
+            expect(screen.getByTestId(card)).toHaveAttribute('data-boat', 'unknown');
+        }
+        // The profile card names no boat of yours, and says the full profile is not here.
+        expect(screen.getByTestId('vessel-profile-card')).not.toHaveAttribute('data-boat', 'own');
+        expect(screen.getByTestId('vessel-profile-card')).toHaveAttribute('data-full-profile', 'false');
+        expect(screen.getByTestId('watch-schedule-card')).toHaveAttribute('data-read-only', 'true');
+    });
+
+    it('your own passage reads your own boat and keeps the watch bill editable', () => {
+        renderStack(ownerStatus, [], { crewVesselProfile: { name: 'Wandering Albatross' } });
+
+        for (const card of [
+            'passage-summary-card',
+            'weather-window-card',
+            'ocean-currents-card',
+            'vessel-profile-card',
+        ]) {
+            expect(screen.getByTestId(card)).toHaveAttribute('data-boat', 'own');
+        }
+        expect(screen.getByTestId('passage-summary-card')).toHaveAttribute('data-float-plan', 'true');
+        expect(screen.getByTestId('watch-schedule-card')).toHaveAttribute('data-read-only', 'false');
     });
 
     it('rejects an otherwise valid grant when it belongs to a different voyage', () => {

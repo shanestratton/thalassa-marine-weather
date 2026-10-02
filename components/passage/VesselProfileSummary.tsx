@@ -26,11 +26,37 @@ import { useSettings } from '../../context/SettingsContext';
 import { useReadinessSync, useScopedReadinessStorageState } from '../../hooks/useReadinessSync';
 import { ftToM, ktsToKmh, ktsToMph, ktsToMps } from '../../utils/units';
 
+/**
+ * The skipper's boat, for crew on the skipper's passage (the crewing view,
+ * 2026-10-03), in place of the crew member's own settings.vessel. Lengths in
+ * feet and speed in knots, like settings.vessel.
+ */
+export interface VesselProfileOverride {
+    name: string;
+    type?: string;
+    length?: number;
+    draft?: number;
+    cruisingSpeed?: number;
+    /** The boat's own limits, for Weather Windows on the skipper's passage. */
+    maxWindSpeed?: number;
+    maxWaveHeight?: number;
+    hullType?: string;
+    units?: { length?: string; draft?: string } | null;
+    /**
+     * False while only the degraded brief (or nothing) is here: the skipper's
+     * full profile is not available yet, so a missing cruising speed is not
+     * the skipper's to fix.
+     */
+    fullProfile?: boolean;
+}
+
 interface VesselProfileSummaryProps {
     /** The confirmation is deliberately scoped to this one passage. */
     voyageId?: string;
     /** Crew/Passage Intelligence receives the real per-passage readiness. */
     onReviewedChange?: (ready: boolean) => void;
+    /** Show this boat (the skipper's) instead of the account's own vessel. */
+    vesselOverride?: VesselProfileOverride | null;
 }
 
 const STORAGE_KEY = 'thalassa_vessel_profile_confirmation';
@@ -60,9 +86,16 @@ const fmt1 = (n: number) => {
     return Number.isInteger(r) ? r.toString() : r.toFixed(1);
 };
 
-export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voyageId, onReviewedChange }) => {
+export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({
+    voyageId,
+    onReviewedChange,
+    vesselOverride,
+}) => {
     const { settings } = useSettings();
-    const vessel = settings.vessel;
+    const vessel: VesselProfileOverride | undefined = vesselOverride ?? settings.vessel;
+    const lengthUnits: { length?: string; draft?: string } = vesselOverride
+        ? (vesselOverride.units ?? {})
+        : (settings.vesselUnits ?? {});
     const profileComplete = !!vessel && !!vessel.name && !!vessel.cruisingSpeed;
     const [confirmation, setConfirmation] = useScopedReadinessStorageState<Record<string, boolean>>(
         STORAGE_KEY,
@@ -122,7 +155,7 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voya
         ? (() => {
               const { value, unit } = lengthInUnit(
                   vessel.length,
-                  settings.vesselUnits?.length || settings.units?.length || 'ft',
+                  (lengthUnits.length as 'ft' | 'm' | undefined) || settings.units?.length || 'ft',
               );
               return `${fmtInt(value)} ${unit}`;
           })()
@@ -132,7 +165,7 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voya
         ? (() => {
               const { value, unit } = lengthInUnit(
                   vessel.draft,
-                  settings.vesselUnits?.draft || settings.units?.length || 'ft',
+                  (lengthUnits.draft as 'ft' | 'm' | undefined) || settings.units?.length || 'ft',
               );
               return `${fmt1(value)} ${unit} draft`;
           })()
@@ -158,8 +191,9 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voya
                     </div>
                 </div>
                 <p className="mt-3 text-[11px] text-emerald-300/60">
-                    The isochrone router uses this vessel's polar / cruising speed / draft / comfort caps. Edit in
-                    Settings → Vessel Profile to change.
+                    {vesselOverride
+                        ? `${vessel.name}'s profile, from the skipper.`
+                        : "The isochrone router uses this vessel's polar / cruising speed / draft / comfort caps. Edit in Settings → Vessel Profile to change."}
                 </p>
             </div>
 
@@ -187,8 +221,11 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ voya
                 </button>
             ) : (
                 <p className="rounded-xl border border-amber-500/20 bg-amber-500/6 px-4 py-3 text-[11px] text-amber-200/80">
-                    Complete the vessel name and cruising speed in Settings → Vessel Profile before confirming it for
-                    this passage.
+                    {vesselOverride
+                        ? vesselOverride.fullProfile === false
+                            ? `${vessel.name}'s full profile isn't available yet, so it can't be confirmed here.`
+                            : `${vessel.name}'s profile has no cruising speed yet — ask the skipper to finish it.`
+                        : 'Complete the vessel name and cruising speed in Settings → Vessel Profile before confirming it for this passage.'}
                 </p>
             )}
         </div>

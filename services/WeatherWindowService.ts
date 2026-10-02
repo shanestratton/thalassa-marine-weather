@@ -251,10 +251,25 @@ function scoreWindow(
  * would make the maxWind > comfort.maxWindKts comparison evaluate to
  * `> undefined` = false, masking real wind penalties).
  */
-function loadScoringComfort(): WeatherWindowScoringComfort {
+/**
+ * The boat a window is scored for. Omitted: the account's own settings.vessel.
+ * Given (the crewing view, 2026-10-03): that boat, the skipper's, so crew on
+ * a skipper's passage are never scored against their own boat's limits. Null:
+ * someone else's boat with no profile here, so only the comfort caps apply.
+ */
+export interface WeatherWindowVessel {
+    type?: string;
+    cruisingSpeed?: number;
+    maxWindSpeed?: number;
+    maxWaveHeight?: number;
+    length?: number;
+    hullType?: string;
+}
+
+function loadScoringComfort(vessel?: WeatherWindowVessel | null): WeatherWindowScoringComfort {
     try {
         const settings = useSettingsStore.getState().settings;
-        const v = settings.vessel;
+        const v = vessel === undefined ? settings.vessel : vessel;
         const c: ComfortParams = settings.comfortParams ?? {};
         const tightWind =
             v?.maxWindSpeed != null && c.maxWindKts != null
@@ -310,9 +325,17 @@ export const WeatherWindowService = {
      *   from the canonical settings.comfortParams + vessel profile,
      *   so the voyageId is no longer used here).
      * @param courseBearing — Bearing to destination (degrees)
+     * @param vessel — The boat to score for (see WeatherWindowVessel);
+     *   omitted means the account's own vessel profile.
      */
-    async analyse(lat: number, lon: number, _voyageId?: string, courseBearing?: number): Promise<WeatherWindowResult> {
-        const comfort = loadScoringComfort();
+    async analyse(
+        lat: number,
+        lon: number,
+        _voyageId?: string,
+        courseBearing?: number,
+        vessel?: WeatherWindowVessel | null,
+    ): Promise<WeatherWindowResult> {
+        const comfort = loadScoringComfort(vessel);
         const analysisContextFingerprint = passageDataFingerprint('weather-window-context', {
             lat,
             lon,

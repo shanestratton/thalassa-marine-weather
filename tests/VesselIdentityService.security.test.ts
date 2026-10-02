@@ -45,6 +45,7 @@ vi.mock('../utils/createLogger', () => ({
 }));
 
 import {
+    fetchVesselIdentityForOwner,
     fetchVesselNameForOwner,
     getCachedIdentity,
     saveIdentity,
@@ -473,6 +474,44 @@ describe('fetchVesselNameForOwner (Crew Chat card, 2026-10-02)', () => {
         setAuthIdentityScope('user-2');
         read.resolve({ data: { owner_id: 'skipper-1', vessel_name: 'Albatross' }, error: null });
 
+        await expect(pending).resolves.toBeNull();
+    });
+});
+
+// The crewing view's degraded mode (2026-10-03): until get_crew_vessel_view is
+// pushed, the boat's identification for a Mayday comes from the skipper's
+// vessel_identity row, which RLS answers only for accepted crew.
+describe('fetchVesselIdentityForOwner (crewing view fallback, 2026-10-03)', () => {
+    it("parses the named skipper's identity and never writes the identity cache", async () => {
+        cacheRecord(USER_ID, 'owner', identity(USER_ID, { vessel_name: 'Kestrel' }));
+        const row = { ...identity('skipper-1', { vessel_name: 'Albatross' }), call_sign: null };
+        const identityQuery = query({ data: row, error: null });
+        const client = installClient({ vessel_identity: [identityQuery] });
+
+        const result = await fetchVesselIdentityForOwner('skipper-1');
+        expect(result).toMatchObject({ owner_id: 'skipper-1', vessel_name: 'Albatross', call_sign: '' });
+        expect(client.from).toHaveBeenCalledWith('vessel_identity');
+        expect(identityQuery.eq).toHaveBeenCalledWith('owner_id', 'skipper-1');
+        expect(getCachedIdentity()?.vessel_name).toBe('Kestrel');
+    });
+
+    it.each([
+        ['another owner', { data: identity('someone-else'), error: null }],
+        ['no row (not accepted crew)', { data: null, error: null }],
+        ['an error', { data: null, error: { message: 'denied' } }],
+    ])('returns null for %s', async (_label, result) => {
+        installClient({ vessel_identity: [query(result)] });
+        await expect(fetchVesselIdentityForOwner('skipper-1')).resolves.toBeNull();
+    });
+
+    it('discards an identity that arrives after an account switch', async () => {
+        const read = deferred<QueryResult>();
+        const identityQuery = query(read.promise);
+        installClient({ vessel_identity: [identityQuery] });
+        const pending = fetchVesselIdentityForOwner('skipper-1');
+        await vi.waitFor(() => expect(identityQuery.maybeSingle).toHaveBeenCalled());
+        setAuthIdentityScope('user-2');
+        read.resolve({ data: identity('skipper-1'), error: null });
         await expect(pending).resolves.toBeNull();
     });
 });
