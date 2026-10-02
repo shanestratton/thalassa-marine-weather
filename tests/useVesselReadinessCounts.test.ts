@@ -39,7 +39,14 @@ vi.mock('../services/vessel/LocalEquipmentService', () => ({
 }));
 
 const syncListeners = vi.hoisted(
-    () => [] as ((result: { pushed: number; pulled: number; errors: string[]; discardedShared?: number }) => void)[],
+    () =>
+        [] as ((result: {
+            pushed: number;
+            pulled: number;
+            errors: string[];
+            discardedShared?: number;
+            pruned?: number;
+        }) => void)[],
 );
 vi.mock('../services/vessel/SyncService', () => ({
     onSyncComplete: (listener: (typeof syncListeners)[number]) => {
@@ -194,5 +201,16 @@ describe('useVesselReadinessCounts', () => {
 
         act(() => syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 3, errors: [] })));
         await waitFor(() => expect(result.current.expiringDocsCount).toBe(0));
+    });
+
+    it('refetches after a sync that only pruned rows: an overdue task deleted on another device', async () => {
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+        await waitFor(() => expect(syncListeners.length).toBeGreaterThan(0));
+
+        maintTasks = [];
+        cloudTasks = [];
+        act(() => syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 0, pruned: 1, errors: [] })));
+        await waitFor(() => expect(result.current.overdueCount).toBe(0));
     });
 });

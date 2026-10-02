@@ -59,6 +59,8 @@ vi.mock('../services/vessel/LocalMaintenanceService', () => ({
 }));
 vi.mock('../services/vessel/LocalDatabase', () => ({
     initLocalDatabase: vi.fn().mockResolvedValue(undefined),
+    // R&M seeds only after the account's first full pull on this device.
+    getSyncMeta: () => ({ lastFullPullTimestamp: '2026-10-02T00:00:00.000Z' }),
 }));
 vi.mock('../services/MaintenancePdfService', () => ({
     exportChecklist: vi.fn(),

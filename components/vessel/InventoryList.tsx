@@ -88,11 +88,14 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     const [exportMode, setExportMode] = useState<'download' | 'share'>('download');
 
     // ── Load data ──
-    const loadItems = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope()) => {
+    const loadItems = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope(), background = false) => {
         if (!isAuthIdentityScopeCurrent(identity)) return;
         const requestId = ++loadRequestRef.current;
         const isCurrentRequest = () => requestId === loadRequestRef.current && isAuthIdentityScopeCurrent(identity);
-        setLoading(true);
+        // A background reload (a change from another device, a sync) keeps
+        // the list on screen: the shimmer would collapse it and lose the
+        // reader's scroll position every time the other device saved.
+        if (!background) setLoading(true);
         try {
             // Auth scope changes before LocalDatabase starts its asynchronous
             // file switch. Join that exact switch before any synchronous read,
@@ -124,18 +127,22 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         }
     }, []);
 
+    const reloadInBackground = useCallback(() => void loadItems(getAuthIdentityScope(), true), [loadItems]);
+
     useEffect(() => {
         loadItems();
     }, [loadItems]);
 
-    // Realtime sync — crew edits appear instantly
-    useRealtimeSync('inventory_items', loadItems);
+    // Live across devices: a change saved on another device (or by crew on a
+    // shared binder) lands here within seconds. RLS decides which rows the
+    // socket delivers; the binder read decides which of them this page shows.
+    useRealtimeSync('inventory_items', reloadInBackground);
 
     // Whose stores these are (shared binders, 2026-10-02): the skipper's while
     // this sailor is crew on a boat that shares Ship's Stores. Nobody deletes
     // from a skipper's stores, and a view-only share hides every edit.
     const { source: binder, fetchingSkipperBinder } = useBinderSource('stores', {
-        reload: () => void loadItems(),
+        reload: reloadInBackground,
         rowCount: items.length,
     });
     const sharedBinder = binder.mode === 'shared';

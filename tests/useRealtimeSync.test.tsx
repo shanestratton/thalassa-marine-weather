@@ -4,9 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const realtime = vi.hoisted(() => {
     const callbacks = new Map<string, (payload: unknown) => void>();
     const channels = new Map<string, { name: string }>();
+    const bindings: { channel: string; table: string; callback: (payload: unknown) => void }[] = [];
+    const statusCallbacks = new Map<string, (status: string) => void>();
     const removeChannel = vi.fn();
     const applyRealtimeChange = vi.fn().mockResolvedValue(true);
     const requestFullReconciliation = vi.fn().mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
+    const requestCatchUpSync = vi.fn();
     const database = {
         identity: null as string | null,
         generation: 1,
@@ -15,9 +18,12 @@ const realtime = vi.hoisted(() => {
     return {
         callbacks,
         channels,
+        bindings,
+        statusCallbacks,
         removeChannel,
         applyRealtimeChange,
         requestFullReconciliation,
+        requestCatchUpSync,
         database,
         getLocalDatabaseSession: vi.fn(() => ({ ...database })),
         isLocalDatabaseSessionCurrent: vi.fn(
@@ -27,12 +33,14 @@ const realtime = vi.hoisted(() => {
         channel: vi.fn((name: string) => {
             const marker = { name };
             const api = {
-                on: vi.fn((_kind: string, _filter: Record<string, unknown>, callback: (payload: unknown) => void) => {
+                on: vi.fn((_kind: string, filter: Record<string, unknown>, callback: (payload: unknown) => void) => {
                     callbacks.set(name, callback);
+                    bindings.push({ channel: name, table: String(filter.table), callback });
                     return api;
                 }),
-                subscribe: vi.fn(() => {
+                subscribe: vi.fn((onStatus?: (status: string) => void) => {
                     channels.set(name, marker);
+                    if (onStatus) statusCallbacks.set(name, onStatus);
                     return api;
                 }),
             };
@@ -56,6 +64,7 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
 
 vi.mock('../services/vessel/SyncService', () => ({
     requestFullReconciliation: realtime.requestFullReconciliation,
+    requestCatchUpSync: realtime.requestCatchUpSync,
 }));
 
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
@@ -67,6 +76,8 @@ describe('useRealtimeSync', () => {
         vi.clearAllMocks();
         realtime.callbacks.clear();
         realtime.channels.clear();
+        realtime.bindings.length = 0;
+        realtime.statusCallbacks.clear();
         realtime.applyRealtimeChange.mockResolvedValue(true);
         realtime.requestFullReconciliation.mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
         setAuthIdentityScope(null);
@@ -331,5 +342,206 @@ describe('useRealtimeSync', () => {
         });
 
         expect(onSync).not.toHaveBeenCalled();
+    });
+    it('listens to several tables on ONE channel, one binding each, and removes it on unmount', async () => {
+        const onSync = vi.fn();
+        const subscription = renderHook(() =>
+            useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], onSync),
+        );
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+
+        expect(realtime.channel).toHaveBeenCalledOnce();
+        expect(realtime.bindings.map((binding) => binding.table)).toEqual(['maintenance_tasks', 'maintenance_history']);
+        expect(new Set(realtime.bindings.map((binding) => binding.channel)).size).toBe(1);
+
+        await act(async () => {
+            realtime.bindings[1].callback({
+                eventType: 'INSERT',
+                new: { id: 'history-1', task_id: 'task-1' },
+                old: {},
+            });
+            await Promise.resolve();
+        });
+        expect(realtime.applyRealtimeChange).toHaveBeenCalledWith(
+            'maintenance_history',
+            'INSERT',
+            expect.objectContaining({ id: 'history-1' }),
+            expect.anything(),
+        );
+        expect(onSync).toHaveBeenCalledOnce();
+
+        subscription.unmount();
+        expect(realtime.removeChannel).toHaveBeenCalledOnce();
+    });
+
+    it('subscribe, then fetch: asks for a catch-up when the channel first joins, and again on every rejoin', async () => {
+        renderHook(() => useRealtimeSync('inventory_items', vi.fn()));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        const onStatus = [...realtime.statusCallbacks.values()][0];
+
+        // Opening a binder: anything changed elsewhere before this channel
+        // was listening (the iPad sat on the Nav Station) is fetched now.
+        await act(async () => {
+            onStatus('SUBSCRIBED');
+            await vi.dynamicImportSettled();
+        });
+        await vi.waitFor(() => expect(realtime.requestCatchUpSync).toHaveBeenCalledOnce());
+
+        // The socket dropped (phone slept, link hiccup) and realtime-js rejoined.
+        await act(async () => {
+            onStatus('CHANNEL_ERROR');
+            onStatus('SUBSCRIBED');
+            await vi.dynamicImportSettled();
+        });
+        await vi.waitFor(() => expect(realtime.requestCatchUpSync).toHaveBeenCalledTimes(2));
+        // realtime-js rejoins an errored channel itself: no second channel.
+        expect(realtime.channel).toHaveBeenCalledOnce();
+    });
+
+    it('a channel the server CLOSES is opened again (with backoff) and catches up once it joins', async () => {
+        const onSync = vi.fn();
+        const subscription = renderHook(() =>
+            useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], onSync),
+        );
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        const firstName = realtime.channel.mock.calls[0][0];
+        await act(async () => {
+            realtime.statusCallbacks.get(firstName)?.('SUBSCRIBED');
+            await vi.dynamicImportSettled();
+        });
+        await vi.waitFor(() => expect(realtime.requestCatchUpSync).toHaveBeenCalledOnce());
+
+        // A binding mismatch or an expired token: realtime-js closes the
+        // channel for good and never rejoins it.
+        act(() => {
+            realtime.statusCallbacks.get(firstName)?.('CHANNEL_ERROR');
+            realtime.statusCallbacks.get(firstName)?.('CLOSED');
+        });
+        expect(realtime.channel).toHaveBeenCalledOnce();
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        expect(realtime.channel).toHaveBeenCalledTimes(2);
+        const secondName = realtime.channel.mock.calls[1][0];
+        expect(secondName).not.toBe(firstName);
+        // Both tables again, on the new channel.
+        expect(realtime.bindings.filter((binding) => binding.channel === secondName).map((b) => b.table)).toEqual([
+            'maintenance_tasks',
+            'maintenance_history',
+        ]);
+
+        await act(async () => {
+            realtime.statusCallbacks.get(secondName)?.('SUBSCRIBED');
+            await vi.dynamicImportSettled();
+        });
+        await vi.waitFor(() => expect(realtime.requestCatchUpSync).toHaveBeenCalledTimes(2));
+
+        // A late status from the closed channel changes nothing.
+        act(() => {
+            realtime.statusCallbacks.get(firstName)?.('CLOSED');
+            vi.advanceTimersByTime(60_000);
+        });
+        expect(realtime.channel).toHaveBeenCalledTimes(2);
+
+        subscription.unmount();
+        expect(realtime.removeChannel).toHaveBeenCalledOnce();
+    });
+
+    it('stops reopening a channel the server keeps closing, and never reopens after unmount', async () => {
+        const subscription = renderHook(() => useRealtimeSync('inventory_items', vi.fn()));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        for (let round = 0; round < 12; round += 1) {
+            const latest = realtime.channel.mock.calls.at(-1)![0];
+            act(() => {
+                realtime.statusCallbacks.get(latest)?.('CLOSED');
+                vi.advanceTimersByTime(120_000);
+            });
+        }
+        const opened = realtime.channel.mock.calls.length;
+        expect(opened).toBeGreaterThan(2);
+        expect(opened).toBeLessThan(12); // bounded: the foreground catch-up covers the rest
+
+        const unmounted = renderHook(() => useRealtimeSync('inventory_items', vi.fn()));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        const last = realtime.channel.mock.calls.at(-1)![0];
+        unmounted.unmount();
+        act(() => {
+            realtime.statusCallbacks.get(last)?.('CLOSED');
+            vi.advanceTimersByTime(120_000);
+        });
+        expect(realtime.channel).toHaveBeenCalledTimes(opened + 1);
+        subscription.unmount();
+    });
+
+    it('a channel the server accepts and then closes at once, over and over, still stops reopening', async () => {
+        const subscription = renderHook(() => useRealtimeSync('inventory_items', vi.fn()));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        for (let round = 0; round < 12; round += 1) {
+            const latest = realtime.channel.mock.calls.at(-1)![0];
+            await act(async () => {
+                // Joined, then closed before it ever held.
+                realtime.statusCallbacks.get(latest)?.('SUBSCRIBED');
+                realtime.statusCallbacks.get(latest)?.('CLOSED');
+                vi.advanceTimersByTime(120_000);
+                await vi.dynamicImportSettled();
+            });
+        }
+        // Bounded: each join used to reset the count, so it reopened (and
+        // asked for a catch-up) every couple of seconds for as long as the
+        // page stayed open.
+        expect(realtime.channel.mock.calls.length).toBeLessThan(12);
+        subscription.unmount();
+    });
+
+    it('a join that holds for a minute earns a fresh set of reopens', async () => {
+        const subscription = renderHook(() => useRealtimeSync('inventory_items', vi.fn()));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        for (let round = 0; round < 12; round += 1) {
+            const latest = realtime.channel.mock.calls.at(-1)![0];
+            await act(async () => {
+                realtime.statusCallbacks.get(latest)?.('SUBSCRIBED');
+                vi.advanceTimersByTime(60_000);
+                realtime.statusCallbacks.get(latest)?.('CLOSED');
+                vi.advanceTimersByTime(2_000);
+                await vi.dynamicImportSettled();
+            });
+        }
+        // A drop now and then, each after a healthy minute: always reopened.
+        expect(realtime.channel).toHaveBeenCalledTimes(13);
+        subscription.unmount();
+    });
+
+    it('does not ask for a catch-up from a channel that was already removed', async () => {
+        const subscription = renderHook(() => useRealtimeSync('inventory_items', vi.fn()));
+        act(() => {
+            vi.advanceTimersByTime(300);
+        });
+        const onStatus = [...realtime.statusCallbacks.values()][0];
+        await act(async () => {
+            onStatus('SUBSCRIBED');
+            await vi.dynamicImportSettled();
+        });
+        await vi.waitFor(() => expect(realtime.requestCatchUpSync).toHaveBeenCalledOnce());
+        subscription.unmount();
+
+        await act(async () => {
+            onStatus('SUBSCRIBED');
+            await vi.dynamicImportSettled();
+        });
+        expect(realtime.requestCatchUpSync).toHaveBeenCalledOnce();
     });
 });

@@ -166,6 +166,27 @@ interface AnonymousScopeClaim {
 // ── In-memory cache ────────────────────────────────────────────
 // Hot cache for instant reads. Flushed to disk on writes.
 
+/**
+ * Rows a realtime DELETE removed in the last couple of minutes, so a pull
+ * page read before that delete committed cannot put them back. Short-lived:
+ * a later pull (its replay overlap is longer) is authoritative again, and a
+ * realtime INSERT or UPDATE of the same id (an undo elsewhere) lifts it.
+ */
+const REALTIME_DELETE_TOMBSTONE_MS = 2 * 60 * 1000;
+const realtimeDeleteTombstones = new Map<string, number>();
+
+/**
+ * How far past a pull's bound a clean local row's stamp still shields it from
+ * that pull's page (a newer change realtime delivered while the pull ran).
+ * Server stamps for such a change land seconds after the bound. A stamp
+ * further out is a device clock running fast (an INSERT keeps the client's
+ * stamp; the binder tables stamp only on UPDATE), and trusting it would keep
+ * the stale row over every server edit until that clock time came round.
+ * Equal to SyncService's replay overlap, so a row shielded once is still in
+ * the window of the first pull it no longer shields from.
+ */
+const REALTIME_FENCE_MAX_MS = 5 * 60 * 1000;
+
 const cache: Record<string, Record<string, unknown>> = {};
 let syncQueueCache: SyncQueueItem[] | null = null;
 let syncMetaCache: SyncMeta | null = null;
@@ -679,6 +700,7 @@ function clearInMemoryState(): void {
     }
     syncQueueCache = null;
     syncMetaCache = null;
+    realtimeDeleteTombstones.clear();
 }
 
 const LOCAL_MEDIA_REFERENCE_PATTERN = /\bidb(?:-audio)?:[A-Za-z0-9._-]+/g;
@@ -1048,6 +1070,7 @@ export async function atomicLocalTransaction<T>(operation: (transaction: LocalTr
 
         const changedTables = new Map<string, Record<string, unknown>>();
         let nextQueue = syncQueueCache || [];
+        const queueLengthAtStart = nextQueue.length;
 
         const readTable = (tableName: string): Record<string, unknown> => {
             if (!TABLE_FILES[tableName]) {
@@ -1166,6 +1189,7 @@ export async function atomicLocalTransaction<T>(operation: (transaction: LocalTr
         syncQueueCache = nextQueue;
 
         await finishAtomicJournal(journal, expectedIdentity);
+        notifyOutboxAppended(nextQueue.slice(queueLengthAtStart).map((item) => item.table_name));
         return result;
     });
 }
@@ -1184,6 +1208,7 @@ export async function insertLocal<T extends { id: string }>(tableName: string, r
         await persistTableAndQueue(tableName, nextTable, nextQueue, previousTable, previousQueue);
         cache[tableName] = nextTable;
         syncQueueCache = nextQueue;
+        notifyOutboxAppended([tableName]);
         return record;
     });
 }
@@ -1218,6 +1243,7 @@ export async function updateLocal<T extends { id: string; updated_at?: string }>
         await persistTableAndQueue(tableName, nextTable, nextQueue, previousTable, previousQueue);
         cache[tableName] = nextTable;
         syncQueueCache = nextQueue;
+        notifyOutboxAppended([tableName]);
         return updated as T;
     });
 }
@@ -1239,6 +1265,7 @@ export async function deleteLocal(tableName: string, id: string): Promise<void> 
         await persistTableAndQueue(tableName, nextTable, nextQueue, previousTable, previousQueue);
         cache[tableName] = nextTable;
         syncQueueCache = nextQueue;
+        notifyOutboxAppended([tableName]);
     });
 }
 
@@ -1283,6 +1310,7 @@ export async function deltaLocal<T extends { id: string; updated_at?: string }>(
         await persistTableAndQueue(tableName, nextTable, nextQueue, previousTable, previousQueue);
         cache[tableName] = nextTable;
         syncQueueCache = nextQueue;
+        notifyOutboxAppended([tableName]);
         return updated as T;
     });
 }
@@ -1306,12 +1334,20 @@ export async function bulkUpsert<T extends { id: string }>(tableName: string, re
  * Merge server rows while atomically fencing every record that still has an
  * outbox entry. The dirty check and cache write share the mutation lock, so a
  * local edit cannot slip between conflict detection and persistence.
+ *
+ * `until` is the server time the pull was bounded by. A page can be read
+ * before another device's change commits and still land here after that
+ * change arrived by realtime: a clean local row stamped after `until` is that
+ * newer change (the page could not have held it), so it stays, and a row a
+ * realtime DELETE removed moments ago is not put back (see the tombstones).
  */
 export async function mergePulledRecords<T extends { id: string; updated_at?: string; created_at?: string }>(
     tableName: string,
     records: T[],
+    options: { until?: string } = {},
 ): Promise<number> {
     ensureInit();
+    const untilMs = options.until ? Date.parse(options.until) : Number.NaN;
     return serializeMutation(async () => {
         const dirtyIds = new Set(
             (syncQueueCache || []).filter((item) => item.table_name === tableName).map((item) => item.record_id),
@@ -1322,9 +1358,12 @@ export async function mergePulledRecords<T extends { id: string; updated_at?: st
 
         for (const serverRecord of records) {
             if (dirtyIds.has(serverRecord.id)) continue;
-            // Once no outbox entry exists, the remote row is authoritative.
-            // Device-clock comparisons can permanently preserve a clock-ahead
-            // cache row after the shared cursor has already advanced.
+            if (isRealtimeDeleted(tableName, serverRecord.id)) continue;
+            // Once no outbox entry exists, the remote row is authoritative,
+            // except over a newer row realtime delivered after this page's
+            // bound. Only stamps just past `until` count, never a plain
+            // device-clock comparison: that could keep a clock-ahead row.
+            if (stampedAfter(previousTable[serverRecord.id], untilMs, untilMs + REALTIME_FENCE_MAX_MS)) continue;
             nextTable[serverRecord.id] = serverRecord;
             merged += 1;
         }
@@ -1338,26 +1377,112 @@ export async function mergePulledRecords<T extends { id: string; updated_at?: st
 }
 
 /**
+ * Rows a prune must also keep while ANOTHER table has them queued. A Grocery
+ * List purchase queues its shopping_list UPDATE and writes the Stores receipt
+ * locally under the same id (never queued itself); until that purchase is
+ * pushed the server cannot list the receipt, and pruning it made it flap out
+ * of Stores on every catch-up sweep.
+ */
+const PRUNE_FENCED_BY: Readonly<Record<string, readonly string[]>> = Object.freeze({
+    inventory_items: ['shopping_list'],
+});
+
+/**
+ * True when `row` carries an updated_at strictly after `boundMs` (NaN: never),
+ * and no later than `latestMs` when one is given.
+ */
+function stampedAfter(row: unknown, boundMs: number, latestMs = Number.POSITIVE_INFINITY): boolean {
+    if (!Number.isFinite(boundMs)) return false;
+    const updatedAt = (row as { updated_at?: unknown } | null | undefined)?.updated_at;
+    const stamped = typeof updatedAt === 'string' ? Date.parse(updatedAt) : Number.NaN;
+    return Number.isFinite(stamped) && stamped > boundMs && stamped <= latestMs;
+}
+
+function tombstoneKey(tableName: string, id: string): string {
+    return `${tableName}\u0000${id}`;
+}
+
+function rememberRealtimeDelete(tableName: string, id: string): void {
+    const now = Date.now();
+    for (const [key, expiresAt] of realtimeDeleteTombstones) {
+        if (expiresAt <= now) realtimeDeleteTombstones.delete(key);
+    }
+    realtimeDeleteTombstones.set(tombstoneKey(tableName, id), now + REALTIME_DELETE_TOMBSTONE_MS);
+}
+
+function isRealtimeDeleted(tableName: string, id: string): boolean {
+    const key = tombstoneKey(tableName, id);
+    const expiresAt = realtimeDeleteTombstones.get(key);
+    if (expiresAt === undefined) return false;
+    if (expiresAt > Date.now()) return true;
+    realtimeDeleteTombstones.delete(key);
+    return false;
+}
+
+/**
+ * What a prune is about to do, for the caller to veto before anything goes.
+ * `eligible` counts the clean local rows the listing is judged against (queued
+ * and just-arrived rows are kept whatever it says); `removing` is how many of
+ * them it lacks; `visible` is the listing's size.
+ */
+export interface PrunePlan {
+    visible: number;
+    eligible: number;
+    removing: number;
+}
+
+/**
  * Finish an authoritative full-table reconciliation by removing clean rows
  * that are no longer visible to this identity. Dirty rows are retained until
  * their bound outbox operation succeeds or surfaces an authorization error.
+ *
+ * `keepUpdatedAfter` is the server time the visible set was read up to. A row
+ * stamped later than that reached this device after the read began (a
+ * realtime INSERT, typically): its absence from the set proves nothing, so it
+ * stays, and the next pull settles it. Unlike the merge fence this is not
+ * capped: keeping is the safe direction, and a clock-ahead row deleted
+ * elsewhere goes once its stamp has passed.
+ *
+ * `allowPrune` sees the plan under the same lock as the removal; returning
+ * false removes nothing (SyncService holds back a listing that would empty a
+ * table until a second read agrees).
  */
-export async function prunePulledTable(tableName: string, visibleIds: ReadonlySet<string>): Promise<number> {
+export async function prunePulledTable(
+    tableName: string,
+    visibleIds: ReadonlySet<string>,
+    options: { keepUpdatedAfter?: string; allowPrune?: (plan: PrunePlan) => boolean } = {},
+): Promise<number> {
     ensureInit();
+    const keepAfter = options.keepUpdatedAfter ? Date.parse(options.keepUpdatedAfter) : Number.NaN;
+    const fencedTables = new Set([tableName, ...(PRUNE_FENCED_BY[tableName] ?? [])]);
     return serializeMutation(async () => {
         const dirtyIds = new Set(
-            (syncQueueCache || []).filter((item) => item.table_name === tableName).map((item) => item.record_id),
+            (syncQueueCache || []).filter((item) => fencedTables.has(item.table_name)).map((item) => item.record_id),
         );
         const previousTable = cache[tableName] || {};
         const nextTable = { ...previousTable };
-        let removed = 0;
+        const removing: string[] = [];
+        let eligible = 0;
 
-        for (const id of Object.keys(previousTable)) {
-            if (!visibleIds.has(id) && !dirtyIds.has(id)) {
-                delete nextTable[id];
-                removed += 1;
+        for (const [id, row] of Object.entries(previousTable)) {
+            if (dirtyIds.has(id)) continue;
+            if (visibleIds.has(id)) {
+                eligible += 1;
+                continue;
             }
+            if (stampedAfter(row, keepAfter)) continue;
+            eligible += 1;
+            removing.push(id);
         }
+
+        if (
+            options.allowPrune &&
+            !options.allowPrune({ visible: visibleIds.size, eligible, removing: removing.length })
+        ) {
+            return 0;
+        }
+        for (const id of removing) delete nextTable[id];
+        const removed = removing.length;
 
         if (removed > 0) {
             await writeTableState(tableName, nextTable);
@@ -1411,9 +1536,12 @@ export async function applyRealtimeChange(
         const nextTable = { ...previousTable };
 
         if (eventType === 'DELETE') {
+            // Even for a row not here yet: a pull page in flight may hold it.
+            rememberRealtimeDelete(tableName, record.id);
             if (!previousTable[record.id]) return false;
             delete nextTable[record.id];
         } else {
+            realtimeDeleteTombstones.delete(tombstoneKey(tableName, record.id));
             nextTable[record.id] = record;
         }
 
@@ -1436,6 +1564,40 @@ export async function bulkDelete(tableName: string, ids: string[]): Promise<void
         await writeTableState(tableName, nextTable);
         cache[tableName] = nextTable;
     });
+}
+
+// ── Outbox signal ──────────────────────────────────────────────
+
+type OutboxListener = (tableName: string) => void;
+const outboxListeners = new Set<OutboxListener>();
+
+/**
+ * Hear about every local write that queued a mutation, once it is durable.
+ * SyncService pushes on it within seconds, rather than waiting for its
+ * five-minute cycle, so another device sees the change while it is still
+ * relevant (Shane, 2026-10-02: "if i change something on one machine, it is
+ * not reflected in the other"). Pull merges, realtime applies and queue
+ * bookkeeping never fire it.
+ */
+export function onOutboxAppended(listener: OutboxListener): () => void {
+    outboxListeners.add(listener);
+    return () => {
+        outboxListeners.delete(listener);
+    };
+}
+
+function notifyOutboxAppended(tableNames: readonly string[]): void {
+    if (outboxListeners.size === 0) return;
+    for (const tableName of new Set(tableNames)) {
+        for (const listener of [...outboxListeners]) {
+            try {
+                listener(tableName);
+            } catch (error) {
+                // A listener must never fail a write that is already durable.
+                log.warn('[LocalDB] An outbox listener failed:', error);
+            }
+        }
+    }
 }
 
 // ── Sync Queue ─────────────────────────────────────────────────

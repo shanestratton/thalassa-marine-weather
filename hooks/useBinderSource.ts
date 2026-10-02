@@ -5,7 +5,8 @@
  * a register the skipper shares shows the skipper's rows (sharedBinders.ts).
  * This hook gives a page that source, re-renders when it changes hands, and
  * calls the page's own reload when it does, and after a background sync
- * pulls rows, so a binder never sits on a stale list until it is remounted.
+ * changes rows, so a binder never sits on a stale list until it is remounted
+ * (even when realtime missed the change: the socket was down).
  *
  * `fetchingSkipperBinder` is true while a shared binder has no rows yet and a
  * full reconciliation is still bringing them in: the page says "Bringing in
@@ -57,7 +58,14 @@ export function useBinderSource(register: BinderRegister, options: UseBinderSour
         const offStatus = onStatusChange(() => setSyncTick((tick) => tick + 1));
         const offComplete = onSyncComplete((result) => {
             setSyncTick((tick) => tick + 1);
-            if (result.pulled > 0 || (result.discardedShared ?? 0) > 0 || (result.rehomedShared ?? 0) > 0) {
+            // Any cycle that changed local rows: pulled, pruned (deleted on
+            // another device, or no longer shared), dropped or re-homed.
+            if (
+                result.pulled > 0 ||
+                (result.pruned ?? 0) > 0 ||
+                (result.discardedShared ?? 0) > 0 ||
+                (result.rehomedShared ?? 0) > 0
+            ) {
                 reloadRef.current?.();
             }
         });
