@@ -410,6 +410,51 @@ export async function syncIdentity(): Promise<VesselIdentity | null> {
 }
 
 /**
+ * The name of one skipper's vessel, for a crew member's Crew Chat card.
+ *
+ * syncIdentity() lets the account's own vessel win, so a crew member who owns
+ * a boat would see their own name on the skipper's group (Shane 2026-10-02:
+ * "it is the correct group, but it is just saying the wrong vessel"). This
+ * reads the skipper's row by owner id instead. RLS ("Crew can read vessel
+ * identity") answers only for an accepted crew membership with that owner, so
+ * anyone else reads nothing. Read-only: the identity cache is never touched.
+ *
+ * Known limit: vessel_identity is the one-row projection of the skipper's
+ * SELECTED boat (20260727120000). Crew land on that same selection
+ * (20260908170000), so the two agree today; if a skipper ever runs crew on a
+ * non-selected hull, read the boat the crew row bridged to instead
+ * (boat_members → boats.name) once crew may read it.
+ */
+export async function fetchVesselNameForOwner(ownerId: string): Promise<string | null> {
+    if (!supabase || !validIdentifier(ownerId)) return null;
+    const identityScope = getAuthIdentityScope();
+    const userId = identityScope.userId;
+    if (!validIdentifier(userId)) return null;
+
+    try {
+        const result = await supabase
+            .from('vessel_identity')
+            .select('owner_id,vessel_name')
+            .eq('owner_id', ownerId)
+            .maybeSingle();
+        if (!identityStillOwns(identityScope, userId)) return null;
+        if (result.error) {
+            log.warn('[VesselIdentity] Crew Chat vessel name error:', errorMessage(result.error));
+            return null;
+        }
+        const row: unknown = result.data;
+        if (!isRecord(row) || ownDataValue(row, 'owner_id') !== ownerId) return null;
+        const name = ownDataValue(row, 'vessel_name');
+        if (!validText(name)) return null;
+        const trimmed = name.trim();
+        return trimmed.length > 0 ? trimmed : null;
+    } catch (error) {
+        log.warn('[VesselIdentity] Crew Chat vessel name failed:', error);
+        return null;
+    }
+}
+
+/**
  * Save or update vessel identity (owner only).
  */
 export async function saveIdentity(

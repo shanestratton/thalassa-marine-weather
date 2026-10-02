@@ -68,6 +68,9 @@ vi.mock('../context/SettingsContext', () => ({
             userName: 'Test',
             homePort: 'Sydney',
             vesselType: 'sailboat',
+            // The signed-in account's OWN boat (fictional). A crew member's
+            // Crew Chat card must never name it (Shane 2026-10-02).
+            vessel: { name: 'Kestrel' },
             windSpeedUnit: 'kts',
             temperatureUnit: 'celsius',
             distanceUnit: 'nm',
@@ -123,6 +126,7 @@ vi.mock('../services/ChatService', () => ({
         getMutedUntil: vi.fn().mockReturnValue(null),
         destroy: vi.fn(),
         blockUserPlatform: vi.fn().mockResolvedValue(true),
+        isChannelMember: vi.fn().mockResolvedValue(false),
     },
 }));
 
@@ -152,6 +156,10 @@ vi.mock('../services/CrewService', () => ({
     getMyMemberships: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock('../services/VesselIdentityService', () => ({
+    fetchVesselNameForOwner: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('../components/SignInScreen', () => ({ SignInScreen: () => null }));
 vi.mock('../components/chat/ChatErrorBoundary', () => ({
     ChatErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -159,26 +167,66 @@ vi.mock('../components/chat/ChatErrorBoundary', () => ({
 vi.mock('../components/chat/ChatHeader', () => ({
     ChatHeader: () => <div data-testid="chat-header">Crew Talk</div>,
 }));
+// Every Crew Chat card the list was handed, in paint order, so a test can
+// prove the card never painted with a fallback name before the real one.
+const crewCardPaints = vi.hoisted(
+    () =>
+        [] as Array<{
+            hasCrewInvited: boolean;
+            crewChatChannel: string;
+            vesselName: string;
+            crewChatVesselName: string;
+        }>,
+);
 vi.mock('../components/chat/ChannelList', () => ({
     ChannelList: ({
         onRequestAccess,
         onOpenChannel,
         isAdmin,
+        hasCrewInvited,
+        crewChatChannel,
+        vesselName,
+        crewChatVesselName,
     }: {
         onRequestAccess: (channel: { id: string; name: string }) => void;
         onOpenChannel: (channel: { id: string; name: string }) => void;
         isAdmin?: boolean;
-    }) => (
-        <div data-testid="channel-list">
-            Channels
-            {isAdmin && <div>Admin card</div>}
-            <button onClick={() => onOpenChannel({ id: 'general', name: 'General' })}>Open General</button>
-            <button onClick={() => onRequestAccess({ id: 'private-1', name: 'Skippers Lounge' })}>
-                Request private channel
-            </button>
-        </div>
-    ),
+        hasCrewInvited?: boolean;
+        crewChatChannel?: { id: string } | null;
+        vesselName?: string;
+        crewChatVesselName?: string;
+    }) => {
+        crewCardPaints.push({
+            hasCrewInvited: !!hasCrewInvited,
+            crewChatChannel: crewChatChannel?.id ?? '',
+            vesselName: vesselName ?? '',
+            crewChatVesselName: crewChatVesselName ?? '',
+        });
+        return (
+            <div
+                data-testid="channel-list"
+                data-has-crew-invited={String(!!hasCrewInvited)}
+                data-crew-chat-channel={crewChatChannel?.id ?? ''}
+                data-vessel-name={vesselName ?? ''}
+                data-crew-chat-vessel-name={crewChatVesselName ?? ''}
+            >
+                Channels
+                {isAdmin && <div>Admin card</div>}
+                <button onClick={() => onOpenChannel({ id: 'general', name: 'General' })}>Open General</button>
+                <button onClick={() => onRequestAccess({ id: 'private-1', name: 'Skippers Lounge' })}>
+                    Request private channel
+                </button>
+            </div>
+        );
+    },
 }));
+
+// The real service answers "no passage" here (no signed-in Supabase user);
+// the crew-only tests swap in a skipper's passage that the crew may chat on.
+vi.mock('../services/PassagePlanService', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../services/PassagePlanService')>();
+    return { ...actual, getPassageStatus: vi.fn().mockResolvedValue(actual.NO_PASSAGE_ACCESS) };
+});
 vi.mock('../components/chat/ChatMessageList', () => ({
     ChatMessageList: () => <div data-testid="message-list">Messages</div>,
 }));
@@ -247,7 +295,10 @@ vi.mock('../theme', () => ({
 }));
 
 import { ChatPage } from '../components/ChatPage';
-import { ChatService } from '../services/ChatService';
+import { ChatService, type ChatChannel } from '../services/ChatService';
+import { getMyCrew, getMyMemberships, type CrewMember } from '../services/CrewService';
+import { fetchVesselNameForOwner } from '../services/VesselIdentityService';
+import { NO_PASSAGE_ACCESS, getPassageStatus } from '../services/PassagePlanService';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 import { useAuthStore } from '../stores/authStore';
 
@@ -288,6 +339,10 @@ describe('ChatPage', () => {
         vi.mocked(ChatService.initialize).mockResolvedValue(undefined);
         vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockResolvedValue({ status: 'ok', joinedCount: 0 });
         vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([]);
+        vi.mocked(ChatService.isChannelMember).mockResolvedValue(false);
+        vi.mocked(getMyCrew).mockResolvedValue([]);
+        vi.mocked(getMyMemberships).mockResolvedValue([]);
+        vi.mocked(fetchVesselNameForOwner).mockResolvedValue(null);
     });
 
     it('reconciles only after initialization and before the authenticated fresh channel read', async () => {
@@ -439,5 +494,140 @@ describe('ChatPage', () => {
         });
 
         expect(keyboardMocks.addListener).not.toHaveBeenCalled();
+    });
+});
+
+// Shane 2026-10-02: "it is the correct group, but it is just saying the wrong
+// vessel". The crew member owns 'Kestrel' and is crew on 'Albatross' (both
+// fictional); the card opens Albatross's group, so it names Albatross.
+describe('ChatPage Crew Chat card vessel name', () => {
+    const groupOwnedBy = (ownerId: string) =>
+        ({
+            id: `crew-chat-${ownerId}`,
+            name: 'Crew Chat',
+            description: '',
+            icon: '👥',
+            is_private: true,
+            is_global: false,
+            owner_id: ownerId,
+            parent_id: null,
+            region: null,
+            created_at: '2026-10-01T00:00:00Z',
+        }) as ChatChannel;
+    const membershipWith = (ownerId: string, crewId: string) =>
+        ({ id: 'membership-1', owner_id: ownerId, crew_user_id: crewId, status: 'accepted' }) as CrewMember;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(ChatService.initialize).mockResolvedValue(undefined);
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockResolvedValue({ status: 'ok', joinedCount: 0 });
+        vi.mocked(ChatService.isChannelMember).mockResolvedValue(true);
+        vi.mocked(getMyCrew).mockResolvedValue([]);
+        vi.mocked(getMyMemberships).mockResolvedValue([]);
+        vi.mocked(fetchVesselNameForOwner).mockResolvedValue(null);
+        vi.mocked(getPassageStatus).mockResolvedValue(NO_PASSAGE_ACCESS);
+        crewCardPaints.length = 0;
+    });
+
+    // A crew-only account (owns Kestrel, no crew of its own) with the
+    // skipper's passage selected sees the card before the skipper's group is
+    // known: the membership check is still in flight. The card used to fall
+    // back to the account's own boat here.
+    it("never names a crew-only account's own boat while the skipper's group is still unknown", async () => {
+        signInFixture('crew-a');
+        vi.mocked(getPassageStatus).mockResolvedValue({
+            ...NO_PASSAGE_ACCESS,
+            visible: true,
+            voyageId: 'voyage-1',
+            ownerUserId: 'skipper-1',
+            isOwner: false,
+            canViewChat: true,
+        });
+        vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([groupOwnedBy('skipper-1')]);
+        vi.mocked(getMyMemberships).mockResolvedValue([membershipWith('skipper-1', 'crew-a')]);
+        vi.mocked(ChatService.isChannelMember).mockReturnValue(new Promise<boolean>(() => {}));
+
+        render(<ChatPage />);
+
+        const list = await screen.findByTestId('channel-list');
+        await waitFor(() => expect(list).toHaveAttribute('data-has-crew-invited', 'true'));
+        expect(list).toHaveAttribute('data-crew-chat-channel', '');
+        expect(list).toHaveAttribute('data-vessel-name', '');
+        expect(crewCardPaints.filter((paint) => paint.hasCrewInvited).map((paint) => paint.vesselName)).not.toContain(
+            'Kestrel',
+        );
+    });
+
+    // Low (review 2026-10-02): the name used to be read after the card had
+    // painted, so every visit swapped "on the vessel" for the name a beat
+    // later. It is now read before the card can show.
+    it('paints the crew card once, already carrying the connected vessel', async () => {
+        signInFixture('crew-a');
+        vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([groupOwnedBy('skipper-1')]);
+        vi.mocked(getMyMemberships).mockResolvedValue([membershipWith('skipper-1', 'crew-a')]);
+        vi.mocked(fetchVesselNameForOwner).mockResolvedValue('Albatross');
+
+        render(<ChatPage />);
+
+        const list = await screen.findByTestId('channel-list');
+        await waitFor(() => expect(list).toHaveAttribute('data-crew-chat-channel', 'crew-chat-skipper-1'));
+        const cardPaints = crewCardPaints.filter((paint) => paint.hasCrewInvited);
+        expect(cardPaints.length).toBeGreaterThan(0);
+        expect(cardPaints.map((paint) => paint.crewChatVesselName)).toEqual(cardPaints.map(() => 'Albatross'));
+    });
+
+    it('shows the card after a short wait on a slow link, then names the vessel when the read lands', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        signInFixture('crew-a');
+        vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([groupOwnedBy('skipper-1')]);
+        vi.mocked(getMyMemberships).mockResolvedValue([membershipWith('skipper-1', 'crew-a')]);
+        const nameRead = deferred<string | null>();
+        vi.mocked(fetchVesselNameForOwner).mockReturnValue(nameRead.promise);
+
+        render(<ChatPage />);
+
+        const list = await screen.findByTestId('channel-list');
+        await waitFor(() => expect(fetchVesselNameForOwner).toHaveBeenCalledWith('skipper-1'));
+        expect(list).toHaveAttribute('data-has-crew-invited', 'false');
+
+        // Past the short name wait: the card shows with the generic wording.
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(3000);
+        });
+        await waitFor(() => expect(list).toHaveAttribute('data-crew-chat-channel', 'crew-chat-skipper-1'));
+        expect(list).toHaveAttribute('data-crew-chat-vessel-name', '');
+
+        await act(async () => nameRead.resolve('Albatross'));
+        await waitFor(() => expect(list).toHaveAttribute('data-crew-chat-vessel-name', 'Albatross'));
+    });
+
+    it("gives a crew member's card the connected skipper's vessel, read by that skipper's id", async () => {
+        signInFixture('crew-a');
+        vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([groupOwnedBy('skipper-1')]);
+        vi.mocked(getMyMemberships).mockResolvedValue([membershipWith('skipper-1', 'crew-a')]);
+        vi.mocked(fetchVesselNameForOwner).mockResolvedValue('Albatross');
+
+        render(<ChatPage />);
+
+        const list = await screen.findByTestId('channel-list');
+        await waitFor(() => expect(list).toHaveAttribute('data-crew-chat-vessel-name', 'Albatross'));
+        expect(list).toHaveAttribute('data-crew-chat-channel', 'crew-chat-skipper-1');
+        expect(fetchVesselNameForOwner).toHaveBeenCalledWith('skipper-1');
+        expect(fetchVesselNameForOwner).not.toHaveBeenCalledWith('crew-a');
+    });
+
+    it("leaves a skipper's own card on their own vessel and reads nobody else's", async () => {
+        signInFixture('skipper-1');
+        vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([groupOwnedBy('skipper-1')]);
+        vi.mocked(getMyCrew).mockResolvedValue([membershipWith('skipper-1', 'crew-a')]);
+
+        render(<ChatPage />);
+
+        const list = await screen.findByTestId('channel-list');
+        await waitFor(() => expect(list).toHaveAttribute('data-has-crew-invited', 'true'));
+        expect(list).toHaveAttribute('data-crew-chat-channel', '');
+        expect(list).toHaveAttribute('data-vessel-name', 'Kestrel');
+        expect(list).toHaveAttribute('data-crew-chat-vessel-name', '');
+        expect(fetchVesselNameForOwner).not.toHaveBeenCalled();
     });
 });

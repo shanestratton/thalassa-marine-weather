@@ -69,8 +69,30 @@ interface ChannelListProps {
     hasCrewInvited?: boolean;
     /** The skipper's Crew Chat a crew member is already in: the card opens it directly. */
     crewChatChannel?: ChatChannel | null;
-    /** Vessel name from settings — shown in the Crew Chat subtitle. */
+    /** Vessel name from settings — shown in a skipper's own Crew Chat subtitle. */
     vesselName?: string;
+    /** The vessel whose group `crewChatChannel` is (the skipper's), when known. */
+    crewChatVesselName?: string;
+}
+
+/**
+ * Who the Crew Chat card says can read the group. A crew member's card opens
+ * the skipper's group, so it names the skipper's vessel and never the crew
+ * member's own (Shane 2026-10-02: "it is the correct group, but it is just
+ * saying the wrong vessel"). Without that name it falls back to the group's
+ * own name, then to "the vessel". A skipper's card is unchanged.
+ */
+function crewChatAudience(
+    crewChatChannel: ChatChannel | null,
+    crewChatVesselName: string | undefined,
+    vesselName: string | undefined,
+): string {
+    if (!crewChatChannel) return `on the ${vesselName || 'vessel'}`;
+    const connectedVessel = crewChatVesselName?.trim();
+    if (connectedVessel) return `on the ${connectedVessel}`;
+    const groupName = (getChannelName(crewChatChannel) || '').trim();
+    if (groupName && groupName.toLowerCase() !== 'crew chat') return `in ${groupName}`;
+    return 'on the vessel';
 }
 
 const ChannelListInner: React.FC<ChannelListProps> = ({
@@ -98,6 +120,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     hasCrewInvited = false,
     crewChatChannel = null,
     vesselName,
+    crewChatVesselName,
 }) => {
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
@@ -348,7 +371,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                             </span>
                         </div>
                         <p className="text-sm text-white/60 truncate mt-0.5">
-                            Only visible to crew on the {vesselName || 'vessel'}
+                            Only visible to crew {crewChatAudience(crewChatChannel, crewChatVesselName, vesselName)}
                         </p>
                     </div>
                     <div className="w-6 h-6 rounded-full bg-emerald-500/10 group-hover:bg-emerald-500/20 flex items-center justify-center transition-all group-hover:translate-x-0.5">
