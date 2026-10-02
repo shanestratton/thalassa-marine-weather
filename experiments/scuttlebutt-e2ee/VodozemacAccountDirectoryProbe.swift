@@ -1,0 +1,823 @@
+// ISOLATED RESEARCH ONLY. Auth responses and bearer strings are URLProtocol
+// fixtures. Account/store creation uses the pinned REAL native provider and
+// actual Keychain/sealed SQLite storage. No live Supabase, device registration,
+// physical-phone/locked-device/crash-durability or production activation claim.
+import Foundation
+import Darwin
+import SQLite3
+
+enum DmAccountDirectoryProbeError: Error { case assertion(String) }
+
+private final class DmAccountDirectoryChecks {
+    private(set) var assertions = 0
+    func require(_ value: @autoclosure () throws -> Bool, _ label: String) throws {
+        guard try value() else { throw DmAccountDirectoryProbeError.assertion(label) }
+        assertions += 1
+    }
+    func refuses(_ label: String, _ operation: () throws -> Void) throws {
+        do { try operation() }
+        catch DmAccountDirectoryError.unavailable { try require(true, label); return }
+        throw DmAccountDirectoryProbeError.assertion(label)
+    }
+    func refuses(_ label: String, _ operation: () async throws -> VodozemacAccountAccess) async throws {
+        do { _ = try await operation() }
+        catch DmAccountDirectoryError.unavailable { try require(true, label); return }
+        throw DmAccountDirectoryProbeError.assertion(label)
+    }
+    func succeeds(_ label: String, _ operation: () async throws -> VodozemacAccountAccess) async throws -> VodozemacAccountAccess {
+        do { return try await operation() }
+        catch let error as DmAccountDirectoryProbeError { throw error }
+        catch { throw DmAccountDirectoryProbeError.assertion(label) }
+    }
+    func refreshRefuses(_ label: String, _ operation: () async throws -> DmLifecycleSnapshot) async throws {
+        do { _ = try await operation() }
+        catch DmAccountDirectoryError.unavailable { try require(true, label); return }
+        throw DmAccountDirectoryProbeError.assertion(label)
+    }
+    func transitionRefuses(_ label: String, _ operation: () async throws -> Void) async throws {
+        do { try await operation() }
+        catch DmAccountDirectoryError.unavailable { try require(true, label); return }
+        throw DmAccountDirectoryProbeError.assertion(label)
+    }
+    func busyRefuses(_ label: String, _ operation: () throws -> Void) throws {
+        do { try operation() }
+        catch VodozemacSealedStoreError.database(let code) where code == SQLITE_BUSY {
+            try require(true, label); return
+        }
+        throw DmAccountDirectoryProbeError.assertion(label)
+    }
+    func fenced(_ access: VodozemacAccountAccess, _ label: String) throws {
+        try require(access.currentContext() == nil, label + " context")
+        try refuses(label + " credential") { _ = try access.credential() }
+    }
+}
+
+private final class DmAccountDirectoryGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var released = false
+    private var arrived = false
+    private var callbacks: [() -> Void] = []
+    func afterRelease(_ callback: @escaping () -> Void) {
+        lock.lock()
+        if released { lock.unlock(); callback(); return }
+        callbacks.append(callback); lock.unlock()
+    }
+    func release() {
+        lock.lock(); released = true; let callbacks = self.callbacks; self.callbacks.removeAll(); lock.unlock()
+        for callback in callbacks { callback() }
+    }
+    private func markArrived() { lock.lock(); arrived = true; lock.unlock() }
+    func hasArrived() -> Bool { lock.lock(); defer { lock.unlock() }; return arrived }
+    func arriveAndWait() async throws {
+        markArrived()
+        await withCheckedContinuation { continuation in afterRelease { continuation.resume() } }
+        guard !Task.isCancelled else { throw DmAccountDirectoryProbeError.assertion("cancelled native mutation fixture") }
+    }
+}
+
+private final class DmAccountDirectoryCommitGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var arrived = false
+    private var released = false
+    private let timeoutSeconds: Double
+    init(timeoutSeconds: Double = 3) { self.timeoutSeconds = timeoutSeconds }
+    func hold() throws {
+        lock.lock(); arrived = true; lock.unlock()
+        guard semaphore.wait(timeout: .now() + timeoutSeconds) == .success else {
+            throw DmAccountDirectoryProbeError.assertion("held native transition fixture exceeded bound")
+        }
+    }
+    func hasArrived() -> Bool { lock.lock(); defer { lock.unlock() }; return arrived }
+    func release() {
+        lock.lock()
+        let shouldSignal = !released
+        released = true
+        lock.unlock()
+        if shouldSignal { semaphore.signal() }
+    }
+}
+
+private final class DmAccountDirectoryProtocol: URLProtocol, @unchecked Sendable {
+    struct Script {
+        var body: Data
+        var status = 200
+        var gate: DmAccountDirectoryGate?
+        init(userId: String) {
+            // Untrusted metadata explicitly tries to choose a different owner
+            // and device; only the native verified top-level UUID may win.
+            body = Data("{\"id\":\"\(userId)\",\"user_metadata\":{\"id\":\"spoofed-owner\",\"deviceId\":\"spoofed-device\"}}".utf8)
+        }
+    }
+    private static let fixtureLock = NSLock()
+    private static var scripts: [String: [Script]] = [:]
+    private static var requests: [String: Int] = [:]
+    private let stateLock = NSLock()
+    private var stopped = false
+    static func install(_ values: [Script], bearer: String) {
+        fixtureLock.lock(); scripts["Bearer " + bearer] = values; fixtureLock.unlock()
+    }
+    static func count(_ bearer: String) -> Int {
+        fixtureLock.lock(); defer { fixtureLock.unlock() }; return requests["Bearer " + bearer] ?? 0
+    }
+    static func reset() { fixtureLock.lock(); scripts.removeAll(); requests.removeAll(); fixtureLock.unlock() }
+    override class func canInit(with request: URLRequest) -> Bool {
+        ["enrollment-auth.invalid", "other-enrollment-auth.invalid"].contains(request.url?.host ?? "")
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.fixtureLock.lock()
+        let bearer = request.value(forHTTPHeaderField: "Authorization") ?? ""
+        let script = Self.scripts[bearer]?.first
+        if (Self.scripts[bearer]?.count ?? 0) > 1 { Self.scripts[bearer]?.removeFirst() }
+        Self.requests[bearer, default: 0] += 1
+        Self.fixtureLock.unlock()
+        guard let script else { client?.urlProtocol(self, didFailWithError: URLError(.resourceUnavailable)); return }
+        let callback = { [self] in DispatchQueue.global().async { [self] in deliver(script) } }
+        if let gate = script.gate { gate.afterRelease(callback) } else { callback() }
+    }
+    private func deliver(_ script: Script) {
+        guard !isStopped(), let url = request.url else { return }
+        let response = HTTPURLResponse(url: url, statusCode: script.status, httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        guard !isStopped() else { return }
+        client?.urlProtocol(self, didLoad: script.body)
+        guard !isStopped() else { return }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    private func isStopped() -> Bool { stateLock.lock(); defer { stateLock.unlock() }; return stopped }
+    override func stopLoading() { stateLock.lock(); stopped = true; stateLock.unlock() }
+}
+
+private func dmAccountDirectoryAuth(project: String = "https://enrollment-auth.invalid") throws -> VodozemacSupabaseAuth {
+    try VodozemacSupabaseAuth(projectOrigin: project, publicApiKey: "sb_publishable_enrollment_fixture", deadlineSeconds: 3,
+        configurationForResearch: {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [DmAccountDirectoryProtocol.self]
+            return configuration
+        })
+}
+
+private func dmAccountDirectoryAwaitRequest(_ bearer: String, count: Int = 1) async throws {
+    let bound = ContinuousClock.now.advanced(by: .seconds(3))
+    while DmAccountDirectoryProtocol.count(bearer) < count {
+        guard ContinuousClock.now < bound else { throw DmAccountDirectoryProbeError.assertion("enrollment fixture request did not start") }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
+
+private func dmAccountDirectoryAwaitMutation(_ arrived: () -> Bool) async throws {
+    let bound = ContinuousClock.now.advanced(by: .seconds(3))
+    while !arrived() {
+        guard ContinuousClock.now < bound else { throw DmAccountDirectoryProbeError.assertion("native mutation fixture did not reach barrier") }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
+
+private final class DmAccountDirectoryFixture {
+    static let conversationId = "paired-native-enrollment-fixture"
+    let root: URL
+    let indexID: UUID
+    let indexURL: URL
+    let index: VodozemacSealedStore
+    let directory: VodozemacAccountDirectory
+    private var ownedIDs: Set<UUID> = []
+    private var removed = false
+    init(auth: VodozemacSupabaseAuth) throws {
+        directory = try VodozemacAccountDirectory.create(parentDirectory: FileManager.default.temporaryDirectory,
+            authenticator: auth, conversationId: Self.conversationId)
+        root = directory.directoryURL
+        let locator = try String(contentsOf: root.appendingPathComponent("index-id"), encoding: .utf8)
+        guard let id = UUID(uuidString: String(locator.dropLast())), locator == id.uuidString.lowercased() + "\n" else {
+            throw DmAccountDirectoryProbeError.assertion("native fixture locator")
+        }
+        indexID = id
+        indexURL = root.appendingPathComponent(id.uuidString.lowercased(), isDirectory: true)
+        index = try VodozemacSealedStore.reopen(directory: indexURL, storeID: id)
+        ownedIDs.insert(id)
+    }
+    func state() throws -> [String: Any] {
+        guard let state = try JSONSerialization.jsonObject(with: index.read().payload) as? [String: Any] else {
+            throw DmAccountDirectoryProbeError.assertion("sealed directory fixture state")
+        }
+        return state
+    }
+    func rows() throws -> [[String: Any]] {
+        guard let rows = try state()["accounts"] as? [[String: Any]] else {
+            throw DmAccountDirectoryProbeError.assertion("sealed account binding fixture rows")
+        }
+        for row in rows {
+            guard let value = row["storeId"] as? String, let id = UUID(uuidString: value), value == id.uuidString.lowercased() else {
+                throw DmAccountDirectoryProbeError.assertion("native fixture store UUID")
+            }
+            ownedIDs.insert(id)
+        }
+        return rows
+    }
+    func account(userId: String) throws -> (id: UUID, url: URL, store: VodozemacSealedStore) {
+        guard let row = try rows().first(where: { $0["userId"] as? String == userId }),
+              let value = row["storeId"] as? String, let id = UUID(uuidString: value) else {
+            throw DmAccountDirectoryProbeError.assertion("native fixture account binding")
+        }
+        let url = root.appendingPathComponent(value, isDirectory: true)
+        return (id, url, try VodozemacSealedStore.reopen(directory: url, storeID: id))
+    }
+    func reopen(auth: VodozemacSupabaseAuth) throws -> VodozemacAccountDirectory {
+        try VodozemacAccountDirectory.reopen(directory: root, authenticator: auth, conversationId: Self.conversationId)
+    }
+    func destroy() throws {
+        guard !removed else { return }
+        // Capture every native reservation while the index remains authentic.
+        // Loss/corruption cases capture before fault injection, never discover
+        // arbitrary namespaces from a damaged DB or Keychain prefix.
+        _ = try? rows()
+        try? directory.signOut()
+        directory.closeForResearch()
+        index.close()
+        let fm = FileManager.default
+        let allowed = Set(ownedIDs.map { $0.uuidString.lowercased() }).union(["index-id"])
+        let actual = Set(try fm.contentsOfDirectory(atPath: root.path))
+        guard actual.isSubset(of: allowed) else { throw DmAccountDirectoryProbeError.assertion("cleanup only owned enrollment namespaces") }
+        for id in ownedIDs {
+            let url = root.appendingPathComponent(id.uuidString.lowercased(), isDirectory: true)
+            if !actual.contains(id.uuidString.lowercased()) { continue }
+            guard try fm.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType == .typeDirectory else {
+                throw DmAccountDirectoryProbeError.assertion("cleanup owned enrollment leaf type")
+            }
+            let names = Set(try fm.contentsOfDirectory(atPath: url.path))
+            guard names.isSubset(of: ["snapshot.sqlite", "snapshot.sqlite-wal", "snapshot.sqlite-shm"]) else {
+                throw DmAccountDirectoryProbeError.assertion("cleanup owned enrollment leaf contents")
+            }
+            for name in names {
+                let file = url.appendingPathComponent(name)
+                guard try fm.attributesOfItem(atPath: file.path)[.type] as? FileAttributeType == .typeRegular,
+                      file.path.withCString({ Darwin.unlink($0) }) == 0 else {
+                    throw DmAccountDirectoryProbeError.assertion("cleanup exact enrollment file")
+                }
+            }
+            try VodozemacSealedStore.deleteResearchKey(storeID: id)
+            guard url.path.withCString({ Darwin.rmdir($0) }) == 0 else {
+                throw DmAccountDirectoryProbeError.assertion("cleanup empty enrollment leaf")
+            }
+        }
+        let locator = root.appendingPathComponent("index-id")
+        if actual.contains("index-id") {
+            guard try fm.attributesOfItem(atPath: locator.path)[.type] as? FileAttributeType == .typeRegular,
+                  locator.path.withCString({ Darwin.unlink($0) }) == 0 else {
+                throw DmAccountDirectoryProbeError.assertion("cleanup exact native locator")
+            }
+        }
+        guard root.path.withCString({ Darwin.rmdir($0) }) == 0 else {
+            throw DmAccountDirectoryProbeError.assertion("cleanup empty enrollment container")
+        }
+        removed = true
+    }
+    deinit { if !removed { try? destroy() } }
+}
+
+private func dmAccountDirectoryIdentityMatches(_ lhs: DmPublicIdentity, _ rhs: DmPublicIdentity) -> Bool {
+    lhs.userId == rhs.userId && lhs.deviceId == rhs.deviceId && lhs.identityKeyId == rhs.identityKeyId
+        && lhs.signingKey == rhs.signingKey && lhs.curve == rhs.curve && lhs.prekey == rhs.prekey
+}
+
+/// Disposable native runner entry point. Only the nonsecret assertion count
+/// escapes; expected failures carry fixed labels, never Auth bodies/keys/tokens.
+public func runAccountDirectoryProbeForResearch() async throws -> Int {
+    do { return try await dmAccountDirectoryRun() }
+    catch let error as DmAccountDirectoryProbeError { throw error }
+    catch { throw DmAccountDirectoryProbeError.assertion("native enrollment probe unexpected setup or storage failure") }
+}
+
+private func dmAccountDirectoryRun() async throws -> Int {
+    let checks = DmAccountDirectoryChecks()
+    let auth = try dmAccountDirectoryAuth()
+    let alice = "11111111-1111-4111-8111-111111111111"
+    let bob = "22222222-2222-4222-8222-222222222222"
+    DmAccountDirectoryProtocol.reset()
+    var fixtures: [DmAccountDirectoryFixture] = []
+    var handles: [VodozemacSealedStore] = []
+    var accesses: [VodozemacAccountAccess] = []
+    var directories: [VodozemacAccountDirectory] = []
+    defer {
+        for access in accesses { access.closeForResearch() }
+        for directory in directories { directory.closeForResearch() }
+        for handle in handles { handle.close() }
+        for fixture in fixtures { try? fixture.destroy() }
+        DmAccountDirectoryProtocol.reset()
+    }
+    func fixture() throws -> DmAccountDirectoryFixture {
+        let fixture = try DmAccountDirectoryFixture(auth: auth)
+        fixtures.append(fixture); return fixture
+    }
+    func install(_ bearer: String, user: String = "11111111-1111-4111-8111-111111111111") {
+        DmAccountDirectoryProtocol.install([.init(userId: user)], bearer: bearer)
+    }
+    func open(_ fixture: DmAccountDirectoryFixture, bearer: String, user: String) async throws -> VodozemacAccountAccess {
+        install(bearer, user: user)
+        let access = try await checks.succeeds("positive native enrollment unexpectedly refused") {
+            try await fixture.directory.open(bearer: bearer)
+        }
+        accesses.append(access)
+        return access
+    }
+
+    let primary = try fixture(), peer = try fixture()
+    let a = try await open(primary, bearer: "fixture.enrollment.alice", user: alice)
+    let b = try await open(peer, bearer: "fixture.enrollment.bob", user: bob)
+    let al = try a.lifecycleForResearch(), bl = try b.lifecycleForResearch()
+    let ai = try a.coordinatorForResearch.publicIdentity(owner: al.owner)
+    let bi = try b.coordinatorForResearch.publicIdentity(owner: bl.owner)
+    try checks.require(al.owner.userId == alice && bl.owner.userId == bob && al.active && bl.active,
+        "server-verified top-level UUIDs own fresh native identities")
+    try checks.require(UUID(uuidString: ai.deviceId)?.uuidString.lowercased() == ai.deviceId
+        && UUID(uuidString: bi.deviceId)?.uuidString.lowercased() == bi.deviceId && ai.deviceId != bi.deviceId,
+        "native UUID factory chooses unique devices rather than caller metadata")
+    try checks.require(DmAccountDirectoryProtocol.count("fixture.enrollment.alice") == 2
+        && DmAccountDirectoryProtocol.count("fixture.enrollment.bob") == 2,
+        "selection verification and existing session verification both execute")
+    try checks.require(try primary.state()["projectOrigin"] as? String == auth.projectOrigin
+        && primary.state()["conversationId"] as? String == DmAccountDirectoryFixture.conversationId,
+        "sealed index pins trusted project and one paired native conversation")
+    try checks.require(try primary.rows().count == 1 && peer.rows().count == 1,
+        "each verified account has exactly one atomic native binding")
+    try checks.require(a.currentContext() != nil && b.currentContext() != nil,
+        "only completed directory and Auth commits expose current context")
+    let accountA = try primary.account(userId: alice), accountB = try peer.account(userId: bob)
+    handles.append(accountA.store); handles.append(accountB.store)
+    try checks.require(accountA.id.uuidString.lowercased() == ai.deviceId
+        && accountB.id.uuidString.lowercased() == bi.deviceId,
+        "device IDs match the immutable native sealed-store UUIDs")
+    for fixture in [primary, peer] {
+        for leaf in [fixture.indexURL, fixture.root.appendingPathComponent(fixture === primary ? ai.deviceId : bi.deviceId)] {
+            for name in try FileManager.default.contentsOfDirectory(atPath: leaf.path) where name != "snapshot.sqlite-shm" {
+                let data = try Data(contentsOf: leaf.appendingPathComponent(name))
+                try checks.require(data.range(of: Data(alice.utf8)) == nil && data.range(of: Data(bob.utf8)) == nil,
+                    "account identity is absent from unsealed index and store bytes")
+            }
+        }
+    }
+
+    // Real provider encryption and durable exact-ciphertext preservation across
+    // same-scope refresh; direct peer pins remain explicit research fixtures.
+    try a.coordinatorForResearch.installPeerForResearch(DmPeerContext(userId: bi.userId, deviceId: bi.deviceId,
+        identityKeyId: bi.identityKeyId, curve: bi.curve, prekey: bi.prekey, generation: 1, status: .accepted), owner: al.owner)
+    try b.coordinatorForResearch.installPeerForResearch(DmPeerContext(userId: ai.userId, deviceId: ai.deviceId,
+        identityKeyId: ai.identityKeyId, curve: ai.curve, prekey: ai.prekey, generation: 1, status: .accepted), owner: bl.owner)
+    let sender = ai.deviceId < bi.deviceId ? a : b
+    let senderFixture = ai.deviceId < bi.deviceId ? primary : peer
+    let senderUser = ai.deviceId < bi.deviceId ? alice : bob
+    let beforeRefresh = try sender.lifecycleForResearch()
+    let ciphertext = try sender.coordinatorForResearch.prepare(clientMessageId: "native-enrollment-pending",
+        text: "offline enrollment refresh payload", owner: beforeRefresh.owner, peerGeneration: 1)
+    install("fixture.enrollment.refresh", user: senderUser)
+    let afterRefresh = try await sender.authenticate(bearer: "fixture.enrollment.refresh")
+    try checks.require(beforeRefresh.owner == afterRefresh.owner && beforeRefresh.credentialEpoch != afterRefresh.credentialEpoch,
+        "same-account refresh retains generation and advances native credential epoch")
+    try checks.require(try sender.coordinatorForResearch.pending(owner: afterRefresh.owner, peerGeneration: 1) == [ciphertext],
+        "real encrypted pending ciphertext is byte-identical after refresh")
+    let oldCapturedContext = sender.currentContext()
+    let reopened = try senderFixture.reopen(auth: auth)
+    directories.append(reopened)
+    install("fixture.enrollment.reopen", user: senderUser)
+    let resumed = try await checks.succeeds("positive strict native account reopen unexpectedly refused") {
+        try await reopened.open(bearer: "fixture.enrollment.reopen")
+    }
+    accesses.append(resumed)
+    let resumedLifecycle = try resumed.lifecycleForResearch()
+    try checks.fenced(sender, "another directory selection fences old access")
+    try checks.require(oldCapturedContext != resumed.currentContext() && resumedLifecycle.owner.generation > afterRefresh.owner.generation,
+        "relogin advances generation and does not reuse captured context")
+    try checks.require(try resumed.coordinatorForResearch.pending(owner: resumedLifecycle.owner, peerGeneration: 1).isEmpty,
+        "old-generation pending ciphertext is not rebound on relogin")
+    let originalIdentity = senderUser == alice ? ai : bi
+    try checks.require(try dmAccountDirectoryIdentityMatches(originalIdentity,
+        resumed.coordinatorForResearch.publicIdentity(owner: resumedLifecycle.owner)),
+        "reopen keeps exact native identity keys and original device UUID")
+    try checks.refuses("old access cannot sign out a newer directory epoch") { try sender.signOut() }
+    try checks.require(resumed.currentContext() != nil, "stale access logout leaves newer selection usable")
+    try resumed.signOut()
+    try checks.fenced(resumed, "local directory logout clears current access")
+
+    // A -> B -> A must keep independent immutable stores, never rebind keys.
+    let switched = try await open(primary, bearer: "fixture.enrollment.switch", user: bob)
+    let switchedLife = try switched.lifecycleForResearch()
+    try checks.require(switchedLife.owner.userId == bob && switchedLife.owner.deviceId != ai.deviceId,
+        "different verified account receives its own native device identity")
+    let restoredA = try await open(primary, bearer: "fixture.enrollment.return", user: alice)
+    try checks.fenced(switched, "account switching fences prior account access")
+    let restoredLife = try restoredA.lifecycleForResearch()
+    try checks.require(try dmAccountDirectoryIdentityMatches(ai, restoredA.coordinatorForResearch.publicIdentity(owner: restoredLife.owner)),
+        "return to first account reopens immutable existing identity")
+    try checks.require(try primary.rows().count == 2, "account switching never creates duplicate account bindings")
+    try checks.refuses("wrong trusted project cannot reopen native index") {
+        _ = try primary.reopen(auth: dmAccountDirectoryAuth(project: "https://other-enrollment-auth.invalid"))
+    }
+    try checks.refuses("wrong paired conversation cannot reopen native index") {
+        _ = try VodozemacAccountDirectory.reopen(directory: primary.root, authenticator: auth, conversationId: "different-native-pair")
+    }
+    let refreshGate = DmAccountDirectoryGate()
+    defer { refreshGate.release() }
+    var refreshHeld = DmAccountDirectoryProtocol.Script(userId: alice); refreshHeld.gate = refreshGate
+    DmAccountDirectoryProtocol.install([refreshHeld], bearer: "fixture.enrollment.refresh-logout")
+    let lateRefresh = Task { try await restoredA.authenticate(bearer: "fixture.enrollment.refresh-logout") }
+    try await dmAccountDirectoryAwaitRequest("fixture.enrollment.refresh-logout")
+    try primary.directory.signOut()
+    refreshGate.release()
+    try await checks.refreshRefuses("directory logout rejects an in-flight facade refresh") { try await lateRefresh.value }
+    try checks.fenced(restoredA, "directory logout cannot restore old facade readiness")
+    try checks.require(try !restoredA.coordinatorForResearch.lifecycleForResearch().active,
+        "ordinary refresh response cannot reactivate the signed-out native lifecycle")
+
+    // These barriers are after the facade's preliminary check but BEFORE each
+    // native mutation guard. Exact account snapshots after revocation prove
+    // that neither a stale reservation nor activation/cleanup committed.
+    for beforeBegin in [true, false] {
+        let guardedFixture = try fixture()
+        let suffix = beforeBegin ? "pre-begin" : "pre-complete"
+        let access = try await open(guardedFixture, bearer: "fixture.enrollment.guarded-open." + suffix, user: alice)
+        let account = try guardedFixture.account(userId: alice); handles.append(account.store)
+        let revoker = try guardedFixture.reopen(auth: auth); directories.append(revoker)
+        let mutationGate = DmAccountDirectoryGate()
+        let token = "fixture.enrollment.guarded-refresh." + suffix
+        install(token)
+        let hooks = DmAuthMutationHooksForResearch(
+            beforeBegin: beforeBegin ? { try await mutationGate.arriveAndWait() } : nil,
+            beforeComplete: beforeBegin ? nil : { try await mutationGate.arriveAndWait() })
+        let task = Task { try await access.authenticateForResearch(bearer: token, hooks: hooks) }
+        defer { mutationGate.release(); task.cancel() }
+        try await dmAccountDirectoryAwaitMutation(mutationGate.hasArrived)
+        try revoker.signOut()
+        let signedOut = try account.store.read()
+        try checks.require(try !VodozemacDmCoordinator(store: account.store).lifecycleForResearch().active,
+            "revoker established native inactive baseline before stale mutation")
+        mutationGate.release()
+        try await checks.refreshRefuses("revoked directory guard refuses before native begin or complete") { try await task.value }
+        try checks.require(try account.store.read() == signedOut,
+            "stale native mutation leaves sealed account revision and payload EXACTLY unchanged after revocation")
+        try checks.require(DmAccountDirectoryProtocol.count(token) == (beforeBegin ? 0 : 1),
+            "pre-begin refusal sends no Auth and pre-complete refusal uses only its already-verified response")
+        try checks.fenced(access, "revoked mutation cannot expose an old facade lease")
+    }
+
+    do {
+        let ordered = try fixture()
+        let access = try await open(ordered, bearer: "fixture.enrollment.ordered-open", user: alice)
+        let account = try ordered.account(userId: alice); handles.append(account.store)
+        let gate = DmAccountDirectoryGate()
+        install("fixture.enrollment.ordered-old")
+        let older = Task {
+            try await access.authenticateForResearch(bearer: "fixture.enrollment.ordered-old",
+                hooks: .init(beforeBegin: { try await gate.arriveAndWait() }))
+        }
+        defer { gate.release(); older.cancel() }
+        try await dmAccountDirectoryAwaitMutation(gate.hasArrived)
+        install("fixture.enrollment.ordered-new")
+        _ = try await access.authenticate(bearer: "fixture.enrollment.ordered-new")
+        let newest = try account.store.read()
+        let newestContext = access.currentContext()
+        gate.release()
+        try await checks.refreshRefuses("older guarded begin waiter cannot supersede a newer same-account renewal") { try await older.value }
+        try checks.require(try account.store.read() == newest && access.currentContext() == newestContext && newestContext != nil,
+            "rejected older invocation preserves the newer exact sealed state and in-memory lease")
+        try checks.require(DmAccountDirectoryProtocol.count("fixture.enrollment.ordered-old") == 0,
+            "superseded pre-begin waiter performs no Auth request")
+    }
+
+    // The first handle has durably cleared selection but has not yet captured
+    // an account lifecycle to deactivate. A second handle completes relogin in
+    // that exact gap. The obsolete first handle must never reread/deactivate the
+    // winner, nor tombstone its ready binding. The winner must also close the
+    // still-active old generation before Auth, rather than treating relogin as
+    // refresh and reviving prior-generation pending ciphertext.
+    for logout in [false, true] {
+        let interrupted = try fixture()
+        let suffix = logout ? "logout" : "begin"
+        let original = try await open(interrupted, bearer: "fixture.enrollment.deactivation-open." + suffix, user: alice)
+        let originalLife = try original.lifecycleForResearch()
+        // A native UUID sender sorts before this valid research peer device.
+        // Public provider keys are real; ownership/peer pins remain fixtures.
+        try original.coordinatorForResearch.installPeerForResearch(DmPeerContext(userId: bob,
+            deviceId: "zz-deactivation-fixture-peer", identityKeyId: bi.identityKeyId,
+            curve: bi.curve, prekey: bi.prekey, generation: 1, status: .accepted), owner: originalLife.owner)
+        let pending = try original.coordinatorForResearch.prepare(clientMessageId: "deactivation-gap-" + suffix,
+            text: "offline obsolete deactivation race payload", owner: originalLife.owner, peerGeneration: 1)
+        try checks.require(try original.coordinatorForResearch.pending(owner: originalLife.owner, peerGeneration: 1) == [pending],
+            "gap fixture starts with real original-generation pending ciphertext")
+        let account = try interrupted.account(userId: alice); handles.append(account.store)
+        let originalAccount = try account.store.read()
+        let competitor = try interrupted.reopen(auth: auth); directories.append(competitor)
+        let gate = DmAccountDirectoryCommitGate(timeoutSeconds: 10)
+        let obsoleteToken = "fixture.enrollment.deactivation-obsolete." + suffix
+        install(obsoleteToken)
+        let hooks = VodozemacAccountDirectory.TransitionHooksForResearch(afterIndexCommitBeforeDeactivation: gate.hold)
+        let obsolete = Task {
+            if logout { try interrupted.directory.signOutForResearch(hooks: hooks) }
+            else { _ = try await interrupted.directory.openForResearch(bearer: obsoleteToken, fault: .none, hooks: hooks) }
+        }
+        defer { gate.release(); obsolete.cancel() }
+        try await dmAccountDirectoryAwaitMutation(gate.hasArrived)
+        try checks.require(try interrupted.state()["selectedUserId"] == nil && account.store.read() == originalAccount,
+            "post-index barrier precedes any obsolete account deactivation")
+        let winnerToken = "fixture.enrollment.deactivation-winner." + suffix
+        install(winnerToken)
+        let winner = try await checks.succeeds("second handle could not complete relogin in deactivation gap") {
+            try await competitor.open(bearer: winnerToken)
+        }
+        accesses.append(winner)
+        let winnerLife = try winner.lifecycleForResearch()
+        try checks.require(winnerLife.active && winnerLife.owner.generation > originalLife.owner.generation,
+            "gap relogin advances generation instead of renewing the still-active old account")
+        try checks.require(try winner.coordinatorForResearch.pending(owner: winnerLife.owner, peerGeneration: 1).isEmpty,
+            "gap relogin cannot expose or rebind original-generation pending ciphertext")
+        let winnerAccount = try account.store.read(), winnerIndex = try interrupted.index.read()
+        let winnerContext = winner.currentContext()
+        try checks.require(winnerContext != nil, "gap winner installs its own guarded native lease")
+        gate.release()
+        try await checks.transitionRefuses("obsolete transition refuses before capturing the winner lifecycle") { try await obsolete.value }
+        try checks.require(try account.store.read() == winnerAccount,
+            "obsolete transition leaves winner sealed account revision and payload EXACTLY unchanged")
+        try checks.require(try interrupted.index.read() == winnerIndex,
+            "obsolete deactivation cannot alter or tombstone the winner sealed index")
+        try checks.require(winner.currentContext() == winnerContext && (try? winner.credential()) != nil,
+            "obsolete transition cannot erase the newer native lease")
+        try checks.require(DmAccountDirectoryProtocol.count(obsoleteToken) == 0
+            && DmAccountDirectoryProtocol.count(winnerToken) == 2,
+            "obsolete begin dispatches no Auth while winning selection completes both verified stages")
+        try checks.fenced(original, "original access remains fenced after competing gap relogin")
+    }
+
+    // The shared deactivation body must hold index authority while capturing
+    // and CASing the account lifecycle, not merely check an epoch beforehand.
+    // A separate native SQLite handle proves actual writer exclusion.
+    do {
+        let serial = try fixture()
+        let access = try await open(serial, bearer: "fixture.enrollment.deactivation-serial-open", user: alice)
+        let account = try serial.account(userId: alice); handles.append(account.store)
+        let accountBefore = try account.store.read()
+        let writer = try VodozemacSealedStore.reopen(directory: serial.indexURL, storeID: serial.indexID)
+        handles.append(writer)
+        try writer.failImmediatelyOnBusyForResearch()
+        let gate = DmAccountDirectoryCommitGate()
+        let task = Task {
+            try serial.directory.signOutForResearch(hooks: .init(insideDeactivationAuthority: gate.hold))
+        }
+        defer { gate.release(); task.cancel() }
+        try await dmAccountDirectoryAwaitMutation(gate.hasArrived)
+        let tombstone = try writer.read()
+        var nextEpoch = try serial.state()
+        nextEpoch["epoch"] = UUID().uuidString
+        let nextPayload = try JSONSerialization.data(withJSONObject: nextEpoch, options: [.sortedKeys])
+        try checks.busyRefuses("cross-handle epoch writer cannot enter held deactivation authority") {
+            _ = try writer.commit(expectedRevision: tombstone.revision, payload: nextPayload)
+        }
+        try checks.require(try writer.read() == tombstone && account.store.read() == accountBefore,
+            "blocked epoch writer and pre-lifecycle deactivation barrier mutate neither sealed store")
+        gate.release()
+        try await task.value
+        try checks.require(try !VodozemacDmCoordinator(store: account.store).lifecycleForResearch().active,
+            "authorized deactivation completes while its exact tombstone owns index authority")
+        try checks.require(try writer.read() == tombstone,
+            "deactivation authority transaction itself does not advance index revision")
+        let deactivated = try account.store.read()
+        _ = try writer.commit(expectedRevision: tombstone.revision, payload: nextPayload)
+        try checks.require(try writer.read().revision == tombstone.revision + 1 && account.store.read() == deactivated,
+            "new epoch commits only after deactivation gate releases without another account mutation")
+        try checks.fenced(access, "authorized logout keeps the old facade unavailable")
+    }
+
+    // A real competing index EPOCH COMMIT reports SQLITE_BUSY while completion
+    // holds the authenticated writer reservation. No timing/sleep assertion is
+    // used to infer that a background writer has reached the transaction.
+    do {
+        let serial = try fixture()
+        let access = try await open(serial, bearer: "fixture.enrollment.serial-open", user: alice)
+        let account = try serial.account(userId: alice); handles.append(account.store)
+        let writer = try VodozemacSealedStore.reopen(directory: serial.indexURL, storeID: serial.indexID)
+        handles.append(writer)
+        try writer.failImmediatelyOnBusyForResearch()
+        let before = try writer.read()
+        var nextEpoch = try serial.state()
+        nextEpoch["epoch"] = UUID().uuidString
+        let nextPayload = try JSONSerialization.data(withJSONObject: nextEpoch, options: [.sortedKeys])
+        let completionGate = DmAccountDirectoryCommitGate()
+        install("fixture.enrollment.serial-refresh")
+        let task = Task {
+            try await access.authenticateForResearch(bearer: "fixture.enrollment.serial-refresh",
+                hooks: .init(insideComplete: completionGate.hold))
+        }
+        defer { completionGate.release(); task.cancel() }
+        try await dmAccountDirectoryAwaitMutation(completionGate.hasArrived)
+        try checks.busyRefuses("cross-handle index epoch commit cannot enter while native completion authority is held") {
+            _ = try writer.commit(expectedRevision: before.revision, payload: nextPayload)
+        }
+        try checks.require(try writer.read() == before, "blocked epoch writer changes no sealed index bytes or revision")
+        completionGate.release()
+        let refreshed = try await task.value
+        try checks.require(refreshed.active && access.currentContext() != nil,
+            "native completion succeeds while its authenticated directory scope remains current")
+        try checks.require(try writer.read() == before, "read-only authority transaction does not advance index revision")
+        let completedAccount = try account.store.read()
+        _ = try writer.commit(expectedRevision: before.revision, payload: nextPayload)
+        try checks.require(try writer.read().revision == before.revision + 1,
+            "cross-handle epoch commit succeeds only after the native completion guard releases")
+        try checks.require(try account.store.read() == completedAccount,
+            "later directory epoch commit cannot cause an additional old-session account commit")
+        try checks.fenced(access, "serialized later epoch revocation fences the completed access")
+    }
+
+    let invalid = try fixture()
+    try await checks.refuses("malformed bearer cannot create an account binding") { try await invalid.directory.open(bearer: "bad\nheader") }
+    var denied = DmAccountDirectoryProtocol.Script(userId: alice); denied.status = 401
+    DmAccountDirectoryProtocol.install([denied], bearer: "fixture.enrollment.denied")
+    try await checks.refuses("first server Auth refusal creates no account") { try await invalid.directory.open(bearer: "fixture.enrollment.denied") }
+    try checks.require(try invalid.rows().isEmpty, "Auth refusal leaves zero account bindings")
+    DmAccountDirectoryProtocol.install([.init(userId: alice), .init(userId: bob)], bearer: "fixture.enrollment.changed")
+    try await checks.refuses("changed account on lease verification never publishes selected access") {
+        try await invalid.directory.open(bearer: "fixture.enrollment.changed")
+    }
+    try checks.require(try invalid.state()["selectedUserId"] == nil && invalid.rows().count == 1,
+        "failed second verification retains only the original immutable binding")
+
+    for fault in [VodozemacAccountDirectory.EnrollmentFault.afterReservation, .beforeReadyCommit] {
+        let interrupted = try fixture()
+        install("fixture.enrollment.interrupted")
+        try await checks.refuses("interrupted account enrollment is refused") {
+            try await interrupted.directory.openForResearch(bearer: "fixture.enrollment.interrupted", fault: fault)
+        }
+        let rows = try interrupted.rows()
+        try checks.require(rows.count == 1 && rows[0]["status"] as? String == "reserved",
+            "durable reservation precedes account creation and ready commit")
+        let reopened = try interrupted.reopen(auth: auth)
+        directories.append(reopened)
+        install("fixture.enrollment.no-recreate")
+        try await checks.refuses("reserved enrollment refuses automatic continuation or recreation after reopen") {
+            try await reopened.open(bearer: "fixture.enrollment.no-recreate")
+        }
+        try checks.require(try interrupted.rows().count == 1 && interrupted.rows()[0]["storeId"] as? String == rows[0]["storeId"] as? String,
+            "interrupted enrollment never allocates a replacement device UUID")
+    }
+
+    // Deterministic async fences during both verification stages.
+    for secondStage in [false, true] {
+        for cancel in [false, true] {
+            let fixture = try fixture(), gate = DmAccountDirectoryGate()
+            defer { gate.release() }
+            let token = "fixture.enrollment.fenced." + (secondStage ? "second." : "first.") + (cancel ? "cancel" : "logout")
+            var held = DmAccountDirectoryProtocol.Script(userId: alice); held.gate = gate
+            DmAccountDirectoryProtocol.install(secondStage ? [.init(userId: alice), held] : [held], bearer: token)
+            let task = Task { try await fixture.directory.open(bearer: token) }
+            try await dmAccountDirectoryAwaitRequest(token, count: secondStage ? 2 : 1)
+            if cancel { task.cancel() } else { try fixture.directory.signOut() }
+            gate.release()
+            try await checks.refuses("cancelled or signed-out enrollment cannot publish late access") { try await task.value }
+            try checks.require(try fixture.state()["selectedUserId"] == nil,
+                "late response cannot select an account after cancellation or logout")
+            try checks.require(try fixture.rows().count == (secondStage ? 1 : 0),
+                "pre-selection cancellation creates no account and post-selection preserves one binding")
+            if secondStage {
+                let local = try fixture.account(userId: alice)
+                defer { local.store.close() }
+                try checks.require(try !VodozemacDmCoordinator(store: local.store).lifecycleForResearch().active,
+                    "cancelled or stale second-stage enrollment leaves its native lifecycle inactive")
+            }
+        }
+    }
+    let contested = try fixture(), competitor = try contested.reopen(auth: auth), gate = DmAccountDirectoryGate()
+    directories.append(competitor)
+    defer { gate.release() }
+    var held = DmAccountDirectoryProtocol.Script(userId: alice); held.gate = gate
+    DmAccountDirectoryProtocol.install([held], bearer: "fixture.enrollment.contested-old")
+    let old = Task { try await contested.directory.open(bearer: "fixture.enrollment.contested-old") }
+    try await dmAccountDirectoryAwaitRequest("fixture.enrollment.contested-old")
+    install("fixture.enrollment.contested-new", user: bob)
+    let winner = try await checks.succeeds("positive competing directory enrollment unexpectedly refused") {
+        try await competitor.open(bearer: "fixture.enrollment.contested-new")
+    }
+    accesses.append(winner)
+    gate.release()
+    try await checks.refuses("durable directory epoch rejects another handle's late enrollment") { try await old.value }
+    try checks.require(winner.currentContext()?.userId == bob && (try contested.rows()).count == 1,
+        "only the newer verified account has a native binding and usable access")
+
+    // A missing account key has a durable blocked index entry. No Keychain
+    // query ever reads or prints private key bytes, and no replacement is made.
+    let lost = try fixture()
+    let lostAccess = try await open(lost, bearer: "fixture.enrollment.key-loss", user: alice)
+    let lostAccount = try lost.account(userId: alice)
+    handles.append(lostAccount.store)
+    try VodozemacSealedStore.deleteResearchKey(storeID: lostAccount.id)
+    try checks.fenced(lostAccess, "lost account key cannot supply an existing credential")
+    try checks.refuses("missing account key prevents directory logout success") { try lost.directory.signOut() }
+    try checks.require(try lost.rows()[0]["status"] as? String == "blocked", "missing key produces durable blocked binding")
+    let lostReopened = try lost.reopen(auth: auth)
+    directories.append(lostReopened)
+    install("fixture.enrollment.missing-key-retry")
+    try await checks.refuses("missing account key never causes replacement on next login") {
+        try await lostReopened.open(bearer: "fixture.enrollment.missing-key-retry")
+    }
+    try checks.require(try lost.rows()[0]["storeId"] as? String == lostAccount.id.uuidString.lowercased(),
+        "missing-key tombstone keeps the original device UUID")
+
+    // Authenticated local corruption/scope mismatch is blocked even when a
+    // fixture explicitly restores the former valid payload afterwards.
+    for field in ["account", "owner", "authProjectOrigin", "conversationId", "version"] {
+        let damaged = try fixture()
+        _ = try await open(damaged, bearer: "fixture.enrollment.damage." + field, user: alice)
+        try damaged.directory.signOut()
+        let account = try damaged.account(userId: alice); handles.append(account.store)
+        let original = try account.store.read()
+        guard var payload = try JSONSerialization.jsonObject(with: original.payload) as? [String: Any] else {
+            throw DmAccountDirectoryProbeError.assertion("corruption fixture has native coordinator state")
+        }
+        switch field {
+        case "owner":
+            guard var owner = payload["owner"] as? [String: Any] else { throw DmAccountDirectoryProbeError.assertion("corruption owner fixture") }
+            owner["userId"] = bob; payload[field] = owner
+        case "authProjectOrigin": payload.removeValue(forKey: field)
+        case "version": payload[field] = 4
+        default: payload[field] = "corrupted-native-fixture"
+        }
+        let badRevision = try account.store.commit(expectedRevision: original.revision,
+            payload: JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]))
+        let reopened = try damaged.reopen(auth: auth)
+        directories.append(reopened)
+        install("fixture.enrollment.corruption-retry." + field)
+        try await checks.refuses("damaged account or binding cannot reopen as an identity") {
+            try await reopened.open(bearer: "fixture.enrollment.corruption-retry." + field)
+        }
+        try checks.require(try damaged.rows()[0]["status"] as? String == "blocked",
+            "damaged native account produces a durable refusal binding")
+        _ = try account.store.commit(expectedRevision: badRevision, payload: original.payload)
+        install("fixture.enrollment.restored-retry." + field)
+        try await checks.refuses("blocked corruption never automatically recovers after old payload restoration") {
+            try await reopened.open(bearer: "fixture.enrollment.restored-retry." + field)
+        }
+    }
+
+    let missingDB = try fixture()
+    _ = try await open(missingDB, bearer: "fixture.enrollment.database-loss", user: alice)
+    try missingDB.directory.signOut()
+    let missingAccount = try missingDB.account(userId: alice); missingAccount.store.close()
+    let database = missingAccount.url.appendingPathComponent("snapshot.sqlite")
+    guard database.path.withCString({ Darwin.unlink($0) }) == 0 else { throw DmAccountDirectoryProbeError.assertion("delete owned fixture database") }
+    install("fixture.enrollment.missing-database")
+    try await checks.refuses("missing account DB cannot cause identity recreation") { try await missingDB.directory.open(bearer: "fixture.enrollment.missing-database") }
+    try checks.require(try missingDB.rows()[0]["status"] as? String == "blocked", "missing DB is durably blocked")
+
+    let locatorFixture = try fixture()
+    let locator = locatorFixture.root.appendingPathComponent("index-id")
+    let originalLocator = try Data(contentsOf: locator)
+    try Data("malformed-native-locator\n".utf8).write(to: locator)
+    try checks.refuses("malformed locator cannot reopen or initialize an index") { _ = try locatorFixture.reopen(auth: auth) }
+    install("fixture.enrollment.bad-locator")
+    try await checks.refuses("existing handle also refuses changed locator before HTTP") { try await locatorFixture.directory.open(bearer: "fixture.enrollment.bad-locator") }
+    try checks.require(DmAccountDirectoryProtocol.count("fixture.enrollment.bad-locator") == 0, "damaged native directory sends no Auth request")
+    try originalLocator.write(to: locator)
+    guard locator.path.withCString({ Darwin.unlink($0) }) == 0 else {
+        throw DmAccountDirectoryProbeError.assertion("remove exact owned locator before symlink fixture")
+    }
+    try FileManager.default.createSymbolicLink(at: locator, withDestinationURL: locatorFixture.indexURL.appendingPathComponent("snapshot.sqlite"))
+    try checks.refuses("symbolic-link locator cannot choose an account index") { _ = try locatorFixture.reopen(auth: auth) }
+    guard locator.path.withCString({ Darwin.unlink($0) }) == 0 else {
+        throw DmAccountDirectoryProbeError.assertion("remove exact fixture locator symlink")
+    }
+    try originalLocator.write(to: locator)
+    let unknown = locatorFixture.root.appendingPathComponent("unexpected-native-content")
+    try Data().write(to: unknown)
+    try checks.refuses("unbound native directory content refuses fresh-account selection") { _ = try locatorFixture.reopen(auth: auth) }
+    guard unknown.path.withCString({ Darwin.unlink($0) }) == 0 else { throw DmAccountDirectoryProbeError.assertion("remove exact fixture unknown file") }
+
+    let indexCorruption = try fixture()
+    _ = try indexCorruption.rows()
+    let validIndex = try indexCorruption.index.read()
+    var invalidIndex = try indexCorruption.state()
+    invalidIndex["version"] = 2
+    _ = try indexCorruption.index.commit(expectedRevision: validIndex.revision,
+        payload: JSONSerialization.data(withJSONObject: invalidIndex, options: [.sortedKeys]))
+    try checks.refuses("unsupported sealed index never becomes a fresh account directory") { _ = try indexCorruption.reopen(auth: auth) }
+    install("fixture.enrollment.index-corruption")
+    try await checks.refuses("corrupt index prevents native account selection before Auth") {
+        try await indexCorruption.directory.open(bearer: "fixture.enrollment.index-corruption")
+    }
+    try checks.require(DmAccountDirectoryProtocol.count("fixture.enrollment.index-corruption") == 0,
+        "index corruption performs no server Auth or key creation")
+
+    let indexLoss = try fixture()
+    _ = try indexLoss.rows()
+    try VodozemacSealedStore.deleteResearchKey(storeID: indexLoss.indexID)
+    try checks.refuses("lost account index key refuses reopen") { _ = try indexLoss.reopen(auth: auth) }
+    install("fixture.enrollment.index-key-loss")
+    try await checks.refuses("lost index key cannot initialize a replacement account") { try await indexLoss.directory.open(bearer: "fixture.enrollment.index-key-loss") }
+    try checks.require(DmAccountDirectoryProtocol.count("fixture.enrollment.index-key-loss") == 0,
+        "index key loss sends no Auth request and creates no owner/store")
+
+    for access in accesses { access.closeForResearch() }
+    for directory in directories { directory.closeForResearch() }
+    for handle in handles { handle.close() }
+    for fixture in fixtures {
+        try fixture.destroy()
+        try checks.require(!FileManager.default.fileExists(atPath: fixture.root.path), "owned account-directory namespace removed without recursion")
+    }
+    return checks.assertions
+}
