@@ -1,7 +1,11 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { TrialTracerShell } from '../components/autorouting/TrialTracerShell';
+import {
+    TRACER_MIN_BODY_PX,
+    TrialTracerShell,
+    tracerNeedsSingleScroll,
+} from '../components/autorouting/TrialTracerShell';
 
 const warning = 'Unsaved trial proposal · not for navigation.';
 
@@ -92,5 +96,56 @@ describe('TrialTracerShell', () => {
         fireEvent.touchMove(screen.getByText('Waypoint details'));
         expect(onWheel).not.toHaveBeenCalled();
         expect(onTouchMove).not.toHaveBeenCalled();
+    });
+    it('scrolls the whole card as one when the fixed rows starve the body (CI 36920384778)', () => {
+        // The 1024 split on Linux fonts: a 317 px card whose wrapped status,
+        // warning, tabs and actions took 302 px, leaving a 15 px body.
+        expect(tracerNeedsSingleScroll(317, 302)).toBe(true);
+        expect(tracerNeedsSingleScroll(317, 317 - TRACER_MIN_BODY_PX)).toBe(false);
+        expect(tracerNeedsSingleScroll(736, 270)).toBe(false);
+        // Unmeasured (jsdom, hidden): never switch layouts on a zero height.
+        expect(tracerNeedsSingleScroll(0, 0)).toBe(false);
+    });
+    it('marks a short card single-scroll and keeps the warning and fold handle in it', () => {
+        const height = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
+            this: HTMLElement,
+        ) {
+            return this.classList.contains('trial-tracer-shell') ? 200 : 0;
+        });
+        const offset = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+            this: HTMLElement,
+        ) {
+            return /trial-tracer-(heading|status|warning|footer)/.test(this.className) ? 30 : 0;
+        });
+        try {
+            const props = { onToggle: () => undefined, warning, status: 'Chart checks complete · review required' };
+            const { rerender } = render(
+                <TrialTracerShell {...props} expanded footer={<button type="button">Clear</button>}>
+                    <label>
+                        Longitude
+                        <input aria-label="destination longitude" />
+                    </label>
+                </TrialTracerShell>,
+            );
+            const card = screen.getByRole('region', { name: 'Autorouting controls' });
+            // 200 px card - 4 x 30 px fixed rows = 80 px of body < 160 px.
+            expect(card).toHaveAttribute('data-single-scroll', 'true');
+            // The fold handle and 'Not for navigation' stay pinned: the CSS
+            // reads their measured heights for the sticky offset and the
+            // focus scroll-padding.
+            expect(card.style.getPropertyValue('--tracer-heading-h')).toBe('30px');
+            expect(card.style.getPropertyValue('--tracer-pinned-h')).toBe('60px');
+            expect(screen.getByText(warning)).toBeVisible();
+            expect(screen.getByRole('button', { name: 'Collapse tracer panel' })).toBeVisible();
+            rerender(
+                <TrialTracerShell {...props} expanded={false}>
+                    <p>Folded</p>
+                </TrialTracerShell>,
+            );
+            expect(card).not.toHaveAttribute('data-single-scroll');
+        } finally {
+            height.mockRestore();
+            offset.mockRestore();
+        }
     });
 });

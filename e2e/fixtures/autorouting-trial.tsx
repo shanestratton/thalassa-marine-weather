@@ -26,6 +26,14 @@ const pane = params.get('pane') === 'true';
 const realEngine = params.get('engine') === 'real';
 const mode = params.get('mode') || 'dark';
 document.documentElement.classList.toggle('display-light', mode === 'light');
+// ?fonts=wide (2026-10-02): the Linux CI runner draws DejaVu Sans, far wider
+// than a Mac's system font, and its wraps squeezed the tracer panel (CI
+// 36920384778). Verdana on a Mac, DejaVu Sans on Linux: the same wraps on both.
+if (params.get('fonts') === 'wide') {
+    const wide = document.createElement('style');
+    wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+    document.head.append(wide);
+}
 setAuthIdentityScope('trial-layout-fixture');
 // Existing planning context is fixture data, never persisted. The choice
 // dialog must snapshot it itself rather than receiving test-only props.
