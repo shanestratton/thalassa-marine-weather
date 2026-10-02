@@ -13,7 +13,15 @@ import { geometryBbox, haversineM, latLonToGrid, pointInGeometry } from './geome
 import { UNKNOWN_OPEN } from './constants';
 import { navLineLeads } from '../leadingLine';
 import { navLinesOnWater } from '../routing/leadLandClip';
-import { bandClaimOf, finestBandBeatsLand, isAuthoritativeOsmWater, type BandClaim } from './chartWaterEvidence';
+import {
+    backstopVerdict,
+    bandClaimOf,
+    finestBandBeatsLand,
+    isAuthoritativeOsmWater,
+    isBackstopOsmWater,
+    type BandClaim,
+    type ChartWaterProbe,
+} from './chartWaterEvidence';
 import { isS57ChartProps, readS57 } from '../enc/types';
 
 type AreaGeometry = Polygon | MultiPolygon;
@@ -60,6 +68,8 @@ interface TaggedArea<T> extends IndexedArea {
 function indexTaggedAreas<T>(
     collections: Array<FeatureCollection | undefined>,
     pick: (props: Record<string, unknown> | null) => T | undefined,
+    /** Keep only the areas whose bbox meets this one ([w, s, e, n]). */
+    within?: readonly [number, number, number, number],
 ): TaggedArea<T>[] {
     const indexed: TaggedArea<T>[] = [];
     for (const collection of collections) {
@@ -68,7 +78,10 @@ function indexTaggedAreas<T>(
             if (!geometry || (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon')) continue;
             const tag = pick(feature.properties as Record<string, unknown> | null);
             if (tag === undefined) continue;
-            indexed.push({ geometry, bbox: geometryBbox(geometry), tag });
+            const bbox = geometryBbox(geometry);
+            if (within && (bbox[2] < within[0] || bbox[0] > within[2] || bbox[3] < within[1] || bbox[1] > within[3]))
+                continue;
+            indexed.push({ geometry, bbox, tag });
         }
     }
     return indexed;
@@ -190,6 +203,44 @@ function buildHardLandAtPoint(layers: InshoreLayers): (lon: number, lat: number)
         if (pointInIndexedAreas(lon, lat, osmWater)) return false;
         return !finestBandBeatsLand(tagsAt(lon, lat, bands), landRanks);
     };
+}
+
+/**
+ * The satellite land check's chart evidence (2026-10-02, Coral Sea Marina →
+ * Daydream Island): what the route's own layers — the installed cells as the
+ * engine merged them, ranked, plus the OSM water it injected — say at a
+ * point (chartWaterEvidence.backstopVerdict). services/routing/landBackstop
+ * ignores a NOAA ETOPO "land" sample only where this answers 'water', and
+ * passes over one it answers 'osm-water' (neutral).
+ *
+ * Indexed once, eagerly, and only the areas meeting `within` (the route's
+ * bbox): the probe rides the route result, so it must not keep every merged
+ * feature of the route's window alive with it.
+ */
+export function backstopChartWaterProbe(
+    layers: InshoreLayers,
+    within?: readonly [number, number, number, number],
+): ChartWaterProbe {
+    const land = indexTaggedAreas<number | null>(
+        [layers.LNDARE],
+        (p) => (typeof p?._scaleRank === 'number' ? p._scaleRank : null),
+        within,
+    );
+    // Navigable OSM water only — no ponds, no Mapbox / satellite water
+    // (chartWaterEvidence.isBackstopOsmWater) — and it is neutral, never
+    // 'water' (backstopVerdict).
+    const osmWater = indexTaggedAreas<true>(
+        [layers.DEPARE, layers.FAIRWY],
+        (p) => (isBackstopOsmWater(p) ? true : undefined),
+        within,
+    );
+    const bands = indexTaggedAreas<BandClaim>(
+        [layers.DEPARE, layers.DRGARE],
+        (p) => bandClaimOf(p) ?? undefined,
+        within,
+    );
+    return (lon, lat) =>
+        backstopVerdict(pointInIndexedAreas(lon, lat, osmWater), tagsAt(lon, lat, bands), tagsAt(lon, lat, land));
 }
 
 /**

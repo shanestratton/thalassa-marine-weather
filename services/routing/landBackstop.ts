@@ -27,9 +27,36 @@
  * Structural fix (corridor coverage gate + UNCHARTED ≠ OPEN in the
  * engine) is Lane B work — see ROUTING_COLLAB.md reply 16. This backstop
  * stays afterwards as defence in depth.
+ *
+ * WHERE THE CHARTS SAY WATER (field bug, 2026-10-02, Coral Sea Marina →
+ * Daydream Island): ETOPO's ~1.8 km pixels read the marina, its dredged
+ * channel and the deep water off a headland as land — 5 + 9 samples on a
+ * route the 1:12,000 and 1:90,000 cells chart as 1.8–30 m water — and every
+ * Whitsundays route from a marina was refused. ETOPO is there for chart
+ * GAPS, so an ETOPO land sample now counts only where the installed charts
+ * do not vouch for water (`chartWater`, the route's own layers:
+ * safetyAudit.backstopChartWaterProbe): no S-57 depth band at a scale finer
+ * than ETOPO's pixel (usage band 3+) that never dries there under the
+ * decision-1 finest-band rule, and none of the route's own OSM water.
+ * Overview cells never vouch — they generalise small islands away. A chart
+ * gap still rejects (Bribie), and so does land the charts show too.
+ *
+ * A LONE SAMPLE CAN BE AN ISLAND (review fix-up, 2026-10-02): with the
+ * charts vouching either side, a ≤1 km island charted at 1:90,000 was one
+ * land sample between two vouched ones — a "run" of 1, passed (Daydream
+ * Island itself, east–west). Away from the route's ends (more than
+ * LONE_SAMPLE_END_CLEARANCE_M along it — nearer, it is a pin's own land,
+ * decision 7), one ETOPO land sample counts on its own where a detailed chart
+ * shows land or drying ground there too, or where the charts vouch for water
+ * on both sides but say nothing at it (a hole in detailed coverage — the
+ * island whose land paint did not merge). Navigable OSM water the charts do
+ * not vouch for is neutral: it never counts, and a short stretch of it
+ * (MAX_OSM_WATER_BRIDGE_SAMPLES) does not break a run, so a pond cannot split
+ * an island in two (chartWaterEvidence 'osm-water').
  */
 
 import { GebcoDepthService, type DepthResult } from '../GebcoDepthService';
+import type { ChartWaterProbe, ChartWaterVerdict } from '../engine/chartWaterEvidence';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
 
@@ -51,8 +78,30 @@ export const LAND_DEPTH_THRESHOLD_M = 0;
 export const MIN_RUN_SAMPLES = 2;
 /** Along-route sampling interval. */
 export const SAMPLE_STEP_M = 400;
+/**
+ * A lone ETOPO land sample counts on its own only this far along the route
+ * from BOTH of its ends (review fix-up, 2026-10-02): nearer, it is a pin's own
+ * land or drying bank (owner decision 7), which the route already says.
+ */
+export const LONE_SAMPLE_END_CLEARANCE_M = 500;
+/**
+ * At most this many consecutive OSM-water samples the charts do not vouch for
+ * are passed over between two land samples, joining them into one run (~800 m:
+ * a pond on an island, review fix-up 2026-10-02). A longer stretch is real
+ * navigable water on the way — a river or a canal estate — and breaks the run,
+ * so two stray samples kilometres apart up an OSM-only river never join.
+ */
+export const MAX_OSM_WATER_BRIDGE_SAMPLES = 2;
 /** Hard cap on samples per validation (legacy gebco-depth endpoint batch limit). */
 export const MAX_SAMPLES = 180;
+
+/**
+ * What the installed charts said where ETOPO read land: 'land' (a detailed
+ * chart shows land or drying ground there too), 'uncharted' (no chart finer
+ * than ETOPO's pixel covers it — a chart gap) or 'unchecked' (the caller
+ * gave no chart evidence).
+ */
+export type LandRunCharts = 'land' | 'uncharted' | 'unchecked';
 
 export interface LandRun {
     /** Index of the first sample in the run. */
@@ -61,12 +110,21 @@ export interface LandRun {
     /** Representative coordinate (first sample of the run). */
     lat: number;
     lon: number;
+    /** The run's middle sample — where the refusal says it is. */
+    midLat?: number;
+    midLon?: number;
+    /** What the charts say along the run (findLandRuns leaves it unset). */
+    charts?: LandRunCharts;
+    /** An 'uncharted' run where a small-scale (overview or general) chart
+     *  paints land too — the words must not imply water there. */
+    smallScaleLand?: boolean;
 }
 
 /**
  * Pure: find runs of consecutive land-reading samples. NOAA ETOPO uses
  * negative elevation below sea level and positive elevation on land.
- * Null depths break runs — unknown is not evidence of land.
+ * Null depths break runs — unknown is not evidence of land. ETOPO alone:
+ * what the charts say is judged afterwards (countedLandRuns).
  */
 export function findLandRuns(depths: DepthResult[], thresholdM = LAND_DEPTH_THRESHOLD_M): LandRun[] {
     const runs: LandRun[] = [];
@@ -76,25 +134,35 @@ export function findLandRuns(depths: DepthResult[], thresholdM = LAND_DEPTH_THRE
         const isLand = depth !== null && Number.isFinite(depth) && depth >= thresholdM;
         if (isLand && start === -1) start = i;
         if (!isLand && start !== -1) {
-            runs.push({ startIdx: start, samples: i - start, lat: depths[start].lat, lon: depths[start].lon });
+            const mid = depths[start + Math.floor((i - start) / 2)];
+            runs.push({
+                startIdx: start,
+                samples: i - start,
+                lat: depths[start].lat,
+                lon: depths[start].lon,
+                midLat: mid.lat,
+                midLon: mid.lon,
+            });
             start = -1;
         }
     }
     return runs;
 }
 
+/** Great-circle metres between two [lon, lat] points. */
+function dist(a: LonLat, b: LonLat): number {
+    const R = 6371000;
+    const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+    const dLon = ((b[0] - a[0]) * Math.PI) / 180;
+    const s =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((a[1] * Math.PI) / 180) * Math.cos((b[1] * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+}
+
 /** Pure: sample a polyline every ~stepM, capped at maxSamples (incl. ends). */
 export function samplePolyline(polyline: LonLat[], stepM = SAMPLE_STEP_M, maxSamples = MAX_SAMPLES): LonLat[] {
     if (polyline.length < 2) return [...polyline];
-    const R = 6371000;
-    const dist = (a: LonLat, b: LonLat): number => {
-        const dLat = ((b[1] - a[1]) * Math.PI) / 180;
-        const dLon = ((b[0] - a[0]) * Math.PI) / 180;
-        const s =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos((a[1] * Math.PI) / 180) * Math.cos((b[1] * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-        return 2 * R * Math.asin(Math.sqrt(s));
-    };
     let total = 0;
     for (let i = 0; i < polyline.length - 1; i++) total += dist(polyline[i], polyline[i + 1]);
     const step = Math.max(stepM, total / Math.max(1, maxSamples - 1));
@@ -127,15 +195,119 @@ export interface LandBackstopResult {
     samplesChecked: number;
     /** Samples requested along the final route geometry. */
     samplesRequested: number;
+    /** ETOPO land samples a chart finer than ETOPO vouches is water — not
+     *  counted, and they break a run like water. */
+    vouchedLandSamples?: number;
+    /** ETOPO land samples only the route's own navigable OSM water covers —
+     *  neutral: neither counted nor breaking a run. */
+    osmWaterSamples?: number;
+    /** ETOPO land runs (≥ MIN_RUN_SAMPLES) made only of vouched or OSM-water
+     *  samples — ignored. */
+    ignoredRuns?: number;
+}
+
+export interface LandBackstopOptions {
+    /**
+     * What the installed charts say at a point — the route's own layers
+     * (InshoreRouteResult.chartWater, built by the engine wrapper from the
+     * cells and OSM water it routed on). Absent: nothing vouches, every ETOPO
+     * land sample counts (the backstop as it was).
+     */
+    chartWater?: ChartWaterProbe;
+}
+
+type SampleCharts = ChartWaterVerdict | 'unchecked' | null;
+
+const unvouched = (c: SampleCharts): boolean => c !== null && c !== 'water' && c !== 'osm-water';
+const uncharted = (c: SampleCharts): boolean => c === 'uncharted' || c === 'uncharted-land';
+
+/**
+ * Pure: the land runs that count, from ETOPO (`depths`) and what the charts
+ * said at each ETOPO land sample (`charts`, null where ETOPO reads water or
+ * nothing). A sample counts where ETOPO reads land and the charts do not
+ * vouch for water; a vouched sample breaks a run like water; an 'osm-water'
+ * sample is passed over (neither counts nor breaks) — up to
+ * MAX_OSM_WATER_BRIDGE_SAMPLES in a row, beyond which it breaks the run. A run counts from
+ * MIN_RUN_SAMPLES samples — or from one, more than LONE_SAMPLE_END_CLEARANCE_M
+ * along the route from both ends, where the charts show land there, or vouch
+ * for water on both sides and say nothing at it.
+ */
+function countedLandRuns(depths: DepthResult[], charts: readonly SampleCharts[], samples: LonLat[]): LandRun[] {
+    const along: number[] = [0];
+    for (let i = 1; i < samples.length; i++) along.push(along[i - 1] + dist(samples[i - 1], samples[i]));
+    const total = along[along.length - 1] ?? 0;
+    const clearOfEnds = (i: number): boolean =>
+        along[i] > LONE_SAMPLE_END_CLEARANCE_M && total - along[i] > LONE_SAMPLE_END_CLEARANCE_M;
+    /** The nearest sample on one side past any (bridgeable) OSM water is
+     *  chart-vouched. */
+    const vouchedBeside = (i: number, step: 1 | -1): boolean => {
+        let j = i + step;
+        for (let k = 0; k < MAX_OSM_WATER_BRIDGE_SAMPLES && charts[j] === 'osm-water'; k++) j += step;
+        return j >= 0 && j < charts.length && charts[j] === 'water';
+    };
+    const groups: number[][] = [];
+    let current: number[] = [];
+    let osmStretch = 0;
+    const flush = (): void => {
+        if (current.length > 0) groups.push(current);
+        current = [];
+    };
+    charts.forEach((c, i) => {
+        if (c === 'osm-water') {
+            // Neutral — neither counts nor breaks — over a short stretch only.
+            if (++osmStretch > MAX_OSM_WATER_BRIDGE_SAMPLES) flush();
+            return;
+        }
+        osmStretch = 0;
+        if (unvouched(c)) current.push(i);
+        else flush();
+    });
+    flush();
+    const runs: LandRun[] = [];
+    for (const group of groups) {
+        const lone = group.length === 1 ? group[0] : -1;
+        const counts =
+            group.length >= MIN_RUN_SAMPLES ||
+            (lone >= 0 &&
+                clearOfEnds(lone) &&
+                (charts[lone] === 'land' ||
+                    (uncharted(charts[lone]) && vouchedBeside(lone, -1) && vouchedBeside(lone, 1))));
+        if (!counts) continue;
+        const said = group.map((i) => charts[i]);
+        const first = depths[group[0]];
+        const mid = depths[group[Math.floor(group.length / 2)]];
+        const verdict: LandRunCharts = said.includes('land')
+            ? 'land'
+            : said.some(uncharted)
+              ? 'uncharted'
+              : 'unchecked';
+        runs.push({
+            startIdx: group[0],
+            samples: group.length,
+            lat: first.lat,
+            lon: first.lon,
+            midLat: mid.lat,
+            midLon: mid.lon,
+            charts: verdict,
+            ...(verdict === 'uncharted' && said.includes('uncharted-land') ? { smallScaleLand: true } : {}),
+        });
+    }
+    return runs;
 }
 
 /**
  * Corroborate an inshore route polyline against coarse NOAA ETOPO. Data unavailability
  * is explicit and fail-closed: a caller may draw a route as verified only
  * when status='verified' and crossesLand=false. A confirmed land run is a
- * verified rejection even if another sample was unavailable.
+ * verified rejection even if another sample was unavailable. An ETOPO land
+ * sample counts only where `opts.chartWater` does not vouch for water
+ * (countedLandRuns says when one alone is a crossing); a probe that throws
+ * vouches nothing there (fail closed).
  */
-export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandBackstopResult> {
+export async function inshoreRouteCrossesLand(
+    polyline: LonLat[],
+    opts: LandBackstopOptions = {},
+): Promise<LandBackstopResult> {
     const samples = samplePolyline(polyline);
     const unavailable = (samplesChecked = 0): LandBackstopResult => ({
         status: 'unavailable',
@@ -162,11 +334,43 @@ export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandB
         }
 
         const samplesChecked = depths.filter((sample) => Number.isFinite(sample.depth_m)).length;
-        const runs = findLandRuns(depths).filter((r) => r.samples >= MIN_RUN_SAMPLES);
+        // What the charts say where ETOPO reads land (asked only there).
+        let probeFailed = false;
+        const charts: SampleCharts[] = depths.map((sample) => {
+            const depth = sample.depth_m;
+            if (depth === null || !Number.isFinite(depth) || depth < LAND_DEPTH_THRESHOLD_M) return null;
+            if (!opts.chartWater) return 'unchecked';
+            try {
+                return opts.chartWater(sample.lon, sample.lat);
+            } catch (e) {
+                if (!probeFailed) log.warn('[landBackstop] chart evidence failed — it vouches nothing there:', e);
+                probeFailed = true;
+                return 'unchecked';
+            }
+        });
+        const vouchedLandSamples = charts.filter((c) => c === 'water').length;
+        const osmWaterSamples = charts.filter((c) => c === 'osm-water').length;
+        // ETOPO's own runs made only of vouched (or OSM-water) samples:
+        // ignored, said.
+        const ignoredRuns = findLandRuns(depths).filter(
+            (r) =>
+                r.samples >= MIN_RUN_SAMPLES &&
+                charts.slice(r.startIdx, r.startIdx + r.samples).every((c) => c === 'water' || c === 'osm-water'),
+        ).length;
+        if (vouchedLandSamples + osmWaterSamples > 0)
+            log.warn(
+                `[landBackstop] ignored ${vouchedLandSamples} ETOPO land sample(s) (${ignoredRuns} whole run(s)) ` +
+                    'where the installed charts finer than ETOPO show water' +
+                    (osmWaterSamples > 0
+                        ? `; passed over ${osmWaterSamples} only the route's own OSM water covers (neither counted nor breaking a run)`
+                        : ''),
+            );
+        const runs = countedLandRuns(depths, charts, samples);
+        const vouched = { vouchedLandSamples, osmWaterSamples, ignoredRuns };
         if (runs.length > 0) {
             log.warn(
                 `[landBackstop] inshore route crosses land: ${runs.length} run(s), first at ` +
-                    `${runs[0].lat.toFixed(4)},${runs[0].lon.toFixed(4)} (${runs[0].samples} samples) — rejecting`,
+                    `${runs[0].lat.toFixed(4)},${runs[0].lon.toFixed(4)} (${runs[0].samples} samples, charts: ${runs[0].charts}) — rejecting`,
             );
             return {
                 status: 'verified',
@@ -174,6 +378,7 @@ export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandB
                 runs,
                 samplesChecked,
                 samplesRequested: samples.length,
+                ...vouched,
             };
         }
 
@@ -182,7 +387,7 @@ export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandB
                 `[landBackstop] ETOPO unavailable for ${samples.length - samplesChecked}/${samples.length} sample(s) — ` +
                     'route remains unverified',
             );
-            return unavailable(samplesChecked);
+            return { ...unavailable(samplesChecked), ...vouched };
         }
 
         return {
@@ -191,6 +396,7 @@ export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandB
             runs: [],
             samplesChecked,
             samplesRequested: samples.length,
+            ...vouched,
         };
     } catch (e) {
         log.warn('[landBackstop] ETOPO unavailable — route remains unverified:', e);

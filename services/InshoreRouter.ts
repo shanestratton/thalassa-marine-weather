@@ -92,8 +92,10 @@ import {
     type ClearanceBarProperties,
     type ClearanceStructureLayer,
 } from './routing/overheadClearance';
+import type { ChartWaterProbe } from './engine/chartWaterEvidence';
 import {
     auditUnvouchedHardLand,
+    backstopChartWaterProbe,
     hardLandAwayFromPinEdges,
     hazardBufferSegments,
     MAX_UNVOUCHED_HARD_LAND_RUN_M,
@@ -554,9 +556,50 @@ export interface InshoreRouteResult {
      *  none saved for an end — said next to the route (waterPackCaveats).
      *  Absent when the overlay carried no provenance (a mock). */
     waterPack?: WaterPackUse;
+    /**
+     * What this route's own charts say at a point — the cells as merged for
+     * it (ranked) plus the OSM water it was routed on — for the satellite land
+     * check (services/routing/landBackstop, 2026-10-02): an ETOPO land sample
+     * counts only where this does not answer 'water'. Every caller of the
+     * check passes it (Auto, the passage planner, the voyage form). In-memory
+     * only — a function, never serialised or cloned; absent when it could not
+     * be built (the check then counts every ETOPO land sample, as before).
+     */
+    chartWater?: ChartWaterProbe;
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
+}
+
+/**
+ * The satellite land check's chart evidence for a finished route
+ * (safetyAudit.backstopChartWaterProbe), indexed over the route's own bbox
+ * only. Never throws: a probe that cannot be built is left off, and the check
+ * then trusts no chart (fail closed).
+ */
+function routeChartWater(
+    layers: InshoreLayers,
+    polyline: readonly [number, number][],
+): { chartWater?: ChartWaterProbe } {
+    try {
+        let w = Infinity;
+        let sLat = Infinity;
+        let e = -Infinity;
+        let n = -Infinity;
+        for (const [lon, lat] of polyline) {
+            w = Math.min(w, lon);
+            e = Math.max(e, lon);
+            sLat = Math.min(sLat, lat);
+            n = Math.max(n, lat);
+        }
+        if (!Number.isFinite(w) || !Number.isFinite(sLat)) return {};
+        // A hair of pad: the samples lie on the line, never off it.
+        const pad = 1e-6;
+        return { chartWater: backstopChartWaterProbe(layers, [w - pad, sLat - pad, e + pad, n + pad]) };
+    } catch (err) {
+        log.warn(`chart evidence for the land check unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        return {};
+    }
 }
 
 export interface InshoreRouteFailure {
@@ -2239,6 +2282,7 @@ async function tryInshoreRouteInner(
                             : null;
                         return {
                             ...promoted,
+                            ...routeChartWater(merged, g.polyline),
                             ...(promotedLand && promotedAway
                                 ? {
                                       hardLand: {
@@ -2331,6 +2375,7 @@ async function tryInshoreRouteInner(
               }
             : {}),
         ...routeContext,
+        ...routeChartWater(merged, result.polyline),
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,

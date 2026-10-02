@@ -173,6 +173,13 @@ export function AutoroutingTrialWorkspace({
         vesselProfile: initialVesselProfile ? structuredClone(initialVesselProfile) : undefined,
     }).current;
     const draftAssumed = vesselProfile?.draftStatus !== 'measured';
+    // The "not confirmed clearance" line belongs only where a dimension is
+    // missing or estimated (Shane's screenshot, 2026-10-02: draft, length,
+    // beam and air draft all measured, and the line still showed).
+    const dimensionUnconfirmed =
+        !!vesselProfile &&
+        (vesselProfile.draftStatus !== 'measured' ||
+            (['length', 'beam', 'airDraft'] as const).some((name) => vesselProfile[name].status !== 'measured'));
     const vesselReady =
         Number.isFinite(draft) &&
         typeof draft === 'number' &&
@@ -1254,10 +1261,12 @@ export function AutoroutingTrialWorkspace({
                                                 </React.Fragment>
                                             ))}
                                         </dl>
-                                        <p className="mt-2 text-micro text-amber-300">
-                                            Missing or estimated dimensions are not confirmed clearance. Change
-                                            measurements in Vessel preferences.
-                                        </p>
+                                        {dimensionUnconfirmed && (
+                                            <p className="mt-2 text-micro text-amber-300">
+                                                Missing or estimated dimensions are not confirmed clearance. Change
+                                                measurements in Vessel preferences.
+                                            </p>
+                                        )}
                                     </details>
                                 )}
                                 {!status?.ready && (

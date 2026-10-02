@@ -37,6 +37,7 @@ import {
     type PassageEnhancementToken,
 } from '../services/passageEnhancementEvents';
 import { departureOnLocalDate, derivePassageSummarySchedule } from '../services/passageSummarySchedule';
+import { chartedLandFinding, landBackstopFinding } from '../services/routing/landBackstopWords';
 import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 
 /**
@@ -770,11 +771,40 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 // before accepting. Missing GEBCO coverage is an
                                 // explicit unverified verdict, never permission to
                                 // present this geometry as checked.
+                                // ETOPO land counts only where the route's own
+                                // charts do not vouch for water (2026-10-02,
+                                // Coral Sea Marina → Daydream) — the same
+                                // check Auto and the passage planner run.
+                                // Charted land first (review fix-up,
+                                // 2026-10-02), exactly as Auto refuses it:
+                                // the engine's own 25 m audit, a pin's own
+                                // edge left out. The engine refuses only a
+                                // run over 500 m, and a small charted island
+                                // the ETOPO pixels miss passed both checks.
+                                const chartedLand = chartedLandFinding(inshoreRes.hardLand);
                                 const { inshoreRouteCrossesLand } = await import('../services/routing/landBackstop');
                                 if (!operationIsCurrent()) return;
-                                const backstop = await inshoreRouteCrossesLand(inshoreRes.polyline);
+                                const backstop = chartedLand
+                                    ? null
+                                    : await inshoreRouteCrossesLand(inshoreRes.polyline, {
+                                          chartWater: inshoreRes.chartWater,
+                                      });
                                 if (!operationIsCurrent()) return;
-                                if (backstop.status !== 'verified' || backstop.crossesLand) {
+                                if (!backstop) {
+                                    console.warn(
+                                        `[useVoyageForm] inshore route REJECTED: ${Math.round(inshoreRes.hardLand?.awayM ?? 0)} m of charted land away from the pins — falling back to offshore pipeline`,
+                                    );
+                                    enhancedPlan = {
+                                        ...enhancedPlan,
+                                        __inshoreRouting: {
+                                            status: 'failed',
+                                            error: `${chartedLand} The route fell back to offshore planning.`,
+                                            errorCode: 'charted-land',
+                                            cellsUsed: inshoreRes.cellsUsed,
+                                        },
+                                    };
+                                    saveIfActive(enhancedPlan);
+                                } else if (backstop.status !== 'verified' || backstop.crossesLand) {
                                     const unavailable = backstop.status === 'unavailable';
                                     console.warn(
                                         `[useVoyageForm] inshore route ${unavailable ? 'UNVERIFIED' : 'REJECTED'} by land backstop ` +
@@ -786,7 +816,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                             status: 'failed',
                                             error: unavailable
                                                 ? 'Satellite land verification is unavailable — the inshore route was not accepted as checked.'
-                                                : 'Inshore charts do not cover the full passage — route fell back to offshore planning.',
+                                                : `${landBackstopFinding(backstop)} The route fell back to offshore planning.`,
                                             errorCode: unavailable ? 'land-backstop-unavailable' : 'land-backstop',
                                             cellsUsed: inshoreRes.cellsUsed,
                                         },

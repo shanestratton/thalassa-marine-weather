@@ -64,6 +64,7 @@ import {
     surveyAmberMetres,
 } from './inshoreRouteState';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
+import { chartedLandFinding, landBackstopFinding, landBackstopTitle } from '../../services/routing/landBackstopWords';
 
 const COMFORT_ZONE_SUFFIXES = ['' as const, '_r' as const];
 
@@ -545,10 +546,33 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // Reject and fall through to the offshore pipeline. Missing
                 // GEBCO coverage is an unverified verdict, never permission
                 // to paint/save/export a confident route.
+                // ETOPO land counts only where the route's own charts do not
+                // vouch for water (2026-10-02, Coral Sea Marina → Daydream:
+                // its ~1.8 km pixels read the marina and a headland's deep
+                // water as land) — the same check Auto and the voyage form run.
+                // CHARTED LAND FIRST (review fix-up, 2026-10-02), exactly as
+                // Auto refuses it: the engine's own 25 m audit, a pin's own
+                // edge left out. The engine refuses only a run over 500 m, and
+                // a small charted island the ETOPO pixels miss passed both
+                // checks here (Daydream Island, straight across).
+                const chartedLand = chartedLandFinding(inshoreRes.hardLand);
                 const { inshoreRouteCrossesLand } = await import('../../services/routing/landBackstop');
-                const backstop = await inshoreRouteCrossesLand(inshoreRes.polyline);
+                const backstop = chartedLand
+                    ? null
+                    : await inshoreRouteCrossesLand(inshoreRes.polyline, {
+                          chartWater: inshoreRes.chartWater,
+                      });
                 if (gen !== computeGenRef.current) return; // user moved on, abort
-                if (backstop.status !== 'verified' || backstop.crossesLand) {
+                if (!backstop) {
+                    log.warn(
+                        `[Passage][BAYLEG] FELL THROUGH (charted-land) — ${Math.round(inshoreRes.hardLand?.awayM ?? 0)} m of charted land away from the pins`,
+                    );
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Inshore route rejected — crosses charted land',
+                        message: `${chartedLand} Falling back to offshore planning.`,
+                    });
+                } else if (backstop.status !== 'verified' || backstop.crossesLand) {
                     const unavailable = backstop.status === 'unavailable';
                     log.warn(
                         `[Passage][BAYLEG] FELL THROUGH (${unavailable ? 'land-backstop-unavailable' : 'land-backstop'}) — ` +
@@ -558,12 +582,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     );
                     dispatchPassageNotice({
                         severity: 'warn',
-                        title: unavailable
-                            ? 'Inshore route not verified'
-                            : 'Inshore route rejected — possible chart gap',
+                        title: unavailable ? 'Inshore route not verified' : landBackstopTitle(backstop),
                         message: unavailable
                             ? 'Satellite land verification is unavailable, so Thalassa will not present this route as checked. Sync chart data or reconnect, then retry. Falling back to offshore planning.'
-                            : 'The charted route crossed land on satellite bathymetry. Retry only after trusted ENC coverage is corrected; unverified reference packs cannot clear this warning. Falling back to offshore planning.',
+                            : `${landBackstopFinding(backstop)} Unverified reference packs cannot clear this warning. Falling back to offshore planning.`,
                     });
                 } else {
                     // Build a RouteAnalysis from the polyline so the rest of
