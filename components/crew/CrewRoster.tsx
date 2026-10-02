@@ -30,6 +30,12 @@ interface CrewRosterProps {
      *  "My Crew" section header so the action lives with the list it
      *  affects, rather than competing with the page title. */
     onInviteClick: () => void;
+    /**
+     * 'crewing' (2026-10-03): the account is crew on a skipper's boat, so the
+     * page belongs to that boat. Only Pending Invites render here; the boat's
+     * own panel replaces Shared with Me, and My Crew is hidden.
+     */
+    mode?: 'own' | 'crewing';
 }
 
 export const CrewRoster: React.FC<CrewRosterProps> = ({
@@ -45,6 +51,7 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
     onDeclineInvite,
     onDisbandClick,
     onInviteClick,
+    mode = 'own',
 }) => {
     if (loading) {
         return (
@@ -116,96 +123,102 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                 </div>
             )}
 
-            {/* ── SHARED WITH ME (Crew view) — swipe to leave ── */}
-            {memberships.length > 0 && (
-                <div className="mb-6">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                        <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
-                            Shared with Me
-                        </span>
-                    </div>
+            {mode === 'own' && (
+                <>
+                    {/* ── SHARED WITH ME (Crew view) — swipe to leave ── */}
+                    {memberships.length > 0 && (
+                        <div className="mb-6">
+                            <div className="flex items-center gap-2 mb-3">
+                                <div className="w-1 h-4 rounded-full bg-emerald-500" />
+                                <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
+                                    Shared with Me
+                                </span>
+                            </div>
 
-                    <div className="space-y-2">
-                        {memberships.map((membership) => (
-                            <SwipeableCrewCard
-                                key={membership.id}
-                                member={membership}
-                                mode="crew"
-                                onDelete={() => onSoftDeleteCrew(membership)}
-                            />
-                        ))}
-                    </div>
-                </div>
-            )}
+                            <div className="space-y-2">
+                                {memberships.map((membership) => (
+                                    <SwipeableCrewCard
+                                        key={membership.id}
+                                        member={membership}
+                                        mode="crew"
+                                        onDelete={() => onSoftDeleteCrew(membership)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
-            {/* ── MY CREW (Captain view) — swipe to remove ──
+                    {/* ── MY CREW (Captain view) — swipe to remove ──
                 Empty state is a compact one-liner card (~50px) — half
                 the height of the original EmptyState component (~120px),
                 but with enough presence to make it feel intentional
                 rather than missing UI. Once there's actual crew, the
                 hint disappears in favour of the card list. */}
-            <div className="mb-3">
-                <div className="flex items-center gap-2 mb-3">
-                    <div className="w-1 h-4 rounded-full bg-sky-500" />
-                    <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">My Crew</span>
-                    {/* Standing complement + invitees, kept separate on
+                    <div className="mb-3">
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="w-1 h-4 rounded-full bg-sky-500" />
+                            <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">
+                                My Crew
+                            </span>
+                            {/* Standing complement + invitees, kept separate on
                         purpose: an invitee isn't a soul on board until they
                         accept, and this line is what the skipper checks
                         against provisioning and the float plan. */}
-                    {(standingCrewAboard ?? 0) > 0 ? (
-                        <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
-                            {standingCrewAboard} aboard
-                            {visibleCrew.length > 0 ? ` · +${visibleCrew.length} invited` : ''}
-                        </span>
-                    ) : (
-                        visibleCrew.length > 0 && (
-                            <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
-                                {visibleCrew.length}
-                            </span>
-                        )
-                    )}
-                    <button
-                        type="button"
-                        aria-label="Invite crew member"
-                        onClick={onInviteClick}
-                        className="hit-target-44 ml-auto px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all"
-                    >
-                        + Invite Crew
-                    </button>
-                </div>
+                            {(standingCrewAboard ?? 0) > 0 ? (
+                                <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
+                                    {standingCrewAboard} aboard
+                                    {visibleCrew.length > 0 ? ` · +${visibleCrew.length} invited` : ''}
+                                </span>
+                            ) : (
+                                visibleCrew.length > 0 && (
+                                    <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
+                                        {visibleCrew.length}
+                                    </span>
+                                )
+                            )}
+                            <button
+                                type="button"
+                                aria-label="Invite crew member"
+                                onClick={onInviteClick}
+                                className="hit-target-44 ml-auto px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all"
+                            >
+                                + Invite Crew
+                            </button>
+                        </div>
 
-                {visibleCrew.length > 0 ? (
-                    <div className="space-y-2 stagger-in">
-                        {visibleCrew.map((member) => (
-                            <SwipeableCrewCard
-                                key={member.id}
-                                member={member}
-                                mode="captain"
-                                onDelete={() => onSoftDeleteCaptain(member)}
-                                onEdit={member.status !== 'declined' ? () => onEditMember(member) : undefined}
+                        {visibleCrew.length > 0 ? (
+                            <div className="space-y-2 stagger-in">
+                                {visibleCrew.map((member) => (
+                                    <SwipeableCrewCard
+                                        key={member.id}
+                                        member={member}
+                                        mode="captain"
+                                        onDelete={() => onSoftDeleteCaptain(member)}
+                                        onEdit={member.status !== 'declined' ? () => onEditMember(member) : undefined}
+                                    />
+                                ))}
+                            </div>
+                        ) : (
+                            <EmptyState
+                                icon="👥"
+                                title="No crew yet"
+                                subtitle="Tap + Invite Crew to share registers and passage readiness with your crew."
+                                compact
                             />
-                        ))}
-                    </div>
-                ) : (
-                    <EmptyState
-                        icon="👥"
-                        title="No crew yet"
-                        subtitle="Tap + Invite Crew to share registers and passage readiness with your crew."
-                        compact
-                    />
-                )}
+                        )}
 
-                {/* Disband Group — danger zone */}
-                {visibleCrew.length > 0 && (
-                    <button
-                        onClick={onDisbandClick}
-                        className="w-full mt-4 py-3 px-4 min-h-[44px] rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold hover:bg-red-500/10 transition-colors active:scale-[0.98]"
-                    >
-                        🚨 Disband Entire Group
-                    </button>
-                )}
-            </div>
+                        {/* Disband Group — danger zone */}
+                        {visibleCrew.length > 0 && (
+                            <button
+                                onClick={onDisbandClick}
+                                className="w-full mt-4 py-3 px-4 min-h-[44px] rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold hover:bg-red-500/10 transition-colors active:scale-[0.98]"
+                            >
+                                🚨 Disband Entire Group
+                            </button>
+                        )}
+                    </div>
+                </>
+            )}
         </>
     );
 };

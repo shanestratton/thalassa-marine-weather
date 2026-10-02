@@ -116,6 +116,15 @@ import { CREW_PAGE_SUBTITLE, CrewSignInPrompt } from './crewManagement/CrewSignI
 import { DepartureCastOffRow } from './crewManagement/DepartureCastOffRow';
 import { EditCrewAccessForm } from './crewManagement/EditCrewAccessForm';
 import { SavedRoutesSelector } from './crewManagement/SavedRoutesSelector';
+// ── The crewing view (Shane 2026-10-03) ──
+import { useCrewingVessel } from '../hooks/useCrewingVessel';
+import { useCrewVesselView } from '../hooks/useCrewVesselView';
+import { crewVesselAboard, forgetCrewVesselView } from '../services/crew/crewVesselView';
+import { selectCrewVessel } from '../services/vessel/sharedBinders';
+import { SKIPPER_BOAT_FALLBACK } from './vessel/SharedBinderLine';
+import { CrewingVesselPanel, crewBoatName } from './crewManagement/CrewingVesselPanel';
+import { CrewFloatPlanCard } from './crewManagement/CrewFloatPlanCard';
+import { type VesselProfileOverride } from './passage/VesselProfileSummary';
 
 /** Re-exported here so every existing importer of this module is unchanged. */
 export type { VoyageRow } from './crewManagement/types';
@@ -167,7 +176,28 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Loading
     const [loading, setLoading] = useState(true);
     // Soft-delete with undo
-    const [deletedMember, setDeletedMember] = useState<{ member: CrewMember; mode: 'captain' | 'crew' } | null>(null);
+    // `group` is every accepted row for one skipper, left together from the
+    // crewing view ("Leave <boat>"); `label` names that boat in the toast.
+    const [deletedMember, setDeletedMember] = useState<{
+        member: CrewMember;
+        mode: 'captain' | 'crew';
+        group?: CrewMember[];
+        label?: string;
+    } | null>(null);
+
+    // ── The crewing view (Shane 2026-10-03): "once a crew member has been
+    // invited to your vessel, can we hide all of the rest of the information
+    // in his crew and float plan, it should all pertain to the vessel that the
+    // punter has been invited on". While the account is accepted crew, this
+    // page is the SKIPPER'S boat. DECIDED: that is the default even for a
+    // skipper who has crew of their own; their own boat is one tap away
+    // through the footer, page-local and never persisted.
+    const { vessel: snapshotCrewVessel, vessels: crewVessels, version: crewSnapshotVersion } = useCrewingVessel();
+    const [showOwnBoat, setShowOwnBoat] = useState(false);
+    /** Boats left (confirmed) on this mount, hidden until the snapshot drops them. */
+    const [leftOwnerIds, setLeftOwnerIds] = useState<string[]>([]);
+    const [sharedVoyagesChecked, setSharedVoyagesChecked] = useState(false);
+    const acceptedOwnerRef = useRef<string | null>(null);
 
     // Auth + Cast Off
     const [showAuth, setShowAuth] = useState(false);
@@ -361,6 +391,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setDeletedMember(null);
             setActiveVoyageName(null);
             setPlanDeparture('');
+            setShowOwnBoat(false);
+            setLeftOwnerIds([]);
+            setSharedVoyagesChecked(false);
+            acceptedOwnerRef.current = null;
 
             setShowInviteModal(false);
             setInviteEmail('');
@@ -664,6 +698,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 .catch(() => loadSavedTraces(scope)),
         ]);
         if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
+        if (membershipsLoaded) setSharedVoyagesChecked(true);
         const canonicalById = new Map(canonicalTraces.map((trace) => [trace.id, trace] as const));
         const canonicalIds = new Set(canonicalById.keys());
         const exactPassageVoyageIds = canonicalPassageVoyageIds(canonicalTraces);
@@ -1329,17 +1364,48 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setDeletedMember({ member, mode });
     };
 
+    /** "Leave <boat>": every accepted row for that skipper, with the same undo. */
+    const handleLeaveCrewVessel = (rows: CrewMember[], label: string) => {
+        const scope = getAuthIdentityScope();
+        if (!scopeStillOwnsPage(scope) || rows.length === 0) return;
+        triggerHaptic('medium');
+        const ids = new Set(rows.map((row) => row.id));
+        setMemberships((prev) => prev.filter((m) => !ids.has(m.id)));
+        setDeletedMember({ member: rows[0], mode: 'crew', group: rows, label });
+    };
+
     const handleDismissDelete = async () => {
         if (!deletedMember) return;
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
-        const { member, mode } = deletedMember;
+        const { member, mode, group, label } = deletedMember;
         setDeletedMember(null);
+        if (group) {
+            const results = await Promise.all(group.map((row) => leaveVessel(row.id).catch(() => false)));
+            if (!scopeStillOwnsPage(scope)) return;
+            if (results.some(Boolean)) reconcileBinders();
+            if (results.every(Boolean)) {
+                setLeftOwnerIds((prev) => (prev.includes(member.owner_id) ? prev : [...prev, member.owner_id]));
+                forgetCrewVesselView(member.owner_id);
+                return;
+            }
+            toast.error(`Could not leave ${label ?? 'the boat'}`);
+            const failed = group.filter((_row, index) => !results[index]);
+            setMemberships((prev) => [...prev, ...failed]);
+            return;
+        }
         try {
             const removed = mode === 'captain' ? await removeCrew(member.id) : await leaveVessel(member.id);
             if (!scopeStillOwnsPage(scope)) return;
             if (removed) {
-                if (mode === 'crew') reconcileBinders();
+                if (mode === 'crew') {
+                    reconcileBinders();
+                    // The boat's last row: keep it hidden until the snapshot drops it.
+                    if (!memberships.some((m) => m.owner_id === member.owner_id && m.id !== member.id)) {
+                        setLeftOwnerIds((prev) => (prev.includes(member.owner_id) ? prev : [...prev, member.owner_id]));
+                        forgetCrewVesselView(member.owner_id);
+                    }
+                }
                 return;
             }
             throw new Error('Crew mutation was rejected');
@@ -1393,7 +1459,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             if (deletedMember.mode === 'captain') {
                 setMyCrew((prev) => [...prev, deletedMember.member]);
             } else {
-                setMemberships((prev) => [...prev, deletedMember.member]);
+                setMemberships((prev) => [...prev, ...(deletedMember.group ?? [deletedMember.member])]);
             }
             toast.success('Restored');
         }
@@ -1408,6 +1474,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (!scopeStillOwnsPage(scope)) return;
         if (ok) {
             toast.success('Invite accepted!');
+            // The page flips to that boat once the snapshot names it (below).
+            acceptedOwnerRef.current = invite.owner_id;
+            setLeftOwnerIds((prev) => prev.filter((ownerId) => ownerId !== invite.owner_id));
+            setShowOwnBoat(false);
             reconcileBinders();
             void loadData();
         } else {
@@ -1767,6 +1837,97 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         [draftVoyages, resetReadinessState, scopeStillOwnsPage, settings.vessel?.crewCount],
     );
 
+    // ── Crewing view: whose boat this page is ──
+    // A boat being left (soft delete) or left on this mount is not crewing.
+    const hiddenCrewOwners = new Set(leftOwnerIds);
+    if (deletedMember?.mode === 'crew') hiddenCrewOwners.add(deletedMember.member.owner_id);
+    const crewing =
+        snapshotCrewVessel && !hiddenCrewOwners.has(snapshotCrewVessel.ownerId)
+            ? snapshotCrewVessel
+            : (crewVessels.find((vessel) => !hiddenCrewOwners.has(vessel.ownerId)) ?? null);
+    const crewingOwnerId = privateIdentityMatches ? (crewing?.ownerId ?? null) : null;
+    const crewingView = Boolean(crewingOwnerId) && !showOwnBoat;
+    const {
+        view: crewView,
+        stale: crewViewStale,
+        loading: crewViewLoading,
+    } = useCrewVesselView(crewingOwnerId, crewSnapshotVersion);
+    const crewBoat = crewing ? crewBoatName(crewing, crewView) : '';
+    // Switching to a DIFFERENT boat starts on its crewing view. The same boat
+    // dropping out for a moment (a soft leave, then Undo) keeps the choice.
+    const lastCrewOwnerRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!crewingOwnerId) return;
+        if (lastCrewOwnerRef.current && lastCrewOwnerRef.current !== crewingOwnerId) setShowOwnBoat(false);
+        lastCrewOwnerRef.current = crewingOwnerId;
+    }, [crewingOwnerId]);
+    // "You're crew on <boat>" once an Accept has reached the snapshot.
+    useEffect(() => {
+        const owner = acceptedOwnerRef.current;
+        if (!owner) return;
+        const vessel = crewVessels.find((candidate) => candidate.ownerId === owner);
+        if (!vessel) return;
+        acceptedOwnerRef.current = null;
+        toast.success(`You're crew on ${vessel.vesselName ?? SKIPPER_BOAT_FALLBACK}`);
+    }, [crewVessels]);
+    // DECIDED: only that skipper's planning or active passages; a completed
+    // voyage-scoped passage stays out (prod 2026-10-03 had exactly that row).
+    const crewPassages = useMemo(
+        () =>
+            crewingOwnerId
+                ? draftVoyages.filter(
+                      (voyage) =>
+                          voyage.isShared &&
+                          voyage.user_id === crewingOwnerId &&
+                          (voyage.status === 'planning' || voyage.status === 'active'),
+                  )
+                : [],
+        [crewingOwnerId, draftVoyages],
+    );
+    const crewRows = crewingOwnerId
+        ? memberships.filter((member) => member.owner_id === crewingOwnerId && member.status === 'accepted')
+        : [];
+    // The stored active passage is navigation state. In the crewing view only
+    // a verified passage of THIS skipper counts as selected; your own stays
+    // stored (ChatPage and the own-boat view keep it) but reads as unselected.
+    const pageSelectedPassageId =
+        crewingView &&
+        !(
+            selectedPassageId &&
+            passageStatus.voyageId === selectedPassageId &&
+            passageStatus.visible &&
+            passageStatus.ownerUserId === crewingOwnerId &&
+            crewPassages.some((voyage) => voyage.id === selectedPassageId)
+        )
+            ? ''
+            : selectedPassageId;
+    const pageVoyages = crewingView ? crewPassages : draftVoyages;
+    const crewAboard = crewVesselAboard(crewView);
+    // The skipper's boat for the readiness cards on their passage. Memoised:
+    // Weather Windows keys its analysis on this boat. `fullProfile` is false
+    // until the RPC's brief is here (the degraded read has no cruising speed,
+    // and that is not the skipper's to fix).
+    const crewBrief = crewView?.vessel ?? null;
+    const crewVesselProfile = useMemo<VesselProfileOverride | null>(
+        () =>
+            crewingView
+                ? {
+                      name: crewBoat,
+                      type: crewBrief?.type,
+                      length: crewBrief?.length,
+                      draft: crewBrief?.draft,
+                      cruisingSpeed: crewBrief?.cruisingSpeed,
+                      maxWindSpeed: crewBrief?.maxWindSpeed,
+                      maxWaveHeight: crewBrief?.maxWaveHeight,
+                      hullType: crewBrief?.hullType,
+                      units: crewView?.vesselUnits,
+                      fullProfile: crewView?.source === 'rpc',
+                  }
+                : null,
+        [crewingView, crewBoat, crewBrief, crewView?.vesselUnits, crewView?.source],
+    );
+    const ownBoatName = settings.vessel?.name?.trim() || '';
+
     // Filter out declined invites older than 7 days
     const visibleCrew = (privateIdentityMatches ? myCrew : []).filter((m) => {
         if (m.status !== 'declined') return true;
@@ -1774,9 +1935,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         return declinedAge < 7 * 24 * 60 * 60 * 1000;
     });
     const verifiedPassageStatus =
-        selectedPassageId && passageStatus.voyageId === selectedPassageId ? passageStatus : NO_PASSAGE_ACCESS;
+        pageSelectedPassageId && passageStatus.voyageId === pageSelectedPassageId ? passageStatus : NO_PASSAGE_ACCESS;
     const isSelectedPassageOwner =
-        Boolean(selectedPassageId) && verifiedPassageStatus.visible && verifiedPassageStatus.isOwner;
+        Boolean(pageSelectedPassageId) && verifiedPassageStatus.visible && verifiedPassageStatus.isOwner;
     // Classified picker rows: passages carry their trip identity so legs
     // nest beneath them, groups order by their newest activity (Shane
     // 2026-08-27: "passage first. then the first leg, then the second leg.
@@ -1788,7 +1949,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         for (const trace of traces) {
             if (trace.passageVoyageId) traceByPassageVoyage.set(trace.passageVoyageId, trace);
         }
-        return draftVoyages.map((row) => {
+        return pageVoyages.map((row) => {
             const trace = row.saved_route_id ? traceById.get(row.saved_route_id) : traceByPassageVoyage.get(row.id);
             const isPassage = /\(passage\)/i.test(row.voyage_name);
             const baseName = savedRouteDisplayName(row);
@@ -1814,7 +1975,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const detailParts = [
                 kind === 'leg' && legOrdinal ? `Leg ${legOrdinal}` : null,
                 distance,
-                row.isShared ? `Shared by ${row.sharedOwnerEmail || 'skipper'}` : null,
+                row.isShared
+                    ? crewingView
+                        ? `From ${crewBoat}`
+                        : `Shared by ${row.sharedOwnerEmail || 'skipper'}`
+                    : null,
             ].filter(Boolean);
             const badged = kind === 'leg' && Boolean(legOrdinal);
             return {
@@ -1834,9 +1999,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 stamp: Date.parse(row.departure_time ?? '') || Date.parse(row.updated_at ?? row.created_at ?? '') || 0,
             };
         });
-    }, [draftVoyages]);
+    }, [crewBoat, crewingView, pageVoyages]);
 
-    const selectedVoyage = draftVoyages.find((voyage) => voyage.id === selectedPassageId);
+    const selectedVoyage = pageVoyages.find((voyage) => voyage.id === pageSelectedPassageId);
     const selectedPassageIsDomestic = Boolean(
         selectedVoyage?.departure_port &&
         selectedVoyage.destination_port &&
@@ -1936,7 +2101,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
             <PageHeader
                 title="Crew & Float Plan"
-                subtitle={CREW_PAGE_SUBTITLE}
+                subtitle={crewingView ? `${crewBoat} · you're crew` : CREW_PAGE_SUBTITLE}
                 onBack={onBack}
                 breadcrumbs={['Vessel', 'Crew & Float Plan']}
             />
@@ -1971,21 +2136,67 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         setInviteError(null);
                         setInviteSuccess(false);
                     }}
+                    mode={crewingView ? 'crewing' : 'own'}
                 />
+
+                {/* ── OWN BOAT while crewing: one tap back to the skipper's ── */}
+                {crewing && crewingOwnerId && showOwnBoat && (
+                    <p className="mb-4 rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-[12px] text-emerald-200/80">
+                        {`You're crew on ${crewBoat} · `}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (scopeStillOwnsPage(renderScope)) setShowOwnBoat(false);
+                            }}
+                            className="hit-target-44 font-bold text-emerald-300 underline underline-offset-2"
+                        >
+                            Back to {crewBoat}
+                        </button>
+                    </p>
+                )}
+
+                {/* ── CREWING ON <BOAT>: the boat, your role, its people ── */}
+                {crewingView && crewing && (
+                    <CrewingVesselPanel
+                        vessel={crewing}
+                        vessels={crewVessels}
+                        rows={crewRows}
+                        view={crewView}
+                        stale={crewViewStale}
+                        loading={crewViewLoading}
+                        onLeave={(rows) => handleLeaveCrewVessel(rows, crewBoat)}
+                        onSwitch={(ownerId) => {
+                            if (scopeStillOwnsPage(renderScope)) selectCrewVessel(ownerId);
+                        }}
+                    />
+                )}
 
                 {/* ── SAVED ROUTES SELECTOR ── */}
                 <SavedRoutesSelector
-                    draftVoyages={draftVoyages}
+                    draftVoyages={pageVoyages}
                     savedRoutePickerRows={savedRoutePickerRows}
-                    selectedPassageId={selectedPassageId}
+                    selectedPassageId={pageSelectedPassageId}
                     handlePassageSelection={handlePassageSelection}
-                    savedRoutesLoading={savedRoutesLoading}
+                    // Crewing: wait for the shared passages, but only while
+                    // memberships can still arrive. A loadData that timed out
+                    // or failed (slow satellite link) settles to the empty
+                    // state; a later reload still fills it.
+                    savedRoutesLoading={
+                        crewingView ? !sharedVoyagesChecked && (loading || membershipsLoaded) : savedRoutesLoading
+                    }
                     ownVoyageCount={ownVoyageCount}
                     sharedVoyageCount={sharedVoyageCount}
+                    {...(crewingView
+                        ? {
+                              countLabel: `${crewPassages.length} shared from ${crewBoat}`,
+                              emptyTitle: 'No passage shared right now',
+                              emptyHint: `${crewBoat}'s skipper hasn't shared a passage with you right now.`,
+                          }
+                        : {})}
                 />
 
                 {/* ── DEPARTURE DATE + CAST OFF (single row) ── */}
-                {selectedPassageId && isSelectedPassageOwner && (
+                {pageSelectedPassageId && isSelectedPassageOwner && (
                     <DepartureCastOffRow
                         planDeparture={planDeparture}
                         handleDepartureDateChange={handleDepartureDateChange}
@@ -1995,7 +2206,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         allCardsReady={allCardsReady}
                     />
                 )}
-                {selectedPassageId && verifiedPassageStatus.visible && !verifiedPassageStatus.isOwner && (
+                {pageSelectedPassageId && verifiedPassageStatus.visible && !verifiedPassageStatus.isOwner && (
                     <p className="mb-4 rounded-xl border border-sky-500/15 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-200/80">
                         Shared passage — departure and Cast Off stay with the skipper.
                     </p>
@@ -2020,13 +2231,19 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 )}
                 {!loading && !passageStatusLoading && (
                     <ReadinessCardStack
-                        key={selectedPassageId || 'no-passage'}
-                        selectedPassageId={selectedPassageId}
+                        key={pageSelectedPassageId || 'no-passage'}
+                        selectedPassageId={pageSelectedPassageId}
                         passageStatus={verifiedPassageStatus}
-                        draftVoyages={draftVoyages}
+                        draftVoyages={pageVoyages}
                         visibleCrew={selectedPassageCrew}
-                        planCrewCount={selectedPassageCrewCount}
-                        standingCrewAboard={standingCrewAboard}
+                        planCrewCount={crewingView && crewAboard ? crewAboard : selectedPassageCrewCount}
+                        standingCrewAboard={crewingView && crewAboard ? crewAboard : standingCrewAboard}
+                        crewVesselProfile={crewVesselProfile}
+                        noPassageHint={
+                            crewingView
+                                ? `Pick a passage ${crewBoat}'s skipper has shared to see its readiness checks.`
+                                : undefined
+                        }
                         reservesReady={reservesReady}
                         vesselChecked={vesselChecked}
                         medicalReady={medicalReady}
@@ -2117,6 +2334,29 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         onDepartureTimeChange={handlePassageDepartureTimeChange}
                     />
                 )}
+
+                {/* ── The skipper's float plan, read-only, and the way to your own boat ── */}
+                {crewingView && (
+                    <>
+                        <CrewFloatPlanCard
+                            boatName={crewBoat}
+                            view={crewView}
+                            passage={pageSelectedPassageId ? (selectedVoyage ?? null) : null}
+                        />
+                        <p className="mt-2 text-center text-[11px] leading-relaxed text-gray-500">
+                            {`You're crewing on ${crewBoat}, so ${ownBoatName ? `${ownBoatName}'s` : 'your own'} crew and plans are hidden here. `}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (scopeStillOwnsPage(renderScope)) setShowOwnBoat(true);
+                                }}
+                                className="hit-target-44 font-bold text-gray-400 underline underline-offset-2"
+                            >
+                                Show {ownBoatName || 'your own boat'}
+                            </button>
+                        </p>
+                    </>
+                )}
             </div>
 
             {/* ── INVITE MODAL ── */}
@@ -2176,7 +2416,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 message={
                     deletedMember?.mode === 'captain'
                         ? `"${deletedMember?.member.crew_email}" removed`
-                        : `Left "${deletedMember?.member.owner_email}"`
+                        : deletedMember?.group
+                          ? `Left ${deletedMember.label ?? SKIPPER_BOAT_FALLBACK}`
+                          : `Left "${deletedMember?.member.owner_email}"`
                 }
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}

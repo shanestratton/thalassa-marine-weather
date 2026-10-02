@@ -19,6 +19,11 @@ interface SavedRoutesSelectorProps {
     savedRoutesLoading: boolean;
     ownVoyageCount: number;
     sharedVoyageCount: number;
+    /** Replaces the "N yours · M shared" line (the crewing view: "2 shared from Petrel"). */
+    countLabel?: string;
+    /** Replaces the empty state's title and hint. */
+    emptyTitle?: string;
+    emptyHint?: string;
 }
 
 export const SavedRoutesSelector: React.FC<SavedRoutesSelectorProps> = ({
@@ -29,6 +34,9 @@ export const SavedRoutesSelector: React.FC<SavedRoutesSelectorProps> = ({
     savedRoutesLoading,
     ownVoyageCount,
     sharedVoyageCount,
+    countLabel,
+    emptyTitle,
+    emptyHint,
 }) => {
     return (
         <div className="mb-4">
@@ -74,9 +82,9 @@ export const SavedRoutesSelector: React.FC<SavedRoutesSelectorProps> = ({
                             />
                         </svg>
                     </div>
-                    <p className="text-xs font-semibold text-slate-200 mb-0.5">No saved routes yet</p>
+                    <p className="text-xs font-semibold text-slate-200 mb-0.5">{emptyTitle ?? 'No saved routes yet'}</p>
                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Plan a route from the Plan tab; saved routes will appear here.
+                        {emptyHint ?? 'Plan a route from the Plan tab; saved routes will appear here.'}
                     </p>
                 </div>
             )}
@@ -87,8 +95,12 @@ export const SavedRoutesSelector: React.FC<SavedRoutesSelectorProps> = ({
                         confirmed individually. */}
             <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
                 <span className="text-[10px] text-gray-500 font-mono">
-                    {ownVoyageCount} yours
-                    {sharedVoyageCount > 0 ? ` · ${sharedVoyageCount} shared` : ''}
+                    {countLabel ?? (
+                        <>
+                            {ownVoyageCount} yours
+                            {sharedVoyageCount > 0 ? ` · ${sharedVoyageCount} shared` : ''}
+                        </>
+                    )}
                 </span>
             </div>
         </div>

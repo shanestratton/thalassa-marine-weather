@@ -34,6 +34,13 @@ interface WatchScheduleCardProps {
      *  notification body so crew know which trip the schedule is for. */
     voyageName?: string | null;
     onReviewedChange?: (reviewed: boolean) => void;
+    /**
+     * The skipper's passage, seen by crew (2026-10-03). The bill is the
+     * skipper's: no assigning, publishing or re-planning, names only (a peer
+     * appears by the name the skipper gave, else 'Crew', never by email), and
+     * neither this account's own crew list nor its email is loaded.
+     */
+    readOnly?: boolean;
 }
 
 /** Default minutes-before for the pre-watch alarm. This is deliberately a
@@ -212,6 +219,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     departureTimeIso,
     voyageName,
     onReviewedChange,
+    readOnly = false,
 }) => {
     const identityScope = useReadinessIdentityScope();
     const [checkedItems, setCheckedItems] = useScopedReadinessStorageState<Record<string, boolean>>(
@@ -313,10 +321,13 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         let cancelled = false;
         (async () => {
             try {
+                // Read-only (the skipper's passage): the assignments alone.
+                // getMyCrew would be THIS account's own crew, and its email
+                // would make it 'Skipper' in an assign sheet it cannot use.
                 const [list, myCrew, userResp] = await Promise.all([
                     WatchAssignmentService.list(voyageId),
-                    getMyCrew(voyageId),
-                    supabase ? supabase.auth.getUser() : Promise.resolve({ data: { user: null } }),
+                    readOnly ? Promise.resolve<CrewMember[]>([]) : getMyCrew(voyageId),
+                    supabase && !readOnly ? supabase.auth.getUser() : Promise.resolve({ data: { user: null } }),
                 ]);
                 if (
                     cancelled ||
@@ -343,7 +354,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [identityScope, voyageId]);
+    }, [identityScope, voyageId, readOnly]);
 
     // ── Realtime subscription ──
     // Crew members' clients subscribe to the voyage's watch-schedule
@@ -762,7 +773,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         // automatic system until the skipper picks another.
                         value={activeWatchSystem}
                         onChange={(event) => void handleWatchSystemChange(event.target.value)}
-                        disabled={systemChanging}
+                        disabled={systemChanging || readOnly}
                         aria-label="Watch system"
                         className="min-h-[44px] min-w-0 flex-1 cursor-pointer touch-manipulation rounded-md border border-indigo-400/20 bg-slate-900/60 px-2.5 py-2 text-right text-xs font-bold text-indigo-200 outline-hidden transition-colors focus:border-indigo-300/60 disabled:cursor-wait disabled:opacity-50 scheme-dark"
                     >
@@ -782,6 +793,11 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         })}
                     </select>
                 </label>
+                {readOnly && (
+                    <p className="-mt-1.5 mb-3 px-1 text-[11px] text-indigo-200/60">
+                        The watch bill is set by the skipper.
+                    </p>
+                )}
 
                 {isSoloSystem && (
                     <div className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/6 px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/80">
@@ -848,7 +864,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     watches have been assigned and we've spotted a
                     repeating pattern. Two taps to fill an entire
                     multi-week rotation. Dismissed flag is per-voyage. */}
-                {detectedPattern && !autofillDismissed && (
+                {!readOnly && detectedPattern && !autofillDismissed && (
                     <div className="mb-2 rounded-xl border border-sky-500/25 bg-sky-500/6 px-3 py-2.5 flex items-center gap-3">
                         <span className="text-lg shrink-0">🔁</span>
                         <p className="flex-1 text-[11px] text-sky-200 leading-tight">
@@ -892,6 +908,38 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         schedule.watches.map((w, i) => {
                             const assignment = assignments.get(i);
                             const isAssigned = !!assignment?.assigned_crew_email;
+                            if (readOnly) {
+                                // Names only: never a peer's email.
+                                const assignee = !isAssigned
+                                    ? null
+                                    : assignment?.assigned_crew_user_id &&
+                                        assignment.assigned_crew_user_id === identityScope.userId
+                                      ? 'You'
+                                      : assignment?.assigned_crew_name?.trim() || 'Crew';
+                                return (
+                                    <div
+                                        key={i}
+                                        className={`min-h-[44px] w-full flex items-center gap-3 px-3 py-2 rounded-lg border ${
+                                            isAssigned
+                                                ? 'bg-indigo-500/15 border-indigo-500/30'
+                                                : 'bg-white/3 border-white/4'
+                                        }`}
+                                    >
+                                        <div
+                                            className={`w-2 h-2 rounded-full ${i % 2 === 0 ? 'bg-sky-400' : 'bg-purple-400'}`}
+                                        />
+                                        <span className="text-xs font-bold text-white flex-1 truncate">{w.label}</span>
+                                        <span className="text-xs text-gray-400 font-mono">{w.time}</span>
+                                        <span
+                                            className={`text-[11px] truncate max-w-[100px] ${
+                                                assignee ? 'text-indigo-200 font-bold' : 'text-gray-500 italic'
+                                            }`}
+                                        >
+                                            {assignee ? `👤 ${assignee}` : 'Not assigned'}
+                                        </span>
+                                    </div>
+                                );
+                            }
                             return (
                                 <button
                                     key={i}
@@ -932,7 +980,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     publish. The skipper's own assignments are
                     included in the count but the skipper doesn't
                     self-notify (vessel_crew lookup excludes them). */}
-                {!isSoloSystem && voyageId && (
+                {!readOnly && !isSoloSystem && voyageId && (
                     <div className="mt-3">
                         <button
                             type="button"
@@ -1046,7 +1094,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                 Triggered by tapping a watch row above. Lists the
                 voyage's accepted crew + skipper; selection upserts
                 an assignment and refreshes the row in-place. */}
-            {assignSheetIndex != null && schedule.watches[assignSheetIndex] && (
+            {!readOnly && assignSheetIndex != null && schedule.watches[assignSheetIndex] && (
                 <WatchAssignSheet
                     open={assignSheetIndex != null}
                     onClose={() => setAssignSheetIndex(null)}

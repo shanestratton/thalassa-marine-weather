@@ -29,6 +29,12 @@ const log = createLogger('SharePassage');
 interface SharePassageButtonProps {
     briefData: PassageBriefData | null;
     className?: string;
+    /**
+     * False on a passage the viewer does not own (the crewing view,
+     * 2026-10-03): the float plan stays the skipper's. A crew-sent plan would
+     * carry the crew's OWN boat profile and list them as Skipper. Default true.
+     */
+    allowFloatPlan?: boolean;
 }
 
 interface ShareFailure {
@@ -54,7 +60,11 @@ function passageFallbackText(data: PassageBriefData): string {
     }
 }
 
-const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, className = '' }) => {
+const SharePassageButton: React.FC<SharePassageButtonProps> = ({
+    briefData,
+    className = '',
+    allowFloatPlan = true,
+}) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const [sharing, setSharing] = useState(false);
     const [showFloatPlan, setShowFloatPlan] = useState(false);
@@ -197,7 +207,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
     if (!briefData) return null;
 
     const floatPlanPreset: FloatPlanPreset | null =
-        briefData.origin && briefData.destination
+        allowFloatPlan && briefData.origin && briefData.destination
             ? {
                   route: {
                       name: briefData.routeName,
@@ -265,30 +275,35 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     </div>
 
                     {/* A real float plan: overdue action, POB, rescue contact,
-                        vessel identity and safety equipment. */}
-                    <button
-                        role="menuitem"
-                        onClick={() => {
-                            if (!planComplete || !floatPlanPreset) return;
-                            setMenuOpen(false);
-                            setShowFloatPlan(true);
-                            triggerHaptic('medium');
-                        }}
-                        disabled={sharing || !planComplete}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10 disabled:opacity-40"
-                    >
-                        <span className="text-xl">🛟</span>
-                        <div className="flex-1">
-                            <p className="text-sm font-bold text-white">Float Plan</p>
-                            <p className="text-[11px] text-gray-500">
-                                {planComplete
-                                    ? 'Safety handoff · text, WhatsApp, email'
-                                    : 'Finish the passage plan first'}
-                            </p>
-                        </div>
-                    </button>
+                        vessel identity and safety equipment. The skipper's
+                        alone on a passage you don't own. */}
+                    {allowFloatPlan && (
+                        <>
+                            <button
+                                role="menuitem"
+                                onClick={() => {
+                                    if (!planComplete || !floatPlanPreset) return;
+                                    setMenuOpen(false);
+                                    setShowFloatPlan(true);
+                                    triggerHaptic('medium');
+                                }}
+                                disabled={sharing || !planComplete}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5 active:bg-white/10 disabled:opacity-40"
+                            >
+                                <span className="text-xl">🛟</span>
+                                <div className="flex-1">
+                                    <p className="text-sm font-bold text-white">Float Plan</p>
+                                    <p className="text-[11px] text-gray-500">
+                                        {planComplete
+                                            ? 'Safety handoff · text, WhatsApp, email'
+                                            : 'Finish the passage plan first'}
+                                    </p>
+                                </div>
+                            </button>
 
-                    <div role="separator" className="h-px bg-white/4 mx-3" />
+                            <div role="separator" className="h-px bg-white/4 mx-3" />
+                        </>
+                    )}
 
                     {/* Passage data without the safety promise of a float plan. */}
                     <button

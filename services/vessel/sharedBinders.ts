@@ -39,6 +39,7 @@ import {
     type AuthIdentityScope,
 } from '../authIdentityScope';
 import { createLogger } from '../../utils/createLogger';
+import type { CrewRole } from '../CrewService';
 
 const log = createLogger('SharedBinders');
 
@@ -110,6 +111,22 @@ export interface SharedBinderSkipper {
     registers: BinderRegisterAccess;
 }
 
+/**
+ * A boat the sailor is accepted crew on (the crewing view, Shane 2026-10-03:
+ * "it should all pertain to the vessel that the punter has been invited on").
+ * Every accepted owner, binder or not: a punter who shares only Crew Chat is
+ * still crew, and has no entry in `skippers`.
+ */
+export interface CrewVessel {
+    ownerId: string;
+    /** vessel_identity.vessel_name; null when unknown. */
+    vesselName: string | null;
+    /** The most senior role across the sailor's rows for this owner; null in a snapshot stored before roles. */
+    role: CrewRole | string | null;
+    /** As SharedBinderSkipper.lastAcceptedAt: when the newest membership began. */
+    lastAcceptedAt: string;
+}
+
 export interface SharedBinderSnapshot {
     version: 1;
     userId: string;
@@ -122,6 +139,8 @@ export interface SharedBinderSnapshot {
      * whatever was ticked. Once true it stays true.
      */
     galleyLive?: boolean;
+    /** Every boat the sailor crews on. Absent in a snapshot stored before 2026-10-03. */
+    vessels?: CrewVessel[];
 }
 
 /** The subset of a vessel_crew row this module reads. */
@@ -131,6 +150,7 @@ export interface BinderMembershipRow {
     status?: unknown;
     shared_registers?: unknown;
     permissions?: unknown;
+    role?: unknown;
     updated_at?: unknown;
     created_at?: unknown;
 }
@@ -253,7 +273,10 @@ export function deriveBinderAccess(
 }
 
 /** Newest membership first; ties broken by owner id so every device agrees. */
-function byDefaultOrder(a: SharedBinderSkipper, b: SharedBinderSkipper): number {
+function byDefaultOrder(
+    a: Pick<SharedBinderSkipper, 'ownerId' | 'lastAcceptedAt'>,
+    b: Pick<SharedBinderSkipper, 'ownerId' | 'lastAcceptedAt'>,
+): number {
     if (a.lastAcceptedAt !== b.lastAcceptedAt) return a.lastAcceptedAt > b.lastAcceptedAt ? -1 : 1;
     return a.ownerId < b.ownerId ? -1 : a.ownerId > b.ownerId ? 1 : 0;
 }
@@ -296,6 +319,80 @@ function accessSignature(snapshot: SharedBinderSnapshot | null, selection: strin
         (register) => `${register}>${effectiveSkipper(snapshot, selection, register)?.ownerId ?? 'own'}`,
     );
     return `${owners.join('|')}#${effective.join(',')}`;
+}
+
+// ── Crew vessels (the crewing view, 2026-10-03) ────────────────
+
+const ROLE_SENIORITY: Readonly<Record<string, number>> = { 'co-skipper': 4, navigator: 3, deckhand: 2, punter: 1 };
+
+function seniority(role: string | null): number {
+    return role ? (ROLE_SENIORITY[role] ?? 0) : -1;
+}
+
+/**
+ * Every owner the sailor is ACCEPTED crew for, binder or not. voyage_id is
+ * ignored (vessel-level crew, as the binders read it); several rows for one
+ * owner are one boat with the most senior role.
+ */
+export function deriveCrewVessels(
+    memberships: readonly BinderMembershipRow[],
+    selfId?: string | null,
+): Omit<CrewVessel, 'vesselName'>[] {
+    const byOwner = new Map<string, Omit<CrewVessel, 'vesselName'>>();
+    for (const row of memberships) {
+        if (!row || row.status !== 'accepted') continue;
+        if (typeof row.owner_id !== 'string' || !row.owner_id.trim()) continue;
+        const ownerId = row.owner_id.trim();
+        if (selfId && ownerId === selfId) continue;
+        if (selfId && typeof row.crew_user_id === 'string' && row.crew_user_id !== selfId) continue;
+        const role = typeof row.role === 'string' && row.role.trim() ? row.role.trim() : null;
+        const time = rowTime(row);
+        const entry = byOwner.get(ownerId);
+        if (!entry) {
+            byOwner.set(ownerId, { ownerId, role, lastAcceptedAt: time });
+            continue;
+        }
+        if (seniority(role) > seniority(entry.role)) entry.role = role;
+        if (time > entry.lastAcceptedAt) entry.lastAcceptedAt = time;
+    }
+    return [...byOwner.values()];
+}
+
+/** The snapshot's boats; a snapshot stored before the list existed reads its binder skippers. */
+function snapshotVessels(snapshot: SharedBinderSnapshot): CrewVessel[] {
+    return (
+        snapshot.vessels ??
+        snapshot.skippers.map((skipper) => ({
+            ownerId: skipper.ownerId,
+            vesselName: skipper.vesselName,
+            role: null,
+            lastAcceptedAt: skipper.lastAcceptedAt,
+        }))
+    );
+}
+
+/** What the crewing view shows; a change here is visible, never a binder change. */
+function vesselsSignature(snapshot: SharedBinderSnapshot | null): string {
+    if (!snapshot) return '';
+    return snapshotVessels(snapshot)
+        .map((vessel) => `${vessel.ownerId}:${vessel.role ?? ''}:${vessel.vesselName ?? ''}`)
+        .sort()
+        .join('|');
+}
+
+function parseVessels(value: unknown): CrewVessel[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const vessels: CrewVessel[] = [];
+    for (const vessel of value as Partial<CrewVessel>[]) {
+        if (!vessel || typeof vessel.ownerId !== 'string' || !vessel.ownerId) continue;
+        vessels.push({
+            ownerId: vessel.ownerId,
+            vesselName: typeof vessel.vesselName === 'string' && vessel.vesselName ? vessel.vesselName : null,
+            role: typeof vessel.role === 'string' && vessel.role ? vessel.role : null,
+            lastAcceptedAt: typeof vessel.lastAcceptedAt === 'string' ? vessel.lastAcceptedAt : '',
+        });
+    }
+    return vessels;
 }
 
 // ── Persistence (per account, swept by account deletion) ──────
@@ -342,13 +439,15 @@ function parseSnapshot(raw: string | null, userId: string | null): SharedBinderS
                 registers,
             });
         }
-        return {
+        const snapshot: SharedBinderSnapshot = {
             version: 1,
             userId,
             confirmedAt: typeof value.confirmedAt === 'string' ? value.confirmedAt : null,
             skippers,
             ...(galleyLive ? { galleyLive: true } : {}),
         };
+        const vessels = parseVessels(value.vessels);
+        return vessels ? { ...snapshot, vessels } : snapshot;
     } catch {
         return null;
     }
@@ -568,17 +667,47 @@ export function listBinderSkippers(register?: BinderRegister): SharedBinderSkipp
         .map((skipper) => ({ ...skipper, registers: { ...skipper.registers } }));
 }
 
-/** 'Switch boat': persist which skipper this account is crewing for here. */
-export function selectBinderSkipper(ownerId: string): void {
+/** Every boat the sailor is crewing on, default order first. */
+export function listCrewVessels(): CrewVessel[] {
+    const snapshot = currentSnapshot();
+    if (!snapshot) return [];
+    return snapshotVessels(snapshot)
+        .map((vessel) => ({ ...vessel }))
+        .sort(byDefaultOrder);
+}
+
+/**
+ * The boat this account is crewing on here: the selection when it is still a
+ * crew boat, else the newest membership, else null (not crew). The binders,
+ * the Crew & Float Plan page and Switch boat all read this one selection.
+ */
+export function getCrewingVessel(): CrewVessel | null {
+    const vessels = listCrewVessels();
+    if (vessels.length === 0) return null;
+    const selection = current().selection;
+    return vessels.find((vessel) => vessel.ownerId === selection) ?? vessels[0];
+}
+
+/** 'Switch boat': persist which boat this account is crewing on here. */
+export function selectCrewVessel(ownerId: string): void {
     const scope = getAuthIdentityScope();
     if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
     const snapshot = currentSnapshot();
-    if (!snapshot?.skippers.some((skipper) => skipper.ownerId === ownerId)) return;
+    if (
+        !snapshot ||
+        (!snapshotVessels(snapshot).some((vessel) => vessel.ownerId === ownerId) &&
+            !snapshot.skippers.some((skipper) => skipper.ownerId === ownerId))
+    ) {
+        return;
+    }
     writeStorage(authScopedStorageKey(SELECTION_KEY, scope), ownerId);
     const previous = current();
     state = Object.freeze({ ...previous, selection: ownerId, version: previous.version + 1 });
     notify();
 }
+
+/** The binders' name for the same one selection. */
+export const selectBinderSkipper = selectCrewVessel;
 
 // ── Refresh (once per sync cycle) ──────────────────────────────
 
@@ -667,13 +796,14 @@ export async function refreshSharedBinders(): Promise<{ changed: boolean; fresh:
 
     const { data, error } = await supabase
         .from('vessel_crew')
-        .select('owner_id, crew_user_id, status, shared_registers, permissions, updated_at, created_at')
+        .select('owner_id, crew_user_id, status, shared_registers, permissions, role, updated_at, created_at')
         .eq('crew_user_id', userId)
         .eq('status', 'accepted');
     fence();
     if (error) throw new Error(`Shared binder memberships could not be read: ${error.message}`);
 
     const memberships = (data ?? []) as BinderMembershipRow[];
+    const crewVessels = deriveCrewVessels(memberships, userId);
     const previous = current();
     const previousSnapshotForUser = previous.snapshot?.userId === userId ? previous.snapshot : null;
     let galleyLive = previousSnapshotForUser?.galleyLive === true;
@@ -701,13 +831,14 @@ export async function refreshSharedBinders(): Promise<{ changed: boolean; fresh:
 
     const derived = deriveBinderAccess(memberships, userId, { galleyLive });
     const previousNames = new Map(
-        (previous.snapshot?.userId === userId ? previous.snapshot.skippers : []).map((skipper) => [
-            skipper.ownerId,
-            skipper.vesselName,
+        (previous.snapshot?.userId === userId ? snapshotVessels(previous.snapshot) : []).map((vessel) => [
+            vessel.ownerId,
+            vessel.vesselName,
         ]),
     );
     const names = new Map<string, string | null>();
-    if (derived.length > 0) {
+    // Every crew boat's name, binder or not (the crewing view names the boat).
+    if (crewVessels.length > 0) {
         // DECIDED: the boat's name is decoration. A failed name read keeps the
         // last known name (or the "your skipper's boat" fallback) and never
         // fails the snapshot that decides which rows are shown.
@@ -717,7 +848,7 @@ export async function refreshSharedBinders(): Promise<{ changed: boolean; fresh:
                 .select('owner_id, vessel_name')
                 .in(
                     'owner_id',
-                    derived.map((skipper) => skipper.ownerId),
+                    crewVessels.map((vessel) => vessel.ownerId),
                 );
             fence();
             if (vesselError) throw new Error(vesselError.message);
@@ -732,16 +863,14 @@ export async function refreshSharedBinders(): Promise<{ changed: boolean; fresh:
         }
     }
 
+    const nameFor = (ownerId: string) =>
+        names.has(ownerId) ? (names.get(ownerId) ?? null) : (previousNames.get(ownerId) ?? null);
     const next: SharedBinderSnapshot = {
         version: 1,
         userId,
         confirmedAt: new Date().toISOString(),
-        skippers: derived.map((skipper) => ({
-            ...skipper,
-            vesselName: names.has(skipper.ownerId)
-                ? (names.get(skipper.ownerId) ?? null)
-                : (previousNames.get(skipper.ownerId) ?? null),
-        })),
+        skippers: derived.map((skipper) => ({ ...skipper, vesselName: nameFor(skipper.ownerId) })),
+        vessels: crewVessels.map((vessel) => ({ ...vessel, vesselName: nameFor(vessel.ownerId) })),
         ...(galleyLive ? { galleyLive: true } : {}),
     };
     const previousSnapshot = previousSnapshotForUser;
@@ -751,7 +880,8 @@ export async function refreshSharedBinders(): Promise<{ changed: boolean; fresh:
         !previousSnapshot?.confirmedAt ||
         (previousSnapshot.galleyLive === true) !== galleyLive ||
         next.skippers.some((skipper) => previousNames.get(skipper.ownerId) !== skipper.vesselName) ||
-        next.skippers.length !== previousSnapshot.skippers.length;
+        next.skippers.length !== previousSnapshot.skippers.length ||
+        vesselsSignature(previousSnapshot) !== vesselsSignature(next);
 
     writeStorage(authScopedStorageKey(SNAPSHOT_KEY, scope), JSON.stringify(next));
     state = Object.freeze({

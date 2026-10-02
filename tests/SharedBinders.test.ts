@@ -42,12 +42,16 @@ import {
     binderWriteGranted,
     canSeedOwnBinder,
     deriveBinderAccess,
+    deriveCrewVessels,
     getBinderSource,
+    getCrewingVessel,
     getSharedBindersState,
     listBinderSkippers,
+    listCrewVessels,
     refreshSharedBinders,
     reloadSharedBindersFromStorage,
     selectBinderSkipper,
+    selectCrewVessel,
     SharedBinderReadOnlyError,
     subscribeSharedBinders,
 } from '../services/vessel/sharedBinders';
@@ -376,5 +380,208 @@ describe('shared binder snapshot', () => {
         expect(canSeedOwnBinder('maintenance')).toBe(true);
         // Signed out, every local row is the sailor's (unchanged behaviour).
         expect(binderRowFilter('stores')({ user_id: 'anyone' })).toBe(true);
+    });
+});
+
+// Crewing view (Shane 2026-10-03): "once a crew member has been invited to
+// your vessel, can we hide all of the rest of the information in his crew and
+// float plan, it should all pertain to the vessel that the punter has been
+// invited on". The snapshot names EVERY boat the sailor is accepted crew on,
+// not only the ones sharing a binder, so a punter who shares nothing still
+// gets the skipper's Crew & Float Plan page. Fictional ids and boats only.
+describe('crew vessels (the boats a sailor is crewing on)', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        db.crewRows = [];
+        db.crewError = null;
+        db.vessels = [];
+        db.vesselError = null;
+        db.sessionIdentity = 'crew-1';
+        db.sessionCurrent = true;
+        db.from.mockReset();
+        db.from.mockImplementation((table: string) =>
+            table === 'vessel_crew'
+                ? query(() => ({ data: db.crewError ? null : db.crewRows, error: db.crewError }))
+                : query(() => ({ data: db.vesselError ? null : db.vessels, error: db.vesselError })),
+        );
+        setAuthIdentityScope(null);
+        setAuthIdentityScope('crew-1');
+        reloadSharedBindersFromStorage();
+    });
+    afterEach(() => {
+        setAuthIdentityScope(null);
+        localStorage.clear();
+    });
+
+    it('unions rows per owner and keeps the most senior role', () => {
+        const vessels = deriveCrewVessels(
+            [
+                membership('skipper-1', { role: 'deckhand', voyage_id: 'voyage-a' }),
+                membership('skipper-1', { role: 'co-skipper', created_at: '2026-10-02T00:00:00.000Z' }),
+                membership('skipper-1', { role: 'punter' }),
+                membership('skipper-2', { role: 'navigator', status: 'pending' }),
+                membership('crew-1', { role: 'co-skipper' }),
+                membership('skipper-3', { role: 'navigator', crew_user_id: 'someone-else' }),
+            ],
+            'crew-1',
+        );
+        expect(vessels).toEqual([
+            { ownerId: 'skipper-1', role: 'co-skipper', lastAcceptedAt: '2026-10-02T00:00:00.000Z' },
+        ]);
+    });
+
+    it('a chat-only punter who shares no binder is still crewing on the boat', async () => {
+        db.crewRows = [
+            membership('skipper-1', {
+                role: 'punter',
+                shared_registers: ['passage_chat'],
+                permissions: ALL_FLAGS_OFF,
+            }),
+        ];
+        db.vessels = [{ owner_id: 'skipper-1', vessel_name: 'Wandering Albatross' }];
+        await refreshSharedBinders();
+        // No binder is shared: every binder stays the sailor's own...
+        expect(listBinderSkippers()).toEqual([]);
+        expect(getBinderSource('stores')).toEqual({ mode: 'own' });
+        // ...but the page knows whose boat this is.
+        expect(listCrewVessels()).toEqual([
+            {
+                ownerId: 'skipper-1',
+                vesselName: 'Wandering Albatross',
+                role: 'punter',
+                lastAcceptedAt: '2026-10-01T21:43:51.000Z',
+            },
+        ]);
+        expect(getCrewingVessel()).toMatchObject({ ownerId: 'skipper-1', vesselName: 'Wandering Albatross' });
+    });
+
+    it('two boats: the newest by default; one selection drives the page and the binders', async () => {
+        db.crewRows = [
+            membership('skipper-1', { role: 'deckhand', created_at: '2026-09-01T00:00:00.000Z' }),
+            membership('skipper-2', { role: 'navigator', created_at: '2026-09-20T00:00:00.000Z' }),
+        ];
+        db.vessels = [
+            { owner_id: 'skipper-1', vessel_name: 'Wandering Albatross' },
+            { owner_id: 'skipper-2', vessel_name: 'Petrel' },
+        ];
+        await refreshSharedBinders();
+        expect(getCrewingVessel()?.ownerId).toBe('skipper-2');
+        expect(getBinderSource('stores')).toMatchObject({ ownerId: 'skipper-2' });
+        expect(listCrewVessels().map((vessel) => vessel.vesselName)).toEqual(['Petrel', 'Wandering Albatross']);
+
+        selectCrewVessel('skipper-1');
+        expect(getCrewingVessel()?.ownerId).toBe('skipper-1');
+        expect(getBinderSource('stores')).toMatchObject({ ownerId: 'skipper-1' });
+        reloadSharedBindersFromStorage();
+        expect(getCrewingVessel()?.ownerId).toBe('skipper-1');
+
+        // The old name is the same selection.
+        selectBinderSkipper('skipper-2');
+        expect(getCrewingVessel()?.ownerId).toBe('skipper-2');
+        // Nobody outside the snapshot can be selected.
+        selectCrewVessel('stranger');
+        expect(getCrewingVessel()?.ownerId).toBe('skipper-2');
+    });
+
+    it('a punter-only boat can be selected; binders fall back to the boat that shares them', async () => {
+        db.crewRows = [
+            membership('skipper-1', { role: 'deckhand', created_at: '2026-09-01T00:00:00.000Z' }),
+            membership('skipper-2', {
+                role: 'punter',
+                shared_registers: ['passage_chat'],
+                permissions: ALL_FLAGS_OFF,
+                created_at: '2026-08-01T00:00:00.000Z',
+            }),
+        ];
+        await refreshSharedBinders();
+        selectCrewVessel('skipper-2');
+        expect(getCrewingVessel()?.ownerId).toBe('skipper-2');
+        expect(getBinderSource('stores')).toMatchObject({ ownerId: 'skipper-1' });
+    });
+
+    it('reads a snapshot stored before the vessels list existed', () => {
+        localStorage.setItem(
+            'thalassa_shared_binders_v1::user%3Acrew-1',
+            JSON.stringify({
+                version: 1,
+                userId: 'crew-1',
+                confirmedAt: '2026-10-02T00:00:00.000Z',
+                skippers: [
+                    {
+                        ownerId: 'skipper-1',
+                        vesselName: 'Wandering Albatross',
+                        lastAcceptedAt: '2026-10-01T00:00:00.000Z',
+                        registers: { stores: { read: true, write: false } },
+                    },
+                ],
+            }),
+        );
+        reloadSharedBindersFromStorage();
+        expect(listCrewVessels()).toEqual([
+            {
+                ownerId: 'skipper-1',
+                vesselName: 'Wandering Albatross',
+                role: null,
+                lastAcceptedAt: '2026-10-01T00:00:00.000Z',
+            },
+        ]);
+        expect(getBinderSource('stores')).toMatchObject({ mode: 'shared', ownerId: 'skipper-1' });
+    });
+
+    it('notices a new boat, a renamed boat or a new role as a visible change, never as a binder change', async () => {
+        const listener = vi.fn();
+        const off = subscribeSharedBinders(listener);
+        db.crewRows = [membership('skipper-1', { role: 'punter', shared_registers: [], permissions: ALL_FLAGS_OFF })];
+        expect((await refreshSharedBinders()).changed).toBe(false);
+        expect(listener).toHaveBeenCalledTimes(1);
+
+        db.vessels = [{ owner_id: 'skipper-1', vessel_name: 'Wandering Albatross' }];
+        expect((await refreshSharedBinders()).changed).toBe(false);
+        expect(listener).toHaveBeenCalledTimes(2);
+
+        db.crewRows = [
+            membership('skipper-1', { role: 'navigator', shared_registers: [], permissions: ALL_FLAGS_OFF }),
+        ];
+        expect((await refreshSharedBinders()).changed).toBe(false);
+        expect(listener).toHaveBeenCalledTimes(3);
+        expect(getCrewingVessel()?.role).toBe('navigator');
+
+        await refreshSharedBinders();
+        expect(listener).toHaveBeenCalledTimes(3);
+        off();
+    });
+
+    it('reads the role with the membership, in the same one query', async () => {
+        db.crewRows = [membership('skipper-1', { role: 'punter' })];
+        await refreshSharedBinders();
+        const crewQuery = db.from.mock.results[0]?.value as { select: ReturnType<typeof vi.fn> };
+        expect(crewQuery.select).toHaveBeenCalledWith(expect.stringContaining('role'));
+        expect(db.from.mock.calls.filter(([table]) => table === 'vessel_crew')).toHaveLength(1);
+    });
+
+    it('a failed refresh keeps the boats; an account switch never shows them', async () => {
+        db.crewRows = [membership('skipper-1', { role: 'punter' })];
+        db.vessels = [{ owner_id: 'skipper-1', vessel_name: 'Wandering Albatross' }];
+        await refreshSharedBinders();
+        db.crewError = { message: 'network down' };
+        await expect(refreshSharedBinders()).rejects.toThrow('network down');
+        expect(getCrewingVessel()?.vesselName).toBe('Wandering Albatross');
+
+        setAuthIdentityScope('other-1');
+        expect(listCrewVessels()).toEqual([]);
+        expect(getCrewingVessel()).toBeNull();
+        setAuthIdentityScope('crew-1');
+        expect(getCrewingVessel()?.ownerId).toBe('skipper-1');
+        setAuthIdentityScope(null);
+        expect(getCrewingVessel()).toBeNull();
+    });
+
+    it('leaving the last boat empties the list', async () => {
+        db.crewRows = [membership('skipper-1', { role: 'punter' })];
+        await refreshSharedBinders();
+        expect(getCrewingVessel()).not.toBeNull();
+        db.crewRows = [];
+        await refreshSharedBinders();
+        expect(getCrewingVessel()).toBeNull();
     });
 });

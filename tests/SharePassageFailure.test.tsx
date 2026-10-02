@@ -83,3 +83,22 @@ describe('passage share failure recovery', () => {
         expect(screen.getByLabelText('Passage brief text — copy and send it yourself')).toHaveAttribute('readonly');
     });
 });
+
+// The crewing view (2026-10-03): on a passage the viewer does not own, the
+// float plan stays the skipper's. A crew-sent plan would carry the crew's OWN
+// boat profile and list them as Skipper.
+describe('Float Plan on a passage you do not own', () => {
+    it('is not offered when allowFloatPlan is false; the brief and PDF still are', () => {
+        render(<SharePassageButton briefData={completeBrief} allowFloatPlan={false} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open share passage menu' }));
+        expect(screen.queryByRole('menuitem', { name: /Float Plan/ })).not.toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /Quick Passage Brief/ })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /Full PDF/ })).toBeInTheDocument();
+    });
+
+    it('is offered by default (the Plan page and your own passages)', () => {
+        render(<SharePassageButton briefData={completeBrief} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Open share passage menu' }));
+        expect(screen.getByRole('menuitem', { name: /Float Plan/ })).toBeInTheDocument();
+    });
+});

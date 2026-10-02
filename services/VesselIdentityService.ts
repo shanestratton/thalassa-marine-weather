@@ -455,6 +455,41 @@ export async function fetchVesselNameForOwner(ownerId: string): Promise<string |
 }
 
 /**
+ * One skipper's whole vessel identity, for the crewing view's degraded mode
+ * (2026-10-03): until get_crew_vessel_view is pushed, crew identify the boat
+ * for a Mayday from this row. Same RLS as fetchVesselNameForOwner ("Crew can
+ * read vessel identity": accepted crew only) and the same strict parse as the
+ * owner's own row. Read-only: the identity cache is never touched.
+ *
+ * DECIDED: fetchVesselNameForOwner does not delegate here. It reads two
+ * columns, and a row this strict parse refuses (an unknown vessel_type, say)
+ * must not cost the Crew Chat card its boat name.
+ */
+export async function fetchVesselIdentityForOwner(ownerId: string): Promise<VesselIdentity | null> {
+    if (!supabase || !validIdentifier(ownerId)) return null;
+    const identityScope = getAuthIdentityScope();
+    const userId = identityScope.userId;
+    if (!validIdentifier(userId)) return null;
+
+    try {
+        const result = await supabase
+            .from('vessel_identity')
+            .select(IDENTITY_COLUMNS)
+            .eq('owner_id', ownerId)
+            .maybeSingle();
+        if (!identityStillOwns(identityScope, userId)) return null;
+        if (result.error) {
+            log.warn('[VesselIdentity] Crew vessel identity error:', errorMessage(result.error));
+            return null;
+        }
+        return parseIdentity(result.data, ownerId, true);
+    } catch (error) {
+        log.warn('[VesselIdentity] Crew vessel identity failed:', error);
+        return null;
+    }
+}
+
+/**
  * Save or update vessel identity (owner only).
  */
 export async function saveIdentity(
