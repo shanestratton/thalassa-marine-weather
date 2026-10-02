@@ -5116,6 +5116,9 @@ html[data-keyboard-open='true'] .anchor-shore-watch-dialog {
 .display-light .text-indigo-200 {
     color: rgb(67 56 202);
 }
+.display-light .text-indigo-200\/60 {
+    color: rgb(67 56 202 / 0.85);
+}
 .display-light .text-indigo-300 {
     color: rgb(67 56 202);
 }
