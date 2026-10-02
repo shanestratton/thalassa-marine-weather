@@ -6,6 +6,17 @@ import { getAvatarGradient, timeAgo } from './chatUtils';
 import { RecipeCard } from './RecipeCard';
 import { MAX_CHAT_MESSAGE_CHARS } from '../../services/chat/messagePolicy';
 import { Button } from '../ui/Button';
+import { PRIVATE_MESSAGE_PILOT_LABEL } from '../../services/chat/e2ee/privateMessagePilot';
+
+export const PrivateMessagePilotNotice: React.FC<{ statusText?: string | null }> = ({ statusText }) => (
+    <div className="mx-4 my-3 rounded-xl border border-amber-300/30 bg-amber-500/10 p-3" role="status">
+        <p className="text-sm font-bold text-amber-200">{PRIVATE_MESSAGE_PILOT_LABEL}</p>
+        <p className="mt-1 text-sm text-white/70">
+            Isolated text-only pilot. Attachments, location shares and recipes are unavailable.
+        </p>
+        {statusText && <p className="mt-2 text-sm text-amber-100">{statusText}</p>}
+    </div>
+);
 
 // Pin drop card component
 const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ lat, lon, label }) => {
@@ -68,70 +79,77 @@ export interface ChatDMInboxProps {
     conversations: DMConversation[];
     onOpenThread: (userId: string, name: string) => void;
     currentUserId?: string | null;
+    pilotActive?: boolean;
 }
 
-export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversations, onOpenThread, currentUserId }) => (
-    <div className="px-4 py-3 space-y-1.5" role="list" aria-label="Direct message conversations">
-        {currentUserId && (
-            <div role="listitem">
-                <button
-                    type="button"
-                    onClick={() => onOpenThread(currentUserId, 'Self test')}
-                    aria-label="Open self-test conversation"
-                    className="w-full min-h-[56px] rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3.5 text-left"
-                >
-                    <span className="block text-sm font-bold text-sky-200">Self test · Message yourself</span>
-                    <span className="block mt-1 text-sm text-white/70">
-                        Try a real private message, block this conversation, then unblock it here.
-                    </span>
-                </button>
-            </div>
-        )}
-        {conversations.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20">
-                <div className="relative mb-6">
-                    <div className="w-16 h-16 rounded-full bg-purple-500/6 border border-purple-500/10 flex items-center justify-center empty-ripple">
-                        <span className="text-3xl empty-bob">✉️</span>
-                    </div>
-                </div>
-                <p className="text-sm font-semibold text-white/70 mb-1">No messages in the bottle</p>
-                <p className="text-xs text-white/50 max-w-[220px] text-center leading-relaxed">
-                    Tap a sailor's avatar in any channel to start a private conversation
-                </p>
-            </div>
-        )}
-        {conversations
-            .filter((conversation) => conversation.user_id !== currentUserId)
-            .map((conv, i) => (
-                <button
-                    key={conv.user_id}
-                    onClick={() => onOpenThread(conv.user_id, conv.display_name)}
-                    aria-label={`Message ${conv.display_name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ''}`}
-                    role="listitem"
-                    className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white/2 hover:bg-white/5 border border-white/3 hover:border-white/8 transition-all duration-200 active:scale-[0.98] msg-enter min-h-[56px]"
-                    style={{ animationDelay: `${Math.min(i * 50, 300)}ms` }}
-                >
-                    <div
-                        className={`w-11 h-11 rounded-xl bg-linear-to-br ${getAvatarGradient(conv.user_id)} flex items-center justify-center text-sm font-bold shrink-0 shadow-lg`}
+export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(
+    ({ conversations, onOpenThread, currentUserId, pilotActive }) => (
+        <div className="px-4 py-3 space-y-1.5" role="list" aria-label="Direct message conversations">
+            {currentUserId && !pilotActive && (
+                <div role="listitem">
+                    <button
+                        type="button"
+                        onClick={() => onOpenThread(currentUserId, 'Self test')}
+                        aria-label="Open self-test conversation"
+                        className="w-full min-h-[56px] rounded-2xl border border-sky-400/25 bg-sky-500/10 p-3.5 text-left"
                     >
-                        {conv.display_name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="text-left flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-0.5">
-                            <p className="text-sm font-semibold text-white/85">{conv.display_name}</p>
-                            <span className="text-xs text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
-                        </div>
-                        <p className="text-xs text-white/60 truncate">{getConversationPreview(conv.last_message)}</p>
-                    </div>
-                    {conv.unread_count > 0 && (
-                        <span className="min-w-[20px] h-5 rounded-full bg-linear-to-r from-sky-500 to-sky-500 text-xs font-bold flex items-center justify-center px-1.5 shrink-0 shadow-lg shadow-sky-500/20">
-                            {conv.unread_count}
+                        <span className="block text-sm font-bold text-sky-200">Self test · Message yourself</span>
+                        <span className="block mt-1 text-sm text-white/70">
+                            Try a real private message, block this conversation, then unblock it here.
                         </span>
-                    )}
-                </button>
-            ))}
-    </div>
-));
+                    </button>
+                </div>
+            )}
+            {conversations.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20">
+                    <div className="relative mb-6">
+                        <div className="w-16 h-16 rounded-full bg-purple-500/6 border border-purple-500/10 flex items-center justify-center empty-ripple">
+                            <span className="text-3xl empty-bob">✉️</span>
+                        </div>
+                    </div>
+                    <p className="text-sm font-semibold text-white/70 mb-1">No messages in the bottle</p>
+                    <p className="text-xs text-white/50 max-w-[220px] text-center leading-relaxed">
+                        {pilotActive
+                            ? 'Only the native pilot’s paired sailor can appear here.'
+                            : "Tap a sailor's avatar in any channel to start a private conversation"}
+                    </p>
+                </div>
+            )}
+            {conversations
+                .filter((conversation) => conversation.user_id !== currentUserId)
+                .map((conv, i) => (
+                    <button
+                        key={conv.user_id}
+                        onClick={() => onOpenThread(conv.user_id, conv.display_name)}
+                        aria-label={`Message ${conv.display_name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ''}`}
+                        role="listitem"
+                        className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white/2 hover:bg-white/5 border border-white/3 hover:border-white/8 transition-all duration-200 active:scale-[0.98] msg-enter min-h-[56px]"
+                        style={{ animationDelay: `${Math.min(i * 50, 300)}ms` }}
+                    >
+                        <div
+                            className={`w-11 h-11 rounded-xl bg-linear-to-br ${getAvatarGradient(conv.user_id)} flex items-center justify-center text-sm font-bold shrink-0 shadow-lg`}
+                        >
+                            {conv.display_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="text-left flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-0.5">
+                                <p className="text-sm font-semibold text-white/85">{conv.display_name}</p>
+                                <span className="text-xs text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
+                            </div>
+                            <p className="text-xs text-white/60 truncate">
+                                {pilotActive ? conv.last_message : getConversationPreview(conv.last_message)}
+                            </p>
+                        </div>
+                        {conv.unread_count > 0 && (
+                            <span className="min-w-[20px] h-5 rounded-full bg-linear-to-r from-sky-500 to-sky-500 text-xs font-bold flex items-center justify-center px-1.5 shrink-0 shadow-lg shadow-sky-500/20">
+                                {conv.unread_count}
+                            </span>
+                        )}
+                    </button>
+                ))}
+        </div>
+    ),
+);
 ChatDMInbox.displayName = 'ChatDMInbox';
 
 // --- DM Thread ---
@@ -140,13 +158,14 @@ export interface ChatDMThreadProps {
     partnerName?: string;
     currentUserId?: string | null;
     isSelfConversation?: boolean;
+    pilotActive?: boolean;
 }
 
 export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(
-    ({ thread, partnerName, currentUserId, isSelfConversation }) => (
+    ({ thread, partnerName, currentUserId, isSelfConversation, pilotActive }) => (
         <div className="flex flex-col min-h-full" role="log" aria-label="Direct messages">
             <div className="flex-1 px-4 py-3 space-y-2">
-                {isSelfConversation && (
+                {isSelfConversation && !pilotActive && (
                     <p className="rounded-xl border border-sky-400/20 bg-sky-500/5 p-3 text-sm text-white/70">
                         Self test: messages are saved to your own account. No other sailor is notified. Blocking here
                         affects only messages to yourself, not your account or public posts.
@@ -186,18 +205,25 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(
                                         : 'bg-white/4 border border-white/4 rounded-bl-lg'
                                 }`}
                             >
-                                {renderMessageContent(dm.message, isSelf)}
+                                {pilotActive ? (
+                                    <p className="text-base text-white/70 leading-relaxed">{dm.message}</p>
+                                ) : (
+                                    renderMessageContent(dm.message, isSelf)
+                                )}
                                 <p className="text-xs text-white/40 mt-1 tabular-nums">
                                     {timeAgo(dm.created_at)}
                                     {dm.delivery_status === 'sending' && (
                                         <span className="ml-1 text-sky-300/70" role="status">
-                                            · Sending…
+                                            {pilotActive ? '· Awaiting native relay confirmation' : '· Sending…'}
                                         </span>
                                     )}
-                                    {dm.delivery_status === 'queued' && (
+                                    {!pilotActive && dm.delivery_status === 'queued' && (
                                         <span className="ml-1 text-amber-300/70" role="status">
                                             · Queued — sends when online
                                         </span>
+                                    )}
+                                    {pilotActive && isSelf && !dm.delivery_status && (
+                                        <span className="ml-1 text-white/40">· Relay accepted</span>
                                     )}
                                 </p>
                             </div>
@@ -228,6 +254,8 @@ export interface ChatDMComposeProps {
     onSendDM: () => void;
     onBlock: () => void;
     onUnblock: () => void;
+    pilotActive?: boolean;
+    pilotSendDisabled?: boolean;
 }
 
 export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
@@ -248,6 +276,8 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
         onSendDM,
         onBlock,
         onUnblock,
+        pilotActive,
+        pilotSendDisabled,
     }) => (
         <div className="shrink-0 relative">
             <div className="absolute inset-0 bg-linear-to-t from-[#050a18] via-[#050a18]/95 to-transparent" />
@@ -347,12 +377,19 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                                 onKeyDown={(e) => {
                                     if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
                                     e.preventDefault();
-                                    if (blockStatusLoading || blockStatusError || blockMutationPending) return;
+                                    if (
+                                        blockStatusLoading ||
+                                        blockStatusError ||
+                                        blockMutationPending ||
+                                        pilotSendDisabled
+                                    )
+                                        return;
                                     onSendDM();
                                 }}
                                 data-no-keyboard-scroll
                                 enterKeyHint="send"
-                                placeholder={`Message ${partnerName || ''}...`}
+                                autoComplete={pilotActive ? 'off' : undefined}
+                                placeholder={`${pilotActive ? 'Test text to' : 'Message'} ${partnerName || ''}...`}
                                 aria-label={`Message ${partnerName || 'user'}`}
                                 maxLength={MAX_CHAT_MESSAGE_CHARS}
                                 className="min-w-0 flex-1 bg-white/4 border border-white/6 rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-hidden focus:border-purple-500/30 focus:bg-white/6 transition-all duration-200 min-h-[48px]"
@@ -360,7 +397,11 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                             <button
                                 onClick={onSendDM}
                                 disabled={
-                                    !dmText.trim() || blockStatusLoading || !!blockStatusError || blockMutationPending
+                                    !dmText.trim() ||
+                                    blockStatusLoading ||
+                                    !!blockStatusError ||
+                                    blockMutationPending ||
+                                    pilotSendDisabled
                                 }
                                 aria-label="Send direct message"
                                 className="w-11 h-11 min-w-[44px] min-h-[44px] shrink-0 rounded-xl bg-linear-to-r from-purple-500 to-purple-600 hover:from-purple-400 hover:to-purple-500 disabled:from-white/3 disabled:to-white/3 disabled:border disabled:border-white/4 flex items-center justify-center transition-all duration-200 active:scale-90 disabled:active:scale-100 shadow-lg shadow-purple-500/20 disabled:shadow-none"

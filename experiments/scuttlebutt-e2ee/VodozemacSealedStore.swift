@@ -163,6 +163,52 @@ final class VodozemacSealedStore {
         return try readUnlocked(key: Self.loadMasterKey(storeID: storeID))
     }
 
+    /// Native authority gate: authenticate this snapshot and keep its SQLite
+    /// writer reservation until a synchronous operation on a DIFFERENT store
+    /// finishes. An epoch writer on any handle/process must serialize against
+    /// this BEGIN IMMEDIATE. No snapshot/revision is changed by the gate itself.
+    /// The body must not await, reenter this store, or invoke an index writer.
+    /// This is serialization, not an atomic transaction across the two DBs.
+    /// Never retry the body after failure: its other-store commit may have won.
+    func withAuthoritySnapshotForResearch<T>(_ operation: (Snapshot) throws -> T,
+                                             fault: CommitFault = .none) throws -> T {
+        lock.lock(); defer { lock.unlock() }
+        try requireOpen()
+        let key = try Self.loadMasterKey(storeID: storeID)
+        try execute("BEGIN IMMEDIATE")
+        do {
+            let current = try readUnlocked(key: key)
+            let result = try operation(current)
+            switch fault {
+            case .none: break
+            case .beforeCommit, .beforeCommitAndRollbackFailure:
+                throw VodozemacSealedStoreError.injectedFailure
+            }
+            try execute("COMMIT")
+            return result
+        } catch {
+            let operationError = error
+            do {
+                if case .beforeCommitAndRollbackFailure = fault { throw VodozemacSealedStoreError.injectedFailure }
+                try execute("ROLLBACK")
+            } catch {
+                let uncertainDatabase = database
+                database = nil
+                if let uncertainDatabase { sqlite3_close_v2(uncertainDatabase) }
+            }
+            throw operationError
+        }
+    }
+
+    // Exact fixture handle only: lets a competing native commit report actual
+    // SQLITE_BUSY instead of waiting, so serialization assertions need no sleep
+    // or assumption that a dispatched writer has reached SQLite yet.
+    func failImmediatelyOnBusyForResearch() throws {
+        lock.lock(); defer { lock.unlock() }
+        try requireOpen()
+        try checked(sqlite3_busy_timeout(database, 0))
+    }
+
     /// Native-only key derivation for vodozemac's own encrypted pickle API.
     /// This is purpose-separated from the snapshot encryption key; never expose
     /// it to JS, logs, network APIs, or a Capacitor response.

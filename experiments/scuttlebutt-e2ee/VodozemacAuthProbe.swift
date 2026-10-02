@@ -64,6 +64,11 @@ private final class DmAuthProbeChecks {
         catch DmCoordinatorError.unavailable { try require(true, label + " credential refused"); return }
         throw DmAuthProbeError.assertion(label)
     }
+    func contextRefuses(_ label: String, _ operation: () throws -> Void) throws {
+        do { try operation() }
+        catch DmCoordinatorError.unavailable { try require(true, label); return }
+        throw DmAuthProbeError.assertion(label)
+    }
 }
 
 // A response gate queues callbacks and invokes them after unlocking. It never
@@ -208,6 +213,32 @@ private final class DmAuthProbeCommitHook: @unchecked Sendable {
     }
 }
 
+private final class DmAuthProbeCommitGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var arrived = false
+    private var released = false
+    func hold() throws {
+        lock.lock(); arrived = true; lock.unlock()
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            throw DmAuthProbeError.assertion("failed authority commit fixture exceeded bound")
+        }
+    }
+    func hasArrived() -> Bool { lock.lock(); defer { lock.unlock() }; return arrived }
+    func release() {
+        lock.lock(); let shouldSignal = !released; released = true; lock.unlock()
+        if shouldSignal { semaphore.signal() }
+    }
+}
+
+private func dmAuthProbeAwaitCommitGate(_ gate: DmAuthProbeCommitGate) async throws {
+    let bound = ContinuousClock.now.advanced(by: .seconds(2))
+    while !gate.hasArrived() {
+        guard ContinuousClock.now < bound else { throw DmAuthProbeError.assertion("failed authority commit fixture did not start") }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+}
+
 private final class DmAuthProbeTaskBox: @unchecked Sendable {
     private let lock = NSLock()
     private var task: Task<DmLifecycleSnapshot, Error>?
@@ -233,6 +264,36 @@ private final class DmAuthProbeClock: @unchecked Sendable {
         pendingReads = [verifiedAt.advanced(by: .seconds(59)), verifiedAt.advanced(by: .seconds(60))]
         value = verifiedAt.advanced(by: .seconds(60))
         lock.unlock()
+    }
+}
+
+// This fixture authority is a separate real Keychain/sealed SQLite store, not
+// a callback Boolean. Its transaction holds the snapshot binding through each
+// Auth mutation. Production authority still belongs to AccountDirectory.
+private final class DmAuthProbeScopeGuard: DmNativeAuthScopeGuard {
+    private let store: VodozemacSealedStore
+    private let expected: VodozemacSealedStore.Snapshot
+    private let faultLock = NSLock()
+    private var failNextCommit = false
+    private let afterFailure = DmAuthProbeCommitHook()
+    init(store: VodozemacSealedStore) throws { self.store = store; expected = try store.read() }
+    func failNextCommitForResearch(afterFailure: (() throws -> Void)? = nil) {
+        if let afterFailure { self.afterFailure.arm(afterFailure) }
+        faultLock.lock(); failNextCommit = true; faultLock.unlock()
+    }
+    func withCurrentScope<T>(_ operation: () throws -> T) throws -> T {
+        faultLock.lock(); let failCommit = failNextCommit; failNextCommit = false; faultLock.unlock()
+        do {
+            return try store.withAuthoritySnapshotForResearch({ current in
+                guard current == expected else { throw DmAuthSessionError.unavailable }
+                return try operation()
+            }, fault: failCommit ? .beforeCommit : .none)
+        } catch {
+            // The index transaction has released authority before this hook.
+            // A newer verification may now win before the old call cleans up.
+            if failCommit { try afterFailure.call() }
+            throw error
+        }
     }
 }
 
@@ -580,6 +641,228 @@ private func dmAuthProbeRun() async throws -> Int {
         "successful renewal retains original pending record and exact ciphertext")
     try checks.require(dmAuthProbeIdentityMatches(try primary.coordinator.publicIdentity(owner: renewed.owner), originalIdentity),
         "successful renewal preserves all existing native identity keys")
+
+    // Reserve BEFORE any SDK token acquisition. No token is installed in the
+    // fixture yet, and no Auth HTTP should occur until this exact native ticket
+    // is consumed. All checks use real provider/Keychain/sealed account bytes.
+    let splitAuthority = try fixture()
+    let splitGuard = try DmAuthProbeScopeGuard(store: splitAuthority.store)
+    let splitAuthorityBefore = try splitAuthority.store.read()
+    let splitBefore = try primary.store.read(), splitRequestsBefore = DmAuthProbeProtocol.captured().count
+    let preSdkCredential = try session.credential(peerGeneration: peerGeneration)
+    let splitReservation = try session.reserveVerification(scopeGuard: splitGuard)
+    let splitReserved = try primary.coordinator.lifecycleForResearch(), splitReservedSnapshot = try primary.store.read()
+    try checks.unavailable(session, "pre-SDK reservation fences existing credentials immediately")
+    try checks.require(splitReservedSnapshot.revision == splitBefore.revision + 1
+        && splitReserved.active && splitReserved.owner == renewed.owner
+        && splitReserved.credentialEpoch != renewed.credentialEpoch,
+        "pre-SDK reservation durably rotates only the active credential epoch")
+    try checks.require(try primary.coordinator.pending(owner: splitReserved.owner, peerGeneration: peerGeneration) == [pending]
+        && dmAuthProbeStoredEnvelopes(primary.store) == [Data(pending.serializedEnvelope.utf8)]
+        && dmAuthProbeIdentityMatches(primary.coordinator.publicIdentity(owner: splitReserved.owner), originalIdentity),
+        "pre-SDK reservation preserves pending generation, exact ciphertext and provider identity")
+    try checks.require(try splitAuthority.store.read() == splitAuthorityBefore
+        && DmAuthProbeProtocol.captured().count == splitRequestsBefore,
+        "native reservation has no Auth request and cannot rewrite its authority index")
+    try checks.contextRefuses("pre-SDK durable epoch rejects a previously captured native relay credential") {
+        try primary.coordinator.validateRelayContextForResearch(owner: renewed.owner,
+            credentialEpoch: preSdkCredential.context.credentialEpoch, peerGeneration: peerGeneration)
+    }
+
+    let foreignSplitSession = try VodozemacAuthSession(coordinator: primary.coordinator, authenticator: auth)
+    try await checks.sessionRefuses("a reservation cannot be consumed by another session instance") {
+        try await foreignSplitSession.authenticate(bearer: "fixture.split.foreign.token", reservation: splitReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.foreign.token") == 0
+        && (try primary.store.read()) == splitReservedSnapshot,
+        "foreign consumption cannot dispatch or mutate the reserved account")
+    let splitGate = DmAuthProbeGate(); defer { splitGate.release() }
+    var splitScript = DmAuthProbeProtocol.Script(userId: primary.owner.userId); splitScript.gate = splitGate
+    DmAuthProbeProtocol.install(splitScript, bearer: "fixture.split.refresh.token")
+    let splitTask = Task { try await session.authenticate(bearer: "fixture.split.refresh.token", reservation: splitReservation) }
+    try await dmAuthProbeAwaitRequest("fixture.split.refresh.token")
+    try checks.require(try primary.store.read() == splitReservedSnapshot,
+        "consuming the pre-SDK attempt does not perform another begin or durable mutation")
+    try await checks.sessionRefuses("a second consumer cannot claim an in-flight native reservation") {
+        try await session.authenticate(bearer: "fixture.split.duplicate.token", reservation: splitReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.duplicate.token") == 0
+        && (try primary.store.read()) == splitReservedSnapshot,
+        "duplicate consumption cannot dispatch, abandon the first consumer or mutate account bytes")
+    splitGate.release()
+    let splitAccepted = try await checks.sessionSucceeds("exact pre-SDK reservation unexpectedly refused") { try await splitTask.value }
+    let splitAcceptedSnapshot = try primary.store.read(), splitContext = session.currentContext()
+    try checks.require(splitAccepted.active && splitAccepted.owner == renewed.owner
+        && splitAccepted.credentialEpoch != splitReserved.credentialEpoch
+        && splitAcceptedSnapshot.revision == splitReservedSnapshot.revision + 1 && splitContext != nil,
+        "the original reservation completes once and publishes the unchanged owner generation")
+    try checks.require(try primary.coordinator.pending(owner: splitAccepted.owner, peerGeneration: peerGeneration) == [pending]
+        && dmAuthProbeStoredEnvelopes(primary.store) == [Data(pending.serializedEnvelope.utf8)],
+        "split verification keeps the original pending record and exact provider ciphertext")
+    try await checks.sessionRefuses("completed native reservation cannot be replayed") {
+        try await session.authenticate(bearer: "fixture.split.replayed.token", reservation: splitReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.replayed.token") == 0
+        && (try primary.store.read()) == splitAcceptedSnapshot && session.currentContext() == splitContext,
+        "reservation replay preserves the accepted sealed snapshot and live credential lease")
+
+    let supersededReservation = try session.reserveVerification(scopeGuard: splitGuard)
+    let latestReservation = try session.reserveVerification(scopeGuard: splitGuard)
+    let latestReservedSnapshot = try primary.store.read()
+    try await checks.sessionRefuses("a newer native fence supersedes an unconsumed older reservation") {
+        try await session.authenticate(bearer: "fixture.split.superseded.token", reservation: supersededReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.superseded.token") == 0
+        && (try primary.store.read()) == latestReservedSnapshot,
+        "older pre-SDK reservation refuses before HTTP without erasing the newer attempt")
+    DmAuthProbeProtocol.install(.init(userId: primary.owner.userId), bearer: "fixture.split.latest.token")
+    _ = try await checks.sessionSucceeds("newer native pre-SDK reservation unexpectedly refused") {
+        try await session.authenticate(bearer: "fixture.split.latest.token", reservation: latestReservation)
+    }
+    let latestSnapshot = try primary.store.read(), latestContext = session.currentContext()
+    try await checks.sessionRefuses("stale pre-SDK reservation cannot clear the newer accepted lease") {
+        try await session.authenticate(bearer: "fixture.split.superseded.token", reservation: supersededReservation)
+    }
+    try checks.require(try primary.store.read() == latestSnapshot && session.currentContext() == latestContext && latestContext != nil,
+        "stale reservation preserves the exact winning snapshot and native readiness")
+
+    // A different handle commits E2 while the original E1 reservation is still
+    // waiting for its SDK token. Consumption must not reserve E3 from the winner.
+    let splitOtherHandle = try VodozemacSealedStore.reopen(directory: primary.directory, storeID: primary.id)
+    extraHandles.append(splitOtherHandle)
+    let splitCompetitor = try VodozemacAuthSession(coordinator: VodozemacDmCoordinator(store: splitOtherHandle), authenticator: auth)
+    let crossHandleReservation = try session.reserveVerification(scopeGuard: splitGuard)
+    DmAuthProbeProtocol.install(.init(userId: primary.owner.userId), bearer: "fixture.split.cross-handle-winner.token")
+    _ = try await checks.sessionSucceeds("cross-handle native winner unexpectedly refused") {
+        try await splitCompetitor.authenticate(bearer: "fixture.split.cross-handle-winner.token", scopeGuard: splitGuard)
+    }
+    let crossHandleSnapshot = try primary.store.read(), crossHandleContext = splitCompetitor.currentContext()
+    try await checks.sessionRefuses("cross-handle epoch winner fences an earlier unconsumed reservation") {
+        try await session.authenticate(bearer: "fixture.split.cross-handle-old.token", reservation: crossHandleReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.cross-handle-old.token") == 0
+        && (try primary.store.read()) == crossHandleSnapshot
+        && splitCompetitor.currentContext() == crossHandleContext && crossHandleContext != nil,
+        "cross-handle stale consumption preserves the exact winner with no new begin or HTTP")
+
+    let revokedReservation = try session.reserveVerification(scopeGuard: splitGuard)
+    let beforeAuthorityRevocation = try splitAuthority.store.read()
+    _ = try splitAuthority.store.commit(expectedRevision: beforeAuthorityRevocation.revision, payload: Data("revoked fixture authority".utf8))
+    let revokedAccountSnapshot = try primary.store.read(), revokedAuthoritySnapshot = try splitAuthority.store.read()
+    try await checks.sessionRefuses("consumption must use the original now-revoked scope guard") {
+        try await session.authenticate(bearer: "fixture.split.revoked.token", reservation: revokedReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.revoked.token") == 0
+        && (try primary.store.read()) == revokedAccountSnapshot && (try splitAuthority.store.read()) == revokedAuthoritySnapshot,
+        "revoked native guard refuses without account or index mutation")
+    try checks.unavailable(session, "revoked pre-SDK reservation never restores the prior lease")
+
+    let splitLogout = try fixture()
+    let splitLogoutSession = try VodozemacAuthSession(coordinator: splitLogout.coordinator, authenticator: auth)
+    let currentSplitGuard = try DmAuthProbeScopeGuard(store: splitAuthority.store)
+    let loggedOutReservation = try splitLogoutSession.reserveVerification(scopeGuard: currentSplitGuard)
+    _ = try splitLogoutSession.signOut()
+    let splitLogoutSnapshot = try splitLogout.store.read()
+    try await checks.sessionRefuses("logout fences a reservation before SDK token acquisition completes") {
+        try await splitLogoutSession.authenticate(bearer: "fixture.split.after-logout.token", reservation: loggedOutReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.after-logout.token") == 0
+        && (try splitLogout.store.read()) == splitLogoutSnapshot,
+        "post-logout reservation consumption cannot dispatch or mutate the logout winner")
+    try checks.unavailable(splitLogoutSession, "post-logout reservation has no native readiness")
+
+    let splitExpired = try fixture(), splitExpiredClock = DmAuthProbeClock()
+    let splitExpiredSession = try VodozemacAuthSession(coordinator: splitExpired.coordinator, authenticator: auth,
+        clockForResearch: splitExpiredClock.read)
+    let expiredReservation = try splitExpiredSession.reserveVerification(scopeGuard: currentSplitGuard)
+    let splitExpiredSnapshot = try splitExpired.store.read()
+    splitExpiredClock.advance(seconds: 60)
+    try await checks.sessionRefuses("sixty seconds waiting for SDK token expires the exact original reservation") {
+        try await splitExpiredSession.authenticate(bearer: "fixture.split.expired.token", reservation: expiredReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.expired.token") == 0
+        && (try splitExpired.store.read()) == splitExpiredSnapshot,
+        "expired pre-SDK reservation refuses without another begin, HTTP or durable mutation")
+    try checks.unavailable(splitExpiredSession, "expired pre-SDK reservation cannot publish credentials")
+
+    let splitDeadline = try fixture(), splitDeadlineClock = DmAuthProbeClock()
+    let splitDeadlineSession = try VodozemacAuthSession(coordinator: splitDeadline.coordinator, authenticator: auth,
+        clockForResearch: splitDeadlineClock.read)
+    let deadlineReservation = try splitDeadlineSession.reserveVerification(scopeGuard: currentSplitGuard)
+    splitDeadlineClock.advance(seconds: 59)
+    DmAuthProbeProtocol.install(.init(userId: splitDeadline.owner.userId), bearer: "fixture.split.deadline.token")
+    _ = try await checks.sessionSucceeds("pre-deadline split native verification unexpectedly refused") {
+        try await splitDeadlineSession.authenticate(bearer: "fixture.split.deadline.token", reservation: deadlineReservation)
+    }
+    let splitDeadlineSnapshot = try splitDeadline.store.read()
+    try checks.require(splitDeadlineSession.currentContext() != nil, "SDK token delay leaves only the original remaining lease")
+    splitDeadlineClock.advance(seconds: 1)
+    try checks.unavailable(splitDeadlineSession, "split consumption and completion cannot restart the original lease clock")
+    try checks.require(try splitDeadline.store.read() == splitDeadlineSnapshot, "split lease expiry preserves exact accepted durable state")
+
+    // The separate authority transaction can fail after its account operation
+    // won. Only a successful claimant owns cleanup, and that cleanup may never
+    // erase a newer verification which wins after the failed gate releases.
+    let splitFault = try fixture()
+    let splitFaultSession = try VodozemacAuthSession(coordinator: splitFault.coordinator, authenticator: auth)
+    let splitFaultGuard = try DmAuthProbeScopeGuard(store: splitAuthority.store)
+    let claimFaultReservation = try splitFaultSession.reserveVerification(scopeGuard: splitFaultGuard)
+    let beforeClaimFault = try splitFault.store.read(), beforeClaimFaultAuthority = try splitAuthority.store.read()
+    splitFaultGuard.failNextCommitForResearch()
+    try await checks.sessionRefuses("authority failure after claim refuses before Auth dispatch") {
+        try await splitFaultSession.authenticate(bearer: "fixture.split.claim-fault.token", reservation: claimFaultReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.claim-fault.token") == 0
+        && (try splitFault.store.read()) == beforeClaimFault && (try splitAuthority.store.read()) == beforeClaimFaultAuthority,
+        "failed claim authority cannot rewrite either sealed snapshot or dispatch HTTP")
+    try checks.unavailable(splitFaultSession, "authority failure after claim abandons only its own pending memory")
+
+    let completeFaultReservation = try splitFaultSession.reserveVerification(scopeGuard: splitFaultGuard)
+    let beforeCompleteFault = try splitFault.store.read()
+    let failedCommitGate = DmAuthProbeCommitGate(); defer { failedCommitGate.release() }
+    DmAuthProbeProtocol.install(.init(userId: splitFault.owner.userId), bearer: "fixture.split.complete-fault-old.token")
+    let completeFaultTask = Task {
+        try await splitFaultSession.authenticateForResearch(bearer: "fixture.split.complete-fault-old.token",
+            reservation: completeFaultReservation, hooks: .init(beforeComplete: {
+                splitFaultGuard.failNextCommitForResearch(afterFailure: failedCommitGate.hold)
+            }))
+    }
+    defer { completeFaultTask.cancel() }
+    try await dmAuthProbeAwaitCommitGate(failedCommitGate)
+    try checks.require(try splitFault.store.read().revision == beforeCompleteFault.revision + 1
+        && splitAuthority.store.read() == beforeClaimFaultAuthority && splitFaultSession.currentContext() != nil,
+        "paused failed authority completion has already committed and installed its exact accepted lease")
+    let postFaultWinnerReservation = try splitFaultSession.reserveVerification(scopeGuard: splitFaultGuard)
+    DmAuthProbeProtocol.install(.init(userId: splitFault.owner.userId), bearer: "fixture.split.post-fault-winner.token")
+    _ = try await checks.sessionSucceeds("new verification after failed authority completion unexpectedly refused") {
+        try await splitFaultSession.authenticate(bearer: "fixture.split.post-fault-winner.token", reservation: postFaultWinnerReservation)
+    }
+    let postFaultWinnerSnapshot = try splitFault.store.read(), postFaultWinnerContext = splitFaultSession.currentContext()
+    failedCommitGate.release()
+    try await checks.sessionRefuses("failed old authority completion reports refusal after a newer lease wins") { try await completeFaultTask.value }
+    try checks.require(try splitFault.store.read() == postFaultWinnerSnapshot
+        && splitAuthority.store.read() == beforeClaimFaultAuthority
+        && splitFaultSession.currentContext() == postFaultWinnerContext && postFaultWinnerContext != nil,
+        "post-failure old cleanup preserves exact newer account/index snapshots and winning lease")
+    try await checks.sessionRefuses("failed old completion reservation cannot be reused to clear its winner") {
+        try await splitFaultSession.authenticate(bearer: "fixture.split.post-fault-replay.token", reservation: completeFaultReservation)
+    }
+    try checks.require(DmAuthProbeProtocol.count(bearer: "fixture.split.post-fault-replay.token") == 0
+        && (try splitFault.store.read()) == postFaultWinnerSnapshot && splitFaultSession.currentContext() == postFaultWinnerContext,
+        "failed completed reservation replay has no mutation, dispatch or winner cleanup right")
+
+    let isolatedFaultReservation = try splitFaultSession.reserveVerification(scopeGuard: splitFaultGuard)
+    let beforeIsolatedFault = try splitFault.store.read()
+    DmAuthProbeProtocol.install(.init(userId: splitFault.owner.userId), bearer: "fixture.split.complete-fault-isolated.token")
+    try await checks.sessionRefuses("authority failure after successful isolated account completion refuses readiness") {
+        try await splitFaultSession.authenticateForResearch(bearer: "fixture.split.complete-fault-isolated.token",
+            reservation: isolatedFaultReservation, hooks: .init(beforeComplete: { splitFaultGuard.failNextCommitForResearch() }))
+    }
+    try checks.unavailable(splitFaultSession, "failed authority commit clears its exact accepted lease")
+    try checks.require(try splitFault.store.read().revision == beforeIsolatedFault.revision + 1
+        && splitAuthority.store.read() == beforeClaimFaultAuthority
+        && splitFault.coordinator.lifecycleForResearch().owner == splitFault.owner,
+        "authority failure cannot undo a committed account activation or manufacture an index mutation")
 
     // A reopened durable active state supplies neither a bearer nor readiness.
     let beforeRestart = try primary.store.read()
