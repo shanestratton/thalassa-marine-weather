@@ -177,8 +177,10 @@ async function openGlassFixture(page: Page) {
     });
     await page.goto('/e2e/fixtures/glass-legibility.html');
     await expect(page.locator('.glass-metric-heading')).toHaveCount(16);
-    // Seven, plus the day card's High and Low captions (UX scorecard run 6).
-    await expect(page.locator('.glass-forecast-caption')).toHaveCount(9);
+    // Seven, plus the day card's High and Low captions (UX scorecard run 6),
+    // plus (since e5c1d099, 2026-10-02) the four unit lines under the day
+    // card's readings (kts, kts, m, %), which share the caption ink.
+    await expect(page.locator('.glass-forecast-caption')).toHaveCount(13);
     // Three labels, two event heights, (since UX scorecard run 7) the three
     // unit spans and (since run 9) the two 'tmrw' day cues beside the times,
     // which all share one style with the daylight caption ink.
