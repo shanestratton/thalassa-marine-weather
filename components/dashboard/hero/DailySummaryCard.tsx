@@ -41,13 +41,27 @@ const Missing: React.FC = () => (
     </>
 );
 
-const Metric: React.FC<{ label: string; value: string | null; sub?: string }> = ({ label, value, sub }) => (
-    <div className="flex flex-col items-center text-center px-2">
+/** One reading in the day row. The unit sits on its own small line under the
+ *  number so five readings fit one row on a 320 pt phone; '12.5 kts' inline
+ *  wrapped the row onto a second line that the card's fixed slot clipped
+ *  (Shane's screenshot, 2026-10-02: WAVE and RAIN cut in half). */
+const Metric: React.FC<{ label: string; value: string | null; unit?: string; sub?: string }> = ({
+    label,
+    value,
+    unit,
+    sub,
+}) => (
+    <div className="flex min-w-0 flex-col items-center text-center" data-testid="day-metric">
         <span className="glass-forecast-caption text-xs font-semibold uppercase tracking-wider text-white/45">
             {label}
         </span>
-        <span className="text-xl font-bold text-white tabular-nums">{value ?? <Missing />}</span>
-        {sub ? <span className="glass-forecast-caption text-xs text-white/55">{sub}</span> : null}
+        <span className="whitespace-nowrap text-xl font-bold leading-tight text-white tabular-nums">
+            {value ?? <Missing />}
+        </span>
+        {value !== null && unit ? (
+            <span className="glass-forecast-caption whitespace-nowrap text-xs text-white/55">{unit}</span>
+        ) : null}
+        {sub ? <span className="glass-forecast-caption whitespace-nowrap text-xs text-white/55">{sub}</span> : null}
     </div>
 );
 
@@ -70,7 +84,7 @@ const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
 
 /** Wind-direction cell: arrow with the cardinal underneath. */
 const DirCell: React.FC<{ deg: number }> = ({ deg }) => (
-    <div className="flex flex-col items-center text-center px-2">
+    <div className="flex min-w-0 flex-col items-center text-center" data-testid="day-metric">
         <span className="glass-forecast-caption text-xs font-semibold uppercase tracking-wider text-white/45">Dir</span>
         <WindArrow deg={deg} />
         <span className="text-xs font-semibold text-white/80">{degreesToCardinal(deg)}</span>
@@ -100,7 +114,12 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
     const hasWave = !isLandlocked && daily.waveHeight !== null && daily.waveHeight !== undefined;
     const wave = hasWave ? convertLength(daily.waveHeight as number, units.length) : null;
     const rain =
-        daily.precipChance !== undefined && daily.precipChance !== null ? `${Math.round(daily.precipChance)}%` : null;
+        daily.precipChance !== undefined && daily.precipChance !== null ? `${Math.round(daily.precipChance)}` : null;
+
+    const showWindRow = !note;
+    const showDir = !note && daily.windDegree !== undefined && daily.windDegree !== null;
+    const showWave = !isLandlocked && (!note || hasWave);
+    const metricCount = Math.max(1, (showWindRow ? 3 : 0) + (showDir ? 1 : 0) + (showWave ? 1 : 0));
 
     return (
         <div
@@ -144,21 +163,30 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
             )}
 
             {/* Marine + wind row. Past the model's range only the wave (a
-                separate marine model) can still have a number. */}
-            <div className="flex items-start justify-center gap-4 flex-wrap">
-                {!note ? <Metric label="Wind" value={wind !== null ? `${wind} ${units.speed}` : null} /> : null}
-                {!note && daily.windDegree !== undefined && daily.windDegree !== null ? (
-                    <DirCell deg={daily.windDegree} />
+                separate marine model) can still have a number. One row of
+                equal columns that never wraps: the card has a fixed slot, and a
+                wrapped second row was clipped (2026-10-02). */}
+            <div
+                className="grid w-full max-w-sm items-start gap-x-1"
+                style={{ gridTemplateColumns: `repeat(${metricCount}, minmax(0, 1fr))` }}
+                data-testid="day-metrics-row"
+            >
+                {showWindRow ? (
+                    <Metric label="Wind" value={wind !== null ? String(wind) : null} unit={units.speed} />
                 ) : null}
-                {!note ? <Metric label="Gust" value={gust !== null ? `${gust} ${units.speed}` : null} /> : null}
-                {!isLandlocked && (!note || hasWave) ? (
+                {showDir ? <DirCell deg={daily.windDegree as number} /> : null}
+                {showWindRow ? (
+                    <Metric label="Gust" value={gust !== null ? String(gust) : null} unit={units.speed} />
+                ) : null}
+                {showWave ? (
                     <Metric
                         label="Wave"
-                        value={wave !== null ? `${wave} ${units.length}` : null}
+                        value={wave !== null ? String(wave) : null}
+                        unit={units.length}
                         sub={daily.swellPeriod ? `${Math.round(daily.swellPeriod)}s swell` : undefined}
                     />
                 ) : null}
-                {!note ? <Metric label="Rain" value={rain} /> : null}
+                {showWindRow ? <Metric label="Rain" value={rain} unit="%" /> : null}
             </div>
 
             {/* Tide row */}

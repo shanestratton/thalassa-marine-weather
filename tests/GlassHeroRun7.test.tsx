@@ -257,6 +257,9 @@ describe('instrument grid names', () => {
         // Value only in the name; what the metric is comes as the description
         // (UX scorecard run 8: swiping the grid read ten definitions).
         expect(screen.getByLabelText(/^Rain today 1 millimetre$/)).toBeInTheDocument();
+        // Shane 2026-10-02: no visible 'today' word on the rain cell; the
+        // spoken name above still says it.
+        expect(screen.queryByText(/^today$/i)).toBeNull();
         expect(screen.getByRole('button', { name: /^Rain today 1 millimetre$/ })).toHaveAccessibleDescription(
             /^Total rain for today, from the hourly forecast/,
         );
