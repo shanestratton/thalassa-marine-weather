@@ -38,6 +38,8 @@ const harness = vi.hoisted(() => {
         storageEntries: [] as string[],
         /** The local mirror, as getById sees it: `${table}:${id}` → row. */
         localRows: new Map<string, Record<string, unknown>>(),
+        /** The server can share a galley (migration 20261003100000). */
+        galleyLive: false,
     };
 
     return {
@@ -116,7 +118,30 @@ vi.mock('../services/vessel/sharedBinders', () => ({
         maintenance_tasks: 'maintenance',
         maintenance_history: 'maintenance',
         ship_documents: 'documents',
+        // The galley's tables (2026-10-03).
+        recipes: 'galley',
+        meal_plans: 'galley',
+        shopping_list: 'galley',
     },
+    binderRegisterForRow: (table: string, row: { voyage_id?: unknown } | null) => {
+        const register = (
+            {
+                inventory_items: 'stores',
+                equipment_register: 'equipment',
+                maintenance_tasks: 'maintenance',
+                maintenance_history: 'maintenance',
+                ship_documents: 'documents',
+                recipes: 'galley',
+                meal_plans: 'galley',
+                shopping_list: 'galley',
+            } as Record<string, string>
+        )[table];
+        if (!register) return null;
+        // A passage's meal plan or grocery item is the passage share's.
+        if ((table === 'meal_plans' || table === 'shopping_list') && typeof row?.voyage_id === 'string') return null;
+        return register;
+    },
+    isGalleyShareLive: () => harness.state.galleyLive,
 }));
 
 vi.mock('../services/supabase', () => ({
@@ -307,6 +332,7 @@ describe('SyncService durable outbox', () => {
         harness.state.deniedDeletes.clear();
         harness.state.storageEntries = [];
         harness.state.localRows.clear();
+        harness.state.galleyLive = false;
         harness.refreshSharedBinders.mockReset();
         harness.refreshSharedBinders.mockResolvedValue({ changed: false, fresh: true });
         harness.binderWriteGranted.mockReset();
@@ -1021,6 +1047,8 @@ describe('SyncService durable outbox', () => {
         expect(result.discardedShared).toBe(3);
         expect(result.rehomedShared).toBe(0);
         expect(result.sharedOwnerIds).toEqual(['skipper-1']);
+        // Which registers, so the notice can say binder or galley.
+        expect(result.sharedRegisters).toEqual(['stores']);
         // The add never reached the server: its local row goes. The edited
         // row stays, and a full pull brings the server's copy back.
         expect(harness.bulkDelete).toHaveBeenCalledTimes(1);
@@ -1185,5 +1213,104 @@ describe('SyncService durable outbox', () => {
         expect(result.pushed).toBe(1);
         expect(harness.storageList).not.toHaveBeenCalled();
         expect(harness.storageRemove).not.toHaveBeenCalled();
+    });
+    describe('a shared galley (2026-10-03)', () => {
+        const galleyEntry = (
+            table: string,
+            id: string,
+            recordId: string,
+            type: QueueItem['mutation_type'],
+            payload: Record<string, unknown>,
+        ) => ({ ...queued(id, recordId, type, payload), table_name: table });
+
+        it("moves a grocery item added to a skipper's galley into the crew's own once the galley is unshared", async () => {
+            harness.state.galleyLive = true;
+            harness.binderWriteGranted.mockImplementation(
+                (register: string, ownerId: string) => !(register === 'galley' && ownerId === 'skipper-1'),
+            );
+            harness.state.localRows.set('shopping_list:g-new', {
+                id: 'g-new',
+                user_id: 'skipper-1',
+                voyage_id: null,
+            });
+            harness.state.queue = [
+                galleyEntry('shopping_list', 'i-g-new', 'g-new', 'INSERT', {
+                    id: 'g-new',
+                    user_id: 'skipper-1',
+                    voyage_id: null,
+                    ingredient_name: 'Limes',
+                }),
+            ];
+
+            const { syncNow } = await loadSyncService();
+            const result = await syncNow();
+
+            expect(result.errors).toEqual([]);
+            expect(result.rehomedShared).toBe(1);
+            expect(result.sharedRegisters).toEqual(['galley']);
+            expect(harness.state.upsertPayloads).toEqual([
+                expect.objectContaining({ id: 'g-new', user_id: 'user-1', ingredient_name: 'Limes' }),
+            ]);
+        });
+
+        it("never judges a passage's grocery item or any meal plan: the server decides, as before", async () => {
+            harness.state.galleyLive = true;
+            harness.binderWriteGranted.mockImplementation((register: string) => register !== 'galley');
+            harness.state.localRows.set('shopping_list:g-passage', {
+                id: 'g-passage',
+                user_id: 'skipper-1',
+                voyage_id: 'voyage-1',
+            });
+            harness.state.localRows.set('meal_plans:m-galley', {
+                id: 'm-galley',
+                user_id: 'skipper-1',
+                voyage_id: null,
+            });
+            harness.state.queue = [
+                galleyEntry('shopping_list', 'i-g-passage', 'g-passage', 'INSERT', {
+                    id: 'g-passage',
+                    user_id: 'skipper-1',
+                    voyage_id: 'voyage-1',
+                    ingredient_name: 'Bread',
+                }),
+                // A passage Meal Planner share kept with no voyage also lets
+                // crew cook a skipper's meal with no passage.
+                galleyEntry('meal_plans', 'u-m-galley', 'm-galley', 'UPDATE', { status: 'cooking' }),
+            ];
+
+            const { syncNow } = await loadSyncService();
+            const result = await syncNow();
+
+            expect(result.errors).toEqual([]);
+            expect(result.rehomedShared).toBe(0);
+            expect(result.discardedShared).toBe(0);
+            expect(result.pushed).toBe(2);
+            expect(harness.state.upsertPayloads).toEqual([
+                expect.objectContaining({ id: 'g-passage', user_id: 'skipper-1' }),
+            ]);
+            expect(harness.state.events).toContain('update:meal_plans');
+        });
+
+        it('before the galley migration is pushed, a galley change is never dropped or moved', async () => {
+            harness.binderWriteGranted.mockImplementation((register: string) => register !== 'galley');
+            harness.state.localRows.set('recipes:r-new', { id: 'r-new', user_id: 'skipper-1' });
+            harness.state.queue = [
+                galleyEntry('recipes', 'i-r-new', 'r-new', 'INSERT', {
+                    id: 'r-new',
+                    user_id: 'skipper-1',
+                    title: 'Damper',
+                }),
+            ];
+
+            const { syncNow } = await loadSyncService();
+            const result = await syncNow();
+
+            expect(result.errors).toEqual([]);
+            expect(result.rehomedShared).toBe(0);
+            expect(result.discardedShared).toBe(0);
+            expect(harness.state.upsertPayloads).toEqual([
+                expect.objectContaining({ id: 'r-new', user_id: 'skipper-1' }),
+            ]);
+        });
     });
 });

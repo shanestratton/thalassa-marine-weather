@@ -139,18 +139,31 @@ vi.mock('@capacitor/app', () => ({
     },
 }));
 
-vi.mock('../services/vessel/sharedBinders', () => ({
-    refreshSharedBinders: vi.fn(async () => ({ changed: false, fresh: true })),
-    binderWriteGranted: () => true,
-    anySkipperGrantsWrite: () => false,
-    TABLE_REGISTER: {
-        inventory_items: 'stores',
-        equipment_register: 'equipment',
-        maintenance_tasks: 'maintenance',
-        maintenance_history: 'maintenance',
-        ship_documents: 'documents',
-    },
-}));
+const galley = vi.hoisted(() => ({ live: false }));
+
+vi.mock('../services/vessel/sharedBinders', async () => {
+    const actual = await vi.importActual<typeof import('../services/vessel/sharedBinders')>(
+        '../services/vessel/sharedBinders',
+    );
+    return {
+        refreshSharedBinders: vi.fn(async () => ({ changed: false, fresh: true })),
+        binderWriteGranted: () => true,
+        anySkipperGrantsWrite: () => false,
+        TABLE_REGISTER: {
+            inventory_items: 'stores',
+            equipment_register: 'equipment',
+            maintenance_tasks: 'maintenance',
+            maintenance_history: 'maintenance',
+            ship_documents: 'documents',
+            // The galley's tables (2026-10-03).
+            recipes: 'galley',
+            meal_plans: 'galley',
+            shopping_list: 'galley',
+        },
+        binderRegisterForRow: actual.binderRegisterForRow,
+        isGalleyShareLive: () => galley.live,
+    };
+});
 
 vi.mock('../services/vessel/LocalDatabase', () => ({
     getFullQueue: () => [],
@@ -221,6 +234,7 @@ async function untilCycles(count: number): Promise<void> {
 const binderListings = () => h.state.restLog.filter((entry) => entry.select === 'id');
 
 beforeEach(async () => {
+    galley.live = false;
     vi.useFakeTimers({
         now: START,
         toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
@@ -327,5 +341,42 @@ describe('the binder sweep never reads the server as anon', () => {
 
         expect(binderListings().length).toBeGreaterThan(0);
         expect(h.state.prunes).toEqual([]);
+    });
+});
+
+describe('the galley tables (2026-10-03) join the sweep only once the server can share a galley', () => {
+    it('before the galley migration is pushed, a catch-up lists exactly the binder tables it always did', async () => {
+        storeSession(3600);
+        sync.startSyncEngine();
+        await untilCycles(1);
+        h.state.restLog = [];
+
+        sync.requestCatchUpSync();
+        await untilCycles(2);
+
+        expect(binderListings().map((entry) => entry.table)).toEqual(BINDER_TABLES);
+        expect(completions[1].errors).toEqual([]);
+    });
+
+    it('once it is, recipes, meal plans and the grocery list are swept too, with the user token', async () => {
+        galley.live = true;
+        storeSession(3600);
+        sync.startSyncEngine();
+        await untilCycles(1);
+        h.state.serverIds.set('shopping_list', ['grocery-1']);
+        h.state.restLog = [];
+
+        sync.requestCatchUpSync();
+        await untilCycles(2);
+
+        expect(binderListings().map((entry) => entry.table)).toEqual([
+            ...BINDER_TABLES,
+            'recipes',
+            'meal_plans',
+            'shopping_list',
+        ]);
+        expect(binderListings().every((entry) => entry.bearer === 'USER')).toBe(true);
+        expect(h.state.prunes).toContainEqual({ table: 'shopping_list', ids: ['grocery-1'] });
+        expect(completions[1].errors).toEqual([]);
     });
 });

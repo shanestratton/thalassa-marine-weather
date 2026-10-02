@@ -59,6 +59,25 @@ describe('shared binder loss notice', () => {
         );
     });
 
+    it('says galley, not binder, when the changes were to a shared galley', () => {
+        expect(
+            sharedBinderLossMessage({ rehomedShared: 1, sharedOwnerIds: ['skipper-1'], sharedRegisters: ['galley'] }),
+        ).toBe(
+            "1 item you added to Test Boat's galley is in your own galley now — it's no longer shared with you to edit.",
+        );
+        expect(
+            sharedBinderLossMessage({ discardedShared: 2, sharedOwnerIds: ['skipper-gone'], sharedRegisters: ['galley'] }),
+        ).toBe("2 changes to your skipper's galley weren't saved — it's no longer shared with you to edit.");
+        // A binder and the galley in one sync: the binder copy, as before.
+        expect(
+            sharedBinderLossMessage({
+                discardedShared: 1,
+                sharedOwnerIds: ['skipper-1'],
+                sharedRegisters: ['stores', 'galley'],
+            }),
+        ).toBe("1 change to Test Boat's binder wasn't saved — it's no longer shared with you to edit.");
+    });
+
     it('toasts once per sync that lost something, and stops when unsubscribed', () => {
         const stop = watchSharedBinderLoss();
         expect(mocks.listeners).toHaveLength(1);

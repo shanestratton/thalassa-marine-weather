@@ -5,15 +5,19 @@
  * has his own binders. they should really be replaced with the inviters
  * binders that are shared with the invitee". So while a sailor is accepted
  * crew on a skipper's boat, each binder register that skipper shares (Ship's
- * Stores, Equipment, R&M, Documents) shows the SKIPPER'S rows, never a mix.
+ * Stores, Equipment, R&M, Documents, and the Galley) shows the SKIPPER'S rows,
+ * never a mix.
  *
  * The truth is a server snapshot of the sailor's ACCEPTED vessel_crew rows,
  * read once per sync cycle, that mirrors public.can_access_vessel_register
  * (20260723100000) exactly:
  *   - stores: read = can_view_stores OR can_edit_stores, write = can_edit_stores
  *     (the JSONB flags; shared_registers is NOT consulted);
- *   - equipment / maintenance / documents: read = write = register in
- *     shared_registers (the database has no view-only form of these);
+ *   - equipment / maintenance / documents / galley: read = write = register
+ *     in shared_registers (the database has no view-only form of these);
+ *   - galley only once the server can share it (galleyLive below): until the
+ *     galley policies are on the server a ticked Galley grants nothing there,
+ *     so it grants nothing here either and the app behaves as before;
  *   - voyage_id is ignored, as the database ignores it, and several rows for
  *     the same skipper are unioned.
  * So a binder never claims a share the server refuses, or hides one it grants.
@@ -40,9 +44,15 @@ const log = createLogger('SharedBinders');
 
 // ── Types ──────────────────────────────────────────────────────
 
-export type BinderRegister = 'stores' | 'equipment' | 'maintenance' | 'documents';
+export type BinderRegister = 'stores' | 'equipment' | 'maintenance' | 'documents' | 'galley';
 
-export const BINDER_REGISTERS: readonly BinderRegister[] = ['stores', 'equipment', 'maintenance', 'documents'];
+export const BINDER_REGISTERS: readonly BinderRegister[] = [
+    'stores',
+    'equipment',
+    'maintenance',
+    'documents',
+    'galley',
+];
 
 /** Every synced binder table and the register whose share governs it. */
 export const TABLE_REGISTER: Readonly<Record<string, BinderRegister>> = Object.freeze({
@@ -53,7 +63,33 @@ export const TABLE_REGISTER: Readonly<Record<string, BinderRegister>> = Object.f
     // The skipper's engine-hours reading travels with his R&M.
     vessel_engine_hours: 'maintenance',
     ship_documents: 'documents',
+    // Shane 2026-10-03: "can we share the galley as well with invitees". The
+    // Galley's own rows: the recipe library, and the meal plans and grocery
+    // list kept with no passage. A meal plan or grocery item that carries a
+    // voyage_id belongs to that passage's Meal Planner share instead
+    // (can_access_passage), whatever this says: see binderRegisterForRow.
+    recipes: 'galley',
+    meal_plans: 'galley',
+    shopping_list: 'galley',
 });
+
+/** Tables whose rows with a voyage_id belong to a passage share, not the galley. */
+const PASSAGE_SCOPED_TABLES: ReadonlySet<string> = new Set(['meal_plans', 'shopping_list']);
+
+/**
+ * The register whose share governs this row: TABLE_REGISTER, except that a
+ * meal plan or grocery item for a passage (voyage_id set) is governed by the
+ * passage's Meal Planner share, which this module does not track (null).
+ */
+export function binderRegisterForRow(table: string, row: unknown): BinderRegister | null {
+    const register = TABLE_REGISTER[table];
+    if (!register) return null;
+    if (PASSAGE_SCOPED_TABLES.has(table)) {
+        const voyageId = row && typeof row === 'object' ? (row as { voyage_id?: unknown }).voyage_id : undefined;
+        if (typeof voyageId === 'string' && voyageId.trim()) return null;
+    }
+    return register;
+}
 
 export interface BinderAccess {
     read: boolean;
@@ -80,6 +116,12 @@ export interface SharedBinderSnapshot {
     /** Last time the server confirmed this snapshot; null = never. */
     confirmedAt: string | null;
     skippers: SharedBinderSkipper[];
+    /**
+     * The server has the galley share (migration 20261003100000: its
+     * galley_share_ready() answers). Until it does, no galley is shared here,
+     * whatever was ticked. Once true it stays true.
+     */
+    galleyLive?: boolean;
 }
 
 /** The subset of a vessel_crew row this module reads. */
@@ -150,6 +192,7 @@ function emptyAccess(): BinderRegisterAccess {
         equipment: { read: false, write: false },
         maintenance: { read: false, write: false },
         documents: { read: false, write: false },
+        galley: { read: false, write: false },
     };
 }
 
@@ -169,12 +212,17 @@ function rowTime(row: BinderMembershipRow): string {
 /**
  * Per skipper, what each binder register grants, exactly as the database's
  * can_access_vessel_register decides it. Only accepted rows count; a skipper
- * who grants nothing on any binder register is left out.
+ * who grants nothing on any binder register is left out. The galley counts
+ * only when `galleyLive` (the server has the galley policies).
  */
 export function deriveBinderAccess(
     memberships: readonly BinderMembershipRow[],
     selfId?: string | null,
+    options: { galleyLive?: boolean } = {},
 ): Omit<SharedBinderSkipper, 'vesselName'>[] {
+    const shareable: readonly BinderRegister[] = options.galleyLive
+        ? ['equipment', 'maintenance', 'documents', 'galley']
+        : ['equipment', 'maintenance', 'documents'];
     const byOwner = new Map<string, Omit<SharedBinderSkipper, 'vesselName'>>();
     for (const row of memberships) {
         if (!row || row.status !== 'accepted') continue;
@@ -191,7 +239,7 @@ export function deriveBinderAccess(
         const canViewStores = flag(row.permissions, 'can_view_stores') || canEditStores;
         entry.registers.stores.read ||= canViewStores;
         entry.registers.stores.write ||= canEditStores;
-        for (const register of ['equipment', 'maintenance', 'documents'] as const) {
+        for (const register of shareable) {
             if (shared.includes(register)) {
                 entry.registers[register].read = true;
                 entry.registers[register].write = true;
@@ -276,11 +324,14 @@ function parseSnapshot(raw: string | null, userId: string | null): SharedBinderS
     try {
         const value = JSON.parse(raw) as Partial<SharedBinderSnapshot>;
         if (value?.version !== 1 || value.userId !== userId || !Array.isArray(value.skippers)) return null;
+        const galleyLive = value.galleyLive === true;
         const skippers: SharedBinderSkipper[] = [];
         for (const skipper of value.skippers) {
             if (!skipper || typeof skipper.ownerId !== 'string' || !skipper.ownerId) continue;
             const registers = emptyAccess();
             for (const register of BINDER_REGISTERS) {
+                // A galley share the server cannot honour yet is no share.
+                if (register === 'galley' && !galleyLive) continue;
                 const access = skipper.registers?.[register];
                 registers[register] = { read: access?.read === true, write: access?.write === true };
             }
@@ -296,6 +347,7 @@ function parseSnapshot(raw: string | null, userId: string | null): SharedBinderS
             userId,
             confirmedAt: typeof value.confirmedAt === 'string' ? value.confirmedAt : null,
             skippers,
+            ...(galleyLive ? { galleyLive: true } : {}),
         };
     } catch {
         return null;
@@ -443,6 +495,25 @@ export function anySkipperGrantsWrite(register: BinderRegister): boolean {
     return currentSnapshot()?.skippers.some((skipper) => skipper.registers[register].write) ?? false;
 }
 
+/**
+ * True once the server has the galley share (galley_share_ready answered).
+ * Before then no galley is shared, the galley tables are not swept, and the
+ * Galley pages open no realtime channel for recipes or meal plans: the app
+ * behaves exactly as it did before the galley could be shared.
+ */
+export function isGalleyShareLive(): boolean {
+    return currentSnapshot()?.galleyLive === true;
+}
+
+/**
+ * The skipper whose galley this account sees and uses (recipes, and the meal
+ * plans and grocery list kept with no passage), or null for its own galley.
+ */
+export function galleyShareOwner(): string | null {
+    const source = getBinderSource('galley');
+    return source.mode === 'shared' ? source.ownerId : null;
+}
+
 /** The boat name the snapshot knows for this skipper, or null. */
 export function binderVesselName(ownerId: string): string | null {
     return currentSnapshot()?.skippers.find((skipper) => skipper.ownerId === ownerId)?.vesselName ?? null;
@@ -511,6 +582,54 @@ export function selectBinderSkipper(ownerId: string): void {
 
 // ── Refresh (once per sync cycle) ──────────────────────────────
 
+/**
+ * How often an account asks whether the server has the galley policies yet:
+ * with no Galley ticked for it, once an hour (a skipper's own device wants it
+ * for live updates from crew); with one ticked, every five minutes, and at
+ * once when a tick first shows up. Not every cycle: every prompt push after
+ * an edit runs one, and until the push each question is a 404. Once the
+ * answer is yes it is kept and never asked again.
+ */
+const GALLEY_READY_RECHECK_MS = 60 * 60 * 1000;
+const GALLEY_READY_TICKED_RECHECK_MS = 5 * 60 * 1000;
+let galleyReadyCheckedAt = Number.NEGATIVE_INFINITY;
+let galleyReadyCheckedFor: string | null = null;
+let galleyReadyCheckedTicked = false;
+
+/** PostgREST: the function is not in its schema cache (not pushed yet). */
+function isMissingFunctionError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const { code, message } = error as { code?: unknown; message?: unknown };
+    if (code === 'PGRST202') return true;
+    return (
+        (code === undefined || code === null) &&
+        typeof message === 'string' &&
+        /^Could not find the function public\.galley_share_ready/.test(message)
+    );
+}
+
+/**
+ * Does the server have the galley share? true / false, or null when the
+ * question could not be answered (keep what was known). Never throws.
+ */
+async function askGalleyShareReady(client: { rpc?: unknown }): Promise<boolean | null> {
+    try {
+        if (typeof client.rpc !== 'function') return null;
+        const { data, error } = await (
+            client.rpc as (fn: string) => PromiseLike<{ data: unknown; error: unknown }>
+        ).call(client, 'galley_share_ready');
+        if (error) {
+            if (isMissingFunctionError(error)) return false;
+            log.warn('Could not ask whether the galley can be shared yet:', (error as { message?: unknown }).message);
+            return null;
+        }
+        return data === true;
+    } catch (error) {
+        log.warn('Could not ask whether the galley can be shared yet:', error);
+        return null;
+    }
+}
+
 interface LocalSessionFence {
     isCurrent: () => boolean;
 }
@@ -554,8 +673,33 @@ export async function refreshSharedBinders(): Promise<{ changed: boolean; fresh:
     fence();
     if (error) throw new Error(`Shared binder memberships could not be read: ${error.message}`);
 
-    const derived = deriveBinderAccess((data ?? []) as BinderMembershipRow[], userId);
+    const memberships = (data ?? []) as BinderMembershipRow[];
     const previous = current();
+    const previousSnapshotForUser = previous.snapshot?.userId === userId ? previous.snapshot : null;
+    let galleyLive = previousSnapshotForUser?.galleyLive === true;
+    if (!galleyLive) {
+        const galleyTicked = memberships.some(
+            (row) => row?.status === 'accepted' && registerList(row.shared_registers).includes('galley'),
+        );
+        const now = Date.now();
+        const recheckMs = galleyTicked ? GALLEY_READY_TICKED_RECHECK_MS : GALLEY_READY_RECHECK_MS;
+        if (
+            galleyReadyCheckedFor !== userId ||
+            (galleyTicked && !galleyReadyCheckedTicked) ||
+            now - galleyReadyCheckedAt >= recheckMs
+        ) {
+            const ready = await askGalleyShareReady(supabase as unknown as { rpc?: unknown });
+            fence();
+            if (ready !== null) {
+                galleyReadyCheckedAt = now;
+                galleyReadyCheckedFor = userId;
+                galleyReadyCheckedTicked = galleyTicked;
+            }
+            galleyLive = ready === true;
+        }
+    }
+
+    const derived = deriveBinderAccess(memberships, userId, { galleyLive });
     const previousNames = new Map(
         (previous.snapshot?.userId === userId ? previous.snapshot.skippers : []).map((skipper) => [
             skipper.ownerId,
@@ -598,12 +742,14 @@ export async function refreshSharedBinders(): Promise<{ changed: boolean; fresh:
                 ? (names.get(skipper.ownerId) ?? null)
                 : (previousNames.get(skipper.ownerId) ?? null),
         })),
+        ...(galleyLive ? { galleyLive: true } : {}),
     };
-    const previousSnapshot = previous.snapshot?.userId === userId ? previous.snapshot : null;
+    const previousSnapshot = previousSnapshotForUser;
     const changed = accessSignature(previousSnapshot, previous.selection) !== accessSignature(next, previous.selection);
     const visibleChange =
         changed ||
         !previousSnapshot?.confirmedAt ||
+        (previousSnapshot.galleyLive === true) !== galleyLive ||
         next.skippers.some((skipper) => previousNames.get(skipper.ownerId) !== skipper.vesselName) ||
         next.skippers.length !== previousSnapshot.skippers.length;
 
