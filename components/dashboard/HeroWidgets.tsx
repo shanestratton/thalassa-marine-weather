@@ -945,14 +945,11 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                                 // starting with the visible word.
                                 label={isLive ? 'RAIN' : 'RAIN %'}
                                 spokenLabel={isLive ? 'Rain today' : 'Rain chance'}
-                                // The model's total for the day, over the rain strip's
-                                // minute-by-minute nowcast: 'RAIN 0 mm' right above
-                                // 'Rain in 51 min · Nowcast' read as two sources
-                                // disagreeing (UX scorecard run 10). The cell's name
-                                // already says 'Rain today'. Only when the value IS the
-                                // day's total: with no hourly rows the cell falls back
-                                // to the chance figure, which is not today's mm.
-                                caption={isLive && !!hourly?.length && rainValue !== '--' ? 'today' : undefined}
+                                // No visible 'today' caption (Shane, 2026-10-02: remove the
+                                // word from the rain metric). It was added in UX scorecard
+                                // run 10 to separate the day's total from the rain strip's
+                                // nowcast; the spoken name ('Rain today …') and the tooltip
+                                // still say it is today's total.
                                 icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
                                 value={rainValue}
                                 unit={rainUnit}
