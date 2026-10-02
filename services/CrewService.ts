@@ -627,15 +627,23 @@ export async function acceptInvite(inviteId: string): Promise<boolean> {
         const user = await getScopedUser(scope);
         if (!user) return false;
         // Get invite details first (need captain's user_id + crew user_id)
-        const { data: invite } = await supabase
+        const { data: invite, error: lookupError } = await supabase
             .from('vessel_crew')
             .select('owner_id, crew_user_id')
             .eq('id', inviteId)
             .eq('crew_user_id', user.id)
             .single();
-        if (!invite || !identityStillOwns(scope, user.id)) return false;
+        if (!invite) {
+            log.warn(`acceptInvite: invite not found for this account (${lookupError?.message ?? 'no row'})`);
+            return false;
+        }
+        if (!identityStillOwns(scope, user.id)) return false;
 
-        const { error } = await supabase
+        // 2026-10-02 field bug: every accept failed in the database (the
+        // bridge trigger's helper had gone missing) and this returned false
+        // with no trace, so the Accept button just did nothing. Log the real
+        // reason, and count an update that changed no row as a failure.
+        const { data: updated, error } = await supabase
             .from('vessel_crew')
             .update({
                 status: 'accepted',
@@ -643,9 +651,18 @@ export async function acceptInvite(inviteId: string): Promise<boolean> {
             })
             .eq('id', inviteId)
             .eq('crew_user_id', user.id)
-            .eq('status', 'pending');
+            .eq('status', 'pending')
+            .select('id');
 
-        if (error || !identityStillOwns(scope, user.id)) return false;
+        if (error) {
+            log.warn(`acceptInvite failed: ${error.message}`);
+            return false;
+        }
+        if (!updated || updated.length === 0) {
+            log.warn('acceptInvite: no pending invite was updated (already answered or withdrawn)');
+            return false;
+        }
+        if (!identityStillOwns(scope, user.id)) return false;
 
         // Fire-and-forget: add crew to captain's voyage channels
         if (invite?.owner_id && invite?.crew_user_id) {
@@ -674,7 +691,7 @@ export async function declineInvite(inviteId: string): Promise<boolean> {
     try {
         const user = await getScopedUser(scope);
         if (!user) return false;
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
             .from('vessel_crew')
             .update({
                 status: 'declined',
@@ -682,9 +699,18 @@ export async function declineInvite(inviteId: string): Promise<boolean> {
             })
             .eq('id', inviteId)
             .eq('crew_user_id', user.id)
-            .eq('status', 'pending');
+            .eq('status', 'pending')
+            .select('id');
 
-        return !error && identityStillOwns(scope, user.id);
+        if (error) {
+            log.warn(`declineInvite failed: ${error.message}`);
+            return false;
+        }
+        if (!updated || updated.length === 0) {
+            log.warn('declineInvite: no pending invite was updated (already answered or withdrawn)');
+            return false;
+        }
+        return identityStillOwns(scope, user.id);
     } catch (e) {
         return false;
     }

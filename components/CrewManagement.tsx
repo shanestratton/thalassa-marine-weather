@@ -1391,6 +1391,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (ok) {
             toast.success('Invite accepted!');
             void loadData();
+        } else {
+            toast.error(
+                "Couldn't accept the invite. Try again — if it keeps failing, ask the skipper to send a new one.",
+            );
+            void loadData();
         }
     };
 
@@ -1400,7 +1405,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         triggerHaptic('light');
         const ok = await declineInvite(invite.id);
         if (!scopeStillOwnsPage(scope)) return;
-        if (ok) void loadData();
+        if (!ok) toast.error("Couldn't decline the invite. Try again.");
+        void loadData();
     };
 
     const handleSavePermissions = async () => {

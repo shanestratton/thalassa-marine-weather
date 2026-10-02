@@ -1140,6 +1140,27 @@ describe('CrewManagement shared passage ownership', () => {
         expect(screen.getByText(accountBMember.crew_email)).toBeInTheDocument();
     });
 
+    it('a failed accept says so instead of doing nothing (2026-10-02)', async () => {
+        const pending = {
+            ...membership('captain-a', null),
+            id: 'pending-a',
+            status: 'pending' as const,
+        };
+        mocks.getMyInvites.mockReset().mockResolvedValue([pending]);
+        mocks.acceptInvite.mockReset().mockResolvedValue(false);
+        mocks.toastError.mockReset();
+
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: `Accept ${pending.owner_email}` }));
+
+        await waitFor(() =>
+            expect(mocks.toastError).toHaveBeenCalledWith(
+                "Couldn't accept the invite. Try again — if it keeps failing, ask the skipper to send a new one.",
+            ),
+        );
+        expect(mocks.toastSuccess).not.toHaveBeenCalledWith('Invite accepted!');
+    });
+
     it('suppresses a stale account-A accept toast and reload after switching to account B', async () => {
         let resolveAccept!: (accepted: boolean) => void;
         const pending = {
