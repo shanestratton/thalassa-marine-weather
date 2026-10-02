@@ -55,6 +55,7 @@ import { toast } from '../Toast';
 import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
+import { usePaneScope } from '../../context/PanePortalContext';
 import type { TimestampedMetric, DataFreshness } from '../../services/NmeaStore';
 import { nmeaDepthReferenceLabel } from '../../services/nmea/nmeaSentence';
 import { NmeaStore } from '../../services/NmeaStore';
@@ -783,6 +784,15 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
        above the bar themselves and need no foot: the peeking plate's own top
        padding is the gap, so a page keeps within 1px of the height it had. */
     const sectionHeight = 'h-[calc(100%_-_var(--thalassa-tabbar-height)_-_24px)]';
+    /* In the tablet split there is no tab bar to tuck that peek under: App
+       hangs the page --split-page-overhang below the pane's frame, and the
+       frame clipped every page 17 px short with the next plate's heading cut
+       through its letters (Shane 2026-10-02 on the iPad: "they are about 1.5
+       lines too big"). In a pane each page but the last fills exactly what
+       the pane shows, so a snap shows one whole instrument. The phone keeps
+       sectionHeight and its peek; Helm keeps h-full and sectionPb. */
+    const inPane = usePaneScope() !== null;
+    const paneSnapFit = inPane ? '[&>section:not(:last-child)]:h-[calc(100%_-_var(--split-page-overhang,0px))]' : '';
     const cardPad = pickByDevice(deviceClass, 'p-3', 'p-5');
     const sogAwsValueClass = pickByDevice(deviceClass, 'text-3xl', 'text-5xl');
     const depthValueClass = pickByDevice(deviceClass, 'text-2xl', 'text-4xl');
@@ -1386,7 +1396,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                     went on 2026-09-09 (Shane: "not necessary as a punter will
                     keep scrolling until he gets to the end"). */}
                 <div className="relative flex-1 min-h-0">
-                    <div className="h-full overflow-y-auto snap-y snap-mandatory no-scrollbar">
+                    <div className={`h-full overflow-y-auto snap-y snap-mandatory no-scrollbar ${paneSnapFit}`}>
                         {/* ── SECTION: CLOCK ──
                             FIRST in the panel, and the face has this page to
                             itself (Shane 2026-09-04: "we need the watches, and
@@ -1681,46 +1691,64 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                         >
                             <SectionPlate title="Barometer" place={placeOf('Barometer')} />
                             <div className="flex-1 min-h-0 flex flex-col justify-evenly">
-                                <div className="text-center">
-                                    <BarometerGauge
-                                        hpa={baro.latest?.hpa ?? null}
-                                        setHandHpa={baroSetHand}
-                                        severity={baroTendency?.severity ?? 'calm'}
-                                        readout={
-                                            baro.latest
-                                                ? baroUnit === 'inHg'
-                                                    ? hpaToInHg(baro.latest.hpa).toFixed(2)
-                                                    : baro.latest.hpa.toFixed(1)
-                                                : '--'
-                                        }
-                                        readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
-                                    />
-                                    {/* Not rendered empty: with no source and no set hand
-                                        it was a blank paragraph under the dial for
-                                        VoiceOver to stop on (UX scorecard run 9). */}
-                                    {(baro.source === 'boat' || baro.source === 'phone' || baroSetHand !== null) && (
-                                        <p className="text-[10px] font-bold text-gray-500">
-                                            {baro.source === 'boat' && 'Boat sensor'}
-                                            {baro.source === 'phone' && 'This device'}
-                                            {baroSetHand !== null && ' · pale hand = 3 h ago'}
-                                        </p>
-                                    )}
-                                    {baroTendency && (
-                                        <div
-                                            className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${BARO_SEVERITY[baroTendency.severity].pill}`}
-                                        >
-                                            <span aria-hidden="true" className="text-sm leading-none">
-                                                {baroTendency.direction === 'rising'
-                                                    ? '▲'
-                                                    : baroTendency.direction === 'falling'
-                                                      ? '▼'
-                                                      : '▬'}
-                                            </span>
-                                            <span className="text-xs font-black uppercase tracking-wider">
-                                                {baroTendency.label}
-                                            </span>
+                                {/* The dial is the one thing on this page that may
+                                    give up height. Its box starts at the dial's
+                                    300 px and is the only item allowed to shrink,
+                                    and the dial is never wider than the box is
+                                    tall, so on a short page (an iPad split pane:
+                                    the fullest page was cut 43 px at 1133x744) the
+                                    words under it still fit and the dial gets
+                                    smaller instead. Where the page is tall enough
+                                    nothing moves. Sized from this page, never the
+                                    viewport, because in a pane those differ. */}
+                                <div className="min-h-0 flex flex-col text-center">
+                                    <div className="min-h-0 flex-[0_1_300px] [container-type:size]">
+                                        <div className="mx-auto w-[min(100%,100cqh)]">
+                                            <BarometerGauge
+                                                hpa={baro.latest?.hpa ?? null}
+                                                setHandHpa={baroSetHand}
+                                                severity={baroTendency?.severity ?? 'calm'}
+                                                readout={
+                                                    baro.latest
+                                                        ? baroUnit === 'inHg'
+                                                            ? hpaToInHg(baro.latest.hpa).toFixed(2)
+                                                            : baro.latest.hpa.toFixed(1)
+                                                        : '--'
+                                                }
+                                                readoutUnit={baroUnit === 'inHg' ? 'inHg' : 'hPa'}
+                                            />
                                         </div>
-                                    )}
+                                    </div>
+                                    <div>
+                                        {/* Not rendered empty: with no source and no set hand
+                                            it was a blank paragraph under the dial for
+                                            VoiceOver to stop on (UX scorecard run 9). */}
+                                        {(baro.source === 'boat' ||
+                                            baro.source === 'phone' ||
+                                            baroSetHand !== null) && (
+                                            <p className="text-[10px] font-bold text-gray-500">
+                                                {baro.source === 'boat' && 'Boat sensor'}
+                                                {baro.source === 'phone' && 'This device'}
+                                                {baroSetHand !== null && ' · pale hand = 3 h ago'}
+                                            </p>
+                                        )}
+                                        {baroTendency && (
+                                            <div
+                                                className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 ${BARO_SEVERITY[baroTendency.severity].pill}`}
+                                            >
+                                                <span aria-hidden="true" className="text-sm leading-none">
+                                                    {baroTendency.direction === 'rising'
+                                                        ? '▲'
+                                                        : baroTendency.direction === 'falling'
+                                                          ? '▼'
+                                                          : '▬'}
+                                                </span>
+                                                <span className="text-xs font-black uppercase tracking-wider">
+                                                    {baroTendency.label}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* The sentence a skipper can act on, straight from
