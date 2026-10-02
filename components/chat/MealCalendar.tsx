@@ -5,7 +5,7 @@
  * Includes SlotPicker for recipe search, Provision Passage CTA,
  * crew stepper, and copy/move context menu.
  */
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { usePanePortalTarget } from '../../context/PanePortalContext';
 import {
@@ -16,13 +16,10 @@ import {
     type MealSlot,
     type MealDayInfo,
 } from '../../services/MealPlanService';
-import {
-    scaleIngredient,
-    searchRecipes,
-    getGalleyDifficulty,
-    type GalleyMeal,
-} from '../../services/GalleyRecipeService';
+import { searchRecipes, getGalleyDifficulty, type GalleyMeal } from '../../services/GalleyRecipeService';
 import { type ShoppingListSummary, getShoppingList } from '../../services/ShoppingListService';
+import { getAuthIdentityScope } from '../../services/authIdentityScope';
+import { galleyShareOwner, getSharedBindersState, subscribeSharedBinders } from '../../services/vessel/sharedBinders';
 import { triggerHaptic } from '../../utils/system';
 import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { ChefPlate } from './ChefPlate';
@@ -129,6 +126,18 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
     onShoppingChanged,
 }) => {
     const portalTarget = usePanePortalTarget();
+    // Re-render when the galley changes hands (a share starts, ends or
+    // switches boat).
+    useSyncExternalStore(subscribeSharedBinders, getSharedBindersState, getSharedBindersState);
+    // Whose Stores and grocery list the shortfall counts, and whose list it
+    // adds to. A passage: its verified owner. No passage: the galley this
+    // account is using, the skipper's while they share it (sharedBinders),
+    // else its own. With the crew's own id in a shared galley the list read
+    // came back empty, so nothing counted as listed and 'add' topped the
+    // skipper's items up a second time (2026-10-03).
+    const scopeOwnerUserId = voyageId
+        ? ownerUserId
+        : (galleyShareOwner() ?? getAuthIdentityScope().userId ?? ownerUserId);
     const [slotPicker, setSlotPicker] = useState<{ date: string; slot: MealSlot } | null>(null);
     const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
 
@@ -172,7 +181,14 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 ingredients: meal.ingredients,
             };
 
-            await scheduleMeal(galleyMeal, targetDate, meal.meal_slot, voyageId, meal.servings_planned, ownerUserId);
+            await scheduleMeal(
+                galleyMeal,
+                targetDate,
+                meal.meal_slot,
+                voyageId,
+                meal.servings_planned,
+                scopeOwnerUserId,
+            );
 
             // If move, delete original
             if (isMove) {
@@ -184,7 +200,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             onMealsChanged();
             window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
         },
-        [contextMenu, voyageId, ownerUserId, onMealsChanged],
+        [contextMenu, voyageId, scopeOwnerUserId, onMealsChanged],
     );
 
     // Long-press handlers
@@ -218,10 +234,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         void storesVersion; // reactive dep — re-compute when stores change
         if (!mealDays || activeMeals.length === 0) return [];
 
-        const storesAvail = getStoresAvailability(voyageId, ownerUserId);
+        const storesAvail = getStoresAvailability(voyageId, scopeOwnerUserId);
 
         // Build map of quantities already on the shopping list (unpurchased)
-        const shoppingNow = getShoppingList(voyageId, ownerUserId);
+        const shoppingNow = getShoppingList(voyageId, scopeOwnerUserId);
         const onListQty = new Map<string, number>();
         for (const zone of shoppingNow.zones) {
             for (const item of zone.items) {
@@ -281,7 +297,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             }
         }
         return out;
-    }, [mealDays, activeMeals, crewCount, storesVersion, voyageId, ownerUserId]);
+    }, [mealDays, activeMeals, storesVersion, voyageId, scopeOwnerUserId]);
 
     const shortfallCount = shortfalls.length;
     const aggregateShortfallNames = useMemo(() => new Set(shortfalls.map((s) => s.name.toLowerCase())), [shortfalls]);
@@ -297,7 +313,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
 
     const handleAddToShoppingList = useCallback(async () => {
         if (!mealDays || activeMeals.length === 0) return;
-        if (voyageId && !ownerUserId) {
+        if (voyageId && !scopeOwnerUserId) {
             log.error('Refusing to add shared provisions without an authoritative voyage owner');
             return;
         }
@@ -314,7 +330,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     unit: sf.unit,
                     notes: 'Passage provision',
                     voyageId,
-                    ownerUserId,
+                    ownerUserId: scopeOwnerUserId,
                 });
                 added++;
             }
@@ -328,7 +344,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             log.error('Add to shopping list error:', e);
         }
         setProvisioning(false);
-    }, [mealDays, activeMeals, onShoppingChanged, ownerUserId, shortfalls, voyageId]);
+    }, [mealDays, activeMeals, onShoppingChanged, scopeOwnerUserId, shortfalls, voyageId]);
 
     // No dates set — prompt user
     if (!mealDays) {
@@ -597,7 +613,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     slot={slotPicker.slot}
                     crewCount={crewCount}
                     voyageId={voyageId}
-                    ownerUserId={ownerUserId}
+                    ownerUserId={scopeOwnerUserId}
                     onScheduled={() => {
                         setSlotPicker(null);
                         onMealsChanged();
