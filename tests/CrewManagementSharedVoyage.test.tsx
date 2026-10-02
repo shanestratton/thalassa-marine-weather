@@ -6,6 +6,14 @@ import type { AuthorizedSharedVoyagesResult, PassageStatus } from '../services/P
 import type { Voyage } from '../services/VoyageService';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
+const binderSync = vi.hoisted(() => ({ requestFullReconciliation: vi.fn() }));
+
+// Accept and Leave change whose binders this account sees (shared binders,
+// 2026-10-02), so each asks for a full reconciliation.
+vi.mock('../services/vessel/SyncService', () => ({
+    requestFullReconciliation: binderSync.requestFullReconciliation,
+}));
+
 const mocks = vi.hoisted(() => ({
     authUserId: 'crew-user',
     activePassageId: '' as string,
@@ -162,7 +170,13 @@ vi.mock('../components/ui/PageHeader', () => ({
 }));
 
 vi.mock('../components/ui/UndoToast', () => ({
-    UndoToast: () => null,
+    // The undo window's end is the commit: a button stands in for its timer.
+    UndoToast: ({ isOpen, onDismiss }: { isOpen: boolean; onDismiss: () => void }) =>
+        isOpen ? (
+            <button type="button" onClick={onDismiss}>
+                Let the undo lapse
+            </button>
+        ) : null,
 }));
 
 vi.mock('../components/ui/ModalSheet', () => ({
@@ -177,12 +191,14 @@ vi.mock('../components/crew/CrewRoster', () => ({
         memberships,
         onInviteClick,
         onAcceptInvite,
+        onSoftDeleteCrew,
     }: {
         visibleCrew: CrewMember[];
         pendingInvites: CrewMember[];
         memberships: CrewMember[];
         onInviteClick: () => void;
         onAcceptInvite: (invite: CrewMember) => void;
+        onSoftDeleteCrew: (member: CrewMember) => void;
     }) => (
         <section aria-label="My Crew">
             {visibleCrew.map((member) => (
@@ -197,7 +213,12 @@ vi.mock('../components/crew/CrewRoster', () => ({
                 </div>
             ))}
             {memberships.map((member) => (
-                <span key={member.id}>{member.owner_email}</span>
+                <div key={member.id}>
+                    <span>{member.owner_email}</span>
+                    <button type="button" onClick={() => onSoftDeleteCrew(member)}>
+                        Leave {member.owner_email}
+                    </button>
+                </div>
             ))}
             <button type="button" onClick={onInviteClick}>
                 Invite crew member
@@ -1191,5 +1212,47 @@ describe('CrewManagement shared passage ownership', () => {
         expect(mocks.toastSuccess).not.toHaveBeenCalledWith('Invite accepted!');
         expect(mocks.getMyInvites).toHaveBeenCalledTimes(2);
         expect(screen.queryByText(pending.owner_email)).not.toBeInTheDocument();
+    });
+
+    // ── Shared binders (2026-10-02) ─────────────────────────────────────
+
+    it("asks for a full reconciliation after an in-app Accept, so the skipper's binder arrives now (A6)", async () => {
+        binderSync.requestFullReconciliation.mockReset().mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
+        const pending = { ...membership('captain-a', null), id: 'pending-a', status: 'pending' as const };
+        mocks.getMyInvites.mockReset().mockResolvedValue([pending]);
+        mocks.acceptInvite.mockReset().mockResolvedValue(true);
+
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: `Accept ${pending.owner_email}` }));
+
+        await waitFor(() => expect(binderSync.requestFullReconciliation).toHaveBeenCalledTimes(1));
+    });
+
+    it('does not ask for one when the Accept failed', async () => {
+        binderSync.requestFullReconciliation.mockReset().mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
+        const pending = { ...membership('captain-a', null), id: 'pending-a', status: 'pending' as const };
+        mocks.getMyInvites.mockReset().mockResolvedValue([pending]);
+        mocks.acceptInvite.mockReset().mockResolvedValue(false);
+
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: `Accept ${pending.owner_email}` }));
+
+        await waitFor(() => expect(mocks.acceptInvite).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(binderSync.requestFullReconciliation).not.toHaveBeenCalled();
+    });
+
+    it("asks for a full reconciliation after Leave, so the skipper's rows are pruned (A7)", async () => {
+        binderSync.requestFullReconciliation.mockReset().mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
+        const accepted = { ...membership('captain-a', null), id: 'member-a' };
+        mocks.getMyMemberships.mockReset().mockResolvedValue([accepted]);
+        mocks.leaveVessel.mockReset().mockResolvedValue(true);
+
+        renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: `Leave ${accepted.owner_email}` }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Let the undo lapse' }));
+
+        await waitFor(() => expect(mocks.leaveVessel).toHaveBeenCalledWith('member-a'));
+        await waitFor(() => expect(binderSync.requestFullReconciliation).toHaveBeenCalledTimes(1));
     });
 });

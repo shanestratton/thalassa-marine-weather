@@ -14,9 +14,12 @@ interface SwipeableInventoryCardProps {
     item: InventoryItem;
     isExpanded: boolean;
     onTap: () => void;
-    onDelete: () => void;
-    onEdit: () => void;
-    onQuantityAdjust: (id: string, delta: number) => void;
+    /** Omitted on a skipper's shared binder: no swipe-to-delete at all. */
+    onDelete?: () => void;
+    /** Omitted on a view-only shared binder. */
+    onEdit?: () => void;
+    /** Omitted on a view-only shared binder: no − / + buttons. */
+    onQuantityAdjust?: (id: string, delta: number) => void;
 }
 
 export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
@@ -40,44 +43,46 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
     const revealed = swipeOffset > 0;
     const confirmDelete = () => {
         resetSwipe();
-        onDelete();
+        onDelete?.();
     };
 
     return (
         <div className="relative overflow-hidden rounded-lg">
             {/* Delete button (revealed on swipe). Hidden from assistive tech
                 until the swipe reveals it, like the maintenance cards. */}
-            <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                aria-hidden={revealed ? undefined : true}
-                role={revealed ? 'button' : undefined}
-                aria-label={revealed ? `Delete ${item.item_name}` : undefined}
-                tabIndex={revealed ? 0 : -1}
-                onClick={confirmDelete}
-                onKeyDown={(e) => {
-                    if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
-                    e.preventDefault();
-                    confirmDelete();
-                }}
-            >
-                <div className="text-center text-white" aria-hidden="true">
-                    <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                    </svg>
-                    <span className="text-label font-bold">Delete</span>
+            {onDelete && (
+                <div
+                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${revealed ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    aria-hidden={revealed ? undefined : true}
+                    role={revealed ? 'button' : undefined}
+                    aria-label={revealed ? `Delete ${item.item_name}` : undefined}
+                    tabIndex={revealed ? 0 : -1}
+                    onClick={confirmDelete}
+                    onKeyDown={(e) => {
+                        if (!revealed || (e.key !== 'Enter' && e.key !== ' ')) return;
+                        e.preventDefault();
+                        confirmDelete();
+                    }}
+                >
+                    <div className="text-center text-white" aria-hidden="true">
+                        <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                        </svg>
+                        <span className="text-label font-bold">Delete</span>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Main card (slides on swipe) */}
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg border ${isLow ? 'border-amber-500/20' : 'border-white/5'}`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                ref={ref}
+                ref={onDelete ? ref : undefined}
                 onClick={() => {
                     if (swipeOffset === 0) onTap();
                 }}
@@ -119,29 +124,31 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                             {isLow && <p className="text-[11px] font-bold text-amber-400 leading-none mt-0.5">Low</p>}
                         </div>
                         {/* Edit button */}
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onEdit();
-                            }}
-                            className="hit-target-44 p-1.5 -mr-1 rounded-lg hover:bg-white/10 transition-colors shrink-0"
-                            aria-label={`Edit ${item.item_name}`}
-                        >
-                            <svg
-                                aria-hidden="true"
-                                className="w-4 h-4 text-slate-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
+                        {onEdit && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEdit();
+                                }}
+                                className="hit-target-44 p-1.5 -mr-1 rounded-lg hover:bg-white/10 transition-colors shrink-0"
+                                aria-label={`Edit ${item.item_name}`}
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
-                                />
-                            </svg>
-                        </button>
+                                <svg
+                                    aria-hidden="true"
+                                    className="w-4 h-4 text-slate-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                    />
+                                </svg>
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -178,32 +185,34 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                         </div>
 
                         {/* Quantity controls only */}
-                        <div className="flex items-center justify-center gap-4 py-2 bg-white/3 border border-white/6 rounded-xl">
-                            <button
-                                aria-label="Decrease quantity"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onQuantityAdjust(item.id, -1);
-                                }}
-                                disabled={item.quantity <= 0}
-                                className="w-11 h-11 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
-                            >
-                                −
-                            </button>
-                            <span className="text-white font-black text-lg w-8 text-center tabular-nums">
-                                {item.quantity}
-                            </span>
-                            <button
-                                aria-label="Increase quantity"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onQuantityAdjust(item.id, 1);
-                                }}
-                                className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
-                            >
-                                +
-                            </button>
-                        </div>
+                        {onQuantityAdjust && (
+                            <div className="flex items-center justify-center gap-4 py-2 bg-white/3 border border-white/6 rounded-xl">
+                                <button
+                                    aria-label="Decrease quantity"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onQuantityAdjust(item.id, -1);
+                                    }}
+                                    disabled={item.quantity <= 0}
+                                    className="w-11 h-11 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center text-red-400 font-bold hover:bg-red-500/25 transition-all active:scale-90 disabled:opacity-30"
+                                >
+                                    −
+                                </button>
+                                <span className="text-white font-black text-lg w-8 text-center tabular-nums">
+                                    {item.quantity}
+                                </span>
+                                <button
+                                    aria-label="Increase quantity"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onQuantityAdjust(item.id, 1);
+                                    }}
+                                    className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold hover:bg-emerald-500/25 transition-all active:scale-90"
+                                >
+                                    +
+                                </button>
+                            </div>
+                        )}
 
                         {isLow && (
                             <p className="flex items-center gap-1 text-label text-amber-400 font-bold mt-2">

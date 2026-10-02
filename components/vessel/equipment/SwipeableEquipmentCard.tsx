@@ -36,7 +36,8 @@ export const CATEGORIES: { id: EquipmentCategory; label: string; Icon: Equipment
 interface SwipeableCardProps {
     item: EquipmentItem;
     onTap: () => void;
-    onDelete: () => void;
+    /** Omitted on a skipper's shared binder: no swipe-to-delete at all. */
+    onDelete?: () => void;
     onContextMenu: () => void;
 }
 
@@ -53,31 +54,33 @@ export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onT
     return (
         <div className="relative overflow-hidden rounded-lg">
             {/* Delete button (revealed on swipe) */}
-            <div
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => {
-                    resetSwipe();
-                    onDelete();
-                }}
-            >
-                <div className="text-center text-white">
-                    <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                    </svg>
-                    <span className="text-label font-bold">Delete</span>
+            {onDelete && (
+                <div
+                    className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-lg transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    onClick={() => {
+                        resetSwipe();
+                        onDelete();
+                    }}
+                >
+                    <div className="text-center text-white">
+                        <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                        </svg>
+                        <span className="text-label font-bold">Delete</span>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Main card (slides on swipe) */}
             <div
                 className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} bg-slate-800/40 rounded-lg p-3 border border-white/5`}
                 style={{ transform: `translateX(-${swipeOffset}px)` }}
-                ref={ref}
+                ref={onDelete ? ref : undefined}
                 onClick={() => {
                     if (swipeOffset === 0) onTap();
                 }}

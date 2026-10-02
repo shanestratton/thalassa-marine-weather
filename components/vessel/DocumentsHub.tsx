@@ -28,6 +28,8 @@ import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
 import { DocumentForm, CATEGORIES } from './documents/DocumentForm';
+import { useBinderSource } from '../../hooks/useBinderSource';
+import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import {
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
@@ -225,6 +227,15 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
     // Realtime sync — crew edits appear instantly
     useRealtimeSync('ship_documents', loadDocs);
+
+    // Whose papers these are (shared binders, 2026-10-02): the skipper's while
+    // this sailor is crew on a boat that shares Documents. Crew may file and
+    // edit, but never delete or attach files to the skipper's records.
+    const { source: binder, fetchingSkipperBinder } = useBinderSource('documents', {
+        reload: loadDocs,
+        rowCount: documents.length,
+    });
+    const sharedBinder = binder.mode === 'shared';
 
     const { ref: listRef, flash } = useSuccessFlash();
 
@@ -516,7 +527,12 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     title="Documents"
                     onBack={onBack}
                     breadcrumbs={['Boat Binder', 'Documents']}
-                    status={<OfflineBadge />}
+                    status={
+                        <>
+                            <OfflineBadge />
+                            <SharedBinderLine register="documents" source={binder} />
+                        </>
+                    }
                     subtitle={
                         // One count, worded like Stores and Equipment ('0 items');
                         // '0 documents' under the title only repeated it. Line
@@ -672,6 +688,10 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                         </div>
                     ) : loadError ? (
                         <LoadErrorState what="your documents" onRetry={loadDocs} />
+                    ) : fetchingSkipperBinder && !searchQuery ? (
+                        <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
+                            {bringingInCopy(binder)}
+                        </p>
                     ) : filtered.length === 0 ? (
                         <EmptyState
                             icon={
@@ -715,7 +735,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                             doc={doc}
                                             onTap={() => handleOpenDoc(doc)}
                                             onEdit={() => openEditForm(doc)}
-                                            onDelete={() => handleDelete(doc.id)}
+                                            onDelete={sharedBinder ? undefined : () => handleDelete(doc.id)}
                                             selected={selectedIds.has(doc.id)}
                                             onToggleSelect={() => toggleSelectDoc(doc.id)}
                                         />
@@ -782,6 +802,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 setFormFileName(null);
                             }}
                             onSave={handleSave}
+                            allowAttach={!sharedBinder}
                         />
                     </ModalSheet>
                 )}

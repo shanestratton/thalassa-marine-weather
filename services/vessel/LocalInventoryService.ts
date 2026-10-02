@@ -14,9 +14,27 @@ import {
     deleteLocal,
     generateUUID,
 } from './LocalDatabase';
+import {
+    assertBinderDeletable,
+    assertBinderWritable,
+    binderInsertOwner,
+    binderRowFilter,
+    isOwnBinderRow,
+    isRowInBinder,
+} from './sharedBinders';
 import type { InventoryItem, InventoryCategory } from '../../types';
 
 const TABLE = 'inventory_items';
+// Whose stores these are: the skipper's while the sailor is crew on a boat
+// that shares Ship's Stores, otherwise the sailor's own (sharedBinders.ts).
+const REGISTER = 'stores' as const;
+
+/** The row to change, refusing (before anything is queued) an edit the share forbids. */
+function writableRow(id: string): InventoryItem | null {
+    const row = getById<InventoryItem>(TABLE, id);
+    assertBinderWritable(REGISTER, row);
+    return row;
+}
 const GROCERY_RECEIPT_PREFIX = 'Added from Grocery List purchase ';
 
 function requireNonNegativeAmount(amount: number, label: string): void {
@@ -48,51 +66,60 @@ function deduplicationKey(item: InventoryItem): string {
 export class LocalInventoryService {
     /** Get all inventory items (from local cache) */
     static getItems(): InventoryItem[] {
-        return getAll<InventoryItem>(TABLE);
+        return query<InventoryItem>(TABLE, binderRowFilter(REGISTER));
     }
 
     /** Get a single item by ID */
     static getItem(id: string): InventoryItem | null {
-        return getById<InventoryItem>(TABLE, id);
+        const row = getById<InventoryItem>(TABLE, id);
+        return row && isRowInBinder(REGISTER, row) ? row : null;
     }
 
     /** Search items by name (fuzzy) */
     static search(term: string): InventoryItem[] {
         const lower = term.toLowerCase();
+        const inBinder = binderRowFilter(REGISTER);
         return query<InventoryItem>(
             TABLE,
             (item) =>
-                item.item_name.toLowerCase().includes(lower) ||
-                (item.description || '').toLowerCase().includes(lower) ||
-                (item.barcode || '').includes(term),
+                inBinder(item) &&
+                (item.item_name.toLowerCase().includes(lower) ||
+                    (item.description || '').toLowerCase().includes(lower) ||
+                    (item.barcode || '').includes(term)),
         );
     }
 
     /** Find an item by barcode (first match or null) */
     static findByBarcode(barcode: string): InventoryItem | null {
-        const results = query<InventoryItem>(TABLE, (item) => item.barcode === barcode);
+        const inBinder = binderRowFilter(REGISTER);
+        const results = query<InventoryItem>(TABLE, (item) => inBinder(item) && item.barcode === barcode);
         return results.length > 0 ? results[0] : null;
     }
 
     /** Get items by category */
     static getByCategory(category: InventoryCategory): InventoryItem[] {
-        return query<InventoryItem>(TABLE, (item) => item.category === category);
+        const inBinder = binderRowFilter(REGISTER);
+        return query<InventoryItem>(TABLE, (item) => inBinder(item) && item.category === category);
     }
 
     /** Get items below minimum quantity (alerts) */
     static getLowStock(): InventoryItem[] {
-        return query<InventoryItem>(TABLE, (item) => item.quantity <= item.min_quantity);
+        const inBinder = binderRowFilter(REGISTER);
+        return query<InventoryItem>(TABLE, (item) => inBinder(item) && item.quantity <= item.min_quantity);
     }
 
     /** Create a new inventory item */
     static async create(
         item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
     ): Promise<InventoryItem> {
+        // The skipper's id in a shared binder (refused when it is view only),
+        // the sailor's own otherwise; '' only while signed out.
+        const owner = binderInsertOwner(REGISTER);
         const now = new Date().toISOString();
         const record: InventoryItem = {
             ...item,
             id: generateUUID(),
-            user_id: '', // Will be set during sync push
+            user_id: owner,
             created_at: now,
             updated_at: now,
         };
@@ -102,25 +129,29 @@ export class LocalInventoryService {
 
     /** Update an existing item */
     static async update(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem | null> {
+        writableRow(id);
         return await updateLocal<InventoryItem>(TABLE, id, updates);
     }
 
     /** Increment quantity */
     static async incrementQuantity(id: string, amount: number = 1): Promise<InventoryItem | null> {
         requireNonNegativeAmount(amount, 'Increment amount');
-        if (amount === 0) return getById<InventoryItem>(TABLE, id);
+        const row = writableRow(id);
+        if (amount === 0) return row;
         return await deltaLocal<InventoryItem>(TABLE, id, 'quantity', amount);
     }
 
     /** Decrement quantity (floor at 0) */
     static async decrementQuantity(id: string, amount: number = 1): Promise<InventoryItem | null> {
         requireNonNegativeAmount(amount, 'Decrement amount');
-        if (amount === 0) return getById<InventoryItem>(TABLE, id);
+        const row = writableRow(id);
+        if (amount === 0) return row;
         return await deltaLocal<InventoryItem>(TABLE, id, 'quantity', -amount);
     }
 
     /** Delete an item */
     static async delete(id: string): Promise<void> {
+        assertBinderDeletable(REGISTER, getById<InventoryItem>(TABLE, id));
         return await deleteLocal(TABLE, id);
     }
 
@@ -131,7 +162,7 @@ export class LocalInventoryService {
         lowStock: number;
         categories: Record<string, number>;
     } {
-        const items = getAll<InventoryItem>(TABLE);
+        const items = LocalInventoryService.getItems();
         const categories: Record<string, number> = {};
 
         for (const item of items) {
@@ -158,8 +189,9 @@ export class LocalInventoryService {
         if (!Number.isFinite(delta)) {
             throw new RangeError('Quantity adjustment must be a finite number.');
         }
+        const row = writableRow(id);
         if (delta !== 0) return deltaLocal<InventoryItem>(TABLE, id, 'quantity', delta);
-        return getById<InventoryItem>(TABLE, id);
+        return row;
     }
 
     /**
@@ -170,7 +202,9 @@ export class LocalInventoryService {
      * deterministic inventory row created for that exact purchase.
      */
     static async deduplicateByName(): Promise<number> {
-        const items = getAll<InventoryItem>(TABLE);
+        // The sailor's own rows only: a crew device must never merge, and so
+        // delete, rows in a skipper's stores (deletes there are owner-only).
+        const items = getAll<InventoryItem>(TABLE).filter(isOwnBinderRow);
         const seen = new Map<string, InventoryItem>();
         let merged = 0;
 

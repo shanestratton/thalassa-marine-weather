@@ -17,6 +17,7 @@ import { scaleIngredient, type RecipeIngredient, type GalleyMeal } from './Galle
 import { convertQuantity } from './PurchaseUnits';
 import { triggerHaptic } from '../utils/system';
 import { getMyCrew } from './CrewService';
+import { binderWriteGranted } from './vessel/sharedBinders';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -347,15 +348,20 @@ async function completeMealOnce(mealPlanId: string, servingsConsumed?: number): 
         const ratio = requestedServings / planned;
 
         const mealOwner = normalizeOwnerId(meal.user_id);
-        const storeItems = mealOwner
-            ? transaction.query<{
-                  id: string;
-                  user_id: string;
-                  item_name: string;
-                  quantity: number;
-                  unit?: string;
-              }>(STORES_TABLE, (item) => normalizeOwnerId(item.user_id) === mealOwner)
-            : [];
+        // Crew who may only VIEW the skipper's Ship's Stores (a deckhand or
+        // navigator) can complete a shared-voyage meal, but must not queue
+        // stock DELTAs the database refuses (sharedBinders.ts): the stock is
+        // left as it is for someone who may edit the stores (2026-10-02).
+        const storeItems =
+            mealOwner && binderWriteGranted('stores', mealOwner)
+                ? transaction.query<{
+                      id: string;
+                      user_id: string;
+                      item_name: string;
+                      quantity: number;
+                      unit?: string;
+                  }>(STORES_TABLE, (item) => normalizeOwnerId(item.user_id) === mealOwner)
+                : [];
         const storesByName = new Map<string, Array<{ id: string; remaining: number; unit?: string }>>();
         for (const store of storeItems) {
             const key = store.item_name.toLowerCase().trim();

@@ -267,17 +267,38 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
  *
  * Ship's Stores is the one register whose server gate reads the JSONB flag,
  * not shared_registers (can_access_vessel_register, 20260723100000:305-328:
- * `can_view_stores OR can_edit_stores`). So a ticked Stores register has to
- * raise can_view_stores too, or a punter invited with Stores ticked gets a
- * row that says 'stores' in shared_registers and is refused at the table.
+ * `can_view_stores OR can_edit_stores`). So the flags follow the tick
+ * (storesPermissions): a ticked Stores register raises can_view_stores, or a
+ * punter invited with Stores ticked gets a row that says 'stores' in
+ * shared_registers and is refused at the table; an unticked one shares no
+ * stores, whatever the role preset says (2026-10-02, shared binders: a
+ * deckhand invited without Stores could still read the skipper's stores).
  * The redeem RPC derives 'stores' from the same flag, so the crew code agrees.
  */
 export function crewInvitePermissions(role: CrewRole, registers: SharedRegister[]): CrewPermissions {
     const preset = ROLE_DEFAULT_PERMISSIONS[role];
     return syncPassagePermissions(registers, {
         ...preset,
-        can_view_stores: preset.can_view_stores || registers.includes('stores'),
+        ...storesPermissions(role, registers, preset),
     });
+}
+
+/**
+ * The two stores flags from the Stores tick. Edit is only ever kept (from the
+ * row as it stands) or granted by the role's preset, never invented: a
+ * navigator or deckhand ticked for Stores can look, a co-skipper can edit.
+ */
+export function storesPermissions(
+    role: CrewRole | string | null | undefined,
+    registers: SharedRegister[],
+    current: Partial<CrewPermissions> = DEFAULT_PERMISSIONS,
+): Pick<CrewPermissions, 'can_view_stores' | 'can_edit_stores'> {
+    const ticked = registers.includes('stores');
+    const preset = role && role in ROLE_DEFAULT_PERMISSIONS ? ROLE_DEFAULT_PERMISSIONS[role as CrewRole] : undefined;
+    return {
+        can_view_stores: ticked,
+        can_edit_stores: ticked && (current.can_edit_stores === true || preset?.can_edit_stores === true),
+    };
 }
 
 export type CrewInviteStatus = 'pending' | 'accepted' | 'declined';
@@ -520,7 +541,7 @@ export async function updateCrewPermissions(crewId: string, registers: SharedReg
         if (!user) return false;
         const { data: member, error: readError } = await supabase
             .from('vessel_crew')
-            .select('permissions')
+            .select('permissions, role')
             .eq('id', crewId)
             .eq('owner_id', user.id)
             .maybeSingle();
@@ -530,7 +551,12 @@ export async function updateCrewPermissions(crewId: string, registers: SharedReg
             .from('vessel_crew')
             .update({
                 shared_registers: registers,
-                permissions: syncPassagePermissions(registers, member?.permissions),
+                // Unticking Stores really unshares it: the stores gate reads
+                // these flags, not shared_registers (storesPermissions).
+                permissions: syncPassagePermissions(registers, {
+                    ...(member?.permissions ?? {}),
+                    ...storesPermissions(member?.role, registers, member?.permissions ?? {}),
+                }),
                 updated_at: new Date().toISOString(),
             })
             .eq('id', crewId)
@@ -786,37 +812,6 @@ export async function disbandGroup(voyageId?: string): Promise<{ success: boolea
 }
 
 // ── Utilities ──────────────────────────────────────────────────
-
-/**
- * Check if the current user has a specific register shared by any captain.
- * Returns the captain's user_id if shared, null if not.
- */
-export async function getSharedOwnerForRegister(
-    register: SharedRegister,
-): Promise<{ ownerId: string; ownerEmail: string } | null> {
-    if (!supabase) return null;
-    const scope = captureAuthenticatedScope();
-    if (!scope) return null;
-
-    try {
-        const user = await getScopedUser(scope);
-        if (!user) return null;
-
-        const { data, error } = await supabase
-            .from('vessel_crew')
-            .select('owner_id, owner_email')
-            .eq('crew_user_id', user.id)
-            .eq('status', 'accepted')
-            .contains('shared_registers', [register])
-            .limit(1)
-            .single();
-
-        if (error || !data || !identityStillOwns(scope, user.id)) return null;
-        return { ownerId: data.owner_id, ownerEmail: data.owner_email };
-    } catch (e) {
-        return null;
-    }
-}
 
 /**
  * Get a count of pending invites for badge display.

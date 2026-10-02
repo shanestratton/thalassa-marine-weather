@@ -1530,6 +1530,42 @@ export async function retryFailed(): Promise<void> {
 }
 
 /**
+ * Re-stamp a queued INSERT that never reached the server, and its local row,
+ * with `changes` (used by sync — does NOT queue anything new). The queue
+ * entry keeps its id and FIFO place, so later UPDATE/DELTAs of the same row
+ * still follow it. Outbox first: a crash before the table write is repaired
+ * by the init-time outbox replay. Returns the rewritten entry, or null when
+ * there is no such queued INSERT.
+ */
+export async function rewriteQueuedInsert(
+    queueItemId: string,
+    changes: Record<string, unknown>,
+): Promise<SyncQueueItem | null> {
+    ensureInit();
+    return serializeMutation(async () => {
+        const previousQueue = syncQueueCache || [];
+        const index = previousQueue.findIndex((item) => item.id === queueItemId && item.mutation_type === 'INSERT');
+        if (index < 0) return null;
+        const item = previousQueue[index];
+        const payload = JSON.parse(item.payload) as Record<string, unknown>;
+        const rewritten: SyncQueueItem = { ...item, payload: JSON.stringify({ ...payload, ...changes }) };
+        const nextQueue = previousQueue.map((entry, position) => (position === index ? rewritten : entry));
+
+        const previousTable = cache[item.table_name] || {};
+        const row = previousTable[item.record_id];
+        if (row && typeof row === 'object') {
+            const nextTable = { ...previousTable, [item.record_id]: { ...(row as object), ...changes } };
+            await persistTableAndQueue(item.table_name, nextTable, nextQueue, previousTable, previousQueue);
+            cache[item.table_name] = nextTable;
+        } else {
+            await writeJsonFile(queueFilename(), nextQueue);
+        }
+        syncQueueCache = nextQueue;
+        return { ...rewritten };
+    });
+}
+
+/**
  * Get the number of pending mutations.
  */
 export function getPendingCount(): number {

@@ -8,6 +8,7 @@ import { supabase } from './supabase';
 import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '../types';
 import { DATA_EVENTS, dispatchDataChange } from '../utils/dataChangeEvents';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
+import { getBinderSource } from './vessel/sharedBinders';
 
 const TASKS_TABLE = 'maintenance_tasks';
 const HISTORY_TABLE = 'maintenance_history';
@@ -189,6 +190,33 @@ export class MaintenanceService {
         } = await client.auth.getUser();
         if (authError || !user || user.id !== scope.userId || !isAuthIdentityScopeCurrent(scope)) return null;
         const authUserId = scope.userId;
+
+        // While the R&M binder on show is a skipper's (sharedBinders.ts), the
+        // cloud reads follow it, so the Vessel-tile overdue badge and the PDF
+        // export match the list. The skipper is re-confirmed at the server; a
+        // share it no longer grants falls through to the rules below.
+        const source = getBinderSource('maintenance');
+        if (source.mode === 'shared') {
+            const { data: shared, error: sharedError } = await client
+                .from(CREW_TABLE)
+                .select('owner_id, crew_user_id, status, shared_registers')
+                .eq('crew_user_id', authUserId)
+                .eq('owner_id', source.ownerId)
+                .eq('status', 'accepted')
+                .contains('shared_registers', ['maintenance']);
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            const confirmed =
+                !sharedError &&
+                (shared || []).some(
+                    (row) =>
+                        row.owner_id === source.ownerId &&
+                        row.crew_user_id === authUserId &&
+                        row.status === 'accepted' &&
+                        Array.isArray(row.shared_registers) &&
+                        row.shared_registers.includes('maintenance'),
+                );
+            if (confirmed) return Object.freeze({ scope, authUserId, ownerId: source.ownerId });
+        }
 
         // A user's own vessel always wins over crew memberships.
         const { data: ownedVessel, error: ownerError } = await client
@@ -545,6 +573,9 @@ export class MaintenanceService {
      */
     static async seedDefaults(): Promise<number> {
         const context = MaintenanceService.requireContext(await MaintenanceService.resolveContext());
+        // Defaults belong in the sailor's own binder only, never a skipper's
+        // shared one (40 duplicates landed there on 2026-10-01).
+        if (context.ownerId !== context.authUserId) return 0;
         const { DEFAULT_MAINTENANCE_TASKS } = await import('../components/vessel/maintenance/defaultTasks');
         if (!contextIsCurrent(context)) return 0;
 

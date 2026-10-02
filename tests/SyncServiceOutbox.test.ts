@@ -36,6 +36,8 @@ const harness = vi.hoisted(() => {
         visibleRows: new Set<string>(),
         deniedDeletes: new Set<string>(),
         storageEntries: [] as string[],
+        /** The local mirror, as getById sees it: `${table}:${id}` → row. */
+        localRows: new Map<string, Record<string, unknown>>(),
     };
 
     return {
@@ -80,8 +82,42 @@ const harness = vi.hoisted(() => {
         }),
         mergePulledRecords: vi.fn(async (_table: string, records: Record<string, unknown>[]) => records.length),
         prunePulledTable: vi.fn(async () => 0),
+        bulkDelete: vi.fn(async (table: string, ids: string[]) => {
+            for (const id of ids) state.localRows.delete(`${table}:${id}`);
+        }),
+        // Shared binders (2026-10-02): the per-cycle share snapshot.
+        refreshSharedBinders: vi.fn(async () => ({ changed: false, fresh: true })),
+        binderWriteGranted: vi.fn((_register: string, _ownerId: string) => true),
+        anySkipperGrantsWrite: vi.fn((_register: string) => false),
+        rewriteQueuedInsert: vi.fn(async (queueItemId: string, changes: Record<string, unknown>) => {
+            const index = state.queue.findIndex((item) => item.id === queueItemId && item.mutation_type === 'INSERT');
+            if (index < 0) return null;
+            const item = state.queue[index];
+            const rewritten = {
+                ...item,
+                payload: JSON.stringify({ ...JSON.parse(item.payload), ...changes }),
+            };
+            state.queue[index] = rewritten;
+            const key = `${item.table_name}:${item.record_id}`;
+            const row = state.localRows.get(key);
+            if (row) state.localRows.set(key, { ...row, ...changes });
+            return { ...rewritten };
+        }),
     };
 });
+
+vi.mock('../services/vessel/sharedBinders', () => ({
+    refreshSharedBinders: harness.refreshSharedBinders,
+    binderWriteGranted: harness.binderWriteGranted,
+    anySkipperGrantsWrite: harness.anySkipperGrantsWrite,
+    TABLE_REGISTER: {
+        inventory_items: 'stores',
+        equipment_register: 'equipment',
+        maintenance_tasks: 'maintenance',
+        maintenance_history: 'maintenance',
+        ship_documents: 'documents',
+    },
+}));
 
 vi.mock('../services/supabase', () => ({
     supabase: {
@@ -113,6 +149,9 @@ vi.mock('../services/vessel/LocalDatabase', () => ({
     prunePulledTable: harness.prunePulledTable,
     getLocalDatabaseSession: () => ({ identity: 'user-1', generation: 1 }),
     isLocalDatabaseSessionCurrent: () => harness.state.sessionCurrent,
+    getById: (table: string, id: string) => harness.state.localRows.get(`${table}:${id}`) ?? null,
+    bulkDelete: harness.bulkDelete,
+    rewriteQueuedInsert: harness.rewriteQueuedInsert,
 }));
 
 function queued(
@@ -261,6 +300,13 @@ describe('SyncService durable outbox', () => {
         harness.state.visibleRows.clear();
         harness.state.deniedDeletes.clear();
         harness.state.storageEntries = [];
+        harness.state.localRows.clear();
+        harness.refreshSharedBinders.mockReset();
+        harness.refreshSharedBinders.mockResolvedValue({ changed: false, fresh: true });
+        harness.binderWriteGranted.mockReset();
+        harness.binderWriteGranted.mockReturnValue(true);
+        harness.anySkipperGrantsWrite.mockReset();
+        harness.anySkipperGrantsWrite.mockReturnValue(false);
         // mockReset before mockResolvedValue: clearAllMocks() above resets call
         // records but does NOT drain a mockResolvedValueOnce queue, and a once
         // value that a run never consumed would silently satisfy the FIRST
@@ -867,5 +913,271 @@ describe('SyncService durable outbox', () => {
         )?.value;
         expect(inventoryBuilder.gt).toHaveBeenCalledWith('updated_at', '1970-01-01T00:00:00.000Z');
         expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+    });
+
+    // ── Shared binders (2026-10-02) ─────────────────────────────────────
+
+    function pullSince(table = 'inventory_items'): unknown {
+        const builder = harness.from.mock.results.find(
+            (_, index) =>
+                harness.from.mock.calls[index]?.[0] === table &&
+                harness.from.mock.results[index]?.value.gt.mock.calls.length,
+        )?.value;
+        return builder?.gt.mock.calls[0]?.[1];
+    }
+
+    it('refreshes the share snapshot before pushing, and a changed share forces a full pull (A6/A7)', async () => {
+        harness.state.meta.lastPullTimestamp = '2026-07-23T11:59:00.000Z';
+        harness.state.meta.lastFullPullTimestamp = '2026-07-23T11:00:00.000Z';
+        harness.state.queue = [queued('insert-op', 'stores-1', 'INSERT', { id: 'stores-1', item_name: 'Water' })];
+        harness.refreshSharedBinders.mockImplementation(async () => {
+            // Before the push: nothing has reached the server yet.
+            expect(harness.state.events).toEqual([]);
+            return { changed: true, fresh: true };
+        });
+
+        const { syncNow, isFullReconciliationPending } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.errors).toEqual([]);
+        expect(harness.refreshSharedBinders).toHaveBeenCalledTimes(1);
+        expect(pullSince()).toBe('1970-01-01T00:00:00.000Z');
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(isFullReconciliationPending()).toBe(false);
+    });
+
+    it('an unchanged share keeps the incremental pull', async () => {
+        harness.state.meta.lastPullTimestamp = '2026-07-23T11:59:00.000Z';
+        harness.state.meta.lastFullPullTimestamp = '2026-07-23T11:00:00.000Z';
+
+        const { syncNow } = await loadSyncService();
+        await syncNow();
+
+        expect(pullSince()).toBe('2026-07-23T11:54:00.000Z');
+        expect(harness.prunePulledTable).not.toHaveBeenCalled();
+    });
+
+    it('a failed forced pull keeps the reconciliation pending, and the next cycle retries it', async () => {
+        harness.state.meta.lastPullTimestamp = '2026-07-23T11:59:00.000Z';
+        harness.state.meta.lastFullPullTimestamp = '2026-07-23T11:00:00.000Z';
+        harness.refreshSharedBinders.mockResolvedValueOnce({ changed: true, fresh: true });
+        harness.state.pullErrors.set('ship_documents', 'network');
+
+        const { syncNow, isFullReconciliationPending } = await loadSyncService();
+        await syncNow();
+        expect(isFullReconciliationPending()).toBe(true);
+
+        harness.state.pullErrors.clear();
+        harness.from.mockClear();
+        await syncNow();
+        expect(pullSince()).toBe('1970-01-01T00:00:00.000Z');
+        expect(isFullReconciliationPending()).toBe(false);
+    });
+
+    it('a failed snapshot fetch keeps the cache: no forced pull and no discards (A8)', async () => {
+        harness.state.meta.lastPullTimestamp = '2026-07-23T11:59:00.000Z';
+        harness.state.meta.lastFullPullTimestamp = '2026-07-23T11:00:00.000Z';
+        harness.refreshSharedBinders.mockRejectedValue(new Error('vessel_crew unreachable'));
+        harness.binderWriteGranted.mockReturnValue(false);
+        harness.state.localRows.set('inventory_items:stores-s', { id: 'stores-s', user_id: 'skipper-1' });
+        harness.state.queue = [queued('update-s', 'stores-s', 'UPDATE', { item_name: 'Rice' })];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.discardedShared).toBe(0);
+        expect(harness.bulkDelete).not.toHaveBeenCalled();
+        expect(harness.state.events).toContain('update:inventory_items');
+        expect(pullSince()).toBe('2026-07-23T11:54:00.000Z');
+    });
+
+    it("drops a queued change to a skipper's row once a fresh snapshot shows the share ended (A13)", async () => {
+        harness.state.meta.lastPullTimestamp = '2026-07-23T11:59:00.000Z';
+        harness.state.meta.lastFullPullTimestamp = '2026-07-23T11:00:00.000Z';
+        harness.binderWriteGranted.mockImplementation((_register: string, ownerId: string) => ownerId !== 'skipper-1');
+        // Another skipper still takes stores adds: crew_rewrite_user_id would
+        // move a self-stamped add onto THEIR boat, so the add is dropped.
+        harness.anySkipperGrantsWrite.mockReturnValue(true);
+        harness.state.localRows.set('inventory_items:stores-s', { id: 'stores-s', user_id: 'skipper-1' });
+        harness.state.localRows.set('inventory_items:stores-new', { id: 'stores-new', user_id: 'skipper-1' });
+        harness.state.localRows.set('inventory_items:stores-own', { id: 'stores-own', user_id: 'user-1' });
+        harness.state.queue = [
+            queued('update-s', 'stores-s', 'UPDATE', { item_name: 'Rice' }),
+            queued('delta-s', 'stores-s', 'DELTA', { id: 'stores-s', field: 'quantity', delta: -1 }),
+            queued('insert-gone', 'stores-new', 'INSERT', { id: 'stores-new', user_id: 'skipper-1', item_name: 'Tea' }),
+            queued('update-own', 'stores-own', 'UPDATE', { item_name: 'Mine' }),
+        ];
+        harness.state.missingUpdates.add('stores-own');
+
+        const { syncNow, isFullReconciliationPending } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.discardedShared).toBe(3);
+        expect(result.rehomedShared).toBe(0);
+        expect(result.sharedOwnerIds).toEqual(['skipper-1']);
+        // The add never reached the server: its local row goes. The edited
+        // row stays, and a full pull brings the server's copy back.
+        expect(harness.bulkDelete).toHaveBeenCalledTimes(1);
+        expect(harness.bulkDelete).toHaveBeenCalledWith('inventory_items', ['stores-new']);
+        expect(harness.state.localRows.has('inventory_items:stores-new')).toBe(false);
+        expect(harness.state.localRows.has('inventory_items:stores-s')).toBe(true);
+        expect(harness.state.localRows.has('inventory_items:stores-own')).toBe(true);
+        expect(pullSince()).toBe('1970-01-01T00:00:00.000Z');
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(isFullReconciliationPending()).toBe(false);
+        // Nothing for the skipper's rows reached the server.
+        expect(harness.state.upsertPayloads).toEqual([]);
+        expect(harness.rpc).not.toHaveBeenCalledWith('apply_inventory_quantity_delta', expect.anything());
+        // The sailor's own failing change is kept, failed, for a retry.
+        expect(harness.state.queue.map((item) => [item.id, item.status])).toEqual([['update-own', 'failed']]);
+    });
+
+    it("keeps a view-only skipper row a dropped DELTA touched, and pulls the server's copy back", async () => {
+        // A deckhand (stores view only) completed a shared-voyage meal: the
+        // DELTA on the skipper's Rice can never be pushed. The row must not
+        // vanish from their view-only Ship's Stores until some later launch.
+        harness.state.meta.lastPullTimestamp = '2026-07-23T11:59:00.000Z';
+        harness.state.meta.lastFullPullTimestamp = '2026-07-23T11:00:00.000Z';
+        harness.binderWriteGranted.mockImplementation((_register: string, ownerId: string) => ownerId !== 'skipper-1');
+        harness.state.localRows.set('inventory_items:stores-s', { id: 'stores-s', user_id: 'skipper-1', quantity: 1 });
+        harness.state.queue = [
+            queued('delta-s', 'stores-s', 'DELTA', { id: 'stores-s', field: 'quantity', delta: -1 }),
+        ];
+
+        const { syncNow, isFullReconciliationPending } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.errors).toEqual([]);
+        expect(result.discardedShared).toBe(1);
+        expect(harness.bulkDelete).not.toHaveBeenCalled();
+        expect(harness.state.localRows.has('inventory_items:stores-s')).toBe(true);
+        expect(harness.rpc).not.toHaveBeenCalledWith('apply_inventory_quantity_delta', expect.anything());
+        expect(pullSince()).toBe('1970-01-01T00:00:00.000Z');
+        expect(harness.prunePulledTable).toHaveBeenCalledTimes(12);
+        expect(isFullReconciliationPending()).toBe(false);
+        expect(harness.state.queue).toEqual([]);
+    });
+
+    it("moves the sailor's own adds into their own binder when no skipper can take them", async () => {
+        harness.binderWriteGranted.mockImplementation((_register: string, ownerId: string) => ownerId !== 'skipper-1');
+        harness.anySkipperGrantsWrite.mockReturnValue(false);
+        harness.state.localRows.set('inventory_items:stores-new', { id: 'stores-new', user_id: 'skipper-1' });
+        harness.state.queue = [
+            queued('insert-new', 'stores-new', 'INSERT', { id: 'stores-new', user_id: 'skipper-1', item_name: 'Tea' }),
+            queued('update-new', 'stores-new', 'UPDATE', { item_name: 'Green tea' }),
+        ];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.errors).toEqual([]);
+        expect(result.rehomedShared).toBe(1);
+        expect(result.discardedShared).toBe(0);
+        expect(result.sharedOwnerIds).toEqual(['skipper-1']);
+        expect(result.pushed).toBe(2);
+        expect(harness.state.upsertPayloads).toEqual([
+            expect.objectContaining({ id: 'stores-new', user_id: 'user-1', item_name: 'Tea' }),
+        ]);
+        expect(harness.state.events).toContain('update:inventory_items');
+        expect(harness.state.localRows.get('inventory_items:stores-new')).toMatchObject({ user_id: 'user-1' });
+        expect(harness.bulkDelete).not.toHaveBeenCalled();
+        expect(harness.state.queue).toEqual([]);
+    });
+
+    it('a service log moves only with its task, and a foreign attachment reference is not carried over', async () => {
+        harness.binderWriteGranted.mockImplementation((_register: string, ownerId: string) => ownerId !== 'skipper-1');
+        harness.anySkipperGrantsWrite.mockReturnValue(false);
+        harness.state.localRows.set('maintenance_tasks:task-new', { id: 'task-new', user_id: 'skipper-1' });
+        harness.state.localRows.set('maintenance_tasks:task-old', { id: 'task-old', user_id: 'skipper-1' });
+        harness.state.localRows.set('maintenance_history:log-new', { id: 'log-new', user_id: 'skipper-1' });
+        harness.state.localRows.set('maintenance_history:log-old', { id: 'log-old', user_id: 'skipper-1' });
+        harness.state.localRows.set('ship_documents:doc-new', { id: 'doc-new', user_id: 'skipper-1' });
+        const entry = (table: string, id: string, recordId: string, payload: Record<string, unknown>) => ({
+            ...queued(id, recordId, 'INSERT', payload),
+            table_name: table,
+        });
+        harness.state.queue = [
+            entry('maintenance_tasks', 'i-task', 'task-new', { id: 'task-new', user_id: 'skipper-1', title: 'Oil' }),
+            entry('maintenance_history', 'i-log-new', 'log-new', {
+                id: 'log-new',
+                user_id: 'skipper-1',
+                task_id: 'task-new',
+            }),
+            // Logged against a task that stays the skipper's: it cannot follow.
+            entry('maintenance_history', 'i-log-old', 'log-old', {
+                id: 'log-old',
+                user_id: 'skipper-1',
+                task_id: 'task-old',
+            }),
+            entry('ship_documents', 'i-doc', 'doc-new', {
+                id: 'doc-new',
+                user_id: 'skipper-1',
+                document_name: 'Rego',
+                file_uri: 'supabase-storage://vessel_vault/skipper-1/documents/rego.pdf',
+            }),
+        ];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.rehomedShared).toBe(3);
+        expect(result.discardedShared).toBe(1);
+        expect(harness.bulkDelete).toHaveBeenCalledWith('maintenance_history', ['log-old']);
+        expect(harness.state.upsertPayloads).toEqual([
+            expect.objectContaining({ id: 'task-new', user_id: 'user-1' }),
+            expect.objectContaining({ id: 'log-new', user_id: 'user-1', task_id: 'task-new' }),
+            expect.objectContaining({ id: 'doc-new', user_id: 'user-1', file_uri: null }),
+        ]);
+    });
+
+    it("never drops a skipper's queued change while the share still grants write", async () => {
+        harness.binderWriteGranted.mockReturnValue(true);
+        harness.state.localRows.set('inventory_items:stores-s', { id: 'stores-s', user_id: 'skipper-1' });
+        harness.state.queue = [queued('update-s', 'stores-s', 'UPDATE', { item_name: 'Rice' })];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.discardedShared).toBe(0);
+        expect(result.pushed).toBe(1);
+        expect(harness.binderWriteGranted).toHaveBeenCalledWith('stores', 'skipper-1');
+    });
+
+    it("pushes an add to a skipper's binder with the skipper's user_id, never the crew's (A3)", async () => {
+        harness.state.localRows.set('maintenance_tasks:task-new', { id: 'task-new', user_id: 'skipper-1' });
+        harness.state.queue = [
+            {
+                ...queued('insert-task', 'task-new', 'INSERT', { id: 'task-new', user_id: 'skipper-1', title: 'Oil' }),
+                table_name: 'maintenance_tasks',
+            },
+        ];
+
+        const { syncNow } = await loadSyncService();
+        await syncNow();
+
+        expect(harness.state.upsertPayloads).toEqual([
+            expect.objectContaining({ id: 'task-new', user_id: 'skipper-1' }),
+        ]);
+    });
+
+    it("does not tidy the crew's own vault folder when the crew edits a skipper's document", async () => {
+        harness.state.localRows.set('ship_documents:document-s', { id: 'document-s', user_id: 'skipper-1' });
+        harness.state.queue = [
+            {
+                ...queued('doc-edit', 'document-s', 'UPDATE', {
+                    document_name: 'Rego',
+                    file_uri: 'supabase-storage://vessel_vault/skipper-1/documents/document-s.pdf',
+                }),
+                table_name: 'ship_documents',
+            },
+        ];
+        harness.state.storageEntries = ['document-s.png'];
+
+        const { syncNow } = await loadSyncService();
+        const result = await syncNow();
+
+        expect(result.pushed).toBe(1);
+        expect(harness.storageList).not.toHaveBeenCalled();
+        expect(harness.storageRemove).not.toHaveBeenCalled();
     });
 });

@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { authScopedStorageKey, setAuthIdentityScope } from '../../services/authIdentityScope';
+import { reloadSharedBindersFromStorage } from '../../services/vessel/sharedBinders';
 import type { MaintenanceTask } from '../../types';
 import type { TaskWithStatus } from '../../services/MaintenanceService';
 
@@ -301,6 +302,14 @@ describe('MaintenanceHub identity isolation', () => {
 
     it('seeds defaults independently for A and B', async () => {
         localStorage.clear();
+        // Defaults seed only once the server has confirmed each account's crew
+        // shares (shared binders, 2026-10-02): both are confirmed, no shares.
+        for (const userId of ['account-a', 'account-b'])
+            localStorage.setItem(
+                `thalassa_shared_binders_v1::user%3A${userId}`,
+                JSON.stringify({ version: 1, userId, confirmedAt: '2026-10-02T00:00:00.000Z', skippers: [] }),
+            );
+        reloadSharedBindersFromStorage();
         mocks.getTasks.mockResolvedValue([]);
         render(<MaintenanceHub onBack={vi.fn()} />);
         await waitFor(() => expect(mocks.seedDefaults).toHaveBeenCalledTimes(1));

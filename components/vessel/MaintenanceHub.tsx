@@ -49,6 +49,9 @@ import {
 } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
+import { canSeedOwnBinder } from '../../services/vessel/sharedBinders';
+import { useBinderSource } from '../../hooks/useBinderSource';
+import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { toLocalDateString } from '../../utils/localDate';
 // 'Sun 28 Sep 2026', shared with the task cards (UX scorecard run 9).
 import { formatDisplayDate } from '../../utils/displayDate';
@@ -147,12 +150,20 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             const data = await MaintenanceService.getTasks();
             if (!isCurrentRequest()) return;
 
-            // Auto-seed defaults for first-time users
+            // Auto-seed defaults for first-time users — into their OWN binder
+            // only, and only once the server has confirmed their crew shares:
+            // a crew device that seeded before the skipper's tasks arrived put
+            // 40 duplicate defaults in the skipper's R&M (2026-10-01). Until it
+            // may, nothing is seeded and the marker stays unset.
             const seedKey = authScopedStorageKey('thalassa_maintenance_seeded', identity);
-            if (data.length === 0 && !localStorage.getItem(seedKey)) {
+            if (data.length === 0 && !localStorage.getItem(seedKey) && canSeedOwnBinder('maintenance')) {
                 try {
-                    await MaintenanceService.seedDefaults();
+                    const seededCount = await MaintenanceService.seedDefaults();
                     if (!isCurrentRequest()) return;
+                    if (seededCount === 0) {
+                        setTaskData({ identity, tasks: data });
+                        return;
+                    }
                     localStorage.setItem(seedKey, '1');
                     const seeded = await MaintenanceService.getTasks();
                     if (!isCurrentRequest()) return;
@@ -196,6 +207,15 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     // Realtime sync — crew edits appear instantly
     useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], loadTasks);
+
+    // Whose R&M this is (shared binders, 2026-10-02): the skipper's while this
+    // sailor is crew on a boat that shares it. Crew can edit, Pause and Log
+    // Service (the database has no view-only form); deletes are the skipper's.
+    const { source: binder, fetchingSkipperBinder } = useBinderSource('maintenance', {
+        reload: () => void loadTasks(),
+        rowCount: tasks.length,
+    });
+    const sharedBinder = binder.mode === 'shared';
 
     // ── Engine Hours ──
     const saveEngineHours = useCallback(() => {
@@ -609,6 +629,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     status={
                         <>
                             <OfflineBadge />
+                            <SharedBinderLine register="maintenance" source={binder} />
                             {countsSummary && <span className="sr-only">{countsSummary}</span>}
                             {/* 12 px chips on 6 px sides, so '3 due soon · 36 ok · 1 needs
                                 hours' is one row at 393 pt instead of two (UX scorecard
@@ -915,6 +936,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         </div>
                     ) : loadError ? (
                         <LoadErrorState what="the maintenance log" onRetry={loadTasks} />
+                    ) : fetchingSkipperBinder ? (
+                        <p role="status" className="py-16 text-center text-sm font-semibold text-gray-400">
+                            {bringingInCopy(binder)}
+                        </p>
                     ) : groupedTasks.length === 0 ? (
                         <EmptyState
                             icon={
@@ -969,7 +994,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                                         triggerHaptic('light');
                                                         setSheetTask({ identity, task });
                                                     }}
-                                                    onDelete={() => handleDeleteTask(task.id, taskData.identity)}
+                                                    onDelete={
+                                                        sharedBinder
+                                                            ? undefined
+                                                            : () => handleDeleteTask(task.id, taskData.identity)
+                                                    }
                                                 />
                                             ))}
                                         </div>
