@@ -39,7 +39,7 @@ import { ChatMessageList } from './chat/ChatMessageList';
 import { ChatComposer } from './chat/ChatComposer';
 import { ChatProfileView } from './chat/ChatProfileView';
 import { ChatHeader } from './chat/ChatHeader';
-import { ChatDMInbox, ChatDMThread, ChatDMCompose } from './chat/ChatDMView';
+import { ChatDMInbox, ChatDMThread, ChatDMCompose, PrivateMessagePilotNotice } from './chat/ChatDMView';
 import {
     ReportModal,
     PinDropSheet,
@@ -67,6 +67,11 @@ import { useChatProposals } from '../hooks/chat/useChatProposals';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
+import {
+    DISABLED_PRIVATE_MESSAGE_PILOT,
+    type PrivateMessagePilotRuntime,
+    type PrivateMessageRuntime,
+} from '../services/chat/e2ee/privateMessagePilot';
 
 // --- TYPES ---
 type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'admin_panel';
@@ -95,8 +100,166 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
     document.head.appendChild(style);
 }
 
-// --- MAIN COMPONENT ---
-export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack }) => {
+export interface ChatPageProps {
+    onBack?: () => void;
+    /** Explicit research dependency injection only; no production toggle. */
+    privateMessageRuntime?: PrivateMessageRuntime;
+}
+
+const ignorePilotDirection = () => undefined;
+// Rendering identity only, never a device/auth authority. A replacement pilot
+// must mount a fresh subtree rather than inherit another runtime's plaintext.
+const pilotRenderingKeys = new WeakMap<PrivateMessagePilotRuntime, number>();
+let nextPilotRenderingKey = 0;
+function pilotRenderingKey(runtime: PrivateMessagePilotRuntime): number {
+    let key = pilotRenderingKeys.get(runtime);
+    if (key === undefined) {
+        key = ++nextPilotRenderingKey;
+        pilotRenderingKeys.set(runtime, key);
+    }
+    return key;
+}
+
+/**
+ * Keep the injected pilot outside the legacy page entirely. In particular,
+ * ChatService.initialize() flushes its plaintext offline DM queue, so even
+ * initializing that service here would violate the pilot's native-only path.
+ */
+const PrivateMessagePilotPage: React.FC<{ runtime: PrivateMessagePilotRuntime; onBack?: () => void }> = ({
+    runtime,
+    onBack,
+}) => {
+    const [view, setView] = useState('dm_inbox');
+    const [loading, setLoading] = useState(false);
+    const dm = useChatDMs({
+        setView,
+        setNavDirection: ignorePilotDirection,
+        setLoading,
+        privateMessageRuntime: runtime,
+    });
+    const keyboardOffset = useKeyboardOffset(view === 'dm_thread');
+    const { subscribe, openDMInbox, currentUserId, identityGeneration } = dm;
+    useEffect(() => {
+        const unsubscribe = subscribe();
+        void openDMInbox();
+        return unsubscribe;
+    }, [subscribe, openDMInbox, currentUserId, identityGeneration]);
+
+    return (
+        <div data-chat-page className="flex min-h-0 flex-col h-full bg-slate-950 text-white overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+                <button
+                    type="button"
+                    className="min-h-[44px] text-sky-200"
+                    onClick={() => {
+                        if (view === 'dm_thread') {
+                            dm.setDmPartner(null);
+                            void openDMInbox();
+                        } else onBack?.();
+                    }}
+                >
+                    Back
+                </button>
+                <p className="text-base font-bold">
+                    {view === 'dm_thread' ? dm.dmPartner?.name : 'Private message test'}
+                </p>
+                {view === 'dm_thread' ? (
+                    <button
+                        type="button"
+                        className="min-h-[44px] text-white/70"
+                        disabled={dm.blockStatusLoading || dm.blockMutationPending}
+                        onClick={() => dm.setShowBlockConfirm(true)}
+                    >
+                        {dm.blockedByMe ? 'Unblock' : 'Block'}
+                    </button>
+                ) : (
+                    <span />
+                )}
+            </div>
+            <PrivateMessagePilotNotice statusText={dm.pilotStatusText} />
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                {loading ? (
+                    <p className="px-4 py-3" role="status">
+                        Checking the native encryption test…
+                    </p>
+                ) : view === 'dm_thread' ? (
+                    <ChatDMThread
+                        thread={dm.dmThread}
+                        partnerName={dm.dmPartner?.name}
+                        currentUserId={currentUserId}
+                        pilotActive
+                    />
+                ) : (
+                    <>
+                        <ChatDMInbox
+                            conversations={dm.dmConversations}
+                            onOpenThread={dm.openDMThread}
+                            currentUserId={currentUserId}
+                            pilotActive
+                        />
+                        {dm.pilotStatusText && (
+                            <button
+                                type="button"
+                                onClick={() => void openDMInbox()}
+                                className="mx-4 min-h-[44px] text-sky-200"
+                            >
+                                Retry native availability
+                            </button>
+                        )}
+                    </>
+                )}
+            </div>
+            {view === 'dm_thread' && (
+                <>
+                    {dm.pilotStatusText && !loading && (
+                        <button
+                            type="button"
+                            onClick={() => void dm.retryBlockStatus()}
+                            className="mx-4 min-h-[44px] text-sky-200"
+                        >
+                            Retry native permissions
+                        </button>
+                    )}
+                    <ChatDMCompose
+                        dmText={dm.dmText}
+                        setDmText={dm.setDmText}
+                        partnerName={dm.dmPartner?.name}
+                        keyboardOffset={keyboardOffset}
+                        isUserBlocked={dm.isUserBlocked}
+                        blockedByMe={dm.blockedByMe}
+                        blockStatusLoading={dm.blockStatusLoading}
+                        blockStatusError={dm.blockStatusError}
+                        blockMutationPending={dm.blockMutationPending}
+                        onRetryBlockStatus={dm.retryBlockStatus}
+                        showBlockConfirm={dm.showBlockConfirm}
+                        setShowBlockConfirm={dm.setShowBlockConfirm}
+                        onSendDM={dm.sendDMMessage}
+                        onBlock={dm.handleBlockUser}
+                        onUnblock={dm.handleUnblockUser}
+                        pilotActive
+                        pilotSendDisabled={dm.pilotSendDisabled}
+                    />
+                </>
+            )}
+        </div>
+    );
+};
+
+export const ChatPage: React.FC<ChatPageProps> = React.memo(
+    ({ onBack, privateMessageRuntime = DISABLED_PRIVATE_MESSAGE_PILOT }) =>
+        privateMessageRuntime.kind === 'native-pilot' ? (
+            <PrivateMessagePilotPage
+                key={pilotRenderingKey(privateMessageRuntime)}
+                runtime={privateMessageRuntime}
+                onBack={onBack}
+            />
+        ) : (
+            <LegacyChatPage onBack={onBack} />
+        ),
+);
+
+// --- EXISTING MAIN COMPONENT ---
+const LegacyChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack }) => {
     const { settings } = useSettings();
 
     // View state

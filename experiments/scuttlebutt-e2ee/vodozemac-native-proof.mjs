@@ -131,7 +131,9 @@ async function buildSlot() {
             .trim()
             .split('\n')
             .filter((line) => {
-                if (!line || Number(line.split(' ')[0]) === process.pid) return false;
+                // pgrep -l can include multiline shell command text. Only PID
+                // records count; continuation lines are not extra processes.
+                if (!/^\d+\s/.test(line) || Number(line.split(' ')[0]) === process.pid) return false;
                 // A shell's command text can mention the guard regex while it is
                 // merely waiting. Actual node/npm/compiler children match separately.
                 // Counting guard-only shells creates a mutual-wait deadlock.
@@ -245,6 +247,8 @@ const sources = [
         'VodozemacSupabaseAuth.swift',
         'VodozemacAuthSession.swift',
         'VodozemacAuthProbe.swift',
+        'VodozemacAccountDirectory.swift',
+        'VodozemacAccountDirectoryProbe.swift',
         'VodozemacRelayCodec.swift',
         'VodozemacRelayProbe.swift',
         'VodozemacResearchCleanup.swift',

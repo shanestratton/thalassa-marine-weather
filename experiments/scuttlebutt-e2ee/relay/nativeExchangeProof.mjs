@@ -85,7 +85,7 @@ for (;;) {
         .split('\n')
         .filter(
             (line) =>
-                line &&
+                /^\d+\s/.test(line) &&
                 !line.startsWith(`${process.pid} `) &&
                 !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|tail|grep|rg|pgrep)\s/.test(line),
         );
@@ -152,6 +152,8 @@ try {
             'VodozemacSupabaseAuth.swift',
             'VodozemacAuthSession.swift',
             'VodozemacAuthProbe.swift',
+            'VodozemacAccountDirectory.swift',
+            'VodozemacAccountDirectoryProbe.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
             'VodozemacLifecycleProbe.swift',
@@ -340,6 +342,11 @@ try {
         if (phase === 'prepare') {
             assert(Number.isSafeInteger(status.authFixtureAssertions) && status.authFixtureAssertions > 0);
             receipt.nativeAuthFixtureAssertions = status.authFixtureAssertions;
+            assert(
+                Number.isSafeInteger(status.accountDirectoryFixtureAssertions) &&
+                    status.accountDirectoryFixtureAssertions > 0,
+            );
+            receipt.nativeAccountDirectoryFixtureAssertions = status.accountDirectoryFixtureAssertions;
         }
         receipt.completedPhases.push({ phase, pid, stage: status.stage });
         receipt.observation = 'app-reported-pass';
