@@ -177,17 +177,20 @@ async function wholeHitVisible(element: Locator) {
 /** Open or close the 'Enter coordinates' disclosure and confirm it took.
  * WebKit dropped a summary click right after Auto opened (CI 36920384778,
  * 1024: the summary held focus, the details stayed shut, and the fills timed
- * out), so a lost click is retried rather than assumed. */
+ * out), so a lost click is retried rather than assumed. Each try gets room
+ * to wait for a stable frame: WebKit at 1440 x 900 x3 on the CI runner took
+ * 1.1-2 s just to see the panel hold still, so a 2 s click budget timed out
+ * on every try without ever clicking (CI 36974221687). */
 async function setCoordinatesOpen(page: Page, open: boolean) {
     const summary = page.getByText('Enter coordinates', { exact: true });
     await expect(async () => {
         const isOpen = await summary.evaluate((node) => (node.closest('details') as HTMLDetailsElement).open);
-        if (isOpen !== open) await summary.click({ timeout: 2_000 });
+        if (isOpen !== open) await summary.click({ timeout: 8_000 });
         await expect(page.getByLabel('departure latitude', { exact: true })).toBeVisible({
             visible: open,
-            timeout: 1_000,
+            timeout: 2_000,
         });
-    }).toPass({ timeout: 10_000 });
+    }).toPass({ timeout: 30_000 });
 }
 async function setControlsExpanded(page: Page, expanded: boolean) {
     const toggle = page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ });
