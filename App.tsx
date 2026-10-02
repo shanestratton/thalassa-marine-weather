@@ -49,6 +49,9 @@ import { useViewportHeight } from './hooks/useViewportHeight';
 import { getWeatherFollowTarget } from './services/weatherPosition';
 import { weatherLocationTitle } from './utils/weatherLocationTitle';
 
+/** Breathing room above the location box at the top of the split Glass pane (px). */
+const SPLIT_LOCATION_TOP_PX = 8;
+
 // Only components NOT in the registry are lazy-loaded here
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
 const UpgradeModal = lazyRetry(
@@ -675,6 +678,119 @@ const App: React.FC = () => {
     // imports — it'll be rendered inline by save-point sheets and the
     // Settings → Account entry in subsequent PRs.
 
+    // The location box: the read-only 'where you are' card with the GPS
+    // retry / offline / search chip and the ★ saved-locations menu. Drawn in the
+    // app header on The Glass, and, since 2026-10-02 (Shane: "in the split
+    // screen mode, the glass page is missing the location box"), at the top
+    // of the pinned Glass pane in the tablet split view, where the header
+    // belongs to the right-hand page and never drew it.
+    // In split the Glass pane hides the brand row and the gap above the
+    // location-card slot (App's header draws neither there); the slot itself
+    // stays visible, with SPLIT_LOCATION_TOP_PX of breathing room above it, and
+    // renderLocationBox(true) draws the box into it. Bottom alignment is
+    // unchanged: the pane's height gives back exactly what the pull-up takes.
+    const splitGlassPullUpPx = glassTopLayout.brandRowHeightPx + glassTopLayout.cardGapPx - SPLIT_LOCATION_TOP_PX;
+    const renderLocationBox = (inPane: boolean) => (
+        <div
+            className={
+                inPane
+                    ? 'flex h-full w-full items-center gap-3 pointer-events-auto'
+                    : `flex w-full items-center gap-3 md:w-auto ${isDashboard ? '' : isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`
+            }
+            style={isDashboard && !inPane ? { height: `${glassTopLayout.locationCardHeightPx}px` } : undefined}
+        >
+            <div className={`relative grow group h-full ${inPane ? 'w-full' : 'md:w-96'}`}>
+                <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
+                    <input
+                        type="text"
+                        // The 'Select Location' fallback is not a place: show
+                        // it as an empty field with a placeholder so
+                        // VoiceOver doesn't announce it as the current location.
+                        value={displayTitle === 'Select Location' ? '' : displayTitle}
+                        readOnly
+                        placeholder="Select a location"
+                        aria-label="Current location"
+                        // Offline styling kept at the same contrast as online —
+                        // a deliberate but subtle ring change instead of the
+                        // previous opacity fade (which made the bar nearly
+                        // invisible). The offline state is communicated via
+                        // the amber wifi-off chip on the left, so the bar
+                        // itself doesn't need to shout.
+                        // A long name ends in an ellipsis, never a
+                        // letter cut in half (UX scorecard run 8).
+                        className={`w-full h-full text-ellipsis text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-hidden transition-all shadow-2xl font-bold ${retainedLocationWeather ? 'text-base' : 'text-xl'} tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
+                    />
+                    {/* Reuse the left icon slot for GPS retry without adding
+                                another header row or overlapping the saved-location star.
+                                Its hit area follows the existing card height, including
+                                the deliberately shorter landscape layout. */}
+                    {retainedLocationWeather ? (
+                        <button
+                            type="button"
+                            onClick={() => refreshData()}
+                            aria-label={positionRetryLabel}
+                            title={positionRetryLabel}
+                            data-testid="weather-position-retry"
+                            className="absolute left-0 top-0 flex h-full w-12 items-center justify-center rounded-l-2xl text-amber-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400 active:bg-amber-500/15"
+                        >
+                            <svg
+                                className="h-5 w-5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path d="M20 7v5h-5" />
+                                <path d="M20 12a8 8 0 1 0-2.35 5.65" />
+                            </svg>
+                        </button>
+                    ) : isOffline ? (
+                        <div
+                            className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 bg-amber-500/15 p-1 rounded-md"
+                            title="Offline — showing cached data"
+                            aria-label="Offline"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                {/* Wifi arcs with slash through — universal "no signal" glyph */}
+                                <path d="M1 1l22 22" />
+                                <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
+                                <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
+                                <path d="M10.71 5.05A16 16 0 0122.58 9" />
+                                <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
+                                <path d="M8.53 16.11a6 6 0 016.95 0" />
+                                <line x1="12" y1="20" x2="12.01" y2="20" />
+                            </svg>
+                        </div>
+                    ) : (
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
+                            <SearchIcon className="w-4 h-4" />
+                        </div>
+                    )}
+                    {/* Map picker REMOVED from the location box (Shane
+                                2026-07-21). Locations are saved from the chart's
+                                inspect popup and recalled from the ★ menu — the box
+                                itself is now a read-only display of where you are.
+                                The whole box used to open the picker too, not just
+                                the icon, so both went. */}
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        <LocationStarMenu />
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+
     // The Glass, lifted out of the view tree so it can be rendered in two
     // places without duplicating twenty props: its normal slot, and the left
     // pane of the tablet split view. Extraction only — the markup below is
@@ -1228,102 +1344,7 @@ const App: React.FC = () => {
                         </div>
 
                         {/* Search bar — only shown on dashboard (non-registered views without explicit flag) */}
-                        {!activeViewConfig && currentView !== 'map' && (
-                            <div
-                                className={`flex w-full items-center gap-3 md:w-auto ${isDashboard ? '' : isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
-                                style={isDashboard ? { height: `${glassTopLayout.locationCardHeightPx}px` } : undefined}
-                            >
-                                <div className="relative grow md:w-96 group h-full">
-                                    <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
-                                        <input
-                                            type="text"
-                                            // The 'Select Location' fallback is not a place: show
-                                            // it as an empty field with a placeholder so
-                                            // VoiceOver doesn't announce it as the current location.
-                                            value={displayTitle === 'Select Location' ? '' : displayTitle}
-                                            readOnly
-                                            placeholder="Select a location"
-                                            aria-label="Current location"
-                                            // Offline styling kept at the same contrast as online —
-                                            // a deliberate but subtle ring change instead of the
-                                            // previous opacity fade (which made the bar nearly
-                                            // invisible). The offline state is communicated via
-                                            // the amber wifi-off chip on the left, so the bar
-                                            // itself doesn't need to shout.
-                                            // A long name ends in an ellipsis, never a
-                                            // letter cut in half (UX scorecard run 8).
-                                            className={`w-full h-full text-ellipsis text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-hidden transition-all shadow-2xl font-bold ${retainedLocationWeather ? 'text-base' : 'text-xl'} tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
-                                        />
-                                        {/* Reuse the left icon slot for GPS retry without adding
-                                            another header row or overlapping the saved-location star.
-                                            Its hit area follows the existing card height, including
-                                            the deliberately shorter landscape layout. */}
-                                        {retainedLocationWeather ? (
-                                            <button
-                                                type="button"
-                                                onClick={() => refreshData()}
-                                                aria-label={positionRetryLabel}
-                                                title={positionRetryLabel}
-                                                data-testid="weather-position-retry"
-                                                className="absolute left-0 top-0 flex h-full w-12 items-center justify-center rounded-l-2xl text-amber-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-400 active:bg-amber-500/15"
-                                            >
-                                                <svg
-                                                    className="h-5 w-5"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2}
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    aria-hidden="true"
-                                                >
-                                                    <path d="M20 7v5h-5" />
-                                                    <path d="M20 12a8 8 0 1 0-2.35 5.65" />
-                                                </svg>
-                                            </button>
-                                        ) : isOffline ? (
-                                            <div
-                                                className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 bg-amber-500/15 p-1 rounded-md"
-                                                title="Offline — showing cached data"
-                                                aria-label="Offline"
-                                            >
-                                                <svg
-                                                    className="w-4 h-4"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2}
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                >
-                                                    {/* Wifi arcs with slash through — universal "no signal" glyph */}
-                                                    <path d="M1 1l22 22" />
-                                                    <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
-                                                    <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
-                                                    <path d="M10.71 5.05A16 16 0 0122.58 9" />
-                                                    <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
-                                                    <path d="M8.53 16.11a6 6 0 016.95 0" />
-                                                    <line x1="12" y1="20" x2="12.01" y2="20" />
-                                                </svg>
-                                            </div>
-                                        ) : (
-                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
-                                                <SearchIcon className="w-4 h-4" />
-                                            </div>
-                                        )}
-                                        {/* Map picker REMOVED from the location box (Shane
-                                            2026-07-21). Locations are saved from the chart's
-                                            inspect popup and recalled from the ★ menu — the box
-                                            itself is now a read-only display of where you are.
-                                            The whole box used to open the picker too, not just
-                                            the icon, so both went. */}
-                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                            <LocationStarMenu />
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                        )}
+                        {!activeViewConfig && currentView !== 'map' && renderLocationBox(false)}
                     </header>
                 )}
 
@@ -1368,8 +1389,21 @@ const App: React.FC = () => {
                                                     // cyan edge marks the PINNED pane — the same neon the tab
                                                     // bar speaks — while the right pane stays neutral so the
                                                     // eye knows which side will change when a tab is pressed.
-                                                    className="h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-cyan-400/50 bg-slate-950 shadow-[0_0_32px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.08)]"
+                                                    className="relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl border border-cyan-400/50 bg-slate-950 shadow-[0_0_32px_rgba(34,211,238,0.18),inset_0_1px_0_rgba(255,255,255,0.08)]"
                                                 >
+                                                    {/* The location box sits in the Glass's own reserved
+                                                        location-card slot (2026-10-02): the pull-up below
+                                                        hides only the brand row and gap now, so the slot
+                                                        shows at the top of the pane and the box covers it. */}
+                                                    <div
+                                                        className="absolute inset-x-0 top-0 z-30 px-3 pt-2"
+                                                        style={{
+                                                            height: `${glassTopLayout.locationCardHeightPx + SPLIT_LOCATION_TOP_PX}px`,
+                                                        }}
+                                                        data-testid="split-glass-location"
+                                                    >
+                                                        {renderLocationBox(true)}
+                                                    </div>
                                                     <aside
                                                         aria-label="The Glass"
                                                         // The Glass assumes it owns the viewport: its header is
@@ -1395,7 +1429,7 @@ const App: React.FC = () => {
                                                             // give the height back, and the Glass's own arithmetic lands
                                                             // where it expects. Using its own numbers, not guessed
                                                             // pixels, so it stays correct if the layout is retuned.
-                                                            marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px))`,
+                                                            marginTop: `calc(-1 * (max(1rem, env(safe-area-inset-top)) + ${splitGlassPullUpPx}px))`,
                                                             // Same correction at the bottom: the Glass anchors its footer at
                                                             // fixed bottom safe-inset+74px and its hero at +124px, clearing a
                                                             // tab bar that — in split — the frame has already cleared. Extend
@@ -1403,7 +1437,7 @@ const App: React.FC = () => {
                                                             // the badge row keeps a breath of margin); the frame clips the
                                                             // rest. INSHORE/ECMWF land at the visible bottom and the tide
                                                             // graph stretches to meet them, exactly as on the phone.
-                                                            height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${glassTopLayout.locationHeaderHeightPx}px + env(safe-area-inset-bottom) + 66px)`,
+                                                            height: `calc(100% + max(1rem, env(safe-area-inset-top)) + ${splitGlassPullUpPx}px + env(safe-area-inset-bottom) + 66px)`,
                                                         }}
                                                     >
                                                         {glassContent}
