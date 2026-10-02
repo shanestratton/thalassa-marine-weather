@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MAX_CHAT_MESSAGE_CHARS, normalizeChatMessage } from '../services/chat/messagePolicy';
+import { channelMessageIndicator, MAX_CHAT_MESSAGE_CHARS, normalizeChatMessage } from '../services/chat/messagePolicy';
 
 describe('chat message payload policy', () => {
     it('normalizes ordinary content and rejects blank, null, and oversized payloads', () => {
@@ -22,5 +22,44 @@ describe('chat message payload policy', () => {
         expect(migration.match(/char_length\((?:display_name|sender_name)\) BETWEEN 1 AND 120/g)).toHaveLength(4);
         expect(migration).toContain('chat_messages_message_length');
         expect(migration).toContain('chat_direct_messages_message_length');
+    });
+});
+
+describe('channel publication indicators', () => {
+    const base = { deleted_at: null };
+
+    it('never claims publication for pending, held, rejected or removed posts', () => {
+        expect(channelMessageIndicator({ ...base, moderation_status: 'pending' })).toEqual({
+            symbol: '…',
+            label: 'Message awaiting moderation',
+        });
+        expect(channelMessageIndicator({ ...base, moderation_status: 'held' })).toEqual({
+            symbol: '!',
+            label: 'Message not delivered',
+        });
+        expect(channelMessageIndicator({ ...base, moderation_status: 'rejected' })).toEqual({
+            symbol: '!',
+            label: 'Message not posted',
+        });
+        expect(channelMessageIndicator({ deleted_at: '2026-10-02', moderation_status: 'approved' }).label).toBe(
+            'Message removed',
+        );
+    });
+
+    it('distinguishes sending/queued from checking, and publication from recipient delivery', () => {
+        expect(
+            channelMessageIndicator({ ...base, moderation_status: 'pending', delivery_status: 'sending' }).label,
+        ).toBe('Message sending');
+        expect(
+            channelMessageIndicator({ ...base, moderation_status: 'pending', delivery_status: 'queued' }).label,
+        ).toBe('Message queued for reconnect');
+        expect(channelMessageIndicator({ ...base, moderation_status: 'approved' })).toEqual({
+            symbol: '✓',
+            label: 'Message published',
+        });
+        expect(channelMessageIndicator(base).label).toBe('Message sent');
+        expect(channelMessageIndicator({ ...base, moderation_status: 'held', delivery_status: 'queued' }).label).toBe(
+            'Message not delivered',
+        );
     });
 });

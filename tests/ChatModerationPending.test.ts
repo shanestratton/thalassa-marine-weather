@@ -90,40 +90,61 @@ describe('migration 20260905130000', () => {
 
 describe('moderate-chat-message Function', () => {
     const edge = stripTs(readFileSync('supabase/functions/moderate-chat-message/index.ts', 'utf8'));
+    const worker = stripTs(readFileSync('supabase/functions/moderate-chat-message/worker.ts', 'utf8'));
 
     it('demands an exact service-role POST before any database or Gemini work', () => {
-        const guard = edge.indexOf('requireServiceRolePost(req, serviceKey)');
+        const guard = worker.indexOf('requireServiceRolePost(req, serviceKey)');
         expect(guard).toBeGreaterThan(0);
-        expect(guard).toBeLessThan(edge.indexOf('createClient('));
-        expect(guard).toBeLessThan(edge.indexOf('await classify(')); // the CALL, not the definition above it
+        expect(guard).toBeLessThan(worker.indexOf('dependencies.createGateway('));
+        expect(guard).toBeLessThan(worker.indexOf('await classifyChatMessage('));
+        expect(edge).toContain('Deno.serve(createChatModerationHandler(');
+        expect(edge.indexOf('createClient(')).toBeGreaterThan(edge.indexOf('createGateway(url, serviceKey)'));
     });
 
     it('a classifier failure never approves: attempts are counted, then the row is held', () => {
-        const failure = edge.slice(edge.indexOf('if (!verdict) {'), edge.indexOf("if (verdict.verdict === 'clean'"));
+        const failure = worker.slice(
+            worker.lastIndexOf("if (classification.status !== 'ok') {"),
+            worker.indexOf('const verdict = classification.value'),
+        );
         expect(failure).not.toContain("'approved'");
         expect(failure).toContain("moderation_status: 'held'");
-        expect(failure).toContain('attempts >= MAX_ATTEMPTS');
-        expect(edge).toContain('const MAX_ATTEMPTS = 5;');
-        // classify() returns null on every failure path, including unknown verdicts.
-        expect(edge).toContain("if (typeof parsed.verdict !== 'string' || !VERDICTS.has(parsed.verdict)) return null;");
-        // No key → no classification → the failure branch, not approval.
-        expect(edge).toContain(
-            "const verdict = geminiKey ? await classify(String(row.message ?? ''), geminiKey) : null;",
-        );
+        expect(failure).toContain('attempts >= MAX_CHAT_MODERATION_ATTEMPTS');
+        expect(worker).toContain('const MAX_CHAT_MODERATION_ATTEMPTS = 5;');
+        // HTTP/verdict failures and all resulting state transitions are executed
+        // in ChatModerationWorker.test.ts, not inferred from these wiring checks.
     });
 
-    it('every state write is guarded against the trigger/sweep race and the row must still be pending', () => {
-        const writes = edge.match(/\.update\(/g) ?? [];
-        const guards = edge.match(/\.eq\('moderation_status', 'pending'\)/g) ?? [];
-        expect(writes.length).toBeGreaterThanOrEqual(3);
-        expect(guards.length).toBe(writes.length);
-        expect(edge).toContain(
-            "if (!row || row.moderation_status !== 'pending') return jsonResponse({ skipped: true }, 200);",
+    it('the deployed normal state-write adapter predicates every update on the id and pending status', () => {
+        const pending = edge.slice(edge.indexOf('async updatePending('), edge.indexOf('async claimUnavailableHold('));
+        expect((pending.match(/\.update\(/g) ?? []).length).toBe(1);
+        expect(pending).toContain(".eq('id', id).eq('moderation_status', 'pending')");
+        expect(worker).toContain("row.moderation_status !== 'pending') return jsonResponse({ skipped: true }, 200)");
+    });
+
+    it('the one-off held rescue uses full snapshot CAS predicates at attempts five and six', () => {
+        const claim = edge.slice(
+            edge.indexOf('async claimUnavailableHold('),
+            edge.indexOf('async settleUnavailableHold('),
         );
+        const settle = edge.slice(edge.indexOf('async settleUnavailableHold('));
+        for (const source of [claim, settle]) {
+            expect((source.match(/\.update\(/g) ?? []).length).toBe(1);
+            for (const field of ['id', 'channel_id', 'user_id', 'message', 'created_at']) {
+                expect(source).toContain(`.eq('${field}', row.${field})`);
+            }
+            expect(source).toContain(".eq('moderation_status', 'held')");
+            expect(source).toContain(".eq('moderation_reason', 'Moderation unavailable').is('deleted_at', null)");
+            expect(source).toContain(".select('id').maybeSingle()");
+            expect(source).toContain('matched: data?.id === row.id');
+        }
+        expect(claim).toContain('.update({ moderation_attempts: 6 })');
+        expect(claim).toContain(".eq('moderation_attempts', 5)");
+        expect(settle).toContain(".eq('moderation_attempts', 6)");
+        expect(worker).toContain("RECOVERY_GENERAL_CHANNEL_ID = '7bdf6903-0b8c-4c21-9c85-d7ca351251ce'");
     });
 
     it('rejects by soft-deleting with a reason the author can read', () => {
-        const reject = edge.slice(edge.indexOf("moderation_status: 'rejected'"));
+        const reject = worker.slice(worker.indexOf("moderation_status: 'rejected'"));
         expect(reject.slice(0, 400)).toContain('deleted_at: now');
         expect(reject.slice(0, 400)).toContain('moderation_reason:');
     });
@@ -152,7 +173,6 @@ describe('client', () => {
     it('renders the author hint from the one helper', () => {
         const list = stripTs(readFileSync('components/chat/ChatMessageList.tsx', 'utf8'));
         expect(list).toContain('moderationHint(msg, isSelf)');
-        expect(list).toContain('isAwaitingModeration(msg)');
     });
 });
 

@@ -3,7 +3,7 @@
  * Extracted from ChatPage to reduce monolith complexity.
  */
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { isAwaitingModeration, moderationHint } from '../../services/chat/messagePolicy';
+import { channelMessageIndicator, moderationHint } from '../../services/chat/messagePolicy';
 import type { ChatMessage } from '../../services/ChatService';
 import {
     getAvatarGradient,
@@ -580,20 +580,9 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 {isSelf && (
                                                                     <span
                                                                         className="text-xs text-sky-400/40 shrink-0 mb-0.5"
-                                                                        aria-label={
-                                                                            msg.delivery_status === 'sending'
-                                                                                ? 'Message sending'
-                                                                                : msg.delivery_status === 'queued'
-                                                                                  ? 'Message queued for reconnect'
-                                                                                  : 'Message delivered'
-                                                                        }
+                                                                        aria-label={channelMessageIndicator(msg).label}
                                                                     >
-                                                                        {msg.delivery_status === 'sending' ||
-                                                                        isAwaitingModeration(msg)
-                                                                            ? '…'
-                                                                            : msg.delivery_status === 'queued'
-                                                                              ? '◷'
-                                                                              : '✓✓'}
+                                                                        {channelMessageIndicator(msg).symbol}
                                                                     </span>
                                                                 )}
                                                             </div>

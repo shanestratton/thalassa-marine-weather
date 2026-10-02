@@ -24,6 +24,20 @@ export function isAwaitingModeration(msg: Pick<ChatMessage, 'moderation_status'>
     return msg.moderation_status === 'pending';
 }
 
+/** Channel publication is not a recipient delivery/read receipt. */
+export function channelMessageIndicator(
+    msg: Pick<ChatMessage, 'moderation_status' | 'delivery_status' | 'deleted_at'>,
+): { symbol: string; label: string } {
+    if (msg.moderation_status === 'held') return { symbol: '!', label: 'Message not delivered' };
+    if (msg.moderation_status === 'rejected') return { symbol: '!', label: 'Message not posted' };
+    if (msg.deleted_at) return { symbol: '×', label: 'Message removed' };
+    if (msg.delivery_status === 'sending') return { symbol: '…', label: 'Message sending' };
+    if (msg.delivery_status === 'queued') return { symbol: '◷', label: 'Message queued for reconnect' };
+    if (isAwaitingModeration(msg)) return { symbol: '…', label: 'Message awaiting moderation' };
+    if (msg.moderation_status === 'approved') return { symbol: '✓', label: 'Message published' };
+    return { symbol: '✓', label: 'Message sent' };
+}
+
 /**
  * What to tell the AUTHOR under their own message. null for anyone else's
  * message and for an approved one — the ordinary case says nothing.

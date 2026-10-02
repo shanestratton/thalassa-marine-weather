@@ -94,6 +94,30 @@ export interface DMBlockStatus {
     blockedEitherDirection: boolean;
 }
 
+export type CrewChannelRepairResult =
+    | { status: 'ok'; joinedCount: number }
+    | { status: 'failed'; reason: 'authentication' | 'membership_lookup' | 'channel_join'; failedOwners: number }
+    | { status: 'cancelled' };
+
+type CrewChannelJoinResult = { status: 'ok'; joinedCount: number } | { status: 'failed' } | { status: 'cancelled' };
+const CREW_CHANNEL_JOIN_TIMEOUT_MS = 8000;
+
+/** Stop waiting without letting a cancelled caller cancel another caller's shared join. */
+async function waitForCrewRepair<T>(task: PromiseLike<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return task;
+    if (signal.aborted) throw new Error('Crew channel repair cancelled');
+    let cancel!: () => void;
+    const aborted = new Promise<never>((_, reject) => {
+        cancel = () => reject(new Error('Crew channel repair cancelled'));
+        signal.addEventListener('abort', cancel, { once: true });
+    });
+    try {
+        return await Promise.race([task, aborted]);
+    } finally {
+        signal.removeEventListener('abort', cancel);
+    }
+}
+
 function parseDMBlockStatus(value: unknown): DMBlockStatus {
     const status = value as Partial<DMBlockStatus> | null;
     if (
@@ -166,6 +190,12 @@ class ChatServiceClass {
     private dmBlockStatus = new Map<string, DMBlockStatus>();
     private dmBlockGeneration = new Map<string, number>();
     private initPromise: Promise<void> | null = null;
+    private channelCacheGeneration = 0;
+    private crewChannelRepairGeneration = 0;
+    private crewChannelJoins = new Map<
+        string,
+        { controller: AbortController; promise: Promise<CrewChannelJoinResult> }
+    >();
     private ownerUserId: string | null = null; // Founding admin — immutable
     private cachedDisplayName: string | null = null; // Cached to avoid per-message DB lookup
     private _authListenerActive = false; // Prevents duplicate auth state listeners
@@ -197,6 +227,7 @@ class ChatServiceClass {
             this.ownerUserId = null;
             this.cachedDisplayName = null;
             this.initPromise = null;
+            this.cancelCrewChannelRepairs();
             this.clearOfflineQueueRetry();
         });
     }
@@ -435,8 +466,8 @@ class ChatServiceClass {
      * localStorage and kicks off a background refresh from Supabase.
      * @returns Array of chat channels with member counts
      */
-    async getChannels(): Promise<ChatChannel[]> {
-        const scope = getAuthIdentityScope();
+    async getChannels(scope: AuthIdentityScope = getAuthIdentityScope(), signal?: AbortSignal): Promise<ChatChannel[]> {
+        if (!isAuthIdentityScopeCurrent(scope) || signal?.aborted) return [];
         // 1. Return cached channels instantly (localStorage survives restarts)
         try {
             const cached = localStorage.getItem(authScopedStorageKey(CHANNELS_CACHE_KEY, scope));
@@ -444,7 +475,7 @@ class ChatServiceClass {
                 const parsed = JSON.parse(cached) as ChatChannel[];
                 if (parsed.length > 0) {
                     // Background refresh — don't await
-                    this._refreshChannelsCache(scope);
+                    this._refreshChannelsCache(scope, signal);
                     return parsed;
                 }
             }
@@ -453,19 +484,29 @@ class ChatServiceClass {
         }
 
         // 2. No cache — fetch from Supabase
-        return this._fetchAndCacheChannels(scope);
+        return this._fetchAndCacheChannels(scope, signal);
     }
 
-    private async _fetchAndCacheChannels(scope: AuthIdentityScope): Promise<ChatChannel[]> {
-        if (!supabase) return [];
-        const { data, error } = await supabase
+    private async _fetchAndCacheChannels(scope: AuthIdentityScope, signal?: AbortSignal): Promise<ChatChannel[]> {
+        if (!supabase || !isAuthIdentityScopeCurrent(scope) || signal?.aborted) return [];
+        const generation = this.channelCacheGeneration;
+        const query = supabase
             .from(CHANNELS_TABLE)
             .select('*')
             .eq('status', 'active')
             .order('is_global', { ascending: false })
             .order('name');
+        const { data, error } = await (signal ? query.abortSignal(signal) : query);
 
-        if (error || !data || data.length === 0 || !isAuthIdentityScopeCurrent(scope)) return [];
+        if (
+            error ||
+            !data ||
+            data.length === 0 ||
+            !isAuthIdentityScopeCurrent(scope) ||
+            generation !== this.channelCacheGeneration ||
+            signal?.aborted
+        )
+            return [];
         const channels = data as ChatChannel[];
         try {
             localStorage.setItem(authScopedStorageKey(CHANNELS_CACHE_KEY, scope), JSON.stringify(channels));
@@ -475,27 +516,32 @@ class ChatServiceClass {
         return channels;
     }
 
-    private _refreshChannelsCache(scope: AuthIdentityScope): void {
+    private _refreshChannelsCache(scope: AuthIdentityScope, signal?: AbortSignal): void {
         // Fire-and-forget background refresh
-        this._fetchAndCacheChannels(scope).catch((e) => {
+        this._fetchAndCacheChannels(scope, signal).catch((e) => {
             log.warn('Background channel-cache refresh failed:', e);
         });
     }
 
     /** Invalidate cached channels — next getChannels() will fetch fresh from Supabase */
-    invalidateChannelCache(): void {
+    invalidateChannelCache(scope: AuthIdentityScope = getAuthIdentityScope()): void {
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        this.channelCacheGeneration += 1;
         try {
-            localStorage.removeItem(authScopedStorageKey(CHANNELS_CACHE_KEY));
+            localStorage.removeItem(authScopedStorageKey(CHANNELS_CACHE_KEY, scope));
         } catch (e) {
             /* non-critical */
         }
     }
 
     /** Always fetch fresh channels from Supabase (bypasses cache) */
-    async getChannelsFresh(): Promise<ChatChannel[]> {
-        const scope = getAuthIdentityScope();
-        this.invalidateChannelCache();
-        return this._fetchAndCacheChannels(scope);
+    async getChannelsFresh(
+        scope: AuthIdentityScope = getAuthIdentityScope(),
+        signal?: AbortSignal,
+    ): Promise<ChatChannel[]> {
+        if (!isAuthIdentityScopeCurrent(scope) || signal?.aborted) return [];
+        this.invalidateChannelCache(scope);
+        return this._fetchAndCacheChannels(scope, signal);
     }
 
     // --- MESSAGES ---
@@ -1526,18 +1572,140 @@ class ChatServiceClass {
     async addCrewToVoyageChannels(captainUserId: string, crewUserId: string): Promise<void> {
         if (!supabase) return;
         const operation = this.captureOperation();
-        if (!operation || operation.userId !== crewUserId || !(await this.verifyRemoteOperation(operation))) {
-            return;
-        }
-        const { data: joinedCount, error } = await supabase.rpc('join_accepted_crew_channels', {
-            p_owner_id: captainUserId,
+        if (!operation || operation.userId !== crewUserId) return;
+        await this.joinAcceptedCrewOwner(operation, captainUserId, this.crewChannelRepairGeneration);
+    }
+
+    private cancelCrewChannelRepairs(): void {
+        this.crewChannelRepairGeneration += 1;
+        for (const work of this.crewChannelJoins.values()) work.controller.abort();
+        this.crewChannelJoins.clear();
+    }
+
+    private joinAcceptedCrewOwner(
+        operation: ChatOperationContext,
+        ownerId: string,
+        generation: number,
+    ): Promise<CrewChannelJoinResult> {
+        const key = JSON.stringify([operation.scope.key, operation.scope.generation, generation, ownerId]);
+        const existing = this.crewChannelJoins.get(key);
+        if (existing) return existing.promise;
+        const controller = new AbortController();
+        const current = () =>
+            this.operationIsCurrent(operation) &&
+            generation === this.crewChannelRepairGeneration &&
+            !controller.signal.aborted;
+        let timer!: ReturnType<typeof setTimeout>;
+        const timeout = new Promise<CrewChannelJoinResult>((resolve) => {
+            timer = setTimeout(() => {
+                controller.abort();
+                log.warn('Accepted crew channel join timed out; retry on the next chat load.');
+                resolve({ status: 'failed' });
+            }, CREW_CHANNEL_JOIN_TIMEOUT_MS);
         });
-        if (!this.operationIsCurrent(operation)) return;
-        if (error) {
-            log.warn('Could not join accepted crew channels:', error.message);
-            return;
+        const task = Promise.resolve().then(async (): Promise<CrewChannelJoinResult> => {
+            try {
+                if (!supabase || !current()) return { status: 'cancelled' };
+                if (!(await this.verifyRemoteOperation(operation)))
+                    return current() ? { status: 'failed' } : { status: 'cancelled' };
+                if (!current()) return { status: 'cancelled' };
+                // Only the existing server-authorized RPC may add membership.
+                // Its auth.uid()/accepted relationship checks remain unchanged.
+                const { data, error } = await supabase
+                    .rpc('join_accepted_crew_channels', {
+                        p_owner_id: ownerId,
+                    })
+                    .abortSignal(controller.signal);
+                if (!current()) return { status: 'cancelled' };
+                if (error || !Number.isSafeInteger(data) || data < 0) {
+                    log.warn('Could not join accepted crew channels; retry on the next chat load.', error?.message);
+                    return { status: 'failed' };
+                }
+                // Zero is successful (already joined, or no channel exists yet).
+                // Invalidate even then, and never retain a permanent "done" flag.
+                this.invalidateChannelCache(operation.scope);
+                return { status: 'ok', joinedCount: data };
+            } catch {
+                if (!current()) return { status: 'cancelled' };
+                log.warn('Could not join accepted crew channels; retry on the next chat load.');
+                return { status: 'failed' };
+            }
+        });
+        const work = { controller, promise: Promise.resolve({ status: 'cancelled' } as CrewChannelJoinResult) };
+        const cancellable = waitForCrewRepair(task, controller.signal).catch(() => ({ status: 'cancelled' as const }));
+        work.promise = Promise.race([cancellable, timeout]).finally(() => {
+            clearTimeout(timer);
+            if (this.crewChannelJoins.get(key) === work) this.crewChannelJoins.delete(key);
+        });
+        this.crewChannelJoins.set(key, work);
+        return work.promise;
+    }
+
+    /** Repair missed/early one-shot invite joins on each authenticated chat load. */
+    async reconcileAcceptedCrewChannels(
+        scope: AuthIdentityScope = getAuthIdentityScope(),
+        signal?: AbortSignal,
+    ): Promise<CrewChannelRepairResult> {
+        const operation = this.captureOperation();
+        const generation = this.crewChannelRepairGeneration;
+        const current = () =>
+            !!operation &&
+            this.operationIsCurrent(operation) &&
+            isAuthIdentityScopeCurrent(scope) &&
+            scope.userId === operation.userId &&
+            generation === this.crewChannelRepairGeneration &&
+            !signal?.aborted;
+        if (!supabase || !scope.userId || !isAuthIdentityScopeCurrent(scope) || signal?.aborted)
+            return { status: 'cancelled' };
+        if (!operation) return { status: 'failed', reason: 'authentication', failedOwners: 0 };
+        let reason: 'authentication' | 'membership_lookup' | 'channel_join' = 'authentication';
+        try {
+            if (!(await waitForCrewRepair(this.verifyRemoteOperation(operation), signal)))
+                return current() ? { status: 'failed', reason, failedOwners: 0 } : { status: 'cancelled' };
+            if (!current()) return { status: 'cancelled' };
+            reason = 'membership_lookup';
+            const query = supabase
+                .from('vessel_crew')
+                .select('owner_id, crew_user_id, status')
+                .eq('crew_user_id', operation.userId)
+                .eq('status', 'accepted');
+            const { data, error } = await waitForCrewRepair(signal ? query.abortSignal(signal) : query, signal);
+            if (!current()) return { status: 'cancelled' };
+            if (
+                error ||
+                !Array.isArray(data) ||
+                data.some(
+                    (row) =>
+                        !row ||
+                        row.crew_user_id !== operation.userId ||
+                        row.status !== 'accepted' ||
+                        typeof row.owner_id !== 'string' ||
+                        !row.owner_id.trim(),
+                )
+            ) {
+                log.warn('Could not load accepted crew memberships; retry on the next chat load.', error?.message);
+                return { status: 'failed', reason, failedOwners: 0 };
+            }
+            const owners = new Set<string>(data.map((row) => row.owner_id));
+            reason = 'channel_join';
+            let joinedCount = 0;
+            let failedOwners = 0;
+            for (const owner of owners) {
+                if (!current()) return { status: 'cancelled' };
+                const result = await waitForCrewRepair(
+                    this.joinAcceptedCrewOwner(operation, owner, generation),
+                    signal,
+                );
+                if (!current() || result.status === 'cancelled') return { status: 'cancelled' };
+                if (result.status === 'failed') failedOwners += 1;
+                else joinedCount += result.joinedCount;
+            }
+            return failedOwners ? { status: 'failed', reason, failedOwners } : { status: 'ok', joinedCount };
+        } catch {
+            if (!current()) return { status: 'cancelled' };
+            log.warn('Accepted crew channel repair failed; retry on the next chat load.');
+            return { status: 'failed', reason, failedOwners: reason === 'channel_join' ? 1 : 0 };
         }
-        log.info(`Added crew ${crewUserId} to ${joinedCount ?? 0} voyage channel(s) for captain ${captainUserId}`);
     }
 
     /** Anyone can propose a channel (goes to 'pending' — admin approves) */
@@ -2150,6 +2318,7 @@ class ChatServiceClass {
     // --- CLEANUP ---
 
     destroy(): void {
+        this.cancelCrewChannelRepairs();
         this.clearOfflineQueueRetry();
         if (this.connectivityListenerAttached && typeof window !== 'undefined') {
             window.removeEventListener('online', this.handleOnline);

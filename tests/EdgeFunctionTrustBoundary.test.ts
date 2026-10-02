@@ -25,8 +25,19 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
             'sweep-stale-vessels',
         ]) {
             const edge = functionSource(name);
-            expect(edge, name).toContain('requireServiceRolePost(');
-            expect(edge, name).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");
+            if (name === 'moderate-chat-message') {
+                const worker = source('supabase/functions/moderate-chat-message/worker.ts');
+                expect(edge).toContain('Deno.serve(createChatModerationHandler(');
+                expect(edge).toContain('env: (name) => Deno.env.get(name)');
+                expect(worker).toContain("dependencies.env('SUPABASE_SERVICE_ROLE_KEY')");
+                const guard = worker.indexOf('requireServiceRolePost(req, serviceKey)');
+                expect(guard).toBeGreaterThan(0);
+                expect(guard).toBeLessThan(worker.indexOf('dependencies.createGateway('));
+                expect(guard).toBeLessThan(worker.indexOf('await classifyChatMessage('));
+            } else {
+                expect(edge, name).toContain('requireServiceRolePost(');
+                expect(edge, name).toContain("Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')");
+            }
         }
     });
 
