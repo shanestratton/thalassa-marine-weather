@@ -616,10 +616,12 @@ export interface PurchaseOutcome {
  */
 function hasStoresReceipt(item: ShoppingItem): boolean {
     if (readPurchaseReceipt(item.notes)) return true;
-    return query<InventoryEntry>(
-        INVENTORY_TABLE,
-        (candidate) => candidate.id === item.id && candidate.description === purchaseProvenance(item.id),
-    ).length > 0;
+    return (
+        query<InventoryEntry>(
+            INVENTORY_TABLE,
+            (candidate) => candidate.id === item.id && candidate.description === purchaseProvenance(item.id),
+        ).length > 0
+    );
 }
 
 /**
