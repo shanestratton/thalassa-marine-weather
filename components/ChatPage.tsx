@@ -66,13 +66,41 @@ import { useChatProfile } from '../hooks/chat/useChatProfile';
 import { useChatProposals } from '../hooks/chat/useChatProposals';
 import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
 
-import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
 
 // --- TYPES ---
 type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'admin_panel';
 
 // --- CSS KEYFRAMES (injected once) ---
 const STYLE_ID = 'crew-talk-animations';
+const CHAT_LOAD_TIMEOUT_MS = 8000;
+
+async function boundedChatLoad<T>(task: Promise<T>, onTimeout?: () => void, signal?: AbortSignal): Promise<T> {
+    let timer!: ReturnType<typeof setTimeout>;
+    let cancel: (() => void) | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            onTimeout?.();
+            reject(new Error('Chat load timeout'));
+        }, CHAT_LOAD_TIMEOUT_MS);
+    });
+    const aborted = new Promise<never>((_, reject) => {
+        cancel = () => reject(new Error('Chat load cancelled'));
+        if (signal?.aborted) cancel();
+        else signal?.addEventListener('abort', cancel, { once: true });
+    });
+    try {
+        return await Promise.race([task, timeout, aborted]);
+    } finally {
+        clearTimeout(timer);
+        if (cancel) signal?.removeEventListener('abort', cancel);
+    }
+}
 if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -388,19 +416,25 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
     // --- INIT ---
     useEffect(() => {
         let disposed = false;
+        const repairController = new AbortController();
+        const initialChannelController = new AbortController();
+        const channelController = new AbortController();
         const identity = getAuthIdentityScope();
         const isCurrent = () => !disposed && isAuthIdentityScopeCurrent(identity);
         const init = async () => {
             try {
                 // Run channel load + auth init in parallel so everything appears together
-                const initWithTimeout = Promise.race([
-                    ChatService.initialize(),
-                    new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Chat init timeout')), 8000)),
-                ]).catch((e) => {
-                    log.warn('Init auth/profile failed:', e);
-                });
+                const initWithTimeout = boundedChatLoad(ChatService.initialize(), undefined, repairController.signal)
+                    .then(() => true)
+                    .catch((e) => {
+                        if (isCurrent()) log.warn('Init auth/profile failed:', e);
+                        return false;
+                    });
 
-                const [chs] = await Promise.all([loadChannels(isCurrent), initWithTimeout]);
+                const [chs, initialized] = await Promise.all([
+                    loadChannels(isCurrent, identity, initialChannelController),
+                    initWithTimeout,
+                ]);
                 if (!isCurrent()) return;
 
                 // Roles are now loaded — refresh reactive state immediately,
@@ -421,10 +455,35 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
 
                 // Refresh channels from network (bypass cache — auth may unlock new channels)
                 try {
-                    const fresh = await ChatService.getChannelsFresh();
+                    // Invite acceptance's one-shot join can be missed before
+                    // chat initializes, or before the captain creates a channel.
+                    // Reconcile on every authenticated load, not only once per
+                    // owner, then refetch under this exact identity generation.
+                    if (initialized && identity.userId && chatAuthedUser?.id === identity.userId) {
+                        try {
+                            const repair = await boundedChatLoad(
+                                ChatService.reconcileAcceptedCrewChannels(identity, repairController.signal),
+                                () => repairController.abort(),
+                                repairController.signal,
+                            );
+                            if (!isCurrent()) return;
+                            if (repair.status === 'failed')
+                                log.warn('Crew channel repair incomplete; retry on next load.');
+                        } catch (e) {
+                            if (!isCurrent()) return;
+                            log.warn('Crew channel repair incomplete; retry on next load.', e);
+                        }
+                    }
+                    if (!isCurrent()) return;
+                    const fresh = await boundedChatLoad(
+                        ChatService.getChannelsFresh(identity, channelController.signal),
+                        () => channelController.abort(),
+                        channelController.signal,
+                    );
                     if (!isCurrent()) return;
                     if (fresh.length > 0) setChannels(fresh);
                     await loadProfile();
+                    if (!isCurrent()) return;
                 } catch (e) {
                     console.warn('Suppressed:', e);
                     /* non-critical */
@@ -433,6 +492,7 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
                 // Check if user has crew (as skipper or crew member) — gates Crew Chat visibility
                 try {
                     const { getMyCrew, getMyMemberships } = await import('../services/CrewService');
+                    if (!isCurrent()) return;
                     const [myCrew, myMemberships] = await Promise.all([getMyCrew(), getMyMemberships()]);
                     if (!isCurrent()) return;
                     setHasOwnedCrew(myCrew.length > 0);
@@ -465,6 +525,9 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
 
         return () => {
             disposed = true;
+            repairController.abort();
+            initialChannelController.abort();
+            channelController.abort();
             unsub();
             cleanupMessages();
             ChatService.destroy();
@@ -472,9 +535,20 @@ export const ChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [chatAuthedUser?.id]);
 
-    const loadChannels = async (isCurrent: () => boolean = () => true): Promise<ChatChannel[]> => {
+    const loadChannels = async (
+        isCurrent: () => boolean = () => true,
+        scope: AuthIdentityScope = getAuthIdentityScope(),
+        controller?: AbortController,
+    ): Promise<ChatChannel[]> => {
         // getChannels returns cached data instantly (or fetches if no cache)
-        const chs = await ChatService.getChannels();
+        const chs = await boundedChatLoad(
+            ChatService.getChannels(scope, controller?.signal),
+            () => controller?.abort(),
+            controller?.signal,
+        ).catch((e) => {
+            if (isCurrent()) log.warn('Initial channel load failed; using defaults:', e);
+            return [];
+        });
         const result =
             chs.length > 0
                 ? chs

@@ -3,8 +3,9 @@
  * Verifies render, view switching, and banner display.
  */
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { User } from '@supabase/supabase-js';
 
 const keyboardMocks = vi.hoisted(() => {
     let resolveImport!: () => void;
@@ -94,6 +95,7 @@ vi.mock('../utils', () => ({
 vi.mock('../services/ChatService', () => ({
     ChatService: {
         initialize: vi.fn().mockResolvedValue(undefined),
+        reconcileAcceptedCrewChannels: vi.fn().mockResolvedValue({ status: 'ok', joinedCount: 0 }),
         getChannels: vi
             .fn()
             .mockResolvedValue([{ id: 'general', name: 'General', description: 'General chat', member_count: 42 }]),
@@ -246,6 +248,26 @@ vi.mock('../theme', () => ({
 
 import { ChatPage } from '../components/ChatPage';
 import { ChatService } from '../services/ChatService';
+import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
+import { useAuthStore } from '../stores/authStore';
+
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+function signInFixture(id = 'crew-a') {
+    setAuthIdentityScope(id);
+    useAuthStore.setState({ user: { id } as User });
+}
+afterEach(() => {
+    cleanup();
+    useAuthStore.setState({ user: null });
+    setAuthIdentityScope(null);
+    vi.useRealTimers();
+});
 
 const renderSettledChatPage = async () => {
     const result = render(<ChatPage />);
@@ -261,7 +283,84 @@ const renderSettledChatPage = async () => {
 };
 
 describe('ChatPage', () => {
-    beforeEach(() => vi.clearAllMocks());
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(ChatService.initialize).mockResolvedValue(undefined);
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockResolvedValue({ status: 'ok', joinedCount: 0 });
+        vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([]);
+    });
+
+    it('reconciles only after initialization and before the authenticated fresh channel read', async () => {
+        signInFixture();
+        const initialized = deferred<void>();
+        const repaired = deferred<Awaited<ReturnType<typeof ChatService.reconcileAcceptedCrewChannels>>>();
+        vi.mocked(ChatService.initialize).mockReturnValueOnce(initialized.promise);
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockReturnValueOnce(repaired.promise);
+        render(<ChatPage />);
+        await waitFor(() => expect(ChatService.initialize).toHaveBeenCalledTimes(1));
+        expect(ChatService.reconcileAcceptedCrewChannels).not.toHaveBeenCalled();
+        expect(ChatService.getChannelsFresh).not.toHaveBeenCalled();
+        await act(async () => initialized.resolve());
+        await waitFor(() => expect(ChatService.reconcileAcceptedCrewChannels).toHaveBeenCalledTimes(1));
+        expect(ChatService.getChannelsFresh).not.toHaveBeenCalled();
+        await act(async () => repaired.resolve({ status: 'ok', joinedCount: 1 }));
+        await waitFor(() => expect(ChatService.getChannelsFresh).toHaveBeenCalledTimes(1));
+        expect(ChatService.reconcileAcceptedCrewChannels).toHaveBeenCalledWith(
+            getAuthIdentityScope(),
+            expect.any(AbortSignal),
+        );
+        expect(ChatService.getChannelsFresh).toHaveBeenCalledWith(getAuthIdentityScope(), expect.any(AbortSignal));
+    });
+
+    it('still fetches channels after a failed repair and retries repair on the next chat load', async () => {
+        signInFixture();
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockResolvedValueOnce({
+            status: 'failed',
+            reason: 'channel_join',
+            failedOwners: 1,
+        });
+        const first = await renderSettledChatPage();
+        expect(ChatService.reconcileAcceptedCrewChannels).toHaveBeenCalledTimes(1);
+        first.unmount();
+        render(<ChatPage />);
+        await waitFor(() => expect(ChatService.getChannelsFresh).toHaveBeenCalledTimes(2));
+        expect(ChatService.reconcileAcceptedCrewChannels).toHaveBeenCalledTimes(2);
+    });
+
+    it('cancels the old load during account switch and does not refetch A after late repair completion', async () => {
+        signInFixture();
+        const old = deferred<Awaited<ReturnType<typeof ChatService.reconcileAcceptedCrewChannels>>>();
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockReturnValueOnce(old.promise);
+        render(<ChatPage />);
+        await waitFor(() => expect(ChatService.reconcileAcceptedCrewChannels).toHaveBeenCalledTimes(1));
+        const oldSignal = vi.mocked(ChatService.reconcileAcceptedCrewChannels).mock.calls[0][1]!;
+        act(() => signInFixture('crew-b'));
+        await waitFor(() => expect(ChatService.getChannelsFresh).toHaveBeenCalledTimes(1));
+        expect(oldSignal.aborted).toBe(true);
+        await act(async () => old.resolve({ status: 'ok', joinedCount: 1 }));
+        expect(vi.mocked(ChatService.getChannelsFresh).mock.calls.map(([scope]) => scope?.userId)).toEqual(['crew-b']);
+    });
+
+    it('bounds a stalled repair, aborts its wait, and leaves the channel screen available for next-load retry', async () => {
+        vi.useFakeTimers();
+        signInFixture();
+        const pending = deferred<Awaited<ReturnType<typeof ChatService.reconcileAcceptedCrewChannels>>>();
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockReturnValueOnce(pending.promise);
+        render(<ChatPage />);
+        await act(async () => {
+            for (let index = 0; index < 30; index += 1) await Promise.resolve();
+        });
+        expect(ChatService.reconcileAcceptedCrewChannels).toHaveBeenCalledTimes(1);
+        const signal = vi.mocked(ChatService.reconcileAcceptedCrewChannels).mock.calls[0][1]!;
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(8000);
+        });
+        expect(signal.aborted).toBe(true);
+        expect(ChatService.getChannelsFresh).toHaveBeenCalledTimes(1);
+        expect(screen.getByTestId('channel-list')).toBeTruthy();
+        await act(async () => pending.resolve({ status: 'ok', joinedCount: 1 }));
+        expect(ChatService.getChannelsFresh).toHaveBeenCalledTimes(1);
+    });
 
     it('paints the Admin card and the channels together — never the card a beat later on top', async () => {
         // Shane 2026-09-09: "the Admin card arrives at the moment i try to press
