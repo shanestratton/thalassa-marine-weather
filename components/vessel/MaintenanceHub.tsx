@@ -48,8 +48,9 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { initLocalDatabase } from '../../services/vessel/LocalDatabase';
-import { canSeedOwnBinder } from '../../services/vessel/sharedBinders';
+import { getSyncMeta, initLocalDatabase } from '../../services/vessel/LocalDatabase';
+import { onSyncComplete } from '../../services/vessel/SyncService';
+import { canSeedOwnBinder, getBinderSource } from '../../services/vessel/sharedBinders';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { toLocalDateString } from '../../utils/localDate';
@@ -71,6 +72,30 @@ interface ScopedMaintenanceHistory {
 }
 
 // ── Category config + SwipeableTaskCard — now in ./maintenance/ ──
+
+/**
+ * This account's first full pull has completed on this device, so an empty
+ * R&M means the account has no tasks, not that they have yet to arrive (a new
+ * device, or a reinstall). Signed out (browse mode) nothing will arrive.
+ * Call after initLocalDatabase for `identity`.
+ */
+function ownTasksHaveArrived(identity: AuthIdentityScope): boolean {
+    if (!identity.userId) return true;
+    try {
+        return !!getSyncMeta().lastFullPullTimestamp;
+    } catch {
+        return false;
+    }
+}
+
+/** This device has listed the account's own tasks: it never auto-seeds again. */
+function rememberHadOwnTasks(key: string): void {
+    try {
+        if (!localStorage.getItem(key)) localStorage.setItem(key, '1');
+    } catch {
+        // Storage unavailable: the seed decision below still holds for this page.
+    }
+}
 
 // Category display order: Repair first, then rest. Module scope so the memos
 // below can list it honestly in their dependency arrays.
@@ -133,16 +158,22 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     const hoursInputRef = useRef<HTMLInputElement>(null);
     const loadRequestRef = useRef(0);
+    /** The account this page has made its one seed decision for. */
+    const seedDecisionRef = useRef<string | null>(null);
+    /** The seed decision is waiting for this account's first full pull. */
+    const seedAwaitsFirstPullRef = useRef(false);
     const { ref: listRef, flash } = useSuccessFlash();
 
     // ── Load ──
-    const loadTasks = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope()) => {
+    const loadTasks = useCallback(async (identity: AuthIdentityScope = getAuthIdentityScope(), background = false) => {
         setLoadError(false);
         if (!isAuthIdentityScopeCurrent(identity)) return;
         const requestId = ++loadRequestRef.current;
         const isCurrentRequest = () => requestId === loadRequestRef.current && isAuthIdentityScopeCurrent(identity);
         try {
-            setLoading(true);
+            // A background reload (a change from another device, a sync)
+            // keeps the list on screen and the reader's scroll position.
+            if (!background) setLoading(true);
             // Join the exact account file switch before LocalMaintenanceService
             // performs its synchronous cache read.
             await initLocalDatabase(identity.userId);
@@ -155,8 +186,36 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             // a crew device that seeded before the skipper's tasks arrived put
             // 40 duplicate defaults in the skipper's R&M (2026-10-01). Until it
             // may, nothing is seeded and the marker stays unset.
+            //
+            // And never because tasks went away (2026-10-02): binders are live
+            // now, so an empty list can mean "the last task was deleted on the
+            // phone", and seeding then pushed 40 suggestions to every device
+            // within seconds, once per device. So: an account that has had its
+            // own tasks on this device never auto-seeds, and this page makes the
+            // seed decision once per account, on the first load that may seed
+            // (its mount load, or the reload when the shares are first
+            // confirmed); a live change from elsewhere never seeds.
+            //
+            // Nor before this account's first full pull here (review,
+            // 2026-10-02): on a new device or after a reinstall the list is
+            // empty only because the account's tasks have not arrived, and a
+            // seed then put 40 suggestions on top of them, on every device.
             const seedKey = authScopedStorageKey('thalassa_maintenance_seeded', identity);
-            if (data.length === 0 && !localStorage.getItem(seedKey) && canSeedOwnBinder('maintenance')) {
+            const hadTasksKey = authScopedStorageKey('thalassa_maintenance_had_tasks', identity);
+            if (data.length > 0 && getBinderSource('maintenance').mode === 'own') {
+                rememberHadOwnTasks(hadTasksKey);
+            }
+            const decisionKey = `${identity.key}#${identity.generation}`;
+            const undecided = seedDecisionRef.current !== decisionKey && canSeedOwnBinder('maintenance');
+            const mayDecide = undecided && ownTasksHaveArrived(identity);
+            seedAwaitsFirstPullRef.current = undecided && !mayDecide;
+            if (mayDecide) seedDecisionRef.current = decisionKey;
+            if (
+                mayDecide &&
+                data.length === 0 &&
+                !localStorage.getItem(seedKey) &&
+                !localStorage.getItem(hadTasksKey)
+            ) {
                 try {
                     const seededCount = await MaintenanceService.seedDefaults();
                     if (!isCurrentRequest()) return;
@@ -205,14 +264,47 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
         }
     }, [loadTasks]);
 
-    // Realtime sync — crew edits appear instantly
-    useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], loadTasks);
+    // The Service history sheet on show, so a background reload refreshes it
+    // too: a service logged on another device belongs in it straight away.
+    const openHistoryRef = useRef<{ identity: AuthIdentityScope; taskId: string } | null>(null);
+    openHistoryRef.current =
+        showHistory && sheetTask ? { identity: sheetTask.identity, taskId: sheetTask.task.id } : null;
+    const reloadInBackground = useCallback(() => {
+        void loadTasks(getAuthIdentityScope(), true);
+        const open = openHistoryRef.current;
+        if (!open || !isAuthIdentityScopeCurrent(open.identity)) return;
+        void Promise.resolve()
+            .then(() => MaintenanceService.getHistory(open.taskId))
+            .then((items) => {
+                // Only into the same sheet, still open, for the same account.
+                const still = openHistoryRef.current;
+                if (still?.taskId !== open.taskId || !isAuthIdentityScopeCurrent(open.identity)) return;
+                setHistoryData({ identity: open.identity, items });
+            })
+            .catch((e) => log.warn('Failed to refresh service history:', e));
+    }, [loadTasks]);
+
+    // A first-time account that opened R&M before its first full pull: decide
+    // when that pull completes. It may pull nothing (a new account), and then
+    // no ordinary reload would come.
+    useEffect(
+        () =>
+            onSyncComplete(() => {
+                if (seedAwaitsFirstPullRef.current) reloadInBackground();
+            }),
+        [reloadInBackground],
+    );
+
+    // Live across devices: tasks AND service history, on one channel. A change
+    // saved on another device (or by crew on a shared R&M) lands within
+    // seconds; the binder read decides which rows this page shows.
+    useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], reloadInBackground);
 
     // Whose R&M this is (shared binders, 2026-10-02): the skipper's while this
     // sailor is crew on a boat that shares it. Crew can edit, Pause and Log
     // Service (the database has no view-only form); deletes are the skipper's.
     const { source: binder, fetchingSkipperBinder } = useBinderSource('maintenance', {
-        reload: () => void loadTasks(),
+        reload: reloadInBackground,
         rowCount: tasks.length,
     });
     const sharedBinder = binder.mode === 'shared';

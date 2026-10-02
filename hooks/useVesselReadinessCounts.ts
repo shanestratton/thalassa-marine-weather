@@ -180,7 +180,11 @@ export function useVesselReadinessCounts(): VesselReadinessCounts {
             .then(({ onSyncComplete }) => {
                 if (cancelled) return;
                 unsubscribeSync = onSyncComplete((result) => {
-                    if (result.pulled > 0 || (result.discardedShared ?? 0) > 0) refetchAll();
+                    // Pruned too: an overdue task deleted on another device
+                    // must leave the badge without a remount.
+                    if (result.pulled > 0 || (result.pruned ?? 0) > 0 || (result.discardedShared ?? 0) > 0) {
+                        refetchAll();
+                    }
                 });
             })
             .catch(() => {

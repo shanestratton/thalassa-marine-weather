@@ -8,7 +8,15 @@
  *
  * Network awareness: Listens for online/offline transitions.
  * When connectivity resumes, triggers a full sync cycle.
+ *
+ * Live across devices (Shane, 2026-10-02: "if i change something on one
+ * machine, it is not reflected in the other"): a local write pushes within
+ * seconds rather than at the five-minute cycle, and at once when the app
+ * leaves the screen. The app catches up (with a sweep for rows deleted
+ * elsewhere) when it returns to the foreground, reconnects, or a page's
+ * realtime channel joins or rejoins; the five-minute cycle sweeps too.
  */
+import { Capacitor } from '@capacitor/core';
 import { supabase } from '../supabase';
 import {
     getFullQueue,
@@ -25,7 +33,9 @@ import {
     getById,
     bulkDelete,
     rewriteQueuedInsert,
+    onOutboxAppended,
     type LocalDatabaseSession,
+    type PrunePlan,
     type SyncQueueItem,
 } from './LocalDatabase';
 import {
@@ -59,6 +69,11 @@ interface SyncResult {
     rehomedShared?: number;
     /** The skippers whose binders those changes were meant for. */
     sharedOwnerIds?: string[];
+    /**
+     * Local rows removed because the server no longer shows them (deleted on
+     * another device, or no longer shared). `pulled` cannot count these.
+     */
+    pruned?: number;
 }
 
 type SyncListener = (result: SyncResult) => void;
@@ -86,6 +101,39 @@ const PULL_PAGE_SIZE = 500;
 const PULL_REPLAY_OVERLAP_MS = 5 * 60 * 1000;
 const FULL_RECONCILIATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * A local write pushes this long after the LAST write of a burst (a run of
+ * quantity taps, a 40-task seed), but never later than the max wait after the
+ * first, so a steady stream of edits still goes out every few seconds.
+ */
+const PROMPT_PUSH_DEBOUNCE_MS = 1000;
+const PROMPT_PUSH_MAX_WAIT_MS = 4000;
+/**
+ * Catch-up requests (foreground, a realtime channel rejoining) settle for a
+ * moment, so a foreground's burst of events is one cycle, and catch-up cycles
+ * start no closer together than the spacing. A request is never dropped: one
+ * inside the spacing runs at its end.
+ */
+const CATCH_UP_DEBOUNCE_MS = 1500;
+const CATCH_UP_MIN_SPACING_MS = 10_000;
+/**
+ * The longest a push on the way to the background holds its native task. iOS
+ * grants about 30 s; ending first keeps the app clear of the OS's own expiry.
+ */
+const BACKGROUND_HOLD_MAX_MS = 25_000;
+/**
+ * One reading never empties a table (review, 2026-10-02). A listing that
+ * would remove every clean row this device holds for a table, or more than
+ * half of at least this many, is held back: nothing goes, a full
+ * reconciliation is asked for, and the rows go only when a LATER cycle (its
+ * own getUser, its own pinned token) reads the same collapse within the
+ * window. A real "cleared it on the phone", or a share that ended, waits one
+ * more cycle (seconds); a wrong reading, for a reason nobody has thought of
+ * yet, costs nothing.
+ */
+const COLLAPSE_MIN_ROWS = 5;
+const COLLAPSE_CONFIRM_WINDOW_MS = 15 * 60 * 1000;
+
 type SyncableTable = (typeof SYNCABLE_TABLES)[number];
 
 /** Tables that have file URIs which need uploading before sync */
@@ -112,6 +160,28 @@ let fullReconciliationRequestVersion = 0;
 let fullReconciliationCompletedVersion = 0;
 let fullReconciliationFollowup: Promise<SyncResult> | null = null;
 let forcedPullInFlight = false;
+let promptPushTimer: ReturnType<typeof setTimeout> | null = null;
+let promptPushFirstRequestAt = 0;
+let catchUpTimer: ReturnType<typeof setTimeout> | null = null;
+let lastCatchUpStartedAt = Number.NEGATIVE_INFINITY;
+/** The next cycle also sweeps the binder tables for rows deleted elsewhere. */
+let deletionSweepRequested = false;
+/** One cycle is already queued behind the active one. */
+let followupArmed = false;
+/** That queued cycle is quiet only if every request behind it was. */
+let followupQuiet = true;
+/**
+ * The cycle about to start skips the haptic pulse. Prompt pushes and
+ * catch-ups run on their own after an edit or a foreground; a buzz a second
+ * after every tap would read as a glitch, not as "synced".
+ */
+let quietNextCycle = false;
+let stopOutboxSignal: (() => void) | null = null;
+let stopForegroundWatch: (() => void) | null = null;
+/** Counts cycles, so a held collapse is confirmed only by a later one. */
+let syncCycleSerial = 0;
+/** table → the first reading of a collapse, waiting for a second. */
+const heldCollapses = new Map<string, { identity: string; cycle: number; at: number }>();
 const listeners: SyncListener[] = [];
 const statusListeners: StatusListener[] = [];
 
@@ -166,15 +236,25 @@ export function startSyncEngine(): void {
         setStatus('offline');
     }
 
-    // Periodic sync every 5 minutes when online
+    // Periodic sync every 5 minutes when online. It sweeps the binder tables
+    // for rows deleted elsewhere too (ids only; the tables are small): a
+    // device that never leaves the foreground, with no binder open, has no
+    // other event that would ever catch a delete it missed before the
+    // six-hourly full reconciliation.
     syncInterval = setInterval(
         () => {
+            deletionSweepRequested = true;
             if (navigator.onLine && !activeSync) {
                 syncNow();
             }
         },
         5 * 60 * 1000,
     );
+
+    // A local write pushes within seconds, so another device (or crew on a
+    // shared binder) sees it now, not at the next five-minute cycle.
+    stopOutboxSignal = onOutboxAppended(() => schedulePromptPush());
+    stopForegroundWatch = watchForeground();
 }
 
 /**
@@ -192,15 +272,240 @@ export function stopSyncEngine(): void {
         clearInterval(syncInterval);
         syncInterval = null;
     }
+    stopOutboxSignal?.();
+    stopOutboxSignal = null;
+    stopForegroundWatch?.();
+    stopForegroundWatch = null;
+    if (promptPushTimer) {
+        clearTimeout(promptPushTimer);
+        promptPushTimer = null;
+    }
+    if (catchUpTimer) {
+        clearTimeout(catchUpTimer);
+        catchUpTimer = null;
+    }
+    lastCatchUpStartedAt = Number.NEGATIVE_INFINITY;
+    deletionSweepRequested = false;
+    heldCollapses.clear();
 }
 
 function handleOnline() {
     // Every cycle requeues transient failures before draining the outbox.
-    void syncNow();
+    // Realtime events were missed while offline, deletes included.
+    deletionSweepRequested = true;
+    syncNowOrAfterActive(false);
 }
 
 function handleOffline() {
     setStatus('offline');
+}
+
+// ── Prompt push & catch-up ─────────────────────────────────────
+
+/** True while the outbox holds a change no cycle has picked up yet. */
+function hasPendingOutbox(): boolean {
+    try {
+        return getFullQueue().some((item) => item.status === 'pending');
+    } catch {
+        // The database is switching accounts; the next cycle will see it.
+        return false;
+    }
+}
+
+/**
+ * Run a cycle now, or exactly once after the active one. syncNow() alone
+ * would hand back the active cycle, whose push already read the queue, so a
+ * write made during it would wait for the next five-minute cycle.
+ */
+function syncNowOrAfterActive(quiet: boolean): void {
+    if (!activeSync) {
+        // runSyncCycle reads the flag before its first await; clear it at once
+        // so a syncNow() that returned early (offline) cannot pass it on.
+        quietNextCycle = quiet;
+        try {
+            void syncNow().catch((error) => log.warn('[SyncService] Sync failed:', error));
+        } finally {
+            quietNextCycle = false;
+        }
+        return;
+    }
+    followupQuiet = followupArmed ? followupQuiet && quiet : quiet;
+    if (followupArmed) return;
+    followupArmed = true;
+    void activeSync
+        .catch(() => undefined)
+        .then(() => {
+            followupArmed = false;
+            if (!engineStarted || !navigator.onLine) return;
+            if (hasPendingOutbox() || deletionSweepRequested) syncNowOrAfterActive(followupQuiet);
+        });
+}
+
+/**
+ * Push the outbox soon: called for every durable local write while the
+ * engine runs. Debounced, so a burst of writes is one cycle. Offline, the
+ * writes stay queued as before and the 'online' handler pushes them.
+ */
+function schedulePromptPush(): void {
+    if (!engineStarted) return;
+    const now = Date.now();
+    if (promptPushTimer) clearTimeout(promptPushTimer);
+    else promptPushFirstRequestAt = now;
+    const wait = Math.max(
+        0,
+        Math.min(PROMPT_PUSH_DEBOUNCE_MS, promptPushFirstRequestAt + PROMPT_PUSH_MAX_WAIT_MS - now),
+    );
+    promptPushTimer = setTimeout(() => {
+        promptPushTimer = null;
+        if (!engineStarted || !navigator.onLine || !hasPendingOutbox()) return;
+        syncNowOrAfterActive(true);
+    }, wait);
+}
+
+/**
+ * Catch up with changes this device may have missed: realtime only delivers
+ * while its socket is open, so a phone that was asleep, offline, or whose
+ * channel dropped has gaps, and so does a page that has only just opened its
+ * channel. The cycle pulls as usual AND sweeps the binder tables for rows
+ * deleted elsewhere, which a timestamp pull cannot see.
+ */
+export function requestCatchUpSync(): void {
+    if (!engineStarted) return;
+    deletionSweepRequested = true;
+    if (catchUpTimer) return;
+    const delay = Math.max(CATCH_UP_DEBOUNCE_MS, lastCatchUpStartedAt + CATCH_UP_MIN_SPACING_MS - Date.now());
+    catchUpTimer = setTimeout(() => {
+        catchUpTimer = null;
+        // Offline: the flag stays set and the 'online' handler sweeps. A cycle
+        // that started after the request already swept (and cleared it).
+        if (!engineStarted || !navigator.onLine || !deletionSweepRequested) return;
+        lastCatchUpStartedAt = Date.now();
+        syncNowOrAfterActive(true);
+    }, delay);
+}
+
+/**
+ * Wait for the cycle running now, and the one queued behind it, to finish.
+ * A follow-up starts in the same turn its predecessor settles, so a short
+ * loop sees it.
+ */
+async function settleActiveCycles(): Promise<void> {
+    for (let round = 0; round < 4; round += 1) {
+        const running = activeSync;
+        if (!running) {
+            if (!followupArmed) return;
+            await Promise.resolve();
+            continue;
+        }
+        await running.catch(() => undefined);
+        await Promise.resolve();
+    }
+}
+
+/**
+ * Ask iOS for time to finish `work` after the app leaves the screen
+ * (UIApplication beginBackgroundTask, through the background geolocation
+ * plugin the app already ships; it needs no tracking or ready()). Best
+ * effort: on any other platform, or if the plugin is missing, the work just
+ * runs for as long as the OS allows. Released when the work settles, and
+ * never held past the cap.
+ */
+async function holdBackgroundTaskWhile(work: Promise<void>): Promise<void> {
+    if (Capacitor.getPlatform() !== 'ios') return work;
+    let plugin: {
+        startBackgroundTask: () => Promise<number>;
+        stopBackgroundTask: (taskId: number) => Promise<void>;
+    };
+    let taskId: number;
+    try {
+        plugin = (await import('@transistorsoft/capacitor-background-geolocation')).default;
+        taskId = await plugin.startBackgroundTask();
+    } catch (error) {
+        log.warn('[SyncService] No background time for the push:', error);
+        return work;
+    }
+    let capTimer: ReturnType<typeof setTimeout> | null = null;
+    try {
+        await Promise.race([
+            work,
+            new Promise<void>((resolve) => {
+                capTimer = setTimeout(resolve, BACKGROUND_HOLD_MAX_MS);
+            }),
+        ]);
+    } finally {
+        if (capTimer) clearTimeout(capTimer);
+        await plugin.stopBackgroundTask(taskId).catch((error: unknown) => {
+            log.warn('[SyncService] Could not end the background task:', error);
+        });
+    }
+}
+
+let backgroundHold: Promise<void> | null = null;
+
+/**
+ * The app is leaving the screen: push what is queued NOW, not after the
+ * debounce and the cycle prelude. iOS suspends the web view's JavaScript soon
+ * after the app goes to the background, so an edit made just before the
+ * phone was locked would otherwise sit in the outbox until it is next opened,
+ * and the other device would never see it. On iOS the push runs inside a
+ * native background task so the OS lets it finish.
+ */
+function flushBeforeSuspend(): void {
+    if (!engineStarted || !navigator.onLine) return;
+    const pending = hasPendingOutbox();
+    if (!pending && !activeSync) return;
+    if (pending) {
+        if (promptPushTimer) {
+            clearTimeout(promptPushTimer);
+            promptPushTimer = null;
+        }
+        syncNowOrAfterActive(true);
+    }
+    if (backgroundHold) return;
+    backgroundHold = holdBackgroundTaskWhile(settleActiveCycles())
+        .catch((error) => log.warn('[SyncService] Background push failed:', error))
+        .finally(() => {
+            backgroundHold = null;
+        });
+}
+
+/**
+ * Catch up whenever the app comes back to the foreground, and push straight
+ * away when it leaves.
+ */
+function watchForeground(): () => void {
+    let stopped = false;
+    let appListener: { remove: () => unknown } | null = null;
+    const onVisibility = () => {
+        if (document.visibilityState === 'visible') requestCatchUpSync();
+        else if (document.visibilityState === 'hidden') flushBeforeSuspend();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    // WKWebView does not always fire visibilitychange on resume; the native
+    // app-state event does. Both landing together is one debounced cycle (and
+    // one push on the way out).
+    void import('@capacitor/app')
+        .then(({ App }) =>
+            Promise.resolve(
+                App.addListener('appStateChange', ({ isActive }) => {
+                    if (isActive) requestCatchUpSync();
+                    else flushBeforeSuspend();
+                }),
+            ),
+        )
+        .then((listener) => {
+            if (stopped) void listener?.remove();
+            else appListener = listener ?? null;
+        })
+        .catch(() => {
+            /* plugin unavailable (pure web): visibilitychange covers it */
+        });
+    return () => {
+        stopped = true;
+        document.removeEventListener('visibilitychange', onVisibility);
+        void appListener?.remove();
+        appListener = null;
+    };
 }
 
 // ── Main Sync Loop ─────────────────────────────────────────────
@@ -272,6 +577,7 @@ export function isFullReconciliationPending(): boolean {
 }
 
 async function runSyncCycle(): Promise<SyncResult> {
+    syncCycleSerial += 1;
     setStatus('syncing');
     const result: SyncResult = {
         pushed: 0,
@@ -280,8 +586,13 @@ async function runSyncCycle(): Promise<SyncResult> {
         discardedShared: 0,
         rehomedShared: 0,
         sharedOwnerIds: [],
+        pruned: 0,
     };
     let reconciliationVersionAtStart = fullReconciliationRequestVersion;
+    // A request made from here on needs a cycle that starts after it.
+    const sweepDeletions = deletionSweepRequested;
+    deletionSweepRequested = false;
+    const quiet = quietNextCycle;
 
     try {
         const databaseSession = getLocalDatabaseSession();
@@ -344,10 +655,12 @@ async function runSyncCycle(): Promise<SyncResult> {
 
         // ── Phase 2: PULL (incremental fetch) ──
         if (forceFull) forcedPullInFlight = true;
-        const pullResult = await pullUpdates(forceFull, databaseSession).finally(() => {
+        const pullResult = await pullUpdates(forceFull, databaseSession, sweepDeletions).finally(() => {
             forcedPullInFlight = false;
         });
         result.pulled = pullResult.count;
+        result.pruned = pullResult.pruned;
+        if (pullResult.sweepIncomplete) deletionSweepRequested = true;
         if (pullResult.errors.length > 0) {
             result.errors.push(...pullResult.errors);
         } else if (forceFull) {
@@ -363,13 +676,15 @@ async function runSyncCycle(): Promise<SyncResult> {
         result.errors.push(msg);
         setStatus('error');
         log.error('[SyncService] Sync failed:', msg);
+        // The sweep did not finish; the next cycle owes it.
+        if (sweepDeletions) deletionSweepRequested = true;
     }
 
     // Notify listeners
     listeners.forEach((fn) => fn(result));
 
-    // Haptic pulse on successful sync
-    if (result.pushed > 0 || result.pulled > 0) {
+    // Haptic pulse on successful sync (not for a prompt push or a catch-up)
+    if (!quiet && (result.pushed > 0 || result.pulled > 0)) {
         triggerHaptic('light');
     }
 
@@ -895,11 +1210,86 @@ function contentTypeForExtension(extension: string): string {
 
 // ── Phase 2: PULL ──────────────────────────────────────────────
 
+/** No signed-in session to pin a pull to: this cycle reads nothing more. */
+class NoPullSessionError extends Error {}
+
+/**
+ * The signed-in user's bearer, read just before a table is pulled or listed,
+ * and set on every page of it. Left to itself, supabase-js sends the ANON key
+ * on any request made while a token refresh fails with a retryable error (a
+ * dropped link, a 502/503/504): auth-js then hands getSession() a null session
+ * without signing out, and RLS answers anon with an empty list and HTTP 200.
+ * An empty listing pruned every clean binder row on this device, and an empty
+ * pull advanced the watermark past rows it never read. Pinned, a token that
+ * expires mid-table is a 401: an error, and nothing pruned or skipped.
+ * (fetchWithAuth fills Authorization only when the request has none.)
+ */
+async function pinnedBearer(databaseSession: LocalDatabaseSession): Promise<string> {
+    if (!supabase) throw new Error('Supabase not configured');
+    const { data, error } = await supabase.auth.getSession();
+    assertDatabaseSession(databaseSession);
+    const session = data?.session;
+    if (error || !session?.access_token) {
+        throw new NoPullSessionError(error?.message || 'No signed-in session to pull with');
+    }
+    if (session.user?.id !== databaseSession.identity) {
+        throw new NoPullSessionError('The signed-in session does not match the local database identity');
+    }
+    return `Bearer ${session.access_token}`;
+}
+
+function looksLikeCollapse(plan: PrunePlan): boolean {
+    if (plan.removing === 0) return false;
+    if (plan.visible === 0) return true;
+    return plan.eligible >= COLLAPSE_MIN_ROWS && plan.removing * 2 > plan.eligible;
+}
+
+/**
+ * The veto a prune runs under (see COLLAPSE_MIN_ROWS). `held` reports whether
+ * it held one back, so the caller asks for the second read.
+ */
+function collapseGuard(
+    table: SyncableTable,
+    databaseSession: LocalDatabaseSession,
+): { allowPrune: (plan: PrunePlan) => boolean; held: () => boolean } {
+    const cycle = syncCycleSerial;
+    const identity = databaseSession.identity ?? '';
+    let held = false;
+    const allowPrune = (plan: PrunePlan): boolean => {
+        const earlier = heldCollapses.get(table);
+        if (!looksLikeCollapse(plan)) {
+            heldCollapses.delete(table);
+            return true;
+        }
+        if (
+            earlier &&
+            earlier.identity === identity &&
+            earlier.cycle < cycle &&
+            Date.now() - earlier.at <= COLLAPSE_CONFIRM_WINDOW_MS
+        ) {
+            heldCollapses.delete(table);
+            log.warn(
+                `[SyncService] ${table}: a second read agrees; removing ${plan.removing} of ${plan.eligible} rows`,
+            );
+            return true;
+        }
+        if (earlier?.cycle !== cycle) heldCollapses.set(table, { identity, cycle, at: Date.now() });
+        held = true;
+        log.warn(
+            `[SyncService] ${table}: the server lists ${plan.visible} rows, missing ${plan.removing} of the ` +
+                `${plan.eligible} here; keeping them until a second read agrees`,
+        );
+        return false;
+    };
+    return { allowPrune, held: () => held };
+}
+
 async function pullUpdates(
     forceFull: boolean,
     databaseSession: LocalDatabaseSession,
-): Promise<{ count: number; errors: string[] }> {
-    if (!supabase) return { count: 0, errors: ['Supabase not configured'] };
+    sweepDeletions = false,
+): Promise<{ count: number; errors: string[]; pruned: number; sweepIncomplete: boolean }> {
+    if (!supabase) return { count: 0, errors: ['Supabase not configured'], pruned: 0, sweepIncomplete: sweepDeletions };
 
     const meta = getSyncMeta();
     assertDatabaseSession(databaseSession);
@@ -914,16 +1304,54 @@ async function pullUpdates(
     const reconcileSnapshot = forceFull || !meta.lastPullTimestamp || periodicFullDue;
     const since = reconcileSnapshot ? '1970-01-01T00:00:00Z' : replayOverlap(meta.lastPullTimestamp as string);
     let totalPulled = 0;
+    let totalPruned = 0;
+    let sweepIncomplete = false;
+    let collapseHeld = false;
     const errors: string[] = [];
 
     for (const table of SYNCABLE_TABLES) {
         try {
             assertDatabaseSession(databaseSession);
-            const pulled = await pullTable(table, since, completedWatermark, reconcileSnapshot, databaseSession);
-            totalPulled += pulled;
+            const { merged, pruned, held } = await pullTable(
+                table,
+                since,
+                completedWatermark,
+                reconcileSnapshot,
+                databaseSession,
+            );
+            totalPulled += merged;
+            totalPruned += pruned;
+            collapseHeld ||= held;
         } catch (e) {
+            // No session to pin: every other table would fail the same way
+            // (after auth-js's own retries each time). Stop here, and replay.
+            if (e instanceof NoPullSessionError) throw e;
             const msg = e instanceof Error ? e.message : 'Pull failed';
             errors.push(`${table}: ${msg}`);
+        }
+    }
+
+    // A full snapshot already pruned every table. Otherwise, when asked, list
+    // just the ids of the binder tables and drop clean local rows the server
+    // no longer has: a row deleted on another device while this one was not
+    // listening. Best effort: a failure is retried by the next cycle and never
+    // fails this one, whose incremental pull stands on its own.
+    if (sweepDeletions && !reconcileSnapshot) {
+        for (const table of SYNCABLE_TABLES) {
+            if (!TABLE_REGISTER[table]) continue;
+            try {
+                assertDatabaseSession(databaseSession);
+                const swept = await sweepDeletedRows(table, completedWatermark, databaseSession);
+                totalPruned += swept.pruned;
+                collapseHeld ||= swept.held;
+            } catch (e) {
+                if (!isLocalDatabaseSessionCurrent(databaseSession) || e instanceof NoPullSessionError) throw e;
+                sweepIncomplete = true;
+                log.warn(
+                    `[SyncService] Could not check ${table} for rows deleted elsewhere:`,
+                    e instanceof Error ? e.message : e,
+                );
+            }
         }
     }
 
@@ -937,7 +1365,56 @@ async function pullUpdates(
         });
     }
 
-    return { count: totalPulled, errors };
+    // A held collapse is read again by a full reconciliation straight after
+    // this cycle; the prune happens there if that read agrees.
+    if (collapseHeld) {
+        void requestFullReconciliation().catch((error) =>
+            log.warn('[SyncService] Could not re-read a held collapse:', error),
+        );
+    }
+
+    return { count: totalPulled, errors, pruned: totalPruned, sweepIncomplete };
+}
+
+/**
+ * Every id of `table` this account can see, read in id order (ids only, so a
+ * few kilobytes) with the user's own token, then prune the clean local rows
+ * missing from it. Rows stamped after `watermark` arrived after the listing
+ * began and are kept, and a listing that would empty the table is held.
+ */
+async function sweepDeletedRows(
+    table: SyncableTable,
+    watermark: string,
+    databaseSession: LocalDatabaseSession,
+): Promise<{ pruned: number; held: boolean }> {
+    if (!supabase) return { pruned: 0, held: false };
+    const authorization = await pinnedBearer(databaseSession);
+    const visibleIds = new Set<string>();
+    let after: string | null = null;
+    for (;;) {
+        assertDatabaseSession(databaseSession);
+        let query = supabase
+            .from(table)
+            .select('id')
+            .setHeader('Authorization', authorization)
+            .order('id', { ascending: true });
+        if (after !== null) query = query.gt('id', after);
+        const { data, error } = await query.limit(PULL_PAGE_SIZE);
+        assertDatabaseSession(databaseSession);
+        if (error) throw new Error(error.message);
+        const rows = (data ?? []) as { id?: unknown }[];
+        for (const row of rows) {
+            if (typeof row.id !== 'string') throw new Error('Sync row is missing its record ID');
+            visibleIds.add(row.id);
+        }
+        if (rows.length < PULL_PAGE_SIZE) break;
+        after = rows[rows.length - 1].id as string;
+    }
+    assertDatabaseSession(databaseSession);
+    const guard = collapseGuard(table, databaseSession);
+    const pruned =
+        (await prunePulledTable(table, visibleIds, { keepUpdatedAfter: watermark, allowPrune: guard.allowPrune })) ?? 0;
+    return { pruned, held: guard.held() };
 }
 
 function replayOverlap(timestamp: string): string {
@@ -965,8 +1442,8 @@ async function pullTable(
     until: string,
     reconcileSnapshot: boolean,
     databaseSession: LocalDatabaseSession,
-): Promise<number> {
-    if (!supabase) return 0;
+): Promise<{ merged: number; pruned: number; held: boolean }> {
+    if (!supabase) return { merged: 0, pruned: 0, held: false };
 
     // Normalize the timestamp to strict UTC ISO format (Z suffix).
     // PostgREST misinterprets '+' in timezone offsets like '+10:00' as a space.
@@ -984,6 +1461,7 @@ async function pullTable(
     let cursor: { updatedAt: string; id: string } | null = null;
     let merged = 0;
     const visibleIds = reconcileSnapshot ? new Set<string>() : null;
+    const authorization = await pinnedBearer(databaseSession);
 
     // PostgREST responses are capped, so page through the bounded server-time
     // window. Advancing the watermark after a single capped response would
@@ -993,6 +1471,7 @@ async function pullTable(
         let query = supabase
             .from(table)
             .select('*')
+            .setHeader('Authorization', authorization)
             .gt('updated_at', normalizedSince)
             .lte('updated_at', until)
             .order('updated_at', { ascending: true })
@@ -1014,7 +1493,11 @@ async function pullTable(
                 visibleIds.add(row.id);
             }
         }
-        merged += await mergePulledRecords(table, data as { id: string; updated_at?: string; created_at?: string }[]);
+        // `until` fences a page read before another device's change landed
+        // here by realtime: that newer local row is not put back to the old one.
+        merged += await mergePulledRecords(table, data as { id: string; updated_at?: string; created_at?: string }[], {
+            until,
+        });
         if (data.length < PULL_PAGE_SIZE) break;
         const last = data[data.length - 1] as { id?: unknown; updated_at?: unknown };
         if (typeof last.id !== 'string' || typeof last.updated_at !== 'string') {
@@ -1023,11 +1506,19 @@ async function pullTable(
         cursor = { updatedAt: last.updated_at, id: last.id };
     }
 
+    let pruned = 0;
+    let held = false;
     if (visibleIds) {
         assertDatabaseSession(databaseSession);
-        await prunePulledTable(table, visibleIds);
+        // Rows stamped after the snapshot's upper bound reached this device
+        // after the read began (realtime); missing from it is not deleted.
+        // A snapshot that would empty the table is held for a second read.
+        const guard = collapseGuard(table, databaseSession);
+        pruned =
+            (await prunePulledTable(table, visibleIds, { keepUpdatedAfter: until, allowPrune: guard.allowPrune })) ?? 0;
+        held = guard.held();
     }
-    return merged;
+    return { merged, pruned, held };
 }
 
 // ── Convenience: Force full refresh ────────────────────────────

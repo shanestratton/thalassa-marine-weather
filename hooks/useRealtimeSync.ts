@@ -9,7 +9,12 @@
  * Usage:
  *   useRealtimeSync('inventory_items', loadItems);
  *
- * The subscription is automatically cleaned up on unmount.
+ * The subscription is automatically cleaned up on unmount. One page holds one
+ * channel, whatever its table count. RLS limits what the socket delivers: the
+ * Supabase client authenticates realtime with the signed-in session's token.
+ * Every join (the first, and each rejoin after a drop) asks the sync engine to
+ * catch up, since realtime never replays what it missed; a channel the server
+ * closes for good is opened again.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -112,38 +117,84 @@ async function applyChange(
 }
 
 /**
- * Subscribe to realtime changes on a Supabase table.
- * Calls `onSync` whenever any INSERT, UPDATE, or DELETE occurs.
- *
- * @param table - The Supabase table name (e.g., 'inventory_items')
- * @param onSync - Callback to reload data (e.g., loadItems)
- * @param enabled - Optional flag to enable/disable the subscription
+ * Subscribe, then fetch. Realtime never replays what happened before a
+ * channel joined, nor while it was down, so every join asks the sync engine to
+ * catch up (deletes included): the first one, because the page has just opened
+ * and this device may have missed changes while nothing was listening (the
+ * iPad sat on the Nav Station while the phone deleted a Stores item), and
+ * every rejoin after a drop (realtime-js rejoins an errored channel on its
+ * own). The sync engine debounces and spaces these.
  */
-export function useRealtimeSync(table: string, onSync: () => void, enabled: boolean = true): void {
+function requestCatchUpAfterJoin(scope: AuthIdentityScope, isActive: () => boolean): void {
+    void import('../services/vessel/SyncService')
+        .then(({ requestCatchUpSync }) => {
+            if (!isActive() || !isAuthIdentityScopeCurrent(scope)) return;
+            requestCatchUpSync();
+        })
+        .catch((error) => log.warn('[Realtime] Could not request a catch-up sync:', error));
+}
+
+/**
+ * A channel realtime-js has CLOSED for good (the server closed it, say after
+ * a long background with an expired token, or a binding mismatch made the
+ * client leave it) never rejoins by itself. The page opens a new one after
+ * this backoff, a few times at most: past that, the foreground catch-up and
+ * the five-minute cycle still bring changes in.
+ */
+const REOPEN_BASE_DELAY_MS = 2000;
+const REOPEN_MAX_DELAY_MS = 30_000;
+const REOPEN_MAX_ATTEMPTS = 6;
+/**
+ * Only a join that stays up this long earns a fresh set of reopens. Reset on
+ * every join, a server that accepts a channel and closes it at once had the
+ * page reopening it (and asking for a catch-up) every couple of seconds for
+ * as long as the page stayed open.
+ */
+const REOPEN_STABLE_MS = 60_000;
+
+/**
+ * One realtime channel for one open page, with a postgres_changes binding per
+ * table (Maintenance listens to tasks AND history on the same socket channel).
+ */
+function useRealtimeChannel(tables: readonly string[], onSync: () => void, enabled: boolean): void {
     const onSyncRef = useRef(onSync);
     const [channelId] = useState(() => ++channelInstance);
     const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
     onSyncRef.current = onSync;
+    const tableKey = tables.join(',');
 
     useEffect(() => {
         const client = supabase;
-        if (!client || !enabled) return;
+        const subscribedTables = tableKey ? tableKey.split(',') : [];
+        if (!client || !enabled || subscribedTables.length === 0) return;
 
         let active = true;
         let channel: RealtimeChannel | null = null;
+        let reopenAttempts = 0;
+        let reopenTimer: ReturnType<typeof setTimeout> | null = null;
+        let stableTimer: ReturnType<typeof setTimeout> | null = null;
+        const clearStableTimer = () => {
+            if (stableTimer) clearTimeout(stableTimer);
+            stableTimer = null;
+        };
+        const isActive = () => active;
+        const label = subscribedTables.join(', ');
 
-        // Small delay to avoid subscribing during rapid navigation
-        const timer = setTimeout(() => {
+        const open = (attempt: number) => {
             if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
             try {
-                channel = client
-                    .channel(`realtime-${table}-${channelId}-${identityScope.generation}`)
-                    .on(
+                let next = client.channel(
+                    `realtime-${subscribedTables.join('+')}-${channelId}-${identityScope.generation}${
+                        attempt > 0 ? `-r${attempt}` : ''
+                    }`,
+                );
+                for (const table of subscribedTables) {
+                    next = next.on(
                         'postgres_changes',
                         {
                             event: '*', // INSERT, UPDATE, DELETE
                             schema: 'public',
-                            table: table,
+                            table,
                         },
                         (payload) => {
                             if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
@@ -156,7 +207,7 @@ export function useRealtimeSync(table: string, onSync: () => void, enabled: bool
                                 payload as unknown as RealtimePayload,
                                 () => onSyncRef.current(),
                                 identityScope,
-                                () => active,
+                                isActive,
                             ).catch((error) => {
                                 if (!active) return;
                                 log.warn(`[Realtime] Failed to apply ${table} change:`, error);
@@ -167,85 +218,80 @@ export function useRealtimeSync(table: string, onSync: () => void, enabled: bool
                                 if (isAuthIdentityScopeCurrent(identityScope)) onSyncRef.current();
                             });
                         },
-                    )
-                    .subscribe((status) => {
-                        if (active && status === 'SUBSCRIBED') {
-                            log.debug(`[Realtime] Listening on ${table}`);
-                        }
-                    });
+                    );
+                }
+                const opened = next;
+                channel = opened;
+                opened.subscribe((status) => {
+                    // A status from a channel this page already let go of
+                    // (unmounted, or closed and replaced) changes nothing.
+                    if (!active || channel !== opened) return;
+                    clearStableTimer();
+                    if (status === 'SUBSCRIBED') {
+                        stableTimer = setTimeout(() => {
+                            stableTimer = null;
+                            reopenAttempts = 0;
+                        }, REOPEN_STABLE_MS);
+                        log.debug(`[Realtime] Joined ${label} — catching up`);
+                        requestCatchUpAfterJoin(identityScope, isActive);
+                    } else if (status === 'CLOSED') {
+                        // realtime-js already removed it from the socket.
+                        channel = null;
+                        reopenLater();
+                    }
+                });
             } catch (error) {
-                if (active) log.warn(`[Realtime] Could not subscribe to ${table}:`, error);
+                if (active) log.warn(`[Realtime] Could not subscribe to ${label}:`, error);
             }
-        }, 300);
+        };
+
+        const reopenLater = () => {
+            if (!active || reopenTimer) return;
+            if (reopenAttempts >= REOPEN_MAX_ATTEMPTS) {
+                log.warn(`[Realtime] ${label} channel keeps closing; relying on catch-up syncs`);
+                return;
+            }
+            const delay = Math.min(REOPEN_MAX_DELAY_MS, REOPEN_BASE_DELAY_MS * 2 ** reopenAttempts);
+            reopenAttempts += 1;
+            const attempt = reopenAttempts;
+            reopenTimer = setTimeout(() => {
+                reopenTimer = null;
+                open(attempt);
+            }, delay);
+        };
+
+        // Small delay to avoid subscribing during rapid navigation
+        const timer = setTimeout(() => open(0), 300);
 
         return () => {
             active = false;
             clearTimeout(timer);
+            clearStableTimer();
+            if (reopenTimer) clearTimeout(reopenTimer);
+            reopenTimer = null;
             if (channel) {
                 client.removeChannel(channel);
             }
         };
-    }, [channelId, table, enabled, identityScope]);
+    }, [channelId, tableKey, enabled, identityScope]);
 }
 
 /**
- * Subscribe to realtime changes on multiple tables.
+ * Subscribe to realtime changes on a Supabase table.
+ * Calls `onSync` whenever any INSERT, UPDATE, or DELETE occurs.
+ *
+ * @param table - The Supabase table name (e.g., 'inventory_items')
+ * @param onSync - Callback to reload data (e.g., loadItems)
+ * @param enabled - Optional flag to enable/disable the subscription
+ */
+export function useRealtimeSync(table: string, onSync: () => void, enabled: boolean = true): void {
+    useRealtimeChannel([table], onSync, enabled);
+}
+
+/**
+ * Subscribe to realtime changes on multiple tables, on ONE channel.
  * Useful for Maintenance which spans tasks + history.
  */
 export function useRealtimeSyncMulti(tables: string[], onSync: () => void, enabled: boolean = true): void {
-    const onSyncRef = useRef(onSync);
-    const [channelId] = useState(() => ++channelInstance);
-    const identityScope = useSyncExternalStore(subscribeIdentitySnapshot, getIdentitySnapshot, getIdentitySnapshot);
-    onSyncRef.current = onSync;
-
-    useEffect(() => {
-        const client = supabase;
-        if (!client || !enabled || tables.length === 0) return;
-
-        let active = true;
-        const channels: RealtimeChannel[] = [];
-
-        const timer = setTimeout(() => {
-            if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
-            tables.forEach((table) => {
-                if (!active) return;
-                try {
-                    const channel = client.channel(`realtime-${table}-${channelId}-${identityScope.generation}`).on(
-                        'postgres_changes',
-                        {
-                            event: '*',
-                            schema: 'public',
-                            table: table,
-                        },
-                        (payload) => {
-                            if (!active || !isAuthIdentityScopeCurrent(identityScope)) return;
-                            log.debug(`[Realtime] ${table} changed — syncing`);
-                            void applyChange(
-                                table,
-                                payload as unknown as RealtimePayload,
-                                () => onSyncRef.current(),
-                                identityScope,
-                                () => active,
-                            ).catch((error) => {
-                                if (!active) return;
-                                log.warn(`[Realtime] Failed to apply ${table} change:`, error);
-                                if (isAuthIdentityScopeCurrent(identityScope)) onSyncRef.current();
-                            });
-                        },
-                    );
-                    channels.push(channel);
-                    channel.subscribe();
-                } catch (error) {
-                    if (active) log.warn(`[Realtime] Could not subscribe to ${table}:`, error);
-                }
-            });
-        }, 300);
-
-        return () => {
-            active = false;
-            clearTimeout(timer);
-            channels.forEach((ch) => client.removeChannel(ch));
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [channelId, tables.join(','), enabled, identityScope]);
+    useRealtimeChannel(tables, onSync, enabled);
 }

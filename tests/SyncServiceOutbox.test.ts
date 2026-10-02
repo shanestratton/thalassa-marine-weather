@@ -125,6 +125,11 @@ vi.mock('../services/supabase', () => ({
         rpc: harness.rpc,
         auth: {
             getUser: harness.getUser,
+            // Every pull pins the signed-in user's token (review 2026-10-02).
+            getSession: vi.fn(async () => ({
+                data: { session: { access_token: 'token-user-1', user: { id: 'user-1' } } },
+                error: null,
+            })),
         },
         storage: {
             from: vi.fn(() => ({
@@ -206,6 +211,7 @@ function makeQueryBuilder(table: string) {
             if (mode === 'pull' && columns === 'id') mode = 'lookup';
             return builder;
         }),
+        setHeader: vi.fn(() => builder),
         gt: vi.fn(() => builder),
         lte: vi.fn(() => builder),
         order: vi.fn(() => builder),
