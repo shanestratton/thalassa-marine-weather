@@ -24,7 +24,13 @@ import { validateAutoroutingVesselProfile } from '../supabase/functions/_shared/
 import { thalassaVesselWarnings } from './autoroutingVesselProfile';
 import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
 import { waterPackRefusal, type WaterPackEnd } from './waterPack/waterPackWords';
-import { chartedLandFinding, landBackstopRefusal } from './routing/landBackstopWords';
+import {
+    BackstopLandRefusal,
+    backstopUnavailableNote,
+    backstopUnavailableWords,
+    chartedLandFinding,
+    landBackstopRefusal,
+} from './routing/landBackstopWords';
 import {
     dangerWithoutChartedDepth,
     inshoreSegmentStates,
@@ -72,7 +78,6 @@ const PAINT_YIELD_MS = 80;
 const AUTH_REQUIRED = 'Sign in to use Auto routing.';
 const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
 const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a shorter passage. Nothing changed.';
-const BACKSTOP_UNAVAILABLE = 'Satellite land check unavailable (offline): checked against the installed charts only.';
 const BUCKET_UNREACHABLE =
     "This passage needs charts this phone doesn't have, and the chart cloud isn't reachable. Check your connection and that you're signed in (the charts are licensed). Nothing changed.";
 const NOT_SIGNED_IN_FILL =
@@ -415,7 +420,9 @@ export async function calculateThalassaProposal(
         );
 
     // The satellite land check, as the passage planner runs it. Land refuses;
-    // offline (its cache is in memory only) the route is shown and says so.
+    // when the check cannot finish the route is shown and says what happened
+    // (2026-10-02: online, it had timed out and said "offline"), and Review's
+    // Retry re-runs the check alone from the chart verdicts kept here.
     // ETOPO land counts only where this route's own charts do not vouch for
     // water (2026-10-02, Coral Sea Marina → Daydream Island: its ~1.8 km
     // pixels read the marina and the deep water off a headland as land), and
@@ -427,6 +434,7 @@ export async function calculateThalassaProposal(
     if (backstop.status === 'verified' && backstop.crossesLand) throw new Error(landBackstopRefusal(backstop));
     const backstopState: ThalassaRouteDisclosure['backstop'] =
         backstop.status === 'verified' ? 'verified' : 'unavailable';
+    const backstopReason = backstopState === 'unavailable' ? backstopUnavailableWords(backstop.unavailable) : null;
 
     const coordinates = polyline.map(([lon, lat]): [number, number] => [lon, lat]);
     const engineCaveats = inshoreRouteCaveats({
@@ -455,7 +463,7 @@ export async function calculateThalassaProposal(
         extra.push(
             `Your destination pin sits ~${Math.round(ok.destinationInlandTrimM)} m onto charted land — the route ends at the nearest navigable water.`,
         );
-    if (backstopState === 'unavailable') extra.push(BACKSTOP_UNAVAILABLE);
+    if (backstopReason) extra.push(backstopUnavailableNote(backstopReason));
     // A route end short of its pin is said (the fix-first follow-up): unless
     // the engine already said why (a pin on land, a bank or water no tide clears).
     if (startGapM > PIN_GAP_SAY_M && !startExplained)
@@ -483,6 +491,8 @@ export async function calculateThalassaProposal(
         ...(ok.offshoreMask ? { offshoreMask: [...ok.offshoreMask] } : {}),
         ...(ok.chartedShallowMask ? { chartedShallowMask: [...ok.chartedShallowMask] } : {}),
         ...(ok.landPaintConflictMask ? { landPaintConflictMask: [...ok.landPaintConflictMask] } : {}),
+        ...(ok.cautionWhy ? { cautionWhy: [...ok.cautionWhy] } : {}),
+        ...(ok.cautionDepthM ? { cautionDepthM: [...ok.cautionDepthM] } : {}),
         ...(ok.tideDepthM ? { tideDepthM: [...ok.tideDepthM] } : {}),
         ...(typeof ok.tideNeedM === 'number' ? { tideNeedM: ok.tideNeedM } : {}),
         ...(ok.shallowRuns ? { shallowRuns: copy(ok.shallowRuns) } : {}),
@@ -498,6 +508,10 @@ export async function calculateThalassaProposal(
         elapsedMs: ok.elapsedMs,
         ...(ok.debug?.seaway ? { seaway: copy(ok.debug.seaway) } : {}),
         backstop: backstopState,
+        ...(backstopReason ? { backstopReason } : {}),
+        ...(backstopReason && Array.isArray(backstop.chartVerdicts)
+            ? { backstopCharts: [...backstop.chartVerdicts] }
+            : {}),
         ...(ok.hardLand ? { hardLandAwayM: ok.hardLand.awayM } : {}),
         ...(typeof ok.tideCeilingsLoaded === 'boolean' ? { tideCeilingsLoaded: ok.tideCeilingsLoaded } : {}),
     };
@@ -510,4 +524,41 @@ export async function calculateThalassaProposal(
         ...(vesselProfile ? { vesselProfile } : {}),
         engine,
     };
+}
+
+/**
+ * Review's Retry for the satellite land check (2026-10-02): the check alone,
+ * on this exact line, from the chart verdicts the proposal kept — never the
+ * route, never the chart review. Resolves with the proposal as it now stands:
+ * the same id and line, its backstop 'verified' and the note dropped, or still
+ * 'unavailable' with what happened this time. Throws Auto's land refusal as a
+ * BackstopLandRefusal when the check now finds land (the route must not be
+ * shown), and a plain Error when this proposal cannot be rechecked here
+ * (Recalculate instead) — Review keeps the route for that one.
+ */
+export async function recheckThalassaBackstop(route: AutoroutingTrialRoute): Promise<AutoroutingTrialRoute> {
+    const engine = route.engine;
+    if (route.provider !== 'Thalassa' || route.localEdit !== undefined || !engine)
+        throw new Error('This route cannot be rechecked here. Recalculate.');
+    if (engine.backstop === 'verified') return route;
+    const scope = getAuthIdentityScope();
+    const { inshoreRouteCrossesLand, samplePolyline } = await import('./routing/landBackstop');
+    const charts = engine.backstopCharts;
+    if (!Array.isArray(charts) || charts.length !== samplePolyline(route.coordinates).length)
+        throw new Error("This route's chart evidence for the satellite check is not kept. Recalculate.");
+    const backstop = await inshoreRouteCrossesLand(route.coordinates, { chartVerdicts: charts });
+    if (!isAuthIdentityScopeCurrent(scope)) throw abortError();
+    if (backstop.status === 'verified' && backstop.crossesLand)
+        throw new BackstopLandRefusal(landBackstopRefusal(backstop));
+    const oldNote = engine.backstopReason ? backstopUnavailableNote(engine.backstopReason) : null;
+    const others = route.warnings.filter((w) => w !== oldNote);
+    if (backstop.status === 'verified') {
+        const { backstopReason: _reason, backstopCharts: _charts, ...rest } = engine;
+        return { ...route, warnings: others, engine: { ...rest, backstop: 'verified' } };
+    }
+    const backstopReason = backstopUnavailableWords(backstop.unavailable);
+    const note = backstopUnavailableNote(backstopReason);
+    const at = oldNote ? route.warnings.indexOf(oldNote) : -1;
+    const warnings = at >= 0 ? route.warnings.map((w, i) => (i === at ? note : w)) : [...route.warnings, note];
+    return { ...route, warnings, engine: { ...engine, backstop: 'unavailable', backstopReason } };
 }

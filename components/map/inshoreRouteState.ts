@@ -60,6 +60,7 @@
  */
 import {
     AMBER_SURVEY_REASONS,
+    CAUTION_WHY,
     type ChartedShallowSpan,
     type ShallowRunInfo,
     type SurveyRunInfo,
@@ -95,6 +96,8 @@ export interface InshoreRouteMasks {
     offshoreMask?: readonly boolean[];
     chartedShallowMask?: readonly boolean[];
     landPaintConflictMask?: readonly boolean[];
+    /** Why each caution segment is caution (engine CAUTION_WHY bits). */
+    cautionWhy?: readonly number[];
     shallowRuns?: readonly ShallowRunInfo[];
     tideDepthM?: readonly (number | null)[];
     chartedShallowSpans?: readonly ChartedShallowSpan[];
@@ -117,12 +120,19 @@ export function inshoreSegmentStates(r: InshoreRouteMasks): InshoreSegmentState[
               (r.shallowRuns ?? []).some((run) => run.minDepthM !== null && run.startSeg <= i && i <= run.endSeg),
           );
     const conflict = hasMask(r.landPaintConflictMask) ? r.landPaintConflictMask : null;
+    // Caution for its 50 m cells alone (round 2, 2026-10-02): the exact
+    // reading of the line found a chart depth everywhere, none below the
+    // floor, no decision-1 water and no hazard's buffer — the field route's
+    // North Molle corner, red where a 2 m shore band only touched the cells
+    // while the line charted 5 m+ and the leg review said "no issue found".
+    const why = r.cautionWhy && r.cautionWhy.length === segCount ? r.cautionWhy : null;
     return Array.from({ length: segCount }, (_, i): InshoreSegmentState => {
-        if (cautionMask[i] && chartedShallow[i]) return 'danger'; // charted-shallow RED (beats yellow)
-        if (cautionMask[i] && conflict?.[i]) return 'danger'; // decision-1 water RED (beats yellow)
+        const caution = cautionMask[i] && why?.[i] !== CAUTION_WHY.GRID_ONLY;
+        if (caution && chartedShallow[i]) return 'danger'; // charted-shallow RED (beats yellow)
+        if (caution && conflict?.[i]) return 'danger'; // decision-1 water RED (beats yellow)
         if (channelMask[i]) return 'channel'; // marked channel YELLOW (beats other caution)
         if (canalMask[i]) return 'danger'; // canal/marina RED
-        if (cautionMask[i]) return 'danger'; // shallow/uncharted OPEN water RED
+        if (caution) return 'danger'; // shallow/uncharted OPEN water RED
         return offshoreMask[i] ? 'offshore' : 'green';
     });
 }

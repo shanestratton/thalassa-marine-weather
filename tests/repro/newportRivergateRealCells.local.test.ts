@@ -93,6 +93,17 @@ vi.mock('../../services/GebcoDepthService', async (original) => {
         GebcoDepthService: {
             queryRouteDepths: async (points: { lat: number; lon: number }[]) =>
                 points.map((p) => ({ lat: p.lat, lon: p.lon, depth_m: lookup(p.lat, p.lon) })),
+            // The satellite land check's own call since 2026-10-02 (one grid
+            // request per route; the same nearest pixel).
+            queryRouteRelief: async (points: { lat: number; lon: number }[]) => {
+                const depths = points.map((p) => ({ lat: p.lat, lon: p.lon, depth_m: lookup(p.lat, p.lon) }));
+                const missing = depths.filter((d) => d.depth_m === null).length;
+                return {
+                    depths,
+                    failure: missing > 0 ? { kind: 'partial' as const, missing, total: points.length } : null,
+                    requests: 1,
+                };
+            },
         },
     };
 });

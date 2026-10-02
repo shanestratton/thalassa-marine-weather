@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { AutoroutingTrialRoute } from '../../types/autorouting';
 import {
     isTrialTrackAdvisory,
+    routeNoteWhere,
     trialChartTrackAdvisories,
     trialDisplayWaypointGrade,
     TRIAL_GRADE_COLORS,
@@ -9,6 +10,7 @@ import {
 } from '../../services/autoroutingReview';
 import type { TracePoint } from '../../services/routeTracer';
 import { NEEDS_TIDE_AMBER, SURVEY_DASH } from '../map/inshoreRouteState';
+import type { RouteRedStretch } from '../map/routeRedReasons';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 import {
     buildTrialWaypointPlan,
@@ -19,6 +21,11 @@ import {
 import './TrialRouteReviewPanel.css';
 
 const PAGE_SIZE = 20;
+
+/** "40 m", "1.2 km". */
+const redLength = (m: number): string =>
+    m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.max(10, Math.round(m / 10) * 10)} m`;
+
 const control = 'min-h-11 rounded-lg border border-white/15 px-3 text-micro font-bold disabled:opacity-40';
 export function TrialRouteReviewPanel({
     coordinates,
@@ -32,6 +39,7 @@ export function TrialRouteReviewPanel({
     onInspectWaypoint,
     onStop,
     onRecheck,
+    redStretches = [],
 }: {
     coordinates: AutoroutingTrialRoute['coordinates'];
     waypoints?: TrialDisplayWaypoint[];
@@ -44,6 +52,9 @@ export function TrialRouteReviewPanel({
     onInspectWaypoint?: (index: number) => void;
     onStop: () => void;
     onRecheck: () => void;
+    /** Every stretch the map draws red, with why (routeRedStretches, cut at
+     *  the display waypoints) — listed under the leg it is on (2026-10-02). */
+    redStretches?: readonly RouteRedStretch[];
 }) {
     // Waypoints are a presentation plan only. The route and every original
     // segment verdict remain untouched, including at fractional spacing points.
@@ -112,20 +123,31 @@ export function TrialRouteReviewPanel({
         <section aria-label="Route chart checks" className="trial-review-panel space-y-2">
             {route && (
                 <section
-                    aria-label="What this route must say"
+                    aria-label="Route notes"
                     className="trial-route-notes rounded-lg border border-amber-300/30 p-2 space-y-1 text-micro"
                 >
-                    <h3 className="font-bold text-amber-300">What this route must say</h3>
+                    {/* The same words as the summary's count (round 2, 2026-10-02:
+                        "4 route notes · review required" pointed at a list
+                        headed something else). */}
+                    <h3 className="font-bold text-amber-300">
+                        {route.warnings.length} route {route.warnings.length === 1 ? 'note' : 'notes'} · what this route
+                        must say
+                    </h3>
                     {route.localEdit && (
                         <p className="font-semibold">
                             From the original route, before waypoint edits · historical, not checks of this line.
                         </p>
                     )}
-                    <ul className="space-y-1 text-amber-200">
+                    <ol className="space-y-1 text-amber-200">
                         {route.warnings.map((warning, index) => (
-                            <li key={index}>{warning}</li>
+                            <li key={index}>
+                                <span className="font-semibold text-amber-300">
+                                    {routeNoteWhere(warning, waypoints.length)} ·{' '}
+                                </span>
+                                {warning}
+                            </li>
                         ))}
-                    </ul>
+                    </ol>
                 </section>
             )}
             {routerColours && (
@@ -244,6 +266,18 @@ export function TrialRouteReviewPanel({
                                 : [],
                         );
                         const minDepthM = knownDepths.length ? Math.min(...knownDepths) : null;
+                        // The router's red on this leg, cut at the waypoints so
+                        // each stretch is on one leg only.
+                        const legFrom = index > 0 ? waypoints[index - 1].pathIndex : 0;
+                        const legTo = waypoint.pathIndex;
+                        const redHere =
+                            index > 0
+                                ? redStretches.filter((stretch) => {
+                                      const mid =
+                                          (stretch.startSeg + stretch.startT + stretch.endSeg + stretch.endT) / 2;
+                                      return mid > legFrom && mid < legTo;
+                                  })
+                                : [];
                         const color = TRIAL_GRADE_COLORS[grade];
                         const advisoryCount = segments.reduce(
                             (count, { index: segmentIndex, leg }) =>
@@ -293,12 +327,40 @@ export function TrialRouteReviewPanel({
                                 </button>
                                 {index > 0 && (
                                     <p className="trial-review-leg text-micro text-gray-200">
-                                        Leg {index}→{index + 1}: {grade === 'clear' ? 'no issue found' : grade}
+                                        Leg {index}→{index + 1}:{' '}
+                                        {grade === 'clear'
+                                            ? redHere.length > 0
+                                                ? 'the chart check found no issue'
+                                                : 'no issue found'
+                                            : grade}
                                         {minDepthM != null
                                             ? ` · ${minDepthM.toFixed(1)} m least${knownDepths.length < segments.length ? ' known' : ''}`
                                             : ' · depth not established'}
                                         {hasUnchecked && grade !== 'unchecked' ? ' · checks incomplete' : ''}
+                                        {redHere.length > 0 ? ' · drawn red on the map, why below' : ''}
                                     </p>
+                                )}
+                                {redHere.length > 0 && (
+                                    <div
+                                        className="trial-review-router-red"
+                                        aria-label={`Why leg ${index}→${index + 1} is red`}
+                                    >
+                                        {redHere.map((stretch, n) => (
+                                            <button
+                                                key={n}
+                                                type="button"
+                                                className="block min-h-11 text-left text-micro underline decoration-dotted"
+                                                data-severity="danger"
+                                                style={{ color: TRIAL_GRADE_COLORS.danger }}
+                                                onClick={() => {
+                                                    onSelect(index);
+                                                    onFocus(stretch.at);
+                                                }}
+                                            >
+                                                Red on the map ({redLength(stretch.lengthM)}): {stretch.why} ↗
+                                            </button>
+                                        ))}
+                                    </div>
                                 )}
                                 {segments.map(({ index: segmentIndex, leg }) => {
                                     const verdict = leg?.verdict;

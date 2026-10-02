@@ -562,6 +562,39 @@ for (const size of [sizes[0], sizes[2]]) {
     });
 }
 
+// Shane's field route, 2026-10-02, online: "The satellite land check has not
+// run for this route (offline)" with Save off. Review now says what happened,
+// and Retry re-runs the check alone.
+test('Review says why the satellite check could not run, and Retry runs only the check', async ({ page }) => {
+    await openFixture(page, sizes[0], 'dark', 'ready', 'backstop=timeout', 'grouped');
+    await calculateSmallFixtureRoute(page);
+    await showReview(page);
+    await expect(page.getByText('5 route notes · review required')).toBeVisible();
+    const notes = page.getByRole('region', { name: 'Route notes' });
+    await expect(notes.getByRole('heading')).toHaveText('5 route notes · what this route must say');
+    const check = page.getByRole('region', { name: 'Satellite land check' });
+    await expect(check).toContainText(
+        "Satellite land check couldn't be done just now: the satellite relief service didn't answer within 12 s.",
+    );
+    await expect(page.getByRole('region', { name: 'Save planned proposal' })).toContainText(
+        'Retry the check before saving.',
+    );
+    await expect(page.getByRole('button', { name: 'Save as planned route' })).toBeDisabled();
+    expect(await page.getByRole('dialog', { name: 'Autorouting trial' }).innerText()).not.toMatch(/offline/i);
+    const retry = check.getByRole('button', { name: 'Retry satellite check' });
+    await retry.scrollIntoViewIfNeeded();
+    await retry.click();
+    await expect(check).toHaveCount(0);
+    await expect(page.getByText('4 route notes · review required')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Save planned proposal' })).not.toContainText('satellite');
+    expect(await fixtureCounts(page)).toMatchObject({ calculations: 1 });
+    expect(
+        await page.evaluate(
+            () => (window as unknown as { __trialFixture: { backstopRetries: number } }).__trialFixture.backstopRetries,
+        ),
+    ).toBe(1);
+});
+
 test('Waypoint tap target accepts a near-edge touch without changing route geometry', async ({ page }) => {
     await openFixture(page, sizes[0], 'light', 'ready', '', 'grouped');
     await calculateSmallFixtureRoute(page);
@@ -1120,9 +1153,7 @@ for (const size of sizes)
             await showReview(page);
             const proposal = page.getByRole('region', { name: 'Trial proposal' });
             await expect(proposal).toContainText('Thalassa proposal');
-            await expect(page.getByRole('region', { name: 'What this route must say' })).toContainText(
-                'Fixture warning 4',
-            );
+            await expect(page.getByRole('region', { name: 'Route notes' })).toContainText('Fixture warning 4');
             const checks = page.getByRole('region', { name: 'Route chart checks' });
             await expect(checks).toBeVisible();
             await expect(checks.getByRole('list', { name: 'Proposal waypoints' }).locator('li')).toHaveCount(3);
@@ -1405,7 +1436,7 @@ test('Real engine: two pins and Calculate draw a Thalassa route round the island
     expect(across).toBe(0);
     await showReview(page);
     await expect(page.getByRole('region', { name: 'Trial proposal' })).toContainText('Thalassa proposal');
-    await expect(page.getByRole('region', { name: 'What this route must say' })).toContainText(
+    await expect(page.getByRole('region', { name: 'Route notes' })).toContainText(
         'Routed on this phone by Thalassa from your installed charts',
     );
     await expect(page.getByText('Chart checks complete · review required')).toBeVisible({ timeout: 60_000 });
@@ -1431,7 +1462,7 @@ test('Real engine: a pin on the island stops the route at the water, and says so
         { timeout: 120_000 },
     );
     await showReview(page);
-    await expect(page.getByRole('region', { name: 'What this route must say' })).toContainText(/charted land/);
+    await expect(page.getByRole('region', { name: 'Route notes' })).toContainText(/charted land/);
     expect(trial).toEqual([]);
 });
 

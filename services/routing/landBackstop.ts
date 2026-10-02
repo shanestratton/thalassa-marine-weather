@@ -55,7 +55,13 @@
  * an island in two (chartWaterEvidence 'osm-water').
  */
 
-import { GebcoDepthService, type DepthResult } from '../GebcoDepthService';
+import {
+    GebcoDepthService,
+    ROUTE_RELIEF_ATTEMPT_MS,
+    ROUTE_RELIEF_RETRY_DELAYS_MS,
+    type DepthResult,
+    type ReliefFailure,
+} from '../GebcoDepthService';
 import type { ChartWaterProbe, ChartWaterVerdict } from '../engine/chartWaterEvidence';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
@@ -64,11 +70,21 @@ const log = createLogger('landBackstop');
 
 /**
  * Hard cap on how long a SUCCESSFUL inshore route may wait on this
- * backstop before it renders. GebcoDepthService bounds its own fetch
- * at 30 s. A timeout is an explicit unavailable verdict: callers must
- * not present the route as verified safe.
+ * backstop before it renders. A timeout is an explicit unavailable verdict:
+ * callers must not present the route as verified safe.
+ *
+ * WHY NOT 10 s (2026-10-02, Shane's phone online, an 18.3 NM Whitsundays
+ * route): the check asked the edge for its ~85 samples point by point, which
+ * the edge answers ten at a time from NOAA ERDDAP — 86 points measured 12.98 s
+ * at the edge that day — so every route over ~9 NM timed out, and the timeout
+ * was worded "offline". It now asks for the route's box in one grid request
+ * (GebcoDepthService.queryRouteRelief: 1.13 s upstream), each attempt bounded
+ * by ROUTE_RELIEF_ATTEMPT_MS with one retry; this cap only backs that up.
  */
-export const BACKSTOP_DEADLINE_MS = 10_000;
+export const BACKSTOP_DEADLINE_MS =
+    ROUTE_RELIEF_ATTEMPT_MS * (ROUTE_RELIEF_RETRY_DELAYS_MS.length + 1) +
+    ROUTE_RELIEF_RETRY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0) +
+    2_000;
 
 export type LonLat = [number, number];
 
@@ -204,7 +220,21 @@ export interface LandBackstopResult {
     /** ETOPO land runs (≥ MIN_RUN_SAMPLES) made only of vouched or OSM-water
      *  samples — ignored. */
     ignoredRuns?: number;
+    /** Why the check could not finish (status 'unavailable'): what actually
+     *  happened, for the words (landBackstopWords.backstopUnavailableWords). */
+    unavailable?: ReliefFailure;
+    /**
+     * What the charts said at every sample (samplePolyline of this polyline),
+     * when the caller gave chart evidence: a later retry of the check needs
+     * only these, not the engine's layers (Auto's Retry, 2026-10-02). Plain
+     * words — it is cloned and kept with the proposal in memory.
+     */
+    chartVerdicts?: BackstopChartVerdict[];
 }
+
+/** What the charts said at one sample: a probe's verdict, or 'unchecked'
+ *  where the probe threw (it vouches nothing there — fail closed). */
+export type BackstopChartVerdict = ChartWaterVerdict | 'unchecked';
 
 export interface LandBackstopOptions {
     /**
@@ -214,6 +244,14 @@ export interface LandBackstopOptions {
      * land sample counts (the backstop as it was).
      */
     chartWater?: ChartWaterProbe;
+    /**
+     * The charts' verdict at every sample, from an earlier run of this check
+     * on the SAME polyline (LandBackstopResult.chartVerdicts) — for a retry
+     * that has no engine layers. Used only when it has one verdict per sample;
+     * otherwise nothing vouches (fail closed). `chartWater` wins when both are
+     * given.
+     */
+    chartVerdicts?: readonly BackstopChartVerdict[];
 }
 
 type SampleCharts = ChartWaterVerdict | 'unchecked' | null;
@@ -309,44 +347,54 @@ export async function inshoreRouteCrossesLand(
     opts: LandBackstopOptions = {},
 ): Promise<LandBackstopResult> {
     const samples = samplePolyline(polyline);
-    const unavailable = (samplesChecked = 0): LandBackstopResult => ({
+    // What the charts say at every sample, asked once, up front — so the
+    // result can carry it for a retry (Auto's Retry, 2026-10-02). A probe
+    // that throws vouches nothing there (fail closed).
+    let probeFailed = false;
+    const chartVerdicts: BackstopChartVerdict[] | undefined = opts.chartWater
+        ? samples.map(([lon, lat]) => {
+              try {
+                  return opts.chartWater!(lon, lat);
+              } catch (e) {
+                  if (!probeFailed) log.warn('[landBackstop] chart evidence failed — it vouches nothing there:', e);
+                  probeFailed = true;
+                  return 'unchecked';
+              }
+          })
+        : opts.chartVerdicts?.length === samples.length
+          ? [...opts.chartVerdicts]
+          : undefined;
+    const carried = chartVerdicts ? { chartVerdicts } : {};
+    const unavailable = (samplesChecked = 0, why?: ReliefFailure | null): LandBackstopResult => ({
         status: 'unavailable',
         crossesLand: false,
         runs: [],
         samplesChecked,
         samplesRequested: samples.length,
+        ...(why ? { unavailable: why } : {}),
+        ...carried,
     });
 
     if (samples.length < 2) return unavailable();
 
     try {
-        const depths = await withTimeout(
-            GebcoDepthService.queryRouteDepths(
-                samples.map(([lon, lat]) => ({ lat, lon })),
-                MAX_SAMPLES,
-            ),
+        const relief = await withTimeout(
+            GebcoDepthService.queryRouteRelief(samples.map(([lon, lat]) => ({ lat, lon }))),
             null,
             BACKSTOP_DEADLINE_MS,
         );
-        if (!depths || depths.length !== samples.length) {
+        const depths = relief?.depths ?? null;
+        if (!relief || !depths || depths.length !== samples.length) {
             log.warn('[landBackstop] ETOPO response missing or misaligned — route remains unverified');
-            return unavailable();
+            return unavailable(0, relief ? relief.failure : { kind: 'timeout', waitedMs: BACKSTOP_DEADLINE_MS });
         }
 
         const samplesChecked = depths.filter((sample) => Number.isFinite(sample.depth_m)).length;
-        // What the charts say where ETOPO reads land (asked only there).
-        let probeFailed = false;
-        const charts: SampleCharts[] = depths.map((sample) => {
+        // What the charts say where ETOPO reads land.
+        const charts: SampleCharts[] = depths.map((sample, i) => {
             const depth = sample.depth_m;
             if (depth === null || !Number.isFinite(depth) || depth < LAND_DEPTH_THRESHOLD_M) return null;
-            if (!opts.chartWater) return 'unchecked';
-            try {
-                return opts.chartWater(sample.lon, sample.lat);
-            } catch (e) {
-                if (!probeFailed) log.warn('[landBackstop] chart evidence failed — it vouches nothing there:', e);
-                probeFailed = true;
-                return 'unchecked';
-            }
+            return chartVerdicts?.[i] ?? 'unchecked';
         });
         const vouchedLandSamples = charts.filter((c) => c === 'water').length;
         const osmWaterSamples = charts.filter((c) => c === 'osm-water').length;
@@ -379,6 +427,7 @@ export async function inshoreRouteCrossesLand(
                 samplesChecked,
                 samplesRequested: samples.length,
                 ...vouched,
+                ...carried,
             };
         }
 
@@ -387,7 +436,17 @@ export async function inshoreRouteCrossesLand(
                 `[landBackstop] ETOPO unavailable for ${samples.length - samplesChecked}/${samples.length} sample(s) — ` +
                     'route remains unverified',
             );
-            return { ...unavailable(samplesChecked), ...vouched };
+            return {
+                ...unavailable(
+                    samplesChecked,
+                    relief.failure ?? {
+                        kind: 'partial',
+                        missing: samples.length - samplesChecked,
+                        total: samples.length,
+                    },
+                ),
+                ...vouched,
+            };
         }
 
         return {
@@ -397,6 +456,7 @@ export async function inshoreRouteCrossesLand(
             samplesChecked,
             samplesRequested: samples.length,
             ...vouched,
+            ...carried,
         };
     } catch (e) {
         log.warn('[landBackstop] ETOPO unavailable — route remains unverified:', e);

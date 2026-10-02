@@ -10,6 +10,7 @@ import {
     type SavedAutoroutingProposalEvidence,
 } from './autoroutingProposalEvidence';
 import type { PushResult } from './savedRoutesSync';
+import { backstopUnavailableSaveReason, backstopUnavailableWords } from './routing/landBackstopWords';
 
 export interface ReviewedProposalSaveInput {
     name: string;
@@ -52,10 +53,18 @@ export function evaluateAutoroutingProposalSave(
         return deny(
             'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
         );
-    // The satellite land check did not run (offline: its cache is in memory
-    // only). Shown with its caveat; saved only once it has been checked.
+    // The satellite land check could not finish (offline, or online and it
+    // failed: 2026-10-02, the field route timed out on Wi-Fi + 4G and was told
+    // "offline"). Shown with what happened; saved only once it has run —
+    // Review's Retry re-runs it alone.
     if (route.engine.backstop !== 'verified')
-        return deny('The satellite land check has not run for this route (offline). Recalculate online before saving.');
+        return deny(
+            backstopUnavailableSaveReason(
+                typeof route.engine.backstopReason === 'string' && route.engine.backstopReason.trim()
+                    ? route.engine.backstopReason
+                    : backstopUnavailableWords(undefined),
+            ),
+        );
     if (!review || review.phase !== 'complete') return deny('Finish current chart checks before saving.');
     const key = autoroutingProposalGeometryKey(route.coordinates);
     const basis = review.basis;

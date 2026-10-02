@@ -278,6 +278,7 @@ const control = {
     releaseReview: null as (() => void) | null,
     lastRequest: null as AutoroutingTrialRequest | null,
     routeCoordinates: [] as [number, number][],
+    backstopRetries: 0,
 };
 Object.assign(window, { __trialFixture: control });
 const OriginalMap = mapboxgl.Map;
@@ -296,6 +297,9 @@ Object.assign(mapboxgl, {
         }
     },
 });
+
+const FIXTURE_BACKSTOP_NOTE = (reason: string) =>
+    `Satellite land check couldn't be done just now: ${reason}. Checked against the installed charts only — retry the check in Review before saving.`;
 
 // The stub provider (2026-10-01): Auto's own router is replaced only for the
 // layout scenarios; ?engine=real runs it. Nothing here makes a request.
@@ -429,7 +433,31 @@ const stubProvider: AutoroutingProvider = {
                     `Fixture warning ${index + 1}: Independently inspect current official charts, notices, tides and all vessel clearances. This lengthy advisory must remain readable in the small pane without covering the chart or Close.`,
             ),
         };
+        // ?backstop=timeout: the satellite land check could not finish online
+        // (Shane's field route, 2026-10-02) — its note, Save off, and Retry.
+        if (params.get('backstop') === 'timeout') {
+            const reason = "the satellite relief service didn't answer within 12 s";
+            // One chart verdict per satellite sample, as a real proposal keeps
+            // them: Retry is offered only then.
+            route.engine = {
+                ...route.engine!,
+                backstop: 'unavailable',
+                backstopReason: reason,
+                backstopCharts: ['water', 'water'],
+            };
+            route.warnings = [...route.warnings, FIXTURE_BACKSTOP_NOTE(reason)];
+        }
         return route;
+    },
+    recheckBackstop: async (route) => {
+        control.backstopRetries += 1;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const { backstopReason, backstopCharts: _charts, ...engine } = route.engine!;
+        return {
+            ...route,
+            warnings: route.warnings.filter((w) => w !== FIXTURE_BACKSTOP_NOTE(backstopReason ?? '')),
+            engine: { ...engine, backstop: 'verified' },
+        };
     },
 };
 const provider: AutoroutingProvider = realEngine

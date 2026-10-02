@@ -2054,6 +2054,9 @@ export function buildNavGrid(
     const tPassWings = Date.now();
     let wingCellsMarked = 0;
     let wingFeatureCount = 0;
+    // Which CAUTION cells are a wing's (round 2, 2026-10-02: the route's
+    // caution reasons must never read a wing's red as a shallow band's).
+    let wingCaution: Uint8Array | undefined;
     for (const f of layers.OBSTRN?.features ?? []) {
         const props = f.properties as { _class?: string; _spine?: [number, number][] } | null;
         if (props?._class !== 'pair-wing') continue;
@@ -2089,12 +2092,14 @@ export function buildNavGrid(
             const cLat = minLat + (c.y + 0.5) * dLat;
             const s = (cLon - markLon) * mPerLonW * uxW + (cLat - markLat) * M_PER_DEG_LAT * uyW;
             if (s <= 0) continue; // centre inboard of (or at) the mark — the gate's own cell
+            (wingCaution ??= new Uint8Array(width * height))[idx] = 1;
             if (cells[idx] === CAUTION && preferred[idx] === 0) continue; // already stamped
             cells[idx] = CAUTION;
             preferred[idx] = 0;
             wingCellsMarked++;
         }
     }
+    if (wingCaution) grid.wingCaution = wingCaution;
     markPass('pass5c-wings', tPassWings, wingFeatureCount);
     if (ENGINE_DEBUG && wingFeatureCount > 0) {
         engineLog.warn(`pass5c: ${wingFeatureCount} pair-wings → ${wingCellsMarked} outboard CAUTION cells`);

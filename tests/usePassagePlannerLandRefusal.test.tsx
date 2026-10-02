@@ -207,4 +207,28 @@ describe('the passage planner refuses charted land, as Auto does', () => {
         expect(warnings()[0]?.title).toBe('Inshore route rejected — possible chart gap');
         expect(warnings()[0]?.message).toMatch(/none of the charts used for this route is detailed enough/);
     });
+
+    // 2026-10-02: Auto said "offline" for a check that had timed out online.
+    // The planner names what happened too, never telling an online phone to
+    // reconnect.
+    it('a satellite check that could not finish says what happened', async () => {
+        mocks.tryInshore.mockResolvedValue(route({ hardLand: { totalM: 0, awayM: 0 } }));
+        mocks.crossesLand.mockResolvedValue({
+            status: 'unavailable',
+            crossesLand: false,
+            runs: [],
+            samplesChecked: 0,
+            samplesRequested: 85,
+            unavailable: { kind: 'timeout', waitedMs: 12_000 },
+        });
+        await plan();
+        expect(warnings()).toEqual([
+            {
+                severity: 'warn',
+                title: 'Inshore route not verified',
+                message:
+                    "The satellite land check couldn't be done just now: the satellite relief service didn't answer within 12 s. Thalassa will not present this route as checked — plan it again to retry. Falling back to offshore planning.",
+            },
+        ]);
+    });
 });

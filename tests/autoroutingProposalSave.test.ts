@@ -213,11 +213,27 @@ describe('explicit planned proposal save', () => {
             const charted = { ...red, engine: { ...red.engine, [mask]: [false, true, false] } };
             expect(evaluateAutoroutingProposalSave(charted, input.review, 1.5, true).eligible).toBe(true);
         }
-        const offline = { ...input.route, engine: { ...input.route.engine!, backstop: 'unavailable' as const } };
-        expect(evaluateAutoroutingProposalSave(offline, input.review, 1.5, true)).toEqual({
+        // The satellite check could not finish: Save stays off (fail
+        // closed), and says what happened — "offline" only when it was
+        // (2026-10-02: the field route timed out on Wi-Fi + 4G and was told
+        // "offline").
+        const timedOut = {
+            ...input.route,
+            engine: {
+                ...input.route.engine!,
+                backstop: 'unavailable' as const,
+                backstopReason: "the satellite relief service didn't answer within 12 s",
+            },
+        };
+        expect(evaluateAutoroutingProposalSave(timedOut, input.review, 1.5, true)).toEqual({
             eligible: false,
-            reason: 'The satellite land check has not run for this route (offline). Recalculate online before saving.',
+            reason: "The satellite land check couldn't be done just now: the satellite relief service didn't answer within 12 s. Retry the check before saving.",
         });
+        const unsaid = { ...input.route, engine: { ...input.route.engine!, backstop: 'unavailable' as const } };
+        const words = evaluateAutoroutingProposalSave(unsaid, input.review, 1.5, true);
+        expect(words.eligible).toBe(false);
+        expect(words.reason).not.toMatch(/offline/i);
+        expect(words.reason).toMatch(/Retry the check before saving\.$/);
     });
 
     it('retains every sub-metre point and warning/location in the canonical library as Thalassa evidence, without the router disclosure, navigation proof or a voyage/trip', async () => {

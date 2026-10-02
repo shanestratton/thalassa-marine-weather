@@ -8,6 +8,7 @@ import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { PanePortalContext } from '../context/PanePortalContext';
 import { vesselDraftMetres } from '../services/units';
 import type { AutoroutingTrialRoute } from '../types/autorouting';
+import { BackstopLandRefusal } from '../services/routing/landBackstopWords';
 import { buildTrialWaypointPlan } from '../services/autoroutingDisplayWaypoints';
 import { TRIAL_GRADE_COLORS, type TrialRouteReview } from '../services/autoroutingReview';
 
@@ -15,6 +16,7 @@ type Handler = (event?: unknown) => void;
 const mocks = vi.hoisted(() => ({
     status: vi.fn(),
     calculate: vi.fn(),
+    recheck: vi.fn(),
     annotate: vi.fn(),
     review: vi.fn(),
     encLayer: vi.fn(),
@@ -57,6 +59,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../services/autoroutingThalassa', () => ({
     getThalassaAutorouteStatus: mocks.status,
     calculateThalassaProposal: mocks.calculate,
+    recheckThalassaBackstop: mocks.recheck,
 }));
 vi.mock('../components/map/tideWindowChips', () => ({ annotateTideWindows: mocks.annotate }));
 vi.mock('../services/autoroutingReview', async (original) => ({
@@ -540,11 +543,226 @@ describe('isolated autorouting trial workspace', () => {
         fillRequest();
         fireEvent.click(calculateButton());
         await openReview();
-        const notes = screen.getByRole('region', { name: 'What this route must say' });
+        const notes = screen.getByRole('region', { name: 'Route notes' });
         expect(within(notes).getAllByRole('listitem')).toHaveLength(2);
+        expect(within(notes).getByRole('heading')).toHaveTextContent('2 route notes · what this route must say');
         expect(screen.getByText('2 route notes · review required')).toBeInTheDocument();
         expect(screen.getByText('Not for navigation. Unsaved proposal only.')).toBeInTheDocument();
         await waitFor(() => expect(screen.getByText('Chart checks complete · review required')).toBeInTheDocument());
+    });
+
+    // Shane's phone, 2026-10-02, online: "The satellite land check has not
+    // run for this route (offline)", Save off, and the only way on was to
+    // recalculate the whole route. It had timed out.
+    it("offers Retry for a satellite check that couldn't run — the check alone, then Save follows it", async () => {
+        const reason = "the satellite relief service didn't answer within 12 s";
+        const note = `Satellite land check couldn't be done just now: ${reason}. Checked against the installed charts only — retry the check in Review before saving.`;
+        const unavailable: AutoroutingTrialRoute = {
+            ...route,
+            warnings: ['Proposal only: not cleared for navigation.', note],
+            engine: {
+                ...route.engine!,
+                backstop: 'unavailable',
+                backstopReason: reason,
+                backstopCharts: ['water', 'water'],
+            },
+        };
+        mocks.calculate.mockResolvedValue(unavailable);
+        const checked = deferred<AutoroutingTrialRoute>();
+        mocks.recheck.mockReturnValue(checked.promise);
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        const check = screen.getByRole('region', { name: 'Satellite land check' });
+        expect(check).toHaveTextContent(`Satellite land check couldn't be done just now: ${reason}.`);
+        expect(check).not.toHaveTextContent(/offline/i);
+        expect(screen.getByText('2 route notes · review required')).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                `The satellite land check couldn't be done just now: ${reason}. Retry the check before saving.`,
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Save as planned route' })).toBeDisabled();
+        const reviewsBefore = mocks.review.mock.calls.length;
+
+        fireEvent.click(within(check).getByRole('button', { name: 'Retry satellite check' }));
+        expect(within(check).getByRole('button', { name: 'Checking satellite relief…' })).toBeDisabled();
+        await waitFor(() => expect(mocks.recheck).toHaveBeenCalledWith(unavailable));
+        expect(mocks.calculate).toHaveBeenCalledTimes(1);
+        await act(async () =>
+            checked.resolve({
+                ...unavailable,
+                warnings: ['Proposal only: not cleared for navigation.'],
+                engine: { ...route.engine!, backstop: 'verified' },
+            }),
+        );
+        expect(screen.queryByRole('region', { name: 'Satellite land check' })).not.toBeInTheDocument();
+        expect(screen.getByText('1 route note · review required')).toBeInTheDocument();
+        expect(screen.queryByText(/satellite land check couldn't be done/i)).not.toBeInTheDocument();
+        // The chart review was not restarted, and the route was not re-routed.
+        expect(mocks.review.mock.calls.length).toBe(reviewsBefore);
+        expect(mocks.calculate).toHaveBeenCalledTimes(1);
+    });
+
+    it('a retry that finds land takes the route away and says why', async () => {
+        const reason = "the request didn't get through (network error)";
+        mocks.calculate.mockResolvedValue({
+            ...route,
+            engine: {
+                ...route.engine!,
+                backstop: 'unavailable',
+                backstopReason: reason,
+                backstopCharts: ['land', 'land'],
+            },
+        });
+        mocks.recheck.mockRejectedValue(
+            new BackstopLandRefusal(
+                'Satellite relief shows land near 27.100° S, 153.300° E. The route is not shown. Nothing changed.',
+            ),
+        );
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        fireEvent.click(screen.getByRole('button', { name: 'Retry satellite check' }));
+        expect(
+            await screen.findByText(
+                'Satellite relief shows land near 27.100° S, 153.300° E. The route is not shown. Nothing changed.',
+            ),
+        ).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Trial proposal' })).not.toBeInTheDocument();
+    });
+
+    // Fix-up review (2026-10-03): a retry can take ~27 s on a slow link. A
+    // skipper who goes back to Setup and calculates again meanwhile must keep
+    // the NEW route: the old route's answer, land or not, is about a line
+    // that is no longer shown.
+    it('a retry still running when a new route arrives never touches the new route', async () => {
+        const reason = "the satellite relief service didn't answer (tried twice, 12 s each)";
+        const first: AutoroutingTrialRoute = {
+            ...route,
+            engine: {
+                ...route.engine!,
+                backstop: 'unavailable',
+                backstopReason: reason,
+                backstopCharts: ['water', 'water'],
+            },
+        };
+        const second: AutoroutingTrialRoute = { ...route, id: 'proposal-2', warnings: ['Second route note.'] };
+        mocks.calculate.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+        let refuse!: (failure: unknown) => void;
+        mocks.recheck.mockReturnValue(
+            new Promise<AutoroutingTrialRoute>((_resolve, reject) => {
+                refuse = reject;
+            }),
+        );
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        fireEvent.click(screen.getByRole('button', { name: 'Retry satellite check' }));
+        await waitFor(() => expect(mocks.recheck).toHaveBeenCalledTimes(1));
+        await openSetup();
+        fireEvent.click(calculateButton());
+        await openReview();
+        await waitFor(() => expect(mocks.calculate).toHaveBeenCalledTimes(2));
+        expect(screen.getByText('1 route note · review required')).toBeInTheDocument();
+
+        await act(async () =>
+            refuse(
+                new BackstopLandRefusal(
+                    'Satellite relief shows land near 27.100° S, 153.300° E. The route is not shown. Nothing changed.',
+                ),
+            ),
+        );
+        expect(screen.getByRole('region', { name: 'Trial proposal' })).toBeInTheDocument();
+        expect(screen.queryByText(/Satellite relief shows land/)).not.toBeInTheDocument();
+        expect(screen.getByText('1 route note · review required')).toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Satellite land check' })).not.toBeInTheDocument();
+    });
+
+    it('a retry that resolves after a new route arrives is not shown on the new route', async () => {
+        const reason = "the request didn't get through (network error)";
+        const first: AutoroutingTrialRoute = {
+            ...route,
+            engine: {
+                ...route.engine!,
+                backstop: 'unavailable',
+                backstopReason: reason,
+                backstopCharts: ['water', 'water'],
+            },
+        };
+        const second: AutoroutingTrialRoute = {
+            ...first,
+            id: 'proposal-2',
+            engine: { ...first.engine!, backstopReason: 'this phone is offline' },
+        };
+        mocks.calculate.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+        const checked = deferred<AutoroutingTrialRoute>();
+        mocks.recheck.mockReturnValue(checked.promise);
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        fireEvent.click(screen.getByRole('button', { name: 'Retry satellite check' }));
+        await openSetup();
+        fireEvent.click(calculateButton());
+        await openReview();
+        const check = await screen.findByRole('region', { name: 'Satellite land check' });
+        expect(check).toHaveTextContent('this phone is offline');
+        // The new route's own Retry is not held by the old one.
+        expect(within(check).getByRole('button', { name: 'Retry satellite check' })).toBeEnabled();
+        await act(async () => checked.resolve({ ...first, engine: { ...first.engine!, backstop: 'verified' } }));
+        expect(screen.getByRole('region', { name: 'Satellite land check' })).toHaveTextContent('this phone is offline');
+        expect(screen.getByRole('button', { name: 'Save as planned route' })).toBeDisabled();
+    });
+
+    it('a retry that fails for any other reason keeps the route and says why beside Retry', async () => {
+        const reason = "the satellite relief service didn't answer within 28 s";
+        mocks.calculate.mockResolvedValue({
+            ...route,
+            engine: {
+                ...route.engine!,
+                backstop: 'unavailable',
+                backstopReason: reason,
+                backstopCharts: ['water', 'water'],
+            },
+        });
+        mocks.recheck.mockRejectedValue(
+            new Error("This route's chart evidence for the satellite check is not kept. Recalculate."),
+        );
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        fireEvent.click(screen.getByRole('button', { name: 'Retry satellite check' }));
+        const check = screen.getByRole('region', { name: 'Satellite land check' });
+        expect(
+            await within(check).findByText(
+                "This route's chart evidence for the satellite check is not kept. Recalculate.",
+            ),
+        ).toBeInTheDocument();
+        expect(screen.getByRole('region', { name: 'Trial proposal' })).toBeInTheDocument();
+        expect(within(check).getByRole('button', { name: 'Retry satellite check' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Save as planned route' })).toBeDisabled();
+    });
+
+    it('offers no Retry when the route kept no chart evidence for the check — Recalculate instead', async () => {
+        const reason = "the satellite relief service didn't answer within 28 s";
+        mocks.calculate.mockResolvedValue({
+            ...route,
+            engine: { ...route.engine!, backstop: 'unavailable', backstopReason: reason },
+        });
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        const check = screen.getByRole('region', { name: 'Satellite land check' });
+        expect(check).toHaveTextContent(`Satellite land check couldn't be done just now: ${reason}.`);
+        expect(check).toHaveTextContent('Recalculate to run it again.');
+        expect(within(check).queryByRole('button', { name: 'Retry satellite check' })).not.toBeInTheDocument();
+        expect(mocks.recheck).not.toHaveBeenCalled();
     });
 
     it('places tide chips on the workspace map and removes them on recalculate and close', async () => {

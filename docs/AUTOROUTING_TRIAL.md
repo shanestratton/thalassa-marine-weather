@@ -62,8 +62,8 @@ runs through the manual ⚡ Auto route and the passage planner) through
   charts from the cloud once and retries once. Final refusals (no tide clears,
   overhead clearance) are shown whole.
 - **The satellite land check** runs as in the passage planner. Land refuses;
-  offline (its cache is in memory only) the route is shown with "checked
-  against the installed charts only".
+  when the check cannot finish the route is shown with "checked against the
+  installed charts only", what stopped it, and a Retry (field round 2, below).
 - **The line** is drawn in the planner's own Phase 2a colours (one shared table,
   `inshoreRouteLineLayers`), with the tide chips. The independent chart review
   still grades every leg; it credits no tide, so water the line shows amber can
@@ -104,8 +104,8 @@ A safety and an integrity review of the swap found holes that the new surfaces
 - **Red with no charted depth** (land, water no chart vouches for, a charted
   hazard's buffer) is never saved and never planned by Plan Your Day; inside a
   relax zone with tides loaded, Auto refuses it.
-- **Offline** (the satellite land check unavailable) the route is shown with its
-  caveat and is not saved until recalculated online.
+- **Satellite check unavailable** the route is shown with its caveat and is not
+  saved until the check has run (Review's Retry since field round 2, below).
 - **Notices to Mariners**: the route notes now say what the passage planner
   says — a current notice the routing follows, and standing notices within
   500 m of the line.
@@ -119,6 +119,51 @@ A safety and an integrity review of the swap found holes that the new surfaces
   charted land.
 - **The lead shadow** reads the lead graph only if the chart overlay has already
   compiled it; it never reads a chart or awaits inside a route.
+
+### Field round 2 — 2026-10-02 (Shane's 18.3 NM route, Whitsundays)
+
+- **"Satellite check not run (offline)" while online.** Measured: the check
+  asked the `gebco-depth` edge for its ~85 samples point by point; the edge asks
+  NOAA ERDDAP ten points at a time, and 86 points took 12.98 s at the edge
+  (13.45 s end to end) against a 10 s deadline — every route over ~9 NM timed
+  out, and the timeout was worded "offline". The check now asks the same edge's
+  bbox mode for the route's box in ONE request (1.13 s upstream for that route,
+  270 nodes) and reads each sample at its nearest whole-arc-minute node — what
+  ERDDAP answers for a point (23 of 23 compared). Each attempt has 12 s and one
+  retry after 1.5 s for a timeout, a dropped connection or a 5xx; a 401/403 or
+  429 is not retried. The words say what happened ("couldn't be done just now:
+  …"; "offline" only when the phone says it is). Save stays off (fail closed);
+  **Retry satellite check** in Review re-runs the check alone, from the chart
+  verdicts the proposal keeps — never the route or the chart review. The planner
+  and the voyage form use the same words. The edge's point mode is unchanged.
+- **Red with "no issue found".** On the Pi's own cells the red legs cut North
+  Molle's south-west corner where the 50 m grid cells are caution because the
+  charted 2–5 m shore band covers their centres; the line itself runs over the
+  5–10 m and 10–15 m bands, and the engine's exact reading of it found nothing
+  shallow, uncharted, disputed or near a hazard. The engine now says why each
+  caution segment is caution (`cautionWhy`: shallow, uncharted, charts disagree,
+  hazard keep-out, or the grid cell only). Grid-cell-only caution is not drawn
+  red (and no longer reads as "no charted depth", which blocked Save with untrue
+  words); every red stretch still drawn is named under its leg in Review ("Red
+  on the map (40 m): charted 2.0 m — shallower than the 2.9 m this boat needs;
+  no tide data here shows a tide that clears it ↗").
+- **Route notes.** The Review list is headed with the summary's own words and
+  count ("4 route notes · what this route must say"), numbered, and each note
+  says where it applies (a pin's leg, or the whole route).
+- **Review fix-ups (2026-10-03).** A segment is "the grid cell only" only when
+  some cell the line touches is a shallow chart band's caution and nothing else
+  made it caution: every cell the line touches is read (corners included), and
+  a blocked cell — land or the shore's buffer, a mark's keep-out disc, a
+  hazard's buffer, a berth or pontoon, a bridge too low, water no tide clears —
+  keeps the red and names it ("touches the keep-out the router keeps round a
+  navigation mark …"). A promoted Seaway route's red over a mark's disc in
+  10–15 m water had been drawn green and saveable. Retry belongs to its own
+  route: an answer that arrives after a new route, an edit or a clear is
+  dropped; only a land finding removes the route — any other failure is shown
+  beside Retry and Save stays off; Retry is offered only when the proposal kept
+  the charts' verdicts (otherwise "Recalculate to run it again."). The words
+  give the whole wait ("tried twice, 12 s each"), and a used-up allowance on
+  the public key (no session) is "this connection's", not the account's.
 
 ### Left for Shane (server side, not done here)
 

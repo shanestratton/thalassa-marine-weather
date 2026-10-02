@@ -172,9 +172,12 @@ beforeEach(() => {
     setAuthIdentityScope('backstop-engine-user');
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no network in this test'));
     h.etopoLand = (lon, lat) => offIslandM(lon, lat) <= ETOPO_BLEED_M;
-    vi.spyOn(GebcoDepthService, 'queryRouteDepths').mockImplementation(async (points) =>
-        points.map(({ lat, lon }) => ({ lat, lon, depth_m: h.etopoLand(lon, lat) ? 3 : -12 })),
-    );
+    // NOAA ETOPO as the backstop asks for it (one grid request, 2026-10-02).
+    vi.spyOn(GebcoDepthService, 'queryRouteRelief').mockImplementation(async (points) => ({
+        depths: points.map(({ lat, lon }) => ({ lat, lon, depth_m: h.etopoLand(lon, lat) ? 3 : -12 })),
+        failure: null,
+        requests: 1,
+    }));
 });
 afterEach(() => {
     vi.restoreAllMocks();

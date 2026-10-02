@@ -569,6 +569,51 @@ export interface SurveyRunInfo {
     cellIds?: string[];
 }
 
+/**
+ * Why a caution segment is caution, read exactly along its line
+ * (RouteResult.cautionWhy; round 2, 2026-10-02). Bits — a segment can have
+ * several:
+ *   • SHALLOW — the finest survey (or a current NtM survey) charts water under
+ *     the line shallower than draft + safety;
+ *   • UNCHARTED — part of the line has no chart depth under it;
+ *   • DISAGREE — decision-1 water: a finer band under a coarser chart's land;
+ *   • HAZARD — inside a charted rock's, wreck's or obstruction's buffer
+ *     (the hazard mask, or a hazard's blocked cell the line touches);
+ *   • WING — it crosses a pair-wing's cell: outside a lateral mark;
+ *   • LAND — it crosses land or a blocked cell the router opened (a relax
+ *     zone round a pin, or a carve between two bodies of water);
+ *   • MARK — it touches the keep-out disc the router infers round a lone
+ *     navigation mark (navGrid markDiscBlocked);
+ *   • STRUCTURE — it touches a berth or pontoon, or a bridge too low for the
+ *     boat (berthBlocked / clearanceBarred);
+ *   • BLOCKED — it touches any other cell the grid keeps closed: land or
+ *     the shore's buffer (the land audit owns land it crosses), water no
+ *     tide clears, …;
+ *   • GRID_ONLY — none of those, at least one cell the line touches is a
+ *     shallow chart band's CAUTION, and every caution cell it touches is a
+ *     shallow chart band's alone: the 50 m cell holds shallower water than
+ *     the line does (a shore band touching the cell). Not drawn red. Every
+ *     cell the line touches counts (forEachCellOnSegment), corners included,
+ *     and a blocked (NaN) one always rules it out — navGrid writes land, a
+ *     mark's disc, a hazard's buffer, a berth and a bridge bar as blocked,
+ *     never as CAUTION (fix-up review, 2026-10-03);
+ *   • UNEXPLAINED — none of those, and no exact reading or no shallow band's
+ *     cell to prove it is the cells' alone: red, said as the grid's.
+ */
+export const CAUTION_WHY = {
+    SHALLOW: 1,
+    UNCHARTED: 2,
+    DISAGREE: 4,
+    HAZARD: 8,
+    GRID_ONLY: 16,
+    UNEXPLAINED: 32,
+    WING: 64,
+    LAND: 128,
+    MARK: 256,
+    STRUCTURE: 512,
+    BLOCKED: 1024,
+} as const;
+
 /** The reasons that draw a stretch amber (all but 'survey-unchecked') — in
  *  dashes since owner decision 10 (2026-09-30): solid amber is needs-tide. */
 export const AMBER_SURVEY_REASONS: ReadonlySet<SurveyRunReason> = new Set([
@@ -658,6 +703,18 @@ export interface RouteResult {
      * (round-3 review, 2026-09-30). Absent on cloud/legacy results.
      */
     landPaintConflictMask?: boolean[];
+    /**
+     * Per segment, why a caution segment is caution, read EXACTLY along its
+     * line (CAUTION_WHY bits; 0 on a segment that is not caution). Round 2,
+     * 2026-10-02: the field route's North Molle corner drew red where only the
+     * 50 m cells touched a 2 m shore band — the line itself charted 5 m+ — and
+     * nothing said why. GRID_ONLY is not drawn red; every other reason is, and
+     * the route review names it. Absent on cloud/legacy results.
+     */
+    cautionWhy?: number[];
+    /** Per segment: the shallowest charted depth under a caution segment's
+     *  line where it is below draft + safety (the SHALLOW reason), else null. */
+    cautionDepthM?: (number | null)[];
     /** Metres of overland tail trimmed off an inland destination pin —
      *  present only when the trim fired (route ends at the water's edge). */
     destinationInlandTrimM?: number;
@@ -963,6 +1020,14 @@ export interface NavGrid {
      * byte-identical. Optional for cached/test back-compat (absent ⇒ all-zero).
      */
     markGoverned?: Uint8Array;
+    /**
+     * Per-cell flag: 1 = a pair-wing's outboard CAUTION (Pass 5c — passing
+     * outside a lateral mark). Read by the route's caution reasons (round 2,
+     * 2026-10-02) so a wing's red is never taken for a shallow band's: a wing
+     * cell over deep water is caution for the marks, not the depth. Absent:
+     * no wing stamped.
+     */
+    wingCaution?: Uint8Array;
     /**
      * Per-cell "two-sided-confined channel" flag (1 = water bounded on opposing
      * sides within a probe reach — a canal/river reach, not open water or a

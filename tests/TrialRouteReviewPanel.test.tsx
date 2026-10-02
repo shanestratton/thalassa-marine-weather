@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TrialRouteReviewPanel } from '../components/autorouting/TrialRouteReviewPanel';
 import type { TrialRouteReview } from '../services/autoroutingReview';
@@ -7,6 +7,7 @@ import type { TraceIssue } from '../services/routeTracer';
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import { TRIAL_GRADE_COLORS } from '../services/autoroutingReview';
 import { NEEDS_TIDE_AMBER } from '../components/map/inshoreRouteState';
+import type { RouteRedStretch } from '../components/map/routeRedReasons';
 import {
     buildTrialDisplayWaypoints,
     displayWaypointForPathIndex,
@@ -60,6 +61,11 @@ function renderPanel(review: TrialRouteReview, selected = 0, route?: Autorouting
         onRecheck: vi.fn(),
     };
     return { ...render(<TrialRouteReviewPanel {...props} />), props };
+}
+
+function cleanupAndRender(props: ReturnType<typeof renderPanel>['props'], redStretches: RouteRedStretch[]) {
+    cleanup();
+    render(<TrialRouteReviewPanel {...props} redStretches={redStretches} />);
 }
 
 describe('trial route chart-track advisory groups', () => {
@@ -184,16 +190,20 @@ describe("the router's notes and its line colours (2026-10-01)", () => {
         ...overrides,
     });
 
-    it('lists every note whole under what the route must say, before the checks, with no provider report', () => {
+    // Round 2 (Shane's field route, 2026-10-02): the summary said "4 route
+    // notes · review required" over a list headed something else. The list
+    // now carries the same words and count, and says where each note applies.
+    it('lists every note whole under the same words as the summary count, before the checks, with no provider report', () => {
         const review = reviewOf([[], []]);
         const original = structuredClone(review);
         renderPanel(review, 0, route());
-        const notes = screen.getByRole('region', { name: 'What this route must say' });
+        const notes = screen.getByRole('region', { name: 'Route notes' });
+        expect(within(notes).getByRole('heading')).toHaveTextContent('2 route notes · what this route must say');
         expect(
             within(notes)
                 .getAllByRole('listitem')
                 .map((item) => item.textContent),
-        ).toEqual(route().warnings);
+        ).toEqual(route().warnings.map((note) => `Whole route · ${note}`));
         expect(
             notes.compareDocumentPosition(screen.getByText('Waypoints & local chart checks')) &
                 Node.DOCUMENT_POSITION_FOLLOWING,
@@ -240,9 +250,53 @@ describe("the router's notes and its line colours (2026-10-01)", () => {
             localEdit: { revision: 1, checksInvalidated: 'engine', waypointIndices: [1], originalProposal: original },
         });
         expect(screen.queryByRole('region', { name: 'Route line colours' })).not.toBeInTheDocument();
-        expect(screen.getByRole('region', { name: 'What this route must say' })).toHaveTextContent(
+        expect(screen.getByRole('region', { name: 'Route notes' })).toHaveTextContent(
             'From the original route, before waypoint edits · historical, not checks of this line.',
         );
+    });
+
+    it('says which leg a note about a pin belongs to', () => {
+        renderPanel(
+            reviewOf([[], []]),
+            0,
+            route({
+                warnings: [
+                    'Proposal only: not cleared for navigation.',
+                    'The route starts ~80 m from your departure pin; the water before it could not be reached.',
+                    'The route ends ~60 m short of your destination pin; the water beyond could not be reached.',
+                ],
+            }),
+        );
+        const items = within(screen.getByRole('region', { name: 'Route notes' })).getAllByRole('listitem');
+        expect(items.map((item) => item.textContent?.split(' · ')[0])).toEqual(['Whole route', 'Leg 1→2', 'Leg 2→3']);
+        expect(screen.getByRole('heading', { name: /^3 route notes/ })).toBeInTheDocument();
+    });
+
+    // Round 2 (Shane's field route, 2026-10-02): legs 3→4→5→6 red on the
+    // map, and each leg's check said "no issue found" with nothing saying why.
+    it('names, under its leg, every stretch the map draws red — and where to look', () => {
+        const stretch = {
+            startSeg: 1,
+            startT: 0.2,
+            endSeg: 1,
+            endT: 0.6,
+            lengthM: 42,
+            at: { lat: -27, lon: 153.0014 },
+            why: 'charted 2.0 m — shallower than the 2.9 m this boat needs; no tide data here shows a tide that clears it',
+        };
+        const { props } = renderPanel(reviewOf([[], []]), 0, route());
+        cleanupAndRender(props, [stretch]);
+        expect(screen.getByText('Leg 1→2: no issue found · 8.0 m least')).toBeVisible();
+        expect(
+            screen.getByText('Leg 2→3: the chart check found no issue · 8.0 m least · drawn red on the map, why below'),
+        ).toBeVisible();
+        const why = screen.getByRole('button', {
+            name: `Red on the map (40 m): ${stretch.why} ↗`,
+        });
+        expect(why).toHaveStyle({ color: TRIAL_GRADE_COLORS.danger });
+        fireEvent.click(why);
+        expect(props.onFocus).toHaveBeenCalledWith(stretch.at);
+        expect(props.onSelect).toHaveBeenCalledWith(2);
     });
 
     it('keeps a local danger red whatever the router said', () => {
