@@ -50,6 +50,8 @@ export const TABLE_REGISTER: Readonly<Record<string, BinderRegister>> = Object.f
     equipment_register: 'equipment',
     maintenance_tasks: 'maintenance',
     maintenance_history: 'maintenance',
+    // The skipper's engine-hours reading travels with his R&M.
+    vessel_engine_hours: 'maintenance',
     ship_documents: 'documents',
 });
 

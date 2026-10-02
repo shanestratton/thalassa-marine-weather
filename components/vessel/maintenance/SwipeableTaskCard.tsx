@@ -38,7 +38,7 @@ export const LIGHT_COLORS: Record<TrafficLight, { dot: string; bg: string; borde
  * months, say months. The card still shows the exact date beside it.
  */
 export function readableStatusLabel(label: string): string {
-    const match = /^(Due in|Overdue by) (\d+) days$/.exec(label);
+    const match = /^(Due in|Overdue by|Done today · next in) (\d+) days$/.exec(label);
     if (!match) return label;
     const days = Number(match[2]);
     if (days <= 60) return label;
@@ -160,8 +160,16 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                     </p>
                     {/* Dates and hours in the body font with tabular figures,
                         as dates are set elsewhere in the app: monospace gave
-                        'Mon  28  Sep  2026' double-width gaps (run 10). */}
-                    <div className="flex shrink-0 items-center gap-2">
+                        'Mon  28  Sep  2026' double-width gaps (run 10). Beside
+                        the longer 'Done today · next in 30 days' the date drops
+                        its weekday, and under 360 pt the column gives way to
+                        the label, which already says when it is next due
+                        (measured: 'Done today · next in 12 months' is 190 px
+                        of the 253 the row has at 320). */}
+                    <div
+                        data-testid="task-due-detail"
+                        className={`flex shrink-0 items-center gap-2${task.doneToday ? ' max-[360px]:hidden' : ''}`}
+                    >
                         {task.trigger_type === 'engine_hours' && task.next_due_hours !== null && (
                             <span className="text-label text-slate-400 tabular-nums">
                                 @ {task.next_due_hours?.toLocaleString()} hrs
@@ -171,7 +179,7 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({ task, onTa
                             toLocaleDateString() gave '28/9/2026' (UX scorecard run 9). */}
                         {task.next_due_date && (
                             <span className="text-label text-slate-400 tabular-nums">
-                                {formatDisplayDate(task.next_due_date)}
+                                {formatDisplayDate(task.next_due_date, { weekday: !task.doneToday })}
                             </span>
                         )}
                     </div>

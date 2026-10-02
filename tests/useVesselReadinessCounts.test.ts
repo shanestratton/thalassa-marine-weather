@@ -12,14 +12,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { DATA_EVENTS, dispatchDataChange } from '../utils/dataChangeEvents';
-import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 // Mutable fixtures the mocked services read from — tests mutate these
 // then fire the matching event to simulate a real mutation elsewhere.
 const PAST = '2026-01-01T00:00:00.000Z';
 const FUTURE = '2030-01-01T00:00:00.000Z';
 
-let maintTasks: Array<{ id: string; is_active: boolean; next_due_date: string | null; updated_at: string }>;
+let maintTasks: Array<{
+    id: string;
+    is_active: boolean;
+    next_due_date: string | null;
+    updated_at: string;
+    trigger_type?: 'daily' | 'engine_hours';
+    interval_value?: number | null;
+    next_due_hours?: number | null;
+}>;
 let cloudTasks: typeof maintTasks;
 let docs: Array<{ id: string; expiry_date: string | null }>;
 let equip: Array<{ id: string; warranty_expiry: string | null }>;
@@ -28,7 +36,9 @@ const cloudGetTasks = vi.fn();
 vi.mock('../services/vessel/LocalMaintenanceService', () => ({
     LocalMaintenanceService: { getTasks: () => maintTasks },
 }));
-vi.mock('../services/MaintenanceService', () => ({
+// The real calculateStatus: the badge counts what R&M shows red.
+vi.mock('../services/MaintenanceService', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/MaintenanceService')>()),
     MaintenanceService: { getTasks: () => cloudGetTasks() },
 }));
 vi.mock('../services/vessel/LocalDocumentService', () => ({
@@ -212,5 +222,61 @@ describe('useVesselReadinessCounts', () => {
         cloudTasks = [];
         act(() => syncListeners.forEach((listener) => listener({ pushed: 0, pulled: 0, pruned: 1, errors: [] })));
         await waitFor(() => expect(result.current.overdueCount).toBe(0));
+    });
+
+    // ── The badge counts exactly what R&M shows red (2026-10-02) ──
+
+    it('counts by local calendar day, as R&M does: a daily task due earlier today is due, not overdue', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(2026, 9, 2, 19, 34));
+        try {
+            const sevenAm = new Date(2026, 9, 2, 7, 0).toISOString();
+            maintTasks = [
+                {
+                    id: 'd1',
+                    is_active: true,
+                    next_due_date: sevenAm,
+                    updated_at: PAST,
+                    trigger_type: 'daily',
+                    interval_value: 1,
+                },
+            ];
+            cloudTasks = [...maintTasks];
+            const { result } = renderHook(() => useVesselReadinessCounts());
+            await waitFor(() => expect(cloudGetTasks).toHaveBeenCalled());
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            expect(result.current.overdueCount).toBe(0);
+
+            const yesterday = new Date(2026, 9, 1, 7, 0).toISOString();
+            maintTasks = [{ ...maintTasks[0], next_due_date: yesterday, updated_at: FUTURE }];
+            act(() => dispatchDataChange(DATA_EVENTS.MAINTENANCE));
+            await waitFor(() => expect(result.current.overdueCount).toBe(1));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('counts a task overdue by engine hours from the R&M reading, and judges it on its date with none', async () => {
+        maintTasks = [
+            {
+                id: 'h1',
+                is_active: true,
+                next_due_date: null,
+                updated_at: PAST,
+                trigger_type: 'engine_hours',
+                interval_value: 100,
+                next_due_hours: 1200,
+            },
+        ];
+        cloudTasks = [...maintTasks];
+        const { result } = renderHook(() => useVesselReadinessCounts());
+        await waitFor(() => expect(cloudGetTasks).toHaveBeenCalled());
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(result.current.overdueCount).toBe(0);
+
+        localStorage.setItem(authScopedStorageKey('thalassa_engine_hours', getAuthIdentityScope()), '1250');
+        act(() => dispatchDataChange(DATA_EVENTS.MAINTENANCE));
+        await waitFor(() => expect(result.current.overdueCount).toBe(1));
+        localStorage.removeItem(authScopedStorageKey('thalassa_engine_hours', getAuthIdentityScope()));
     });
 });

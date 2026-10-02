@@ -50,7 +50,12 @@ import {
 import { useSettingsStore } from '../../stores/settingsStore';
 import { getSyncMeta, initLocalDatabase } from '../../services/vessel/LocalDatabase';
 import { onSyncComplete } from '../../services/vessel/SyncService';
-import { canSeedOwnBinder, getBinderSource } from '../../services/vessel/sharedBinders';
+import { canSeedOwnBinder, getBinderSource, SharedBinderReadOnlyError } from '../../services/vessel/sharedBinders';
+import {
+    LocalEngineHoursService,
+    MAX_ENGINE_HOURS,
+    type EngineHoursReading,
+} from '../../services/vessel/LocalEngineHoursService';
 import { useBinderSource } from '../../hooks/useBinderSource';
 import { SharedBinderLine, bringingInCopy } from './SharedBinderLine';
 import { toLocalDateString } from '../../utils/localDate';
@@ -110,11 +115,25 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const taskDataIsCurrent = isAuthIdentityScopeCurrent(taskData.identity);
     const tasks = useMemo(() => (taskDataIsCurrent ? taskData.tasks : []), [taskData.tasks, taskDataIsCurrent]);
     // null until the skipper has entered a figure — a bold "0" read as a
-    // real reading and hour-based tasks counted from it.
-    const [engineHours, setEngineHours] = useState<number | null>(null);
+    // real reading and hour-based tasks counted from it. The R&M binder's
+    // shared reading (LocalEngineHoursService): the skipper's while crewing
+    // his shared R&M, so a service logged here records his hours. Read
+    // synchronously, so an account switch shows the new account's figure at
+    // once; read again once the local database is open for the account, on
+    // every reload (a change from another device), and after each sync.
+    const [engineHoursReading, setEngineHoursReading] = useState<EngineHoursReading>(() =>
+        LocalEngineHoursService.getReading(),
+    );
+    const engineHours = engineHoursReading.hours;
+    /** False on a view-only share: the figure shows, the field does not open. */
+    const engineHoursCanEdit = engineHoursReading.canEdit;
+    /** The engine-hours table is live on this device: listen for changes to it. */
+    const engineHoursShared = engineHoursReading.source === 'shared';
     const [engineHoursInput, setEngineHoursInput] = useState<string>('');
     const [isEditingHours, setIsEditingHours] = useState(false);
     const [engineHoursEditIdentity, setEngineHoursEditIdentity] = useState<AuthIdentityScope | null>(null);
+    /** One save per edit: Enter and the blur that follows it both call save. */
+    const hoursEditOpenRef = useRef(false);
     const [loading, setLoading] = useState(true);
     // A failed fetch used to fall through to the empty state, so a network
     // error read as "nothing logged" — see components/ui/LoadErrorState.
@@ -178,6 +197,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             // performs its synchronous cache read.
             await initLocalDatabase(identity.userId);
             if (!isCurrentRequest()) return;
+            setEngineHoursReading(LocalEngineHoursService.getReading(identity));
             const data = await MaintenanceService.getTasks();
             if (!isCurrentRequest()) return;
 
@@ -253,15 +273,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     useEffect(() => {
         const identity = getAuthIdentityScope();
         void loadTasks(identity);
-        // Load saved engine hours from localStorage
-        const saved = localStorage.getItem(authScopedStorageKey('thalassa_engine_hours', identity));
-        if (saved) {
-            const hrs = parseInt(saved, 10);
-            if (Number.isFinite(hrs) && hrs >= 0 && isAuthIdentityScopeCurrent(identity)) {
-                setEngineHours(hrs);
-                setEngineHoursInput(hrs.toLocaleString());
-            }
-        }
     }, [loadTasks]);
 
     // The Service history sheet on show, so a background reload refreshes it
@@ -286,10 +297,13 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
     // A first-time account that opened R&M before its first full pull: decide
     // when that pull completes. It may pull nothing (a new account), and then
-    // no ordinary reload would come.
+    // no ordinary reload would come. Engine hours are read again after every
+    // cycle: the one that first finds the shared table on the server pulls
+    // nothing when nobody has entered a reading yet.
     useEffect(
         () =>
             onSyncComplete(() => {
+                setEngineHoursReading(LocalEngineHoursService.getReading());
                 if (seedAwaitsFirstPullRef.current) reloadInBackground();
             }),
         [reloadInBackground],
@@ -299,6 +313,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     // saved on another device (or by crew on a shared R&M) lands within
     // seconds; the binder read decides which rows this page shows.
     useRealtimeSyncMulti(['maintenance_tasks', 'maintenance_history'], reloadInBackground);
+    // The engine-hours reading on a channel of its own, opened only once the
+    // table is live on this device: a binding for a table the server does not
+    // have yet would fail the channel join, and with it the tasks' channel.
+    useRealtimeSyncMulti(['vessel_engine_hours'], reloadInBackground, engineHoursShared);
 
     // Whose R&M this is (shared binders, 2026-10-02): the skipper's while this
     // sailor is crew on a boat that shares it. Crew can edit, Pause and Log
@@ -310,30 +328,45 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
     const sharedBinder = binder.mode === 'shared';
 
     // ── Engine Hours ──
+    // Saved as the R&M binder's shared reading: every device of the skipper
+    // and any crew on his shared R&M see it within seconds. Before the shared
+    // table is live on this device it stays on the device, as it always did.
     const saveEngineHours = useCallback(() => {
+        if (!hoursEditOpenRef.current) return;
+        hoursEditOpenRef.current = false;
         const identity = engineHoursEditIdentity;
-        if (!identity || !isAuthIdentityScopeCurrent(identity)) return;
-        const parsed = parseInt(engineHoursInput.replace(/,/g, ''), 10);
-        if (!isNaN(parsed) && parsed >= 0) {
-            setEngineHours(parsed);
-            setEngineHoursInput(parsed.toLocaleString());
-            localStorage.setItem(authScopedStorageKey('thalassa_engine_hours', identity), String(parsed));
-        } else {
-            setEngineHoursInput(engineHours === null ? '' : engineHours.toLocaleString());
-        }
         setIsEditingHours(false);
         setEngineHoursEditIdentity(null);
+        if (!identity || !isAuthIdentityScopeCurrent(identity)) return;
+        const parsed = parseInt(engineHoursInput.replace(/[,\s]/g, ''), 10);
+        // Anything else keeps the figure on show, as before.
+        if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_ENGINE_HOURS || parsed === engineHours) return;
+        setEngineHoursReading((reading) => ({ ...reading, hours: parsed }));
+        void LocalEngineHoursService.setReading(parsed, identity)
+            .catch((e) => {
+                log.warn('Failed to save engine hours:', e);
+                if (isAuthIdentityScopeCurrent(identity)) {
+                    toast.error(e instanceof SharedBinderReadOnlyError ? e.message : 'Could not save engine hours');
+                }
+            })
+            .finally(() => {
+                if (isAuthIdentityScopeCurrent(identity)) {
+                    setEngineHoursReading(LocalEngineHoursService.getReading(identity));
+                }
+            });
     }, [engineHoursInput, engineHours, engineHoursEditIdentity]);
 
     const startEditingHours = useCallback(() => {
         const identity = getAuthIdentityScope();
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+        if (!isAuthIdentityScopeCurrent(identity) || !engineHoursCanEdit) return;
+        hoursEditOpenRef.current = true;
+        setEngineHoursInput(engineHours === null ? '' : engineHours.toLocaleString());
         setEngineHoursEditIdentity(identity);
         setIsEditingHours(true);
         setTimeout(() => {
             if (isAuthIdentityScopeCurrent(identity)) hoursInputRef.current?.focus();
         }, 100);
-    }, []);
+    }, [engineHours, engineHoursCanEdit]);
 
     const tasksWithStatus = useMemo(() => {
         const withStatus = tasks.map((t) => {
@@ -554,10 +587,11 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             subscribeAuthIdentityScope((next) => {
                 setTaskData({ identity: next, tasks: [] });
                 setHistoryData({ identity: next, items: [] });
-                setEngineHours(null);
+                setEngineHoursReading(LocalEngineHoursService.getReading(next));
                 setEngineHoursInput('');
                 setIsEditingHours(false);
                 setEngineHoursEditIdentity(null);
+                hoursEditOpenRef.current = false;
                 setLoading(true);
                 setSheetTask(null);
                 setSheetNotes('');
@@ -573,14 +607,6 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 setExporting(false);
                 setDeletedTask(null);
 
-                const saved = localStorage.getItem(authScopedStorageKey('thalassa_engine_hours', next));
-                if (saved) {
-                    const hours = parseInt(saved, 10);
-                    if (Number.isFinite(hours) && hours >= 0) {
-                        setEngineHours(hours);
-                        setEngineHoursInput(hours.toLocaleString());
-                    }
-                }
                 void loadTasks(next);
             }),
         [loadTasks, resetForm],
@@ -896,9 +922,40 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     Unset, it is one 56 pt row: a 110 pt card holding a dash
                     pushed the first task past half the screen at 393 and two
                     thirds at 375 (UX scorecard run 9). Tapping it opens the
-                    full card with the entry field; a figure keeps the full card. */}
+                    full card with the entry field; a figure keeps the full card.
+                    On a view-only share it is the skipper's figure in the same
+                    one row, with a quiet note and nothing to tap. */}
                 <div className="shrink-0 px-4 pb-3">
-                    {engineHours === null && !isEditingHours ? (
+                    {!engineHoursCanEdit && !isEditingHours ? (
+                        <div
+                            data-testid="engine-hours-view-only"
+                            className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-2"
+                        >
+                            <span aria-hidden="true" className="rounded-lg bg-sky-500/20 p-1.5">
+                                <svg
+                                    className="h-5 w-5 text-sky-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    />
+                                </svg>
+                            </span>
+                            <p className="min-w-0 flex-1 text-sm">
+                                <span className="font-bold text-white">Engine hours</span>
+                                <span className="text-gray-400">
+                                    {' · '}
+                                    {engineHours === null ? 'not set' : engineHours.toLocaleString()}
+                                </span>
+                            </p>
+                            <p className="shrink-0 text-xs text-gray-400">Skipper&apos;s · view only</p>
+                        </div>
+                    ) : engineHours === null && !isEditingHours ? (
                         <button
                             type="button"
                             aria-label="Engine hours not set — enter engine hours"

@@ -45,6 +45,7 @@ import {
     TABLE_REGISTER,
     type BinderRegister,
 } from './sharedBinders';
+import { LocalEngineHoursService } from './LocalEngineHoursService';
 
 import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
@@ -96,7 +97,21 @@ const SYNCABLE_TABLES = [
     'crew_profiles',
     'checklists',
     'checklist_runs',
+    'vessel_engine_hours',
 ] as const;
+
+/**
+ * Tables the server may not have yet: an app build can reach a device before
+ * the migration that creates the table is pushed (vessel_engine_hours,
+ * 20261002190000). Until the server has one (PostgREST answers PGRST205),
+ * its pull and sweep are skipped quietly: no error, no held watermark for the other tables, no prune, no
+ * collapse guard. A device reads such a table in full the first time it finds
+ * it, records that in SyncMeta.optionalTablesReadAt, and only then writes to
+ * it (LocalEngineHoursService), so the outbox never holds a change the server
+ * cannot take.
+ */
+const OPTIONAL_TABLES: ReadonlySet<string> = new Set(['vessel_engine_hours']);
+const EPOCH = '1970-01-01T00:00:00Z';
 const PULL_PAGE_SIZE = 500;
 const PULL_REPLAY_OVERLAP_MS = 5 * 60 * 1000;
 const FULL_RECONCILIATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -182,6 +197,8 @@ let stopForegroundWatch: (() => void) | null = null;
 let syncCycleSerial = 0;
 /** table → the first reading of a collapse, waiting for a second. */
 const heldCollapses = new Map<string, { identity: string; cycle: number; at: number }>();
+/** Optional tables the server last said it does not have (this session). */
+const missingOptionalTables = new Set<string>();
 const listeners: SyncListener[] = [];
 const statusListeners: StatusListener[] = [];
 
@@ -287,6 +304,40 @@ export function stopSyncEngine(): void {
     lastCatchUpStartedAt = Number.NEGATIVE_INFINITY;
     deletionSweepRequested = false;
     heldCollapses.clear();
+    missingOptionalTables.clear();
+}
+
+// ── Server errors ──────────────────────────────────────────────
+
+/** A PostgREST/Postgres error, keeping its code for the checks below. */
+class ServerRequestError extends Error {
+    readonly code: string | undefined;
+    constructor(error: { message?: string; code?: string }) {
+        super(error.message || 'Server request failed');
+        this.name = 'ServerRequestError';
+        this.code = typeof error.code === 'string' ? error.code : undefined;
+    }
+}
+
+/**
+ * The server does not have this table: PostgREST's PGRST205 ("Could not find
+ * the table '...' in the schema cache"). PostgREST checks its schema cache
+ * before a request reaches Postgres, so that is the only "no such table" a
+ * missing table gives (measured on the live server, 2026-10-02). A Postgres
+ * 42P01 ("relation ... does not exist") can then only come from INSIDE the
+ * database, from a policy, trigger or fence reading a relation that drifted
+ * away, and is a real error: treating it as "not pushed yet" would leave
+ * every write waiting in silence.
+ */
+function isMissingTableError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const { code, message } = error as { code?: unknown; message?: unknown };
+    if (code === 'PGRST205') return true;
+    return (
+        (code === undefined || code === null) &&
+        typeof message === 'string' &&
+        /^Could not find the table '[\w.]+' in the schema cache$/.test(message)
+    );
 }
 
 function handleOnline() {
@@ -749,6 +800,8 @@ function orphanedSharedMutation(
  *    binder, another boat's;
  *  - a service log entry only moves with its task (the task's INSERT comes
  *    first in the outbox, so a re-homed task is already the sailor's).
+ *  - an engine-hours reading is never moved: it is that skipper's boat's
+ *    figure, and its row id is derived from his id (LocalEngineHoursService).
  * An attachment reference into someone else's vault folder is cleared; a
  * local file still uploads, now to the sailor's own folder.
  */
@@ -758,6 +811,7 @@ function rehomeChanges(
     authenticatedUserId: string,
 ): Record<string, unknown> | null {
     if (item.mutation_type !== 'INSERT' || anySkipperGrantsWrite(register)) return null;
+    if (item.table_name === 'vessel_engine_hours') return null;
     let payload: Record<string, unknown>;
     try {
         payload = JSON.parse(item.payload) as Record<string, unknown>;
@@ -894,6 +948,14 @@ async function pushMutations(
             await removeSynced([item.id]);
             succeeded += 1;
         } catch (e) {
+            if (OPTIONAL_TABLES.has(item.table_name) && isMissingTableError(e)) {
+                // Not an error: the table is not on this server yet. The change
+                // waits, unmarked, for a cycle that finds it.
+                missingOptionalTables.add(item.table_name);
+                blockedRecords.add(recordKey);
+                if (!isLocalDatabaseSessionCurrent(databaseSession)) break;
+                continue;
+            }
             const msg = e instanceof Error ? e.message : 'Push failed';
             errors.push(`${item.table_name}/${item.record_id}: ${msg}`);
             if (!isLocalDatabaseSessionCurrent(databaseSession)) {
@@ -947,7 +1009,7 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
             // records that follow in the outbox apply the later state.
             const { error } = await supabase.from(table).upsert(row, { onConflict: 'id', ignoreDuplicates: true });
 
-            if (error) throw new Error(error.message);
+            if (error) throw new ServerRequestError(error);
             break;
         }
 
@@ -971,7 +1033,7 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
                 .select('id')
                 .maybeSingle();
 
-            if (error) throw new Error(error.message);
+            if (error) throw new ServerRequestError(error);
             if (!data) throw new Error('Record not found or update not authorized');
 
             // A changed attachment can use a different extension while keeping
@@ -999,7 +1061,7 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
                 .select('id')
                 .eq('id', item.record_id)
                 .maybeSingle();
-            if (selectError) throw new Error(selectError.message);
+            if (selectError) throw new ServerRequestError(selectError);
 
             if (visibleBefore) {
                 const { data: deleted, error: deleteError } = await supabase
@@ -1008,7 +1070,7 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
                     .eq('id', item.record_id)
                     .select('id')
                     .maybeSingle();
-                if (deleteError) throw new Error(deleteError.message);
+                if (deleteError) throw new ServerRequestError(deleteError);
 
                 if (!deleted) {
                     // A concurrent delete is success; a still-visible row
@@ -1019,7 +1081,7 @@ async function pushSingleMutation(item: SyncQueueItem, authenticatedUserId: stri
                         .select('id')
                         .eq('id', item.record_id)
                         .maybeSingle();
-                    if (verifyError) throw new Error(verifyError.message);
+                    if (verifyError) throw new ServerRequestError(verifyError);
                     if (visibleAfter) throw new Error('Record is visible but delete is not authorized');
                 }
             }
@@ -1308,13 +1370,23 @@ async function pullUpdates(
     let sweepIncomplete = false;
     let collapseHeld = false;
     const errors: string[] = [];
+    // The optional tables this device has read in full, and what this cycle
+    // learns about them (one found for the first time, or gone).
+    const optionalReadAt: Record<string, string> = { ...(meta.optionalTablesReadAt ?? {}) };
+    let optionalReadAtChanged = false;
 
     for (const table of SYNCABLE_TABLES) {
+        const optional = OPTIONAL_TABLES.has(table);
         try {
             assertDatabaseSession(databaseSession);
+            // A device's first read of an optional table is a full one: rows a
+            // device with the new build wrote before this device's shared
+            // watermark would otherwise never arrive here. No prune with it
+            // unless the cycle is a full reconciliation anyway: nothing was
+            // written to the table here before it was read.
             const { merged, pruned, held } = await pullTable(
                 table,
-                since,
+                optional && !optionalReadAt[table] ? EPOCH : since,
                 completedWatermark,
                 reconcileSnapshot,
                 databaseSession,
@@ -1322,13 +1394,34 @@ async function pullUpdates(
             totalPulled += merged;
             totalPruned += pruned;
             collapseHeld ||= held;
+            if (optional) {
+                missingOptionalTables.delete(table);
+                if (!optionalReadAt[table]) {
+                    optionalReadAt[table] = completedWatermark;
+                    optionalReadAtChanged = true;
+                }
+            }
         } catch (e) {
             // No session to pin: every other table would fail the same way
             // (after auth-js's own retries each time). Stop here, and replay.
             if (e instanceof NoPullSessionError) throw e;
+            if (optional && isMissingTableError(e)) {
+                // Not on this server yet (its migration is pushed separately).
+                // Not an error: the other tables' watermark stands.
+                missingOptionalTables.add(table);
+                if (optionalReadAt[table]) {
+                    delete optionalReadAt[table];
+                    optionalReadAtChanged = true;
+                }
+                continue;
+            }
             const msg = e instanceof Error ? e.message : 'Pull failed';
             errors.push(`${table}: ${msg}`);
         }
+    }
+    if (optionalReadAtChanged) {
+        assertDatabaseSession(databaseSession);
+        await updateSyncMeta({ optionalTablesReadAt: optionalReadAt });
     }
 
     // A full snapshot already pruned every table. Otherwise, when asked, list
@@ -1338,7 +1431,7 @@ async function pullUpdates(
     // fails this one, whose incremental pull stands on its own.
     if (sweepDeletions && !reconcileSnapshot) {
         for (const table of SYNCABLE_TABLES) {
-            if (!TABLE_REGISTER[table]) continue;
+            if (!TABLE_REGISTER[table] || missingOptionalTables.has(table)) continue;
             try {
                 assertDatabaseSession(databaseSession);
                 const swept = await sweepDeletedRows(table, completedWatermark, databaseSession);
@@ -1346,6 +1439,10 @@ async function pullUpdates(
                 collapseHeld ||= swept.held;
             } catch (e) {
                 if (!isLocalDatabaseSessionCurrent(databaseSession) || e instanceof NoPullSessionError) throw e;
+                if (OPTIONAL_TABLES.has(table) && isMissingTableError(e)) {
+                    missingOptionalTables.add(table);
+                    continue;
+                }
                 sweepIncomplete = true;
                 log.warn(
                     `[SyncService] Could not check ${table} for rows deleted elsewhere:`,
@@ -1373,7 +1470,27 @@ async function pullUpdates(
         );
     }
 
+    // The engine-hours table is live here: this device's figure from before
+    // it existed goes up once, if the server has none or a lower one
+    // (LocalEngineHoursService).
+    if (optionalReadAt.vessel_engine_hours && !missingOptionalTables.has('vessel_engine_hours')) {
+        await carryOverEngineHours(databaseSession);
+    }
+
     return { count: totalPulled, errors, pruned: totalPruned, sweepIncomplete };
+}
+
+/** Best effort: a failed carry-over is retried next cycle and fails nothing. */
+async function carryOverEngineHours(databaseSession: LocalDatabaseSession): Promise<void> {
+    try {
+        assertDatabaseSession(databaseSession);
+        await LocalEngineHoursService.carryOverDeviceReading();
+    } catch (error) {
+        log.warn(
+            "[SyncService] Could not carry this device's engine hours over:",
+            error instanceof Error ? error.message : error,
+        );
+    }
 }
 
 /**
@@ -1401,7 +1518,7 @@ async function sweepDeletedRows(
         if (after !== null) query = query.gt('id', after);
         const { data, error } = await query.limit(PULL_PAGE_SIZE);
         assertDatabaseSession(databaseSession);
-        if (error) throw new Error(error.message);
+        if (error) throw new ServerRequestError(error);
         const rows = (data ?? []) as { id?: unknown }[];
         for (const row of rows) {
             if (typeof row.id !== 'string') throw new Error('Sync row is missing its record ID');
@@ -1484,7 +1601,7 @@ async function pullTable(
         const { data, error } = await query.limit(PULL_PAGE_SIZE);
         assertDatabaseSession(databaseSession);
 
-        if (error) throw new Error(error.message);
+        if (error) throw new ServerRequestError(error);
         if (!data || data.length === 0) break;
 
         if (visibleIds) {

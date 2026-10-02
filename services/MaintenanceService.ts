@@ -72,9 +72,11 @@ export type TrafficLight = 'red' | 'yellow' | 'green' | 'grey';
 
 export interface TaskWithStatus extends MaintenanceTask {
     status: TrafficLight;
-    statusLabel: string; // "Overdue by 14 days", "Due in 5 days", etc.
+    statusLabel: string; // "Overdue by 14 days", "Due in 5 days", "Done today · next tomorrow", etc.
     daysRemaining: number | null;
     hoursRemaining: number | null;
+    /** Logged today (local day) and not overdue: the label says so. */
+    doneToday?: boolean;
 }
 
 /** A bare 'YYYY-MM-DD' names a calendar day, not an instant. */
@@ -99,6 +101,11 @@ export function calendarDaysUntil(dueDate: string, now: Date = new Date()): numb
     return Math.round((dueDay - today) / (1000 * 60 * 60 * 24));
 }
 
+/** Is this date or timestamp on today's LOCAL calendar day? */
+export function isLocalToday(value: string | null | undefined, now: Date = new Date()): boolean {
+    return !!value && calendarDaysUntil(value, now) === 0;
+}
+
 /** "Due today", "Due tomorrow", "Due in 5 days". */
 function dueInLabel(days: number): string {
     if (days === 0) return 'Due today';
@@ -106,24 +113,67 @@ function dueInLabel(days: number): string {
     return `Due in ${days} days`;
 }
 
+/** The amber window for a task with no interval in days. */
+const DEFAULT_DUE_SOON_DAYS = 14;
+
+/**
+ * How many days before its due date a task turns amber ("due soon"), scaled
+ * to how often it recurs. A flat 14 days left every daily task amber for
+ * good: logged today it is due tomorrow, inside the window again (Shane,
+ * 2026-10-02, who logged one nine times waiting for it to change). A daily
+ * task (interval 1 or less) turns amber only on the day it is due; any other
+ * at a quarter of its interval, from 1 to 14 days (monthly about a week,
+ * quarterly and longer a fortnight). A task with no interval in days (none
+ * set, or an engine-hours task, whose interval is hours) keeps 14.
+ */
+export function dueSoonWindowDays(task: Pick<MaintenanceTask, 'trigger_type' | 'interval_value'>): number {
+    const interval = task.interval_value;
+    if (
+        task.trigger_type === 'engine_hours' ||
+        typeof interval !== 'number' ||
+        !Number.isFinite(interval) ||
+        interval <= 0
+    ) {
+        return DEFAULT_DUE_SOON_DAYS;
+    }
+    if (interval <= 1) return 0;
+    return Math.min(DEFAULT_DUE_SOON_DAYS, Math.max(1, Math.round(interval * 0.25)));
+}
+
+/** 'tomorrow', 'in 30 days', 'at 1350 hrs': when a task done today is next due. */
+function nextDueText(task: MaintenanceTask, daysRemaining: number | null): string | null {
+    const hours = task.next_due_hours;
+    const hasHours = hours !== null && hours !== undefined;
+    if (hasHours && (task.trigger_type === 'engine_hours' || daysRemaining === null)) return `at ${hours} hrs`;
+    if (daysRemaining === null) return null;
+    if (daysRemaining === 0) return 'today';
+    if (daysRemaining === 1) return 'tomorrow';
+    return `in ${daysRemaining} days`;
+}
+
 /**
  * Calculate traffic light status for a task given current engine hours.
  */
-export function calculateStatus(task: MaintenanceTask, currentEngineHours: number): TaskWithStatus {
+export function calculateStatus(
+    task: MaintenanceTask,
+    currentEngineHours: number,
+    now: Date = new Date(),
+): TaskWithStatus {
     let status: TrafficLight = 'green';
     let statusLabel = 'OK';
     let daysRemaining: number | null = null;
     let hoursRemaining: number | null = null;
+    let doneToday = false;
 
     // Date-based check, in local calendar days
     if (task.next_due_date) {
-        daysRemaining = calendarDaysUntil(task.next_due_date);
+        daysRemaining = calendarDaysUntil(task.next_due_date, now);
     }
     if (daysRemaining !== null) {
         if (daysRemaining < 0) {
             status = 'red';
             statusLabel = `Overdue by ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining) !== 1 ? 's' : ''}`;
-        } else if (daysRemaining <= 14) {
+        } else if (daysRemaining <= dueSoonWindowDays(task)) {
             status = 'yellow';
             statusLabel = dueInLabel(daysRemaining);
         } else {
@@ -146,18 +196,29 @@ export function calculateStatus(task: MaintenanceTask, currentEngineHours: numbe
         }
     }
 
+    // Logged today and not overdue: done, and say when it is next due, rather
+    // than amber "Due tomorrow" as if the log had not taken.
+    const nextDue = status === 'red' ? null : nextDueText(task, daysRemaining);
+    if (nextDue && isLocalToday(task.last_completed, now)) {
+        status = 'green';
+        statusLabel = `Done today · next ${nextDue}`;
+        doneToday = true;
+    }
+
     // No due date or hours → grey (unscheduled)
     if (!task.next_due_date && (task.next_due_hours === null || task.next_due_hours === undefined)) {
         status = 'grey';
         statusLabel = 'No schedule set';
+        doneToday = false;
     }
 
     if (!task.is_active) {
         status = 'grey';
         statusLabel = 'Paused';
+        doneToday = false;
     }
 
-    return { ...task, status, statusLabel, daysRemaining, hoursRemaining };
+    return { ...task, status, statusLabel, daysRemaining, hoursRemaining, doneToday };
 }
 
 /**
