@@ -309,11 +309,47 @@ describe('calculateThalassaProposal', () => {
     });
 
     it('refuses a route the satellite land check finds over land, and says when it could not check', async () => {
-        m.tryInshoreRoute.mockResolvedValue(engineResult());
+        // The engine's own chart evidence rides the result into the check
+        // (2026-10-02, Coral Sea Marina → Daydream Island).
+        const chartWater = vi.fn(() => 'water' as const);
+        m.tryInshoreRoute.mockResolvedValue(engineResult({ chartWater }));
         m.crossesLand.mockResolvedValue({ status: 'verified', crossesLand: true, runs: [{}] });
         await expect(calculateThalassaProposal(request())).rejects.toThrow(
-            'Satellite relief shows land on this route, so it is not shown. Check charts are installed for the whole passage.',
+            'Satellite relief shows land on this route. The route is not shown. Check that stretch on a detailed chart, or plot this passage in Manual. Nothing changed.',
         );
+        expect(m.crossesLand).toHaveBeenLastCalledWith(polyline, { chartWater });
+        // Where, and whether the charts are missing there.
+        m.crossesLand.mockResolvedValue({
+            status: 'verified',
+            crossesLand: true,
+            runs: [
+                {
+                    startIdx: 3,
+                    samples: 4,
+                    lat: -31.01,
+                    lon: 161.02,
+                    midLat: -31.012,
+                    midLon: 161.024,
+                    charts: 'uncharted',
+                },
+            ],
+        });
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            'Satellite relief shows land near 31.012° S, 161.024° E, where none of the charts used for this route is detailed enough to say whether it is water. The route is not shown. Check that stretch on a detailed chart, or plot this passage in Manual. Nothing changed.',
+        );
+        m.crossesLand.mockResolvedValue({
+            status: 'verified',
+            crossesLand: true,
+            runs: [{ startIdx: 3, samples: 2, lat: -31.01, lon: 161.02, charts: 'land' }],
+        });
+        await expect(calculateThalassaProposal(request())).rejects.toThrow(
+            'Satellite relief shows land near 31.010° S, 161.020° E, and the installed charts show land or drying ground there too. The route is not shown. Plot this passage in Manual. Nothing changed.',
+        );
+        // The proposal never carries the probe (it is cloned and saved).
+        m.crossesLand.mockResolvedValue({ status: 'verified', crossesLand: false, runs: [] });
+        const clear = await calculateThalassaProposal(request());
+        expect(() => structuredClone(clear)).not.toThrow();
+        expect(JSON.stringify(clear)).not.toContain('chartWater');
         m.crossesLand.mockResolvedValue({ status: 'unavailable', crossesLand: false, runs: [] });
         const route = await calculateThalassaProposal(request());
         expect(route.warnings).toContain(

@@ -157,7 +157,11 @@ export function cellFinenessRank(facts: CellScaleFacts | null | undefined): numb
     return band === null ? null : band * SCALE_BAND_STEP;
 }
 
-const bandOfRank = (rank: number): number => Math.floor(rank / SCALE_BAND_STEP);
+/** The IHO usage band (1 overview … 6 berthing) a fineness rank sits in. */
+export function usageBandOfRank(rank: number): number {
+    return Math.floor(rank / SCALE_BAND_STEP);
+}
+const bandOfRank = usageBandOfRank;
 const stepOfRank = (rank: number): number => rank - bandOfRank(rank) * SCALE_BAND_STEP;
 
 /**

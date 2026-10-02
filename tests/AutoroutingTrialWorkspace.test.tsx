@@ -1836,3 +1836,44 @@ describe('explicit routing mode choice', () => {
         );
     });
 });
+
+describe('boat details from Vessel preferences', () => {
+    // Shane's screenshot, 2026-10-02: draft, length, beam and air draft all
+    // "measured", and the "not confirmed clearance" line still showed.
+    const measured = {
+        length: { status: 'measured' as const, valueM: 14 },
+        beam: { status: 'measured' as const, valueM: 4.9 },
+        airDraft: { status: 'measured' as const, valueM: 18.29 },
+        draftStatus: 'measured' as const,
+    };
+    const CAVEAT = /Missing or estimated dimensions are not confirmed clearance/;
+    async function openWith(profile: Parameters<typeof AutoroutingTrialWorkspace>[0]['initialVesselProfile']) {
+        render(
+            <AutoroutingTrialWorkspace
+                mapboxToken="fixture-token"
+                onClose={vi.fn()}
+                initialDraftM={2.4}
+                initialSpeedKts={6}
+                initialVesselProfile={profile}
+            />,
+        );
+        await waitFor(() => expect(mocks.status).toHaveBeenCalled());
+        expect(screen.getByText('Boat details · from Vessel preferences')).toBeInTheDocument();
+    }
+
+    it('says nothing about unconfirmed clearance when every dimension is measured', async () => {
+        await openWith(structuredClone(measured));
+        expect(screen.getAllByText(/· measured$/)).toHaveLength(4);
+        expect(screen.queryByText(CAVEAT)).not.toBeInTheDocument();
+    });
+
+    it.each([
+        ['an estimated beam', { beam: { status: 'estimated' as const, valueM: 4.9 } }],
+        ['a missing air draft', { airDraft: { status: 'missing' as const } }],
+        ['a missing length', { length: { status: 'missing' as const } }],
+        ['an estimated draft', { draftStatus: 'estimated' as const }],
+    ])('says it with %s', async (_name, change) => {
+        await openWith({ ...structuredClone(measured), ...change });
+        expect(screen.getByText(CAVEAT)).toBeInTheDocument();
+    });
+});

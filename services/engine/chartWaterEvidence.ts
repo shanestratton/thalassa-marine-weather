@@ -15,7 +15,13 @@
  *     standing.
  *   • A FAIRWY is a route area, not a depth claim: never water evidence.
  */
-import { bandNeverDries, finerBandBeatsLand, finestSurveyOwners, landRankKey } from '../enc/scaleShadow';
+import {
+    bandNeverDries,
+    finerBandBeatsLand,
+    finestSurveyOwners,
+    landRankKey,
+    usageBandOfRank,
+} from '../enc/scaleShadow';
 import { isS57ChartProps, readS57 } from '../enc/types';
 
 /**
@@ -106,4 +112,110 @@ export function finestBandBeatsLand(bands: readonly BandClaim[], landRanks: read
     const { owners, rank } = finestSurveyOwners(bands.map((b) => b.rank));
     if (rank === null) return false;
     return owners.every((i) => bands[i].neverDries) && finerBandBeatsLand(rank, land);
+}
+
+// ── The satellite land check's chart evidence (2026-10-02) ──────────────────
+
+/**
+ * What the installed charts say at one point, for the satellite land check
+ * (services/routing/landBackstop):
+ *   • 'water' — a chart finer than NOAA ETOPO's ~1.8 km pixel charts water
+ *     that never dries here (decision 1 over any land paint);
+ *   • 'osm-water' — the charts do not vouch here, but the route's own
+ *     navigable OSM water (a marina, canal, dock, river or harbour polygon)
+ *     covers it. Neutral: the check never counts it as land, and a short
+ *     stretch of it does not break a land run (review fix-up, 2026-10-02: two
+ *     OSM ponds inside Hamilton Island split its land run in three, and on a
+ *     small island land / pond / land would have passed as two lone samples);
+ *   • 'land' — a detailed chart (or land of unknown scale, such as an OSM
+ *     breakwater) owns the spot as land, or its finest survey charts drying
+ *     ground or no depth;
+ *   • 'uncharted' — no chart finer than ETOPO's pixel says anything here: a
+ *     chart gap, or only overview cells, which generalise small islands away;
+ *   • 'uncharted-land' — as 'uncharted', and a small-scale (overview or
+ *     general) chart paints land here too — the Bribie class, where the words
+ *     must not imply water that isn't there.
+ */
+export type ChartWaterVerdict = 'water' | 'osm-water' | 'land' | 'uncharted' | 'uncharted-land';
+export type ChartWaterProbe = (lon: number, lat: number) => ChartWaterVerdict;
+
+/**
+ * The coarsest S-57 usage band that may vouch for water against ETOPO: 3,
+ * coastal (compilation scale 1:350,000 or finer, or a band-3+ cell name).
+ * Overview and general cells (bands 1–2, e.g. 1:1,500,000 and 1:3,500,000)
+ * never vouch: they generalise small islands away (Armit Island, ~1 km,
+ * exists only from the 1:90,000 AU421148 up), and an island they leave out
+ * is exactly what ETOPO is there to catch (Claude's call, 2026-10-02).
+ */
+export const BACKSTOP_MIN_VOUCH_BAND = 3;
+
+const detailed = (rank: number | null): rank is number =>
+    rank !== null && usageBandOfRank(rank) >= BACKSTOP_MIN_VOUCH_BAND;
+
+/** OSM `water=*` still-water subtags — inland ponds, not a way in or out. */
+const STILL_WATER = new Set(['reservoir', 'pond', 'basin', 'lagoon', 'wastewater']);
+
+/**
+ * The OSM water the satellite land check may hear from (review fix-up,
+ * 2026-10-02): the engine's authoritative OSM water (isAuthoritativeOsmWater)
+ * less two kinds the grid trusts but this independent check must not —
+ *   • still water (`water=reservoir / pond / basin / lagoon / wastewater`):
+ *     the Airlie overlay holds 14 such inland polygons, and two of them, on
+ *     Hamilton Island, broke the island's land run;
+ *   • the Mapbox vector or satellite-texture water the router injects round
+ *     the route's ends (`_source: 'mapbox-water'`): satellite water can read
+ *     smooth sand or mud as water, and inside those crops nothing else would
+ *     check it. The Newport canals need neither — their OSM canal polygons
+ *     carry them (verified with Mapbox off).
+ * Marina, canal, dock, river, riverbank and harbour water stay.
+ */
+export function isBackstopOsmWater(props: Record<string, unknown> | null | undefined): boolean {
+    if (!props || !isAuthoritativeOsmWater(props)) return false;
+    if (props['_source'] === 'mapbox-water') return false;
+    const water = props['water'];
+    return !(typeof water === 'string' && STILL_WATER.has(water));
+}
+
+/**
+ * The satellite land check's verdict at one spot, from every claim on it:
+ * whether the route's own navigable OSM water covers it (isBackstopOsmWater),
+ * the S-57 depth bands (DEPARE / DRGARE, with their decision-1 claims) and the
+ * land paint ranks (null = unranked). Decision 1 decides between land and
+ * band exactly as the grid and the audit do (finestBandBeatsLand); the scale
+ * rule then lets only a detailed chart vouch:
+ *   • no detailed band and no detailed-or-unranked land → 'uncharted', or
+ *     'uncharted-land' where small-scale land paint covers the spot;
+ *   • land paint on the spot → 'water' only where the finest band beats it,
+ *     that band is detailed and no band of unknown scale dries there, else
+ *     'land';
+ *   • no land paint → 'water' only where the finest survey owners (and any
+ *     band of unknown scale) never dry, else 'land' (drying or undepthed).
+ * The charts decide first; OSM water only makes a spot they do not vouch for
+ * 'osm-water' (neutral), never 'water'.
+ */
+export function backstopVerdict(
+    osmWater: boolean,
+    bands: readonly BandClaim[],
+    landRanks: readonly (number | null)[],
+): ChartWaterVerdict {
+    const charts = chartsVerdict(bands, landRanks);
+    return charts !== 'water' && osmWater ? 'osm-water' : charts;
+}
+
+function chartsVerdict(bands: readonly BandClaim[], landRanks: readonly (number | null)[]): ChartWaterVerdict {
+    const anyDetailedBand = bands.some((b) => detailed(b.rank));
+    const anyDetailedLand = landRanks.some((r) => r === null || detailed(r));
+    if (!anyDetailedBand && !anyDetailedLand) return landRanks.length > 0 ? 'uncharted-land' : 'uncharted';
+    // A band of unknown scale may be a harbour survey finer than any ranked
+    // one: where it dries it cancels a vouch, with or without land paint
+    // (review fix-up, 2026-10-02: the land-paint branch used to skip it).
+    const unrankedDries = bands.some((b) => b.rank === null && !b.neverDries);
+    if (landRanks.length > 0) {
+        if (!finestBandBeatsLand(bands, landRanks)) return 'land';
+        return detailed(finestSurveyOwners(bands.map((b) => b.rank)).rank) && !unrankedDries ? 'water' : 'land';
+    }
+    const { owners, rank } = finestSurveyOwners(bands.map((b) => b.rank));
+    if (!detailed(rank)) return 'uncharted';
+    const dry = owners.some((i) => !bands[i].neverDries) || unrankedDries;
+    return dry ? 'land' : 'water';
 }

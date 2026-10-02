@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => ({
     depthEnhance: vi.fn(),
     multiModelQuery: vi.fn(),
     tryInshore: vi.fn(),
+    crossesLand: vi.fn(),
 }));
 
 vi.mock('../context/SettingsContext', () => ({
@@ -161,6 +162,10 @@ vi.mock('../services/InshoreRouter', () => ({
     inshoreRouteToGeoJSON: vi.fn(),
 }));
 
+vi.mock('../services/routing/landBackstop', () => ({
+    inshoreRouteCrossesLand: mocks.crossesLand,
+}));
+
 import { useVoyageForm } from '../hooks/useVoyageForm';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { savedInshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
@@ -248,5 +253,56 @@ describe('a final inshore refusal draws no route in the voyage form', () => {
         mocks.tryInshore.mockResolvedValue({ error: 'Origin is on land', code: 'origin-on-land' });
         await calculate();
         expect(mocks.bathymetricEnhance).toHaveBeenCalledOnce();
+    });
+});
+
+/**
+ * Charted land the engine itself measured (review fix-up, 2026-10-02): the
+ * engine refuses only a run over 500 m, and a small charted island the ETOPO
+ * pixels miss (Daydream Island, straight across, on the real Whitsunday
+ * cells) passed the satellite check too. Auto refused it; the voyage form now
+ * does as well — in Auto's words, before the satellite check — and falls back
+ * to offshore planning.
+ */
+describe('the voyage form refuses charted land the engine measured, as Auto does', () => {
+    const route = (hardLand?: { totalM: number; awayM: number; awayAt?: [number, number] }) => ({
+        polyline: [
+            [148.7241, -20.2704],
+            [148.8192, -20.2566],
+        ],
+        distanceNM: 5.4,
+        elapsedMs: 10,
+        cellsUsed: ['AU421148'],
+        ...(hardLand ? { hardLand } : {}),
+    });
+
+    it('falls back with where, and never asks the satellite check', async () => {
+        mocks.tryInshore.mockResolvedValue(route({ totalM: 380, awayM: 380, awayAt: [148.8142, -20.2557] }));
+        const saved = await calculate();
+        expect(mocks.crossesLand).not.toHaveBeenCalled();
+        expect(mocks.bathymetricEnhance).toHaveBeenCalledOnce();
+        const refused = saved.find((p) => p.__inshoreRouting?.status === 'failed');
+        expect(refused?.__inshoreRouting).toMatchObject({
+            status: 'failed',
+            errorCode: 'charted-land',
+            error: 'The only way Thalassa found crosses charted land near 20.256° S, 148.814° E. The route fell back to offshore planning.',
+            cellsUsed: ['AU421148'],
+        });
+        expect(saved.some((p) => p.__inshoreRouting?.status === 'success')).toBe(false);
+    });
+
+    it("land at a pin's own edge only: the satellite check runs and the route stands", async () => {
+        mocks.tryInshore.mockResolvedValue(route({ totalM: 40, awayM: 0 }));
+        mocks.crossesLand.mockResolvedValue({
+            status: 'verified',
+            crossesLand: false,
+            runs: [],
+            samplesChecked: 2,
+            samplesRequested: 2,
+        });
+        const saved = await calculate();
+        expect(mocks.crossesLand).toHaveBeenCalledOnce();
+        expect(mocks.bathymetricEnhance).not.toHaveBeenCalled();
+        expect(saved.some((p) => p.__inshoreRouting?.status === 'success')).toBe(true);
     });
 });

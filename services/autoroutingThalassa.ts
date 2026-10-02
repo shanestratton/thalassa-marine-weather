@@ -24,6 +24,7 @@ import { validateAutoroutingVesselProfile } from '../supabase/functions/_shared/
 import { thalassaVesselWarnings } from './autoroutingVesselProfile';
 import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
 import { waterPackRefusal, type WaterPackEnd } from './waterPack/waterPackWords';
+import { chartedLandFinding, landBackstopRefusal } from './routing/landBackstopWords';
 import {
     dangerWithoutChartedDepth,
     inshoreSegmentStates,
@@ -71,8 +72,6 @@ const PAINT_YIELD_MS = 80;
 const AUTH_REQUIRED = 'Sign in to use Auto routing.';
 const NO_ROUTE = 'Thalassa could not route this passage. Nothing changed.';
 const WATCHDOG = 'Routing took longer than this phone allows (85 s). Try a shorter passage. Nothing changed.';
-const LAND =
-    'Satellite relief shows land on this route, so it is not shown. Check charts are installed for the whole passage.';
 const BACKSTOP_UNAVAILABLE = 'Satellite land check unavailable (offline): checked against the installed charts only.';
 const BUCKET_UNREACHABLE =
     "This passage needs charts this phone doesn't have, and the chart cloud isn't reachable. Check your connection and that you're signed in (the charts are licensed). Nothing changed.";
@@ -364,12 +363,12 @@ export async function calculateThalassaProposal(
                   ...(ok.waterPack.offline ? { offline: true as const } : {}),
               }
             : undefined;
-    if ((ok.hardLand?.awayM ?? 0) > 0)
+    // The words are shared with the passage planner and the voyage form,
+    // which refuse it too (landBackstopWords.chartedLandFinding).
+    const chartedLand = chartedLandFinding(ok.hardLand);
+    if (chartedLand)
         throw new Error(
-            waterPackRefusal(
-                `The only way Thalassa found crosses charted land${ok.hardLand?.awayAt ? ` near ${positionWords(ok.hardLand.awayAt)}` : ''}. No route. Nothing changed.`,
-                packFor(['departure', 'destination'], true),
-            ),
+            waterPackRefusal(`${chartedLand} No route. Nothing changed.`, packFor(['departure', 'destination'], true)),
         );
     const stateMask = inshoreSegmentStates(ok);
     // Red with no charted depth behind it, inside a relax zone, when the
@@ -417,11 +416,15 @@ export async function calculateThalassaProposal(
 
     // The satellite land check, as the passage planner runs it. Land refuses;
     // offline (its cache is in memory only) the route is shown and says so.
+    // ETOPO land counts only where this route's own charts do not vouch for
+    // water (2026-10-02, Coral Sea Marina → Daydream Island: its ~1.8 km
+    // pixels read the marina and the deep water off a headland as land), and
+    // the refusal says where, and whether the charts are missing there.
     const { inshoreRouteCrossesLand } = await import('./routing/landBackstop');
     assertCurrent();
-    const backstop = await inshoreRouteCrossesLand(polyline);
+    const backstop = await inshoreRouteCrossesLand(polyline, { chartWater: ok.chartWater });
     assertCurrent();
-    if (backstop.status === 'verified' && backstop.crossesLand) throw new Error(LAND);
+    if (backstop.status === 'verified' && backstop.crossesLand) throw new Error(landBackstopRefusal(backstop));
     const backstopState: ThalassaRouteDisclosure['backstop'] =
         backstop.status === 'verified' ? 'verified' : 'unavailable';
 

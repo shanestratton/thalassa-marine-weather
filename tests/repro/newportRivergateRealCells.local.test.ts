@@ -18,6 +18,11 @@
  *
  *   THALASSA_REAL_CELLS_DIR=/path/to/scratch NODE_OPTIONS=--max-old-space-size=4096 \
  *     npx vitest run tests/repro/newportRivergateRealCells.local.test.ts --maxWorkers=1
+ *
+ * Optional (2026-10-02): THALASSA_ETOPO_GRID — an ERDDAP etopo180 griddap
+ * JSON over the route (the gebco-depth edge function's source, nearest pixel),
+ * e.g. etopo180.json?altitude[(-27.50):1:(-27.10)][(153.00):1:(153.30)] — also
+ * runs the satellite land check on the route, with and without its own charts.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -28,6 +33,7 @@ import type { FeatureCollection } from 'geojson';
 
 const DIR = process.env.THALASSA_REAL_CELLS_DIR ?? '';
 const HAVE_CELLS = DIR !== '' && existsSync(join(DIR, 'index.json'));
+const ETOPO_GRID = process.env.THALASSA_ETOPO_GRID ?? '';
 
 const h = vi.hoisted(() => ({
     cells: [] as { bbox: [number, number, number, number] }[],
@@ -35,6 +41,7 @@ const h = vi.hoisted(() => ({
     osm: null as unknown,
     lastLayers: null as unknown,
     lastResult: null as unknown,
+    etopo: null as null | { lats: number[]; lons: number[]; alt: Map<string, number> },
 }));
 
 vi.mock('../../services/enc/EncCellMetadata', async (original) => ({
@@ -74,6 +81,21 @@ vi.mock('../../services/TideHeightService', async (original) => ({
     ...(await original<Record<string, unknown>>()),
     fetchTideCurve: async () => null, // tides come only from the handed-in ceilings
 }));
+// NOAA ETOPO, nearest pixel, from a saved grid (THALASSA_ETOPO_GRID).
+vi.mock('../../services/GebcoDepthService', async (original) => {
+    const mod = await original<typeof import('../../services/GebcoDepthService')>();
+    const nearest = (values: number[], v: number) =>
+        values.reduce((best, x) => (Math.abs(x - v) < Math.abs(best - v) ? x : best), values[0]);
+    const lookup = (lat: number, lon: number): number | null =>
+        h.etopo ? (h.etopo.alt.get(`${nearest(h.etopo.lats, lat)},${nearest(h.etopo.lons, lon)}`) ?? null) : null;
+    return {
+        ...mod,
+        GebcoDepthService: {
+            queryRouteDepths: async (points: { lat: number; lon: number }[]) =>
+                points.map((p) => ({ lat: p.lat, lon: p.lon, depth_m: lookup(p.lat, p.lon) })),
+        },
+    };
+});
 vi.mock('../../services/inshoreRouterEngine', async (original) => {
     const mod = await original<typeof import('../../services/inshoreRouterEngine')>();
     return {
@@ -93,10 +115,11 @@ import { parseAndCacheCellText } from '../../services/enc/EncCellStore';
 import { validateLocalEncPack } from '../../services/enc/localEncPackImport';
 import { loadFixture } from '../helpers/corridorFixture';
 import { chartAreaIndexFor, chartedDepthRangeAt } from '../../services/routing/leadLandClip';
-import { hardLandAtPoint } from '../../services/engine/safetyAudit';
+import { backstopChartWaterProbe, hardLandAtPoint } from '../../services/engine/safetyAudit';
 import { haversineM } from '../../services/engine/geometry';
 import { noTideClearsRuns, tideCeilingLookup } from '../../services/engine/tideCeiling';
 import type { RouteResult, TideCeiling } from '../../services/engine/types';
+import { inshoreRouteCrossesLand, samplePolyline } from '../../services/routing/landBackstop';
 
 const SEQLD_SUFFIX = '/regions/australia_se_qld/nav_markers.geojson';
 const DRAFT_M = 2.4; // Serene Summer
@@ -275,6 +298,52 @@ describe.skipIf(!HAVE_CELLS)('Newport → Rivergate on the real cells (app path,
                 );
                 expect(shipped.hardLand?.awayM, 'metres of charted land away from a pin edge').toBe(0);
                 if (shipped.tideCeilingsLoaded) expect(inZone, 'red with no depth inside a relax zone').toEqual([]);
+                // The satellite land check, as Auto, the planner and the voyage
+                // form run it (2026-10-02): ETOPO land counts only where the
+                // route's own charts do not vouch for water.
+                if (existsSync(ETOPO_GRID)) {
+                    const rows = (
+                        JSON.parse(readFileSync(ETOPO_GRID, 'utf8')) as { table: { rows: [number, number, number][] } }
+                    ).table.rows;
+                    h.etopo = {
+                        lats: [...new Set(rows.map((x) => x[0]))],
+                        lons: [...new Set(rows.map((x) => x[1]))],
+                        alt: new Map(rows.map((x) => [`${x[0]},${x[1]}`, x[2]])),
+                    };
+                    // What building the route's chart evidence costs (it runs once
+                    // per finished route, inside tryInshoreRoute).
+                    const tProbe = performance.now();
+                    const probe = backstopChartWaterProbe(layers as never, [
+                        Math.min(...shipped.polyline.map((p) => p[0])),
+                        Math.min(...shipped.polyline.map((p) => p[1])),
+                        Math.max(...shipped.polyline.map((p) => p[0])),
+                        Math.max(...shipped.polyline.map((p) => p[1])),
+                    ]);
+                    const probeMs = performance.now() - tProbe;
+                    expect(probe(shipped.polyline[0][0], shipped.polyline[0][1])).toBe(
+                        shipped.chartWater!(shipped.polyline[0][0], shipped.polyline[0][1]),
+                    );
+                    const without = await inshoreRouteCrossesLand(shipped.polyline);
+                    const withCharts = await inshoreRouteCrossesLand(shipped.polyline, {
+                        chartWater: shipped.chartWater,
+                    });
+                    // What the charts say at each ETOPO land sample.
+                    const samples = samplePolyline(shipped.polyline);
+                    const depths = await (
+                        await import('../../services/GebcoDepthService')
+                    ).GebcoDepthService.queryRouteDepths(samples.map(([lon, lat]) => ({ lat, lon })));
+                    const said = samples
+                        .map(([lon, lat], i) =>
+                            (depths[i].depth_m ?? -1) >= 0
+                                ? `#${i} ${lat.toFixed(4)},${lon.toFixed(4)} ${depths[i].depth_m} m → ${shipped.chartWater!(lon, lat)}`
+                                : null,
+                        )
+                        .filter(Boolean);
+                    console.log(
+                        `BACKSTOP ${tide ?? 'none'} (chart evidence built in ${probeMs.toFixed(1)} ms): without charts ${JSON.stringify(without)}\n  with charts ${JSON.stringify(withCharts)}\n  ${said.join('\n  ')}`,
+                    );
+                    expect(withCharts).toMatchObject({ status: 'verified', crossesLand: false });
+                }
             },
         );
     }
