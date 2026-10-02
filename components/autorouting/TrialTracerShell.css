@@ -3,6 +3,7 @@
    these bounds use the parent pane, never the full device viewport. */
 .trial-tracer-shell {
     --trial-tracer-surface: rgb(15 23 42 / 95%);
+    --trial-tracer-solid: rgb(15 23 42);
     --trial-tracer-heading: rgb(255 255 255 / 10%);
     --trial-tracer-border: rgb(245 158 11 / 30%);
     --trial-tracer-divider: rgb(255 255 255 / 10%);
@@ -146,6 +147,42 @@
     outline: 2px solid var(--trial-tracer-working);
     outline-offset: -2px;
 }
+/* A short card scrolls as one container (TrialTracerShell, 2026-10-02): the
+   status, tabs, body and actions move together. The fold handle and 'Not for
+   navigation' stay pinned on an opaque ground (a phone with the keyboard up
+   is short too, mid route entry), and scroll-padding keeps a focused field
+   from parking under them. TrialTracerShell measures both heights. */
+.trial-tracer-shell[data-single-scroll='true'] {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scroll-padding-top: var(--tracer-pinned-h, calc(44px + 0.75rem + 1px));
+    -webkit-overflow-scrolling: touch;
+}
+.trial-tracer-shell[data-single-scroll='true'] > .trial-tracer-heading {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--trial-tracer-solid);
+}
+.trial-tracer-shell[data-single-scroll='true'] > .trial-tracer-warning {
+    position: sticky;
+    top: var(--tracer-heading-h, calc(44px + 0.75rem + 1px));
+    z-index: 1;
+    background: var(--trial-tracer-solid);
+}
+.trial-tracer-shell[data-single-scroll='true'] > .trial-tracer-expanded {
+    display: block;
+    flex: none;
+    overflow: visible;
+}
+.trial-tracer-shell[data-single-scroll='true'] > .trial-tracer-expanded[hidden] {
+    display: none;
+}
+.trial-tracer-shell[data-single-scroll='true'] .trial-tracer-body {
+    overflow: visible;
+}
 @media (max-height: 500px) {
     .trial-tracer-expanded {
         display: block;
@@ -159,6 +196,7 @@
 .display-light .trial-tracer-shell,
 .trial-tracer-shell.display-light {
     --trial-tracer-surface: rgb(248 250 252 / 97%);
+    --trial-tracer-solid: rgb(248 250 252);
     --trial-tracer-heading: rgb(15 23 42 / 7%);
     --trial-tracer-border: rgb(180 83 9 / 40%);
     --trial-tracer-divider: rgb(15 23 42 / 14%);

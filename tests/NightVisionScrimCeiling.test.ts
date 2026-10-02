@@ -59,7 +59,14 @@ const ALLOWED_ABOVE: { file: string; z: number; why: string }[] = [
 describe('night-vision scrim is the top layer', () => {
     it('is still rendered, and still covers the viewport without eating taps', () => {
         const app = readFileSync(join(ROOT, 'App.tsx'), 'utf8');
-        const block = app.slice(app.indexOf("effectiveMode === 'night' && ("), app.indexOf('</div>\n    );'));
+        // Look for the closing marker AFTER the night block starts: App.tsx
+        // has earlier components that also end in '</div>\n    );' (7a95defe
+        // added one above it, which turned this slice into '').
+        const start = app.indexOf("effectiveMode === 'night' && (");
+        expect(start).toBeGreaterThan(-1);
+        const end = app.indexOf('</div>\n    );', start);
+        expect(end).toBeGreaterThan(start);
+        const block = app.slice(start, end);
         expect(block).toContain('fixed inset-0');
         expect(block).toContain('NIGHT_SCRIM_Z_INDEX');
         expect(block).toContain('pointer-events-none');

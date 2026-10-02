@@ -91,7 +91,8 @@ async function openFixture(
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.setViewportSize({ width: size.width, height: size.height });
     await page.goto(
-        `/e2e/fixtures/autorouting-trial.html?mode=${mode}&pane=${size.pane}&status=${status}&review=${review}${query ? `&${query}` : ''}`,
+        // Wide fonts everywhere, so a Mac run wraps text like the Linux runner.
+        `/e2e/fixtures/autorouting-trial.html?mode=${mode}&pane=${size.pane}&status=${status}&review=${review}&fonts=wide${query ? `&${query}` : ''}`,
     );
     await expect(page.getByRole('button', { name: 'Slide to Start Plotting', exact: true })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -156,6 +157,38 @@ async function hitVisible(element: Locator) {
         )
         .toBe(true);
 }
+/** Every edge of the element is hit, not only its centre: a field squeezed
+ * into a 16 px band of the tracer passed hitVisible on a Mac and failed on
+ * Linux fonts (CI 36920384778). */
+async function wholeHitVisible(element: Locator) {
+    await expect
+        .poll(() =>
+            element.evaluate((node) => {
+                const box = node.getBoundingClientRect();
+                const inset = Math.min(3, box.height / 4);
+                return [box.top + inset, box.top + box.height / 2, box.bottom - inset].every((y) => {
+                    const hit = document.elementFromPoint(box.left + box.width / 2, y);
+                    return !!hit && (hit === node || node.contains(hit));
+                });
+            }),
+        )
+        .toBe(true);
+}
+/** Open or close the 'Enter coordinates' disclosure and confirm it took.
+ * WebKit dropped a summary click right after Auto opened (CI 36920384778,
+ * 1024: the summary held focus, the details stayed shut, and the fills timed
+ * out), so a lost click is retried rather than assumed. */
+async function setCoordinatesOpen(page: Page, open: boolean) {
+    const summary = page.getByText('Enter coordinates', { exact: true });
+    await expect(async () => {
+        const isOpen = await summary.evaluate((node) => (node.closest('details') as HTMLDetailsElement).open);
+        if (isOpen !== open) await summary.click({ timeout: 2_000 });
+        await expect(page.getByLabel('departure latitude', { exact: true })).toBeVisible({
+            visible: open,
+            timeout: 1_000,
+        });
+    }).toPass({ timeout: 10_000 });
+}
 async function setControlsExpanded(page: Page, expanded: boolean) {
     const toggle = page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ });
     await expect(toggle).toBeVisible();
@@ -196,7 +229,7 @@ async function routeGeometry(page: Page) {
 async function calculateSmallFixtureRoute(page: Page) {
     await slideToChoice(page);
     await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
-    await page.getByText('Enter coordinates', { exact: true }).click();
+    await setCoordinatesOpen(page, true);
     for (const [name, value] of [
         ['departure latitude', '-26.68'],
         ['departure longitude', '153.16'],
@@ -205,7 +238,7 @@ async function calculateSmallFixtureRoute(page: Page) {
     ])
         await page.getByLabel(name, { exact: true }).fill(value);
     await page.getByLabel('destination longitude', { exact: true }).blur();
-    await page.getByText('Enter coordinates', { exact: true }).click();
+    await setCoordinatesOpen(page, false);
     await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
     await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
         'aria-expanded',
@@ -304,14 +337,42 @@ async function groupedReviewState(page: Page) {
     });
 }
 
+/** Wait for the camera to stop AND stay stopped for a quiet spell. A single
+ * moveend was not enough (2026-10-02, WebKit, wide fonts): the folded card's
+ * late growth re-fits the route after the first fit has ended, so a waypoint
+ * pixel measured between the two moves was stale by the time it was tapped. */
 async function settleGroupedMap(page: Page) {
     await page.evaluate(async () => {
         const map = (
             window as unknown as {
-                __trialFixture: { map: { isMoving(): boolean; once(event: string, listener: () => void): void } };
+                __trialFixture: {
+                    map: {
+                        isMoving(): boolean;
+                        once(event: string, listener: () => void): void;
+                        on(event: string, listener: () => void): void;
+                        off(event: string, listener: () => void): void;
+                    };
+                };
             }
         ).__trialFixture.map;
-        if (map.isMoving()) await new Promise<void>((resolve) => map.once('moveend', resolve));
+        await new Promise<void>((resolve) => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const done = () => {
+                map.off('movestart', onStart);
+                resolve();
+            };
+            const quiet = () => {
+                clearTimeout(timer);
+                timer = setTimeout(done, 300);
+            };
+            const onStart = () => {
+                clearTimeout(timer);
+                map.once('moveend', quiet);
+            };
+            map.on('movestart', onStart);
+            if (map.isMoving()) map.once('moveend', quiet);
+            else quiet();
+        });
         await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     });
 }
@@ -328,7 +389,7 @@ for (const size of [
         await openFixture(page, size, size.width === 390 ? 'light' : 'dark', 'ready', '', 'grouped');
         await slideToChoice(page);
         await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
-        await page.getByText('Enter coordinates', { exact: true }).click();
+        await setCoordinatesOpen(page, true);
         for (const [name, value] of [
             ['departure latitude', '-26.68'],
             ['departure longitude', '153.16'],
@@ -337,7 +398,7 @@ for (const size of [
         ])
             await page.getByLabel(name, { exact: true }).fill(value);
         await page.getByLabel('destination longitude', { exact: true }).blur();
-        await page.getByText('Enter coordinates', { exact: true }).click();
+        await setCoordinatesOpen(page, false);
         await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
         await showReview(page);
         await page.getByRole('button', { name: 'Select waypoint 2', exact: true }).click();
@@ -391,15 +452,20 @@ for (const size of [
         ).toBeVisible();
         await expect(page.getByRole('button', { name: 'Save as planned route', exact: true })).toBeDisabled();
         const undo = page.getByRole('button', { name: /Undo last move$/ });
-        // At very short landscape heights the entire expanded area, including
-        // its footer, deliberately scrolls instead of squeezing the controls.
+        // At very short landscape heights the whole card, status, warning
+        // and footer included, deliberately scrolls as one container instead
+        // of squeezing the controls (2026-10-02); the fold handle stays pinned.
         // Playwright mobile WebKit cannot synthesize a mouse wheel; verify
         // physical scrolling in Chromium and reachable controls in both.
-        if (size.height < 500 && browserName === 'chromium') {
-            const expanded = page.locator('.trial-tracer-expanded');
-            await expanded.hover();
-            await page.mouse.wheel(0, await expanded.evaluate((node) => node.scrollHeight));
-            await expect.poll(() => expanded.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+        if (size.height < 500) {
+            const card = page.locator('.trial-tracer-shell[data-single-scroll="true"]');
+            await expect(card).toHaveCount(1);
+            if (browserName === 'chromium') {
+                await card.hover();
+                await page.mouse.wheel(0, await card.evaluate((node) => node.scrollHeight));
+                await expect.poll(() => card.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+                await hitVisible(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ }));
+            }
         }
         await undo.scrollIntoViewIfNeeded();
         await hitVisible(undo);
@@ -611,7 +677,7 @@ for (const size of [sizes[0], { width: 1440, height: 900, pane: false }]) {
         await openFixture(page, size, 'dark', 'ready', '', 'grouped');
         await slideToChoice(page);
         await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
-        await page.getByText('Enter coordinates', { exact: true }).click();
+        await setCoordinatesOpen(page, true);
         for (const [name, value] of [
             ['departure latitude', '-26.68'],
             ['departure longitude', '153.16'],
@@ -620,7 +686,7 @@ for (const size of [sizes[0], { width: 1440, height: 900, pane: false }]) {
         ])
             await page.getByLabel(name, { exact: true }).fill(value);
         await page.getByLabel('destination longitude', { exact: true }).blur();
-        await page.getByText('Enter coordinates', { exact: true }).click();
+        await setCoordinatesOpen(page, false);
         await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
         await showReview(page);
 
@@ -698,7 +764,7 @@ for (const size of [sizes[0], sizes[2]]) {
         await openFixture(page, size, 'dark', 'ready', '', 'sparse');
         await slideToChoice(page);
         await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
-        await page.getByText('Enter coordinates', { exact: true }).click();
+        await setCoordinatesOpen(page, true);
         const endLongitude = 153 + ((240 * 1852) / (6371000 * Math.cos((27 * Math.PI) / 180))) * (180 / Math.PI);
         for (const [name, value] of [
             ['departure latitude', '-27'],
@@ -708,7 +774,7 @@ for (const size of [sizes[0], sizes[2]]) {
         ])
             await page.getByLabel(name, { exact: true }).fill(value);
         await page.getByLabel('destination longitude', { exact: true }).blur();
-        await page.getByText('Enter coordinates', { exact: true }).click();
+        await setCoordinatesOpen(page, false);
         await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
         await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
             'aria-expanded',
@@ -874,7 +940,7 @@ async function openTallProposal(page: Page) {
     await openFixture(page, sizes[0], 'dark');
     await slideToChoice(page);
     await page.getByRole('button', { name: 'Auto routing', exact: true }).click();
-    await page.getByText('Enter coordinates', { exact: true }).click();
+    await setCoordinatesOpen(page, true);
     for (const [name, value] of [
         ['departure latitude', '-26.7'],
         ['departure longitude', '153.16'],
@@ -883,7 +949,7 @@ async function openTallProposal(page: Page) {
     ])
         await page.getByLabel(name, { exact: true }).fill(value);
     await page.getByLabel('destination longitude', { exact: true }).blur();
-    await page.getByText('Enter coordinates', { exact: true }).click();
+    await setCoordinatesOpen(page, false);
     await page.getByRole('button', { name: 'Calculate trial route', exact: true }).click();
     await expect(page.getByRole('button', { name: /^(Expand|Collapse) tracer panel$/ })).toHaveAttribute(
         'aria-expanded',
@@ -1158,7 +1224,7 @@ for (const size of sizes)
                 await expect(page.getByRole('button', { name: 'Companion action 1' })).toBeVisible();
                 await expect(dialog).toBeVisible();
             }
-            await page.getByText('Enter coordinates', { exact: true }).click();
+            await setCoordinatesOpen(page, true);
             const longitude = page.getByLabel('destination longitude', { exact: true });
             await longitude.focus();
             const keyboardHeight = size.pane ? 250 : 300;
@@ -1168,9 +1234,13 @@ for (const size of sizes)
             );
             await expect(page.locator('html')).toHaveAttribute('data-keyboard-open', 'true');
             await longitude.scrollIntoViewIfNeeded();
-            await hitVisible(longitude);
+            await wholeHitVisible(longitude);
             const inputBox = await longitude.boundingBox();
             expect(inputBox!.y + inputBox!.height).toBeLessThanOrEqual(size.height - keyboardHeight + 1);
+            // Mid route entry with the keyboard up the card is short (an
+            // ordinary phone included) and scrolls as one; 'Not for
+            // navigation' must stay on screen, not scroll away (2026-10-02).
+            await wholeHitVisible(page.locator('.trial-tracer-shell .trial-tracer-warning'));
             await fits(page, size.pane);
             await proposalFitsChart(page);
             await capture(page, info, 'trial-keyboard');
@@ -1263,7 +1333,7 @@ function watchRequests(page: Page) {
 }
 
 async function enterPins(page: Page, from: [number, number], to: [number, number]) {
-    await page.getByText('Enter coordinates', { exact: true }).click();
+    await setCoordinatesOpen(page, true);
     for (const [name, value] of [
         ['departure latitude', String(from[1])],
         ['departure longitude', String(from[0])],
@@ -1272,7 +1342,7 @@ async function enterPins(page: Page, from: [number, number], to: [number, number
     ])
         await page.getByLabel(name, { exact: true }).fill(value);
     await page.getByLabel('destination longitude', { exact: true }).blur();
-    await page.getByText('Enter coordinates', { exact: true }).click();
+    await setCoordinatesOpen(page, false);
 }
 
 async function thalassaRouteFeatures(page: Page) {

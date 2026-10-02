@@ -183,7 +183,8 @@ const calculateButton = () => screen.getByRole('button', { name: 'Calculate tria
 // The workspace keeps two ResizeObservers: one on the chart container (refit
 // on orientation, keyboard and pane changes) and, while the tracer is folded,
 // one on the folded card (refit when its status wraps onto another line).
-// Tests drive each by what it observes, never by construction order.
+// Tests drive each by what it observes, never by construction order. The
+// shell's own self-measuring observer (expanded only) is left out of both.
 function installResizeObservers() {
     const original = globalThis.ResizeObserver;
     type Entry = {
@@ -208,7 +209,12 @@ function installResizeObservers() {
         }
     } as unknown as typeof ResizeObserver;
     const isCard = (target: Element) => target.classList.contains('trial-tracer-shell');
-    const live = (match: (target: Element) => boolean) => observers.filter((observer) => observer.targets.some(match));
+    // TrialTracerShell measures itself while expanded (single-scroll, 2026-10-02):
+    // its observer watches the card AND rows inside it. That one belongs to the
+    // shell, not the workspace, so neither the chart nor the card set counts it.
+    const isShellRow = (target: Element) => !isCard(target) && target.closest('.trial-tracer-shell') !== null;
+    const live = (match: (target: Element) => boolean) =>
+        observers.filter((observer) => !observer.targets.some(isShellRow) && observer.targets.some(match));
     const fire = (match: (target: Element) => boolean) => {
         const watching = live(match);
         // A notification nobody receives would let a 'no refit' assertion
