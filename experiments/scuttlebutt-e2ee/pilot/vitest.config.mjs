@@ -13,6 +13,7 @@ export default {
             'tests/hooks/ChatDMBlocking.test.tsx',
             'tests/ChatPage.test.tsx',
             'tests/ChatSelfConversation.test.tsx',
+            'tests/E2eePilotBridgeAuth.test.ts',
         ],
         testTimeout: 20000,
         hookTimeout: 20000,

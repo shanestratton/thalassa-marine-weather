@@ -60,10 +60,29 @@ final class VodozemacRelayClient {
         let identity = try coordinator.publicIdentity(owner: own)
         let wire = try coordinator.signedBundleForResearch(prekeyId: prekeyId, expiresAt: expiresAt,
                                                           now: now, owner: own, credentialEpoch: credential.context.credentialEpoch)
+        try await registerExactForResearch(wire, identity: identity, credential: credential, currentContext: currentContext)
+    }
+
+    /// Recovery uses only the sealed original wire. It never obtains a fresh
+    /// prekey/expiry or signs a replacement bundle after uncertain registration.
+    func replayRegistrationForResearch(credential: DmRelayNetworkCredential,
+                                       currentContext: @escaping () throws -> DmRelayNetworkContext?) async throws {
+        try check(credential, currentContext)
+        let own = owner(credential)
+        let identity = try coordinator.publicIdentity(owner: own)
+        let wire = try coordinator.savedRegistrationBundleForResearch(owner: own,
+            credentialEpoch: credential.context.credentialEpoch)
+        try await registerExactForResearch(wire, identity: identity, credential: credential, currentContext: currentContext)
+    }
+
+    private func registerExactForResearch(_ wire: String, identity: DmPublicIdentity,
+                                         credential: DmRelayNetworkCredential,
+                                         currentContext: @escaping () throws -> DmRelayNetworkContext?) async throws {
+        try check(credential, currentContext)
         let data = try await transport.register(bundle: wire, credential: credential, currentContext: guardedContext(credential, currentContext))
         try check(credential, currentContext)
         try DmRelayResultCodec.registration(data, expected: identity)
-        _ = try coordinator.publicIdentity(owner: own) // Re-read durable owner after the await.
+        _ = try coordinator.publicIdentity(owner: owner(credential)) // Re-read durable owner after the await.
         try check(credential, currentContext)
     }
 
@@ -71,7 +90,8 @@ final class VodozemacRelayClient {
     // fixture. A self-signed directory bundle must NEVER silently become trust.
     func claimForResearch(pinned: DmPublicIdentity, requestId: String, expiresAt: Int64, now: Int64,
                           credential: DmRelayNetworkCredential,
-                          currentContext: @escaping () throws -> DmRelayNetworkContext?) async throws -> DmRelayBundle {
+                          currentContext: @escaping () throws -> DmRelayNetworkContext?,
+                          claimId: String? = nil) async throws -> DmRelayBundle {
         let started = ContinuousClock.now
         try check(credential, currentContext)
         let own = owner(credential)
@@ -81,7 +101,8 @@ final class VodozemacRelayClient {
               peer.identityKeyId == pinned.identityKeyId, peer.curve == pinned.curve,
               peer.prekey == pinned.prekey else { throw DmCoordinatorError.conflict }
         let wire = try coordinator.signedClaimForResearch(requestId: requestId, expiresAt: expiresAt,
-                                                         now: now, owner: own, peerGeneration: generation, credentialEpoch: credential.context.credentialEpoch)
+                                                         now: now, owner: own, peerGeneration: generation,
+                                                         credentialEpoch: credential.context.credentialEpoch, claimId: claimId)
         let data = try await transport.dispatch(request: wire, credential: credential, currentContext: guardedContext(credential, currentContext))
         try check(credential, currentContext)
         // A near-expiry key may expire while its response is in flight. Neither

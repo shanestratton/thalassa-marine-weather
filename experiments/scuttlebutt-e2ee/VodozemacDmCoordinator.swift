@@ -104,6 +104,17 @@ final class VodozemacDmCoordinator {
         let pickle: String
         let id: String
     }
+    // Optional only for older isolated research snapshots. Absence is never
+    // evidence that a used account/prekey may be registered or claimed afresh.
+    private struct RegistrationIntent: Codable {
+        let signedBundle: String
+    }
+    private struct ClaimIntent: Codable {
+        let owner: DmOwnerContext
+        let peer: DmPeerContext
+        // Stable relay prekey reservation, independent of an expiring HTTP nonce.
+        let claimId: String
+    }
     private enum OutboxStatus: String, Codable { case pending, accepted, rejected }
     private struct OutboxItem: Codable {
         let messageId: String
@@ -140,6 +151,8 @@ final class VodozemacDmCoordinator {
         var account: String
         var peer: DmPeerContext?
         var session: Session?
+        var registrationIntent: RegistrationIntent?
+        var claimIntent: ClaimIntent?
         var outbox: [OutboxItem]
         var inbox: [DmReceivedMessage]
         var unresolved: [UnresolvedItem]
@@ -165,7 +178,8 @@ final class VodozemacDmCoordinator {
         let account = try newAccount(pickleKey: store.providerPickleKey())
         let state = State(version: 5, owner: owner, ownerActive: true, credentialEpoch: UUID(), authProjectOrigin: nil, conversationId: conversationId,
             identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
-            account: account.accountPickle, peer: nil, session: nil, outbox: [], inbox: [], unresolved: [])
+            account: account.accountPickle, peer: nil, session: nil, registrationIntent: nil, claimIntent: nil,
+            outbox: [], inbox: [], unresolved: [])
         try validate(state)
         try store.commit(expectedRevision: before.revision, payload: JSONEncoder().encode(state))
         return try VodozemacDmCoordinator(store: store)
@@ -315,14 +329,27 @@ final class VodozemacDmCoordinator {
         try withState { _, state in try Self.requirePeer(owner, generation, state) }
     }
 
-    /// Public bundle signing is limited to the initial unpublished research
-    /// account. A consumed one-time prekey must never be republished as fresh.
+    /// Freeze the first exact signed registration BEFORE dispatch. An uncertain
+    /// retry may replay those same bytes after session/prekey use, but must never
+    /// create a different prekey ID, expiry, signature or device registration.
     func signedBundleForResearch(prekeyId: String, expiresAt: Int64, now: Int64, owner: DmOwnerContext,
                                  credentialEpoch: UUID? = nil) throws -> String {
         try withState { revision, state in
             try Self.requireOwner(owner, state)
             try Self.requireEpoch(credentialEpoch, state)
-            guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty else { throw DmCoordinatorError.unavailable }
+            try DmContentCodec.validateIdentifier(prekeyId)
+            guard now > 0, now <= DmRelayCodec.maxSafeInteger else { throw DmCoordinatorError.invalidInput }
+            if let intent = state.registrationIntent {
+                let bundle = try Self.registrationBundle(intent, state: state)
+                guard bundle.prekeyId == prekeyId, bundle.expiresAt == expiresAt else { throw DmCoordinatorError.conflict }
+                // Do not re-sign or extend an expired bundle. The relay can
+                // reconcile an existing byte-identical registration; a peer
+                // claim still separately requires an unexpired prekey bundle.
+                try persist(state, revision: revision)
+                return intent.signedBundle
+            }
+            guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty,
+                  state.unresolved.isEmpty else { throw DmCoordinatorError.unavailable }
             try DmRelayCodec.expiry(expiresAt, now: now, maximum: 7 * 24 * 60 * 60)
             let identity = DmPublicIdentity(userId: owner.userId, deviceId: owner.deviceId, identityKeyId: state.identityKeyId,
                                            signingKey: state.signingKey, curve: state.curve, prekey: state.prekey)
@@ -330,6 +357,7 @@ final class VodozemacDmCoordinator {
                 message: DmRelayCodec.bundleSigningBytes(identity, prekeyId: prekeyId, expiresAt: expiresAt))
             guard signed.signingKey == state.signingKey else { throw DmCoordinatorError.conflict }
             let wire = try DmRelayCodec.bundleWire(identity, prekeyId: prekeyId, expiresAt: expiresAt, signature: signed.signature)
+            state.registrationIntent = RegistrationIntent(signedBundle: wire)
             // Signing doesn't advance Olm, but this CAS fences a competing owner
             // change before a signature becomes observable outside native code.
             try persist(state, revision: revision)
@@ -337,12 +365,40 @@ final class VodozemacDmCoordinator {
         }
     }
 
+    /// Native-only recovery path. No caller reconstruction of expiry/prekey ID,
+    /// no new signature, and no implicit intent creation on a legacy snapshot.
+    func savedRegistrationBundleForResearch(owner: DmOwnerContext, credentialEpoch: UUID) throws -> String {
+        try withState { _, state in
+            try Self.requireOwner(owner, state)
+            try Self.requireEpoch(credentialEpoch, state)
+            guard let intent = state.registrationIntent else { throw DmCoordinatorError.unavailable }
+            _ = try Self.registrationBundle(intent, state: state)
+            return intent.signedBundle
+        }
+    }
+
     func signedClaimForResearch(requestId: String, expiresAt: Int64, now: Int64,
-                                owner: DmOwnerContext, peerGeneration: Int64, credentialEpoch: UUID? = nil) throws -> String {
+                                owner: DmOwnerContext, peerGeneration: Int64, credentialEpoch: UUID? = nil,
+                                claimId: String? = nil) throws -> String {
         try withState { revision, state in
             let peer = try Self.requirePeer(owner, peerGeneration, state)
             try Self.requireEpoch(credentialEpoch, state)
-            let payload = "[" + (try [peer.userId, peer.deviceId, requestId].map(DmRelayCodec.quote)).joined(separator: ",") + "]"
+            if let claimId { try DmContentCodec.validateIdentifier(claimId) }
+            let stableId: String
+            if let intent = state.claimIntent {
+                guard intent.owner == owner, intent.peer == peer,
+                      claimId == nil || intent.claimId == claimId else { throw DmCoordinatorError.conflict }
+                stableId = intent.claimId
+            } else {
+                // An old used snapshot contains no trustworthy claim ledger.
+                // Never reconstruct or rebind a reservation from its ratchet.
+                guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty,
+                      state.unresolved.isEmpty else { throw DmCoordinatorError.unavailable }
+                stableId = claimId ?? requestId
+                try DmContentCodec.validateIdentifier(stableId)
+                state.claimIntent = ClaimIntent(owner: owner, peer: peer, claimId: stableId)
+            }
+            let payload = "[" + (try [peer.userId, peer.deviceId, stableId].map(DmRelayCodec.quote)).joined(separator: ",") + "]"
             return try signRelay(state: state, revision: revision, owner: owner, action: "claim", payload: payload,
                                  requestId: requestId, expiresAt: expiresAt, now: now)
         }
@@ -819,6 +875,30 @@ final class VodozemacDmCoordinator {
               data.base64EncodedString() == value + "=" else { throw DmCoordinatorError.invalidInput }
     }
 
+    /// Validate saved public bytes without renewing their time validity. This
+    /// authenticates local intent consistency, not live server registration.
+    private static func registrationBundle(_ intent: RegistrationIntent, state: State) throws -> DmRelayBundle {
+        guard intent.signedBundle.utf8.count <= 4096,
+              intent.signedBundle.utf8.allSatisfy({ (32...126).contains($0) }),
+              let bundle = try? JSONDecoder().decode(DmRelayBundle.self, from: Data(intent.signedBundle.utf8)),
+              bundle.version == 1, bundle.protocol == "olm-v1",
+              bundle.userId == state.owner.userId, bundle.deviceId == state.owner.deviceId,
+              bundle.identityKeyId == state.identityKeyId, bundle.signingKey == state.signingKey,
+              bundle.curveKey == state.curve, bundle.prekey == state.prekey,
+              (1...generationMax).contains(bundle.expiresAt) else { throw DmCoordinatorError.unsupportedState }
+        let identity = DmPublicIdentity(userId: bundle.userId, deviceId: bundle.deviceId, identityKeyId: bundle.identityKeyId,
+            signingKey: bundle.signingKey, curve: bundle.curveKey, prekey: bundle.prekey)
+        let canonical = try DmRelayCodec.bundleWire(identity, prekeyId: bundle.prekeyId,
+            expiresAt: bundle.expiresAt, signature: bundle.signature)
+        guard canonical.utf8.elementsEqual(intent.signedBundle.utf8) else { throw DmCoordinatorError.unsupportedState }
+        let key = try Curve25519.Signing.PublicKey(rawRepresentation: DmRelayCodec.keyBytes(bundle.signingKey))
+        guard key.isValidSignature(try DmRelayCodec.keyBytes(bundle.signature, count: 64),
+            for: try DmRelayCodec.bundleSigningBytes(identity, prekeyId: bundle.prekeyId, expiresAt: bundle.expiresAt)) else {
+            throw DmCoordinatorError.unsupportedState
+        }
+        return bundle
+    }
+
     private static func validatePeer(_ peer: DmPeerContext, owner: DmOwnerContext) throws {
         try validateOwner(DmOwnerContext(userId: peer.userId, deviceId: peer.deviceId, generation: peer.generation))
         try DmContentCodec.validateIdentifier(peer.identityKeyId)
@@ -862,13 +942,26 @@ final class VodozemacDmCoordinator {
         try validateKey(state.curve)
         try validateKey(state.signingKey)
         try validateKey(state.prekey)
+        if let intent = state.registrationIntent { _ = try registrationBundle(intent, state: state) }
         guard let peer = state.peer else {
-            guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty, state.unresolved.isEmpty else {
+            guard state.session == nil, state.claimIntent == nil, state.outbox.isEmpty,
+                  state.inbox.isEmpty, state.unresolved.isEmpty else {
                 throw DmCoordinatorError.unsupportedState
             }
             return
         }
         try validatePeer(peer, owner: state.owner)
+        if let intent = state.claimIntent {
+            try validateOwner(intent.owner)
+            try validatePeer(intent.peer, owner: intent.owner)
+            try DmContentCodec.validateIdentifier(intent.claimId)
+            guard intent.owner.userId == state.owner.userId, intent.owner.deviceId == state.owner.deviceId,
+                  intent.owner.generation <= state.owner.generation,
+                  intent.peer.userId == peer.userId, intent.peer.deviceId == peer.deviceId,
+                  intent.peer.identityKeyId == peer.identityKeyId, intent.peer.curve == peer.curve,
+                  intent.peer.prekey == peer.prekey, intent.peer.generation <= peer.generation,
+                  intent.peer.status == .accepted else { throw DmCoordinatorError.unsupportedState }
+        }
         if let session = state.session {
             try validateKey(session.id)
             guard !session.pickle.isEmpty, session.pickle.utf8.count <= 256 * 1024 else {

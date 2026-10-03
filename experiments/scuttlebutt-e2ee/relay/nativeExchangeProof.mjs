@@ -147,6 +147,7 @@ try {
             'VodozemacDmFrame.swift',
             'VodozemacDmCoordinator.swift',
             'VodozemacDmCoordinatorProbe.swift',
+            'VodozemacEnrollmentIntentProbe.swift',
             'VodozemacRelayCodec.swift',
             'VodozemacRelayTransport.swift',
             'VodozemacSupabaseAuth.swift',
@@ -366,8 +367,20 @@ try {
                     status.accountDirectoryFixtureAssertions > 0,
             );
             receipt.nativeAccountDirectoryFixtureAssertions = status.accountDirectoryFixtureAssertions;
+            assert(
+                Number.isSafeInteger(status.enrollmentIntentFixtureAssertions) &&
+                    status.enrollmentIntentFixtureAssertions > 0,
+            );
+            receipt.nativeEnrollmentIntentFixtureAssertions = status.enrollmentIntentFixtureAssertions;
         }
-        receipt.completedPhases.push({ phase, pid, stage: status.stage });
+        receipt.completedPhases.push({
+            phase,
+            pid,
+            stage: status.stage,
+            ...(phase === 'prepare'
+                ? { enrollmentIntentFixtureAssertions: status.enrollmentIntentFixtureAssertions }
+                : {}),
+        });
         receipt.observation = 'app-reported-pass';
         saveReceipt();
         console.log(`PASS real native HTTPS exchange phase: ${phase}`);
