@@ -7,6 +7,25 @@ import { fileURLToPath } from 'node:url';
 const cwd = fileURLToPath(new URL('../../../', import.meta.url));
 assert(cwd.includes('/.codex/worktrees/scuttlebutt-e2ee/'), 'Keep pilot checks out of the primary checkout');
 const phases = {
+    hosted_types: [
+        '/opt/homebrew/bin/deno',
+        'check',
+        '--config',
+        'experiments/scuttlebutt-e2ee/hosted/supabase/functions/scuttlebutt-e2ee-pilot/deno.json',
+        'experiments/scuttlebutt-e2ee/hosted/supabase/functions/scuttlebutt-e2ee-pilot/index.ts',
+    ],
+    relay_tests: [
+        'node_modules/vitest/vitest.mjs',
+        'run',
+        '--config',
+        'experiments/scuttlebutt-e2ee/relay/vitest.config.mjs',
+        '--configLoader',
+        'runner',
+        '--no-cache',
+        '--maxWorkers',
+        '1',
+        '--no-file-parallelism',
+    ],
     tests: [
         'node_modules/vitest/vitest.mjs',
         'run',
@@ -51,7 +70,9 @@ for (const phase of process.argv.slice(2)) {
     process.title = 'vite build slot: isolated private-message pilot checks';
     console.info(`Running ${phase}`);
     const status = await new Promise((resolve) => {
-        const child = spawn(process.execPath, phases[phase], { cwd, stdio: 'inherit' });
+        const command = phase === 'hosted_types' ? phases[phase][0] : process.execPath;
+        const args = phase === 'hosted_types' ? phases[phase].slice(1) : phases[phase];
+        const child = spawn(command, args, { cwd, stdio: 'inherit' });
         child.on('error', () => resolve(1));
         child.on('exit', (code) => resolve(code ?? 1));
     });
