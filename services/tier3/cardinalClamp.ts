@@ -25,8 +25,17 @@
  *     recommended track) are never moved, and protected segments are not densified, so the
  *     downstream segKey-based YELLOW recompute survives.
  */
-import type { NavGrid } from '../engine/types';
+import type { InshoreLayers, NavGrid } from '../engine/types';
 import { mPerDegLon, haversineM, latLonToGrid } from '../engine/geometry';
+import {
+    navLineLeads,
+    parseLeadingLines,
+    snapToLeadingLines,
+    type LatLon,
+    type LeadingLine,
+    type SnapOptions,
+    type SnapResult,
+} from '../leadingLine';
 
 const M_PER_DEG_LAT = 111_320;
 
@@ -135,6 +144,176 @@ export function parseCardinalDiscs(
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue; // GUARD 7 — never derive from the half-disc centroid
         const radiusM = Number(p._radiusM);
         out.push({ lat, lon, dir, radiusM: Number.isFinite(radiusM) ? radiusM : CLAMP_BAND_M });
+    }
+    return out;
+}
+
+/** Within this of a cardinal its danger's whole half is its wrong side; beyond, only its hazard
+ *  quadrant — the leg review's rule (routeTracer CARDINAL_CLEAR_M). */
+export const CARDINAL_HALF_M = 90;
+/** A cardinal's wrong side reaches this far and no further — the leg review's band (routeTracer
+ *  CARDINAL_BAND_M), however far the router's disc reaches (its radius, 400–1000 m, is sized to
+ *  reach the route; G2 review, 2026-10-04). */
+export const CARDINAL_REACH_M = 400;
+/** A leg within this of a charted lead, on its heading (±LEAD_RIDE_DEG), rides it: the transit
+ *  the hydrographer drew past the mark outranks its side rule (routeTracer ridingLeadAt). */
+const LEAD_RIDE_M = 40;
+const LEAD_RIDE_DEG = 30;
+/** Sample step for a line's metres on a cardinal's wrong side. */
+const WRONG_SIDE_STEP_M = 5;
+/** A snap may add at most this on a cardinal's wrong side (sampling noise only). */
+const CARDINAL_SNAP_TIE_M = 1;
+
+/** Bearing (rad, atan2(east, north)) from a to b, [lon, lat]. */
+const bearingRad = (a: readonly [number, number], b: readonly [number, number]): number =>
+    Math.atan2((b[0] - a[0]) * mPerDegLon(a[1]), (b[1] - a[1]) * M_PER_DEG_LAT);
+
+/**
+ * Whether a point lies on a cardinal's WRONG SIDE — the one rule the router's mask
+ * (cardinalWrongSideMetres) and the leg review (routeTracer validateTraceLeg §2) both read, at
+ * every point of a line (G2 review, 2026-10-04: the mask read every point within the disc's radius,
+ * the review only a leg's closest point within 400 m, so a leg could be red and refused while its
+ * review said clear). Within CARDINAL_REACH_M of the mark and on its danger side: the danger's
+ * whole half within CARDINAL_HALF_M, beyond that only its hazard quadrant (±45° of the danger's
+ * direction), a centimetre's grace on either line — on the mark's own meridian (for an east
+ * cardinal) is a side, on the 45° line the danger's.
+ */
+export function cardinalWrongSideAt(c: Pick<CardinalDisc, 'lat' | 'lon' | 'dir'>, lon: number, lat: number): boolean {
+    const ex = (lon - c.lon) * mPerDegLon(c.lat);
+    const ny = (lat - c.lat) * M_PER_DEG_LAT;
+    const distM = Math.hypot(ex, ny);
+    if (!(distM <= CARDINAL_REACH_M)) return false;
+    const safe = SAFE_VEC[c.dir];
+    const sideM = ex * safe[0] + ny * safe[1];
+    const acrossM = Math.abs(ex * safe[1] - ny * safe[0]);
+    return sideM < -0.01 && (distM < CARDINAL_HALF_M || acrossM <= -sideM + 0.01);
+}
+
+/**
+ * Per segment of `polyline` ([lon, lat]), the metres of it on a cardinal's WRONG SIDE
+ * (cardinalWrongSideAt, read every WRONG_SIDE_STEP_M along it; G2, 2026-10-04). A stretch riding a
+ * charted lead (`leads`: within 40 m of one and within 30° of its heading) is not counted: the
+ * transit outranks the mark's side rule, as in the leg review. On the Pi's cells with no regional
+ * marker file, Newport → Rivergate passed 12 m on the WEST side of the river mouth's east cardinal
+ * (-27.39651, 153.15337), drawn as channel.
+ */
+export function cardinalWrongSideMetres(
+    polyline: readonly (readonly [number, number])[],
+    discs: readonly CardinalDisc[],
+    leads: readonly { pts: readonly { lat: number; lon: number }[] }[] = [],
+): number[] {
+    const out = new Array<number>(Math.max(0, polyline.length - 1)).fill(0);
+    if (discs.length === 0) return out;
+    const riding = (lon: number, lat: number, brg: number): boolean =>
+        leads.some((lead) => {
+            let best = Infinity;
+            let at = -1;
+            for (let i = 1; i < lead.pts.length; i++) {
+                const p = lead.pts[i - 1];
+                const q = lead.pts[i];
+                const d = pointToSegM(lat, lon, [p.lon, p.lat], [q.lon, q.lat]);
+                if (d < best) {
+                    best = d;
+                    at = i;
+                }
+            }
+            if (!(best <= LEAD_RIDE_M)) return false;
+            const p = lead.pts[at - 1];
+            const q = lead.pts[at];
+            let dDeg = Math.abs(((brg - bearingRad([p.lon, p.lat], [q.lon, q.lat])) * 180) / Math.PI) % 180;
+            if (dDeg > 90) dDeg = 180 - dDeg;
+            return dDeg <= LEAD_RIDE_DEG;
+        });
+    for (let i = 0; i + 1 < polyline.length; i++) {
+        const a = polyline[i];
+        const b = polyline[i + 1];
+        const near = discs.filter((c) => pointToSegM(c.lat, c.lon, a, b) <= CARDINAL_REACH_M);
+        if (near.length === 0) continue;
+        const lengthM = haversineM(a[1], a[0], b[1], b[0]);
+        const n = Math.max(1, Math.ceil(lengthM / WRONG_SIDE_STEP_M));
+        const brg = bearingRad(a, b);
+        for (let k = 0; k < n; k++) {
+            const t = (k + 0.5) / n;
+            const lon = a[0] + (b[0] - a[0]) * t;
+            const lat = a[1] + (b[1] - a[1]) * t;
+            const wrong = near.some((c) => cardinalWrongSideAt(c, lon, lat));
+            if (wrong && !riding(lon, lat, brg)) out[i] += lengthM / n;
+        }
+    }
+    return out;
+}
+
+/** The cardinals a route's layers carry (OBSTRN discs) and the charted leads that may ride past
+ *  them (CATNAV 3 NAVLNE, RECTRC) — what cardinalWrongSideMetres reads. */
+export function cardinalContext(layers: Pick<InshoreLayers, 'OBSTRN' | 'NAVLINE' | 'RECTRC'>): {
+    discs: CardinalDisc[];
+    leads: LeadingLine[];
+} {
+    return {
+        discs: parseCardinalDiscs(layers.OBSTRN?.features ?? []),
+        leads: parseLeadingLines([
+            ...navLineLeads(layers.NAVLINE?.features ?? []),
+            ...(layers.RECTRC?.features ?? []),
+        ] as never),
+    };
+}
+
+/** Per segment, whether some of it lies on a cardinal's wrong side (cardinalWrongSideMetres). */
+export function cardinalWrongSideMask(
+    polyline: readonly (readonly [number, number])[],
+    layers: Pick<InshoreLayers, 'OBSTRN' | 'NAVLINE' | 'RECTRC'>,
+): boolean[] {
+    const { discs, leads } = cardinalContext(layers);
+    return cardinalWrongSideMetres(polyline, discs, leads).map((m) => m > 0);
+}
+
+/** A line's metres on a cardinal's wrong side, in all. */
+export function cardinalWrongSideTotalM(
+    line: readonly LatLon[],
+    discs: readonly CardinalDisc[],
+    leads: readonly LeadingLine[],
+): number {
+    if (discs.length === 0) return 0;
+    return cardinalWrongSideMetres(
+        line.map((p) => [p.lon, p.lat] as [number, number]),
+        discs,
+        leads,
+    ).reduce((m, x) => m + x, 0);
+}
+
+/**
+ * snapToLeadingLines one line at a time — the loop it runs over `lines`, so with no cardinal (or
+ * none the snaps touch) the result is the same — keeping each line's snap only where it adds no
+ * metre on a cardinal's wrong side (G2, 2026-10-04); `refused` counts the lines it kept off. A
+ * charted track is snapped with land as its only veto, so its join from the route ran 12 m on the
+ * west side of the Brisbane River mouth's east cardinal; the track itself passes 60 m east of it.
+ */
+export function snapKeepingCardinalSide(
+    polyline: LatLon[],
+    cautionMask: boolean[],
+    lines: readonly LeadingLine[],
+    opts: SnapOptions,
+    discs: readonly CardinalDisc[],
+    leads: readonly LeadingLine[],
+): SnapResult & { refused: number } {
+    if (discs.length === 0) return { ...snapToLeadingLines(polyline, cautionMask, [...lines], opts), refused: 0 };
+    let out: SnapResult & { refused: number } = { polyline, cautionMask, snapped: 0, refused: 0 };
+    let was = cardinalWrongSideTotalM(polyline, discs, leads);
+    for (const line of lines) {
+        const r = snapToLeadingLines(out.polyline, out.cautionMask, [line], opts);
+        if (r.snapped === 0) continue;
+        const now = cardinalWrongSideTotalM(r.polyline, discs, leads);
+        if (now > was + CARDINAL_SNAP_TIE_M) {
+            out.refused++;
+            continue;
+        }
+        out = {
+            polyline: r.polyline,
+            cautionMask: r.cautionMask,
+            snapped: out.snapped + r.snapped,
+            refused: out.refused,
+        };
+        was = now;
     }
     return out;
 }

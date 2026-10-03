@@ -70,7 +70,9 @@ export function evaluateAutoroutingProposalSave(
         return deny(
             unchecked && unchecked.every((i) => route.engine!.cautionWhy?.[i] === CAUTION_WHY.NEAR_SHALLOW)
                 ? NEAR_SHALLOW_SAVE
-                : 'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
+                : unchecked?.every((i) => (route.engine!.cautionWhy?.[i] ?? 0) & CAUTION_WHY.CARDINAL)
+                  ? 'Part of this route passes a cardinal mark on its danger side. It cannot be saved.'
+                  : 'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
         );
     if (route.engine.chartedShallowSpans?.some(nearSpanBlocks)) return deny(NEAR_SHALLOW_SAVE);
     // The satellite land check could not finish (offline, or online and it

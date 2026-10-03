@@ -119,6 +119,11 @@ describe('navGridCache byte budget', () => {
             for (const e of entries) {
                 expect(e.grid.shallowRing!.length).toBe(shallow ? e.grid.width * e.grid.height : 0);
                 expect(e.bytes).toBe(navGridBytes(e.grid));
+                // G2 review (2026-10-04): priced in full, so no pricing state
+                // (seeds, owners — 21–74 MB a grid on the goldens, uncounted)
+                // stays with the cached grid.
+                expect(e.grid.shallowRingResolve).toBeUndefined();
+                expect(e.grid.shallowRing!.every((v) => v <= 2)).toBe(true);
             }
         });
     }

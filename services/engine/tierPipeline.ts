@@ -23,7 +23,13 @@ import { routeTier3, type Tier3Context } from '../tier3/tier3Router';
 import { spanNearBerths } from '../tier3/fineCanalGrid';
 import { routeTier4, type LoneGate, type Tier4Context } from '../tier4/tier4Router';
 import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from '../tier3/canalLineFollower';
-import { clampRouteToCardinalSafeSide, parseCardinalDiscs } from '../tier3/cardinalClamp';
+import {
+    cardinalContext,
+    cardinalWrongSideTotalM,
+    clampRouteToCardinalSafeSide,
+    parseCardinalDiscs,
+    snapKeepingCardinalSide,
+} from '../tier3/cardinalClamp';
 import { stitchLegs } from '../glue/gluer';
 import { isRefusal, freezeLeg, type Leg, type LegResult } from '../routing/legContract';
 import { validateAgainstCrossLines } from '../seaway/crossLine';
@@ -1267,6 +1273,7 @@ export function applyThreeTier(
     let route = polyline;
     let rectrcSnapped = 0;
     const rectrcLines = parseLeadingLines((layers.RECTRC?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
+    const cardinals = cardinalContext(layers);
     if (rectrcLines.length > 0) {
         const landOnly = (p: { lat: number; lon: number }): boolean => {
             const { x, y } = latLonToGrid(grid, p.lat, p.lon);
@@ -1276,13 +1283,16 @@ export function applyThreeTier(
             if (grid.clearanceBarred?.[y * grid.width + x] === 1) return true;
             return grid.landBlocked ? grid.landBlocked[y * grid.width + x] === 1 : false;
         };
-        const snapped = snapToLeadingLines(
+        // …and never adds a metre on a cardinal's wrong side (G2, 2026-10-04).
+        const snapped = snapKeepingCardinalSide(
             route.map(([lon, lat]) => ({ lat, lon })),
             route.map(() => false),
             rectrcLines,
             // followInteriorVertices: a RECTRC bends with the river — follow its curve instead of
             // chording across it (which cut the inside of every bend and hugged the bank).
             { corridorM: 300, minRunM: 80, maxAngleDeg: 45, isBlocked: landOnly, followInteriorVertices: true },
+            cardinals.discs,
+            cardinals.leads,
         );
         if (snapped.snapped > 0) {
             route = snapped.polyline.map((p) => [p.lon, p.lat] as [number, number]);
@@ -1381,6 +1391,7 @@ export function applyThreeTier(
         chart: { bands: chartAreaIndexFor(layers).depth, floorM: draftM + safetyM },
         isUnvouched,
         ...(isUnvouched ? { strictUncharted: true } : {}),
+        ...(cardinals.discs.length > 0 ? { cardinals } : {}),
     };
     // Pull each tier-2↔tier-3 SEAM — the shared boundary vertex where the bay (tier-3) leg hands off
     // to the marked-channel (tier-2) leg — onto the RECTRC. The seam sits on the raw A* route, which
@@ -1437,6 +1448,13 @@ export function applyThreeTier(
             if (tupleLineCrossesHardLand(grid, prev, snapped, 20) || tupleLineCrossesHardLand(grid, snapped, next, 20))
                 continue;
             if (headingDiffDeg(tupleBearingDeg(prev, snapped), tupleBearingDeg(snapped, next)) > SEAM_SNAP_MAX_TURN_DEG)
+                continue;
+            // …nor onto a cardinal's wrong side (G2, 2026-10-04).
+            const seamLine = (p: readonly [number, number]) => [prev, p, next].map(([lon, lat]) => ({ lat, lon }));
+            if (
+                cardinalWrongSideTotalM(seamLine(snapped), cardinals.discs, cardinals.leads) >
+                cardinalWrongSideTotalM(seamLine(a.exit.at), cardinals.discs, cardinals.leads) + 1
+            )
                 continue;
             if (gateGuards) {
                 // The two moved seam segments must not cross any gate's line OUTSIDE the marks.

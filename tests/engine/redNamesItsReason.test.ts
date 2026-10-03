@@ -22,7 +22,7 @@ import { collectShallowRuns } from '../../services/engine/shallowRuns';
 import { buildNavGrid } from '../../services/engine/navGrid';
 import { forEachCellOnSegment, latLonToGrid } from '../../services/engine/geometry';
 import { CAUTION } from '../../services/engine/constants';
-import { CAUTION_WHY, type InshoreLayers } from '../../services/engine/types';
+import { CAUTION_WHY, nearSpanBlocks, type InshoreLayers } from '../../services/engine/types';
 import {
     dangerWithoutChartedDepth,
     inshoreRoutePieces,
@@ -143,19 +143,98 @@ describe('red the chart under the line does not support (the North Molle corner)
             hazardMask: [false, false],
         });
         expect(r.cautionWhy.every((why) => (why & CAUTION_WHY.SHALLOW) !== 0)).toBe(true);
+        // G2 (2026-10-04): SHALLOW alone, with only part of each segment in
+        // the band, is drawn over its stretches (CAUTION_WHY.STRETCH) — the
+        // 534 m in the 2 m band — not over the whole of both segments (this
+        // test pinned 1,175 m red before). RE-PIN (G2 review, 2026-10-04):
+        // the rest of each segment is measured as a clean segment's is, so
+        // its approach inside the 10 m the router keeps off the 2–5 m band
+        // (267 m each side, the line being this oblique) is red with it,
+        // named for the band's edge — it was drawn green, unmeasured.
+        expect(r.cautionWhy).toEqual([
+            CAUTION_WHY.SHALLOW | CAUTION_WHY.STRETCH,
+            CAUTION_WHY.SHALLOW | CAUTION_WHY.STRETCH,
+        ]);
         const states = inshoreSegmentStates({ ...masks, polyline: into, ...r, cautionMask: [true, true] })!;
-        expect(states).toEqual(['danger', 'danger']);
-        const stretches = routeRedStretches(into, inshoreRoutePieces(into, states, [], r.chartedShallowSpans), {
+        expect(states).toEqual(['green', 'green']);
+        const pieces = inshoreRoutePieces(into, states, [], r.chartedShallowSpans);
+        expect(pieces.map((p) => p.state)).toEqual(['green', 'danger', 'green']);
+        const stretches = routeRedStretches(into, pieces, {
             ...r,
             cautionMask: [true, true],
             canalMask: [false, false],
             tideNeedM: DRAFT + SAFETY,
         });
-        expect(stretches.length).toBeGreaterThan(0);
+        const edge =
+            'runs on the edge of water charted 2.0 m — the router keeps 10 m off it; no tide data here shows a tide that clears it';
         expect(stretches.map((s) => s.why)).toEqual([
+            edge,
             'charted 2.0 m — shallower than the 2.9 m this boat needs; no tide data here shows a tide that clears it',
+            edge,
         ]);
-        expect(stretches[0].lengthM).toBeGreaterThan(1000);
+        expect(stretches[1].lengthM).toBeGreaterThan(500);
+        expect(stretches[1].lengthM).toBeLessThan(560);
+        for (const s of [stretches[0], stretches[2]]) {
+            expect(s.lengthM).toBeGreaterThan(250);
+            expect(s.lengthM).toBeLessThan(285);
+        }
+        // With no tide loaded those two refuse Save (owner decision 10).
+        expect(r.chartedShallowSpans.filter(nearSpanBlocks)).toHaveLength(2);
+        // Its run (and so its tide chip) is the stretch in the band.
+        expect(r.shallowRuns).toHaveLength(1);
+        expect(r.shallowRuns[0].minDepthM).toBe(2);
+        expect(r.shallowRuns[0].lengthM).toBeLessThan(560);
+    });
+
+    it('a tide that clears its band draws the stretch amber, and Save is not told "no charted depth" (G2)', () => {
+        const into: [number, number][] = [polyline[0], [W + 0.009, EDGE - 10 / 111_320], polyline[2]];
+        const r = collectShallowRuns({
+            layers,
+            grid,
+            polyline: into,
+            caution: [true, true],
+            draftM: DRAFT,
+            safetyM: SAFETY,
+            hazardMask: [false, false],
+        });
+        const m = { ...masks, polyline: into, ...r, cautionMask: [true, true] };
+        const states = inshoreSegmentStates(m)!;
+        expect(dangerWithoutChartedDepth({ ...m, stateMask: states })).toEqual([]);
+        // 2.0 m + a 1.5 m tide clears 2.9 m: the stretch in the band is amber.
+        const pieces = inshoreRoutePieces(into, states, [], r.chartedShallowSpans, {
+            depthM: r.tideDepthM,
+            needM: DRAFT + SAFETY,
+            highestM: 1.5,
+        });
+        expect(pieces.some((p) => p.state === 'tide' && p.depthM === 2)).toBe(true);
+    });
+
+    it('a segment wholly in the band stays red whole (not a stretch)', () => {
+        const inBand = EDGE - 20 / 111_320;
+        const deepIn: [number, number][] = [
+            [W + 0.002, inBand],
+            [W + 0.016, inBand],
+        ];
+        const r = collectShallowRuns({
+            layers,
+            grid,
+            polyline: deepIn,
+            caution: [true],
+            draftM: DRAFT,
+            safetyM: SAFETY,
+            hazardMask: [false],
+        });
+        expect(r.cautionWhy[0] & CAUTION_WHY.STRETCH).toBe(0);
+        const states = inshoreSegmentStates({
+            ...masks,
+            polyline: deepIn,
+            cautionMask: [true],
+            canalMask: [false],
+            channelMask: [false],
+            offshoreMask: [false],
+            ...r,
+        });
+        expect(states).toEqual(['danger']);
     });
 });
 

@@ -226,6 +226,17 @@ function forEachEdgeNear(r: IndexedRing, lat0: number, lat1: number, visit: (i: 
         for (let i = 0; i < n; i++) visit(i);
         return;
     }
+    const bands = ringBands(r);
+    const count = bands.length;
+    const b0 = Math.max(0, Math.min(count - 1, Math.floor((lat0 - r.minLat) / r.bandStep)));
+    const b1 = Math.max(0, Math.min(count - 1, Math.floor((lat1 - r.minLat) / r.bandStep)));
+    for (let b = b0; b <= b1; b++) for (const i of bands[b]) visit(i);
+}
+
+/** A ring's edges by latitude band (built on first use; rings of
+ *  BAND_MIN_EDGES or more edges). */
+function ringBands(r: IndexedRing): number[][] {
+    const n = r.ring.length;
     if (!r.bands) {
         const count = Math.min(512, Math.ceil(n / 8));
         const step = (r.maxLat - r.minLat) / count || 1e-12;
@@ -239,10 +250,7 @@ function forEachEdgeNear(r: IndexedRing, lat0: number, lat1: number, visit: (i: 
         r.bands = bands;
         r.bandStep = step;
     }
-    const count = r.bands.length;
-    const b0 = Math.max(0, Math.min(count - 1, Math.floor((lat0 - r.minLat) / r.bandStep)));
-    const b1 = Math.max(0, Math.min(count - 1, Math.floor((lat1 - r.minLat) / r.bandStep)));
-    for (let b = b0; b <= b1; b++) for (const i of r.bands[b]) visit(i);
+    return r.bands;
 }
 
 /** The engine's ray cast (services/engine/geometry pointInRing), over only
@@ -250,15 +258,24 @@ function forEachEdgeNear(r: IndexedRing, lat0: number, lat1: number, visit: (i: 
 function pointInIndexedRing(lon: number, lat: number, r: IndexedRing): boolean {
     const ring = r.ring;
     const n = ring.length;
+    if (lat < r.minLat || lat > r.maxLat || n < 2) return false;
     let inside = false;
-    forEachEdgeNear(r, lat, lat, (i) => {
+    // forEachEdgeNear(r, lat, lat), unrolled: the hottest test the router
+    // asks (G2, 2026-10-04) — one band, so every edge once.
+    const bands = n < BAND_MIN_EDGES ? null : ringBands(r);
+    const list = bands
+        ? bands[Math.max(0, Math.min(bands.length - 1, Math.floor((lat - r.minLat) / r.bandStep)))]
+        : null;
+    const m = list ? list.length : n;
+    for (let k = 0; k < m; k++) {
+        const i = list ? list[k] : k;
         const j = i === 0 ? n - 1 : i - 1;
         const xi = ring[i][0];
         const yi = ring[i][1];
         const xj = ring[j][0];
         const yj = ring[j][1];
         if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
-    });
+    }
     return inside;
 }
 
@@ -315,12 +332,23 @@ export function segmentAreaDistanceM(
     for (const r of area.rings) {
         const ring = r.ring;
         const n = ring.length;
-        forEachEdgeNear(r, lat0, lat1, (i) => {
-            if (best === 0) return;
-            const m = segmentDistanceM(a, b, ring[i === 0 ? n - 1 : i - 1], ring[i], kx, ky);
-            if (m < best) best = m;
-        });
-        if (best === 0) return 0;
+        // forEachEdgeNear(r, lat0, lat1), unrolled (G2, 2026-10-04: the
+        // clearance ring asks this for every cell it prices).
+        if (lat1 < r.minLat || lat0 > r.maxLat || n < 2) continue;
+        const bands = n < BAND_MIN_EDGES ? null : ringBands(r);
+        const last = bands ? bands.length - 1 : 0;
+        const b0 = bands ? Math.max(0, Math.min(last, Math.floor((lat0 - r.minLat) / r.bandStep))) : 0;
+        const b1 = bands ? Math.max(0, Math.min(last, Math.floor((lat1 - r.minLat) / r.bandStep))) : 0;
+        for (let band = b0; band <= b1; band++) {
+            const list = bands ? bands[band] : null;
+            const count = list ? list.length : n;
+            for (let k = 0; k < count; k++) {
+                const i = list ? list[k] : k;
+                const m = segmentDistanceM(a, b, ring[i === 0 ? n - 1 : i - 1], ring[i], kx, ky);
+                if (m < best) best = m;
+                if (best === 0) return 0;
+            }
+        }
     }
     return best;
 }

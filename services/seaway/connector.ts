@@ -44,7 +44,9 @@ import {
     MinHeap,
     cellCostMultiplier,
     chainCostM,
-    shallowRingFactor,
+    RING_CLASS,
+    RING_PENDING,
+    SHALLOW_RING_FACTOR,
     type NavGrid,
 } from '../inshoreRouterEngine';
 import { GATE_DEDUP_M, gateDistM } from './gateExtractor';
@@ -341,14 +343,20 @@ export function connectToTargets(
     const startIdx = originCell.y * w + originCell.x;
     gScore[startIdx] = 0;
 
-    const targetCells = [...byIdx.keys()].map((idx) => ({ x: idx % w, y: Math.floor(idx / w) }));
+    // The targets' cells, read without allocating: the heuristic runs on
+    // every push (G2, 2026-10-04: a route's connectors pop up to 1.4 M cells).
+    const targetX = Int32Array.from(byIdx.keys(), (idx) => idx % w);
+    const targetY = Int32Array.from(byIdx.keys(), (idx) => Math.floor(idx / w));
+    const nTargets = targetX.length;
+    const { dLon, dLat } = grid;
     const heuristic = (x: number, y: number): number => {
         let min = Infinity;
-        for (const t of targetCells) {
-            const d = euclidCellsM({ x, y }, t);
+        for (let t = 0; t < nTargets; t++) {
+            // euclidCellsM({ x, y }, target), term for term.
+            const d = Math.hypot((targetX[t] - x) * dLon * mPerLonGrid, (targetY[t] - y) * dLat * M_PER_DEG_LAT);
             if (d < min) min = d;
         }
-        return targetCells.length > 0 ? min : 0;
+        return nTargets > 0 ? min : 0;
     };
 
     const NEIGHBORS = [
@@ -380,6 +388,17 @@ export function connectToTargets(
         return max;
     };
     let stopAtF = maxUnsettledBudget();
+    const shut = (i: number): boolean => Number.isNaN(grid.cells[i]) || blockedIdx?.has(i) === true;
+    // Read once for the loop: the cost ladder, and the clearance ring (its
+    // pending cells priced as the search reaches them — aStar
+    // shallowRingClass, inlined).
+    const costMultiplier = cellCostMultiplier;
+    const ring = grid.shallowRing;
+    const ringCells = ring?.length ?? 0;
+    const priceRing = grid.shallowRingResolve;
+    const ringFactor = SHALLOW_RING_FACTOR;
+    const pending = RING_PENDING;
+    const classBits = RING_CLASS;
 
     while (open.size > 0 && remaining > 0) {
         const { f, idx } = open.pop()!;
@@ -418,7 +437,6 @@ export function connectToTargets(
             if (dx !== 0 && dy !== 0) {
                 const sideA = cy * w + nx;
                 const sideB = ny * w + cx;
-                const shut = (i: number): boolean => Number.isNaN(grid.cells[i]) || blockedIdx?.has(i) === true;
                 if (shut(sideA) && shut(sideB)) continue;
             }
             const cellPreferred = grid.preferred[nIdx] === 1;
@@ -427,9 +445,11 @@ export function connectToTargets(
             // 2026-10-03): a connector's cell chain ran 4.3 m off a reef
             // drying 3.6 m, priced as open water. The engine's A* reads the
             // same factor through centreFactor.
+            let ringClass = nIdx < ringCells ? (ring as Uint8Array)[nIdx] : 0;
+            if ((ringClass & pending) !== 0) ringClass = priceRing?.(nIdx) ?? 0;
             const tentativeG =
                 curG +
-                stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) * shallowRingFactor(grid, nIdx) +
+                stepLengthsM[n] * costMultiplier(cellDepth, cellPreferred) * ringFactor[ringClass & classBits] +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;

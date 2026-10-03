@@ -149,10 +149,33 @@ export const CENTRE_NORM_CELLS = 6;
  */
 export const SHALLOW_RING_FACTOR: readonly number[] = [1, 1.5, 3];
 
+/** A ring cell's byte (G2, 2026-10-04: the ring is priced lazily): bits 0–1
+ *  its class; RING_PENDING not priced yet (engine/shallowRuns
+ *  attachShallowClearanceRing); RING_SEED a shallow band's edge seed. */
+export const RING_CLASS = 3;
+export const RING_PENDING = 4;
+export const RING_SEED = 8;
+
+/** A cell's ring class (0 off the ring, or on a grid without one), pricing a
+ *  pending cell first — its factor then folds into centreFactor, so read
+ *  this before a cell's centreFactor. */
+export function shallowRingClass(grid: NavGrid, idx: number): number {
+    const r = grid.shallowRing;
+    if (!r || idx >= r.length) return 0;
+    const v = r[idx];
+    return (v & RING_PENDING ? (grid.shallowRingResolve?.(idx) ?? 0) : v) & RING_CLASS;
+}
+
+/** A cell's centreFactor, its pending ring cell priced first (1 on a grid without one). */
+export function centreFactorAt(grid: NavGrid, idx: number): number {
+    if (!grid.centreFactor) return 1;
+    shallowRingClass(grid, idx);
+    return grid.centreFactor[idx];
+}
+
 /** A cell's ring multiplier (1 off the ring, or on a grid without one). */
 export function shallowRingFactor(grid: NavGrid, idx: number): number {
-    const r = grid.shallowRing;
-    return r && idx < r.length ? (SHALLOW_RING_FACTOR[r[idx]] ?? 1) : 1;
+    return SHALLOW_RING_FACTOR[shallowRingClass(grid, idx)];
 }
 
 /**
@@ -524,6 +547,9 @@ export function aStar(
     // attached here for grids the builder didn't populate (disk/test fixtures).
     if (!grid.centreFactor) grid.centreFactor = computeCentreFactor(grid);
     const centreFactor = grid.centreFactor;
+    // A lazy clearance ring prices a cell the first time a step reads it.
+    const ring = grid.shallowRing;
+    const priceRing = grid.shallowRingResolve;
 
     while (open.size > 0) {
         const { idx } = open.pop()!;
@@ -561,6 +587,7 @@ export function aStar(
             const cellDrying = cellDepth < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[nIdx] <= 0;
             const cellAssist = cellDepth < 0 && grid.tideAssist !== undefined && grid.tideAssist[nIdx] === 1;
             const cellNtmRise = cellDepth < 0 && grid.ntmRiseM !== undefined ? grid.ntmRiseM[nIdx] : Number.NaN;
+            if (priceRing !== undefined && ((ring as Uint8Array)[nIdx] & RING_PENDING) !== 0) priceRing(nIdx);
             const tentativeG =
                 curG +
                 stepLengthsM[n] *
@@ -593,7 +620,7 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
     const idx = y * grid.width + x;
     // × centreFactor so the smoother + acceptance gates price edges EXACTLY as
     // aStar did (centred). Absent on cached/test grids ⇒ 1 (prior behaviour).
-    const centre = grid.centreFactor ? grid.centreFactor[idx] : 1;
+    const centre = centreFactorAt(grid, idx);
     const drying = grid.cells[idx] < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[idx] <= 0;
     const assist = grid.cells[idx] < 0 && grid.tideAssist !== undefined && grid.tideAssist[idx] === 1;
     const ntmRise = grid.cells[idx] < 0 && grid.ntmRiseM !== undefined ? grid.ntmRiseM[idx] : Number.NaN;
