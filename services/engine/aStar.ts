@@ -136,6 +136,26 @@ export const CENTRE_HALF_WIDTH_CELLS = 12;
 export const CENTRE_NORM_CELLS = 6;
 
 /**
+ * The price multiplier of a shallow-band clearance ring cell (NavGrid
+ * shallowRing; engine/shallowRuns applyShallowClearanceRing — the real-chart
+ * check, 2026-10-03), by ring class: 0 none, 1 where a step from the cell
+ * could pass within 10 m of a band whose deep end clears the keel, 2 within
+ * 30 m of one that dries, charts no depth or never clears it. A multiplier on
+ * the cell's own price, like the shore
+ * skin's 2× — never the 40× caution price: a fully ringed reach would cost
+ * like crossing caution (the 400×-era detours) and a deep cell beside a reef
+ * would price above a shallow one off it. 3× steps A* off a reef for one cell
+ * of detour on a run of two cells or more; 1.5× on the 5 m contour nudges.
+ */
+export const SHALLOW_RING_FACTOR: readonly number[] = [1, 1.5, 3];
+
+/** A cell's ring multiplier (1 off the ring, or on a grid without one). */
+export function shallowRingFactor(grid: NavGrid, idx: number): number {
+    const r = grid.shallowRing;
+    return r && idx < r.length ? (SHALLOW_RING_FACTOR[r[idx]] ?? 1) : 1;
+}
+
+/**
  * Cost multiplier per cell based on its known depth.
  *
  * Why this exists: without it, A* finds the geometrically shortest

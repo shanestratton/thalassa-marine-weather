@@ -22,7 +22,7 @@ import { AUTO_ROUTE_TRIAL_OFF, isAutorouteTrialOn } from './autorouteTrialSwitch
 import { listCells } from './enc/EncCellMetadata';
 import { validateAutoroutingVesselProfile } from '../supabase/functions/_shared/autorouting-vessel';
 import { thalassaVesselWarnings } from './autoroutingVesselProfile';
-import { inshoreRouteCaveats } from '../components/map/inshoreRouteNotice';
+import { inshoreRouteCaveats, nearShallowSummary } from '../components/map/inshoreRouteNotice';
 import { waterPackRefusal, type WaterPackEnd } from './waterPack/waterPackWords';
 import {
     BackstopLandRefusal,
@@ -447,6 +447,8 @@ export async function calculateThalassaProposal(
         surveyUncheckedCells: ok.surveyUncheckedCells,
         // Where the canal water came from offline (Phase 2b, 2026-10-01).
         waterPack: ok.waterPack,
+        // Too close to a shallow band (fix-up review, 2026-10-03).
+        nearShallow: nearShallowSummary(ok.chartedShallowSpans),
         // Auto draws the survey dots (the workspace's surveyDashLayers), so
         // the words name them as the planner's do.
         ...(stateMask

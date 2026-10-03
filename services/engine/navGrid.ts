@@ -263,7 +263,11 @@ export function buildNavGridCached(
         tideCeilings,
         tideBarriers,
     );
-    const bytes = navGridBytes(grid);
+    // …with room for the shallow clearance ring (w × h bytes) the engine
+    // attaches to the cached grid after it is admitted (inshoreRouterEngine
+    // applyShallowClearanceRing; fix-up review, 2026-10-03: every entry was
+    // undercounted by it).
+    const bytes = navGridBytes(grid) + (grid.shallowRing ? 0 : grid.width * grid.height);
     // Make room by BYTES first (the incoming grid is always admitted), then
     // by entry count for the many-tiny-grids case.
     trimNavGridCache(Math.max(0, NAV_GRID_CACHE_BYTE_BUDGET - bytes));

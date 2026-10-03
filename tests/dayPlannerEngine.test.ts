@@ -473,6 +473,25 @@ describe('day planner deterministic itinerary construction', () => {
                 },
                 /passes too close to water charted shallower than this boat needs/,
             ],
+            [
+                // The real-chart check (2026-10-03): the clearance is a
+                // stretch of any segment now (a `near` span) — a green
+                // segment 4 m off a reef drying 3 m is never planned.
+                (p: ReturnType<typeof route>) => {
+                    p.engine!.chartedShallowSpans = [
+                        {
+                            startSeg: 0,
+                            startT: 0.2,
+                            endSeg: 0,
+                            endT: 0.4,
+                            minDepthM: -3,
+                            tideLiftable: true,
+                            near: { clearanceM: 4, depthM: -3, requiredM: 30 },
+                        },
+                    ];
+                },
+                /passes too close to water charted shallower than this boat needs/,
+            ],
         ] as const) {
             const deps = dependencies({
                 route: vi.fn(async (from, to) => {

@@ -466,6 +466,18 @@ export interface ChartedShallowSpan {
      * results too).
      */
     tideLiftable?: boolean;
+    /**
+     * A stretch red (or amber, decision 10) for passing too close to a
+     * shallow band, not for the water under it (the real-chart check,
+     * 2026-10-03): the band, how close the stretch comes, and the clearance
+     * the router keeps (shallowRuns nearShallowBand: 30 m from a band that
+     * dries, charts no depth or never clears the keel, 10 m from one whose
+     * deep end does). Its minDepthM is that band's DRVAL1 (0 m where it
+     * charts none, the grid's own reading of a missing depth), so a tide that
+     * clears the band itself draws it amber. Absent: charted-shallow water
+     * under the line.
+     */
+    near?: CautionNearShallow;
 }
 
 export interface ShallowRunInfo {
@@ -622,7 +634,15 @@ export interface SurveyRunInfo {
  *     to a shallow band than that clearance (RouteResult.cautionNearShallow
  *     says how close, to what): red, "passes 5 m from water charted to dry
  *     3.0 m" (round-2 review fix-up 2, 2026-10-03 — a line metres off a
- *     steep-to drying reef had been drawn green and saved);
+ *     steep-to drying reef had been drawn green and saved). Since the
+ *     real-chart check (2026-10-03) the router no longer reddens a whole
+ *     segment for it: EVERY segment is measured, and only the stretch inside
+ *     the clearance is drawn, as a ChartedShallowSpan with `near` (red, or
+ *     amber where a tide clears the band itself; such a segment reads
+ *     GRID_ONLY or not caution at all). The bit is kept for saved results;
+ *   • CANAL — not caution: red by the canal's own convention (canalMask, the
+ *     marina basin's narrow water), named so no red carries no reason (the
+ *     real-chart check, 2026-10-03). Set only where no other reason is;
  *   • UNEXPLAINED — none of those, and no exact reading, no shallow band's
  *     cell, or no band to measure the clearance from, to prove it is the
  *     cells' alone: red, said as the grid's.
@@ -640,6 +660,7 @@ export const CAUTION_WHY = {
     STRUCTURE: 512,
     BLOCKED: 1024,
     NEAR_SHALLOW: 2048,
+    CANAL: 4096,
 } as const;
 
 /**
@@ -776,8 +797,10 @@ export interface RouteResult {
     /** Per segment: the shallowest charted depth under a caution segment's
      *  line where it is below draft + safety (the SHALLOW reason), else null. */
     cautionDepthM?: (number | null)[];
-    /** Per segment: the shallow band a NEAR_SHALLOW segment passes too close
-     *  to, and how close (round-2 review fix-up 2, 2026-10-03), else null. */
+    /** Per segment: the shallow band the line passes too close to, and how
+     *  close (round-2 review fix-up 2, 2026-10-03), else null — since the
+     *  real-chart check (2026-10-03) on any segment with a `near` stretch in
+     *  chartedShallowSpans (the worst band on it). */
     cautionNearShallow?: (CautionNearShallow | null)[];
     /** Metres of overland tail trimmed off an inland destination pin —
      *  present only when the trim fired (route ends at the water's edge). */
@@ -1090,6 +1113,19 @@ export interface NavGrid {
      * lazily and cellCostAt treats it as 1 (the prior wall-hugging behaviour).
      */
     centreFactor?: Float32Array;
+    /**
+     * The shallow-band clearance ring (the real-chart check, 2026-10-03;
+     * engine/shallowRuns applyShallowClearanceRing): per cell, 2 where a step
+     * from the cell's centre could pass within SHALLOW_CLIFF_CLEARANCE_M of a
+     * band that dries, charts no depth or never clears the keel, 1 within
+     * SHALLOW_BAND_CLEARANCE_M of one whose deep end does (the centre within
+     * √(clearance² + half a diagonal²) of it), else 0. A COST,
+     * never a block: its factor (aStar shallowRingFactor) is folded into
+     * centreFactor, and the Seaway connectors' search reads it here. Empty
+     * (length 0) once applied to a grid with no shallow band; absent until
+     * applied.
+     */
+    shallowRing?: Uint8Array;
     /**
      * Per-cell "a paired channel mark governs this cell" flag (1 = inside a
      * mark-governed disc). Set alongside centreFactor at grid build. Used to keep

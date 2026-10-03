@@ -39,7 +39,14 @@
  * arbitrates against the legacy engine on the scorecard.
  */
 
-import { EXIT_PENALTY_M, MinHeap, cellCostMultiplier, chainCostM, type NavGrid } from '../inshoreRouterEngine';
+import {
+    EXIT_PENALTY_M,
+    MinHeap,
+    cellCostMultiplier,
+    chainCostM,
+    shallowRingFactor,
+    type NavGrid,
+} from '../inshoreRouterEngine';
 import { GATE_DEDUP_M, gateDistM } from './gateExtractor';
 import type { GateNode, SeawayGraph, SeawayLatLon } from './types';
 
@@ -416,7 +423,14 @@ export function connectToTargets(
             }
             const cellPreferred = grid.preferred[nIdx] === 1;
             const exitPenalty = curPreferred && !cellPreferred ? EXIT_PENALTY_M : 0;
-            const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) + exitPenalty;
+            // The shallow bands' clearance ring (the real-chart check,
+            // 2026-10-03): a connector's cell chain ran 4.3 m off a reef
+            // drying 3.6 m, priced as open water. The engine's A* reads the
+            // same factor through centreFactor.
+            const tentativeG =
+                curG +
+                stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) * shallowRingFactor(grid, nIdx) +
+                exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
                 gScore[nIdx] = tentativeG;

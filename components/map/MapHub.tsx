@@ -34,7 +34,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
-import { inshoreRouteCaveats, isFinalInshoreRefusal } from './inshoreRouteNotice';
+import { inshoreRouteCaveats, isFinalInshoreRefusal, nearShallowSummary } from './inshoreRouteNotice';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
 import { MapBaseSelector, mapBaseVisibility } from './MapBaseSelector';
@@ -2525,6 +2525,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         surveyUncheckedCells: res.surveyUncheckedCells,
                         // Canal water from the offline pack (Phase 2b).
                         waterPack: res.waterPack,
+                        // Too close to a shallow band (fix-up review, 2026-10-03).
+                        nearShallow: nearShallowSummary(res.chartedShallowSpans),
                     });
                     flashTraceFeedback('Auto-routed — check the arrival end, drag pins to adjust.');
                     // On the tracer panel's persistent line, not only in the

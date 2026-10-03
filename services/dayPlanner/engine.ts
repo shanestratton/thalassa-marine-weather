@@ -291,14 +291,17 @@ export function assessDayPlanRoute(
     // 'caution', which would have rated it amber.
     if ((route.engine.hardLandAwayM ?? 0) > 0) throw new Error('The route crosses charted land.');
     const unchecked = dangerWithoutChartedDepth(route.engine);
+    // Too close to a shallow band (NEAR_SHALLOW, round-2 review fix-up 2,
+    // 2026-10-03; since the real-chart check that day a `near` stretch of any
+    // segment, red or amber) has charted depth under it: say so.
+    const near = 'Part of the route passes too close to water charted shallower than this boat needs.';
     if ((unchecked ?? [0]).length > 0)
         throw new Error(
-            // Too close to a shallow band (NEAR_SHALLOW, round-2 review fix-up 2,
-            // 2026-10-03) has charted depth under it: say so.
             unchecked && unchecked.every((i) => route.engine!.cautionWhy?.[i] === CAUTION_WHY.NEAR_SHALLOW)
-                ? 'Part of the route is drawn red where it passes too close to water charted shallower than this boat needs.'
+                ? near
                 : 'Part of the route is drawn red with no charted depth behind it.',
         );
+    if (route.engine.chartedShallowSpans?.some((s) => s.near)) throw new Error(near);
     const reasons: string[] = [];
     let incomplete = review.legs.length !== route.coordinates.length - 1;
     const tideDependency =

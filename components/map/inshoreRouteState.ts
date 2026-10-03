@@ -489,9 +489,17 @@ export function inshoreRoutePieces(
             // backstop stretch is the tide's to lift only when the router says
             // its depth alone is its red (tideLiftable: not in a charted
             // hazard's buffer, not decision-1 water; round-4 review,
-            // 2026-09-30) — absent, red whatever the tide.
+            // 2026-09-30) — absent, red whatever the tide. A clearance
+            // stretch (span.near, the real-chart check 2026-10-03) may lie on
+            // a segment a tide lifts too: amber only where the tide clears
+            // both the segment's water and the band it passes too close to.
+            const spanLifts =
+                !!span &&
+                span.tideLiftable === true &&
+                clears(span.minDepthM, [from, to]) &&
+                (overridable || (span.near !== undefined && base === 'danger' && clears(segDepth(i), [from, to])));
             const state: InshoreRenderState = span
-                ? overridable && span.tideLiftable === true && clears(span.minDepthM, [from, to])
+                ? spanLifts
                     ? 'tide'
                     : 'danger'
                 : base === 'danger'

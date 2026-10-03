@@ -110,6 +110,22 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
     // own process): 23.23 → 23.22 NM, 34 → 33 points — one grid stair pulled
     // straight where its chord is at least as safe (engine/stringPull). Red
     // 19,791 m, caution 22, land 0 m and drying ground 30 m all unchanged.
+    //
+    // The real-chart check (2026-10-03; own process): 23.22 → 23.21 NM
+    // (23.216 → 23.205), inside the pin, 33 → 32 points. A shallow band's
+    // clearance is now a cost on the grid (a ring of 3× within ~46 m of water
+    // that dries or never clears the keel, 1.5× within ~37 m of a 2–5 m band),
+    // and it is drawn over the stretch inside it on every segment, not the
+    // whole segment: the 11.3 km bay chord that was red end to end for one
+    // caution cell 3.7 m from a 2 m band (NEAR_SHALLOW) is no longer red at
+    // all, and the route's red falls 19,819 → 8,486 m drawn (18,193 → 6,851 m
+    // at a 2.5 m tide). Inside a clearance: 10 m on a green segment 2.1 m off
+    // a 2 m band, and 114 m of the needs-tide Newport exit 6–20 m off a bank
+    // drying 2 m, found by the band's own edge (fix-up review, that day: a
+    // band was found only through the cells whose centres it owns). The
+    // river channel's 112 m, 14.7 m off a 0–2 m band, is not drawn: the marks
+    // own the line there, so the ring cannot steer it (fix-up review). Land
+    // 0 m and drying ground 30 m unchanged.
     it('distance pinned at 23.22 NM ±2%', () => {
         expectConnected(r);
         expect(r.distanceNM).toBeGreaterThan(23.22 * 0.98);
@@ -190,9 +206,12 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
     // is no longer 'charts disagree' caution (owner decision 12); 38 → 34
     // points. The drying and shallow water stays red (the decision-10 sweep
     // above is unchanged), and the drying ground crossed stays 30 m.
-    it('caution cells at or below the lock-in baseline (22)', () => {
+    //
+    // RE-PIN 22 → 21 (the real-chart check, 2026-10-03; own process): the
+    // shallow bands' clearance ring steers one stretch off a band's cells.
+    it('caution cells at or below the lock-in baseline (21)', () => {
         expectConnected(r);
-        expect(cautionCount(r)).toBeLessThanOrEqual(22);
+        expect(cautionCount(r)).toBeLessThanOrEqual(21);
     });
 
     it('phaseTimings present and loosely bounded', () => {
@@ -377,10 +396,22 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
     // out where each chord is at least as safe (engine/stringPull). Red
     // 14,098 → 14,079 m (the 'needs tide' stretches 6,283 → 6,264 m), never
     // longer; 0 m of land and drying ground as before.
-    it('distance pinned at 20.35 NM ±2%', () => {
+    //
+    // RE-PIN 20.35 → 19.97 NM (the real-chart check, 2026-10-03; own
+    // process): 20.16 → 19.97 NM, 24 → 25 points, caution 13 → 12, 0.1% inside
+    // the old pin's lower bound. A shallow band's clearance is a cost on the
+    // grid now (the ring round water that dries or never clears the keel,
+    // and round 2–5 m bands), so A* takes another line across the bay, clear
+    // of the bands it used to skirt. The 7,418 m chord that was red end to
+    // end for passing 0.7 m from a 0–2 m band (NEAR_SHALLOW) is no longer red:
+    // red 14,119 → 6,702 m drawn (11,176 → 3,758 m at a 2.5 m tide). The
+    // 10 m of the channel 28.2 and 28.4 m off a 0–2 m band is not drawn: the
+    // marks own the line there (fix-up review, that day). 0 m of land and
+    // drying ground as before.
+    it('distance pinned at 19.97 NM ±2%', () => {
         expectConnected(r);
-        expect(r.distanceNM).toBeGreaterThan(20.35 * 0.98);
-        expect(r.distanceNM).toBeLessThan(20.35 * 1.02);
+        expect(r.distanceNM).toBeGreaterThan(19.97 * 0.98);
+        expect(r.distanceNM).toBeLessThan(19.97 * 1.02);
     });
 
     // Owner decision 7 (2026-09-30): the Tangalooma pin sat in charted
@@ -412,7 +443,7 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
     });
 
-    it('caution cells at or below the lock-in baseline (13)', () => {
+    it('caution cells at or below the lock-in baseline (12)', () => {
         expectConnected(r);
         // RE-PIN 10→11 (3-tier Phase 4 + along-segment caution, 42bf48c8):
         // route distance is byte-identical (18.43 NM pinned green), only the
@@ -463,7 +494,11 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         // 2026-10-03; own process): two caution segments' stair vertices are
         // pulled out — their chords read no state the stair did not, over no
         // more of it (engine/stringPull) — 27 → 24 points.
-        expect(cautionCount(r)).toBeLessThanOrEqual(13);
+        //
+        // RE-PIN 13 → 12 (the real-chart check, 2026-10-03; own process): the
+        // line across the bay the clearance ring picks touches one caution
+        // cell fewer (24 → 25 points).
+        expect(cautionCount(r)).toBeLessThanOrEqual(12);
     });
 
     // RE-PIN (owner decision 10, 2026-09-30): red OR needs-tide amber where

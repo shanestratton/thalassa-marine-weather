@@ -349,6 +349,18 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
         //     between it and the bend. Its graph route is 3.39 NM as before,
         //     so its detourRatio against the shorter engine line reads 1.314 →
         //     1.328.
+        // RE-PIN directNM (the real-chart check, 2026-10-03; every shadow
+        // outcome unchanged; regenerated, each golden measured in its own
+        // process): a shallow band's clearance is a cost on the grid now (a
+        // ring round water that dries or never clears the keel, and round
+        // 2–5 m bands; engine/shallowRuns applyShallowClearanceRing).
+        //   • newport-rivergate 23.22 → 23.21 (23.216 → 23.205) and
+        //     newport-rivergate-marks 22.74 → 22.75 (22.739 → 22.749): a
+        //     stretch steered off a band's edge.
+        //   • newport-tangalooma 20.16 → 19.97: A* takes another line across
+        //     the bay, clear of the bands it used to skirt (see the golden's
+        //     re-pin).
+        //   • dog-leg-channel 2.55 as before: uniformly deep water, no ring.
         const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as { rows: ArbitrationRow[] };
         expect(rows).toEqual(baseline.rows);
     });

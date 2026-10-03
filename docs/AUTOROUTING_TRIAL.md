@@ -595,6 +595,155 @@ Round 2's item (a): on Shane's 18.3 NM route, legs 4→5 ran due east
       left it 643 B over (10,696,118 B), so the budget moved to 10.25 MiB,
       with its reason dated in `scripts/check-bundle-size.js`.
 
+### The real-chart check — a shallow band's clearance everywhere, cardinals, the canal's reason (2026-10-03)
+
+The saved test routes (the three Brisbane goldens and Shane's three
+Whitsunday field routes) were run through the app path on the Pi's own cells,
+copied read-only to scratch and deleted after. Four findings are fixed here;
+the fifth (B, the Hamilton reach's lateral chain) is not.
+
+- **A — a segment inside a shallow band's clearance was drawn green.** The
+  clearance rule (`nearShallowBand`: 30 m from a band that dries, charts no
+  depth or never clears the keel, 10 m from one whose deep end does) only ran
+  on a caution segment the grid's cells alone made caution. A segment whose
+  50 m cells read clean was never measured, on an engine route or a promoted
+  Seaway route: the Cid Harbour route passed 4.3 m from South Molle's reef
+  drying 3.6 m, Coral Sea Marina → Daydream 24.6 m from Daydream's, and
+  others 1.1–8.8 m from 2 m bands, all green.
+    - _Every segment is measured_ (`collectShallowRuns`, so the engine route
+      and the promoted route alike), and only the STRETCH inside the
+      clearance is drawn, exactly (`leadLandClip segmentAreaNearIntervals`:
+      the line's chord through each ring edge's capsule). It is a
+      `chartedShallowSpans` entry with `near` (the band, how close, the
+      clearance asked): red, or needs-tide amber where a tide clears the
+      band itself (decision 10, the band's DRVAL1 the depth to lift). A
+      cells-only caution segment near a band is GRID_ONLY now, with its close
+      stretch drawn: the Rivergate golden's 11.3 km bay chord, red end to end
+      for one caution cell 3.7 m from a 2 m band (F1), has no red left on it.
+    - _Never amber_ over decision-1 water or water no band charts, beside a
+      band whose own water the charts dispute, nor for a band that charts no
+      depth (it reads 0 m, the grid's own reading of a missing depth). Not
+      measured on a segment red whatever the tide, on the canal, or on a
+      charted pin's tail (the pin's own water). On a caution segment a tide
+      lifts, only a band that DRIES counts (DECIDED: the line is already in
+      water that needs a tide, beside more of it; a 0–2 m band's 0 m end
+      would have turned 527 m of Newport's marked exit, 6.6 m off it in its
+      2 m channel, from amber to red at a 2.5 m tide). Where the line enters a
+      band, its approach inside the clearance is drawn with the crossing.
+    - _A `near` stretch blocks Save and Plan My Day_, red or amber: the
+      water under the line is deep, so the leg review sees no tide
+      dependency. The route notes say "passes 5 m from water charted to dry
+      3.0 m — the router keeps 30 m off it".
+    - _The grid prices a ring round each shallow band_
+      (`applyShallowClearanceRing`, once per cached grid, on the engine's
+      grid the Seaway shadow reads too). A navigable cell whose centre lies
+      within √(clearance² + half a diagonal²) of a band — 46 m for 30 m, 37 m
+      for 10 m on the 50 m grid, so no step between two cells off the ring
+      passes inside the clearance — costs 3× (a band that dries or never
+      clears the keel) or 1.5× (a 2–5 m band). A cost, never a block, folded
+      into `centreFactor` like the shore skin, so A\*, the smoother and the
+      string pull's "no nearer a bank" read it; the Seaway connectors'
+      search reads `shallowRing`. Not where the marks own the line
+      (preferred water, a paired mark's disc) nor in a relax corridor.
+      DECIDED: a multiplier, not the 40× caution price — a fully ringed reach
+      would cost like crossing caution and a deep cell beside a reef would
+      price above a shallow one. By cell centres alone (the first cut), a
+      diagonal step passed 24.7 m off Daydream's reef between two cells 30 m+
+      from it.
+- **C — a cardinal's side read from one offset.** The leg review judged the
+  wrong side of a cardinal by the closest point's offset along the safe
+  direction alone, so a leg ending 338 m SOUTH of an east cardinal, 24 m west
+  of its meridian, was "the wrong side" (Rivergate leg 23, newport-shane leg
+  27), and "give it 90 m" fired 390 m off. Wrong side is now the hazard
+  quadrant only (within ±45° of the danger's direction); the shave note reads
+  the distance.
+- **D — the canal's red named no reason.** `CAUTION_WHY.CANAL` on a canal
+  segment that carries no other reason (28 m at the start of Rivergate and
+  Tangalooma, 42 m on newport-shane).
+- **Measured** on the Pi's cells (before → after, no tide data):
+    - Cid Harbour (route 3): 4.3 → 49.7 m from the nearest drying band, 14.53
+      → 14.50 NM, 10 → 7 points, all green. Route 2 (Armit → Molles): 18.00
+      NM, all green, 52.5 → 58.4 m. Coral Sea Marina → Daydream: 24.5 →
+      35.1 m from the nearest drying band, 8.17 NM; 19 m drawn red at the
+      marina exit, 4.7 m off a 2 m band.
+    - Brisbane: Rivergate 23.97 → 23.98 NM, red 7,272 → 7,310 m; Tangalooma
+      23.34 → 23.33 NM, red 6,883 → 6,909 m; newport-shane 24.59 NM, red
+      9,080 → 9,170 m (each 237–301 m inside a clearance: the Newport exit
+      14.7–24.4 m off a drying bank, and 1–90 m of the bay or the river 1.1–
+      27 m off a band). At a 2.5 m tide red +120–137 m. The cardinal notes are
+      gone; every red has a reason.
+    - Corridor goldens: Rivergate red 19,819 → 8,598 m drawn (23.22 → 23.21
+      NM), Tangalooma 14,119 → 6,712 m (20.16 → 19.97 NM: A\* takes another
+      line across the bay), newport-shane and the marks corridor +10 m.
+    - Cost: the ring takes 0.14–0.33 s per grid on the Mac (the owners of
+      the shallow cells beside each candidate, read once each).
+- `tests/engine/clearanceStretch.test.ts`, the cardinal cases in
+  `tests/routeTracer.test.ts`, the CANAL check in
+  `tests/inshoreRouter.seawayPromotion.test.ts` and the near-span case in
+  `tests/dayPlannerEngine.test.ts` fail first on 7f48fe15.
+
+#### Its fix-up review (2026-10-03)
+
+- **The marks own the line: no clearance stretch in channel water.** The ring
+  skips preferred water, a paired mark's disc and a relax corridor
+  (`shallowRingExempt`), so the router cannot be steered off a bank there —
+  yet the clearance pass drew such a channel red and refused Save and Plan My
+  Day: a 50 m dredged channel between banks drying 1.5 m, 1 km of it red,
+  where 7f48fe15 drew it as channel and let it past. A clearance stretch is
+  now cut at every cell edge the line crosses and not drawn where the cell is
+  exempt. DECIDED: no stretch at all there, not a caveat — the chart's
+  channel and its marks are the authority, and a gate on channel water would
+  be a new hard gate without Shane. Not on a cells-only caution segment
+  7f230264 already reddened for its clearance: that red and its refusal stand.
+  The river-only Newport → Rivergate route (2.45 NM) is back to 1,604 m red
+  with no clearance stretch (the first cut: 1,682 m, 5 stretches, Save
+  refused).
+- **A band that holds no cell centre is measured and ringed.** Bands were found
+  only through the 50 m cells whose centres they own, so a 34 m patch drying
+  2 m between four centres, or a 30 m strip (drying, or 0–2 m) between two
+  rows of them, 10 m off a line was drawn green and saved, and never priced.
+  The clearance pass now also takes every shallow band within its clearance
+  whose own survey owns the water at its nearest edge (leadLandClip's
+  `areaEdgeNearest`: 0.1 m inside it) or under the line, with no Notice to
+  Mariners survey stamped there; and the ring is seeded from every cell a
+  shallow band's edge passes through, where its survey owns the water just
+  inside that edge (at once for a band no finer survey overlaps). On the
+  goldens this found 114 m of the needs-tide Newport exit 6–20 m off a bank
+  drying 2 m (red whatever the tide; that route's Save and Plan My Day were
+  already refused for the tide it needs). No golden route moved.
+- **Cardinals: the danger's whole half close in.** The quadrant rule alone
+  turned a pass 30 m SSW of an east cardinal from danger into a caution Save
+  does not stop for. Under 90 m the danger's half is the wrong side; beyond,
+  the hazard quadrant (a centimetre's grace on either line). The 338 m
+  Rivergate case stays clear.
+- **The saved plan says it.** A voyage-form plan kept no clearance stretch
+  (routeGeoJSON carried none) and was saved without a word. The route's
+  caveats now say "This route passes 4 m from water charted to dry 3.6 m —
+  closer than the 30 m the router keeps off it", and `routeGeoJSON` carries
+  `nearShallow` so a saved plan says it again.
+- **The grid cache counts the ring** (w × h bytes reserved at admission).
+- **Measured on the Pi's cells** (copied read-only, sha256-checked, deleted
+  after; before = the real-chart check's build): every route's line is the
+  same. The Newport exit's stretches beside the drying bank (120 + 92 m on
+  Rivergate, 120 + 60 + 31 m on Tangalooma and newport-shane) lie where the
+  marks own the line and are gone, with the river channel's 90 m on
+  newport-shane and Tangalooma's 16 m. At a 2.5 m tide Rivergate draws
+  120 m less red (120 m more needs-tide amber), Tangalooma 137 m less (120 m
+  more amber, 17 m more channel), newport-shane 120 m less (30 m more amber,
+  90 m more channel). Left: Rivergate's 1 m (8.8 m off a 2 m band, open
+  water) and its 37 m on a cells-only caution segment 7f230264 already
+  reddened; Tangalooma's 10 m (1.1 m off a 2 m band); Coral Sea Marina's
+  19 m (4.7 m off a 2 m band). The Whitsunday routes are
+  unchanged (Cid Harbour 49.7 m, Armit → Molles 58.4 m and Daydream 35.1 m
+  from the nearest drying band). No new cardinal note; Auto's warnings gain
+  the caveat line.
+- **Cost** on the Mac: the ring 0.08–0.65 s per route on the Pi's cells
+  (the build: 0.04–0.47 s) — owners first, then the edge seeds, their
+  ownership asked 0.1 m inside the seeding edge against the finer bands
+  only (through areaEdgeNearest and every band over the spot, one
+  Whitsunday grid's 12,000 asks took 0.36 s). Route times unchanged within
+  noise (1.3–7.4 s).
+
 ### Left for Shane (server side, not done here)
 
 The edge function, its `_shared` modules and its secrets are still deployed and
