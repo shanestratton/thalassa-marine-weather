@@ -248,6 +248,7 @@ const sources = [
         'VodozemacAuthSession.swift',
         'VodozemacAuthProbe.swift',
         'VodozemacAccountDirectory.swift',
+        'VodozemacSessionFacade.swift',
         'VodozemacAccountDirectoryProbe.swift',
         'VodozemacRelayCodec.swift',
         'VodozemacRelayProbe.swift',

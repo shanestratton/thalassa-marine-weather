@@ -24,7 +24,7 @@ for (;;) {
         .split('\n')
         .filter(
             (line) =>
-                line &&
+                /^\d+\s/.test(line) &&
                 Number(line.split(' ')[0]) !== process.pid &&
                 !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|tail|grep|rg|pgrep)\s/.test(line),
         );

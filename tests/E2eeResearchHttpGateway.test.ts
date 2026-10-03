@@ -8,16 +8,17 @@ import {
 // Fetch handler/dependency mocks only. This suite does not establish real TLS,
 // live Auth, signature verification, a database commit or a physical phone.
 const ORIGIN = 'https://research-relay.example';
+const EDGE_BASE_PATH = '/functions/v1/scuttlebutt-e2ee-pilot';
 const TOKEN = 'caller-access.token_~+/==';
 const BODY = '{"version":1,"fixture":"public-wire"}';
 const ERROR = { version: 1, error: 'request-unresolved' };
 
-function harness(timeoutMs = 1000) {
+function harness(timeoutMs = 1000, serviceBasePath?: string) {
     const gateway = {
         register: vi.fn(async (_credential: string, _serialized: string): Promise<unknown> => ({ registered: true })),
         dispatch: vi.fn(async (_credential: string, _serialized: string): Promise<unknown> => ({ rows: [] })),
     };
-    const handle = createResearchHttpGateway({ serviceOrigin: ORIGIN, gateway, timeoutMs });
+    const handle = createResearchHttpGateway({ serviceOrigin: ORIGIN, serviceBasePath, gateway, timeoutMs });
     return { gateway, handle };
 }
 function request(path = '/v1/dispatch', init: RequestInit = {}): Request {
@@ -80,6 +81,115 @@ describe('research Fetch HTTP boundary with mocked signed gateway', () => {
         const body = '{"userId":"attacker-selected-actor","payload":"[0,16]"}';
         await h.handle(request('/v1/dispatch', { body }));
         expect(h.gateway.dispatch).toHaveBeenCalledExactlyOnceWith(TOKEN, body);
+    });
+
+    it.each(['', '/functions/v1/a', EDGE_BASE_PATH, `/functions/v1/${'a'.repeat(64)}`])(
+        'accepts only the two exact endpoints under the trusted mount: %s',
+        async (serviceBasePath) => {
+            const h = harness(1000, serviceBasePath);
+            expect((await h.handle(request(`${serviceBasePath}/v1/register`))).status).toBe(200);
+            expect((await h.handle(request(`${serviceBasePath}/v1/dispatch`))).status).toBe(200);
+            expect(h.gateway.register).toHaveBeenCalledExactlyOnceWith(TOKEN, BODY);
+            expect(h.gateway.dispatch).toHaveBeenCalledExactlyOnceWith(TOKEN, BODY);
+        },
+    );
+
+    it('captures the trusted mount before subsequent config mutation', async () => {
+        const h = harness();
+        const config = { serviceOrigin: ORIGIN, serviceBasePath: EDGE_BASE_PATH, gateway: h.gateway };
+        const handle = createResearchHttpGateway(config);
+        config.serviceBasePath = '/functions/v1/other';
+        expect((await handle(request(`${EDGE_BASE_PATH}/v1/dispatch`))).status).toBe(200);
+        await expectFailure(await handle(request('/functions/v1/other/v1/dispatch')), 404);
+        expect(h.gateway.dispatch).toHaveBeenCalledExactlyOnceWith(TOKEN, BODY);
+    });
+
+    it.each([
+        null,
+        1,
+        '/',
+        '/functions/v1/',
+        '/functions/v1',
+        '/functions/V1/pilot',
+        '/Functions/v1/pilot',
+        '//functions/v1/pilot',
+        '/functions//v1/pilot',
+        '/functions/v1/Pilot',
+        '/functions/v1/1pilot',
+        '/functions/v1/-pilot',
+        '/functions/v1/pilot-',
+        '/functions/v1/pilot--relay',
+        '/functions/v1/pilot_relay',
+        '/functions/v1/pilot.relay',
+        '/functions/v1/pilot/',
+        '/functions/v1/pilot//',
+        '/functions/v1/./pilot',
+        '/functions/v1/other/../pilot',
+        '/functions/v1/%70ilot',
+        '/functions/v1/pilot%2fother',
+        '/functions/v1/%2e%2e/pilot',
+        '/functions/v1/pilot\\other',
+        '/functions/v1/pilot?project=other',
+        '/functions/v1/pilot?',
+        '/functions/v1/pilot#fragment',
+        '/functions/v1/pilot#',
+        '/functions/v1/pilot\n',
+        ' /functions/v1/pilot',
+        '/functions/v1/pilot ',
+        '/functions/v1/pilót',
+        'https://other.example/functions/v1/pilot',
+        `/functions/v1/${'a'.repeat(65)}`,
+    ])('rejects a noncanonical trusted mount before serving requests: %s', (serviceBasePath) => {
+        expect(() =>
+            createResearchHttpGateway({
+                serviceOrigin: ORIGIN,
+                serviceBasePath: serviceBasePath as never,
+                gateway: harness().gateway,
+            }),
+        ).toThrow('Invalid research HTTP gateway configuration');
+    });
+
+    it.each([
+        '/v1/dispatch',
+        '/functions/v1/other/v1/dispatch',
+        `${EDGE_BASE_PATH}/v1/dispatch/`,
+        `${EDGE_BASE_PATH}//v1/dispatch`,
+        `${EDGE_BASE_PATH}/v1/%64ispatch`,
+        `${EDGE_BASE_PATH}/v1/dispatch?`,
+        `${EDGE_BASE_PATH}/v1/dispatch?actor=other`,
+        `${EDGE_BASE_PATH}/v1/dispatch#`,
+        `${EDGE_BASE_PATH}/v1/dispatch#fragment`,
+        '/functions/v1/%73cuttlebutt-e2ee-pilot/v1/dispatch',
+        '/functions/v1/scuttlebutt-e2ee-pilot%2fv1/dispatch',
+        '/functions/v1/other/../scuttlebutt-e2ee-pilot/v1/dispatch',
+        `${EDGE_BASE_PATH}/other/../v1/dispatch`,
+        `${EDGE_BASE_PATH}/%2e/v1/dispatch`,
+        `${EDGE_BASE_PATH}/v1/register/../dispatch`,
+        `${EDGE_BASE_PATH}\\v1/dispatch`,
+    ])('does not normalize, decode, wildcard or rewrite a hosted endpoint: %s', async (path) => {
+        const h = harness(1000, EDGE_BASE_PATH);
+        const req = request(`${EDGE_BASE_PATH}/v1/dispatch`);
+        // Fetch may normalize dot segments while constructing a Request. The
+        // boundary matches only the exact URL delivered by its trusted host;
+        // raw alternate forms are not routing hints and must not be rewritten.
+        Object.defineProperty(req, 'url', { value: `${ORIGIN}${path}` });
+        await expectFailure(await h.handle(req), 404);
+        expect(h.gateway.register).not.toHaveBeenCalled();
+        expect(h.gateway.dispatch).not.toHaveBeenCalled();
+    });
+
+    it('does not use spoofed Host/forwarded headers to change the trusted mount or origin', async () => {
+        const h = harness(1000, EDGE_BASE_PATH);
+        const req = request('/v1/dispatch', {
+            headers: {
+                host: 'research-relay.example',
+                'x-forwarded-host': 'research-relay.example',
+                'x-forwarded-prefix': EDGE_BASE_PATH,
+                'x-original-url': `${EDGE_BASE_PATH}/v1/dispatch`,
+            },
+        });
+        await expectFailure(await h.handle(req), 404);
+        expect(h.gateway.dispatch).not.toHaveBeenCalled();
     });
 
     it('captures endpoint, timeout and method dependencies before subsequent config mutation', async () => {

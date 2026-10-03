@@ -39,6 +39,21 @@ private final class DmAccountDirectoryChecks {
         catch DmAccountDirectoryError.unavailable { try require(true, label); return }
         throw DmAccountDirectoryProbeError.assertion(label)
     }
+    func sessionRefuses(_ label: String, _ operation: () throws -> Void) throws {
+        do { try operation() }
+        catch DmSessionFacadeError.unavailable { try require(true, label); return }
+        throw DmAccountDirectoryProbeError.assertion(label)
+    }
+    func sessionAuthRefuses(_ label: String, _ operation: () async throws -> DmSessionAccount) async throws {
+        do { _ = try await operation() }
+        catch DmSessionFacadeError.unavailable { try require(true, label); return }
+        throw DmAccountDirectoryProbeError.assertion(label)
+    }
+    func sessionAuthSucceeds(_ label: String, _ operation: () async throws -> DmSessionAccount) async throws -> DmSessionAccount {
+        do { return try await operation() }
+        catch let error as DmAccountDirectoryProbeError { throw error }
+        catch { throw DmAccountDirectoryProbeError.assertion(label) }
+    }
     func busyRefuses(_ label: String, _ operation: () throws -> Void) throws {
         do { try operation() }
         catch VodozemacSealedStoreError.database(let code) where code == SQLITE_BUSY {
@@ -95,6 +110,18 @@ private final class DmAccountDirectoryCommitGate: @unchecked Sendable {
         released = true
         lock.unlock()
         if shouldSignal { semaphore.signal() }
+    }
+}
+
+// Advances only this native facade fixture's monotonic deadline. Directory and
+// transport still use their ordinary clocks; no real minute-long sleeps or SDK.
+private final class DmSessionFacadeClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant = ContinuousClock.now
+    func now() -> ContinuousClock.Instant { lock.lock(); defer { lock.unlock() }; return instant }
+    func advance(seconds: Int) {
+        lock.lock(); defer { lock.unlock() }
+        instant = instant.advanced(by: .seconds(seconds))
     }
 }
 
@@ -282,14 +309,17 @@ private func dmAccountDirectoryIdentityMatches(_ lhs: DmPublicIdentity, _ rhs: D
 }
 
 /// Disposable native runner entry point. Only the nonsecret assertion count
-/// escapes; expected failures carry fixed labels, never Auth bodies/keys/tokens.
-public func runAccountDirectoryProbeForResearch() async throws -> Int {
-    do { return try await dmAccountDirectoryRun() }
+/// and optional fixed research progress labels escape. A callback must return
+/// promptly and must not call back into the fixture's native stores or facade.
+/// Expected failures carry fixed labels, never Auth bodies/keys/tokens.
+public func runAccountDirectoryProbeForResearch(progressForResearch: (@Sendable (String) -> Void)? = nil) async throws -> Int {
+    do { return try await dmAccountDirectoryRun(progressForResearch: progressForResearch) }
     catch let error as DmAccountDirectoryProbeError { throw error }
     catch { throw DmAccountDirectoryProbeError.assertion("native enrollment probe unexpected setup or storage failure") }
 }
 
-private func dmAccountDirectoryRun() async throws -> Int {
+private func dmAccountDirectoryRun(progressForResearch: (@Sendable (String) -> Void)?) async throws -> Int {
+    progressForResearch?("directory-setup")
     let checks = DmAccountDirectoryChecks()
     let auth = try dmAccountDirectoryAuth()
     let alice = "11111111-1111-4111-8111-111111111111"
@@ -322,8 +352,13 @@ private func dmAccountDirectoryRun() async throws -> Int {
         return access
     }
 
-    let primary = try fixture(), peer = try fixture()
+    progressForResearch?("directory-baseline-create-primary")
+    let primary = try fixture()
+    progressForResearch?("directory-baseline-create-peer")
+    let peer = try fixture()
+    progressForResearch?("directory-baseline-open-primary")
     let a = try await open(primary, bearer: "fixture.enrollment.alice", user: alice)
+    progressForResearch?("directory-baseline-open-peer")
     let b = try await open(peer, bearer: "fixture.enrollment.bob", user: bob)
     let al = try a.lifecycleForResearch(), bl = try b.lifecycleForResearch()
     let ai = try a.coordinatorForResearch.publicIdentity(owner: al.owner)
@@ -360,6 +395,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
 
     // Real provider encryption and durable exact-ciphertext preservation across
     // same-scope refresh; direct peer pins remain explicit research fixtures.
+    progressForResearch?("directory-baseline-refresh")
     try a.coordinatorForResearch.installPeerForResearch(DmPeerContext(userId: bi.userId, deviceId: bi.deviceId,
         identityKeyId: bi.identityKeyId, curve: bi.curve, prekey: bi.prekey, generation: 1, status: .accepted), owner: al.owner)
     try b.coordinatorForResearch.installPeerForResearch(DmPeerContext(userId: ai.userId, deviceId: ai.deviceId,
@@ -376,6 +412,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
         "same-account refresh retains generation and advances native credential epoch")
     try checks.require(try sender.coordinatorForResearch.pending(owner: afterRefresh.owner, peerGeneration: 1) == [ciphertext],
         "real encrypted pending ciphertext is byte-identical after refresh")
+    progressForResearch?("directory-baseline-reopen")
     let oldCapturedContext = sender.currentContext()
     let reopened = try senderFixture.reopen(auth: auth)
     directories.append(reopened)
@@ -400,6 +437,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     try checks.fenced(resumed, "local directory logout clears current access")
 
     // A -> B -> A must keep independent immutable stores, never rebind keys.
+    progressForResearch?("directory-baseline-account-switch")
     let switched = try await open(primary, bearer: "fixture.enrollment.switch", user: bob)
     let switchedLife = try switched.lifecycleForResearch()
     try checks.require(switchedLife.owner.userId == bob && switchedLife.owner.deviceId != ai.deviceId,
@@ -416,6 +454,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     try checks.refuses("wrong paired conversation cannot reopen native index") {
         _ = try VodozemacAccountDirectory.reopen(directory: primary.root, authenticator: auth, conversationId: "different-native-pair")
     }
+    progressForResearch?("directory-baseline-refresh-logout")
     let refreshGate = DmAccountDirectoryGate()
     defer { refreshGate.release() }
     var refreshHeld = DmAccountDirectoryProtocol.Script(userId: alice); refreshHeld.gate = refreshGate
@@ -433,6 +472,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     // native mutation guard. Exact account snapshots after revocation prove
     // that neither a stale reservation nor activation/cleanup committed.
     for beforeBegin in [true, false] {
+        progressForResearch?(beforeBegin ? "directory-guard-pre-begin" : "directory-guard-pre-complete")
         let guardedFixture = try fixture()
         let suffix = beforeBegin ? "pre-begin" : "pre-complete"
         let access = try await open(guardedFixture, bearer: "fixture.enrollment.guarded-open." + suffix, user: alice)
@@ -460,6 +500,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
         try checks.fenced(access, "revoked mutation cannot expose an old facade lease")
     }
 
+    progressForResearch?("directory-guard-ordered-renewal")
     do {
         let ordered = try fixture()
         let access = try await open(ordered, bearer: "fixture.enrollment.ordered-open", user: alice)
@@ -491,6 +532,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     // still-active old generation before Auth, rather than treating relogin as
     // refresh and reviving prior-generation pending ciphertext.
     for logout in [false, true] {
+        progressForResearch?(logout ? "directory-deactivation-gap-logout" : "directory-deactivation-gap-begin")
         let interrupted = try fixture()
         let suffix = logout ? "logout" : "begin"
         let original = try await open(interrupted, bearer: "fixture.enrollment.deactivation-open." + suffix, user: alice)
@@ -550,6 +592,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     // The shared deactivation body must hold index authority while capturing
     // and CASing the account lifecycle, not merely check an epoch beforehand.
     // A separate native SQLite handle proves actual writer exclusion.
+    progressForResearch?("directory-deactivation-authority")
     do {
         let serial = try fixture()
         let access = try await open(serial, bearer: "fixture.enrollment.deactivation-serial-open", user: alice)
@@ -589,6 +632,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     // A real competing index EPOCH COMMIT reports SQLITE_BUSY while completion
     // holds the authenticated writer reservation. No timing/sleep assertion is
     // used to infer that a background writer has reached the transaction.
+    progressForResearch?("directory-completion-authority")
     do {
         let serial = try fixture()
         let access = try await open(serial, bearer: "fixture.enrollment.serial-open", user: alice)
@@ -626,6 +670,401 @@ private func dmAccountDirectoryRun() async throws -> Int {
         try checks.fenced(access, "serialized later epoch revocation fences the completed access")
     }
 
+    // Native auth-control facade only: these account/credential results are NOT
+    // private-message readiness or accepted peer/device trust. Auth remains a
+    // URLProtocol fixture; provider ciphertext, Keychain and sealed CAS are real.
+    progressForResearch?("directory-facade-initial-setup")
+    do {
+        let controlled = try fixture()
+        let facade = VodozemacSessionFacade(directory: controlled.directory)
+        let initialToken = "fixture.session.initial"
+        install(initialToken)
+        let initialIndex = try controlled.index.read()
+        progressForResearch?("directory-facade-initial-fence")
+        let initialFence = try facade.fenceSession(mode: .verify)
+        let reservedIndex = try controlled.index.read()
+        try checks.require(UUID(uuidString: initialFence.authFence)?.uuidString.lowercased() == initialFence.authFence,
+            "auth facade issues an opaque native canonical UUID fence")
+        try checks.require(try reservedIndex.revision == initialIndex.revision + 1 && reservedIndex.payload != initialIndex.payload
+            && (try controlled.state()["selectedUserId"]) == nil && (try controlled.rows()).isEmpty,
+            "initial facade fence durably changes the index before any account provisioning or SDK token request")
+        try checks.require(DmAccountDirectoryProtocol.count(initialToken) == 0 && facade.currentAccount() == nil,
+            "native verify fence itself dispatches zero Auth and publishes no account mapping")
+        progressForResearch?("directory-facade-initial-authenticate")
+        let initial = try await checks.sessionAuthSucceeds("fresh facade cannot establish verified native account") {
+            try await facade.authenticate(accessToken: initialToken, authFence: initialFence.authFence)
+        }
+        progressForResearch?("directory-facade-initial-account")
+        let account = try controlled.account(userId: alice); handles.append(account.store)
+        let coordinator = try VodozemacDmCoordinator(store: account.store)
+        let initialLife = try coordinator.lifecycleForResearch()
+        try checks.require(initial.accountId == alice && initial.deviceId == account.id.uuidString.lowercased()
+            && initial.serverVerified && UUID(uuidString: initial.credentialBinding) != nil
+            && facade.currentAccount() == initial && DmAccountDirectoryProtocol.count(initialToken) == 2,
+            "first facade authentication verifies both selection and native lease and returns only native account binding")
+        progressForResearch?("directory-facade-pending-ciphertext")
+        try coordinator.installPeerForResearch(DmPeerContext(userId: bob, deviceId: "zz-session-facade-peer",
+            identityKeyId: bi.identityKeyId, curve: bi.curve, prekey: bi.prekey, generation: 1, status: .accepted), owner: initialLife.owner)
+        let ciphertext = try coordinator.prepare(clientMessageId: "session-facade-pending",
+            text: "offline native auth facade renewal payload", owner: initialLife.owner, peerGeneration: 1)
+        let indexBeforeRenewal = try controlled.index.read()
+        let renewalToken = "fixture.session.renewal"
+        install(renewalToken)
+        progressForResearch?("directory-facade-renewal-fence")
+        let renewalFence = try facade.fenceSession(mode: .verify)
+        let reservedLife = try coordinator.lifecycleForResearch()
+        try checks.require(try reservedLife.active && reservedLife.owner == initialLife.owner
+            && reservedLife.credentialEpoch != initialLife.credentialEpoch
+            && (try coordinator.pending(owner: reservedLife.owner, peerGeneration: 1)) == [ciphertext],
+            "pre-SDK renewal fence rotates durable credentials but preserves generation and real exact pending ciphertext")
+        try checks.require(try controlled.index.read() == indexBeforeRenewal
+            && DmAccountDirectoryProtocol.count(renewalToken) == 0 && facade.currentAccount() == nil,
+            "pre-SDK renewal clears public account readiness without changing directory selection or dispatching Auth")
+        let reservedAccount = try account.store.read()
+        progressForResearch?("directory-facade-invalid-fences")
+        let foreign = try fixture()
+        let foreignFacade = VodozemacSessionFacade(directory: foreign.directory)
+        let foreignFence = try foreignFacade.fenceSession(mode: .verify)
+        for (suffix, fence) in [("unknown", UUID().uuidString.lowercased()),
+                                ("foreign", foreignFence.authFence), ("reused", initialFence.authFence)] {
+            let token = "fixture.session.refused." + suffix
+            install(token)
+            try await checks.sessionAuthRefuses("unknown, foreign or used facade fence refuses before Auth") {
+                try await facade.authenticate(accessToken: token, authFence: fence)
+            }
+            try checks.require(try DmAccountDirectoryProtocol.count(token) == 0
+                && (try account.store.read()) == reservedAccount && (try controlled.index.read()) == indexBeforeRenewal
+                && facade.currentAccount() == nil,
+                "refused opaque fence preserves exact pending native account/index reservation without an HTTP request")
+        }
+        progressForResearch?("directory-facade-renewal-authenticate")
+        let renewed = try await checks.sessionAuthSucceeds("legitimate renewal was consumed by an invalid facade fence") {
+            try await facade.authenticate(accessToken: renewalToken, authFence: renewalFence.authFence)
+        }
+        let renewedLife = try coordinator.lifecycleForResearch()
+        try checks.require(try renewed.accountId == initial.accountId && renewed.deviceId == initial.deviceId
+            && renewed.credentialBinding != initial.credentialBinding && facade.currentAccount() == renewed
+            && renewedLife.owner == initialLife.owner && (try coordinator.pending(owner: renewedLife.owner, peerGeneration: 1)) == [ciphertext]
+            && DmAccountDirectoryProtocol.count(renewalToken) == 1,
+            "live same-account facade renewal uses one Auth read, keeps native identity/generation and exact pending bytes")
+        progressForResearch?("directory-facade-completed-replay")
+        let renewedAccount = try account.store.read(), renewedIndex = try controlled.index.read()
+        let replayToken = "fixture.session.completed-replay"
+        install(replayToken)
+        try await checks.sessionAuthRefuses("completed facade fence is single-use even with a different bearer") {
+            try await facade.authenticate(accessToken: replayToken, authFence: renewalFence.authFence)
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(replayToken) == 0 && facade.currentAccount() == renewed
+            && (try account.store.read()) == renewedAccount && (try controlled.index.read()) == renewedIndex,
+            "a used fence cannot erase the accepted native account mapping or mutate its sealed state")
+
+        progressForResearch?("directory-facade-ordered-renewal")
+        let oldGate = DmAccountDirectoryGate()
+        var held = DmAccountDirectoryProtocol.Script(userId: alice); held.gate = oldGate
+        let oldToken = "fixture.session.ordered-old"
+        DmAccountDirectoryProtocol.install([held], bearer: oldToken)
+        let oldFence = try facade.fenceSession(mode: .verify)
+        let older = Task { try await facade.authenticate(accessToken: oldToken, authFence: oldFence.authFence) }
+        defer { oldGate.release(); older.cancel() }
+        try await dmAccountDirectoryAwaitRequest(oldToken)
+        let winningToken = "fixture.session.ordered-winner"
+        install(winningToken)
+        progressForResearch?("directory-facade-ordered-winner-fence")
+        let winningFence = try facade.fenceSession(mode: .verify)
+        progressForResearch?("directory-facade-ordered-winner-authenticate")
+        let winner = try await checks.sessionAuthSucceeds("newer same-facade renewal could not complete") {
+            try await facade.authenticate(accessToken: winningToken, authFence: winningFence.authFence)
+        }
+        let winnerAccount = try account.store.read(), winnerIndex = try controlled.index.read()
+        progressForResearch?("directory-facade-ordered-stale-completion")
+        oldGate.release()
+        try await checks.sessionAuthRefuses("late facade renewal cannot publish over a newer accepted account") { try await older.value }
+        try checks.require(try facade.currentAccount() == winner && (try account.store.read()) == winnerAccount
+            && (try controlled.index.read()) == winnerIndex,
+            "stale same-facade completion preserves EXACT winner index/account snapshots and public mapping")
+        try checks.require(try DmAccountDirectoryProtocol.count(oldToken) == 1 && DmAccountDirectoryProtocol.count(winningToken) == 1
+            && (try coordinator.lifecycleForResearch()).owner == initialLife.owner
+            && (try coordinator.pending(owner: initialLife.owner, peerGeneration: 1)) == [ciphertext],
+            "newer renewal preserves real pending ciphertext and neither completion repeats its Auth request")
+    }
+
+    // Claim consumes a facade fence before await, but a duplicate must not
+    // abandon/clear the legitimate claimant's native directory reservation.
+    progressForResearch?("directory-facade-duplicate-claim")
+    do {
+        let controlled = try fixture()
+        let facade = VodozemacSessionFacade(directory: controlled.directory)
+        let gate = DmAccountDirectoryGate()
+        var held = DmAccountDirectoryProtocol.Script(userId: alice); held.gate = gate
+        let token = "fixture.session.duplicate-winner"
+        DmAccountDirectoryProtocol.install([held], bearer: token)
+        let fence = try facade.fenceSession(mode: .verify)
+        let legitimate = Task { try await facade.authenticate(accessToken: token, authFence: fence.authFence) }
+        defer { gate.release(); legitimate.cancel() }
+        try await dmAccountDirectoryAwaitRequest(token)
+        let claimedIndex = try controlled.index.read()
+        let duplicateToken = "fixture.session.duplicate-refused"
+        install(duplicateToken)
+        try await checks.sessionAuthRefuses("duplicate in-flight facade claimant refuses without abandoning its winner") {
+            try await facade.authenticate(accessToken: duplicateToken, authFence: fence.authFence)
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(duplicateToken) == 0
+            && (try controlled.index.read()) == claimedIndex && (try controlled.rows()).isEmpty,
+            "duplicate in-flight claimant dispatches zero HTTP and leaves exact legitimate initial reservation intact")
+        gate.release()
+        let winner = try await checks.sessionAuthSucceeds("duplicate claimant cancelled legitimate facade authentication") {
+            try await legitimate.value
+        }
+        try checks.require(winner.accountId == alice && winner.serverVerified && facade.currentAccount() == winner
+            && DmAccountDirectoryProtocol.count(token) == 2,
+            "legitimate initial facade claimant still completes both Auth reads after duplicate refusal")
+    }
+
+    // Both selection verification and the later session verification can be
+    // stale across directory handles. No late cleanup may mutate the winner.
+    for secondStage in [false, true] {
+        progressForResearch?(secondStage ? "directory-facade-cross-handle-lease" : "directory-facade-cross-handle-selection")
+        let controlled = try fixture()
+        let first = VodozemacSessionFacade(directory: controlled.directory)
+        let competitor = try controlled.reopen(auth: auth); directories.append(competitor)
+        let second = VodozemacSessionFacade(directory: competitor)
+        let suffix = secondStage ? "lease" : "selection"
+        let gate = DmAccountDirectoryGate()
+        var held = DmAccountDirectoryProtocol.Script(userId: alice); held.gate = gate
+        let token = "fixture.session.cross-handle-old." + suffix
+        DmAccountDirectoryProtocol.install(secondStage ? [.init(userId: alice), held] : [held], bearer: token)
+        let fence = try first.fenceSession(mode: .verify)
+        let older = Task { try await first.authenticate(accessToken: token, authFence: fence.authFence) }
+        defer { gate.release(); older.cancel() }
+        try await dmAccountDirectoryAwaitRequest(token, count: secondStage ? 2 : 1)
+        let beforeWinnerRows = try controlled.rows()
+        let winningToken = "fixture.session.cross-handle-winner." + suffix
+        install(winningToken)
+        let winningFence = try second.fenceSession(mode: .verify)
+        let winner = try await checks.sessionAuthSucceeds("second directory cannot establish current initial facade scope") {
+            try await second.authenticate(accessToken: winningToken, authFence: winningFence.authFence)
+        }
+        let account = try controlled.account(userId: alice); handles.append(account.store)
+        let winnerAccount = try account.store.read(), winnerIndex = try controlled.index.read()
+        if secondStage {
+            try checks.require(beforeWinnerRows.count == 1 && beforeWinnerRows[0]["storeId"] as? String == winner.deviceId,
+                "cross-handle winner strictly reopens the existing native binding instead of recreating stale initial keys")
+        }
+        gate.release()
+        try await checks.sessionAuthRefuses("obsolete cross-directory facade completion refuses") { try await older.value }
+        try checks.require(try first.currentAccount() == nil && second.currentAccount() == winner
+            && (try account.store.read()) == winnerAccount && (try controlled.index.read()) == winnerIndex,
+            "late cross-directory selection or lease completion leaves EXACT winner sealed state and facade mapping unchanged")
+        try checks.require(try controlled.rows().count == 1 && DmAccountDirectoryProtocol.count(token) == (secondStage ? 2 : 1)
+            && DmAccountDirectoryProtocol.count(winningToken) == 2,
+            "cross-directory loser performs no extra Auth or duplicate native account provisioning")
+    }
+
+    // A mismatched SDK bearer is NOT account-selection permission. Native A is
+    // closed; B is provisioned only after explicit signOut and a fresh fence.
+    progressForResearch?("directory-facade-account-mismatch")
+    do {
+        let controlled = try fixture()
+        let facade = VodozemacSessionFacade(directory: controlled.directory)
+        let initialToken = "fixture.session.mismatch-initial"
+        install(initialToken)
+        let initialFence = try facade.fenceSession(mode: .verify)
+        let initial = try await checks.sessionAuthSucceeds("mismatch fixture cannot establish account A") {
+            try await facade.authenticate(accessToken: initialToken, authFence: initialFence.authFence)
+        }
+        let accountA = try controlled.account(userId: alice); handles.append(accountA.store)
+        let mismatchFence = try facade.fenceSession(mode: .verify)
+        let mismatchToken = "fixture.session.mismatch-B"
+        install(mismatchToken, user: bob)
+        try await checks.sessionAuthRefuses("B token cannot silently turn A renewal into native account selection") {
+            try await facade.authenticate(accessToken: mismatchToken, authFence: mismatchFence.authFence)
+        }
+        try checks.require(try facade.currentAccount() == nil && DmAccountDirectoryProtocol.count(mismatchToken) == 1
+            && (try controlled.rows()).count == 1 && (try controlled.state()["selectedUserId"] as? String) == alice
+            && !(try VodozemacDmCoordinator(store: accountA.store).lifecycleForResearch()).active,
+            "mismatch closes selected A without provisioning B, changing owner selection or publishing a mapping")
+        let mismatchedAccount = try accountA.store.read(), mismatchedIndex = try controlled.index.read()
+        try checks.sessionRefuses("inactive selected account refuses the next verify until explicit native signOut") {
+            _ = try facade.fenceSession(mode: .verify)
+        }
+        try checks.require(try accountA.store.read() == mismatchedAccount && (try controlled.index.read()) == mismatchedIndex
+            && DmAccountDirectoryProtocol.count(mismatchToken) == 1 && facade.currentAccount() == nil,
+            "refused implicit mismatch recovery changes no sealed state or Auth request count")
+        progressForResearch?("directory-facade-explicit-signout")
+        let signOutFence = try facade.fenceSession(mode: .signOut)
+        let signedOutIndex = try controlled.index.read(), signedOutAccount = try accountA.store.read()
+        let signOutToken = "fixture.session.signout-fence-refused"
+        install(signOutToken, user: bob)
+        try await checks.sessionAuthRefuses("signOut fence can never be consumed as an authentication fence") {
+            try await facade.authenticate(accessToken: signOutToken, authFence: signOutFence.authFence)
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(signOutToken) == 0 && facade.currentAccount() == nil
+            && (try controlled.state()["selectedUserId"]) == nil && (try controlled.index.read()) == signedOutIndex
+            && (try accountA.store.read()) == signedOutAccount,
+            "signOut fence authentication refusal sends zero HTTP and preserves exact durable logout")
+        let transitionToken = "fixture.session.explicit-B"
+        install(transitionToken, user: bob)
+        progressForResearch?("directory-facade-explicit-new-selection")
+        let transitionFence = try facade.fenceSession(mode: .verify)
+        let transitioned = try await checks.sessionAuthSucceeds("explicit signOut then verify cannot select account B") {
+            try await facade.authenticate(accessToken: transitionToken, authFence: transitionFence.authFence)
+        }
+        let accountB = try controlled.account(userId: bob); handles.append(accountB.store)
+        let winnerAccount = try accountB.store.read(), winnerIndex = try controlled.index.read()
+        try checks.require(try transitioned.accountId == bob && transitioned.deviceId != initial.deviceId
+            && transitioned.deviceId == accountB.id.uuidString.lowercased() && transitioned.serverVerified
+            && (try controlled.rows()).count == 2 && DmAccountDirectoryProtocol.count(transitionToken) == 2
+            && facade.currentAccount() == transitioned && !(try VodozemacDmCoordinator(store: accountA.store).lifecycleForResearch()).active,
+            "explicit transition provisions distinct native B identity while retaining inactive immutable A binding")
+        let replayToken = "fixture.session.old-mismatch-fence"
+        install(replayToken)
+        try await checks.sessionAuthRefuses("old mismatched fence cannot cancel the explicitly selected B winner") {
+            try await facade.authenticate(accessToken: replayToken, authFence: mismatchFence.authFence)
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(replayToken) == 0 && facade.currentAccount() == transitioned
+            && (try accountB.store.read()) == winnerAccount && (try controlled.index.read()) == winnerIndex,
+            "obsolete mismatch fence changes neither B mapping nor exact winner sealed index/account snapshots")
+    }
+
+    progressForResearch?("directory-facade-cold-reopen")
+    do {
+        let controlled = try fixture()
+        let original = VodozemacSessionFacade(directory: controlled.directory)
+        let token = "fixture.session.cold-original"
+        install(token)
+        let fence = try original.fenceSession(mode: .verify)
+        let accepted = try await checks.sessionAuthSucceeds("cold reopen fixture cannot establish original account") {
+            try await original.authenticate(accessToken: token, authFence: fence.authFence)
+        }
+        let account = try controlled.account(userId: alice); handles.append(account.store)
+        let coldDirectory = try controlled.reopen(auth: auth); directories.append(coldDirectory)
+        let cold = VodozemacSessionFacade(directory: coldDirectory)
+        let beforeAccount = try account.store.read(), beforeIndex = try controlled.index.read()
+        let coldToken = "fixture.session.cold-refused"
+        install(coldToken)
+        try checks.sessionRefuses("cold selected directory cannot infer native renewal permission from persisted account selection") {
+            _ = try cold.fenceSession(mode: .verify)
+        }
+        try checks.require(try cold.currentAccount() == nil && original.currentAccount() == accepted
+            && DmAccountDirectoryProtocol.count(coldToken) == 0 && (try account.store.read()) == beforeAccount
+            && (try controlled.index.read()) == beforeIndex,
+            "cold verify refusal performs zero Auth and does not mutate another live handle's accepted native scope")
+        _ = try cold.fenceSession(mode: .signOut)
+        try checks.require(try original.currentAccount() == nil && (try controlled.state()["selectedUserId"]) == nil,
+            "explicit cold native signOut durably fences the previous live account mapping")
+        let restartToken = "fixture.session.cold-explicit-B"
+        install(restartToken, user: bob)
+        let restartFence = try cold.fenceSession(mode: .verify)
+        let restarted = try await checks.sessionAuthSucceeds("cold explicit signOut then fresh verify cannot authenticate") {
+            try await cold.authenticate(accessToken: restartToken, authFence: restartFence.authFence)
+        }
+        try checks.require(try restarted.accountId == bob && restarted.deviceId != accepted.deviceId && cold.currentAccount() == restarted
+            && DmAccountDirectoryProtocol.count(restartToken) == 2 && (try controlled.rows()).count == 2,
+            "cold native host can select B only after explicit durable signOut and both fresh Auth verifications")
+    }
+
+    // Inject only the facade clock: expiry is deterministic, zero-HTTP, and
+    // never grants a new sixty-second window after waiting for an SDK token.
+    progressForResearch?("directory-facade-expired-fence")
+    do {
+        let controlled = try fixture(), clock = DmSessionFacadeClock()
+        let facade = VodozemacSessionFacade(directory: controlled.directory, clockForResearch: clock.now)
+        let token = "fixture.session.expired-fence"
+        install(token)
+        let initialIndex = try controlled.index.read()
+        try checks.refuses("native directory refuses an already-expired facade deadline before reserving authority") {
+            _ = try controlled.directory.reserveVerification(expiresBy: ContinuousClock.now.advanced(by: .seconds(-1)))
+        }
+        try checks.require(try controlled.index.read() == initialIndex && controlled.rows().isEmpty
+            && DmAccountDirectoryProtocol.count(token) == 0,
+            "past native deadline creates no durable mutation, key namespace or Auth dispatch")
+        let fence = try facade.fenceSession(mode: .verify)
+        let reserved = try controlled.index.read()
+        clock.advance(seconds: 61)
+        try await checks.sessionAuthRefuses("expired pre-SDK facade fence cannot dispatch Auth") {
+            try await facade.authenticate(accessToken: token, authFence: fence.authFence)
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(token) == 0 && facade.currentAccount() == nil
+            && (try controlled.index.read()) == reserved && (try controlled.rows()).isEmpty,
+            "expired facade claim leaves exact durable reservation unchanged and creates no native account")
+    }
+    progressForResearch?("directory-facade-expired-account")
+    do {
+        let controlled = try fixture(), clock = DmSessionFacadeClock()
+        let facade = VodozemacSessionFacade(directory: controlled.directory, clockForResearch: clock.now)
+        let token = "fixture.session.expiring-account"
+        install(token)
+        let fence = try facade.fenceSession(mode: .verify)
+        let accepted = try await checks.sessionAuthSucceeds("facade expiry fixture cannot initially authenticate") {
+            try await facade.authenticate(accessToken: token, authFence: fence.authFence)
+        }
+        let account = try controlled.account(userId: alice); handles.append(account.store)
+        let beforeAccount = try account.store.read(), beforeIndex = try controlled.index.read()
+        try checks.require(facade.currentAccount() == accepted, "unexpired native facade account mapping is visible")
+        clock.advance(seconds: 61)
+        try checks.require(try facade.currentAccount() == nil && (try account.store.read()) == beforeAccount
+            && (try controlled.index.read()) == beforeIndex && DmAccountDirectoryProtocol.count(token) == 2,
+            "account mapping expires on original monotonic fence deadline without fresh Auth or hidden store mutations")
+    }
+
+    // The accepted native scope itself must retain a tightened fence deadline,
+    // independently of the facade and the later inner AuthSession +60s lease.
+    // Wait for the exact monotonic deadline, not an arbitrary scheduling delay.
+    progressForResearch?("directory-scope-tightened-deadline")
+    do {
+        let controlled = try fixture()
+        _ = try await open(controlled, bearer: "fixture.scope.deadline-initial", user: alice)
+        let account = try controlled.account(userId: alice); handles.append(account.store)
+        let started = ContinuousClock.now
+        let deadline = started.advanced(by: .seconds(2))
+        let reservation = try controlled.directory.reserveVerification(expiresBy: deadline)
+        try checks.require(reservation.expires == deadline,
+            "accepted-scope fixture retains the exact tightened native reservation deadline")
+        let token = "fixture.scope.deadline-renewal"
+        install(token)
+        let scope: VodozemacAccountDirectory.AuthenticatedScope
+        do { scope = try await controlled.directory.authenticate(bearer: token, reservation: reservation) }
+        catch { throw DmAccountDirectoryProbeError.assertion("short native scope renewal could not complete before its deadline") }
+        try checks.require(scope.currentContext() != nil && ContinuousClock.now < deadline,
+            "accepted native scope is current before its original tightened deadline")
+        let beforeAccount = try account.store.read(), beforeIndex = try controlled.index.read()
+        try await ContinuousClock().sleep(until: deadline, tolerance: .zero)
+        try checks.require(ContinuousClock.now >= deadline && ContinuousClock.now < started.advanced(by: .seconds(60))
+            && scope.currentContext() == nil,
+            "native scope refuses on its original deadline before the later inner sixty-second lease could expire")
+        try checks.require(try account.store.read() == beforeAccount && (try controlled.index.read()) == beforeIndex
+            && DmAccountDirectoryProtocol.count(token) == 1,
+            "accepted scope expiry changes no sealed bytes, revision or native Auth request count")
+    }
+
+    progressForResearch?("directory-facade-cancelled-inflight")
+    do {
+        let controlled = try fixture()
+        let facade = VodozemacSessionFacade(directory: controlled.directory)
+        let gate = DmAccountDirectoryGate()
+        var held = DmAccountDirectoryProtocol.Script(userId: alice); held.gate = gate
+        let token = "fixture.session.cancelled-inflight"
+        DmAccountDirectoryProtocol.install([held], bearer: token)
+        let fence = try facade.fenceSession(mode: .verify)
+        let task = Task { try await facade.authenticate(accessToken: token, authFence: fence.authFence) }
+        defer { gate.release(); task.cancel() }
+        try await dmAccountDirectoryAwaitRequest(token)
+        let reserved = try controlled.index.read()
+        task.cancel(); gate.release()
+        try await checks.sessionAuthRefuses("cancelled in-flight facade Auth cannot publish an account") { try await task.value }
+        try checks.require(try facade.currentAccount() == nil && DmAccountDirectoryProtocol.count(token) == 1
+            && (try controlled.index.read()) == reserved && (try controlled.rows()).isEmpty,
+            "cancellation before verified selection publishes no mapping and leaves exact native reservation without account provisioning")
+        let replayToken = "fixture.session.cancelled-replay"
+        install(replayToken)
+        try await checks.sessionAuthRefuses("cancellation cannot revive a previously claimed facade fence") {
+            try await facade.authenticate(accessToken: replayToken, authFence: fence.authFence)
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(replayToken) == 0 && (try controlled.index.read()) == reserved,
+            "cancelled facade fence replay dispatches zero Auth and cannot reset durable authority")
+    }
+
+    progressForResearch?("directory-auth-refusals")
     let invalid = try fixture()
     try await checks.refuses("malformed bearer cannot create an account binding") { try await invalid.directory.open(bearer: "bad\nheader") }
     var denied = DmAccountDirectoryProtocol.Script(userId: alice); denied.status = 401
@@ -639,6 +1078,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     try checks.require(try invalid.state()["selectedUserId"] == nil && invalid.rows().count == 1,
         "failed second verification retains only the original immutable binding")
 
+    progressForResearch?("directory-interrupted-enrollment")
     for fault in [VodozemacAccountDirectory.EnrollmentFault.afterReservation, .beforeReadyCommit] {
         let interrupted = try fixture()
         install("fixture.enrollment.interrupted")
@@ -659,6 +1099,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     }
 
     // Deterministic async fences during both verification stages.
+    progressForResearch?("directory-selection-cancel-and-logout")
     for secondStage in [false, true] {
         for cancel in [false, true] {
             let fixture = try fixture(), gate = DmAccountDirectoryGate()
@@ -683,6 +1124,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
             }
         }
     }
+    progressForResearch?("directory-selection-cross-handle")
     let contested = try fixture(), competitor = try contested.reopen(auth: auth), gate = DmAccountDirectoryGate()
     directories.append(competitor)
     defer { gate.release() }
@@ -702,6 +1144,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
 
     // A missing account key has a durable blocked index entry. No Keychain
     // query ever reads or prints private key bytes, and no replacement is made.
+    progressForResearch?("directory-account-key-loss")
     let lost = try fixture()
     let lostAccess = try await open(lost, bearer: "fixture.enrollment.key-loss", user: alice)
     let lostAccount = try lost.account(userId: alice)
@@ -721,6 +1164,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
 
     // Authenticated local corruption/scope mismatch is blocked even when a
     // fixture explicitly restores the former valid payload afterwards.
+    progressForResearch?("directory-account-corruption")
     for field in ["account", "owner", "authProjectOrigin", "conversationId", "version"] {
         let damaged = try fixture()
         _ = try await open(damaged, bearer: "fixture.enrollment.damage." + field, user: alice)
@@ -755,6 +1199,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
         }
     }
 
+    progressForResearch?("directory-account-database-loss")
     let missingDB = try fixture()
     _ = try await open(missingDB, bearer: "fixture.enrollment.database-loss", user: alice)
     try missingDB.directory.signOut()
@@ -765,6 +1210,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     try await checks.refuses("missing account DB cannot cause identity recreation") { try await missingDB.directory.open(bearer: "fixture.enrollment.missing-database") }
     try checks.require(try missingDB.rows()[0]["status"] as? String == "blocked", "missing DB is durably blocked")
 
+    progressForResearch?("directory-locator-refusals")
     let locatorFixture = try fixture()
     let locator = locatorFixture.root.appendingPathComponent("index-id")
     let originalLocator = try Data(contentsOf: locator)
@@ -788,6 +1234,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     try checks.refuses("unbound native directory content refuses fresh-account selection") { _ = try locatorFixture.reopen(auth: auth) }
     guard unknown.path.withCString({ Darwin.unlink($0) }) == 0 else { throw DmAccountDirectoryProbeError.assertion("remove exact fixture unknown file") }
 
+    progressForResearch?("directory-index-corruption")
     let indexCorruption = try fixture()
     _ = try indexCorruption.rows()
     let validIndex = try indexCorruption.index.read()
@@ -803,6 +1250,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     try checks.require(DmAccountDirectoryProtocol.count("fixture.enrollment.index-corruption") == 0,
         "index corruption performs no server Auth or key creation")
 
+    progressForResearch?("directory-index-key-loss")
     let indexLoss = try fixture()
     _ = try indexLoss.rows()
     try VodozemacSealedStore.deleteResearchKey(storeID: indexLoss.indexID)
@@ -812,6 +1260,7 @@ private func dmAccountDirectoryRun() async throws -> Int {
     try checks.require(DmAccountDirectoryProtocol.count("fixture.enrollment.index-key-loss") == 0,
         "index key loss sends no Auth request and creates no owner/store")
 
+    progressForResearch?("directory-teardown")
     for access in accesses { access.closeForResearch() }
     for directory in directories { directory.closeForResearch() }
     for handle in handles { handle.close() }
@@ -819,5 +1268,6 @@ private func dmAccountDirectoryRun() async throws -> Int {
         try fixture.destroy()
         try checks.require(!FileManager.default.fileExists(atPath: fixture.root.path), "owned account-directory namespace removed without recursion")
     }
+    progressForResearch?("directory-complete")
     return checks.assertions
 }

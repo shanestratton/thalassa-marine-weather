@@ -1,0 +1,5 @@
+# Isolated pilot only. Never use the repository's production Supabase config.
+project_id = "kmtupdvwdgbhtssqqova"
+
+[functions.scuttlebutt-e2ee-pilot]
+verify_jwt = true

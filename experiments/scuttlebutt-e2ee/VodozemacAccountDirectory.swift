@@ -16,21 +16,53 @@ enum DmAccountDirectoryError: Error { case unavailable }
 /// Raw coordinator access is retained only for the isolated research adapter;
 /// it is not a shipping authorization boundary and must never become a JS API.
 final class VodozemacAccountAccess {
+    private final class RenewalGuard: DmNativeAuthScopeGuard {
+        private let original: DmNativeAuthScopeGuard
+        private let coordinator: VodozemacDmCoordinator
+        private let userId: String
+        private let deviceId: String
+        private let projectOrigin: String
+        private let expires: ContinuousClock.Instant
+        init(original: DmNativeAuthScopeGuard, coordinator: VodozemacDmCoordinator,
+             userId: String, deviceId: String, projectOrigin: String, expires: ContinuousClock.Instant) {
+            self.original = original; self.coordinator = coordinator
+            self.userId = userId; self.deviceId = deviceId; self.projectOrigin = projectOrigin
+            self.expires = expires
+        }
+        func withCurrentScope<T>(_ operation: () throws -> T) throws -> T {
+            try original.withCurrentScope {
+                // A mismatch/sign-out may not silently become a relogin. The
+                // check AND mutation stay inside the original index authority.
+                guard ContinuousClock.now < expires else { throw DmAccountDirectoryError.unavailable }
+                let scope = try coordinator.authScopeForResearch()
+                guard ContinuousClock.now < expires, scope.lifecycle.active, scope.lifecycle.owner.userId == userId,
+                      scope.lifecycle.owner.deviceId == deviceId, scope.storeID.uuidString.lowercased() == deviceId,
+                      scope.projectOrigin == projectOrigin else { throw DmAccountDirectoryError.unavailable }
+                let result = try operation()
+                guard ContinuousClock.now < expires else { throw DmAccountDirectoryError.unavailable }
+                return result
+            }
+        }
+    }
     let coordinatorForResearch: VodozemacDmCoordinator
     private let store: VodozemacSealedStore
     private let session: VodozemacAuthSession
     private let scopeGuard: DmNativeAuthScopeGuard
     private let authority: () -> Bool
     private let logout: () throws -> Void
+    private let userId: String
+    private let deviceId: String
+    private let projectOrigin: String
     private let lock = NSLock()
     private var valid = true
 
     fileprivate init(store: VodozemacSealedStore, coordinator: VodozemacDmCoordinator,
                      session: VodozemacAuthSession, scopeGuard: DmNativeAuthScopeGuard, authority: @escaping () -> Bool,
-                     logout: @escaping () throws -> Void) {
+                     logout: @escaping () throws -> Void, userId: String, deviceId: String, projectOrigin: String) {
         self.store = store; coordinatorForResearch = coordinator; self.session = session
         self.scopeGuard = scopeGuard
         self.authority = authority; self.logout = logout
+        self.userId = userId; self.deviceId = deviceId; self.projectOrigin = projectOrigin
     }
 
     deinit { store.close() }
@@ -57,6 +89,24 @@ final class VodozemacAccountAccess {
             try requireAuthority()
             guard !Task.isCancelled else { throw DmAccountDirectoryError.unavailable }
             return lifecycle
+        } catch { throw DmAccountDirectoryError.unavailable }
+    }
+
+    fileprivate func reserveVerification(expires: ContinuousClock.Instant) throws -> VodozemacAuthSession.VerificationReservation {
+        do {
+            try requireAuthority()
+            return try session.reserveVerification(scopeGuard: RenewalGuard(original: scopeGuard, coordinator: coordinatorForResearch,
+                userId: userId, deviceId: deviceId, projectOrigin: projectOrigin, expires: expires))
+        } catch { throw DmAccountDirectoryError.unavailable }
+    }
+
+    fileprivate func authenticate(bearer: String, reservation: VodozemacAuthSession.VerificationReservation) async throws -> DmLifecycleSnapshot {
+        do {
+            try requireAuthority()
+            let accepted = try await session.authenticate(bearer: bearer, reservation: reservation)
+            try requireAuthority()
+            guard !Task.isCancelled else { throw DmAccountDirectoryError.unavailable }
+            return accepted
         } catch { throw DmAccountDirectoryError.unavailable }
     }
 
@@ -116,10 +166,49 @@ final class VodozemacAccountDirectory {
         var selectedUserId: String?
         var accounts: [Entry]
     }
-    private struct Attempt {
+    fileprivate struct Attempt {
         let id: UUID
         let epoch: UUID
         let expires: ContinuousClock.Instant
+        var consumed = false
+    }
+    fileprivate enum VerificationKind {
+        case selection(Attempt)
+        case renewal(VodozemacAccountAccess, VodozemacAuthSession.VerificationReservation)
+    }
+    /// Native-issued, one-claim capability. Never reconstructed from SDK/JS
+    /// account fields; a facade maps its own opaque fence to this exact value.
+    final class VerificationReservation: CustomStringConvertible, CustomDebugStringConvertible {
+        fileprivate let directoryID: UUID
+        fileprivate let id: UUID
+        fileprivate let kind: VerificationKind
+        let expires: ContinuousClock.Instant
+        fileprivate init(directoryID: UUID, id: UUID, kind: VerificationKind, expires: ContinuousClock.Instant) {
+            self.directoryID = directoryID; self.id = id; self.kind = kind; self.expires = expires
+        }
+        var description: String { "DirectoryVerificationReservation(<native-only>)" }
+        var debugDescription: String { description }
+    }
+    /// Holds only one exact accepted credential binding; a later renewal cannot
+    /// turn an old completion into authority for the new winner. No coordinator,
+    /// store, credential, key or token is returned to the facade/JS.
+    final class AuthenticatedScope {
+        private let access: VodozemacAccountAccess
+        private let expected: DmRelayNetworkContext
+        private let nativeDeadline: ContinuousClock.Instant
+        fileprivate init(access: VodozemacAccountAccess, lifecycle: DmLifecycleSnapshot,
+                         nativeDeadline: ContinuousClock.Instant) {
+            self.access = access; self.nativeDeadline = nativeDeadline
+            expected = DmRelayNetworkContext(userId: lifecycle.owner.userId, deviceId: lifecycle.owner.deviceId,
+                ownerGeneration: lifecycle.owner.generation, credentialEpoch: lifecycle.credentialEpoch, peerGeneration: nil)
+        }
+        func currentContext() -> DmRelayNetworkContext? {
+            // The inner AuthSession starts later and may have a later lease
+            // deadline. It must never extend this original native fence.
+            guard ContinuousClock.now < nativeDeadline, access.currentContext() == expected,
+                  ContinuousClock.now < nativeDeadline else { return nil }
+            return expected
+        }
     }
     private final class ScopeGuard: DmNativeAuthScopeGuard {
         private weak var directory: VodozemacAccountDirectory?
@@ -169,6 +258,12 @@ final class VodozemacAccountDirectory {
     private let authenticator: VodozemacSupabaseAuth
     private let conversationId: String
     private let lock = NSLock()
+    // Serializes synchronous reservation creation/claim only, never HTTP.
+    // Acquire before directory/index/session locks; no path acquires it from
+    // inside a scope guard. Research open/signOut remain independently guarded.
+    private let verificationLock = NSLock()
+    private let instanceID = UUID()
+    private var verificationID: UUID?
     private var attempt: Attempt?
     // Revoked before disk work, including on a failed local transition. A
     // selected scope may refresh after its original enrollment deadline, but
@@ -259,8 +354,89 @@ final class VodozemacAccountDirectory {
     // the directory throughout its access lifetime and uses signOut() first.
     func closeForResearch() {
         lock.lock(); defer { lock.unlock() }
-        attempt = nil; liveScopeID = nil; currentAccess?.closeForResearch(); currentAccess = nil
+        verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.closeForResearch(); currentAccess = nil
         index.close()
+    }
+
+    /// Fence BEFORE SDK token acquisition. A live selected account can ONLY
+    /// renew its existing active owner; unselected state can begin selection.
+    /// Cold reopen of a persisted selection has no native continuation permit:
+    /// this bounded pilot requires explicit signOut followed by fresh verify.
+    // A native facade may tighten, but NEVER extend, this monotonic deadline.
+    // It is not a plugin/SDK parameter or owner/device authority.
+    func reserveVerification(expiresBy: ContinuousClock.Instant? = nil) throws -> VerificationReservation {
+        verificationLock.lock(); defer { verificationLock.unlock() }
+        let id = UUID(), naturalExpiry = ContinuousClock.now.advanced(by: .seconds(60))
+        let expires = expiresBy.map { $0 < naturalExpiry ? $0 : naturalExpiry } ?? naturalExpiry
+        do {
+            let access: VodozemacAccountAccess? = try {
+                lock.lock(); defer { lock.unlock() }
+                guard !Task.isCancelled, ContinuousClock.now < expires else { throw DmAccountDirectoryError.unavailable }
+                verificationID = id
+                let state = try readState()
+                if state.selectedUserId != nil {
+                    guard liveScopeID != nil, let access = currentAccess else { throw DmAccountDirectoryError.unavailable }
+                    return access
+                }
+                return nil
+            }()
+            if let access {
+                // Do not retain directory/index locks: this original guard
+                // reacquires them around the AuthSession reservation CAS.
+                let ticket = try access.reserveVerification(expires: expires)
+                lock.lock(); defer { lock.unlock() }
+                guard verificationID == id, currentAccess === access, ContinuousClock.now < expires else {
+                    throw DmAccountDirectoryError.unavailable
+                }
+                return VerificationReservation(directoryID: instanceID, id: id, kind: .renewal(access, ticket), expires: expires)
+            }
+            let ticket = try begin(hooks: .init(), requireUnselected: true, expiresBy: expires)
+            lock.lock(); defer { lock.unlock() }
+            guard attempt?.id == ticket.id, liveScopeID == ticket.id, ContinuousClock.now < ticket.expires else {
+                throw DmAccountDirectoryError.unavailable
+            }
+            verificationID = id
+            return VerificationReservation(directoryID: instanceID, id: id, kind: .selection(ticket),
+                expires: expires < ticket.expires ? expires : ticket.expires)
+        } catch {
+            lock.lock(); if verificationID == id { verificationID = nil }; lock.unlock()
+            throw DmAccountDirectoryError.unavailable
+        }
+    }
+
+    /// Consume only the earlier capability. No begin/open fallback, even if
+    /// Auth verifies a different account. Explicit signOut→verify selects it.
+    func authenticate(bearer: String, reservation: VerificationReservation) async throws -> AuthenticatedScope {
+        do {
+            try claimVerification(reservation)
+            let accepted: (access: VodozemacAccountAccess, lifecycle: DmLifecycleSnapshot)
+            switch reservation.kind {
+            case .selection(let ticket):
+                accepted = try await completeSelection(bearer: bearer, ticket: ticket, fault: .none)
+            case .renewal(let access, let ticket):
+                accepted = (access, try await access.authenticate(bearer: bearer, reservation: ticket))
+            }
+            let scope = AuthenticatedScope(access: accepted.access, lifecycle: accepted.lifecycle,
+                nativeDeadline: reservation.expires)
+            guard !Task.isCancelled, ContinuousClock.now < reservation.expires, scope.currentContext() != nil else {
+                throw DmAccountDirectoryError.unavailable
+            }
+            return scope
+        } catch { throw DmAccountDirectoryError.unavailable }
+    }
+
+    private func claimVerification(_ reservation: VerificationReservation) throws {
+        guard reservation.directoryID == instanceID else { throw DmAccountDirectoryError.unavailable }
+        verificationLock.lock(); defer { verificationLock.unlock() }
+        lock.lock(); defer { lock.unlock() }
+        guard !Task.isCancelled, verificationID == reservation.id, ContinuousClock.now < reservation.expires else {
+            throw DmAccountDirectoryError.unavailable
+        }
+        if case .selection(let ticket) = reservation.kind {
+            guard var pending = attempt, pending.id == ticket.id, !pending.consumed else { throw DmAccountDirectoryError.unavailable }
+            pending.consumed = true; attempt = pending
+        }
+        verificationID = nil
     }
 
     /// Account selection/login, not refresh. A previous selected lifecycle is
@@ -273,13 +449,20 @@ final class VodozemacAccountDirectory {
 
     func openForResearch(bearer: String, fault: EnrollmentFault,
                          hooks: TransitionHooksForResearch = .init()) async throws -> VodozemacAccountAccess {
-        var selected: (store: VodozemacSealedStore, coordinator: VodozemacDmCoordinator)?
-        var accepted: DmLifecycleSnapshot?
-        var pending: Attempt?
         do {
             guard !Task.isCancelled else { throw DmAccountDirectoryError.unavailable }
             let ticket = try begin(hooks: hooks)
-            pending = ticket
+            let result = try await completeSelection(bearer: bearer, ticket: ticket, fault: fault)
+            return result.access
+        } catch { throw DmAccountDirectoryError.unavailable }
+    }
+
+    private func completeSelection(bearer: String, ticket: Attempt, fault: EnrollmentFault)
+        async throws -> (access: VodozemacAccountAccess, lifecycle: DmLifecycleSnapshot) {
+        var selected: (store: VodozemacSealedStore, coordinator: VodozemacDmCoordinator)?
+        var accepted: DmLifecycleSnapshot?
+        do {
+            guard !Task.isCancelled, isCurrent(ticket) else { throw DmAccountDirectoryError.unavailable }
             let userId = try await authenticator.authenticate(bearer: bearer, currentAttempt: { self.isCurrent(ticket) })
             guard !Task.isCancelled, isCurrent(ticket) else { throw DmAccountDirectoryError.unavailable }
             let local = try select(userId: userId, ticket: ticket, fault: fault)
@@ -288,8 +471,9 @@ final class VodozemacAccountDirectory {
             guard !Task.isCancelled, isCurrent(ticket) else { throw DmAccountDirectoryError.unavailable }
             let scopeGuard = ScopeGuard(directory: self, ticket: ticket, userId: userId,
                 storeId: local.store.storeID.uuidString.lowercased(), selected: false)
-            accepted = try await session.authenticate(bearer: bearer, scopeGuard: scopeGuard)
-            return try publish(local: local, session: session, userId: userId, ticket: ticket)
+            let lifecycle = try await session.authenticate(bearer: bearer, scopeGuard: scopeGuard)
+            accepted = lifecycle
+            return (try publish(local: local, session: session, userId: userId, ticket: ticket), lifecycle)
         } catch {
             // Publication can fail AFTER an authorized account commit. This
             // exact-lifecycle compensation is not stale-mutation prevention;
@@ -298,7 +482,7 @@ final class VodozemacAccountDirectory {
                 if let accepted { _ = try? selected.coordinator.deactivateAuthScopeForResearch(expected: accepted) }
                 selected.store.close()
             }
-            if let pending { abandon(pending) }
+            abandon(ticket)
             throw DmAccountDirectoryError.unavailable
         }
     }
@@ -311,14 +495,21 @@ final class VodozemacAccountDirectory {
         try signOut(expectedEpoch: nil, hooks: hooks)
     }
 
-    private func begin(hooks: TransitionHooksForResearch) throws -> Attempt {
+    private func begin(hooks: TransitionHooksForResearch, requireUnselected: Bool = false,
+                       expiresBy: ContinuousClock.Instant? = nil) throws -> Attempt {
         lock.lock(); defer { lock.unlock() }
-        attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+        if let expiresBy, ContinuousClock.now >= expiresBy { throw DmAccountDirectoryError.unavailable }
+        if !requireUnselected {
+            verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+        }
         let snapshot = try index.read()
         var state = try decode(snapshot.payload)
+        if requireUnselected, state.selectedUserId != nil { throw DmAccountDirectoryError.unavailable }
+        verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
         let previous = state.selectedUserId.flatMap { user in state.accounts.first { $0.userId == user } }
         let epoch = UUID()
         state.epoch = epoch; state.selectedUserId = nil
+        if let expiresBy, ContinuousClock.now >= expiresBy { throw DmAccountDirectoryError.unavailable }
         try commit(state, revision: snapshot.revision)
         // This ordering fences old access even when deactivation fails. Explicit
         // retry may be needed; failure never restores an old in-memory lease.
@@ -333,7 +524,8 @@ final class VodozemacAccountDirectory {
                 throw error
             }
         }
-        let ticket = Attempt(id: UUID(), epoch: epoch, expires: ContinuousClock.now.advanced(by: .seconds(60)))
+        let ticket = Attempt(id: UUID(), epoch: epoch, expires: expiresBy ?? ContinuousClock.now.advanced(by: .seconds(60)))
+        guard ContinuousClock.now < ticket.expires else { throw DmAccountDirectoryError.unavailable }
         attempt = ticket
         liveScopeID = ticket.id
         return ticket
@@ -419,7 +611,7 @@ final class VodozemacAccountDirectory {
             logout: { [weak self] in
                 guard let self else { throw DmAccountDirectoryError.unavailable }
                 try self.signOut(expectedEpoch: ticket.epoch)
-            })
+            }, userId: userId, deviceId: storeId, projectOrigin: authenticator.projectOrigin)
         currentAccess = access; attempt = nil
         return access
     }
@@ -468,12 +660,12 @@ final class VodozemacAccountDirectory {
             // storage. A stale expected-epoch logout must not revoke a newer
             // local selection; it validates its epoch before this step.
             if expectedEpoch == nil {
-                attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+                verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
             }
             let snapshot = try index.read()
             var state = try decode(snapshot.payload)
             if let expectedEpoch, state.epoch != expectedEpoch { throw DmAccountDirectoryError.unavailable }
-            attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+            verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
             let previous = state.selectedUserId.flatMap { user in state.accounts.first { $0.userId == user } }
             state.epoch = UUID(); state.selectedUserId = nil
             _ = try commit(state, revision: snapshot.revision)

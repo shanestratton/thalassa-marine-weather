@@ -164,6 +164,18 @@ private final class NetworkProbeProtocol: URLProtocol, @unchecked Sendable {
                     "https://", "https://relay-fixture.invalid\n"] {
             try refuses { _ = try VodozemacRelayTransport(serviceOrigin: url) }
         }
+        for path in ["/", "/functions/v1/", "/functions/v1", "/functions/V1/pilot", "/Functions/v1/pilot",
+                     "//functions/v1/pilot", "/functions//v1/pilot", "/functions/v1/Pilot", "/functions/v1/1pilot",
+                     "/functions/v1/-pilot", "/functions/v1/pilot-", "/functions/v1/pilot--relay",
+                     "/functions/v1/pilot_relay", "/functions/v1/pilot.relay", "/functions/v1/pilot/",
+                     "/functions/v1/pilot//", "/functions/v1/./pilot", "/functions/v1/other/../pilot",
+                     "/functions/v1/%70ilot", "/functions/v1/pilot%2fother", "/functions/v1/%2e%2e/pilot",
+                     "/functions/v1/pilot\\other", "/functions/v1/pilot?project=other", "/functions/v1/pilot?",
+                     "/functions/v1/pilot#fragment", "/functions/v1/pilot#", "/functions/v1/pilot\n",
+                     " /functions/v1/pilot", "/functions/v1/pilot ", "/functions/v1/pilót",
+                     "https://other.invalid/functions/v1/pilot", "/functions/v1/" + String(repeating: "a", count: 65)] {
+            try refuses { _ = try VodozemacRelayTransport(serviceOrigin: "https://relay-fixture.invalid", serviceBasePath: path) }
+        }
         for deadline in [0, -1, 10.1, Double.infinity, Double.nan] {
             try refuses { _ = try VodozemacRelayTransport(serviceOrigin: "https://relay-fixture.invalid", deadlineSeconds: deadline) }
         }
@@ -189,6 +201,59 @@ private final class NetworkProbeProtocol: URLProtocol, @unchecked Sendable {
         try networkCheck(!config.httpShouldSetCookies && config.requestCachePolicy == .reloadIgnoringLocalCacheData)
         try networkCheck(!config.waitsForConnectivity && config.timeoutIntervalForRequest == 0.15 && config.timeoutIntervalForResource == 0.15)
         print("PASS native exact POST/public request wire, bearer header and public result")
+
+        let edgeBasePath = "/functions/v1/scuttlebutt-e2ee-pilot"
+        for path in ["", "/functions/v1/a", edgeBasePath, "/functions/v1/" + String(repeating: "a", count: 64)] {
+            let mounted = try VodozemacRelayTransport(serviceOrigin: "https://relay-fixture.invalid", serviceBasePath: path,
+                deadlineSeconds: 0.15, configurationForResearch: configured)
+            for registering in [true, false] {
+                let expectedURL = "https://relay-fixture.invalid" + path + (registering ? "/v1/register" : "/v1/dispatch")
+                var script = NetworkProbeProtocol.Script(); script.url = URL(string: expectedURL)!
+                NetworkProbeProtocol.configure(script)
+                let result: Data
+                if registering {
+                    result = try await mounted.register(bundle: wire, credential: credential, currentContext: current.read)
+                } else {
+                    result = try await mounted.dispatch(request: wire, credential: credential, currentContext: current.read)
+                }
+                try networkCheck(result == Data("{\"accepted\":true}".utf8))
+                let request = NetworkProbeProtocol.captured().last!
+                try networkCheck(request.url?.absoluteString == expectedURL && request.httpMethod == "POST")
+                try networkCheck(NetworkProbeProtocol.capturedBodies().last == Data(wire.utf8))
+                try networkCheck(request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-native-only.token")
+                try networkCheck(request.value(forHTTPHeaderField: "Cookie") == nil)
+            }
+        }
+        print("PASS native trusted root/hosted mounts and exact registration/dispatch URLs")
+
+        let mounted = try VodozemacRelayTransport(serviceOrigin: "https://relay-fixture.invalid", serviceBasePath: edgeBasePath,
+            deadlineSeconds: 0.15, configurationForResearch: configured)
+        let mountedExpectedURL = "https://relay-fixture.invalid" + edgeBasePath + "/v1/dispatch"
+        for path in ["/v1/dispatch", "/functions/v1/other/v1/dispatch", edgeBasePath + "/v1/dispatch/",
+                     edgeBasePath + "//v1/dispatch", edgeBasePath + "/v1/%64ispatch", edgeBasePath + "/v1/dispatch?",
+                     edgeBasePath + "/v1/dispatch?actor=other", edgeBasePath + "/v1/dispatch#",
+                     edgeBasePath + "/v1/dispatch#fragment", "/functions/v1/%73cuttlebutt-e2ee-pilot/v1/dispatch",
+                     "/functions/v1/scuttlebutt-e2ee-pilot%2fv1/dispatch",
+                     "/functions/v1/other/../scuttlebutt-e2ee-pilot/v1/dispatch", edgeBasePath + "/other/../v1/dispatch",
+                     edgeBasePath + "/%2e/v1/dispatch", edgeBasePath + "/v1/register/../dispatch", edgeBasePath + "\\v1/dispatch"] {
+            var script = NetworkProbeProtocol.Script(); script.url = URL(string: "https://relay-fixture.invalid" + path)!
+            NetworkProbeProtocol.configure(script)
+            try await networkRefuses {
+                try await mounted.dispatch(request: wire, credential: credential, currentContext: current.read)
+            }
+            try networkCheck(NetworkProbeProtocol.captured().last?.url?.absoluteString == mountedExpectedURL)
+        }
+        var mountedRedirect = NetworkProbeProtocol.Script(); mountedRedirect.url = URL(string: mountedExpectedURL)!
+        mountedRedirect.redirectURL = URL(string: "https://relay-fixture.invalid/v1/dispatch")!
+        mountedRedirect.status = 307
+        NetworkProbeProtocol.configure(mountedRedirect)
+        let beforeMountedRedirect = NetworkProbeProtocol.captured().count
+        try await networkRefuses {
+            try await mounted.dispatch(request: wire, credential: credential, currentContext: current.read)
+        }
+        try networkCheck(NetworkProbeProtocol.captured().count == beforeMountedRedirect + 1)
+        NetworkProbeProtocol.configure(.init())
+        print("PASS native hosted final URL encoding/traversal/slash/query/prefix and redirect refusals")
 
         let before = NetworkProbeProtocol.captured().count
         for bad in ["", "[]", "{}", wire + "é", String(repeating: "a", count: 102401),
@@ -339,6 +404,6 @@ private final class NetworkProbeProtocol: URLProtocol, @unchecked Sendable {
         NetworkProbeProtocol.configure(.init())
         _ = try await send()
         print("PASS native cancellation/start/completion races and usable subsequent transport")
-        print("PASS 11 native URLSession fixture scenario groups; no live TLS/Auth/physical phone claims")
+        print("PASS 13 native URLSession fixture scenario groups; no live TLS/Auth/physical phone claims")
     }
 }

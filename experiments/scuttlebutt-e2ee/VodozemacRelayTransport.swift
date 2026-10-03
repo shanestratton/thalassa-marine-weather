@@ -46,28 +46,53 @@ struct DmRelayNetworkCredential: CustomStringConvertible, CustomDebugStringConve
 /// Timeout/cancellation may follow server commit: retry the SAME durable signed
 /// wire; never manufacture a refusal, new ciphertext or a new nonce here.
 final class VodozemacRelayTransport {
-    private let origin: String
+    private let serviceBaseURL: String
     private let deadline: TimeInterval
     private let configurationForResearch: (() -> URLSessionConfiguration)?
 
-    convenience init(serviceOrigin: String, deadlineSeconds: TimeInterval = 10) throws {
-        try self.init(serviceOrigin: serviceOrigin, deadlineSeconds: deadlineSeconds, configurationForResearch: nil)
+    convenience init(serviceOrigin: String, serviceBasePath: String = "", deadlineSeconds: TimeInterval = 10) throws {
+        try self.init(serviceOrigin: serviceOrigin, serviceBasePath: serviceBasePath,
+                      deadlineSeconds: deadlineSeconds, configurationForResearch: nil)
     }
 
     // Only the native probe injects URLProtocol. No production trust override,
     // alternate scheme, redirect exception, or custom TLS challenge is provided.
-    init(serviceOrigin: String, deadlineSeconds: TimeInterval,
+    init(serviceOrigin: String, serviceBasePath: String = "", deadlineSeconds: TimeInterval,
          configurationForResearch: (() -> URLSessionConfiguration)?) throws {
         guard let parts = URLComponents(string: serviceOrigin), parts.scheme == "https",
               let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil,
               parts.query == nil, parts.fragment == nil, parts.path.isEmpty,
               parts.url?.absoluteString == serviceOrigin,
+              Self.validServiceBasePath(serviceBasePath),
               deadlineSeconds.isFinite, (0.001...10).contains(deadlineSeconds) else {
             throw DmRelayTransportError.unresolved
         }
-        self.origin = serviceOrigin
+        self.serviceBaseURL = serviceOrigin + serviceBasePath
         self.deadline = deadlineSeconds
         self.configurationForResearch = configurationForResearch
+    }
+
+    // Native trusted configuration, never a JavaScript URL or request-derived
+    // routing hint. Empty retains the root-mounted fixture contract. Hosted
+    // mounts accept one lowercase ASCII slug, with no URL normalization needed.
+    private static func validServiceBasePath(_ path: String) -> Bool {
+        if path.isEmpty { return true }
+        let prefix = "/functions/v1/"
+        guard path.hasPrefix(prefix) else { return false }
+        let slug = Array(path.dropFirst(prefix.count).utf8)
+        guard (1...64).contains(slug.count), let first = slug.first, (97...122).contains(first),
+              slug.last != 45 else { return false }
+        var previousHyphen = false
+        for byte in slug {
+            if byte == 45 {
+                if previousHyphen { return false }
+                previousHyphen = true
+            } else {
+                guard (97...122).contains(byte) || (48...57).contains(byte) else { return false }
+                previousHyphen = false
+            }
+        }
+        return true
     }
 
     func register(bundle: String, credential: DmRelayNetworkCredential,
@@ -93,7 +118,7 @@ final class VodozemacRelayTransport {
               object["deviceId"] as? String == credential.context.deviceId,
               (try? currentContext()) == credential.context,
               ContinuousClock.now < deadlineAt,
-              let url = URL(string: origin + endpoint) else { throw DmRelayTransportError.unresolved }
+              let url = URL(string: serviceBaseURL + endpoint) else { throw DmRelayTransportError.unresolved }
         let configuration = configurationForResearch?() ?? URLSessionConfiguration.ephemeral
         configuration.urlCache = nil
         configuration.urlCredentialStorage = nil
@@ -201,7 +226,7 @@ private final class DmRelayNetworkOperation: NSObject, URLSessionDataDelegate, @
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let response = response as? HTTPURLResponse, response.url == expectedURL,
+        guard let response = response as? HTTPURLResponse, response.url?.absoluteString == expectedURL.absoluteString,
               response.statusCode == 200,
               let type = response.value(forHTTPHeaderField: "Content-Type")?.lowercased(),
               type.range(of: #"^application/json(?:\s*;\s*charset\s*=\s*utf-8)?$"#, options: .regularExpression)?.lowerBound == type.startIndex,

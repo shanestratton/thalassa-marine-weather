@@ -8,6 +8,8 @@ import { MAX_RESEARCH_REQUEST_BYTES } from './signedRequest.ts';
 
 export interface ResearchHttpGatewayConfig {
     readonly serviceOrigin: string;
+    /** Trusted host configuration only; never derive this from a request or Host header. */
+    readonly serviceBasePath?: string;
     readonly gateway: {
         register(credential: string, serializedBundle: string): Promise<unknown>;
         dispatch(credential: string, serializedRequest: string): Promise<unknown>;
@@ -59,6 +61,13 @@ function serviceOrigin(value: unknown): string {
     } catch {
         return invalidConfig();
     }
+}
+function serviceBasePath(value: unknown): string {
+    if (value === undefined || value === '') return '';
+    if (typeof value !== 'string') return invalidConfig();
+    const match = /^\/functions\/v1\/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)$/.exec(value);
+    if (!match || match[0] !== value || match[1].length > 64) return invalidConfig();
+    return value;
 }
 function failure(status: number): Response {
     return new Response(ERROR_WIRE, { status, headers: RESPONSE_HEADERS });
@@ -197,6 +206,7 @@ function responseWire(result: unknown, checkAvailable: () => void): string {
 export function createResearchHttpGateway(config: ResearchHttpGatewayConfig): (request: Request) => Promise<Response> {
     if (!config || typeof config !== 'object') return invalidConfig();
     const origin = serviceOrigin(config.serviceOrigin);
+    const basePath = serviceBasePath(config.serviceBasePath);
     const timeoutMs = config.timeoutMs === undefined ? 10_000 : config.timeoutMs;
     const gateway = config.gateway;
     if (
@@ -211,8 +221,8 @@ export function createResearchHttpGateway(config: ResearchHttpGatewayConfig): (r
     const register = gateway.register.bind(gateway);
     const dispatch = gateway.dispatch.bind(gateway);
     const endpoints = new Map([
-        [`${origin}/v1/register`, { call: register, limit: MAX_BUNDLE_BYTES }],
-        [`${origin}/v1/dispatch`, { call: dispatch, limit: MAX_RESEARCH_REQUEST_BYTES }],
+        [`${origin}${basePath}/v1/register`, { call: register, limit: MAX_BUNDLE_BYTES }],
+        [`${origin}${basePath}/v1/dispatch`, { call: dispatch, limit: MAX_RESEARCH_REQUEST_BYTES }],
     ]);
 
     return async (request) => {

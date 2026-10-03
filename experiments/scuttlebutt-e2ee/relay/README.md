@@ -1,8 +1,9 @@
 # Isolated device-directory and ciphertext-relay research
 
 This directory prototypes a device-signed, account-authorized, single-device relay boundary.
-It includes an unmounted Fetch HTTP handler and a native networking research client,
-not a live service, Supabase migration, app adapter or deployment. It
+It includes a Fetch HTTP handler, native networking research client and explicitly
+isolated hosted Supabase pilot. It is not a production service/migration or shipping
+app adapter. It
 does not encrypt messages and is not connected to Thalassa chat, push notifications
 or production accounts. An optional simulator bridge exercises it with the real
 native provider and sealed stores; existing app messages are untouched.
@@ -17,6 +18,38 @@ synthetic account credentials and payloads. A test existing in the runner is not
 a claim that it passed; use the completed run output and checkpoint record for
 observed results.
 
+## Isolated hosted pilot — not app encryption
+
+The owner-approved test project is `kmtupdvwdgbhtssqqova` in organization
+`tideqlkywysyczrqreiz`, not Thalassa production. `hostedGateway.ts` pins its origin,
+trusted runtime mounting, dedicated database DSN and at most two participant
+UUIDs. An empty allowlist closes access. Fresh Supabase `/auth/v1/user` and device
+signatures gate only three parameterized signed-path RPCs; the login has no owner
+or table privileges. The PostgreSQL client closes after each committed/rolled-back
+transaction. Connection-budget refusals remain unresolved, never terminal sends.
+This deliberately bounded host has no production concurrency/availability proof.
+
+`../hosted/provision.mjs bootstrap` is a fresh-project-only guarded setup; never
+rerun it to reset keys or messages. Config/link/project/organization checks refuse
+other targets. `repair-gateway-schema` restores only gateway schema USAGE under
+the owner role; no elevated grants or data rewrite. The ordinary app has no pilot
+configuration, plugin registration or live chat cutover.
+
+`../hosted/fixtureRelayProof.mjs HUMAN_ALLOWLIST_FILE [FIXTURE_CREDENTIALS_FILE]`
+uses two disposable `.invalid` actors, not the phone accounts. Private credentials
+and signing fixtures stay in 0700/0600 temporary artifacts outside the repo.
+The wrapper temporarily installs the fixture allowlist, runs `liveProof.mjs`,
+then restores the human allowlist even on failed assertions. It never resets
+immutable devices/prekeys to make a test pass. CLI children opt out of telemetry
+for that process only; secret-bearing outputs/errors are suppressed.
+
+The completed hosted smoke proof uses real Auth, Ed25519 signatures, HTTPS and
+SQL, but **synthetic ciphertext only**. It is not a native encrypted exchange,
+physical-device delivery or independent security review. Its receipt records
+local source hashes and the unchanged deployed function revision/bundle hash;
+these are execution identifiers, not independent binary/source attestation.
+The simulator Olm proof and the hosted relay proof remain separate milestones.
+
 ## HTTP and native network contract
 
 `httpGateway.ts` exposes only two exact HTTPS POST endpoints at its configured
@@ -27,7 +60,8 @@ wrapper. The `Authorization` header carries one bounded RFC 6750 Bearer token;
 only the gateway's fresh Auth result identifies the account. Cookies, Origin/CORS,
 compressed request bodies, unsigned endpoints and alternate origins are refused.
 The host must preserve/reject duplicate headers and supply trusted HTTPS routing;
-no deployment adapter or TLS-termination/proxy configuration is proved here.
+the generic handler's fixture tests alone do not prove a host mounting adapter.
+The separately pinned hosted adapter and its live evidence are described below.
 
 Success is HTTP 200 with exact outer framing `{"version":1,"result":...}` and at
 most 2 MiB of complete UTF-8 JSON. Both success and errors use `no-store` and
