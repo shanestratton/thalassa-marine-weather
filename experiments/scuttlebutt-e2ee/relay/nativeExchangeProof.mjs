@@ -159,11 +159,13 @@ try {
             'VodozemacAccountDirectoryProbe.swift',
             'VodozemacMessageAuthorityProbe.swift',
             'VodozemacPairingHistoryProbe.swift',
+            'VodozemacScopedRelayProbe.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
             'VodozemacLifecycleProbe.swift',
             'VodozemacUnresolvedProbe.swift',
             'VodozemacRelayClient.swift',
+            'VodozemacScopedRelayClient.swift',
             'VodozemacExchangeProbe.swift',
         ].map((name) => join(experiment, name)),
     ];
@@ -383,6 +385,8 @@ try {
             receipt.nativeMessageAuthorityFixtureAssertions = status.messageAuthorityFixtureAssertions;
             assert(Number.isSafeInteger(status.pairingHistoryFixtureAssertions) && status.pairingHistoryFixtureAssertions > 0);
             receipt.nativePairingHistoryFixtureAssertions = status.pairingHistoryFixtureAssertions;
+            assert(Number.isSafeInteger(status.scopedRelayFixtureAssertions) && status.scopedRelayFixtureAssertions > 0);
+            receipt.nativeScopedRelayFixtureAssertions = status.scopedRelayFixtureAssertions;
         }
         receipt.completedPhases.push({
             phase,

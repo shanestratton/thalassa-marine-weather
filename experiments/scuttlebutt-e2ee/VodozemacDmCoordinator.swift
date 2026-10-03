@@ -264,8 +264,92 @@ final class VodozemacDmCoordinator {
             case .pendingRecords:
                 let generation = try withState { _, state in try Self.requireFullPair(context, state) }
                 return .pendingRecords(try pending(owner: owner, peerGeneration: generation))
+            case .relaySendWire(let id):
+                try DmContentCodec.validateIdentifier(id)
+                return try withState { _, state in
+                    let generation = try Self.requireFullPair(context, state)
+                    guard let item = state.outbox.first(where: { $0.messageId.utf8.elementsEqual(id.utf8) }),
+                          item.record.ownerSessionGeneration == owner.generation,
+                          item.record.recipientIdentityGeneration == generation else {
+                        throw DmCoordinatorError.unavailable
+                    }
+                    switch item.status {
+                    case .accepted: return .relayReceipt(.accepted(item.record))
+                    case .rejected:
+                        guard let reason = item.reason else { throw DmCoordinatorError.conflict }
+                        return .relayReceipt(.rejected(item.record, reason))
+                    case .pending:
+                        let now = try Self.nativeRelayTime()
+                        let wire = try signedSendForResearch(item.record, requestId: UUID().uuidString.lowercased(),
+                            expiresAt: now + 240, now: now, owner: owner, peerGeneration: generation,
+                            credentialEpoch: context.credentialEpoch)
+                        return .sendRequest(DmNativeRelaySendRequest(wire: wire, record: item.record))
+                    }
+                }
+            case .relaySendReceipt(let record, let response):
+                let generation = try withState { _, state in
+                    let generation = try Self.requireFullPair(context, state)
+                    guard record.ownerSessionGeneration == owner.generation,
+                          record.recipientIdentityGeneration == generation else { throw DmCoordinatorError.unavailable }
+                    // Check against durable state BEFORE decoding the response.
+                    // A typed native record is not authority to create an outbox.
+                    _ = try Self.outboxIndex(record, state)
+                    return generation
+                }
+                let receipt = try DmRelayResultCodec.receipt(response, expected: record)
+                switch receipt {
+                case .accepted:
+                    try confirmAcceptance(record, owner: owner, peerGeneration: generation,
+                        credentialEpoch: context.credentialEpoch)
+                case .rejected(_, let reason):
+                    try confirmRejection(record, reason: reason, owner: owner,
+                        credentialEpoch: context.credentialEpoch)
+                }
+                return .relayReceipt(receipt)
+            case .relayInboxWire:
+                _ = try withState { _, state in try Self.requireFullPair(context, state) }
+                let now = try Self.nativeRelayTime()
+                return .relayRequest(try signedListForResearch(requestId: UUID().uuidString.lowercased(),
+                    afterId: 0, batch: 16, expiresAt: now + 240, now: now,
+                    owner: owner, credentialEpoch: context.credentialEpoch))
+            case .relayInboxResponse(let response):
+                let input = try withState { _, state -> (Int64, [DmRelayInboxRow]) in
+                    let generation = try Self.requireFullPair(context, state)
+                    let identity = try publicIdentity(owner: owner)
+                    let peer = try Self.requirePeer(owner, generation, state)
+                    // Validate ALL row structure/routing before ANY crypto/CAS.
+                    // Commits remain per-row, not a batch-atomic transaction.
+                    return (generation, try DmRelayResultCodec.inbox(response, owner: owner,
+                        identity: identity, peer: peer, afterId: 0, batch: 16))
+                }
+                var stored = 0, duplicates = 0, historical = 0, unresolved = 0, historicalUnresolved = 0
+                for row in input.1 {
+                    switch try receiveOrDeferForResearch(serverId: row.serverId,
+                        serializedEnvelope: row.record.serializedEnvelope, relayRecord: row.record,
+                        owner: owner, peerGeneration: input.0, credentialEpoch: context.credentialEpoch) {
+                    case .stored: stored += 1
+                    case .duplicate: duplicates += 1
+                    case .historical: historical += 1
+                    case .deferred: unresolved += 1
+                    case .historicalUnresolved: historicalUnresolved += 1
+                    }
+                }
+                // An empty batch must still pass the final native authority
+                // read. Never publish counts into a replaced/expired scope.
+                return try withState { _, state in
+                    _ = try Self.requireFullPair(context, state)
+                    return .inboxReport(DmRelayInboxReport(stored: stored, duplicates: duplicates,
+                        historical: historical, unresolved: unresolved, historicalUnresolved: historicalUnresolved))
+                }
             }
         }
+    }
+
+    private static func nativeRelayTime() throws -> Int64 {
+        let seconds = Date().timeIntervalSince1970
+        guard seconds.isFinite, seconds >= 1,
+              seconds <= Double(DmRelayCodec.maxSafeInteger - 240) else { throw DmCoordinatorError.unavailable }
+        return Int64(seconds)
     }
 
     private static func requireFullPair(_ context: DmRelayNetworkContext, _ state: State) throws -> Int64 {

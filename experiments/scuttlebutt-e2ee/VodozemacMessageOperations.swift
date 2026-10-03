@@ -12,6 +12,12 @@ enum DmNativeMessageOperation {
     case thread
     case prepareText(clientMessageId: String, text: String)
     case pendingRecords
+    // Native transport phases ONLY. Never expose response/record application
+    // as JS/plugin operations: parsing is not server authentication.
+    case relaySendWire(clientMessageId: String)
+    case relaySendReceipt(record: DmOutboxRecord, response: Data)
+    case relayInboxWire
+    case relayInboxResponse(Data)
 }
 
 enum DmNativeMessageResult {
@@ -21,6 +27,31 @@ enum DmNativeMessageResult {
     case thread(DmNativeThread)
     case outbox(DmOutboxRecord)
     case pendingRecords([DmOutboxRecord])
+    case sendRequest(DmNativeRelaySendRequest)
+    case relayReceipt(DmRelayReceipt)
+    case relayRequest(String)
+    case inboxReport(DmRelayInboxReport)
+}
+
+/// In-memory transport intent, not a plugin value or send permission. The
+/// caller must retain the original native snapshot across dispatch/completion.
+struct DmNativeRelaySendRequest: CustomStringConvertible, CustomDebugStringConvertible {
+    let wire: String
+    let record: DmOutboxRecord
+    var description: String { "NativeRelaySendRequest(<native-only>)" }
+    var debugDescription: String { description }
+}
+
+struct DmRelayInboxReport: Equatable {
+    let stored: Int
+    let duplicates: Int
+    let historical: Int
+    let unresolved: Int
+    let historicalUnresolved: Int
+    init(stored: Int, duplicates: Int, historical: Int = 0, unresolved: Int = 0, historicalUnresolved: Int = 0) {
+        self.stored = stored; self.duplicates = duplicates; self.historical = historical
+        self.unresolved = unresolved; self.historicalUnresolved = historicalUnresolved
+    }
 }
 
 /// Public out-of-band pairing material, not proof of the human/account behind

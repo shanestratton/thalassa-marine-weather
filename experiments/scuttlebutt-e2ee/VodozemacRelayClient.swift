@@ -4,18 +4,6 @@
 // a parser alone never establishes server authenticity.
 import Foundation
 
-struct DmRelayInboxReport: Equatable {
-    let stored: Int
-    let duplicates: Int
-    let historical: Int
-    let unresolved: Int
-    let historicalUnresolved: Int
-    init(stored: Int, duplicates: Int, historical: Int = 0, unresolved: Int = 0, historicalUnresolved: Int = 0) {
-        self.stored = stored; self.duplicates = duplicates; self.historical = historical
-        self.unresolved = unresolved; self.historicalUnresolved = historicalUnresolved
-    }
-}
-
 final class VodozemacRelayClient {
     private let coordinator: VodozemacDmCoordinator
     private let transport: VodozemacRelayTransport

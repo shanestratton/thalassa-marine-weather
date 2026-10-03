@@ -70,6 +70,66 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 3 October native relay send and receive
+
+A new native relay client prepares and applies messages through the closed
+facade dispatcher. It resolves a message ID to the exact sealed outbox record;
+native code supplies each request nonce and expiry. The original account,
+credential, peer and deadline snapshot is retained across HTTP. No authority
+lock crosses an await, and no replacement snapshot can consume an old response.
+Receipt parsing matches the durable record before acceptance or rejection is
+committed. Already-terminal exact IDs return their sealed decision without a
+network request; acceptance still means server acceptance, not delivery/read.
+
+Inbox reads rescan from zero in batches of at most 16. Complete structural and
+routing validation precedes any decryption or inbox mutation. Commits remain
+per-row: a later crypto/storage conflict can leave earlier valid rows committed,
+and an explicit rescan reconciles them. This is not batch atomicity, a scalable
+cursor, automatic unresolved recovery or proof that an empty batch is caught up.
+Only counts leave the relay client; plaintext remains in guarded native history.
+Raw response application is native-only and absent from the auth-only plugin.
+
+Observed evidence on frozen sources:
+
+- **81 scoped-relay assertions passed** using real Olm provider bytes, Directory,
+  facade, Keychain and sealed SQLite, with synthetic Auth/relay responses through
+  URLProtocol. Covered exact ciphertext/text/time after lost or malformed replies,
+  fresh native nonces and independently checked Ed25519 signatures, terminal
+  idempotency/conflicts, refresh/logout during flight, cancellation, complete
+  malformed-batch refusal, actual native opening/replies, duplicate rescans and
+  the 16-row bound. Race gates explicitly report release without timeout;
+  fixture request counts do not prove server commits or live delivery.
+- All nine disposable simulator phases also passed. The earlier research client
+  exchanged four actual encrypted messages over ordinary HTTPS and local SQL,
+  with restarts, exact retries and unresolved recovery. The 266 Auth, 247
+  directory/facade, 40 enrollment-intent, 65 messaging-authority and 103
+  pairing/history assertions passed again. The new scoped client was exercised
+  by synthetic transport responses, **not** that local SQL exchange or the
+  hosted relay. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-NHusGJ/exchange-run.json`.
+  The simulator and temporary CA were removed.
+- The first attempt, `thalassa-native-exchange-6EAuSI`, failed because the new
+  relay fixture omitted the transport's outer response envelope. Its failed
+  receipt is retained and its simulator was removed. The corrected fixture also
+  closes the gate-timeout false-pass gap found in internal review. No assertion
+  from that failed attempt is counted as a pass.
+- All 25 exact simulator-tested Swift sources compiled/linked unsigned for
+  physical iOS, without signing, installation or execution. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-tD4qfx/compile.json`.
+  Cached provider archives were hashed, not rebuilt or independently attested.
+- The separate auth-only Capacitor app compiled/linked unsigned with its 15
+  current Swift sources and unchanged existing research web bundle. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-auth-only-build-vsfcbx/build-receipt.json`.
+  No screen/SDK suite rerun, app signing/install/launch, live login, human device
+  enrollment, cloud deployment or primary-app sync occurred in this slice.
+
+Scoped registration acknowledgment and full-pin prekey claim integration remain
+missing. These send/receive operations do not establish enrollment or claim
+readiness, bilateral block policy, a complete private-message port, pairing UI,
+usable restart history, human-device exchange or independent security review.
+They remain isolated research, not functioning E2EE in Thalassa. The documentation
+records those distinctions rather than treating fixture passes as release gates.
+
 ### 3 October native messaging authority and sealed pairing history
 
 The native facade now captures an opaque, nonserializable messaging snapshot
@@ -140,7 +200,7 @@ is absent, not fabricated sender time. Historical owner/peer generations remain
 hidden but consume the bounded 16-outgoing/16-incoming capacity. Cold launch's
 explicit sign-out still advances owner generation on reauthentication, so normal
 history continuity requires a deliberate policy before a usable device pilot.
-Scoped relay enrollment, full-pin claim checking, receive/receipt commands,
+Scoped relay enrollment, full-pin claim checking, plugin receive/receipt wiring,
 pairing UI, physical iPhone/iPad exchange and independent review remain pending.
 Internal agent review is development evidence, not independent audit.
 
