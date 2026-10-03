@@ -12,6 +12,7 @@ export default {
             'tests/E2eeResearchSupabaseAuth.test.ts',
             'tests/E2eeResearchHttpGateway.test.ts',
             'tests/E2eeHostedGateway.test.ts',
+            'tests/ResearchRelayPolicy.test.ts',
         ],
         maxWorkers: 1,
         fileParallelism: false,

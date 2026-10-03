@@ -207,7 +207,7 @@ BEGIN
        OR NOT e2ee_research.valid_id(value->>'userId')
        OR NOT e2ee_research.valid_id(value->>'deviceId')
        OR NOT e2ee_research.valid_id(value->>'requestId')
-       OR value->>'action' NOT IN ('revoke','block','claim','send','list')
+       OR value->>'action' NOT IN ('revoke','block','claim','send','list','policy')
        OR NOT e2ee_research.valid_uint(value->'expiresAt')
        OR (value->>'expiresAt')::bigint = 0
        OR value->>'payload' COLLATE "C" ~ '[^ -~]'
@@ -251,7 +251,7 @@ BEGIN
             RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
         END IF;
         canonical := format('["%s",%s]', value->>0, value->>1);
-    WHEN 'claim' THEN
+    WHEN 'claim', 'policy' THEN
         IF jsonb_array_length(value) <> 3
            OR EXISTS (SELECT 1 FROM jsonb_array_elements(value) AS item(value)
                       WHERE jsonb_typeof(item.value) <> 'string' OR NOT e2ee_research.valid_id(item.value #>> '{}')) THEN
@@ -582,7 +582,8 @@ CREATE FUNCTION e2ee_research.execute_request(actor text, device text, request_i
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
 AS $$
 DECLARE request jsonb; arguments jsonb; existing e2ee_research.requests;
-        registered e2ee_research.devices; envelope jsonb; outcome jsonb; now_seconds bigint;
+        registered e2ee_research.devices; peer e2ee_research.devices;
+        envelope jsonb; outcome jsonb; now_seconds bigint; request_exists boolean;
 BEGIN
     PERFORM e2ee_research.lock_pilot();
     request := e2ee_research.parse_request(request_wire);
@@ -598,10 +599,33 @@ BEGIN
     END IF;
     SELECT * INTO existing FROM e2ee_research.requests entry
     WHERE entry.owner_id = actor AND entry.device_id = device AND entry.request_id = execute_request.request_id;
-    IF FOUND THEN
-        IF NOT e2ee_research.same_text(existing.request_wire, execute_request.request_wire) THEN
+    request_exists := FOUND;
+    IF request_exists AND NOT e2ee_research.same_text(existing.request_wire, execute_request.request_wire) THEN
+        RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+    END IF;
+    IF action = 'policy' THEN
+        -- This is a fresh read under the same global lock as block/revoke/send.
+        -- Never retain an old false flag in the mutation nonce ledger, and never
+        -- consume its bounded budget. A known revoked actor may diagnose denial.
+        arguments := e2ee_research.parse_request_payload(action, payload);
+        now_seconds := floor(extract(epoch FROM clock_timestamp()))::bigint;
+        SELECT * INTO registered FROM e2ee_research.devices WHERE user_id = actor AND device_id = device;
+        IF NOT FOUND OR expires_at <= now_seconds OR expires_at > now_seconds + 300
+           OR e2ee_research.same_text(actor, arguments->>0)
+           OR e2ee_research.same_text(device, arguments->>1) THEN
             RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
         END IF;
+        SELECT * INTO peer FROM e2ee_research.devices
+        WHERE user_id = arguments->>0 AND device_id = arguments->>1 AND identity_key_id = arguments->>2;
+        IF NOT FOUND THEN RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023'; END IF;
+        RETURN jsonb_build_object(
+            'requestId', request_id, 'ownerUserId', actor, 'ownerDeviceId', device,
+            'peerUserId', peer.user_id, 'peerDeviceId', peer.device_id, 'peerIdentityKeyId', peer.identity_key_id,
+            'ownerRevoked', registered.revoked, 'peerRevoked', peer.revoked,
+            'blockedByMe', EXISTS (SELECT 1 FROM e2ee_research.blocks WHERE owner_id = actor AND other_id = peer.user_id AND blocked),
+            'blockedByPeer', EXISTS (SELECT 1 FROM e2ee_research.blocks WHERE owner_id = peer.user_id AND other_id = actor AND blocked));
+    END IF;
+    IF request_exists THEN
         -- Send/block/revoke receipts describe an immutable committed decision,
         -- not current permission. Reads and key claims still require authority
         -- at replay time; an old nonce must not bypass revocation or a block.

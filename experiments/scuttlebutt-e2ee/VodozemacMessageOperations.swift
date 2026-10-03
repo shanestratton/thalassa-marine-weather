@@ -15,9 +15,17 @@ enum DmNativeMessageOperation {
     // Native transport phases ONLY. Never expose response/record application
     // as JS/plugin operations: parsing is not server authentication.
     case relaySendWire(clientMessageId: String)
-    case relaySendReceipt(record: DmOutboxRecord, response: Data)
+    case relaySendReceipt(request: DmNativeRelaySendRequest, response: Data)
+    // Owner-only, exact rejected receipt from the original HTTPS completion.
+    // Never exposes an acceptance bypass or a JS-supplied result application.
+    case relayRejectedReceipt(record: DmOutboxRecord, response: Data)
     case relayInboxWire
-    case relayInboxResponse(Data)
+    case relayInboxResponse(request: DmNativeRelayInboxRequest, response: Data)
+    case relayPolicyWire
+    case relayPolicyResponse(request: DmNativeRelayPolicyRequest, response: Data)
+    case relayPolicyState
+    case relayPolicyGuard(DmNativeRelayPolicyPermit)
+    case invalidateRelayPolicy
     case relayEnrollmentState
     case relayRegistrationWire
     case relayRegistrationResponse(wire: String, response: Data)
@@ -39,6 +47,9 @@ enum DmNativeMessageResult {
     case enrollmentState(DmNativeRelayEnrollmentState)
     case registrationRequest(String)
     case claimRequest(DmNativeRelayClaimRequest)
+    case policyRequest(DmNativeRelayPolicyRequest)
+    case policyState(DmNativeRelayPolicyState)
+    case inboxRequest(DmNativeRelayInboxRequest)
 }
 
 // Historical control-plane facts ONLY. An acknowledgement is not current
@@ -72,6 +83,7 @@ struct DmNativeRelayClaimRequest: CustomStringConvertible, CustomDebugStringConv
 struct DmNativeRelaySendRequest: CustomStringConvertible, CustomDebugStringConvertible {
     let wire: String
     let record: DmOutboxRecord
+    let policy: DmNativeRelayPolicyPermit
     var description: String { "NativeRelaySendRequest(<native-only>)" }
     var debugDescription: String { description }
 }

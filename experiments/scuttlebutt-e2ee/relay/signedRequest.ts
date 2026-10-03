@@ -7,7 +7,7 @@ export const RESEARCH_REQUEST_VERSION = 1 as const;
 export const RESEARCH_REQUEST_PROTOCOL = 'olm-v1' as const;
 export const MAX_RESEARCH_REQUEST_BYTES = 100 * 1024;
 export const MAX_RESEARCH_REQUEST_AGE_SECONDS = 300;
-export type ResearchRequestAction = 'revoke' | 'block' | 'claim' | 'send' | 'list';
+export type ResearchRequestAction = 'revoke' | 'block' | 'claim' | 'send' | 'list' | 'policy';
 
 export interface UnsignedResearchRequest {
     readonly version: typeof RESEARCH_REQUEST_VERSION;
@@ -31,7 +31,7 @@ const BASE64 = /^[A-Za-z0-9+/]+$/;
 const NON_ASCII = /[^\x20-\x7e]/;
 const UNSIGNED_FIELDS = ['version', 'protocol', 'userId', 'deviceId', 'action', 'requestId', 'expiresAt', 'payload'];
 const SIGNED_FIELDS = [...UNSIGNED_FIELDS, 'signature'];
-const ACTIONS: readonly unknown[] = ['revoke', 'block', 'claim', 'send', 'list'];
+const ACTIONS: readonly unknown[] = ['revoke', 'block', 'claim', 'send', 'list', 'policy'];
 const fail = (): never => {
     throw new ResearchGatewayError();
 };
@@ -105,6 +105,7 @@ function validatePayload(action: ResearchRequestAction, payload: unknown, userId
                 return fail();
             break;
         case 'claim':
+        case 'policy':
             if (parts.length !== 3 || !parts.every(identifier) || parts[0] === userId || parts[1] === deviceId)
                 return fail();
             break;

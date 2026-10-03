@@ -2,6 +2,8 @@
 // not an app/plugin, live Auth, hosted relay, physical pairing or security audit.
 // Research acceptance/rejection below injects a trusted decision only; it does
 // not prove server acceptance, peer delivery or reading. Output is a count only.
+// Closed registration/claim/policy responses are similarly trusted synthetic
+// decisions, not authenticated HTTPS. There is no operational readiness bypass.
 import Foundation
 import CryptoKit
 
@@ -142,6 +144,52 @@ private func dmPairingHistoryPrepare(_ coordinator: VodozemacDmCoordinator, id: 
     return record
 }
 
+private func dmPairingHistoryPolicy(_ coordinator: VodozemacDmCoordinator) throws {
+    guard case .policyRequest(let request) = try dmPairingHistoryExecute(coordinator, .relayPolicyWire) else {
+        throw DmPairingHistoryProbeError.assertion("closed policy query fixture result")
+    }
+    let result = try dmScopedEnrollmentJSON(["requestId": request.requestId,
+        "ownerUserId": request.context.userId, "ownerDeviceId": request.context.deviceId,
+        "peerUserId": request.peer.userId, "peerDeviceId": request.peer.deviceId,
+        "peerIdentityKeyId": request.peer.identityKeyId, "ownerRevoked": false,
+        "peerRevoked": false, "blockedByMe": false, "blockedByPeer": false])
+    guard case .policyState(let state) = try dmPairingHistoryExecute(coordinator,
+        .relayPolicyResponse(request: request, response: result)),
+          !state.ownerRevoked, !state.peerRevoked, !state.blockedByMe, !state.blockedByPeer else {
+        throw DmPairingHistoryProbeError.assertion("closed trusted clear policy fixture result")
+    }
+}
+
+private func dmPairingHistoryReady(_ fixture: DmPairingHistoryFixture, aliceGeneration: Int64) throws {
+    // Both registrations acknowledge exact real-provider signed bundles. Only
+    // the lower UUID actor claims; responder readiness does NOT invent a claim.
+    _ = try dmPairingHistoryConfirm(fixture.bob, card: dmPairingHistoryCard(fixture.alice))
+    var peerWire: String?
+    for coordinator in [fixture.alice, fixture.bob] {
+        guard case .registrationRequest(let wire) = try dmPairingHistoryExecute(coordinator, .relayRegistrationWire),
+              case .publicIdentity(let identity) = try dmPairingHistoryExecute(coordinator, .publicIdentity) else {
+            throw DmPairingHistoryProbeError.assertion("closed registration fixture bundle")
+        }
+        _ = try DmRelayCodec.verifyBundle(wire, now: Int64(Date().timeIntervalSince1970))
+        guard case .enrollmentState(let state) = try dmPairingHistoryExecute(coordinator,
+            .relayRegistrationResponse(wire: wire, response: dmScopedEnrollmentAck(identity))),
+              state.registration == .acknowledged, state.claim == .none else {
+            throw DmPairingHistoryProbeError.assertion("closed trusted registration acknowledgement fixture")
+        }
+        if coordinator === fixture.bob { peerWire = wire }
+    }
+    guard let peerWire,
+          case .claimRequest(let request) = try dmPairingHistoryExecute(fixture.alice, .relayClaimWire,
+            peerGeneration: aliceGeneration),
+          case .enrollmentState(let claim) = try dmPairingHistoryExecute(fixture.alice,
+            .relayClaimResponse(request: request, response: dmScopedEnrollmentClaimResult(peerWire)),
+            peerGeneration: aliceGeneration), claim.claim == .verified else {
+        throw DmPairingHistoryProbeError.assertion("closed trusted lower-device claim fixture")
+    }
+    try dmPairingHistoryPolicy(fixture.alice)
+    try dmPairingHistoryPolicy(fixture.bob)
+}
+
 private func dmPairingHistoryMessage(_ thread: DmNativeThread, id: String,
                                     direction: DmNativeThreadDirection) throws -> DmNativeThreadMessage {
     let matches = thread.messages.filter { $0.clientMessageId == id && $0.direction == direction }
@@ -243,6 +291,7 @@ private func dmPairingHistoryMessages(_ checks: DmPairingHistoryChecks) throws {
             throw DmPairingHistoryProbeError.assertion("reciprocal confirmed native generations")
         }
         try checks.require(b.status == .confirmed && b.sessionRole == .responder, "higher native device waits as responder")
+        try dmPairingHistoryReady(p, aliceGeneration: ag)
         let beforeResponder = try p.bobStore.read()
         try checks.coordinator(.unavailable, "responder cannot manufacture an initial session") {
             _ = try dmPairingHistoryPrepare(p.bob, id: "responder-first", text: "fixture premature reply", peerGeneration: bg)
@@ -285,6 +334,7 @@ private func dmPairingHistoryMessages(_ checks: DmPairingHistoryChecks) throws {
         let restored = try VodozemacDmCoordinator(store: reopened)
         try checks.require(try dmPairingHistoryMessage(dmPairingHistoryThread(restored, peerGeneration: ag),
             id: "pairing-opening", direction: .outgoing) == pending, "pending text and native-local time survive sealed reopen")
+        try dmPairingHistoryPolicy(restored)
         try checks.require(try dmPairingHistoryPrepare(restored, id: "pairing-opening", text: text, peerGeneration: ag) == first,
             "reopened pending retry does not encrypt again")
         try p.alice.confirmAcceptance(first, owner: p.aliceOwner, peerGeneration: ag,
@@ -343,6 +393,15 @@ private func dmPairingHistoryLegacy(_ checks: DmPairingHistoryChecks) throws {
         try p.alice.installPeerForResearch(DmPeerContext(userId: bob.identity.userId, deviceId: bob.identity.deviceId,
             identityKeyId: bob.identity.identityKeyId, curve: bob.identity.curve, prekey: bob.identity.prekey,
             generation: 1, status: .accepted), owner: p.aliceOwner)
+        // Explicit CLOSED trusted-decision fixture, not authenticated HTTP.
+        // Remove unrelated missing-enrollment denial before testing acquisition
+        // of policy authority for an incomplete legacy public identity.
+        guard case .registrationRequest(let wire) = try dmPairingHistoryExecute(p.alice, .relayRegistrationWire) else {
+            throw DmPairingHistoryProbeError.assertion("legacy native enrollment fixture")
+        }
+        let identity = try p.alice.publicIdentity(owner: p.aliceOwner)
+        let acknowledgement = try dmScopedEnrollmentJSON(["registered": true, "userId": identity.userId, "deviceId": identity.deviceId])
+        _ = try dmPairingHistoryExecute(p.alice, .relayRegistrationResponse(wire: wire, response: acknowledgement))
         let before = try p.aliceStore.read()
         let state = try dmPairingHistoryState(p.alice, peerGeneration: 1)
         try checks.require(state.status == .legacyUnverified && state.peerGeneration == 1 && state.confirmedFingerprint == nil,
@@ -350,7 +409,10 @@ private func dmPairingHistoryLegacy(_ checks: DmPairingHistoryChecks) throws {
         try checks.refuses("confirm cannot silently upgrade an existing partial legacy pin") {
             _ = try dmPairingHistoryConfirm(p.alice, card: bob)
         }
-        try checks.refuses("legacy partial pin cannot prepare native pilot text") {
+        try checks.coordinator(.unavailable, "registered legacy partial pin cannot acquire current policy authority") {
+            _ = try dmPairingHistoryExecute(p.alice, .relayPolicyWire)
+        }
+        try checks.refuses("legacy partial pin and unknown policy jointly refuse pilot preparation") {
             _ = try dmPairingHistoryPrepare(p.alice, id: "legacy-unverified", text: "fixture legacy draft", peerGeneration: 1)
         }
         try checks.require(try p.aliceStore.read() == before, "legacy refusals preserve identity ratchet and sealed revision")
@@ -363,6 +425,7 @@ private func dmPairingHistoryOldOutbox(_ checks: DmPairingHistoryChecks) throws 
         guard let generation = paired.peerGeneration else {
             throw DmPairingHistoryProbeError.assertion("old outbox fixture native peer generation")
         }
+        try dmPairingHistoryReady(p, aliceGeneration: generation)
         let text = "fixture optional old outgoing text"
         let record = try dmPairingHistoryPrepare(p.alice, id: "old-outbox", text: text, peerGeneration: generation)
         let snapshot = try p.aliceStore.read()
@@ -382,6 +445,8 @@ private func dmPairingHistoryOldOutbox(_ checks: DmPairingHistoryChecks) throws 
             storeID: p.aliceStore.storeID)
         defer { reopened.close() }
         let restored = try VodozemacDmCoordinator(store: reopened)
+        try dmPairingHistoryPolicy(restored)
+        let readyLegacy = try reopened.read()
         let missing = try dmPairingHistoryMessage(dmPairingHistoryThread(restored, peerGeneration: generation),
             id: "old-outbox", direction: .outgoing)
         try checks.require(missing.text == nil && missing.localCreatedAtMillis == nil && missing.delivery == .pending,
@@ -396,7 +461,9 @@ private func dmPairingHistoryOldOutbox(_ checks: DmPairingHistoryChecks) throws 
         let retried = try dmPairingHistoryMessage(dmPairingHistoryThread(restored, peerGeneration: generation),
             id: "old-outbox", direction: .outgoing)
         try checks.require(retried == missing, "old pending retry does not manufacture historical text or time")
-        try checks.require(try reopened.read() == legacy, "optional-field reads and exact retry leave sealed revision unchanged")
+        try checks.require(readyLegacy.payload == legacy.payload,
+            "explicit reopened policy query does not alter optional legacy outgoing fields")
+        try checks.require(try reopened.read() == readyLegacy, "optional-field reads and exact retry leave ready sealed revision unchanged")
     }
 }
 
@@ -406,6 +473,7 @@ private func dmPairingHistoryPeerGeneration(_ checks: DmPairingHistoryChecks) th
         guard let generation = paired.peerGeneration else {
             throw DmPairingHistoryProbeError.assertion("peer-history fixture native generation")
         }
+        try dmPairingHistoryReady(p, aliceGeneration: generation)
         _ = try dmPairingHistoryPrepare(p.alice, id: "peer-historical", text: "fixture historical peer draft",
             peerGeneration: generation)
         let stale = try dmPairingHistoryContext(p.alice, peerGeneration: generation)
@@ -432,8 +500,15 @@ private func dmPairingHistoryCapacity(_ checks: DmPairingHistoryChecks) throws {
         guard let ag = a.peerGeneration, let bg = b.peerGeneration else {
             throw DmPairingHistoryProbeError.assertion("capacity fixture native peer generations")
         }
+        try dmPairingHistoryReady(p, aliceGeneration: ag)
         var first: DmOutboxRecord?
         for index in 0..<16 {
+            if index > 0 && index % 4 == 0 {
+                // Explicit trusted fixture-query boundaries keep this provider
+                // capacity test independent of host load; no gate is bypassed.
+                try dmPairingHistoryPolicy(p.alice)
+                try dmPairingHistoryPolicy(p.bob)
+            }
             let at = "fixture bounded outgoing \(index)", bt = "fixture bounded reply \(index)"
             let sent = try dmPairingHistoryPrepare(p.alice, id: "capacity-a-\(index)", text: at, peerGeneration: ag)
             if index == 0 { first = sent }

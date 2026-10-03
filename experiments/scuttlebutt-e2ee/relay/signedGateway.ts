@@ -18,6 +18,7 @@ import {
     parseResearchSendPayload,
     parseResearchSignedRequest,
     verifyResearchRequestSignature,
+    type ResearchSignedRequest,
 } from './signedRequest.ts';
 
 export type ResearchSignedRpc = ResearchRpc | 'lookup_request_key' | 'execute_request';
@@ -28,7 +29,29 @@ export interface ResearchSignedGatewayDependencies {
     rpc(name: ResearchSignedRpc, args: readonly unknown[]): Promise<unknown>;
     nowSeconds(): number;
 }
+/** Current registered-device facts, not a cached enrollment receipt or send grant. */
+export interface ResearchPolicyStatus {
+    readonly requestId: string;
+    readonly ownerUserId: string;
+    readonly ownerDeviceId: string;
+    readonly peerUserId: string;
+    readonly peerDeviceId: string;
+    readonly peerIdentityKeyId: string;
+    readonly ownerRevoked: boolean;
+    readonly peerRevoked: boolean;
+    readonly blockedByMe: boolean;
+    readonly blockedByPeer: boolean;
+}
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
+const POLICY_BINDING_FIELDS = [
+    'requestId',
+    'ownerUserId',
+    'ownerDeviceId',
+    'peerUserId',
+    'peerDeviceId',
+    'peerIdentityKeyId',
+];
+const POLICY_FLAG_FIELDS = ['ownerRevoked', 'peerRevoked', 'blockedByMe', 'blockedByPeer'];
 const RECORD_FIELDS = [
     'ownerUserId',
     'ownerSessionGeneration',
@@ -67,6 +90,24 @@ function sendReceipt(
     if (!RECORD_FIELDS.every((key) => receipt[key] === (record as unknown as Record<string, unknown>)[key]))
         return fail();
     return Object.freeze(receipt) as unknown as Readonly<EncryptedDmAcceptance | EncryptedDmRejection>;
+}
+function policyStatus(value: unknown, request: ResearchSignedRequest): Readonly<ResearchPolicyStatus> {
+    const receipt = readFields(value, [...POLICY_BINDING_FIELDS, ...POLICY_FLAG_FIELDS]);
+    const [peerUserId, peerDeviceId, peerIdentityKeyId] = JSON.parse(request.payload) as string[];
+    const binding = {
+        requestId: request.requestId,
+        ownerUserId: request.userId,
+        ownerDeviceId: request.deviceId,
+        peerUserId,
+        peerDeviceId,
+        peerIdentityKeyId,
+    };
+    if (
+        !POLICY_BINDING_FIELDS.every((field) => receipt[field] === binding[field as keyof typeof binding]) ||
+        !POLICY_FLAG_FIELDS.every((field) => typeof receipt[field] === 'boolean')
+    )
+        return fail();
+    return Object.freeze(receipt) as unknown as Readonly<ResearchPolicyStatus>;
 }
 
 export function createResearchSignedGateway(deps: ResearchSignedGatewayDependencies) {
@@ -110,9 +151,10 @@ export function createResearchSignedGateway(deps: ResearchSignedGatewayDependenc
                     request.expiresAt,
                     serializedRequest,
                 ]);
-                return request.action === 'send'
-                    ? sendReceipt(result, parseResearchSendPayload(request.payload, actor, request.deviceId))
-                    : result;
+                if (request.action === 'send')
+                    return sendReceipt(result, parseResearchSendPayload(request.payload, actor, request.deviceId));
+                if (request.action === 'policy') return policyStatus(result, request);
+                return result;
             });
         },
     });

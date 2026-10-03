@@ -214,7 +214,7 @@ try {
     const sourcePaths = [
         ...['ResearchApp.swift', 'ScuttlebuttResearchAuthPlugin.swift', 'ResearchAuthHost.swift'].map((name) => join(HERE, name)),
         ...['VodozemacSealedStore.swift', 'VodozemacDmFrame.swift', 'VodozemacDmCoordinator.swift', 'VodozemacMessageOperations.swift',
-            'VodozemacRelayCodec.swift', 'VodozemacRelayTransport.swift', 'VodozemacRelayResult.swift',
+            'VodozemacRelayCodec.swift', 'VodozemacRelayTransport.swift', 'VodozemacRelayResult.swift', 'VodozemacRelayPolicy.swift',
             'VodozemacScopedRelayClient.swift', 'VodozemacSupabaseAuth.swift',
             'VodozemacAuthSession.swift', 'VodozemacAccountDirectory.swift', 'VodozemacSessionFacade.swift'].map((name) => join(EXPERIMENT, name)),
     ];

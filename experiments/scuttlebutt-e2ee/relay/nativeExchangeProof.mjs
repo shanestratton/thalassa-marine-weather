@@ -161,6 +161,8 @@ try {
             'VodozemacPairingHistoryProbe.swift',
             'VodozemacScopedRelayProbe.swift',
             'VodozemacScopedEnrollmentProbe.swift',
+            'VodozemacReadinessProbe.swift',
+            'VodozemacRelayPolicy.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
             'VodozemacLifecycleProbe.swift',
@@ -390,6 +392,8 @@ try {
             receipt.nativeScopedRelayFixtureAssertions = status.scopedRelayFixtureAssertions;
             assert(Number.isSafeInteger(status.scopedEnrollmentFixtureAssertions) && status.scopedEnrollmentFixtureAssertions > 0);
             receipt.nativeScopedEnrollmentFixtureAssertions = status.scopedEnrollmentFixtureAssertions;
+            assert(Number.isSafeInteger(status.readinessFixtureAssertions) && status.readinessFixtureAssertions > 0);
+            receipt.nativeReadinessFixtureAssertions = status.readinessFixtureAssertions;
         }
         receipt.completedPhases.push({
             phase,

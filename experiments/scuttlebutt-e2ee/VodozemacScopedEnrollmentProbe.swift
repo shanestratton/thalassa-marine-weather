@@ -2,14 +2,15 @@
 // Directory/Facade authority, Keychain and sealed SQLite. No live enrollment,
 // hosted exchange, physical devices, plugin activation or independent audit.
 // Enrollment facts are historical control-plane evidence, NOT send permission.
-// Existing send/receive operations are not newly gated by this enrollment slice.
+// Enrollment-only cases deliberately do not grant operational readiness.
+// Prefixed internal helpers are shared only by the isolated readiness probe.
 import Foundation
 import Darwin
 import CryptoKit
 
 enum DmScopedEnrollmentProbeError: Error { case assertion(String) }
 
-private final class DmScopedEnrollmentChecks {
+final class DmScopedEnrollmentChecks {
     private(set) var assertions = 0
     func require(_ condition: @autoclosure () throws -> Bool, _ label: String) throws {
         guard try condition() else { throw DmScopedEnrollmentProbeError.assertion(label) }
@@ -32,10 +33,10 @@ private final class DmScopedEnrollmentChecks {
     }
 }
 
-private let dmScopedEnrollmentOrigin = "https://scoped-enrollment-fixture.invalid"
+let dmScopedEnrollmentOrigin = "https://scoped-enrollment-fixture.invalid"
 private let dmScopedEnrollmentHost = "scoped-enrollment-fixture.invalid"
 
-private final class DmScopedEnrollmentGate: @unchecked Sendable {
+final class DmScopedEnrollmentGate: @unchecked Sendable {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var reached = false
@@ -55,16 +56,25 @@ private final class DmScopedEnrollmentGate: @unchecked Sendable {
     }
 }
 
-private struct DmScopedEnrollmentScript {
+enum DmScopedEnrollmentPolicyFault {
+    case duplicateRequestId, numericBoolean, stringBoolean, wrongRequestId
+    case wrongOwnerUser, wrongOwnerDevice, wrongPeerUser, wrongPeerDevice, wrongPeerKey, missingField, extraField
+}
+struct DmScopedEnrollmentScript {
     let path: String
     let result: Data
     let loseAfterBody: Bool
     let gate: DmScopedEnrollmentGate?
-    init(path: String, result: Data, loseAfterBody: Bool = false, gate: DmScopedEnrollmentGate? = nil) {
+    let policyState: DmNativeRelayPolicyState?
+    let policyFault: DmScopedEnrollmentPolicyFault?
+    init(path: String, result: Data = Data(), loseAfterBody: Bool = false, gate: DmScopedEnrollmentGate? = nil,
+         policyState: DmNativeRelayPolicyState? = nil, policyFault: DmScopedEnrollmentPolicyFault? = nil) {
         self.path = path; self.result = result; self.loseAfterBody = loseAfterBody; self.gate = gate
+        self.policyState = policyState
+        self.policyFault = policyFault
     }
 }
-private struct DmScopedEnrollmentCapture {
+struct DmScopedEnrollmentCapture {
     let body: Data
     let userId: String
     let url: URL
@@ -72,7 +82,7 @@ private struct DmScopedEnrollmentCapture {
     let capturedAt: Int64
 }
 
-private final class DmScopedEnrollmentProtocol: URLProtocol, @unchecked Sendable {
+final class DmScopedEnrollmentProtocol: URLProtocol, @unchecked Sendable {
     private static let fixtureLock = NSLock()
     private static var users: [String: String] = [:]
     private static var scripts: [DmScopedEnrollmentScript] = []
@@ -127,10 +137,51 @@ private final class DmScopedEnrollmentProtocol: URLProtocol, @unchecked Sendable
         let script = Self.scripts.isEmpty ? nil : Self.scripts.removeFirst()
         Self.fixtureLock.unlock()
         guard let script, script.path == url.path else { fail(); return }
+        let capturedBody = body
         // A held relay reply must not block concurrent native Auth callbacks.
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             if let gate = script.gate, !gate.hold() { fail(); return }
-            respond(script.result, url: url, loseAfterBody: script.loseAfterBody)
+            do {
+                let result: Data
+                if let policy = script.policyState {
+                    let frame = try JSONDecoder().decode(DmScopedEnrollmentFrame.self, from: capturedBody)
+                    guard frame.action == "policy",
+                          let target = try JSONSerialization.jsonObject(with: Data(frame.payload.utf8)) as? [String], target.count == 3 else {
+                        fail(); return
+                    }
+                    var fields: [String: Any] = ["requestId": frame.requestId, "ownerUserId": user,
+                        "ownerDeviceId": frame.deviceId, "peerUserId": target[0], "peerDeviceId": target[1],
+                        "peerIdentityKeyId": target[2], "ownerRevoked": policy.ownerRevoked,
+                        "peerRevoked": policy.peerRevoked, "blockedByMe": policy.blockedByMe,
+                        "blockedByPeer": policy.blockedByPeer]
+                    if let fault = script.policyFault { switch fault {
+                    case .numericBoolean: fields["ownerRevoked"] = 0
+                    case .stringBoolean: fields["ownerRevoked"] = "false"
+                    case .wrongRequestId:
+                        fields["requestId"] = frame.requestId == "00000000-0000-4000-8000-000000000099"
+                            ? "00000000-0000-4000-8000-000000000098" : "00000000-0000-4000-8000-000000000099"
+                    case .wrongOwnerUser: fields["ownerUserId"] = "00000000-0000-4000-8000-000000000099"
+                    case .wrongOwnerDevice:
+                        fields["ownerDeviceId"] = frame.deviceId == "00000000-0000-4000-8000-000000000099"
+                            ? "00000000-0000-4000-8000-000000000098" : "00000000-0000-4000-8000-000000000099"
+                    case .wrongPeerUser: fields["peerUserId"] = "00000000-0000-4000-8000-000000000099"
+                    case .wrongPeerDevice:
+                        fields["peerDeviceId"] = target[1] == "00000000-0000-4000-8000-000000000099"
+                            ? "00000000-0000-4000-8000-000000000098" : "00000000-0000-4000-8000-000000000099"
+                    case .wrongPeerKey: fields["peerIdentityKeyId"] = "wrong-native-identity-key"
+                    case .missingField: fields.removeValue(forKey: "ownerDeviceId")
+                    case .extraField: fields["expiresAt"] = 1
+                    case .duplicateRequestId: break
+                    } }
+                    let encoded = try dmScopedEnrollmentJSON(fields)
+                    if case .some(.duplicateRequestId) = script.policyFault {
+                        var duplicate = Data(("{\"requestId\":" + (try DmRelayCodec.quote(frame.requestId)) + ",").utf8)
+                        duplicate.append(contentsOf: encoded.dropFirst())
+                        result = duplicate // Same value twice; no unrelated echo mismatch.
+                    } else { result = encoded }
+                } else { result = script.result }
+                respond(result, url: url, loseAfterBody: script.loseAfterBody)
+            } catch { fail() }
         }
     }
     private func respond(_ result: Data, url: URL, loseAfterBody: Bool = false) {
@@ -155,7 +206,7 @@ private final class DmScopedEnrollmentProtocol: URLProtocol, @unchecked Sendable
     override func stopLoading() { stateLock.lock(); stopped = true; stateLock.unlock() }
 }
 
-private struct DmScopedEnrollmentFrame: Decodable {
+struct DmScopedEnrollmentFrame: Decodable {
     let version: Int
     let protocolName: String
     let userId: String
@@ -176,7 +227,7 @@ private func dmScopedEnrollmentConfiguration() -> URLSessionConfiguration {
     config.protocolClasses = [DmScopedEnrollmentProtocol.self]
     return config
 }
-private func dmScopedEnrollmentAuth() throws -> VodozemacSupabaseAuth {
+func dmScopedEnrollmentAuth() throws -> VodozemacSupabaseAuth {
     try VodozemacSupabaseAuth(projectOrigin: dmScopedEnrollmentOrigin,
         publicApiKey: "sb_publishable_scoped_enrollment_fixture", deadlineSeconds: 3,
         configurationForResearch: { dmScopedEnrollmentConfiguration() })
@@ -185,7 +236,7 @@ private func dmScopedEnrollmentTransport() throws -> VodozemacRelayTransport {
     try VodozemacRelayTransport(serviceOrigin: dmScopedEnrollmentOrigin, deadlineSeconds: 3,
         configurationForResearch: { dmScopedEnrollmentConfiguration() })
 }
-private func dmScopedEnrollmentAwait(_ condition: () -> Bool) async throws {
+func dmScopedEnrollmentAwait(_ condition: () -> Bool) async throws {
     let deadline = ContinuousClock.now.advanced(by: .seconds(2))
     while !condition() {
         guard ContinuousClock.now < deadline else {
@@ -194,10 +245,10 @@ private func dmScopedEnrollmentAwait(_ condition: () -> Bool) async throws {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 }
-private func dmScopedEnrollmentJSON(_ fields: [String: Any]) throws -> Data {
+func dmScopedEnrollmentJSON(_ fields: [String: Any]) throws -> Data {
     try JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys, .withoutEscapingSlashes])
 }
-private func dmScopedEnrollmentAck(_ identity: DmPublicIdentity, wrongUser: Bool = false,
+func dmScopedEnrollmentAck(_ identity: DmPublicIdentity, wrongUser: Bool = false,
                                     wrongDevice: Bool = false, malformed: Bool = false) throws -> Data {
     var registered: Any = true
     if malformed { registered = 1 }
@@ -205,12 +256,12 @@ private func dmScopedEnrollmentAck(_ identity: DmPublicIdentity, wrongUser: Bool
         "userId": wrongUser ? "60000000-0000-4000-8000-000000000099" : identity.userId,
         "deviceId": wrongDevice ? "70000000-0000-4000-8000-000000000099" : identity.deviceId])
 }
-private func dmScopedEnrollmentClaimResult(_ wire: String) throws -> Data {
+func dmScopedEnrollmentClaimResult(_ wire: String) throws -> Data {
     let bundle = try JSONDecoder().decode(DmRelayBundle.self, from: Data(wire.utf8))
     return try dmScopedEnrollmentJSON(["signedBundle": wire, "prekeyId": bundle.prekeyId, "prekey": bundle.prekey])
 }
 
-private final class DmScopedEnrollmentFixture {
+final class DmScopedEnrollmentFixture {
     static let conversationId = "scoped-native-enrollment-fixture"
     let directory: VodozemacAccountDirectory
     let root: URL
@@ -303,7 +354,7 @@ private final class DmScopedEnrollmentFixture {
     }
 }
 
-private final class DmScopedEnrollmentActor {
+final class DmScopedEnrollmentActor {
     let fixture: DmScopedEnrollmentFixture
     let facade: VodozemacSessionFacade
     var account: DmSessionAccount
@@ -355,7 +406,7 @@ private final class DmScopedEnrollmentActor {
         try await renew()
     }
 }
-private func dmScopedEnrollmentLogin(_ fixture: DmScopedEnrollmentFixture, userId: String, bearer: String,
+func dmScopedEnrollmentLogin(_ fixture: DmScopedEnrollmentFixture, userId: String, bearer: String,
                                      directory: VodozemacAccountDirectory? = nil) async throws -> DmScopedEnrollmentActor {
     DmScopedEnrollmentProtocol.install(bearer: bearer, userId: userId)
     let facade = VodozemacSessionFacade(directory: directory ?? fixture.directory)
@@ -370,11 +421,11 @@ private func dmScopedEnrollmentLogin(_ fixture: DmScopedEnrollmentFixture, userI
     }
     return try DmScopedEnrollmentActor(fixture: fixture, facade: facade, account: account, bearer: bearer, card: card)
 }
-private struct DmScopedEnrollmentPair {
+struct DmScopedEnrollmentPair {
     let initiator: DmScopedEnrollmentActor
     let responder: DmScopedEnrollmentActor
 }
-private func dmScopedEnrollmentPair(_ first: DmScopedEnrollmentFixture, _ second: DmScopedEnrollmentFixture)
+func dmScopedEnrollmentPair(_ first: DmScopedEnrollmentFixture, _ second: DmScopedEnrollmentFixture)
     async throws -> DmScopedEnrollmentPair {
     let a = try await dmScopedEnrollmentLogin(first, userId: "50000000-0000-4000-8000-000000000001", bearer: "enrollment-native-a")
     let b = try await dmScopedEnrollmentLogin(second, userId: "60000000-0000-4000-8000-000000000002", bearer: "enrollment-native-b")
@@ -385,14 +436,14 @@ private func dmScopedEnrollmentPair(_ first: DmScopedEnrollmentFixture, _ second
     return a.account.deviceId < b.account.deviceId ? DmScopedEnrollmentPair(initiator: a, responder: b)
         : DmScopedEnrollmentPair(initiator: b, responder: a)
 }
-private func dmScopedEnrollmentRegistered(_ actor: DmScopedEnrollmentActor, checks: DmScopedEnrollmentChecks) async throws {
+func dmScopedEnrollmentRegistered(_ actor: DmScopedEnrollmentActor, checks: DmScopedEnrollmentChecks) async throws {
     DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/register", result: try dmScopedEnrollmentAck(actor.card.identity))])
     let state = try await actor.client.registerDevice(snapshot: actor.snapshot())
     try checks.require(state.registration == .acknowledged && state.claim == .none && state.claimedPrekeyExpiresAt == nil,
         "valid scoped registration persists only acknowledgement fact")
     try checks.require(DmScopedEnrollmentProtocol.captured().count == 1, "scoped registration uses exactly one HTTP request")
 }
-private func dmScopedEnrollmentCrypto(_ store: VodozemacSealedStore) throws -> Data {
+func dmScopedEnrollmentCrypto(_ store: VodozemacSealedStore) throws -> Data {
     guard let fields = try JSONSerialization.jsonObject(with: store.read().payload) as? [String: Any] else {
         throw DmScopedEnrollmentProbeError.assertion("enrollment native crypto fixture")
     }
@@ -429,7 +480,7 @@ private func dmScopedEnrollmentVerifyClaim(_ capture: DmScopedEnrollmentCapture,
 }
 // Raw provider signing is ONLY fixture-data construction. The application
 // client still accepts/rejects through closed operations under native authority.
-private func dmScopedEnrollmentSignedFixture(identity: DmPublicIdentity, signer: DmScopedEnrollmentActor,
+func dmScopedEnrollmentSignedFixture(identity: DmPublicIdentity, signer: DmScopedEnrollmentActor,
                                               prekeyId: String, expiresAt: Int64) throws -> String {
     guard let fields = try JSONSerialization.jsonObject(with: signer.store.read().payload) as? [String: Any],
           let pickle = fields["account"] as? String else {
@@ -442,7 +493,7 @@ private func dmScopedEnrollmentSignedFixture(identity: DmPublicIdentity, signer:
     }
     return try DmRelayCodec.bundleWire(identity, prekeyId: prekeyId, expiresAt: expiresAt, signature: signed.signature)
 }
-private func dmScopedEnrollmentSealedFixture(_ actor: DmScopedEnrollmentActor,
+func dmScopedEnrollmentSealedFixture(_ actor: DmScopedEnrollmentActor,
                                               replacing: (inout [String: Any]) throws -> Void,
                                               operation: () async throws -> Void) async throws {
     // Explicit native test seam ONLY: authenticate and reseal a disposable
@@ -457,7 +508,7 @@ private func dmScopedEnrollmentSealedFixture(_ actor: DmScopedEnrollmentActor,
     do { try await operation() }
     catch {
         if let current = try? actor.store.read() {
-            try? actor.store.commit(expectedRevision: current.revision, payload: original.payload)
+            _ = try? actor.store.commit(expectedRevision: current.revision, payload: original.payload)
         }
         throw error
     }
@@ -756,7 +807,7 @@ func runDmScopedEnrollmentProbe(progressForResearch: ((String) -> Void)? = nil) 
                 "original native token accepts identical wall-valid bundle as positive control")
         } catch {
             if let current = try? negativePair.initiator.store.read() {
-                try? negativePair.initiator.store.commit(expectedRevision: current.revision, payload: beforeFloor.payload)
+                _ = try? negativePair.initiator.store.commit(expectedRevision: current.revision, payload: beforeFloor.payload)
             }
             throw error
         }

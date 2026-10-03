@@ -98,25 +98,43 @@ final class VodozemacRelayTransport {
     func register(bundle: String, credential: DmRelayNetworkCredential,
                   currentContext: @escaping () throws -> DmRelayNetworkContext?) async throws -> Data {
         try await perform(wire: bundle, endpoint: "/v1/register", limit: 4096,
-                          credential: credential, currentContext: currentContext)
+                          credential: credential, dispatchContext: currentContext, completionContext: currentContext)
     }
 
     func dispatch(request: String, credential: DmRelayNetworkCredential,
                   currentContext: @escaping () throws -> DmRelayNetworkContext?) async throws -> Data {
         try await perform(wire: request, endpoint: "/v1/dispatch", limit: 100 * 1024,
-                          credential: credential, currentContext: currentContext)
+                          credential: credential, dispatchContext: currentContext, completionContext: currentContext)
+    }
+
+    /// Native send-only split authority. BOTH readers must return the exact
+    /// original owner-only credential context. The dispatch reader additionally
+    /// validates the original paired snapshot/policy; only completion may omit
+    /// that peer gate so an exact terminal rejection can be settled natively.
+    /// This does not permit acceptance without the coordinator's full gate.
+    func dispatch(request: String, credential: DmRelayNetworkCredential,
+                  dispatchContext: @escaping () throws -> DmRelayNetworkContext?,
+                  completionContext: @escaping () throws -> DmRelayNetworkContext?) async throws -> Data {
+        guard credential.context.peerGeneration == nil, !request.isEmpty, request.utf8.count <= 100 * 1024,
+              request.utf8.allSatisfy({ (32...126).contains($0) }),
+              let object = try? JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any],
+              object["action"] as? String == "send" else { throw DmRelayTransportError.unresolved }
+        return try await perform(wire: request, endpoint: "/v1/dispatch", limit: 100 * 1024,
+            credential: credential, dispatchContext: dispatchContext, completionContext: completionContext)
     }
 
     private func perform(wire: String, endpoint: String, limit: Int,
                          credential: DmRelayNetworkCredential,
-                         currentContext: @escaping () throws -> DmRelayNetworkContext?) async throws -> Data {
+                         dispatchContext: @escaping () throws -> DmRelayNetworkContext?,
+                         completionContext: @escaping () throws -> DmRelayNetworkContext?) async throws -> Data {
         let deadlineAt = ContinuousClock.now.advanced(by: .seconds(deadline))
         guard !Task.isCancelled, !wire.isEmpty, wire.utf8.count <= limit,
               wire.utf8.allSatisfy({ (32...126).contains($0) }),
               let object = try? JSONSerialization.jsonObject(with: Data(wire.utf8)) as? [String: Any],
               object["userId"] as? String == credential.context.userId,
               object["deviceId"] as? String == credential.context.deviceId,
-              (try? currentContext()) == credential.context,
+              (try? dispatchContext()) == credential.context,
+              (try? completionContext()) == credential.context,
               ContinuousClock.now < deadlineAt,
               let url = URL(string: serviceBaseURL + endpoint) else { throw DmRelayTransportError.unresolved }
         let configuration = configurationForResearch?() ?? URLSessionConfiguration.ephemeral
@@ -135,11 +153,12 @@ final class VodozemacRelayTransport {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer " + credential.bearer, forHTTPHeaderField: "Authorization")
         let operation = DmRelayNetworkOperation(url: url, request: request, configuration: configuration,
-            deadlineAt: deadlineAt, context: credential.context, currentContext: currentContext)
+            deadlineAt: deadlineAt, context: credential.context,
+            dispatchContext: dispatchContext, completionContext: completionContext)
         let result = try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in operation.start(continuation) }
         }, onCancel: { operation.cancel() })
-        guard !Task.isCancelled, (try? currentContext()) == credential.context, ContinuousClock.now < deadlineAt else {
+        guard !Task.isCancelled, (try? completionContext()) == credential.context, ContinuousClock.now < deadlineAt else {
             throw DmRelayTransportError.unresolved
         }
         return result
@@ -154,7 +173,8 @@ private final class DmRelayNetworkOperation: NSObject, URLSessionDataDelegate, @
     private let configuration: URLSessionConfiguration
     private let deadlineAt: ContinuousClock.Instant
     private let context: DmRelayNetworkContext
-    private let currentContext: () throws -> DmRelayNetworkContext?
+    private let dispatchContext: () throws -> DmRelayNetworkContext?
+    private let completionContext: () throws -> DmRelayNetworkContext?
     private var session: URLSession?
     private var task: URLSessionDataTask?
     private var timer: DispatchSourceTimer?
@@ -164,9 +184,11 @@ private final class DmRelayNetworkOperation: NSObject, URLSessionDataDelegate, @
     private var bytes = Data()
 
     init(url: URL, request: URLRequest, configuration: URLSessionConfiguration, deadlineAt: ContinuousClock.Instant,
-         context: DmRelayNetworkContext, currentContext: @escaping () throws -> DmRelayNetworkContext?) {
+         context: DmRelayNetworkContext, dispatchContext: @escaping () throws -> DmRelayNetworkContext?,
+         completionContext: @escaping () throws -> DmRelayNetworkContext?) {
         self.expectedURL = url; self.request = request; self.configuration = configuration
-        self.deadlineAt = deadlineAt; self.context = context; self.currentContext = currentContext
+        self.deadlineAt = deadlineAt; self.context = context
+        self.dispatchContext = dispatchContext; self.completionContext = completionContext
     }
 
     func start(_ continuation: CheckedContinuation<Data, Error>) {
@@ -185,7 +207,8 @@ private final class DmRelayNetworkOperation: NSObject, URLSessionDataDelegate, @
         timer.resume()
         // A lifecycle transition after this check can still reach the server.
         // Post-await and coordinator CAS fences prevent applying its stale result.
-        let valid = (try? currentContext()) == context && ContinuousClock.now < deadlineAt
+        let valid = (try? dispatchContext()) == context && (try? completionContext()) == context
+            && ContinuousClock.now < deadlineAt
         if valid { task.resume() }
         lock.unlock()
         if !valid { cancel() }
@@ -232,7 +255,7 @@ private final class DmRelayNetworkOperation: NSObject, URLSessionDataDelegate, @
               type.range(of: #"^application/json(?:\s*;\s*charset\s*=\s*utf-8)?$"#, options: .regularExpression)?.lowerBound == type.startIndex,
               type.range(of: #"^application/json(?:\s*;\s*charset\s*=\s*utf-8)?$"#, options: .regularExpression)?.upperBound == type.endIndex,
               response.expectedContentLength <= Int64(Self.responseLimit),
-              (try? currentContext()) == context else {
+              (try? completionContext()) == context else {
             completionHandler(.cancel); cancel(); return
         }
         lock.lock()
@@ -264,7 +287,7 @@ private final class DmRelayNetworkOperation: NSObject, URLSessionDataDelegate, @
               data.count > prefix.count + 1,
               let whole = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               Set(whole.keys) == Set(["version", "result"]),
-              (try? currentContext()) == context else { cancel(); return }
+              (try? completionContext()) == context else { cancel(); return }
         // Foundation auto-detects UTF16/32 when parsing standalone fragments.
         // Validating the complete ASCII-prefixed document first prevents mixed
         // encodings from disguising an invalid response as a valid result slice.
