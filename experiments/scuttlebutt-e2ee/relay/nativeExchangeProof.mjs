@@ -146,6 +146,7 @@ try {
             'VodozemacSealedStore.swift',
             'VodozemacDmFrame.swift',
             'VodozemacDmCoordinator.swift',
+            'VodozemacMessageOperations.swift',
             'VodozemacDmCoordinatorProbe.swift',
             'VodozemacEnrollmentIntentProbe.swift',
             'VodozemacRelayCodec.swift',
@@ -156,6 +157,8 @@ try {
             'VodozemacAccountDirectory.swift',
             'VodozemacSessionFacade.swift',
             'VodozemacAccountDirectoryProbe.swift',
+            'VodozemacMessageAuthorityProbe.swift',
+            'VodozemacPairingHistoryProbe.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
             'VodozemacLifecycleProbe.swift',
@@ -318,7 +321,11 @@ try {
         receipt.pid = pid;
         receipt.observation = 'awaiting-app-receipt';
         saveReceipt();
-        const deadline = Date.now() + 60_000;
+        // Preparation now runs the complete storage/Auth/directory/authority
+        // regression suites and their owned-fixture cleanup. A slow simulator
+        // may exceed a minute; this HARNESS bound never extends any native Auth
+        // lease, HTTP timeout or held-lock fixture deadline.
+        const deadline = Date.now() + (phase === 'prepare' ? 180_000 : 60_000);
         let status;
         while (Date.now() < deadline) {
             if (existsSync(statusPath)) {
@@ -372,6 +379,10 @@ try {
                     status.enrollmentIntentFixtureAssertions > 0,
             );
             receipt.nativeEnrollmentIntentFixtureAssertions = status.enrollmentIntentFixtureAssertions;
+            assert(Number.isSafeInteger(status.messageAuthorityFixtureAssertions) && status.messageAuthorityFixtureAssertions > 0);
+            receipt.nativeMessageAuthorityFixtureAssertions = status.messageAuthorityFixtureAssertions;
+            assert(Number.isSafeInteger(status.pairingHistoryFixtureAssertions) && status.pairingHistoryFixtureAssertions > 0);
+            receipt.nativePairingHistoryFixtureAssertions = status.pairingHistoryFixtureAssertions;
         }
         receipt.completedPhases.push({
             phase,

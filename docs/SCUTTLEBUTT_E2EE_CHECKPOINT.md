@@ -70,6 +70,80 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 3 October native messaging authority and sealed pairing history
+
+The native facade now captures an opaque, nonserializable messaging snapshot
+for one verified account, credential epoch and optional peer generation. A
+closed command dispatcher performs identity reads, pairing, current thread
+reads and text preparation. It never returns a coordinator, storage handle,
+bearer or arbitrary callback to JS. The Capacitor plugin is still auth-only;
+these messaging commands are not connected to its screen or the hosted relay.
+
+Synchronous operations hold the facade, Directory, sealed index writer,
+AuthSession and coordinator authority through the account-store transaction.
+Network awaits hold none of these locks. The original native deadlines are not
+renewed by a snapshot, read or slow Keychain/crypto operation. The account store
+checks held native authority immediately before SQLite UPDATE and COMMIT;
+refusal before COMMIT rolls back, and uncertain rollback poisons the handle.
+This is not an atomic transaction across the index and account databases. A
+commit followed by a late deadline/refusal can still require exact reconciliation;
+no failure authorizes creating a replacement message or identity.
+
+Pairing fingerprints use domain-separated SHA256 over canonical project,
+conversation, account/device identifiers, signing key, curve key and prekey.
+The full identity and matching fingerprint are sealed together. An exact repeat
+is idempotent; replacement, wrong routing and promotion of an older partial
+fixture pin are refused. A matching supplied fingerprint means only that native
+checked those bytes: no human comparison, live peer enrollment or ownership
+verification was performed by these fixtures.
+
+New outgoing records seal plaintext and native-local creation time in the same
+commit as ciphertext and the advanced ratchet. Exact retries preserve the first
+text, time and ciphertext. Current thread reads retain pending, server-accepted,
+rejected and received statuses; server acceptance is not delivery or reading.
+Legacy records without text/time stay unavailable rather than being reconstructed.
+
+Observed evidence on frozen sources:
+
+- **65 native messaging-authority assertions and 103 pairing/history assertions
+  passed**. They use real provider/Keychain/sealed stores with fixture Auth,
+  synthetic peer confirmation and injected trusted terminal decisions. Covered
+  stale account/credential/peer generations, deadlines, actual competing SQLite
+  writer refusal, rollback before UPDATE/COMMIT, full-key pinning, exact retries,
+  sealed reopen, current-generation history and bounded capacities.
+- All nine disposable simulator exchange phases passed, including four actual
+  Olm encrypted messages over ordinary URLSession HTTPS and local SQL, restarts,
+  exact retries and unresolved recovery. The prior 266 Auth, 247 directory/facade
+  and 40 enrollment-intent assertions also passed. This exchange still uses the
+  earlier research relay client, not the new scoped facade or Capacitor plugin.
+- The simulator and its temporary CA were removed. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-WcizRH/exchange-run.json`.
+  Earlier attempts retained failed receipts: `2z6gW3` caught nonescaping callback
+  inference, `uMgZuv` caught a private fixture error enum, and `kgJ5Q5` reached
+  the harness deadline during the old directory suite. The harness preparation
+  bound is now three minutes; native leases, HTTP and held-lock deadlines are
+  unchanged. No failed attempt is counted as a test pass.
+- The exact 23 simulator-tested Swift sources also compiled and linked for
+  physical iOS unsigned, with no installation or execution. Cached provider
+  binaries were hashed, not rebuilt or independently attested. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-5z7W37/compile.json`.
+- The separate Capacitor auth-only app also rebuilt and linked for physical iOS
+  unsigned with the changed native sources. Its existing research web bundle
+  was reused; no screen/SDK fixture rerun is claimed for this native-only slice.
+  No signing, installation, launch, live Auth or human device registration was
+  performed. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-auth-only-build-uXpehj/build-receipt.json`.
+
+Thread rows are grouped outgoing then incoming, not globally chronological;
+future UI keys must include direction plus message ID. Incoming observation time
+is absent, not fabricated sender time. Historical owner/peer generations remain
+hidden but consume the bounded 16-outgoing/16-incoming capacity. Cold launch's
+explicit sign-out still advances owner generation on reauthentication, so normal
+history continuity requires a deliberate policy before a usable device pilot.
+Scoped relay enrollment, full-pin claim checking, receive/receipt commands,
+pairing UI, physical iPhone/iPad exchange and independent review remain pending.
+Internal agent review is development evidence, not independent audit.
+
 ### 3 October separate native account authentication app
 
 `bridge-native/` now contains a registered **account-authentication-only**
