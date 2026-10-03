@@ -49,6 +49,7 @@ import type {
     ChartedShallowSpan,
     NavGrid,
     PinOffWater,
+    PinTail,
     ShallowRunInfo,
     SurveyRunInfo,
     SurveyUncheckedCell,
@@ -522,6 +523,10 @@ export interface InshoreRouteResult {
      *  charted-shallow water gets the route all the way to it instead, its
      *  tail a 'needs tide' shallowRuns entry (endpointTail). */
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
+    /** A pin in charted-shallow water: its depth, the tide it needs, and
+     *  whether its tail runs direct — or why not (engine RouteResult.pinTail;
+     *  Shane, 2026-10-03). The route notes say why when it does not. */
+    pinTail?: { origin?: PinTail; destination?: PinTail };
     /**
      * Owner decision 11 (2026-10-01): 'not-loaded' when the route crosses
      * water a tide must clear (a band charted no deeper than draft + UKC) in
@@ -2385,6 +2390,9 @@ async function tryInshoreRouteInner(
         ...((result as { pinOffWater?: InshoreRouteResult['pinOffWater'] }).pinOffWater
             ? { pinOffWater: (result as { pinOffWater?: InshoreRouteResult['pinOffWater'] }).pinOffWater }
             : {}),
+        ...((result as { pinTail?: InshoreRouteResult['pinTail'] }).pinTail
+            ? { pinTail: (result as { pinTail?: InshoreRouteResult['pinTail'] }).pinTail }
+            : {}),
         ...(structuresUnknownOn(result.polyline).length > 0
             ? { structuresUnknownCells: structuresUnknownOn(result.polyline) }
             : {}),
@@ -2443,6 +2451,8 @@ export function inshoreRouteToGeoJSON(
             // transient banner (fix-up, 2026-09-30).
             ...(result.structuresUnknownCells?.length ? { structuresUnknownCells: result.structuresUnknownCells } : {}),
             ...(result.pinOffWater ? { pinOffWater: result.pinOffWater } : {}),
+            // …and a shallow pin whose tail is not direct (Shane, 2026-10-03).
+            ...(result.pinTail ? { pinTail: result.pinTail } : {}),
             // …and its survey stretches (owner decision 9, 2026-09-30).
             ...(result.surveyRuns?.length ? { surveyRuns: result.surveyRuns } : {}),
             ...(result.surveyUncheckedCells?.length ? { surveyUncheckedCells: result.surveyUncheckedCells } : {}),

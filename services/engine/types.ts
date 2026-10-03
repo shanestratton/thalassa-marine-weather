@@ -335,6 +335,12 @@ export interface RouteDebug {
      *  already passed nearer the pin than the tail's deep end (no
      *  out-and-back, 2026-10-01). Absent when no tail was cut. */
     outAndBackCutM?: { origin?: number; destination?: number };
+    /** A charted pin's tail run DIRECT (Shane, 2026-10-03; engine/directTail):
+     *  metres of route the straight line replaced, and its own length. */
+    directTail?: { origin?: { fromM: number; toM: number }; destination?: { fromM: number; toM: number } };
+    /** A shorter straight tail existed but none passed the checks: why (the
+     *  line to the tail's own junction), and the charted way was kept. */
+    directTailRefused?: { origin?: string; destination?: string };
     /** Owner decision 11 (2026-10-01): grid cells proved impassable because
      *  no tide the app knows clears them for this boat (TideCeiling). */
     noTideClearsCells?: number;
@@ -658,6 +664,23 @@ export const AMBER_SURVEY_REASONS: ReadonlySet<SurveyRunReason> = new Set([
  */
 export type PinOffWater = 'land' | 'drying' | 'no-tide';
 
+/**
+ * A pin in charted water shallower than the keel needs, with its 'needs tide'
+ * tail (owner decision 7; RouteResult.pinTail): the charted depth AT the pin
+ * (the finest survey's), the tide its tail needs (draft + UKC − the tail's
+ * shallowest charted depth, 0.1 m), that shallowest depth when it lies off the
+ * pin and is shallower (fix-up review, 2026-10-03), and whether the tail runs
+ * DIRECT — one straight line to the route (Shane, 2026-10-03) — or, where no
+ * straight line passes, the charted way, and why.
+ */
+export interface PinTail {
+    depthM: number;
+    needsM: number;
+    leastM?: number;
+    direct: boolean;
+    why?: string;
+}
+
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
     /**
@@ -788,6 +811,8 @@ export interface RouteResult {
      * pins are water.
      */
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
+    /** A pin in charted-shallow water and its tail (PinTail); absent when neither pin is. */
+    pinTail?: { origin?: PinTail; destination?: PinTail };
     /**
      * The route's survey-quality stretches (owner decision 9, 2026-09-30;
      * SurveyRunInfo): amber for CATZOC D/U, a grade whose error eats the keel
@@ -901,6 +926,16 @@ export interface NavGrid {
      * cached-grid back-compat.
      */
     obstnBlocked?: Uint8Array;
+    /**
+     * Per-cell flag (1 = closed by a hazard with NO S-57 identity: an OSM
+     * reef, an aeroway — router furniture other than a mark's disc or a
+     * clearance bar). The final audit (hazardBufferSegments) reads charted
+     * hazards only, so where it finds a line clear of them a charted
+     * hazard's keep-out cell the line touches is the grid's alone — never one
+     * of these (fix-up review, 2026-10-03; shallowRuns cautionCells). Only
+     * allocated when such a feature exists.
+     */
+    furnitureHazardBlocked?: Uint8Array;
     /**
      * Per-cell NO-WATER-EVIDENCE flag (1 = at the end of the grid build the
      * cell was still UNKNOWN_OPEN with no DEPARE verdict, no FAIRWY/DRGARE

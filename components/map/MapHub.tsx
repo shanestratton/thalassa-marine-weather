@@ -2519,6 +2519,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const caveats = inshoreRouteCaveats({
                         structuresUnknownCells: res.structuresUnknownCells,
                         pinOffWater: res.pinOffWater,
+                        pinTail: res.pinTail,
                         tideCheck: res.tideCheck,
                         surveyRuns: res.surveyRuns,
                         surveyUncheckedCells: res.surveyUncheckedCells,

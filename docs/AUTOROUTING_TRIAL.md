@@ -349,6 +349,110 @@ reported · review required", with Save blocked. On the Pi's cells at
   tide data (`relaxedRescueFault` runs only with tide ceilings). The callers
   refuse that route, but the engine's own refusal would say so sooner.
 
+### Field round 2, part 3 (stage A) — hazard areas and shallow pins (2026-10-03)
+
+- **A charted hazard area gets a keep-out in the grid.** A point hazard
+  (OBSTRN, WRECKS, UWTROC) closed every cell its `obstructionBufferM` disc
+  touches; an area hazard closed only the cells whose centre lies inside it.
+  Pass 6's land skin is skipped beside deep water, so in open water nothing
+  kept a chord off foul ground. A charted (S-57) area now closes every cell
+  whose square comes within the buffer of one of its rings, holes included.
+  That is measured exactly, the same rule as `hazardBufferSegments`
+  (`navGrid` Pass 3). Router furniture with no S-57 identity keeps its own
+  footprint, as the final audit reads it: mark discs, clearance bars, and OSM
+  reefs and aeroways. MultiPoint hazards now block too, as the audit already
+  read them. `tests/engine/hazardAreaKeepOut.test.ts`. After review (fix-up,
+  same day):
+    - An area the chart sounds deep enough for the keel (VALSOU ≥ draft +
+      UKC) gets no ring, only its own cells, because the audit exempts it.
+      Its 60 m ring had closed seven cells of the Brisbane River's dredged
+      fairway round 21 × 46 m of foul ground charted 5.4 m (CATOBS 7), and a
+      leg 40 m from it read "crosses a charted hazard" while the line said
+      clear.
+    - The ring follows the cell size. Whole squares while a cell is no wider
+      than twice the keep-out (the app's 50 m grid at 60 m, the 10 m marina
+      pass, the tracer). Cell centres within the buffer up to four times it
+      (a big route's coarsened grid). None beyond that: the 400 m strict
+      pre-check closed 500–700 m passages between two foul areas and refused
+      the route at once as 'uncharted-corridor'.
+    - A line that keeps every charted hazard's buffer (the exact audit) but
+      clips the corner of a keep-out cell is the grid's alone (GRID_ONLY, or
+      NEAR_SHALLOW beside a shallow band), not "a charted hazard". On the Pi's
+      cells a 981 m chord to Shute Harbour clipped a cell 113.7 m from the
+      nearest hazard, in 15 m water, and Auto refused to save it. Cells that
+      router furniture closes (an OSM reef) stay a hazard: the audit never
+      reads them (`NavGrid.furnitureHazardBlocked`).
+    - Pi cells (read-only copies, deleted after), Coral Sea Marina → Daydream
+      through the app path: before, 8.00 NM, 8,563 m red, with the 5.9 km
+      chord through the NE corner of the foul area (0.0 m from it, "within
+      the keep-out of a charted rock, wreck or obstruction"). After, 8.17 NM,
+      2,635 m red, which is only the marina approach's own charted 1.8 m, and
+      no hazard red. Cid Harbour in and out and Shane's 18.3 NM field route
+      are unchanged.
+    - Corridor goldens: identical, though they carry 30–62 charted
+      obstruction areas each.
+    - Cost: a line round a small area in open water can come out longer.
+      The synthetic corner case goes from 3.30 to 3.46–3.50 NM, because the
+      grid's octilinear path is not pulled straight round the keep-out. That
+      is item (a)'s any-angle string pulling.
+- **A shallow start or end pin goes direct, amber.** Shane, 2026-10-03: "A
+  start pin in very shallow water sends the route out to deep water and
+  back, instead of going direct with an amber warning. - fix that." A pin in
+  charted water shallower than draft + UKC that a tide can clear (decision 7)
+  had a tail that walked the grid cell by cell to the cheapest deep-enough
+  water. Where the route did not come back past the pin, that deep water
+  could lie behind it: two pins in one shallow bay went out and back
+  (7.5 km for a 1.1 km hop, synthetic). Elsewhere the tail was the grid's
+  8-connected staircase. Now (`services/engine/directTail.ts`) the tail is
+  one straight line from the pin to the point on the route that makes the
+  route shortest, or straight to the other pin when both are shallow. The
+  line:
+    - is never longer than the charted way it replaces plus two cells (plus
+      the other pin's tail, shallow to shallow). It can't become a long
+      shortcut across shallows the router chose to go round.
+    - passes the grid (every cell is the pin's charted water or deep
+      enough), the chart itself (`tailFault`: no land, drying band, water no
+      chart covers or no tide clears, or low structure) and every charted
+      hazard's keep-out.
+    - leaves the pin's shallow water once, so it is never a shortcut
+      through other shallows.
+    - never skips a gate anchor, a canal leg or an offshore leg.
+    - is amber, "needs tide", from the pin to where it first reaches deep
+      water; the rest is ordinary route. Where no straight line passes, the
+      charted way stays and the route notes say why ("…a straight line would
+      cross charted land"; `RouteResult.pinTail`, `debug.directTailRefused`).
+      Auto's leg review names the pin's water on the first and last legs:
+      "starts in 1.2 m charted water — needs +1.7 m tide" (`validateTraceLeg`
+      `pinStart` / `pinEnd`). Without tide data a tail stays red, as decision
+      10 says. `tests/engine/shallowPinDirect.test.ts`.
+    - Newport fixture (chart cells + OSM), the north-exit pin: departing for
+      Newport marina, 2.04 → 2.03 NM; for Pinkenba, 21.91 → 21.83 NM. The
+      tail is one straight segment instead of a 6–8 vertex staircase. The
+      no-out-and-back cut stays, and runs first.
+    - Corridor goldens: identical. Newport-shane and the marks corridor's
+      decision-1 destination tails keep their charted way ("water outside
+      its charted shallows"). Those pins chart deep water under coarse land
+      paint, so no route note.
+    - After review (fix-up, same day): the line is never shallower than the
+      way it replaces. Its shallowest charted depth (the finest survey, on
+      the tail check's 5 m walk) must be no less than the shallowest the
+      route charts between the pin and the line's end. Candidates are still
+      tried shortest first. The charted tail takes the deeper way out, and a
+      line ranked by length alone cut across the flats: a pin in a 2 m
+      gutter through 0 m flats went 1,460 m over the flats, needing +2.9 m of
+      tide where the gutter needs +0.9 m, while the route still said "2.0 m,
+      +0.9 m, direct". It now keeps the gutter and says why ("…a straight
+      line would cross shallower water than its charted way (0.0 m charted,
+      against 2.0 m)").
+    - `pinTail.needsM` is the tail's own: worked from the shallowest water
+      along it, with `leastM` when that lies off the pin and is shallower.
+    - Shallow to shallow across a deep strip the line reads on one sample
+      only: the whole line is the pins' water (caution, with the destination
+      tail). The rest of it used to be marked deep: 1.2 km of charted 1.2 m.
+    - The route note now reaches the voyage form and a saved plan
+      (`inshoreRouteToGeoJSON` keeps `pinTail`; `savedInshoreRouteCaveats`
+      rebuilds it). Alone, the notice is titled "Shallow pin".
+
 ### Left for Shane (server side, not done here)
 
 The edge function, its `_shared` modules and its secrets are still deployed and

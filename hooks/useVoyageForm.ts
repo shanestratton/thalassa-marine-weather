@@ -846,6 +846,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                             caveats: inshoreRouteCaveats({
                                                 structuresUnknownCells: inshoreRes.structuresUnknownCells,
                                                 pinOffWater: inshoreRes.pinOffWater,
+                                                // A shallow pin whose tail is not direct (Shane, 2026-10-03).
+                                                pinTail: inshoreRes.pinTail,
                                                 tideCheck: inshoreRes.tideCheck,
                                                 surveyRuns: inshoreRes.surveyRuns,
                                                 surveyUncheckedCells: inshoreRes.surveyUncheckedCells,

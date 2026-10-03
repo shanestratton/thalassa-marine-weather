@@ -13,6 +13,7 @@ import {
     surveyCaveats,
 } from '../components/map/inshoreRouteNotice';
 import type { SurveyRunInfo } from '../services/engine/types';
+import { inshoreRouteToGeoJSON } from '../services/InshoreRouter';
 
 describe('inshore route notice', () => {
     // Owner decision 8 (2026-09-30): route as normal, with a plain warning —
@@ -283,5 +284,57 @@ describe('the offline water pack on the route (owner decision 2)', () => {
         ).toEqual([
             "Harbour water for the destination isn't saved on this phone, so that end was routed on the charts alone.",
         ]);
+    });
+});
+
+// Shane 2026-10-03: a shallow pin goes direct, amber; where no straight line
+// passes, its tail keeps the charted way and the route says why (fix-up
+// review: the note had no title of its own, the voyage form never said it,
+// and a saved plan lost it).
+describe('a shallow pin whose tail is not direct', () => {
+    const geo = (properties: Record<string, unknown>) => ({ properties: { source: 'inshore-router', ...properties } });
+    const tail = { depthM: 1.2, needsM: 1.7, direct: false, why: "a charted hazard's keep-out" };
+    const line =
+        "Your departure pin is in 1.2 m charted water — the route starts there and needs +1.7 m of tide. It leaves through its charted water, not in a straight line: a straight line would cross a charted hazard's keep-out.";
+
+    it('alone, the notice is titled for it', () => {
+        const n = inshoreRouteNotice({ stateMaskOk: true, pinTail: { origin: tail }, ntmLockBanner: null });
+        expect(n).toEqual({ severity: 'warn', title: 'Shallow pin', message: line });
+    });
+
+    it('names the tail’s shallowest water when it lies off the pin', () => {
+        expect(
+            inshoreRouteCaveats({ pinTail: { destination: { ...tail, needsM: 1.4, leastM: 1.5, depthM: 2 } } }),
+        ).toEqual([
+            "Your destination pin is in 2.0 m charted water — the route ends there and needs +1.4 m of tide (its way in crosses 1.5 m). It arrives through its charted water, not in a straight line: a straight line would cross a charted hazard's keep-out.",
+        ]);
+    });
+
+    it('a saved route says it again from its own facts, and ignores malformed ones', () => {
+        const feature = inshoreRouteToGeoJSON(
+            {
+                polyline: [
+                    [153.2, -27.4],
+                    [153.21, -27.41],
+                ],
+                distanceNM: 0.8,
+                cellsUsed: ['AU123'],
+                elapsedMs: 20,
+                pinTail: { origin: tail },
+            },
+            { lat: -27.4, lon: 153.2 },
+            { lat: -27.41, lon: 153.21 },
+        );
+        expect(savedInshoreRouteCaveats({ routeGeoJSON: feature })).toEqual([line]);
+        expect(savedInshoreRouteCaveats({ routeGeoJSON: geo({ pinTail: { origin: tail } }) })).toEqual([line]);
+        expect(
+            savedInshoreRouteCaveats({
+                routeGeoJSON: geo({ pinTail: { origin: { ...tail, depthM: 'shallow' }, destination: 7 } }),
+            }),
+        ).toEqual([]);
+        // A direct tail needs no note, saved or not.
+        expect(
+            savedInshoreRouteCaveats({ routeGeoJSON: geo({ pinTail: { origin: { ...tail, direct: true } } }) }),
+        ).toEqual([]);
     });
 });
