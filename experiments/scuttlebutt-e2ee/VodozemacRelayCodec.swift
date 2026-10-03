@@ -64,12 +64,21 @@ enum DmRelayCodec {
     // Verification is not first-use authentication. Caller must compare the
     // claimed bundle to an independently pinned identity before using its keys.
     static func verifyBundle(_ wire: String, now: Int64) throws -> DmRelayBundle {
+        let bundle = try verifyStoredBundle(wire)
+        try expiry(bundle.expiresAt, now: now, maximum: 7 * 24 * 60 * 60)
+        return bundle
+    }
+
+    // Check immutable saved bytes, not their present-day usability. An expired
+    // previously verified claim remains readable historical evidence; opening
+    // the store must not silently replace its identity or renew its prekey.
+    static func verifyStoredBundle(_ wire: String) throws -> DmRelayBundle {
         guard wire.utf8.count <= 4096, wire.utf8.allSatisfy({ (32...126).contains($0) }) else { throw DmCoordinatorError.invalidInput }
         let bundle: DmRelayBundle
         do { bundle = try JSONDecoder().decode(DmRelayBundle.self, from: Data(wire.utf8)) }
         catch { throw DmCoordinatorError.invalidInput }
-        guard bundle.version == 1, bundle.protocol == "olm-v1" else { throw DmCoordinatorError.invalidInput }
-        try expiry(bundle.expiresAt, now: now, maximum: 7 * 24 * 60 * 60)
+        guard bundle.version == 1, bundle.protocol == "olm-v1",
+              (1...maxSafeInteger).contains(bundle.expiresAt) else { throw DmCoordinatorError.invalidInput }
         let identity = DmPublicIdentity(userId: bundle.userId, deviceId: bundle.deviceId, identityKeyId: bundle.identityKeyId,
                                       signingKey: bundle.signingKey, curve: bundle.curveKey, prekey: bundle.prekey)
         let canonical = try bundleWire(identity, prekeyId: bundle.prekeyId, expiresAt: bundle.expiresAt, signature: bundle.signature)
