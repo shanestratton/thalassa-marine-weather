@@ -49,7 +49,9 @@ jobs:
               run: npm ci
 
             - name: Dependency audit (high or critical = fail)
-              run: npm audit --audit-level=high
+              # High/critical fails, except dated, reasoned entries for advisories
+              # with no fixed release (scripts/audit-gate.mjs); expired entries fail.
+              run: node scripts/audit-gate.mjs
 
             - name: Complete dependency tree
               run: npm ls --all
