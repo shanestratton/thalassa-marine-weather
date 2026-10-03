@@ -441,6 +441,7 @@ export async function calculateThalassaProposal(
         destinationInlandTrimM: ok.destinationInlandTrimM,
         structuresUnknownCells: ok.structuresUnknownCells,
         pinOffWater: ok.pinOffWater,
+        pinTail: ok.pinTail,
         tideCheck: ok.tideCheck,
         surveyRuns: ok.surveyRuns,
         surveyUncheckedCells: ok.surveyUncheckedCells,

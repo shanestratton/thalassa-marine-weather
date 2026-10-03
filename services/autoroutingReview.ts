@@ -144,7 +144,9 @@ export async function reviewAutoroutingProposal(
             }
             const key = `trial:${i}${i === legs.length - 1 ? '|last' : ''}`;
             indices.set(key, i);
-            batch.push({ a, b, key });
+            // The proposal's ends are the skipper's pins: a pin in shallow
+            // charted water is named on its leg (Shane, 2026-10-03).
+            batch.push({ a, b, key, pinStart: i === 0, pinEnd: i === legs.length - 1 });
         }
         const result = await gradeLegs(batch, {
             draftM,

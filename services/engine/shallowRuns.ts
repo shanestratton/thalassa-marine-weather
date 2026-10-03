@@ -586,7 +586,10 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
     //     every one as NaN, and gridCautionSegMask and the tier/bridge
     //     samplers flag a segment for any of them), decision-1 or
     //     coast-closing water, relaxed or carved land, a wing (passing outside
-    //     a lateral mark), nor water no evidence vouches for.
+    //     a lateral mark), nor water no evidence vouches for. The one blocked
+    //     cell that may count is a charted hazard's keep-out cell on a line
+    //     the exact audit finds clear of every hazard's buffer
+    //     (auditClearedHazardCell, fix-up review 2026-10-03).
     // EVERY cell the line touches is read (forEachCellOnSegment), corners
     // included: whichever sampler flagged the segment, the cell it found is
     // among them (fix-up review, 2026-10-03 — this reader skipped blocked
@@ -604,6 +607,26 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
     // a shallow band's here: its depth is read on a 5 m walk, so a line
     // clipping a 1.2 m survey cell's corner could read the chart's 10 m.
     const cautionNearShallow: (CautionNearShallow | null)[] = new Array(segCount).fill(null);
+    /** A cell closed by charted hazards' keep-outs alone — no land, berth,
+     *  structure, mark disc, water no tide clears, nor router furniture the
+     *  audit does not read — on a segment the exact audit finds clear of
+     *  every charted hazard's buffer (hazardMask false). The grid closes a
+     *  whole cell when its square comes within the buffer, so a line can clip
+     *  such a cell's corner up to a diagonal beyond it (fix-up review,
+     *  2026-10-03): on the Pi's cells a 981 m smoothing chord to Shute Harbour
+     *  clipped one 113.7 m from the nearest charted hazard, in 15 m water, and
+     *  was drawn red "a charted hazard" — Auto refused to save it. The line
+     *  keeps every hazard's buffer; the cell is the grid's alone. */
+    const auditClearedHazardCell = (idx: number, seg: number): boolean =>
+        hazardMask !== null &&
+        hazardMask[seg] === false &&
+        grid.obstnBlocked?.[idx] === 1 &&
+        grid.markDiscBlocked?.[idx] !== 1 &&
+        grid.furnitureHazardBlocked?.[idx] !== 1 &&
+        grid.clearanceBarred?.[idx] !== 1 &&
+        grid.berthBlocked?.[idx] !== 1 &&
+        grid.landBlocked?.[idx] !== 1 &&
+        grid.noTideClears?.[idx] !== 1;
     /** Why a blocked (NaN) cell is blocked, as a CAUTION_WHY bit. Land the
      *  line only touches is BLOCKED, not LAND: LAND is land the router OPENED
      *  (a relax zone, a carve), and the land audit owns land it crosses. */
@@ -614,29 +637,31 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
         return CAUTION_WHY.BLOCKED;
     };
     /** What, besides a shallow band, made a CAUTION cell caution (0: nothing). */
-    const cautionFlags = (idx: number): number => {
+    const cautionFlags = (idx: number, seg: number): number => {
         let bits = 0;
         if (grid.wingCaution?.[idx] === 1) bits |= CAUTION_WHY.WING;
         if (grid.landBlocked?.[idx] === 1 || grid.relaxMask?.[idx] === 1) bits |= CAUTION_WHY.LAND;
         if (grid.markDiscBlocked?.[idx] === 1) bits |= CAUTION_WHY.MARK;
-        else if (grid.obstnBlocked?.[idx] === 1) bits |= CAUTION_WHY.HAZARD;
+        else if (grid.obstnBlocked?.[idx] === 1 && !auditClearedHazardCell(idx, seg)) bits |= CAUTION_WHY.HAZARD;
         if (grid.berthBlocked?.[idx] === 1 || grid.clearanceBarred?.[idx] === 1) bits |= CAUTION_WHY.STRUCTURE;
         return bits;
     };
-    /** The cells the line a→b touches that could have made it caution: why
-     *  (CAUTION_WHY bits), and whether they are a shallow chart band's alone
-     *  — at least one such cell, and nothing else. */
-    const cautionCells = (
-        a: readonly [number, number],
-        b: readonly [number, number],
-    ): { bits: number; onlyShallowBand: boolean } => {
+    /** The cells segment `seg` touches that could have made it caution: why
+     *  (CAUTION_WHY bits), and whether they are the grid's alone — at least
+     *  one such cell (a shallow chart band's, or a charted hazard keep-out
+     *  cell the audit clears the line of), and nothing else. */
+    const cautionCells = (seg: number): { bits: number; onlyShallowBand: boolean } => {
         const sd = grid.shallowDepthM;
         let bits = 0;
         let other = !sd;
         let shallowBand = false;
-        forEachCellOnSegment(grid, a, b, (idx) => {
+        forEachCellOnSegment(grid, polyline[seg], polyline[seg + 1], (idx) => {
             const v = grid.cells[idx];
             if (Number.isNaN(v)) {
+                if (auditClearedHazardCell(idx, seg)) {
+                    shallowBand = true;
+                    return;
+                }
                 bits |= blockedWhy(idx);
                 other = true;
                 return;
@@ -646,7 +671,7 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
                 return;
             }
             if (!(v < 0)) return; // charted depth or vouched open water: not what made it caution
-            const flags = cautionFlags(idx);
+            const flags = cautionFlags(idx, seg);
             bits |= flags;
             if (
                 flags !== 0 ||
@@ -671,7 +696,7 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
         if (f.uncharted) why |= CAUTION_WHY.UNCHARTED;
         if (f.conflict) why |= CAUTION_WHY.DISAGREE;
         if (hazardMask?.[i]) why |= CAUTION_WHY.HAZARD;
-        const cells = cautionCells(polyline[i], polyline[i + 1]);
+        const cells = cautionCells(i);
         why |= cells.bits;
         const tail = (destinationTailStartSeg >= 0 && i >= destinationTailStartSeg) || i <= originTailEndSeg;
         if (why === 0) {

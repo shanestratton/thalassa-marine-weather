@@ -65,6 +65,7 @@ import type {
     RouteFailure,
     RelaxZone,
     PinOffWater,
+    PinTail,
     TideBarrier,
 } from './engine/types';
 import {
@@ -87,6 +88,7 @@ import {
     MAX_UNVOUCHED_HARD_LAND_RUN_M,
 } from './engine/safetyAudit';
 import { chartStateAlong, collectShallowRuns, collectSurveyRuns } from './engine/shallowRuns';
+import { directTails } from './engine/directTail';
 import {
     smoothPath,
     deStaggerCentred,
@@ -922,6 +924,27 @@ function routeInshoreOnceEnds(
     const pinBands = chartAreaIndexFor(layers).depth;
     const pinDepthAt = (lat: number, lon: number): number | null =>
         pinBands.length > 0 ? chartedDepthAt(pinBands, lon, lat) : null;
+    /** The shallowest depth the finest survey charts along a line (m), on the
+     *  charted tail's 5 m walk (tailFault's); +Infinity where no band charts
+     *  it — a direct tail's own, and the way it replaces (engine/directTail),
+     *  and what a pin's tail needs (pinTail). */
+    const leastChartedDepthAlong = (pts: readonly (readonly [number, number])[]): number => {
+        let least = Infinity;
+        if (pinBands.length === 0) return least;
+        const read = (lon: number, lat: number): void => {
+            const d = chartedDepthAt(pinBands, lon, lat);
+            if (d !== null && d < least) least = d;
+        };
+        if (pts.length === 1) read(pts[0][0], pts[0][1]);
+        for (let i = 0; i + 1 < pts.length; i++) {
+            const [lonA, latA] = pts[i];
+            const [lonB, latB] = pts[i + 1];
+            const steps = Math.max(1, Math.ceil(haversineM(latA, lonA, latB, lonB) / 5));
+            for (let k = 0; k <= steps; k++)
+                read(lonA + ((lonB - lonA) * k) / steps, latA + ((latB - latA) * k) / steps);
+        }
+        return least;
+    };
     /** The cell a pin's charted 'needs tide' tail starts from (decision 7):
      * its own cell when that is charted caution water; else, for a pin the
      * finest survey charts in a never-drying band shallower than the keel
@@ -2238,6 +2261,110 @@ function routeInshoreOnceEnds(
             originTailEndSeg = added - 1;
             if (destinationTailStartSeg >= 0) destinationTailStartSeg += added;
         }
+
+        // ── Direct tails (Shane, 2026-10-03: "fix that") ──────────────
+        // The tail above is the grid's way through the pin's charted water to
+        // the cheapest deep water: a staircase, and — where the route does not
+        // come back past the pin — out to deep water and back (two pins in one
+        // shallow bay). It becomes one straight line from the pin to where it
+        // joins the route most shortly, or straight to the other pin, amber
+        // 'needs tide' to where it first reaches deep water (engine/directTail
+        // has the rules). The line is held to the grid (every cell the pin's
+        // charted water or deep enough), to the chart itself (tailFault) and
+        // to every charted hazard's keep-out; where none passes the charted
+        // way stays and the route says why (pinTail).
+        if (finalPolyline.length >= 2) {
+            const needM = req.draftM + safetyM;
+            const cellAt = (lon: number, lat: number): number => {
+                const { x, y } = latLonToGrid(grid, lat, lon);
+                return x < 0 || y < 0 || x >= grid.width || y >= grid.height ? -1 : y * grid.width + x;
+            };
+            const pinCell = (idx: number): boolean =>
+                (debug.originChartedPin === true && idx === originTapIdx) ||
+                (debug.destinationChartedPin === true && idx === destinationTapIdx);
+            /** Why a grid cell is not the pin's charted water nor deep enough, in the route's words. */
+            const cellFault = (idx: number): string => {
+                if (Number.isNaN(grid.cells[idx])) {
+                    if (grid.landBlocked?.[idx] === 1) return 'charted land';
+                    if (grid.markDiscBlocked?.[idx] === 1) return "a navigation mark's keep-out";
+                    if (grid.obstnBlocked?.[idx] === 1) return "a charted hazard's keep-out";
+                    if (grid.berthBlocked?.[idx] === 1) return 'a berth or pontoon';
+                    if (grid.clearanceBarred?.[idx] === 1) return 'a low structure';
+                    if (isNoTideCell(idx)) return 'water no tide clears';
+                    return 'water the router keeps closed';
+                }
+                if ((grid.shallowDepthM?.[idx] ?? 0) < 0) return 'a charted drying band';
+                if (grid.wingCaution?.[idx] === 1) return 'the wrong side of a channel mark';
+                if (grid.cells[idx] === UNKNOWN_OPEN) return 'water no chart covers';
+                return 'water outside its charted shallows';
+            };
+            const lineFault = (from: [number, number], to: [number, number]): string | null => {
+                const steps = Math.max(1, Math.ceil(haversineM(from[1], from[0], to[1], to[0]) / 10));
+                for (let k = 0; k <= steps; k++) {
+                    const idx = cellAt(
+                        from[0] + ((to[0] - from[0]) * k) / steps,
+                        from[1] + ((to[1] - from[1]) * k) / steps,
+                    );
+                    if (idx < 0) return 'water off the chart grid';
+                    if (isDeepEnough(idx) || isChartedCaution(idx)) continue;
+                    // A pin admitted on its own spot: its own cell is the chart's call (above).
+                    if (pinCell(idx) && (idx === originTapIdx ? exactSpotPin.origin : exactSpotPin.destination))
+                        continue;
+                    return cellFault(idx);
+                }
+                const exact = tailFault([from, to]);
+                if (exact) return exact;
+                return hazardBufferSegments([from, to], layers, obstructionBufferM, needM)[0]
+                    ? "a charted hazard's keep-out"
+                    : null;
+            };
+            const gateAnchors = new Set<string>();
+            if (threeTier)
+                threeTier.polyline.forEach((p, i) => {
+                    if (threeTier.gateMask[i]) gateAnchors.add(`${p[0]},${p[1]}`);
+                });
+            const direct = directTails(
+                {
+                    polyline: finalPolyline,
+                    caution: finalCaution,
+                    canal: finalCanalMask,
+                    channel: finalChannelMask,
+                    offshore: finalOffshoreMask,
+                    originTailEndSeg,
+                    destinationTailStartSeg,
+                    gateAnchors,
+                    resolutionM,
+                    lineFault,
+                    isDeep: (lon, lat) => {
+                        const idx = cellAt(lon, lat);
+                        return idx >= 0 && isDeepEnough(idx);
+                    },
+                    inPinCell: (lon, lat) => pinCell(cellAt(lon, lat)),
+                    leastDepthAlong: leastChartedDepthAlong,
+                },
+                { origin: debug.originChartedPin === true, destination: debug.destinationChartedPin === true },
+            );
+            if (direct.done.origin || direct.done.destination) {
+                finalPolyline = direct.polyline;
+                finalCaution = direct.caution;
+                finalCanalMask = direct.canal;
+                finalChannelMask = direct.channel;
+                finalOffshoreMask = direct.offshore;
+                originTailEndSeg = direct.originTailEndSeg;
+                destinationTailStartSeg = direct.destinationTailStartSeg;
+                debug.directTail = direct.done;
+                engineLog.warn(
+                    `[directTail] ${(['origin', 'destination'] as const)
+                        .filter((e) => direct.done[e])
+                        .map(
+                            (e) =>
+                                `${e}: ${direct.done[e]!.fromM} m of route → a ${direct.done[e]!.toM} m straight line`,
+                        )
+                        .join('; ')}`,
+                );
+            }
+            if (direct.refused.origin || direct.refused.destination) debug.directTailRefused = direct.refused;
+        }
     }
 
     const destinationNeedsLandBridgeRepair =
@@ -2949,6 +3076,37 @@ function routeInshoreOnceEnds(
         ...(survey.uncheckedCells.length > 0 ? { surveyUncheckedCells: survey.uncheckedCells } : {}),
         ...(debug.destinationInlandTrimM ? { destinationInlandTrimM: debug.destinationInlandTrimM } : {}),
         ...(pinOffWater.origin || pinOffWater.destination ? { pinOffWater } : {}),
+        ...(() => {
+            // A pin in charted-shallow water: its depth, the tide it needs, and
+            // whether its tail runs direct (Shane, 2026-10-03) — or why not.
+            // The tide is the tail's own: worked from the shallowest water the
+            // finest survey charts along it, which may lie off the pin (fix-up
+            // review, 2026-10-03).
+            const pinTail: { origin?: PinTail; destination?: PinTail } = {};
+            for (const which of ['origin', 'destination'] as const) {
+                if (!(which === 'origin' ? debug.originChartedPin : debug.destinationChartedPin)) continue;
+                const d = which === 'origin' ? pinDepthAt(req.fromLat, req.fromLon) : pinDepthAt(req.toLat, req.toLon);
+                if (d === null || d < 0 || d >= deepFloorM) continue;
+                const tailPts =
+                    which === 'origin'
+                        ? originTailEndSeg >= 0
+                            ? finalPolyline.slice(0, originTailEndSeg + 2)
+                            : []
+                        : destinationTailStartSeg >= 0
+                          ? finalPolyline.slice(destinationTailStartSeg)
+                          : [];
+                const least = Math.min(d, leastChartedDepthAlong(tailPts));
+                const why = debug.directTailRefused?.[which];
+                pinTail[which] = {
+                    depthM: d,
+                    needsM: Math.round((deepFloorM - least) * 10) / 10,
+                    ...(least < d - 0.05 ? { leastM: least } : {}),
+                    direct: !why,
+                    ...(why ? { why } : {}),
+                };
+            }
+            return pinTail.origin || pinTail.destination ? { pinTail } : {};
+        })(),
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
@@ -2978,6 +3136,7 @@ export type {
     FairingMidpoint,
     TideCeiling,
     PinOffWater,
+    PinTail,
 } from './engine/types';
 export { UNCHARTED_MAX_RUN_M } from './engine/constants';
 export { getCachedNavGrid } from './engine/navGrid';

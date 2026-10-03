@@ -2,7 +2,7 @@
  * Inshore Router Engine — navigability grid build, cache, snapping & CCL.
  * Carved out of inshoreRouterEngine.ts (module split, 2026-06-24).
  */
-import type { Feature, LineString, MultiLineString, Polygon, MultiPolygon, Point, Position } from 'geojson';
+import type { Feature, LineString, MultiLineString, MultiPoint, Polygon, MultiPolygon, Point, Position } from 'geojson';
 import { M_PER_DEG_LAT, BLOCKED, UNKNOWN_OPEN, CAUTION, ENGINE_DEBUG, engineLog } from './constants';
 import type { InshoreLayers, RelaxZone, NavGrid, TideBarrier, TideCeiling } from './types';
 import { mPerDegLon, haversineM, rasterizePolygonCells, bresenhamCells, latLonToGrid, geometryBbox } from './geometry';
@@ -19,6 +19,13 @@ import {
 import { isS57ChartProps, readS57 } from '../enc/types';
 import { isAuthoritativeOsmWater } from './chartWaterEvidence';
 import { tideCeilingLookup } from './tideCeiling';
+
+/** A charted hazard's VALSOU (m; NaN when none), read exactly as the final
+ *  audit reads it (safetyAudit hazardBufferSegments). */
+const hazardValsouM = (props: Record<string, unknown> | null): number => {
+    const raw = readS57(props, 'VALSOU');
+    return typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+};
 
 /**
  * Process-wide cache for buildNavGrid output. Keyed by the inputs that
@@ -1585,7 +1592,14 @@ export function buildNavGrid(
     // charted 5-6 m water (Shane 2026-07-14, Skirmish Point: "it says
     // crossing a hazard?? but there are not").
     const markDiscBlocked = new Uint8Array(width * height);
-    const blockPointBuffer = (lat: number, lon: number, isMarkDisc: boolean): void => {
+    // furnitureHazardBlocked: cells a hazard with NO S-57 identity closed (an
+    // OSM reef, an aeroway — router furniture other than a mark's disc or a
+    // clearance bar). The final audit (hazardBufferSegments) reads charted
+    // hazards only, so its clean verdict never clears these (fix-up,
+    // 2026-10-03: shallowRuns names a charted keep-out cell HAZARD only where
+    // the audit agrees). Allocated when such a feature exists.
+    let furnitureHazardBlocked: Uint8Array | undefined;
+    const blockPointBuffer = (lat: number, lon: number, isMarkDisc: boolean, isFurniture = false): void => {
         const dLatBuf = obstructionBufferM / M_PER_DEG_LAT;
         const dLonBuf = obstructionBufferM / mPerLon;
         const x0 = Math.max(0, Math.floor((lon - dLonBuf - minLon) / dLon));
@@ -1609,9 +1623,139 @@ export function buildNavGrid(
                     hardBlocked[y * width + x] = 1;
                     obstnBlocked[y * width + x] = 1;
                     if (isMarkDisc) markDiscBlocked[y * width + x] = 1;
+                    if (isFurniture) (furnitureHazardBlocked ??= new Uint8Array(width * height))[y * width + x] = 1;
                 }
             }
         }
+    };
+    // A charted hazard AREA's keep-out, the point rule's twin (router round 2
+    // part 3, 2026-10-03): every cell whose SQUARE comes within the buffer of
+    // one of its rings (holes included) — the centre-inside cells are the
+    // rasteriser's. Only the area's own cells used to close, and the land skin
+    // (Pass 6) is skipped beside deep water, so in open water a chord between
+    // cell centres clipped foul ground: Coral Sea Marina → Daydream Island ran
+    // 5.9 km through the NE corner of a 208 × 285 m OBSTRN area (CATOBS 6,
+    // WATLEV 4) on AU421148, red, and the router still chose it. Measured
+    // exactly, as safetyAudit hazardBufferSegments reads the area, per ring
+    // edge over the cells of its padded box (a cheap centre-distance test
+    // settles most of them).
+    //
+    // By the cell's size against the keep-out (fix-up review, 2026-10-03): a
+    // square that touches the buffer closes the whole cell, so the ring grows
+    // by up to a cell's diagonal — 70 m on a 50 m grid, 570 m on the 400 m
+    // strict pre-check, where it closed 500–700 m passages between two foul
+    // areas and the pre-check, trusted never to close more than the fine
+    // grid, refused the route as 'uncharted-corridor' at once.
+    //   • 'square' while a cell is no wider than twice the keep-out (the app's
+    //     50 m grid at 60 m, the 10 m marina pass, the tracer): every open
+    //     cell's whole square stays outside the buffer, so a line between
+    //     open cell centres keeps it — the field fix above.
+    //   • 'centre' up to four times the keep-out (a big route's coarsened
+    //     grid): a cell closes when its centre lies within the buffer, so a
+    //     passage wider than the buffer twice and a cell stays open; the final
+    //     audit still names any line that comes inside it.
+    //   • 'none' beyond that (the 400 m pre-check): the area's own cells only,
+    //     as before part 3 — that grid measures uncharted water, nothing else.
+    const areaRing: 'square' | 'centre' | 'none' =
+        resolutionM <= 2 * obstructionBufferM ? 'square' : resolutionM <= 4 * obstructionBufferM ? 'centre' : 'none';
+    const halfLonM = (dLon * mPerLon) / 2;
+    const halfLatM = (dLat * M_PER_DEG_LAT) / 2;
+    const halfDiagM = Math.hypot(halfLonM, halfLatM);
+    /** Metres from the cell square centred at the origin to the segment p→q (metres from that centre). */
+    const squareToSegmentM = (px: number, py: number, qx: number, qy: number): number => {
+        // Liang–Barsky: does the segment enter the square at all?
+        let t0 = 0;
+        let t1 = 1;
+        const ex = qx - px;
+        const ey = qy - py;
+        const clip = (p: number, q: number): boolean => {
+            if (p === 0) return q >= 0;
+            const r = q / p;
+            if (p < 0) {
+                if (r > t1) return false;
+                if (r > t0) t0 = r;
+            } else {
+                if (r < t0) return false;
+                if (r < t1) t1 = r;
+            }
+            return true;
+        };
+        if (
+            clip(-ex, px + halfLonM) &&
+            clip(ex, halfLonM - px) &&
+            clip(-ey, py + halfLatM) &&
+            clip(ey, halfLatM - py) &&
+            t0 <= t1
+        )
+            return 0;
+        // Disjoint: the nearest approach is an end to the square or a corner to the segment.
+        const toSquare = (x: number, y: number): number =>
+            Math.hypot(Math.max(Math.abs(x) - halfLonM, 0), Math.max(Math.abs(y) - halfLatM, 0));
+        const l2 = ex * ex + ey * ey;
+        const toSegment = (x: number, y: number): number => {
+            const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - px) * ex + (y - py) * ey) / l2)) : 0;
+            return Math.hypot(x - (px + t * ex), y - (py + t * ey));
+        };
+        return Math.min(
+            toSquare(px, py),
+            toSquare(qx, qy),
+            toSegment(-halfLonM, -halfLatM),
+            toSegment(halfLonM, -halfLatM),
+            toSegment(halfLonM, halfLatM),
+            toSegment(-halfLonM, halfLatM),
+        );
+    };
+    let areaKeepOutCells = 0;
+    const blockAreaKeepOut = (g: Polygon | MultiPolygon): void => {
+        if (areaRing === 'none') return;
+        const dLonBuf = obstructionBufferM / mPerLon;
+        const dLatBuf = obstructionBufferM / M_PER_DEG_LAT;
+        const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+        for (const poly of polys)
+            for (const ring of poly)
+                for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                    const [lonA, latA] = ring[j];
+                    const [lonB, latB] = ring[i];
+                    if (!Number.isFinite(lonA + latA + lonB + latB)) continue;
+                    const x0 = Math.max(0, Math.floor((Math.min(lonA, lonB) - dLonBuf - minLon) / dLon));
+                    const x1 = Math.min(width - 1, Math.floor((Math.max(lonA, lonB) + dLonBuf - minLon) / dLon));
+                    const y0 = Math.max(0, Math.floor((Math.min(latA, latB) - dLatBuf - minLat) / dLat));
+                    const y1 = Math.min(height - 1, Math.floor((Math.max(latA, latB) + dLatBuf - minLat) / dLat));
+                    if (x0 > x1 || y0 > y1) continue;
+                    for (let y = y0; y <= y1; y++) {
+                        const cellLat = minLat + (y + 0.5) * dLat;
+                        const py = (latA - cellLat) * M_PER_DEG_LAT;
+                        const qy = (latB - cellLat) * M_PER_DEG_LAT;
+                        for (let x = x0; x <= x1; x++) {
+                            const idx = y * width + x;
+                            if (obstnBlocked[idx] === 1) continue;
+                            const cellLon = minLon + (x + 0.5) * dLon;
+                            const px = (lonA - cellLon) * mPerLon;
+                            const qx = (lonB - cellLon) * mPerLon;
+                            // The centre's distance bounds the square's within half a diagonal.
+                            const ex = qx - px;
+                            const ey = qy - py;
+                            const l2 = ex * ex + ey * ey;
+                            const t = l2 > 0 ? Math.max(0, Math.min(1, (-px * ex - py * ey) / l2)) : 0;
+                            const centreM = Math.hypot(px + t * ex, py + t * ey);
+                            if (areaRing === 'centre') {
+                                // Strictly inside, as the audit's own `< bufferM`.
+                                if (centreM >= obstructionBufferM) continue;
+                            } else {
+                                if (centreM > obstructionBufferM + halfDiagM) continue;
+                                if (
+                                    centreM > obstructionBufferM &&
+                                    squareToSegmentM(px, py, qx, qy) > obstructionBufferM
+                                )
+                                    continue;
+                            }
+                            cells[idx] = BLOCKED;
+                            hardBlocked[idx] = 1;
+                            obstnBlocked[idx] = 1;
+                            areaKeepOutCells++;
+                        }
+                    }
+                }
     };
 
     // Charted deep enough for this vessel by the chart itself: an S-57 depth
@@ -1683,9 +1827,17 @@ export function buildNavGrid(
         const cls = (f.properties as { _class?: string } | null)?._class;
         const isMarkDisc =
             cls === 'iala-oriented-hazard' || cls === 'direct-hazard' || cls === 'lateral-marker-as-hazard';
+        const props = f.properties as Record<string, unknown> | null;
+        const isCharted = isS57ChartProps(props);
+        // Router furniture the final audit does not read (furnitureHazardBlocked).
+        const isFurniture = !isMarkDisc && !isClearanceBar && !isCharted;
         if (f.geometry.type === 'Point') {
             const [lon, lat] = (f.geometry as Point).coordinates;
-            blockPointBuffer(lat, lon, isMarkDisc);
+            blockPointBuffer(lat, lon, isMarkDisc, isFurniture);
+        } else if (f.geometry.type === 'MultiPoint') {
+            // As the final audit reads one (hazardBufferSegments): each point its own keep-out.
+            for (const [lon, lat] of (f.geometry as MultiPoint).coordinates)
+                blockPointBuffer(lat, lon, isMarkDisc, isFurniture);
         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
             // A SOLO lateral's keep-out (its side inferred from the shore
             // bearing, InshoreRouter orientHazardsTowardLand) never closes a
@@ -1725,7 +1877,20 @@ export function buildNavGrid(
                 obstnBlocked[idx] = 1;
                 if (isMarkDisc) markDiscBlocked[idx] = 1;
                 if (isClearanceBar) clearanceBarred[idx] = 1;
+                if (isFurniture) (furnitureHazardBlocked ??= new Uint8Array(width * height))[idx] = 1;
             });
+            // A CHARTED area gets a point's keep-out round it. Router furniture
+            // (mark discs, clearance bars, OSM reefs and aeroways) carries no
+            // S-57 identity and keeps its own footprint, as the audit reads it.
+            // Nor does an area the chart sounds deep enough for this keel
+            // (VALSOU >= draft + UKC; fix-up review, 2026-10-03): the audit
+            // exempts it, and its 60 m ring closed seven cells of the Brisbane
+            // River's dredged fairway round 21 × 46 m of foul ground charted
+            // 5.4 m (CATOBS 7), so a leg 40 m from it read "crosses a charted
+            // hazard" while the route's line called it clear. Its own cells
+            // close as before.
+            if (!isMarkDisc && !isClearanceBar && isCharted && !(hazardValsouM(props) >= needForDeepM - 1e-9))
+                blockAreaKeepOut(f.geometry as Polygon | MultiPolygon);
         }
     };
 
@@ -1737,6 +1902,10 @@ export function buildNavGrid(
     for (const f of wrecksFeatures) handlePointFeature(f);
     for (const f of uwtrocFeatures) handlePointFeature(f);
     markPass('pass3-points', tPassPoints, obstrnFeatures.length + wrecksFeatures.length + uwtrocFeatures.length);
+    if (ENGINE_DEBUG && areaKeepOutCells > 0)
+        engineLog.warn(
+            `pass3: charted hazard areas' ${obstructionBufferM} m keep-out closed ${areaKeepOutCells} cell(s)`,
+        );
     if (markDiscYieldedCells > 0)
         engineLog.warn(
             `pass3: solo-lateral keep-outs left ${markDiscYieldedCells} cell(s) open — a charted dredged channel or fairway deep enough (≥ ${needForDeepM.toFixed(1)} m) within a cable, or S-57-charted water that never dries beyond it`,
@@ -2537,6 +2706,7 @@ export function buildNavGrid(
     grid.wetConflict = wetConflict;
     grid.markDiscBlocked = markDiscBlocked;
     grid.obstnBlocked = obstnBlocked;
+    if (furnitureHazardBlocked) grid.furnitureHazardBlocked = furnitureHazardBlocked;
     // Exposed only when endpoint relax zones softened land — the relax-retry
     // acceptance uses it to catch a route circumventing a low-clearance
     // bridge overland (relax-carved cells near a clearanceBarred cell).

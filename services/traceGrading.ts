@@ -52,6 +52,10 @@ export interface GradeLeg {
     b: GradePoint;
     /** Caller's identity for this leg. A '|last' suffix marks the final leg. */
     key: string;
+    /** `a` / `b` is the route's departure / destination pin: a pin in water
+     *  shallower than the keel needs is named (validateTraceLeg). */
+    pinStart?: boolean;
+    pinEnd?: boolean;
 }
 
 export interface GradeLegsOptions {
@@ -124,6 +128,8 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
         key: string;
         parentKey: string;
         lastLeg: boolean;
+        pinStart: boolean;
+        pinEnd: boolean;
     }
     const units: Unit[] = [];
     /** parent leg key → how many pieces it was cut into (1 = whole). */
@@ -132,7 +138,15 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
         const isLast = leg.key.endsWith('|last');
         const mids = splitLegForDepthGrid(leg.a, leg.b);
         if (mids.length === 0) {
-            units.push({ a: leg.a, b: leg.b, key: leg.key, parentKey: leg.key, lastLeg: isLast });
+            units.push({
+                a: leg.a,
+                b: leg.b,
+                key: leg.key,
+                parentKey: leg.key,
+                lastLeg: isLast,
+                pinStart: leg.pinStart === true,
+                pinEnd: leg.pinEnd === true,
+            });
             pieceCount.set(leg.key, 1);
             continue;
         }
@@ -148,6 +162,9 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
                 // is set, so marking every piece last would make each one claim
                 // marks its successor owns.
                 lastLeg: isLast && i === pts.length - 2,
+                // The pins are the leg's own ends: its first and last pieces.
+                pinStart: leg.pinStart === true && i === 0,
+                pinEnd: leg.pinEnd === true && i === pts.length - 2,
             });
         }
         pieceCount.set(leg.key, pts.length - 1);
@@ -295,7 +312,11 @@ export async function gradeLegs(pending: ReadonlyArray<GradeLeg>, opts: GradeLeg
             }
         }
         for (const l of cluster) {
-            const verdict = validateTraceLeg(l.a, l.b, ctx, { lastLeg: l.lastLeg });
+            const verdict = validateTraceLeg(l.a, l.b, ctx, {
+                lastLeg: l.lastLeg,
+                pinStart: l.pinStart,
+                pinEnd: l.pinEnd,
+            });
             // A window whose marker fetch threw was never gate-checked, so its
             // verdict is provisional in exactly the way a 'nochart' one is —
             // VOLATILE, so the next pass retries and a transient blip cannot

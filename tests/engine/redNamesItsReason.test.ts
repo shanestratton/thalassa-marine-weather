@@ -306,7 +306,14 @@ describe('a blocked cell on the line is never the grid alone (production encodin
     // Row 20 is well inside the 10 m band: every cell on it reads 10 m.
     const DEEP: [number, number][] = [at(12.5, 20.5), at(24.5, 20.5), at(36.5, 20.5)];
     const asSeaway = (line: readonly [number, number][]) => line.map(([lon, lat]) => ({ lat, lon }));
-    type Flag = 'landBlocked' | 'obstnBlocked' | 'markDiscBlocked' | 'berthBlocked' | 'clearanceBarred' | 'wingCaution';
+    type Flag =
+        | 'landBlocked'
+        | 'obstnBlocked'
+        | 'markDiscBlocked'
+        | 'berthBlocked'
+        | 'clearanceBarred'
+        | 'wingCaution'
+        | 'furnitureHazardBlocked';
     /** The grid with cell (x, y) set to `value` and `flags` raised there. */
     const withCell = (
         base: typeof grid,
@@ -352,7 +359,8 @@ describe('a blocked cell on the line is never the grid alone (production encodin
     };
     const BLOCKED_WORDS =
         "touches a cell the router's chart grid keeps closed (land, the shore's keep-out or water no tide clears) — check it on the chart";
-    const cases: { name: string; flags: Flag[]; bit: number; words: string }[] = [
+    // hazardMask: the exact audit's verdict on each segment (default: clear).
+    const cases: { name: string; flags: Flag[]; bit: number; words: string; hazardMask?: boolean[] }[] = [
         {
             name: "a lateral mark's disc",
             flags: ['obstnBlocked', 'markDiscBlocked'],
@@ -372,8 +380,20 @@ describe('a blocked cell on the line is never the grid alone (production encodin
             words: 'touches a berth, pontoon or bridge the router keeps closed — check it on the chart',
         },
         {
+            // …where the exact audit puts the line inside the charted
+            // hazard's buffer too (fix-up review, 2026-10-03: a keep-out cell
+            // the audit clears the line of is the grid's alone, below).
             name: "a hazard's buffer",
             flags: ['obstnBlocked'],
+            bit: CAUTION_WHY.HAZARD,
+            words: 'within the keep-out of a charted rock, wreck or obstruction',
+            hazardMask: [true, false],
+        },
+        {
+            // Router furniture the audit never reads (an OSM reef): its
+            // clean verdict says nothing of it.
+            name: 'an OSM reef',
+            flags: ['obstnBlocked', 'furnitureHazardBlocked'],
             bit: CAUTION_WHY.HAZARD,
             words: 'within the keep-out of a charted rock, wreck or obstruction',
         },
@@ -403,7 +423,7 @@ describe('a blocked cell on the line is never the grid alone (production encodin
                 caution,
                 draftM: DRAFT,
                 safetyM: SAFETY,
-                hazardMask: [false, false],
+                hazardMask: c.hazardMask ?? [false, false],
             });
             expect(out.cautionWhy[0]).not.toBe(CAUTION_WHY.GRID_ONLY);
             expect(out.cautionWhy[0] & c.bit).toBe(c.bit);
@@ -416,6 +436,42 @@ describe('a blocked cell on the line is never the grid alone (production encodin
                 c.words,
             ]);
         });
+
+    // Fix-up review (2026-10-03): the grid closes a whole cell when its square
+    // comes within a charted hazard's buffer, so a line can clip such a cell's
+    // corner up to a diagonal beyond the buffer. On the Pi's cells a 981 m
+    // chord to Shute Harbour, 113.7 m from the nearest hazard in 15 m water,
+    // read HAZARD and blocked Save while the audit and the leg review found
+    // none. Where the exact audit clears the line, that cell is the grid's.
+    it("a charted hazard's keep-out cell the audit clears the line of is the grid's alone", () => {
+        const g = withCell(grid, 18, 20, Number.NaN, ['obstnBlocked']);
+        const caution = gridCautionSegMask(g, asSeaway(DEEP));
+        expect(caution).toEqual([true, false]);
+        const out = collectShallowRuns({
+            layers,
+            grid: g,
+            polyline: DEEP,
+            caution,
+            draftM: DRAFT,
+            safetyM: SAFETY,
+            hazardMask: [false, false],
+        });
+        expect(out.cautionWhy).toEqual([CAUTION_WHY.GRID_ONLY, 0]);
+        const masks = masksFor(DEEP, caution, out);
+        expect(inshoreSegmentStates(masks)).toEqual(['green', 'green']);
+        // …but never with land or water no tide clears in the same cell.
+        const both = withCell(g, 18, 20, Number.NaN, ['obstnBlocked', 'landBlocked']);
+        const out2 = collectShallowRuns({
+            layers,
+            grid: both,
+            polyline: DEEP,
+            caution,
+            draftM: DRAFT,
+            safetyM: SAFETY,
+            hazardMask: [false, false],
+        });
+        expect(out2.cautionWhy[0] & CAUTION_WHY.HAZARD).toBe(CAUTION_WHY.HAZARD);
+    });
 
     it('a caution segment with no shallow band cell under it is never the grid alone', () => {
         const caution = [true, true];

@@ -1080,7 +1080,10 @@ export function validateTraceLeg(
     a: TracePoint,
     b: TracePoint,
     ctx: TracerContext,
-    opts: { lastLeg?: boolean } = {},
+    /** pinStart / pinEnd: `a` / `b` is the route's departure / destination pin,
+     *  so a pin in water shallower than the keel needs is named as such
+     *  (Shane, 2026-10-03: Auto's shallow pins go direct, amber). */
+    opts: { lastLeg?: boolean; pinStart?: boolean; pinEnd?: boolean } = {},
 ): TraceLegVerdict {
     const issues: TraceIssue[] = [];
     if (ctx.supplementalChecksUnavailable)
@@ -1270,8 +1273,38 @@ export function validateTraceLeg(
     } else if (bankShaveAt) {
         issues.push({ severity: 'caution', message: 'hugs the charted bank — verify the line', at: bankShaveAt });
     }
+    // A pin in charted water shallower than the keel needs (the route's
+    // departure or destination; Shane, 2026-10-03): the leg says so in its
+    // own words — "starts in 1.2 m charted water — needs +1.7 m tide" — in
+    // place of the shallowest-spot line when the pin's water is the shallowest.
+    let pinNamesLeast = false;
+    if (grid) {
+        for (const [on, at, verb] of [
+            [opts.pinStart, a, 'starts'],
+            [opts.pinEnd, b, 'ends'],
+        ] as const) {
+            if (!on) continue;
+            const r = readCell(grid, at);
+            if (r.kind !== 'depth' || r.depthM >= keelM) continue;
+            const water =
+                r.depthM < 0
+                    ? `on ground charted to dry ${Math.abs(r.depthM).toFixed(1)} m`
+                    : r.depthM === 0
+                      ? 'in water charted awash at low tide'
+                      : `in ${r.depthM.toFixed(1)} m charted water`;
+            needsTide = true;
+            issues.push({
+                severity: 'danger',
+                message: `${verb} ${water} — needs +${(keelM - r.depthM).toFixed(1)} m tide`,
+                at,
+            });
+            if (minDepthM === null || r.depthM <= minDepthM) pinNamesLeast = true;
+        }
+    }
     if (minDepthM !== null && minAt) {
-        if (minDepthM < keelM) {
+        if (minDepthM < keelM && pinNamesLeast) {
+            needsTide = true;
+        } else if (minDepthM < keelM) {
             needsTide = true;
             const rise = keelM - minDepthM;
             // "0.0 m charted" read as "not charted at all" (Shane

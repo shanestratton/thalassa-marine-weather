@@ -4,7 +4,7 @@
  * showing. Pure, so the choice between them is testable.
  */
 import type { PassageNotice } from './usePassagePlanner';
-import type { PinOffWater, SurveyRunInfo } from '../../services/engine/types';
+import type { PinOffWater, PinTail, SurveyRunInfo } from '../../services/engine/types';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 
 export interface InshoreRouteNoticeInput {
@@ -15,6 +15,9 @@ export interface InshoreRouteNoticeInput {
     /** A pin on charted land, a drying bank or in water no tide clears
      *  (InshoreRouteResult.pinOffWater). */
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
+    /** A pin in charted-shallow water and its tail (InshoreRouteResult.pinTail,
+     *  Shane 2026-10-03): said when its tail cannot run direct. */
+    pinTail?: { origin?: PinTail; destination?: PinTail };
     /** The route crosses water a tide must clear where no tide curve was
      *  loaded before routing (InshoreRouteResult.tideCheck, owner decision
      *  11): water no tide clears could not be ruled out there. */
@@ -145,6 +148,23 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     pin('departure', input.pinOffWater?.origin);
     // The inland-trim notice already says the destination pin is on land.
     pin('destination', input.destinationInlandTrimM ? undefined : input.pinOffWater?.destination);
+    // A pin in shallow charted water goes direct, amber (Shane, 2026-10-03).
+    // Where no straight line passes, its tail keeps the charted way, and the
+    // route says why — the leg review names the pin's depth either way.
+    const shallowPin = (which: 'departure' | 'destination', tail: PinTail | undefined): void => {
+        if (!tail || tail.direct || !Number.isFinite(tail.depthM) || !Number.isFinite(tail.needsM)) return;
+        const [verb, way, outIn] = which === 'departure' ? ['starts', 'leaves', 'out'] : ['ends', 'arrives', 'in'];
+        // The tide is the tail's own: its shallowest water may lie off the pin.
+        const least =
+            typeof tail.leastM === 'number' && Number.isFinite(tail.leastM) && tail.leastM < tail.depthM
+                ? ` (its way ${outIn} crosses ${tail.leastM.toFixed(1)} m)`
+                : '';
+        out.push(
+            `Your ${which} pin is in ${tail.depthM.toFixed(1)} m charted water — the route ${verb} there and needs +${tail.needsM.toFixed(1)} m of tide${least}. It ${way} through its charted water, not in a straight line: a straight line would cross ${tail.why ?? 'water the router keeps closed'}.`,
+        );
+    };
+    shallowPin('departure', input.pinTail?.origin);
+    shallowPin('destination', input.pinTail?.destination);
     // Owner decision 11 (2026-10-01): where the route crosses water a tide
     // must clear and no tide was loaded for that place (offline, or a partial
     // load — fix-up, 2026-10-01), the router could not rule out water no tide
@@ -185,6 +205,11 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
     const gaps = input.structuresUnknownCells?.length ?? 0;
     const offWater = !!(input.pinOffWater?.origin || input.pinOffWater?.destination);
     const pack = waterPackCaveats(input.waterPack).length > 0;
+    // A shallow pin's tail that cannot run direct is a note of its own
+    // (fix-up review, 2026-10-03: alone it was titled 'Survey quality').
+    const shallowPinNote = [input.pinTail?.origin, input.pinTail?.destination].some(
+        (t) => !!t && !t.direct && Number.isFinite(t.depthM) && Number.isFinite(t.needsM),
+    );
     return {
         severity: 'warn',
         title:
@@ -198,7 +223,9 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
                       ? input.waterPack?.source === 'none'
                           ? 'Harbour water not saved'
                           : 'Saved harbour water'
-                      : 'Survey quality',
+                      : shallowPinNote
+                        ? 'Shallow pin'
+                        : 'Survey quality',
         message: caveats.join(' '),
     };
 }
@@ -231,6 +258,22 @@ function savedWaterPack(v: unknown): WaterPackUse | undefined {
     };
 }
 
+/** A saved route's shallow-pin facts (inshoreRouteToGeoJSON), checked;
+ *  undefined when malformed — no words rather than wrong ones. */
+function savedPinTail(v: unknown): PinTail | undefined {
+    if (!v || typeof v !== 'object') return undefined;
+    const t = v as { depthM?: unknown; needsM?: unknown; leastM?: unknown; direct?: unknown; why?: unknown };
+    const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+    if (!finite(t.depthM) || !finite(t.needsM) || typeof t.direct !== 'boolean') return undefined;
+    return {
+        depthM: t.depthM,
+        needsM: t.needsM,
+        ...(finite(t.leastM) ? { leastM: t.leastM } : {}),
+        direct: t.direct,
+        ...(typeof t.why === 'string' && t.why.trim() !== '' ? { why: t.why } : {}),
+    };
+}
+
 /**
  * The caveats a SAVED inshore route carries, for a plan shown again (round 3,
  * 2026-09-30): decision 8's bridges, a pin off the water and decision 9's
@@ -258,11 +301,17 @@ export function savedInshoreRouteCaveats(
         const off = p.pinOffWater as { origin?: unknown; destination?: unknown } | undefined;
         const side = (v: unknown): PinOffWater | undefined =>
             v === 'land' || v === 'drying' || v === 'no-tide' ? v : undefined;
+        const tails = p.pinTail as { origin?: unknown; destination?: unknown } | undefined;
         return inshoreRouteCaveats({
             structuresUnknownCells: strings(p.structuresUnknownCells),
             pinOffWater:
                 off && typeof off === 'object'
                     ? { origin: side(off.origin), destination: side(off.destination) }
+                    : undefined,
+            // A shallow pin whose tail is not direct (Shane, 2026-10-03).
+            pinTail:
+                tails && typeof tails === 'object'
+                    ? { origin: savedPinTail(tails.origin), destination: savedPinTail(tails.destination) }
                     : undefined,
             ...(p.tideCheck === 'not-loaded' ? { tideCheck: 'not-loaded' as const } : {}),
             surveyRuns: Array.isArray(p.surveyRuns) ? (p.surveyRuns as SurveyRunInfo[]) : undefined,
