@@ -1,10 +1,16 @@
 /**
  * Inshore Router Engine — A* pathfinding through ENC navigability grids.
  *
- * THIS IS A DEVICE-SIDE COPY of the pure-compute router that previously
- * lived only on the Pi at `pi-cache/src/services/inshoreRouter.ts`. The
- * two files are kept in sync by hand. Don't add Node-specific imports
- * here — this code runs in the iOS Capacitor web bundle.
+ * THIS IS THE ONE ROUTING ENGINE. The pure-compute router used to live only
+ * on the Pi, at `pi-cache/src/services/inshoreRouter.ts`, later as a
+ * hand-merged copy of this one. Since 439ce437 (2026-10-04) the Pi runs a
+ * GENERATED mirror of this file and every module it imports, under
+ * pi-cache/src/routerEngine/: after committing an engine change, run
+ * `node pi-cache/scripts/sync-router-engine.mjs` (it refuses uncommitted
+ * engine files; `--check` exits 1 when the mirror has drifted), and never
+ * edit the mirror by hand. Don't add Node-specific imports here — this code
+ * runs in the iOS Capacitor web bundle — nor any package the script does not
+ * allow (its ALLOWED_PACKAGES).
  *
  * Why this lives on the phone now
  * ────────────────────────────────
@@ -52,8 +58,8 @@
 // services/engine/*: constants, types, geometry, aStar, navGrid, pathShaping,
 // tierPipeline. The full public surface is re-exported at the bottom (barrel),
 // so every external importer of inshoreRouterEngine keeps resolving unchanged.
-// NOTE: the pi-cache copy (pi-cache/src/services/inshoreRouter.ts) is still a
-// single file — the hand-sync now maps this directory onto that one file.
+// The Pi's copy mirrors this layout file for file (pi-cache/src/routerEngine/,
+// written by pi-cache/scripts/sync-router-engine.mjs — see the header above).
 
 import { engineLog, ENGINE_DEBUG, M_PER_DEG_LAT, UNKNOWN_OPEN, CAUTION, UNCHARTED_MAX_RUN_M } from './engine/constants';
 import type {
@@ -1098,6 +1104,16 @@ function routeInshoreOnceEnds(
             }
         }
     };
+    // Whether each pin has any water within the shared-component snap's 10 km
+    // reach (below), read BEFORE the origin's bubble is carved. Read from the
+    // carved grid, the bubble answered for the origin — and for a destination
+    // within 10 km of it — so a pin with no water within reach was reported as
+    // 'destination-disconnected', never as on land (the Pi's hand-merged copy
+    // fixed this in 01383633, 2026-08-06; ported 2026-10-04). Only the failure
+    // classification below reads them.
+    const maxSnapCells = Math.ceil(10_000 / resolutionM);
+    const originNavBeforeEndpointCarve = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
+    const destinationNavBeforeEndpointCarve = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
     // Not over a pin in charted caution water: the carve's 5 m bubble would
     // fake 60 m of deep water over the chart's own shallow band (decision 7).
     if (!originWay) carveEndpoint(req.fromLat, req.fromLon, 60);
@@ -1307,7 +1323,6 @@ function routeInshoreOnceEnds(
     // sits 6-8 km east in main Moreton Bay; the old 5 km radius
     // couldn't reach it.
     const minComponentCells = req.minComponentCells ?? 25;
-    const maxSnapCells = Math.ceil(10_000 / resolutionM);
     const MAX_DEST_DEEP_SNAP_M = 1500;
 
     // DEBUG 2026-05-19: dump the top 5 connected components by size,
@@ -1450,17 +1465,16 @@ function routeInshoreOnceEnds(
             };
         }
         // No sizeable component lies within snap radius of both endpoints.
-        // Distinguish "origin on land" from "no shared water body".
-        const originNav = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
-        const destNav = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
-        if (!originNav) {
+        // Distinguish "origin on land" from "no shared water body" — on the
+        // chart's own water, not the origin's carved bubble (above).
+        if (!originNavBeforeEndpointCarve) {
             return {
                 error: 'Origin point and surrounding area are not navigable for this draft',
                 code: 'origin-on-land',
                 debug,
             };
         }
-        if (!destNav) {
+        if (!destinationNavBeforeEndpointCarve) {
             return {
                 error: 'Destination point and surrounding area are not navigable for this draft',
                 code: 'destination-on-land',
