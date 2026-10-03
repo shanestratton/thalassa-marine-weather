@@ -52,11 +52,7 @@ import {
 } from '../../services/enc/scaleShadow';
 import { buildChartAreaIndex, depthAlongLine } from '../../services/routing/leadLandClip';
 import { dangerWithoutChartedDepth, inshoreSegmentStates } from '../../components/map/inshoreRouteState';
-import {
-    TRACE_OVERVIEW_LAND_IGNORED_MESSAGE,
-    tracerContextFromLayers,
-    validateTrace,
-} from '../../services/routeTracer';
+import { tracerContextFromLayers, validateTrace } from '../../services/routeTracer';
 
 const rect = (x0: number, y0: number, x1: number, y1: number, props: Record<string, unknown>): Feature => ({
     type: 'Feature',
@@ -114,7 +110,6 @@ function probe(g: NavGrid) {
         depthM: v > 0 ? v : null,
         wetConflict: g.wetConflict?.[i] === 1,
         shallowDepthM: g.shallowDepthM?.[i],
-        ignored: g.overviewLandIgnored?.[i] === 1,
     };
 }
 const LAND_CELL = { land: true, blocked: true, caution: false, wetConflict: false };
@@ -156,7 +151,6 @@ describe('decision 12 — the grid (navGrid Pass 2)', () => {
             caution: false,
             wetConflict: false,
             depthM: 10,
-            ignored: true,
         });
     });
 
@@ -172,7 +166,6 @@ describe('decision 12 — the grid (navGrid Pass 2)', () => {
             caution: true,
             wetConflict: false,
             shallowDepthM: 1,
-            ignored: true,
         });
         const awash = probe(build({ LNDARE: fc(LAND(OVERVIEW)), DEPARE: fc(BAND(0, APPROACH, 2)) }));
         expect(awash).toMatchObject({ land: false, caution: true, wetConflict: false, shallowDepthM: 0 });
@@ -185,10 +178,9 @@ describe('decision 12 — the grid (navGrid Pass 2)', () => {
     // 1,116 m of drying ground (HEAD 30 m). Decision 1 never lets a drying
     // band beat land paint; decision 12 does not either.
     it('a detailed DRYING band keeps the overview’s land paint: land, as decision 1 has it', () => {
-        expect(probe(build({ LNDARE: fc(LAND(OVERVIEW)), DEPARE: fc(BAND(-1, APPROACH, 1)) }))).toMatchObject({
-            ...LAND_CELL,
-            ignored: false,
-        });
+        expect(probe(build({ LNDARE: fc(LAND(OVERVIEW)), DEPARE: fc(BAND(-1, APPROACH, 1)) }))).toMatchObject(
+            LAND_CELL,
+        );
         expect(probe(build({ LNDARE: fc(LAND(GENERAL)), DEPARE: fc(BAND(-2.2, HARBOUR, 0)) }))).toMatchObject(
             LAND_CELL,
         );
@@ -216,7 +208,8 @@ describe('decision 12 — the grid (navGrid Pass 2)', () => {
         expect(Number.isNaN(g.cells[row(x)])).toBe(false);
         expect(g.cells[row(x)]).toBe(CAUTION);
         expect(g.wetConflict?.[row(x)] ?? 0).toBe(0);
-        expect(g.overviewLandIgnored?.[row(x)]).toBe(1);
+        // The overview's land over it was ignored (decision 12), not upheld.
+        expect(g.landBlocked?.[row(x)] ?? 0).toBe(0);
     });
 
     it('two detailed charts disagreeing keep decision 1’s caution (the Brisbane River case)', () => {
@@ -401,15 +394,15 @@ describe('decision 12 — a route through the overview’s land paint over a det
             expect(v.issues.map((i) => i.message)).not.toContain('depth data conflicts here — treat as unproven');
             expect(v.minDepthM).toBe(10);
         }
-        // Review fix-up (2026-10-03): until the chart layer draws the
-        // detailed chart over the overview (item f), the map still shows the
-        // overview's land under this green line — the leg review says why,
-        // as a note that never changes the grade.
-        const notes = verdicts
-            .flatMap((v) => v.issues)
-            .filter((i) => i.message === TRACE_OVERVIEW_LAND_IGNORED_MESSAGE);
-        expect(notes.length).toBeGreaterThan(0);
-        expect(notes.every((i) => i.severity === 'info' && i.at !== undefined)).toBe(true);
+        // The stop-gap note is gone (item f, 2026-10-03). The leg review said
+        // "overview chart shows land here; detailed chart charts water" while
+        // the map still drew the overview's land under this green line; the
+        // chart layer now draws the detailed chart's water over it
+        // (tests/enc/scaleOrderedDrawing: wherever decision 12 ignores
+        // overview land, the detailed water's draw band is above it), so a
+        // clear leg says nothing about land that is not on the map.
+        const notes = verdicts.flatMap((v) => v.issues).filter((i) => /overview chart/i.test(i.message));
+        expect(notes).toEqual([]);
     });
 });
 

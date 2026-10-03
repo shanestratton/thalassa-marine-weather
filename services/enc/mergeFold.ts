@@ -26,8 +26,10 @@ import {
 } from './clipDepareOverlap';
 import {
     cellScaleRank,
+    encDrawTier,
     featureBboxCached,
     featureIsShadowed,
+    referenceWaterYields,
     shadowingCells,
     GLAZE_SHADOW_RATIO,
     type CellExtent,
@@ -267,6 +269,23 @@ export async function accumulateCellLayers(
     const glazeShadows = buildGlaze
         ? reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox, authority }, peerExtents, GLAZE_SHADOW_RATIO))
         : [];
+    // SCALE-ORDERED DRAWING (item f, 2026-10-03): the chart layer draws one
+    // water / land / coastline group per scale tier, coarsest first, so a
+    // finer chart's fills cover a coarser one's (scaleShadow encDrawTier).
+    // The fineness is the router's own (InshoreRouter cellScaleFacts: the
+    // blob's compilation scale, else the S-57 name's band), once per cell.
+    // An unsigned reference pack keeps its own tier for its land and coast,
+    // and for its water unless a navigation chart in this merge overlaps it
+    // (referenceWaterYields — then its water drops to tier 1, under every
+    // navigation fill).
+    const scaleFacts = {
+        nativeScale: blob.nativeScale,
+        sourceCellId: cell.sourceCellId ?? blob.sourceCellId,
+        cellId: cell.id,
+    };
+    const waterYields = referenceWaterYields({ id: cell.id, bbox: cell.bbox, authority }, cellExtents);
+    const waterDrawTier = encDrawTier(scaleFacts, 'water', waterYields);
+    const landDrawTier = encDrawTier(scaleFacts, 'land');
 
     const tagAndPush = async (
         target: keyof Omit<EncMergedVectorData, 'cellCount'>,
@@ -336,6 +355,9 @@ export async function accumulateCellLayers(
             // competence (the "1980s edges", 2026-07-11). Set on the new
             // props object — never stamped into the cached blob here.
             if (target === 'DEPARE') props._scaleRank = cellScaleRank(cell.bbox);
+            // The draw tier the scale-ordered fills filter on (see above).
+            if (target === 'DEPARE') props._drawTier = waterDrawTier;
+            else if (target === 'LNDARE' || target === 'COALNE') props._drawTier = landDrawTier;
 
             // Pre-compute the display colour for lateral marks
             // (BOYLAT/BCNLAT) so the renderer doesn't need a

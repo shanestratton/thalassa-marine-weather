@@ -23,6 +23,9 @@ export default defineConfig({
         'music-layout.spec.ts',
         'autorouting-trial.spec.ts',
         'cruising-layers.spec.ts',
+        // Scale-ordered chart drawing: a detailed chart's water over an
+        // overview's land (e2e/fixtures/enc-scale-order.tsx, item f).
+        'enc-scale-order.spec.ts',
         'shore-watch-layout.spec.ts',
         'passage-log-layout.spec.ts',
         'passage-recording-layout.spec.ts',

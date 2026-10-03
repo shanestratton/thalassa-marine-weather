@@ -27,6 +27,7 @@
 import type mapboxgl from 'mapbox-gl';
 import type { ExpressionSpecification, FilterSpecification } from 'mapbox-gl';
 import { readS57 } from '../../services/enc/types';
+import { ENC_DRAW_TIER_COUNT } from '../../services/enc/scaleShadow';
 
 // ── Sentinels ──────────────────────────────────────────────────────
 
@@ -516,6 +517,17 @@ export function distinctValdcosByCell(fc: {
     const out: Record<string, number[]> = {};
     for (const [cellId, set] of sets) out[cellId] = [...set].sort((a, b) => a - b);
     return out;
+}
+
+/**
+ * Scale-ordered drawing (item f, 2026-10-03): the filter of one draw tier's
+ * area layer — the features the merge stamped with this `_drawTier`
+ * (scaleShadow encDrawTier). A feature with no stamp (a merge built before it)
+ * still paints exactly once, the fail-safe way unknown fineness does: water in
+ * the bottom tier, land and coastline in the top one.
+ */
+export function drawTierFilter(tier: number, kind: 'water' | 'land'): mapboxgl.FilterSpecification {
+    return mapFilter(['==', ['coalesce', ['get', '_drawTier'], kind === 'water' ? 1 : ENC_DRAW_TIER_COUNT], tier]);
 }
 
 // SCAMIN-aware visibility clause — features pre-tagged with `_minZoom`

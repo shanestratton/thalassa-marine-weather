@@ -7,13 +7,14 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { inshoreRouteLineLayers, NEEDS_TIDE_AMBER, surveyDashLayers } from '../components/map/inshoreRouteState';
 
-/** The planner's colours, as they were inline in useMapInit before 2026-10-01. */
+/** The planner's colours, as they were inline in useMapInit before 2026-10-01
+ *  — less 'unverified' (2026-10-03): an unchecked line is never solid, it is
+ *  the red dashes of unverifiedRouteDashLayers. */
 const LINE = {
     safe: '#00e676',
     caution: '#ff9100',
     tide: NEEDS_TIDE_AMBER,
     danger: '#ff1744',
-    unverified: '#f59e0b',
     channel: '#facc15',
     harbour: '#38bdf8',
     offshore: '#1e40af',
@@ -23,7 +24,6 @@ const CORE = {
     caution: '#ffe0b2',
     tide: '#ffe0b2',
     danger: '#ffcdd2',
-    unverified: '#cbd5e1',
     channel: '#fcd34d',
     harbour: '#bae6fd',
     offshore: '#93c5fd',
@@ -38,7 +38,12 @@ const matchOf = (table: Record<string, string>, fallback: string) => [
 describe('inshoreRouteLineLayers', () => {
     it('pins the planner route colours: glow, line and core, solid pieces only', () => {
         const [glow, line, core] = inshoreRouteLineLayers('route-line');
-        const solid = ['all', ['!=', ['get', 'dashed'], true], ['!=', ['get', 'safety'], 'survey']];
+        const solid = [
+            'all',
+            ['!=', ['get', 'dashed'], true],
+            ['!=', ['get', 'safety'], 'survey'],
+            ['!=', ['get', 'safety'], 'unverified'],
+        ];
         expect(glow).toEqual({
             id: 'route-glow',
             type: 'line',

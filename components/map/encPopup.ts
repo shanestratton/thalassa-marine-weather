@@ -11,7 +11,7 @@
 import { LITCHR_LABELS, readS57 } from '../../services/enc/types';
 import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { isChartStale, chartAgeLabel } from '../../services/enc/chartCurrency';
-import { ENC_VEC_LAYERS } from './encLayerIds';
+import { ENC_VEC_LAYERS, encBaseLayerId } from './encLayerIds';
 import { daylightUiColor } from '../../utils/daylightUiColor';
 
 /**
@@ -244,7 +244,8 @@ export interface AreaTapHit {
 export function pickAreaTap(hits: AreaTapHit[]): { index: number; cautionsUnder: Record<string, unknown>[] } | null {
     if (hits.length === 0) return null;
     if (hits[0].layerId === ENC_VEC_LAYERS.CAUTION_AREA_FILL) {
-        const water = hits.findIndex((h) => h.layerId === ENC_VEC_LAYERS.DEPARE);
+        // Any scale tier's water fill is the water (scale-ordered groups).
+        const water = hits.findIndex((h) => encBaseLayerId(h.layerId) === ENC_VEC_LAYERS.DEPARE);
         if (water >= 0) {
             // ALL caution washes above the water fold in (closing audit:
             // only the FIRST rode along — a spot inside a restricted area

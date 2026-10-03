@@ -39,6 +39,7 @@ import {
     inshoreRoutePieces,
     routeTideDepths,
     surveyDashLayers,
+    unverifiedRouteDashLayers,
     tideLiftablePieces,
     type InshoreRoutePiece,
 } from '../map/inshoreRouteState';
@@ -417,15 +418,11 @@ export function AutoroutingTrialWorkspace({
                 paint: { 'line-color': ['get', 'color'], 'line-width': 4 },
             });
             // A line whose safety classifications did not arrive intact: the
-            // planner's dashed 'unverified' amber, over the chart-check colours.
-            map.addLayer({
-                id: 'thalassa-route-unverified',
-                type: 'line',
-                source: 'thalassa-route',
-                filter: ['==', ['get', 'dashed'], true],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#f59e0b', 'line-width': 2.5, 'line-opacity': 0.95, 'line-dasharray': [4, 4] },
-            });
+            // planner's unverified line — bright red and white dashes on a
+            // dark edge (2026-10-03; amber dashes until then, which read as a
+            // lead) — over the chart-check colours.
+            for (const spec of unverifiedRouteDashLayers('thalassa-route', 'thalassa-route'))
+                map.addLayer(spec as mapboxgl.AnyLayer);
             map.addLayer({
                 id: 'trial-endpoints',
                 type: 'circle',
@@ -617,7 +614,8 @@ export function AutoroutingTrialWorkspace({
     // the planner's pieces): while they show, the chart-check colouring of the
     // line is hidden — the numbered waypoints keep it. A hand edit, or a line
     // whose classifications did not arrive intact, falls back to the
-    // chart-check colours; the latter also draws the planner's dashed amber.
+    // chart-check colours; the latter also draws the planner's unverified red
+    // dashes.
     const [tideTop, setTideTop] = useState<{
         route: AutoroutingTrialRoute;
         highestAt: (lon: number, lat: number) => number | null;

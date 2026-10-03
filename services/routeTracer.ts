@@ -679,15 +679,6 @@ export const TRACER_LRU_BYTE_BUDGET = 48 * 1024 * 1024;
 export const TRACE_LAND_CROSSING_MESSAGE = 'crosses charted land';
 
 /**
- * The leg-review note where owner decision 12 (2026-10-02, "Trust the
- * detailed chart") ignored an overview or general chart's land paint under
- * the leg: the detailed chart charts never-drying water there, and the leg is
- * graded by that depth. An 'info' note, never a grade — it says why a green
- * leg can run where the overview chart still draws land on the map.
- */
-export const TRACE_OVERVIEW_LAND_IGNORED_MESSAGE = 'overview chart shows land here; detailed chart charts water';
-
-/**
  * Hold `ctx` at the front of the LRU, evicting from the tail — first past
  * three entries, then while the MEASURED grid bytes exceed the budget. The
  * newest entry always survives: refusing to hold the grid that is in use
@@ -996,15 +987,6 @@ function readCell(grid: NavGrid, p: TracePoint): CellRead {
     return { kind: 'depth', depthM: v };
 }
 
-/** Did decision 12 ignore an overview chart's land paint in the point's cell
- *  (NavGrid.overviewLandIgnored)? */
-function overviewLandIgnoredAt(grid: NavGrid, p: TracePoint): boolean {
-    const x = Math.floor((p.lon - grid.minLon) / grid.dLon);
-    const y = Math.floor((p.lat - grid.minLat) / grid.dLat);
-    if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
-    return grid.overviewLandIgnored?.[y * grid.width + x] === 1;
-}
-
 /** Any non-blocked cell within `cells` of the point? Distinguishes a sample
  *  ON the land/water boundary (chart bleed, tap imprecision, coarse-vs-fine
  *  grid disagreement — "hugs the bank", caution) from one deep inside charted
@@ -1147,8 +1129,6 @@ export function validateTraceLeg(
     let bankShaveAt: TracePoint | null = null;
     let uncharted = 0;
     let conflict = 0;
-    // Decision 12: the first sample over overview land the grid ignored.
-    let overviewLandAt: TracePoint | null = null;
     const inCanalLane = (p: TracePoint): boolean =>
         ctx.canalLanes.some((l) => l.pts.length >= 2 && projectToLine(p, l.pts).dist <= CANAL_LANE_HALF_WIDTH_M);
     // Boundary tolerance ≈ 25 m (at least 2 cells) — the live engine's 50 m
@@ -1160,7 +1140,6 @@ export function validateTraceLeg(
             const t = i / steps;
             const p = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
             const r = readCell(grid, p);
-            if (!overviewLandAt && grid.overviewLandIgnored && overviewLandIgnoredAt(grid, p)) overviewLandAt = p;
             if (r.kind === 'blocked' && r.sub === 'land' && inCanalLane(p)) {
                 // Chart-LNDARE bleed inside a carved canal/fairway lane — the
                 // lane is navigable (that's what the carve asserts), but it
@@ -1514,12 +1493,6 @@ export function validateTraceLeg(
             severity: 'info',
             message: 'bridges and power lines not checked on this chart — known bridges are',
         });
-    }
-
-    // Decision 12 honesty: said after the draft check (so it never stands in
-    // for a real draft) and as 'info', so it never changes the grade.
-    if (overviewLandAt) {
-        issues.push({ severity: 'info', message: TRACE_OVERVIEW_LAND_IGNORED_MESSAGE, at: overviewLandAt });
     }
 
     // 'info' issues are GREEN confirmations — they must NOT escalate the grade

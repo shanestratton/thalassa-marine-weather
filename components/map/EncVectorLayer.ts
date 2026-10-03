@@ -51,8 +51,14 @@ import { registerSeamarkIcons, UWTROC_ROCK_GLYPH, UWTROC_ROCK_GLYPH_DEFAULT } fr
 import {
     ALL_LAYER_IDS,
     CLICKABLE_LAYER_IDS,
+    ENC_AREA_TIER_GROUPS,
+    ENC_COAST_LINE_LAYERS,
+    ENC_LAND_FILL_LAYERS,
     ENC_VEC_LAYERS,
     ENC_VEC_SRC,
+    ENC_WATER_FILL_LAYERS,
+    RETIRED_ENC_LAYER_IDS,
+    encBaseLayerId,
     S57_BUOY_BEACON_CLASSES,
     S57_HAZARD_POINT_CLASSES,
     S57_NAVAID_CLASSES,
@@ -89,6 +95,7 @@ import {
     depcntLineFilter,
     depcntSafetyFilter,
     distinctValdcosByCell,
+    drawTierFilter,
 } from './encDepthStyle';
 
 // Re-export the pure style API for existing importers + tests.
@@ -107,7 +114,6 @@ export { computeSafetyValdco } from './encDepthStyle';
 // read it, and the satellite-base treatment it keys — lives in
 // encDepthStyleState.ts (god-module carve step 1, docs/ENC_VECTORLAYER_CARVE.md).
 import {
-    DEPARE_FINE_RANK_FILTER,
     SATELLITE_HIDE_LAYERS,
     applyTideOffsetPaint,
     depthStyleState,
@@ -263,20 +269,33 @@ function mountLandCoastLayers(
     // fill-outline defaults to the fill colour so mesh edges vanish;
     // the coastline stroke comes from COALNE — the S-57-correct
     // source for it anyway.
-    if (!map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
+    //
+    // ONE LAND FILL PER SCALE TIER (scale-ordered drawing, item f,
+    // 2026-10-03): each sits over its own tier's water and under every finer
+    // tier's, so a detailed chart's water covers an overview's coarse land
+    // (Cid Harbour) and its islands cover the overview's water. Each paints
+    // only its tier's features (`_drawTier`), so nothing is painted twice.
+    for (const group of ENC_AREA_TIER_GROUPS) {
+        if (map.getLayer(group.land)) {
+            // Heal a tier-1 layer an older bundle built unfiltered: it would
+            // paint EVERY chart's land over the finer tiers' water again.
+            map.setFilter(group.land, drawTierFilter(group.tier, 'land'));
+            continue;
+        }
         map.addLayer(
             {
-                id: ENC_VEC_LAYERS.LNDARE,
+                id: group.land,
                 type: 'fill',
                 source: ENC_VEC_SRC.LNDARE,
                 minzoom: minZoom,
+                filter: drawTierFilter(group.tier, 'land'),
                 paint: {
                     'fill-color': '#d6c590',
                     'fill-opacity': opacity,
                     'fill-antialias': true,
                 },
             },
-            beforeIdFor(ENC_VEC_LAYERS.LNDARE),
+            beforeIdFor(group.land),
         );
     }
 
@@ -311,13 +330,23 @@ function mountLandCoastLayers(
     // continuous traced coastlines — no more criss-cross spans. Classic
     // chart buff/dark-brown — pure black reads harsh against the pale
     // day-palette deep-water band.
-    if (!map.getLayer(ENC_VEC_LAYERS.COALNE)) {
+    //
+    // One per scale tier too (item f): a chart's coastline draws over its own
+    // water and land, and a finer chart's water covers a coarser chart's
+    // coastline — the overview's straight brown line across Cid Harbour goes
+    // under the 1:90,000 water with the overview's land.
+    for (const group of ENC_AREA_TIER_GROUPS) {
+        if (map.getLayer(group.coast)) {
+            map.setFilter(group.coast, drawTierFilter(group.tier, 'land')); // heal, as the land above
+            continue;
+        }
         map.addLayer(
             {
-                id: ENC_VEC_LAYERS.COALNE,
+                id: group.coast,
                 type: 'line',
                 source: ENC_VEC_SRC.COALNE,
                 minzoom: minZoom,
+                filter: drawTierFilter(group.tier, 'land'),
                 layout: {
                     'line-cap': 'round',
                     'line-join': 'round',
@@ -332,7 +361,7 @@ function mountLandCoastLayers(
                     'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 0.8, 13, 0.95, 15, 1],
                 },
             },
-            beforeIdFor(ENC_VEC_LAYERS.COALNE),
+            beforeIdFor(group.coast),
         );
     }
 }
@@ -1024,23 +1053,37 @@ function mountTrackAidLayers(
  * layer-rebuild cost on cell-list changes; we just setData on the
  * source.
  */
-/** Depth-AREA band fills, lifted out of the mount monolith (#2b, pure
- *  move): the absolute white-ramp DEPARE, the satellite glaze twin, and
- *  the fine-survey water repainted above land. Sources are ensured by the
- *  caller; the base-treatment + tide sync run in the caller right after. */
+/** Depth-AREA band fills, lifted out of the mount monolith (#2b): the
+ *  absolute white-ramp DEPARE — one fill per scale tier since the
+ *  scale-ordered drawing (item f) retired the fine-survey repaint — and the
+ *  satellite glaze twin. Sources are ensured by the caller; the
+ *  base-treatment + tide sync run in the caller right after. */
 function mountDepthAreaLayers(
     map: mapboxgl.Map,
     minZoom: number,
     beforeIdFor: (layerId: string) => string | undefined,
 ): void {
     // ── DEPARE (absolute white-ramp band fills) ───────────────────
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
+    // ONE WATER FILL PER SCALE TIER (scale-ordered drawing, item f,
+    // 2026-10-03; Shane: "we should overlay the charts the other way so the
+    // water is drawn over the land"): tier t's water sits over every coarser
+    // tier's land and coastline, so a detailed chart's water covers an
+    // overview's coarse land (Cid Harbour). Each paints only its tier's
+    // features (`_drawTier`, the router's fineness); syncDepareBaseTreatment
+    // owns the filter from here on (the tier, plus the satellite ladder).
+    for (const group of ENC_AREA_TIER_GROUPS) {
+        if (map.getLayer(group.water)) {
+            // Heal layers created by earlier app versions (AA on).
+            map.setPaintProperty(group.water, 'fill-antialias', false);
+            continue;
+        }
         map.addLayer(
             {
-                id: ENC_VEC_LAYERS.DEPARE,
+                id: group.water,
                 type: 'fill',
                 source: ENC_VEC_SRC.DEPARE,
                 minzoom: minZoom,
+                filter: drawTierFilter(group.tier, 'water'),
                 paint: {
                     // Absolute paper-chart ramp — see
                     // buildDepareFillColor. Static: draft changes move
@@ -1059,11 +1102,8 @@ function mountDepthAreaLayers(
                     'fill-antialias': false,
                 },
             },
-            beforeIdFor(ENC_VEC_LAYERS.DEPARE),
+            beforeIdFor(group.water),
         );
-    } else {
-        // Heal layers created by earlier app versions (AA on).
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-antialias', false);
     }
     // ── DEPARE_GLAZE (overlap-clipped satellite twin) ─────────────
     // FLAT two-tone colour off the CLIPPED collection (white / drying
@@ -1099,28 +1139,6 @@ function mountDepthAreaLayers(
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.DEPARE_GLAZE),
-        );
-    }
-    // ── DEPARE_FINE (fine-survey water repainted ABOVE land) ──────
-    // Same source, filtered to harbour-grade ranks. Sits over LNDARE/
-    // COALNE so a coarse cell's generalised land blob can't swallow a
-    // finer survey's rivers and canal estates (Mooloolaba, 2026-07-11).
-    // Not clickable — the base DEPARE layer answers taps.
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPARE_FINE,
-                type: 'fill',
-                source: ENC_VEC_SRC.DEPARE,
-                minzoom: minZoom,
-                filter: DEPARE_FINE_RANK_FILTER,
-                paint: {
-                    'fill-color': buildDepareFillColor(),
-                    'fill-opacity': DEPARE_CHART_OPACITY,
-                    'fill-antialias': false,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPARE_FINE),
         );
     }
 }
@@ -1407,8 +1425,19 @@ export function mountEncVectorLayer(
         return anchor;
     };
 
-    // Depth-area band fills (DEPARE + satellite glaze + fine repaint) live
-    // in mountDepthAreaLayers now — see #2b.
+    // A retired layer left on this map by an older bundle (the fine-survey
+    // repaint, 2026-10-03) would paint off the canonical stack: drop it.
+    for (const id of RETIRED_ENC_LAYER_IDS) {
+        if (!map.getLayer(id)) continue;
+        try {
+            map.removeLayer(id);
+        } catch {
+            /* best effort */
+        }
+    }
+
+    // Depth-area band fills (one per scale tier + the satellite glaze)
+    // live in mountDepthAreaLayers now — see #2b.
     mountDepthAreaLayers(map, minZoom, beforeIdFor);
 
     // Mount can happen while satellite is already on (style swap,
@@ -1665,7 +1694,7 @@ export function unmountEncVectorLayer(map: mapboxgl.Map): void {
         state.lastPushedGlazeFeats = null;
         state.lastPushedContourFeats = null;
     }
-    for (const id of ALL_LAYER_IDS) {
+    for (const id of [...ALL_LAYER_IDS, ...RETIRED_ENC_LAYER_IDS]) {
         if (map.getLayer(id)) {
             try {
                 map.removeLayer(id);
@@ -1731,7 +1760,7 @@ export interface EncVisibilityState {
 // swaps with the base: over imagery syncDepareBaseTreatment zeroes DEPARE and
 // hands the bands to the glaze; on the paper chart the reverse.
 const PLOTTING_KEEL_SAT: readonly string[] = [ENC_VEC_LAYERS.DEPARE_GLAZE];
-const PLOTTING_KEEL_CHART: readonly string[] = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.DEPARE_FINE];
+const PLOTTING_KEEL_CHART: readonly string[] = ENC_WATER_FILL_LAYERS;
 // Keel-limit line + the three that will actually sink you. MARK_LAYERS covers
 // buoys and beacons but NOT these, so a plotter could be grading legs against
 // wrecks and rocks it was never shown.
@@ -1773,11 +1802,10 @@ export function setEncPlottingMode(map: mapboxgl.Map, plotting: boolean): void {
 export function setEncOverviewMode(map: mapboxgl.Map, overview: boolean): void {
     const minzoom = overview ? ENC_OVERVIEW_MIN_ZOOM : ENC_DETAIL_MIN_ZOOM;
     for (const id of [
-        ENC_VEC_LAYERS.DEPARE,
-        ENC_VEC_LAYERS.DEPARE_FINE,
-        ENC_VEC_LAYERS.LNDARE,
+        ...ENC_WATER_FILL_LAYERS,
+        ...ENC_LAND_FILL_LAYERS,
         ENC_VEC_LAYERS.LNDARE_ISLET,
-        ENC_VEC_LAYERS.COALNE,
+        ...ENC_COAST_LINE_LAYERS,
     ]) {
         const layer = map.getLayer(id);
         if (layer && layer.minzoom !== minzoom) map.setLayerZoomRange(id, minzoom, layer.maxzoom ?? 24);
@@ -1853,8 +1881,8 @@ const ENC_LABEL_HIDE_LAYERS = [ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_LAYERS.POIN
  * router already routed around but the user wants to see.
  */
 const ROUTE_FOCUS_HIDE_LAYERS = [
-    ENC_VEC_LAYERS.DEPARE,
-    ENC_VEC_LAYERS.DEPARE_FINE,
+    // Every scale tier's water, land and coastline (scale-ordered groups).
+    ...ENC_WATER_FILL_LAYERS,
     // The satellite twin hides too — route-focus over imagery kept
     // painting keel-keyed bands at up to 0.72 opacity, fighting the
     // route polyline the mode exists to spotlight (2026-07-12 audit).
@@ -1862,8 +1890,8 @@ const ROUTE_FOCUS_HIDE_LAYERS = [
     // syncDepareBaseTreatment manages, so the base-treatment sync
     // can't resurrect a hidden glaze.
     ENC_VEC_LAYERS.DEPARE_GLAZE,
-    ENC_VEC_LAYERS.LNDARE,
-    ENC_VEC_LAYERS.COALNE,
+    ...ENC_LAND_FILL_LAYERS,
+    ...ENC_COAST_LINE_LAYERS,
     ...ENC_LABEL_HIDE_LAYERS,
 ] as const;
 
@@ -1876,8 +1904,8 @@ const ROUTE_FOCUS_HIDE_LAYERS = [
  * criss-cross spans.
  */
 const CHART_DETAIL_HIDE_LAYERS = [
-    ENC_VEC_LAYERS.DEPARE,
-    ENC_VEC_LAYERS.DEPARE_FINE,
+    // Every scale tier's water fill (scale-ordered groups).
+    ...ENC_WATER_FILL_LAYERS,
     // Clean chart means clean over imagery too (see the route-focus
     // note — visibility beats the base-treatment opacity writer).
     ENC_VEC_LAYERS.DEPARE_GLAZE,
@@ -2185,9 +2213,12 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             // answer as WATER and fold the caution into the depth popup —
             // the same treatment SBDARE already gets (extras below). The
             // precedence lives in pickAreaTap (pure, tested).
+            // Tier layers answer as their base layer (…-depare-t5-fill → DEPARE):
+            // the topmost hit is the chart the skipper SEES there — the
+            // detailed chart's water over an overview's land answers as water.
             const pick = pickAreaTap(
                 areaHits.map((h) => ({
-                    layerId: h.layer?.id ?? '',
+                    layerId: encBaseLayerId(h.layer?.id ?? ''),
                     properties: (h.properties ?? {}) as Record<string, unknown>,
                 })),
             );
@@ -2203,7 +2234,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         // pointHits non-empty guarantees a pick, but TS can't see through
         // the filter/nearest split — and a paranoid bail beats a throw.
         if (!feat) return;
-        const layerId = feat.layer?.id ?? '';
+        const layerId = encBaseLayerId(feat.layer?.id ?? '');
         const props = (feat.properties ?? {}) as Record<string, unknown>;
 
         // OBS remains a clean observational map. A charted water area would

@@ -27,7 +27,13 @@
  */
 
 import mapboxgl from 'mapbox-gl';
-import { ENC_VEC_LAYERS } from './encLayerIds';
+import {
+    ENC_AREA_TIER_GROUPS,
+    ENC_COAST_LINE_LAYERS,
+    ENC_LAND_FILL_LAYERS,
+    ENC_VEC_LAYERS,
+    ENC_WATER_FILL_LAYERS,
+} from './encLayerIds';
 import {
     DEFAULT_SAFETY_DEPTH_M,
     DEPARE_CHART_OPACITY,
@@ -42,6 +48,7 @@ import {
     computeSafetyValdcoByCell,
     depcntLineFilter,
     depcntSafetyFilter,
+    drawTierFilter,
     mapFilter,
 } from './encDepthStyle';
 
@@ -85,11 +92,9 @@ export function setEncDraftAssumed(map: mapboxgl.Map, assumed: boolean): void {
 export function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): void {
     const h = tideOffsetM ?? 0;
     const live = tideOffsetM !== null;
-    if (map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-color', buildDepareFillColor(h));
-    }
-    if (map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-color', buildDepareFillColor(h));
+    // Every scale tier's water fill (the scale-ordered groups, 2026-10-03).
+    for (const id of ENC_WATER_FILL_LAYERS) {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'fill-color', buildDepareFillColor(h));
     }
     // DEPARE_GLAZE is deliberately NOT here. The satellite glaze is a
     // go/no-go VERDICT (keel-keyed opacity on chart-datum DRVAL1, same
@@ -210,9 +215,10 @@ export const SATELLITE_KEY = 'thalassa_satellite_base_v2';
  *  syncDepareBaseTreatment restyles it amber as the keel-limit line over
  *  imagery, but MapHub's hand-copy kept hiding it). */
 export const SATELLITE_HIDE_LAYERS: readonly string[] = [
-    ENC_VEC_LAYERS.LNDARE,
+    // Every scale tier's land and coastline (the scale-ordered groups).
+    ...ENC_LAND_FILL_LAYERS,
     ENC_VEC_LAYERS.LNDARE_ISLET,
-    ENC_VEC_LAYERS.COALNE,
+    ...ENC_COAST_LINE_LAYERS,
 ];
 // Isolated chart workspaces must not inherit or overwrite another map's base.
 const mapBaseOverrides = new WeakMap<mapboxgl.Map, boolean>();
@@ -254,16 +260,8 @@ const DEPARE_COMPETENCE_FILTER = mapFilter([
     ['>=', DEPARE_RANK, 40], // ~1° coastal cells bow out at street zoom
 ]);
 
-/** Harbour-grade fineness gate for the over-land repaint (rank from
- *  cellScaleRank: ~1-degree coastal cells are ~0; harbour cells 80+). */
-export const DEPARE_FINE_RANK_FILTER = mapFilter([
-    '>=',
-    ['coalesce', ['to-number', ['get', '_scaleRank']], -32768],
-    40,
-]);
-
 /**
- * Re-point BOTH DEPARE fills at the current base: near-opaque paper on
+ * Re-point EVERY DEPARE fill at the current base: near-opaque paper on
  * the chart, depth-graded glaze + competence filter over satellite.
  * Called by every visibility writer here plus MapHub's satellite
  * effect, so no code path can leave the wrong treatment behind.
@@ -273,21 +271,20 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
     const satOn = satelliteBaseOn(map);
     // Over imagery the GLAZE layer (overlap-clipped collection) is the
     // ONLY band painter — the plain fills go opacity-0. Translucent
-    // twins stack: DEPARE + DEPARE_FINE double-painted every fine
-    // feature, and unclipped coarse-under-fine doubled the rest into
+    // twins stack: the old DEPARE + DEPARE_FINE pair double-painted every
+    // fine feature, and unclipped coarse-under-fine doubled the rest into
     // the hard-edged dark wedges (Shane 2026-07-12: "horrible 80's
     // style rendering"). On the chart the opaque originals return and
     // the glaze goes opacity-0.
-    map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-opacity', satOn ? 0 : DEPARE_CHART_OPACITY);
-    map.setFilter(ENC_VEC_LAYERS.DEPARE, satOn ? DEPARE_COMPETENCE_FILTER : null);
-    if (map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-opacity', satOn ? 0 : DEPARE_CHART_OPACITY);
-        // The twin ALWAYS keeps its fineness gate; satellite adds the
-        // competence ladder on top (harbour cells never retire anyway).
-        map.setFilter(
-            ENC_VEC_LAYERS.DEPARE_FINE,
-            satOn ? mapFilter(['all', DEPARE_FINE_RANK_FILTER, DEPARE_COMPETENCE_FILTER]) : DEPARE_FINE_RANK_FILTER,
-        );
+    // Every scale tier's water fill (the scale-ordered groups, 2026-10-03).
+    // Each ALWAYS keeps its tier filter — without it one layer would paint
+    // every tier's water, and the coarse overview's land would bury it again;
+    // satellite adds the competence ladder on top.
+    for (const group of ENC_AREA_TIER_GROUPS) {
+        if (!map.getLayer(group.water)) continue;
+        const tier = drawTierFilter(group.tier, 'water');
+        map.setPaintProperty(group.water, 'fill-opacity', satOn ? 0 : DEPARE_CHART_OPACITY);
+        map.setFilter(group.water, satOn ? mapFilter(['all', tier, DEPARE_COMPETENCE_FILTER]) : tier);
     }
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
         // Heal AA on glaze layers built before 2026-07-12 (AA was on):

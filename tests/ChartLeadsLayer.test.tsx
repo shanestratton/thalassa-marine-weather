@@ -29,6 +29,7 @@ import {
     CHART_LEADS_SOURCE_ID,
     useChartLeadsLayer,
 } from '../components/map/useChartLeadsLayer';
+import { BLOCKED_LEAD_DASH } from '../components/map/inshoreRouteState';
 
 // A tiny real graph: one 5 m track (clear for 2 m) and one 1 m track (needs tide).
 const W = 150.1;
@@ -265,6 +266,11 @@ describe('useChartLeadsLayer — the lead graph on the chart', () => {
         expect(String(blocked.paint?.['line-color']).toLowerCase()).toBe(BLOCKED_INK);
         expect(blocked.paint?.['line-color']).not.toBe(amber.paint?.['line-color']);
         expect(blocked.paint?.['line-dasharray']).toBeDefined();
+        // One spec (inshoreRouteState BLOCKED_LEAD_DASH), which the chart key
+        // and the unverified route line's distinctness test read too.
+        expect(blocked.paint?.['line-color']).toBe(BLOCKED_LEAD_DASH.ink);
+        expect(blocked.paint?.['line-dasharray']).toEqual([...BLOCKED_LEAD_DASH.dasharray]);
+        expect(casing.paint?.['line-color']).toBe(BLOCKED_LEAD_DASH.casing);
         expect(JSON.stringify(amber.filter)).not.toContain('blocked');
         expect(JSON.stringify(casing.filter)).toContain('blocked');
         const order = m.map.getStyle().layers.map((l) => l.id);
