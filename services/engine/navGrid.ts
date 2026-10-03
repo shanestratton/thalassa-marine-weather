@@ -108,6 +108,24 @@ export function trimNavGridCache(targetBytes = NAV_GRID_CACHE_BYTE_BUDGET): void
     }
 }
 
+/**
+ * Re-count a cached grid's resident bytes after the engine attached more to
+ * it (the shallow clearance ring, w × h bytes — or an empty one where no
+ * shallow band exists; round-3 fix-up, 2026-10-03), so the 48 MB budget reads
+ * the grid as it now is, not the admission's reservation for the ring; then
+ * trim the OTHER entries to fit (this one stays, as at admission).
+ */
+export function recountNavGridCacheEntry(grid: NavGrid): void {
+    for (const [key, entry] of navGridCache) {
+        if (entry.grid !== grid) continue;
+        entry.bytes = navGridBytes(grid);
+        navGridCache.delete(key);
+        trimNavGridCache(Math.max(0, NAV_GRID_CACHE_BYTE_BUDGET - entry.bytes));
+        navGridCache.set(key, entry);
+        return;
+    }
+}
+
 export function relaxZonesKey(relaxZones: RelaxZone[]): string {
     if (relaxZones.length === 0) return 'none';
     return relaxZones.map((z) => `${z.lat.toFixed(3)},${z.lon.toFixed(3)},${Math.round(z.radiusM)}`).join('|');
@@ -1603,7 +1621,26 @@ export function buildNavGrid(
     // 2026-10-03: shallowRuns names a charted keep-out cell HAZARD only where
     // the audit agrees). Allocated when such a feature exists.
     let furnitureHazardBlocked: Uint8Array | undefined;
-    const blockPointBuffer = (lat: number, lon: number, isMarkDisc: boolean, isFurniture = false): void => {
+    // deepHazardOnly: cells closed ONLY by charted hazards sounded deep enough
+    // for this keel (VALSOU >= draft + UKC), which the final audit exempts
+    // (safetyAudit hazardBufferSegments), so the engine never draws them red
+    // for the hazard. tier2RedLoad weighs a hazard keep-out double, as "no
+    // tide lifts a rock" — never these (fix-up review, 2026-10-03). Allocated
+    // when such a hazard exists; any other claim on a cell clears it.
+    let deepHazardOnly: Uint8Array | undefined;
+    const claimHazardCell = (idx: number, isDeep: boolean): void => {
+        if (isDeep) {
+            if (obstnBlocked[idx] === 0) (deepHazardOnly ??= new Uint8Array(width * height))[idx] = 1;
+        } else if (deepHazardOnly) deepHazardOnly[idx] = 0;
+        obstnBlocked[idx] = 1;
+    };
+    const blockPointBuffer = (
+        lat: number,
+        lon: number,
+        isMarkDisc: boolean,
+        isFurniture = false,
+        isDeep = false,
+    ): void => {
         const dLatBuf = obstructionBufferM / M_PER_DEG_LAT;
         const dLonBuf = obstructionBufferM / mPerLon;
         const x0 = Math.max(0, Math.floor((lon - dLonBuf - minLon) / dLon));
@@ -1625,7 +1662,7 @@ export function buildNavGrid(
                 if (dM <= obstructionBufferM) {
                     cells[y * width + x] = BLOCKED;
                     hardBlocked[y * width + x] = 1;
-                    obstnBlocked[y * width + x] = 1;
+                    claimHazardCell(y * width + x, isDeep);
                     if (isMarkDisc) markDiscBlocked[y * width + x] = 1;
                     if (isFurniture) (furnitureHazardBlocked ??= new Uint8Array(width * height))[y * width + x] = 1;
                 }
@@ -1732,7 +1769,10 @@ export function buildNavGrid(
                         const qy = (latB - cellLat) * M_PER_DEG_LAT;
                         for (let x = x0; x <= x1; x++) {
                             const idx = y * width + x;
-                            if (obstnBlocked[idx] === 1) continue;
+                            // Closed already — unless only by a deep hazard,
+                            // which this keep-out's claim must clear.
+                            const held = obstnBlocked[idx] === 1;
+                            if (held && deepHazardOnly?.[idx] !== 1) continue;
                             const cellLon = minLon + (x + 0.5) * dLon;
                             const px = (lonA - cellLon) * mPerLon;
                             const qx = (lonB - cellLon) * mPerLon;
@@ -1752,6 +1792,10 @@ export function buildNavGrid(
                                     squareToSegmentM(px, py, qx, qy) > obstructionBufferM
                                 )
                                     continue;
+                            }
+                            if (held) {
+                                deepHazardOnly![idx] = 0;
+                                continue;
                             }
                             cells[idx] = BLOCKED;
                             hardBlocked[idx] = 1;
@@ -1835,13 +1879,15 @@ export function buildNavGrid(
         const isCharted = isS57ChartProps(props);
         // Router furniture the final audit does not read (furnitureHazardBlocked).
         const isFurniture = !isMarkDisc && !isClearanceBar && !isCharted;
+        // Charted deep enough for this keel: the audit exempts it (deepHazardOnly).
+        const isDeep = isCharted && !isMarkDisc && !isClearanceBar && hazardValsouM(props) >= needForDeepM - 1e-9;
         if (f.geometry.type === 'Point') {
             const [lon, lat] = (f.geometry as Point).coordinates;
-            blockPointBuffer(lat, lon, isMarkDisc, isFurniture);
+            blockPointBuffer(lat, lon, isMarkDisc, isFurniture, isDeep);
         } else if (f.geometry.type === 'MultiPoint') {
             // As the final audit reads one (hazardBufferSegments): each point its own keep-out.
             for (const [lon, lat] of (f.geometry as MultiPoint).coordinates)
-                blockPointBuffer(lat, lon, isMarkDisc, isFurniture);
+                blockPointBuffer(lat, lon, isMarkDisc, isFurniture, isDeep);
         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
             // A SOLO lateral's keep-out (its side inferred from the shore
             // bearing, InshoreRouter orientHazardsTowardLand) never closes a
@@ -1878,7 +1924,7 @@ export function buildNavGrid(
                 }
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
-                obstnBlocked[idx] = 1;
+                claimHazardCell(idx, isDeep);
                 if (isMarkDisc) markDiscBlocked[idx] = 1;
                 if (isClearanceBar) clearanceBarred[idx] = 1;
                 if (isFurniture) (furnitureHazardBlocked ??= new Uint8Array(width * height))[idx] = 1;
@@ -1893,7 +1939,7 @@ export function buildNavGrid(
             // 5.4 m (CATOBS 7), so a leg 40 m from it read "crosses a charted
             // hazard" while the route's line called it clear. Its own cells
             // close as before.
-            if (!isMarkDisc && !isClearanceBar && isCharted && !(hazardValsouM(props) >= needForDeepM - 1e-9))
+            if (!isMarkDisc && !isClearanceBar && isCharted && !isDeep)
                 blockAreaKeepOut(f.geometry as Polygon | MultiPolygon);
         }
     };
@@ -2711,6 +2757,7 @@ export function buildNavGrid(
     grid.markDiscBlocked = markDiscBlocked;
     grid.obstnBlocked = obstnBlocked;
     if (furnitureHazardBlocked) grid.furnitureHazardBlocked = furnitureHazardBlocked;
+    if (deepHazardOnly) grid.deepHazardOnly = deepHazardOnly;
     // Exposed only when endpoint relax zones softened land — the relax-retry
     // acceptance uses it to catch a route circumventing a low-clearance
     // bridge overland (relax-carved cells near a clearanceBarred cell).

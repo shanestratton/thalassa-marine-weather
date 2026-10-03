@@ -476,7 +476,9 @@ describe('day planner deterministic itinerary construction', () => {
             [
                 // The real-chart check (2026-10-03): the clearance is a
                 // stretch of any segment now (a `near` span) — a green
-                // segment 4 m off a reef drying 3 m is never planned.
+                // segment 4 m off a reef drying 3 m that no tide lifts (red:
+                // the round-3 fix-up, 2026-10-03, refuses only red) is never
+                // planned.
                 (p: ReturnType<typeof route>) => {
                     p.engine!.chartedShallowSpans = [
                         {
@@ -485,7 +487,6 @@ describe('day planner deterministic itinerary construction', () => {
                             endSeg: 0,
                             endT: 0.4,
                             minDepthM: -3,
-                            tideLiftable: true,
                             near: { clearanceM: 4, depthM: -3, requiredM: 30 },
                         },
                     ];
@@ -503,6 +504,54 @@ describe('day planner deterministic itinerary construction', () => {
             const result = await build(req, [candidate('chosen')], deps);
             expect(result.options).toEqual([]);
             expect(result.excluded[0].reason).toMatch(reason);
+        }
+    });
+
+    // Round-3 fix-up (2026-10-03): 61e36ccb refused a plan for ANY near
+    // stretch. A channel edge is planned with its note; a red near stretch
+    // refuses as too close; an amber one (a tide the route knows clears the
+    // band) refuses as a tide this planner cannot verify (fix-up review,
+    // 2026-10-03), as on-line needs-tide water does.
+    it('plans a leg with a channel edge; refuses an amber near stretch as a tide, a red one as too close', async () => {
+        const req = request({ destinationIds: ['chosen'] });
+        const amber = {
+            startSeg: 0,
+            startT: 0.2,
+            endSeg: 0,
+            endT: 0.4,
+            minDepthM: 1,
+            tideLiftable: true,
+            near: { clearanceM: 6, depthM: 1, requiredM: 10 },
+        };
+        const edge = {
+            startSeg: 0,
+            startT: 0.5,
+            endSeg: 0,
+            endT: 0.6,
+            minDepthM: 0,
+            channelEdge: true,
+            near: { clearanceM: 27, depthM: 0, requiredM: 30 },
+        };
+        const tide = /depends on a tide or tidal clearance that this planner cannot verify/;
+        const tooClose = /passes too close to water charted shallower/;
+        for (const [spans, refusal] of [
+            [[edge], null],
+            [[amber], tide],
+            [[amber, edge], tide],
+            // No tide loaded for the place (owner decision 10): red.
+            [[{ ...amber, tideUnknown: true }], tooClose],
+            [[amber, { ...amber, startT: 0.7, endT: 0.8, tideLiftable: undefined }], tooClose],
+        ] as const) {
+            const deps = dependencies({
+                route: vi.fn(async (from, to) => {
+                    const proposal = route(from, to);
+                    proposal.engine!.chartedShallowSpans = spans.map((x) => ({ ...x }));
+                    return { route: proposal, review: review(proposal) };
+                }),
+            });
+            const result = await build(req, [candidate('chosen')], deps);
+            expect(result.options.length > 0).toBe(refusal === null);
+            if (refusal) expect(result.excluded[0].reason).toMatch(refusal);
         }
     });
 

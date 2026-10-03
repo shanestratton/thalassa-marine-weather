@@ -35,6 +35,7 @@ import { loadFixture, assembleLayers } from './helpers/corridorFixture';
 import { chartedDryingM, HIGHEST_TIDE_SWEEP_M, nonRedOverShallow } from './helpers/nonRedOverShallow';
 import { CORRIDOR_CELL_SCALE } from './helpers/corridorCellRanks';
 import { encLayer } from './helpers/encCells';
+import { nearSpanBlocks } from '../services/engine/types';
 
 // ── Shared assertions ──────────────────────────────────────────────
 
@@ -212,6 +213,40 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
     it('caution cells at or below the lock-in baseline (21)', () => {
         expectConnected(r);
         expect(cautionCount(r)).toBeLessThanOrEqual(21);
+    });
+
+    // PINNED (round-3 fix-up, 2026-10-03; own process, route byte-identical
+    // to HEAD 3e3a3603): inside channel water the marks own, a near stretch
+    // was neither drawn nor named. Measured: 7 channel edges (139 m drawn
+    // amber 'edge', out of the channel's yellow — red unchanged at 8,486 m),
+    // and 4 open-water near stretches (125 m). The fixture routes with no
+    // tide loaded, so all four refuse Save and Plan My Day (tideUnknown;
+    // owner decision 10, the fix-up review the same night — as 61e36ccb
+    // did); a channel edge never does.
+    it('names the channel edges it runs close to; with no tide loaded every open-water near stretch is red', () => {
+        expectConnected(r);
+        const near = (r.chartedShallowSpans ?? []).filter((x) => x.near);
+        expect(near.filter((x) => x.channelEdge).length).toBe(7);
+        const open = near.filter((x) => !x.channelEdge);
+        expect(open.length).toBe(4);
+        expect(open.every((x) => x.tideUnknown === true || x.tideLiftable !== true)).toBe(true);
+        expect(near.filter(nearSpanBlocks)).toEqual(open);
+        const states = inshoreSegmentStates(r)!;
+        const edgeM = inshoreRoutePieces(r.polyline, states, [], r.chartedShallowSpans)
+            .filter((p) => p.state === 'edge')
+            .reduce((m, p) => {
+                let acc = m;
+                for (let i = 1; i < p.coordinates.length; i++)
+                    acc += haversineM(
+                        p.coordinates[i - 1][1],
+                        p.coordinates[i - 1][0],
+                        p.coordinates[i][1],
+                        p.coordinates[i][0],
+                    );
+                return acc;
+            }, 0);
+        expect(edgeM).toBeGreaterThan(139 * 0.9);
+        expect(edgeM).toBeLessThan(139 * 1.1);
     });
 
     it('phaseTimings present and loosely bounded', () => {

@@ -22,6 +22,7 @@ import {
     trimNavGridCache,
 } from '../services/engine/navGrid';
 import { coarseCellM, isCanalNarrow, MAX_FINE_PASS_COARSE_RES_M } from '../services/tier3/fineCanalGrid';
+import { routeInshore } from '../services/inshoreRouterEngine';
 import type { InshoreLayers, NavGrid } from '../services/engine/types';
 
 const fakeGrid = (cellCount: number): NavGrid =>
@@ -73,6 +74,54 @@ describe('navGridCache byte budget', () => {
         expect(grid.shallowRing).toBeUndefined();
         expect(entry?.bytes).toBe(navGridBytes(grid) + grid.width * grid.height);
     });
+
+    // Round-3 fix-up (2026-10-03): once the engine has attached the ring, the
+    // entry counts the grid as it now is — the ring's real bytes (an empty
+    // ring where no shallow band exists, not the w × h reserved for it).
+    for (const [name, shallow] of [
+        ['with a shallow band (a full ring)', true],
+        ['with none (an empty ring)', false],
+    ] as const) {
+        it(`after a route, a cached grid's bytes are its real bytes, ring included — ${name}`, () => {
+            const ring = (x0: number, y0: number, x1: number, y1: number) => [
+                [x0, y0],
+                [x1, y0],
+                [x1, y1],
+                [x0, y1],
+                [x0, y0],
+            ];
+            const band = (d1: number, d2: number, c: number[][]) => ({
+                type: 'Feature',
+                properties: { acronym: 'DEPARE', DRVAL1: d1, DRVAL2: d2 },
+                geometry: { type: 'Polygon', coordinates: [c] },
+            });
+            const layers = {
+                DEPARE: {
+                    type: 'FeatureCollection',
+                    features: [
+                        band(10, 15, ring(152.99, -27.02, 153.03, -26.99)),
+                        ...(shallow ? [band(-1, 0, ring(153.008, -27.006, 153.012, -27.004))] : []),
+                    ],
+                },
+            } as unknown as InshoreLayers;
+            const r = routeInshore(layers, {
+                fromLat: -27.008,
+                fromLon: 153.0,
+                toLat: -27.008,
+                toLon: 153.02,
+                draftM: 2.4,
+                safetyM: 0.5,
+            });
+            expect('polyline' in r).toBe(true);
+            // The grids the engine routed on (a fine canal pass's grid is never ringed).
+            const entries = [...navGridCache.values()].filter((e) => e.grid.shallowRing);
+            expect(entries.length).toBeGreaterThan(0);
+            for (const e of entries) {
+                expect(e.grid.shallowRing!.length).toBe(shallow ? e.grid.width * e.grid.height : 0);
+                expect(e.bytes).toBe(navGridBytes(e.grid));
+            }
+        });
+    }
 });
 
 describe('the canal question is asked in metres', () => {

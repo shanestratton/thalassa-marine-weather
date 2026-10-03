@@ -2,7 +2,7 @@ import type { AutoroutingTrialRoute } from '../../types/autorouting';
 import { AUTOROUTING_TRIAL_MAX_POINTS } from '../../types/autorouting';
 import type { TrialRouteReview } from '../autoroutingReview';
 import { dangerWithoutChartedDepth } from '../../components/map/inshoreRouteState';
-import { CAUTION_WHY } from '../engine/types';
+import { CAUTION_WHY, nearSpanBlocks } from '../engine/types';
 import {
     assessPlaceConditionsWindow,
     CONDITIONS_MAX_AGE_MS,
@@ -293,7 +293,12 @@ export function assessDayPlanRoute(
     const unchecked = dangerWithoutChartedDepth(route.engine);
     // Too close to a shallow band (NEAR_SHALLOW, round-2 review fix-up 2,
     // 2026-10-03; since the real-chart check that day a `near` stretch of any
-    // segment, red or amber) has charted depth under it: say so.
+    // segment) has charted depth under it: say so. A RED near stretch
+    // (nearSpanBlocks: no tide lifts it, or none was loaded to prove one
+    // does) refuses with these words; an amber one a tide may clear refuses
+    // as the tide dependency it is, below (round-3 fix-up review,
+    // 2026-10-03: the planner cannot check its departure against the band);
+    // a channel edge is planned with its note.
     const near = 'Part of the route passes too close to water charted shallower than this boat needs.';
     if ((unchecked ?? [0]).length > 0)
         throw new Error(
@@ -301,12 +306,15 @@ export function assessDayPlanRoute(
                 ? near
                 : 'Part of the route is drawn red with no charted depth behind it.',
         );
-    if (route.engine.chartedShallowSpans?.some((s) => s.near)) throw new Error(near);
+    if (route.engine.chartedShallowSpans?.some(nearSpanBlocks)) throw new Error(near);
     const reasons: string[] = [];
     let incomplete = review.legs.length !== route.coordinates.length - 1;
     const tideDependency =
         /\b(tide[- ]dependent|requires? (?:a )?tide|needs? (?:a )?tide|tidal (?:window|height|clearance)|at high tide|high[- ]tide only)\b/i;
-    if (route.warnings.some((message) => tideDependency.test(message)))
+    if (
+        route.warnings.some((message) => tideDependency.test(message)) ||
+        route.engine.chartedShallowSpans?.some((s) => !!s.near && s.channelEdge !== true)
+    )
         throw new Error('The route depends on a tide or tidal clearance that this planner cannot verify.');
     // Never green on the router's say-so: as the old provider line did, every
     // route keeps this reason, so a route check is amber at best.

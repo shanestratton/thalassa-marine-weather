@@ -231,7 +231,9 @@ describe('ChartKeyPanel', () => {
         render(<ChartKeyPanel visible imageryOn={false} tideDepthMode={false} draftConfigured onClose={vi.fn()} />);
 
         expect(screen.getByText('Planned route')).toBeInTheDocument();
-        expect(screen.getByText('Needs tide — the chip says when')).toBeInTheDocument();
+        expect(
+            screen.getByText('Needs tide — the chip says when; no chip: close to a channel’s edge'),
+        ).toBeInTheDocument();
         expect(screen.getByText('Survey may be out, or old')).toBeInTheDocument();
         // Round-4 review (2026-09-30): the red names every reason it is drawn
         // for, and the leads overlay's needs-tide dash is keyed apart.

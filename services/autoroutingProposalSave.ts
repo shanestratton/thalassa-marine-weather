@@ -1,6 +1,6 @@
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import { dangerWithoutChartedDepth } from '../components/map/inshoreRouteState';
-import { CAUTION_WHY } from './engine/types';
+import { CAUTION_WHY, nearSpanBlocks } from './engine/types';
 import type { TrialRouteReview } from './autoroutingReview';
 import { saveTrace, type SavedTrace, type TracePoint } from './routeTracer';
 import { getRegistryFingerprint } from './enc/EncCellMetadata';
@@ -58,9 +58,13 @@ export function evaluateAutoroutingProposalSave(
     // words say what it is; it is not saved either — it was red, and blocked,
     // before GRID_ONLY, and the clearance is what the router could not prove.
     // Since the real-chart check (2026-10-03) that clearance is a stretch of
-    // any segment (a chartedShallowSpans entry with `near`), red or — where a
-    // tide clears the band itself — amber: a tide dependency the leg review
-    // cannot see, the water under the line being deep. Neither is saved.
+    // any segment (a chartedShallowSpans entry with `near`). Only a RED one
+    // refuses (round-3 fix-up, 2026-10-03; nearSpanBlocks): no tide lifts it,
+    // the route's tide ceiling proves none clears the band, or no tide was
+    // loaded for the place to prove one does (owner decision 10; fix-up
+    // review). An amber one — a tide the route knows clears the band — and a
+    // channel edge are saved with their note: 61e36ccb refused a route for a
+    // 1 m stretch beside a 2 m band a tide clears.
     const unchecked = dangerWithoutChartedDepth(route.engine);
     if ((unchecked ?? [0]).length > 0)
         return deny(
@@ -68,7 +72,7 @@ export function evaluateAutoroutingProposalSave(
                 ? NEAR_SHALLOW_SAVE
                 : 'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
         );
-    if (route.engine.chartedShallowSpans?.some((s) => s.near)) return deny(NEAR_SHALLOW_SAVE);
+    if (route.engine.chartedShallowSpans?.some(nearSpanBlocks)) return deny(NEAR_SHALLOW_SAVE);
     // The satellite land check could not finish (offline, or online and it
     // failed: 2026-10-02, the field route timed out on Wi-Fi + 4G and was told
     // "offline"). Shown with what happened; saved only once it has run —

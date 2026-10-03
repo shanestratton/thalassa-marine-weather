@@ -9,11 +9,13 @@ import { inshoreRouteLineLayers, NEEDS_TIDE_AMBER, surveyDashLayers } from '../c
 
 /** The planner's colours, as they were inline in useMapInit before 2026-10-01
  *  — less 'unverified' (2026-10-03): an unchecked line is never solid, it is
- *  the red dashes of unverifiedRouteDashLayers. */
+ *  the red dashes of unverifiedRouteDashLayers — and with 'edge' (round-3
+ *  fix-up, 2026-10-03): a channel edge, the needs-tide amber with no chip. */
 const LINE = {
     safe: '#00e676',
     caution: '#ff9100',
     tide: NEEDS_TIDE_AMBER,
+    edge: NEEDS_TIDE_AMBER,
     danger: '#ff1744',
     channel: '#facc15',
     harbour: '#38bdf8',
@@ -23,6 +25,7 @@ const CORE = {
     safe: '#b9f6ca',
     caution: '#ffe0b2',
     tide: '#ffe0b2',
+    edge: '#ffe0b2',
     danger: '#ffcdd2',
     channel: '#fcd34d',
     harbour: '#bae6fd',

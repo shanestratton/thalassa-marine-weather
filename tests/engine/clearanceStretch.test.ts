@@ -113,7 +113,16 @@ const cautionOf = (grid: NavGrid, line: readonly [number, number][]): boolean[] 
         return red;
     });
 
-function read(layers: InshoreLayers, line: [number, number][], highestM?: number) {
+/** The highest tide here as the route was planned with it (owner decision
+ *  11's ceiling, `tideCeilings`): since the round-3 fix-up (2026-10-03) a near
+ *  stretch refuses Save only where it is red — no tide lifts it, or no tide
+ *  was loaded to prove one does (the fix-up review) — and this one proves
+ *  none clears a reef drying 3 m, or banks drying 1.5 m, at a 1.0 m top. */
+const TOP_1_0 = [{ lat: SOUTH + 0.006, lon: W + 0.015, highestM: 1.0, days: 14 }];
+const NEAR_SAVE_REASON =
+    'Part of this route passes too close to water charted shallower than this boat needs. It cannot be saved.';
+
+function read(layers: InshoreLayers, line: [number, number][], highestM?: number, tideCeilings?: typeof TOP_1_0) {
     const grid = buildNavGrid(layers, BBOX, 50, DRAFT, SAFETY, 30);
     const caution = cautionOf(grid, line);
     const out = collectShallowRuns({
@@ -124,6 +133,7 @@ function read(layers: InshoreLayers, line: [number, number][], highestM?: number
         draftM: DRAFT,
         safetyM: SAFETY,
         hazardMask: caution.map(() => false),
+        ...(tideCeilings ? { tideCeilings } : {}),
     });
     const none = caution.map(() => false);
     const masks = {
@@ -219,11 +229,9 @@ describe('a clean-grid segment 4 m from a reef that dries 3 m', () => {
         expect(t.words[0]).toContain('the highest tide here (2.5 m) does not clear it');
     });
 
-    it('is not saved', () => {
-        expect(r.save).toEqual({
-            eligible: false,
-            reason: 'Part of this route passes too close to water charted shallower than this boat needs. It cannot be saved.',
-        });
+    it('is not saved where no tide clears the reef, nor with no tide loaded to prove one does', () => {
+        expect(read(layers, line, undefined, TOP_1_0).save).toEqual({ eligible: false, reason: NEAR_SAVE_REASON });
+        expect(r.save).toEqual({ eligible: false, reason: NEAR_SAVE_REASON });
     });
 
     it('31 m off: clear — nothing drawn, and the reason is not this', () => {
@@ -259,8 +267,15 @@ describe('a 2–5 m shoal, whose deep end clears the keel, asks for 10 m', () =>
         expect(read(layers, lineOff(8), 0.5).drawn.map(([st]) => st)).toEqual(['green', 'danger', 'green']);
     });
 
-    it('amber is a tide dependency the leg review cannot see: not saved either', () => {
-        expect(read(layers, lineOff(8)).save.eligible).toBe(false);
+    it('amber is saved with its note (round-3 fix-up, 2026-10-03: 61e36ccb refused it); red is not', () => {
+        expect(read(layers, lineOff(8), undefined, TOP_1_0).save.reason).not.toBe(NEAR_SAVE_REASON);
+        // No tide loaded for the place: nothing proves a tide clears it (fix-up review).
+        expect(read(layers, lineOff(8)).save).toEqual({ eligible: false, reason: NEAR_SAVE_REASON });
+        // 2 m + 0.5 m < 2.9 m: no tide the app knows clears the shoal.
+        expect(read(layers, lineOff(8), undefined, [{ ...TOP_1_0[0], highestM: 0.5 }]).save).toEqual({
+            eligible: false,
+            reason: NEAR_SAVE_REASON,
+        });
     });
 });
 
@@ -278,7 +293,7 @@ describe('a cells-only caution segment near a band: red over the stretch, not th
     ];
 
     it('GRID_ONLY, with only the stretch inside 10 m drawn red', () => {
-        const r = read(layers, line);
+        const r = read(layers, line, undefined, [{ ...TOP_1_0[0], highestM: 0.5 }]);
         expect(r.caution).toEqual([true]);
         expect(r.out.chartedShallowMask).toEqual([false]);
         // c0309771 / 7f230264: NEAR_SHALLOW, the whole 1.5 km segment red.
@@ -479,7 +494,9 @@ describe('a marked channel between drying banks: the marks own the line (no new 
     // 1.5 m, and a line down its middle, 25 m from each bank. The ring skips
     // channel water (the marks own the line), so the router keeps this line;
     // the clearance pass drew 1 km of it red and refused Save and Plan My Day,
-    // where 7f48fe15 drew it as a channel and let it past those gates.
+    // where 7f48fe15 drew it as a channel and let it past those gates. Since
+    // the round-3 fix-up (2026-10-03) it is a channel edge: amber, named, not
+    // a refusal (tests/engine/nearStretchVerdict).
     const banks = (x0: number, x1: number): Band[] => [
         { x0, y0: ROW12 - 2 * D_LAT, x1, y1: ROW12, d1: -1.5, d2: 0 },
         { x0, y0: ROW12 + D_LAT, x1, y1: ROW12 + 3 * D_LAT, d1: -1.5, d2: 0 },
@@ -491,7 +508,7 @@ describe('a marked channel between drying banks: the marks own the line (no new 
     const B0 = W + 0.008;
     const B1 = W + 0.022;
 
-    it('down a dredged channel: no clearance stretch, and nothing about it refuses Save', () => {
+    it('down a dredged channel: a channel edge, never red, and nothing about it refuses Save', () => {
         const layers = charts(...banks(B0, B1), {
             x0: W + 0.004,
             y0: ROW12,
@@ -505,9 +522,11 @@ describe('a marked channel between drying banks: the marks own the line (no new 
         expect(r.caution).toEqual([false]);
         // The precondition: the line's cells are the channel's (Pass 4).
         forEachCellOnSegment(r.grid, line[0], line[1], (idx) => expect(r.grid.preferred[idx]).toBe(1));
-        expect(r.near).toEqual([]);
-        expect(r.drawn.map(([st]) => st)).toEqual(['green']);
-        expect(r.save.reason ?? '').not.toContain('too close');
+        // 61e36ccb: no stretch at all (neither drawn nor named).
+        expect(r.near.length).toBeGreaterThan(0);
+        expect(r.near.every((s) => s.channelEdge === true)).toBe(true);
+        expect(r.drawn.map(([st]) => st)).toEqual(['green', 'edge', 'green']);
+        expect(read(layers, line, undefined, TOP_1_0).save.reason ?? '').not.toContain('too close');
     });
 
     it('where the dredged channel ends, the clearance stretch starts at the first cell off it', () => {
@@ -522,17 +541,25 @@ describe('a marked channel between drying banks: the marks own the line (no new 
             d2: 10,
             dredged: true,
         });
-        const r = read(layers, line);
-        expect(r.near).toHaveLength(1);
+        const r = read(layers, line, undefined, TOP_1_0);
+        // In the channel a channel edge, then — from the first cell off it —
+        // an ordinary near stretch (red: no tide at a 1.0 m top clears banks
+        // drying 1.5 m).
+        expect(r.near).toHaveLength(2);
+        const [edge, off] = r.near;
+        expect(edge.channelEdge).toBe(true);
+        expect(off.channelEdge).toBeUndefined();
         const segM = alongM(line, line[1][0]);
-        expect(r.near[0].startT * segM).toBeCloseTo(alongM(line, W + 25 * CW), 0);
-        expect(r.near[0].near).toMatchObject({ depthM: -1.5, requiredM: 30 });
-        expect(r.near[0].near!.clearanceM).toBeCloseTo(25, 1);
-        expect(r.save.eligible).toBe(false);
+        expect(edge.endT * segM).toBeCloseTo(alongM(line, W + 25 * CW), 0);
+        expect(off.startT * segM).toBeCloseTo(alongM(line, W + 25 * CW), 0);
+        expect(off.near).toMatchObject({ depthM: -1.5, requiredM: 30 });
+        expect(off.near!.clearanceM).toBeCloseTo(25, 1);
+        expect(r.drawn.map(([st]) => st)).toEqual(['green', 'edge', 'danger', 'green']);
+        expect(r.save).toEqual({ eligible: false, reason: NEAR_SAVE_REASON });
     });
 
     it('open water between the same banks (no channel the marks own) keeps its red', () => {
-        const r = read(charts(...banks(B0, B1)), line);
+        const r = read(charts(...banks(B0, B1)), line, undefined, TOP_1_0);
         expect(r.near).toHaveLength(1);
         expect(r.drawn.map(([st]) => st)).toEqual(['green', 'danger', 'green']);
     });
@@ -570,7 +597,7 @@ describe('a band that holds no cell centre is measured and ringed too', () => {
 
     it('a patch drying 2 m, 10 m off a clean-cell line: the stretch is drawn and Save refused', () => {
         const layers = charts(PATCH);
-        const r = read(layers, east(PATCH.y0 - 10 * M_LAT));
+        const r = read(layers, east(PATCH.y0 - 10 * M_LAT), undefined, TOP_1_0);
         expect(r.caution).toEqual([false]);
         expect(r.near).toHaveLength(1);
         expect(r.near[0].near).toMatchObject({ depthM: -2, requiredM: 30 });

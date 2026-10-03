@@ -476,8 +476,53 @@ export interface ChartedShallowSpan {
      * charts none, the grid's own reading of a missing depth), so a tide that
      * clears the band itself draws it amber. Absent: charted-shallow water
      * under the line.
+     *
+     * Its `tideLiftable` is dropped where the tide ceiling the route was
+     * planned with proves no tide clears the band (its DRVAL1 + the curve's
+     * own top < draft + UKC; round-3 fix-up, 2026-10-03): red, and Save and
+     * Plan My Day refuse it. Where no tide was loaded for the place it keeps
+     * `tideLiftable` (the map may still lift it under a live tide) but is
+     * `tideUnknown`, and is red for Save and Plan My Day too (nearSpanBlocks;
+     * owner decision 10, "no tide data = can't prove it"). A near stretch a
+     * tide the route knows may lift is amber 'needs tide': Save keeps it with
+     * its note, and Plan My Day refuses it as a tide it cannot verify.
      */
     near?: CautionNearShallow;
+    /**
+     * A tide-liftable `near` stretch where the tide ceilings the route was
+     * planned with (RouteRequest.tideCeilings, owner decision 11) hold none
+     * for the place at its ends or middle — no tide loaded, a partial load, or
+     * no station: nothing proves a tide clears the band beside it, so it is
+     * red for Save and Plan My Day (nearSpanBlocks; owner decision 10). Round-3
+     * fix-up review, 2026-10-03: without it a line 1 m from a reef drying 3 m,
+     * drawn red 'no tide data', was saveable and planned amber.
+     */
+    tideUnknown?: boolean;
+    /**
+     * A `near` stretch in water the marks own (shallowRuns shallowRingExempt:
+     * a dredged channel, fairway, lead corridor, mark pair's gate or disc —
+     * where the clearance ring does not steer the router; round-3 fix-up,
+     * 2026-10-03): drawn amber ('edge') and named "runs close to the edge of
+     * the channel's charted shallows", never a tide window, never a refusal.
+     * A stretch there inside a charted hazard's buffer (or with no hazard
+     * mask to prove otherwise) is an ordinary red near stretch instead, and
+     * one within shallowRuns CHANNEL_EDGE_FLOOR_M (5 m) of the band an
+     * ordinary near stretch (fix-up review, 2026-10-03).
+     */
+    channelEdge?: boolean;
+}
+
+/**
+ * Whether a near stretch (ChartedShallowSpan.near) is RED for Save and Plan
+ * My Day (round-3 fix-up, 2026-10-03): no tide lifts it — a hazard's buffer,
+ * water the charts dispute or do not chart, a band with no depth, or a band
+ * the route's tide ceiling proves no tide clears — or no tide was loaded for
+ * the place to prove one does (tideUnknown; owner decision 10, fix-up
+ * review). Amber near stretches (a tide the route knows may clear the band)
+ * and channel edges are not: Save keeps them with their note.
+ */
+export function nearSpanBlocks(span: ChartedShallowSpan | null | undefined): boolean {
+    return !!span?.near && span.channelEdge !== true && (span.tideLiftable !== true || span.tideUnknown === true);
 }
 
 export interface ShallowRunInfo {
@@ -967,6 +1012,15 @@ export interface NavGrid {
      * allocated when such a feature exists.
      */
     furnitureHazardBlocked?: Uint8Array;
+    /**
+     * Per-cell flag (1 = closed ONLY by charted hazards sounded deep enough
+     * for this keel, VALSOU >= draft + UKC — buffered like any point hazard,
+     * but exempt from the final audit, so never drawn red for the hazard).
+     * tier4Router tier2RedLoad weighs these as ordinary red, not a hazard's
+     * double (fix-up review, 2026-10-03). Only allocated when such a hazard
+     * exists.
+     */
+    deepHazardOnly?: Uint8Array;
     /**
      * Per-cell NO-WATER-EVIDENCE flag (1 = at the end of the grid build the
      * cell was still UNKNOWN_OPEN with no DEPARE verdict, no FAIRWY/DRGARE

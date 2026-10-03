@@ -155,7 +155,7 @@ export function TrialRouteReviewPanel({
                     <h4 className="font-semibold text-gray-200">Route line · Thalassa&apos;s router</h4>
                     <ul className="grid grid-cols-2 gap-1 text-gray-300">
                         {swatch('#ff1744', 'Red · land, shallow or unchecked — read the route notes')}
-                        {swatch(NEEDS_TIDE_AMBER, 'Amber · a tide clears it')}
+                        {swatch(NEEDS_TIDE_AMBER, 'Amber · a tide clears it, or a channel edge is close')}
                         {swatch(SURVEY_DASH.ink, 'Amber dots · survey quality', true)}
                         {swatch('#facc15', 'Yellow · marked channel')}
                         {swatch('#2dd4bf', 'Teal · deep water')}

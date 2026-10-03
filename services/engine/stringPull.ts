@@ -352,10 +352,19 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
         }
         return m;
     };
-    // A shallow band's clearance is only ever owed near a shallow-band caution
-    // cell (nearShallowBand reads the bands owning those cells' centres within
-    // its reach): look for one first, and hand it only the bands round the line.
+    // A shallow band's clearance is owed near a shallow-band caution cell
+    // (nearShallowBand reads the bands owning those cells' centres within its
+    // reach) or near a shallow band itself — one holding no cell centre (a
+    // drying patch, a thin strip; round-3 fix-up, 2026-10-03). Look for
+    // either first, and hand it only the bands round the line.
     const bandsIn = depthBands.length > 0 ? bboxBuckets(depthBands, (x) => x.bbox) : null;
+    const shallowBandsIn =
+        depthBands.length > 0
+            ? bboxBuckets(
+                  depthBands.filter((x) => x.drval1 === null || x.drval1 < floorM),
+                  (x) => x.bbox,
+              )
+            : null;
     const midLat = grid.minLat + (grid.height * grid.dLat) / 2;
     const cellWm = grid.dLon * 111_320 * Math.cos((midLat * Math.PI) / 180);
     const cellHm = grid.dLat * 111_320;
@@ -490,16 +499,20 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
 
         // ── A shallow band's clearance (the GRID_ONLY rule), band by band ─
         let nearBands: NearBand[] = [];
-        if (bandsIn && sd && shallowCellNear(a, b)) {
-            nearBands = nearShallowBand({
-                grid,
-                depthBands: bandsIn(grow(boxOf([a, b]), padLonDeg, padLatDeg)),
-                floorM,
-                cliffClearanceM: SHALLOW_CLIFF_CLEARANCE_M,
-                a,
-                b,
-                cellReachM,
-            }).within;
+        if (bandsIn && shallowBandsIn && sd) {
+            const box = grow(boxOf([a, b]), padLonDeg, padLatDeg);
+            const cellsNear = shallowCellNear(a, b);
+            if (cellsNear || shallowBandsIn(box).length > 0)
+                nearBands = nearShallowBand({
+                    grid,
+                    depthBands: bandsIn(box),
+                    floorM,
+                    cliffClearanceM: SHALLOW_CLIFF_CLEARANCE_M,
+                    a,
+                    b,
+                    cellReachM,
+                    scanCells: cellsNear,
+                }).within;
             if (nearBands.length > 0) state |= S_NEAR_SHALLOW;
         }
 

@@ -149,7 +149,9 @@ export function routeRedStretches(
         const um = (u0 + u1) / 2;
         const i = Math.min(segCount - 1, Math.floor(um));
         const coords = [point(u0), point(u1)];
-        const span = spans.find((s) => um > s.startSeg + s.startT && um < s.endSeg + s.endT);
+        // A channel edge is amber, never a red's reason (round-3 fix-up,
+        // 2026-10-03): over red water the segment's own reason stands.
+        const span = spans.find((s) => !s.channelEdge && um > s.startSeg + s.startT && um < s.endSeg + s.endT);
         if (span?.near) return `${nearWords(span.near)}${span.tideLiftable === true ? tideWords(tide, coords) : ''}`;
         if (span) return shallowWords(span.minDepthM, masks.tideNeedM, span.tideLiftable === true, tide, coords);
         if (fits(masks.canalMask) && masks.canalMask[i]) return CANAL;

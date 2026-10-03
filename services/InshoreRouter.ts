@@ -280,6 +280,9 @@ export function promotedSeawayRoute(
         structuresUnknownCells?: string[];
         /** It crosses water a tide must clear where no tide was loaded (decision 11). */
         tideCheck?: 'not-loaded';
+        /** The tide ceilings the engine routed with (decision 11): a near
+         *  stretch no tide clears is red (round-3 fix-up, 2026-10-03). */
+        tideCeilings?: readonly TideCeiling[];
     },
 ): InshoreRouteResult {
     const segCount = Math.max(0, g.polyline.length - 1);
@@ -321,6 +324,7 @@ export function promotedSeawayRoute(
                   safetyM: opts.safetyM,
                   hazardMask: nearHazard,
                   ...(tiers ? { canalMask: tiers.canalMask } : {}),
+                  ...(base.tideCeilings?.length ? { tideCeilings: base.tideCeilings } : {}),
               })
             : null;
     const survey = collectSurveyRuns({
@@ -2301,6 +2305,7 @@ async function tryInshoreRouteInner(
                             surveyUncheckedCells,
                             structuresUnknownCells: structuresUnknownOn(g.polyline),
                             ...(tideUnchecked(g.polyline) ? { tideCheck: 'not-loaded' as const } : {}),
+                            tideCeilings,
                         });
                         // The land it crosses, on its own geometry (2026-10-01
                         // review): a promoted route never reports a pin off the
@@ -2466,10 +2471,27 @@ export function inshoreRouteToGeoJSON(
             // …and that it was routed with no tide loaded (decision 11).
             ...(result.tideCheck ? { tideCheck: result.tideCheck } : {}),
             // …and where it passes inside a shallow band's clearance (fix-up
-            // review, 2026-10-03: a voyage-form plan kept none of it).
+            // review, 2026-10-03: a voyage-form plan kept none of it) — the
+            // stretches themselves since the round-3 fix-up (2026-10-03), red,
+            // amber or a channel edge, so a plan shown again says what the
+            // route said (the summary stays for older readers).
             ...(() => {
                 const near = nearShallowSummary(result.chartedShallowSpans);
-                return near ? { nearShallow: near } : {};
+                if (!near) return {};
+                const spans = (result.chartedShallowSpans ?? [])
+                    .filter((x) => x.near)
+                    .map((x) => ({
+                        startSeg: x.startSeg,
+                        startT: x.startT,
+                        endSeg: x.endSeg,
+                        endT: x.endT,
+                        minDepthM: x.minDepthM,
+                        ...(x.tideLiftable === true ? { tideLiftable: true } : {}),
+                        ...(x.tideUnknown === true ? { tideUnknown: true } : {}),
+                        ...(x.channelEdge === true ? { channelEdge: true } : {}),
+                        near: { ...x.near! },
+                    }));
+                return { nearShallow: near, nearShallowSpans: spans };
             })(),
             // …and where its canal water came from when that was not a live
             // download (Phase 2b, 2026-10-01): the saved plan says so again.

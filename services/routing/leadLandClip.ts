@@ -450,8 +450,9 @@ export function segmentAreaNearIntervals(
  * was never measured, because its band was found only through the cells
  * whose centres it owns). Null when no edge lies within `reachM` (only edges
  * within it, by latitude, are read). `inside` steps 0.1 m off the nearest
- * edge to whichever side lies in the area — the edge point itself where
- * neither side tests inside (a sliver).
+ * edge to whichever side lies in the area — at a corner, 0.1 m off the
+ * point in whichever of eight directions does (round-3 fix-up, 2026-10-03)
+ * — the edge point itself where none tests inside (a sliver).
  */
 export function areaEdgeNearest(
     area: IndexedArea,
@@ -527,6 +528,14 @@ export function areaEdgeNearest(
     const len = Math.hypot(ux, uy);
     for (const side of [1, -1]) {
         const p = at(hx - (side * 0.1 * uy) / len, hy + (side * 0.1 * ux) / len);
+        if (pointInArea(area, p[0], p[1])) return { distM: best, inside: p };
+    }
+    // At a corner a step off one edge's normal can miss the area on both
+    // sides (round-3 fix-up, 2026-10-03: the nearest point of a thin strip
+    // to a chord is usually its corner): 0.1 m every 45° round it.
+    for (let k = 0; k < 8; k++) {
+        const t = (k * Math.PI) / 4;
+        const p = at(hx + 0.1 * Math.cos(t), hy + 0.1 * Math.sin(t));
         if (pointInArea(area, p[0], p[1])) return { distM: best, inside: p };
     }
     return { distM: best, inside: at(hx, hy) };

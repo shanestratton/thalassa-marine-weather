@@ -16,7 +16,10 @@ import { BLOCKED_LEAD_DASH, NEEDS_TIDE_AMBER, SURVEY_DASH, UNVERIFIED_ROUTE_DASH
 const ROUTE_KEY: readonly { swatch: string; label: string }[] = [
     { swatch: '#2dd4bf', label: 'Clear water' },
     { swatch: '#facc15', label: 'Marked channel' },
-    { swatch: NEEDS_TIDE_AMBER, label: 'Needs tide — the chip says when' },
+    // …and, with no chip, a marked channel's edge close by (round-3 fix-up,
+    // 2026-10-03: inshoreRouteState 'edge' — the same amber, named in the
+    // route notes).
+    { swatch: NEEDS_TIDE_AMBER, label: 'Needs tide — the chip says when; no chip: close to a channel’s edge' },
     {
         swatch: `radial-gradient(circle, ${SURVEY_DASH.ink} 0 1.5px, ${SURVEY_DASH.casing} 1.6px) 0 50% / 5px 6px repeat-x`,
         label: 'Survey may be out, or old',

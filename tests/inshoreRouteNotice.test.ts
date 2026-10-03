@@ -362,7 +362,14 @@ describe('a route that passes inside a shallow band’s clearance', () => {
         'This route passes 4 m from water charted to dry 3.6 m — closer than the 30 m the router keeps off it (and on 1 more stretch). Check the chart there before you go.';
 
     it('summarises the stretches by the one that falls furthest short', () => {
-        expect(nearShallowSummary(spans)).toEqual({ stretches: 2, clearanceM: 4.3, depthM: -3.6, requiredM: 30 });
+        // Neither is tide-liftable: both red (round-3 fix-up, 2026-10-03).
+        expect(nearShallowSummary(spans)).toEqual({
+            stretches: 2,
+            clearanceM: 4.3,
+            depthM: -3.6,
+            requiredM: 30,
+            red: 2,
+        });
         expect(nearShallowSummary([spans[0]])).toBeUndefined();
         expect(nearShallowSummary(undefined)).toBeUndefined();
     });
@@ -392,7 +399,13 @@ describe('a route that passes inside a shallow band’s clearance', () => {
             { lat: -27.4, lon: 153.2 },
             { lat: -27.41, lon: 153.21 },
         );
-        expect(feature.properties?.nearShallow).toEqual({ stretches: 2, clearanceM: 4.3, depthM: -3.6, requiredM: 30 });
+        expect(feature.properties?.nearShallow).toEqual({
+            stretches: 2,
+            clearanceM: 4.3,
+            depthM: -3.6,
+            requiredM: 30,
+            red: 2,
+        });
         expect(savedInshoreRouteCaveats({ routeGeoJSON: feature })).toEqual([line]);
         expect(
             savedInshoreRouteCaveats({

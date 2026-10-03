@@ -863,6 +863,220 @@ Without the file it stayed in the channel.
   lone gate in a sharp corner or beside the leg, the phantom gate) fail on
   the change before the fix-up, except the keep-out guard.
 
+#### Round-3 fix-up — near stretches, channel edges, tier-2 red (2026-10-03, night)
+
+A review of 61e36ccb and 3e3a3603 (Shane, 2026-10-03: "keep going claude").
+Each item is tested first (it fails on 3e3a3603's code):
+`tests/engine/nearStretchVerdict.test.ts` (items 1, 2, 3 and 6),
+`tests/tier4/tier2ChainVsRectrc.test.ts` (item 4),
+`tests/RouteMemoryCeilings.test.ts` (item 5) and
+`tests/dayPlannerEngine.test.ts` (item 1 for Plan My Day).
+
+1. **Only a RED near stretch refuses Save and Plan My Day.** 61e36ccb refused
+   a route for ANY near stretch, even one beside a 1 m band a tide clears
+   (amber under decision 10). `nearSpanBlocks` (engine/types) is the one rule:
+   a near stretch refuses when no tide lifts it (a hazard's buffer, water the
+   charts dispute or do not chart, a band with no depth) or when the tide
+   ceiling the route was planned with proves no tide clears the band (its
+   DRVAL1 + the curve's own top < draft + UKC, at both ends and the middle of
+   the stretch; collectShallowRuns drops `tideLiftable`). An amber one — a
+   tide may clear the band, or no tide was loaded for the place — is saved
+   and planned with its note, like other needs-tide water. (Changed the same
+   night by the fix-up review below: no tide loaded is red, and Plan My Day
+   refuses an amber one as a tide it cannot verify.)
+    - DECIDED: "no tide clears it" is read from the route's own tide ceilings
+      (owner decision 11's, already loaded before routing), not from the
+      chips' curves: Save and Plan My Day see no map. The curve's own top
+      (`topM`), not the 0.1 m quantised-up value decision 11's proof uses —
+      the lower top refuses more.
+    - DECIDED: with no tide loaded for the place, a stretch a tide could lift
+      is not refused, as the brief says ("tide unknown and it isn't
+      liftable"). The map still draws it red with "no tide data", and the
+      route notes say how near it passes. That includes a band that dries
+      (a reef drying 3 m beside the line, needing +5.9 m): if Shane wants
+      Save to wait for the tide there, it is one line in `nearSpanBlocks`.
+      SUPERSEDED by the fix-up review below (`tideUnknown`).
+2. **A near stretch in water the marks own is a CHANNEL EDGE.** The ring
+   still skips preferred channel water, a mark pair's gate or disc and a relax
+   corridor (A\* cannot steer off a bank there), but the stretch is now
+   measured and named instead of hidden: `ChartedShallowSpan.channelEdge`,
+   drawn amber (`'edge'`, the needs-tide amber with no chip) over the
+   channel's yellow, said in the route notes ("In the marked channel this
+   route runs close to the edge of the channel's charted shallows: 27 m from
+   water charted 0.0 m, inside the 30 m the router keeps off it elsewhere.
+   Keep to the middle of the channel.", notice title "Close to the channel
+   edge"), never a tide window and never a refusal. Inside a charted
+   hazard's buffer (or with no hazard mask to prove otherwise) it is an
+   ordinary red near stretch.
+    - DECIDED: amber in the needs-tide ink, not a new colour; the keys say
+      "Needs tide — the chip says when; no chip: close to a channel’s edge"
+      and "Amber · a tide clears it, or a channel edge is close". Survey
+      dots and the unverified dashes keep their own patterns.
+    - DECIDED: a channel edge is not counted in `cautionNearShallow` and is
+      never a red stretch's reason (routeRedReasons skips it).
+3. **A band that holds no cell centre is found by its own extent.**
+   `nearShallowBand` (GRID_ONLY's rule and the string pull's chord test)
+   found a band only through the 50 m cells whose centres it owns, so the
+   any-angle string pull chorded 5.5 m past a 10 × 40 m strip drying 1 m
+   that the stair it replaced kept 62 m off. It now also measures every
+   shallow band whose box meets the line's reach, where its own survey owns
+   the water at its nearest edge; the string pull asks it wherever a shallow
+   band's box is near, not only a shallow cell. The ring already seeded
+   bands from their edges (61e36ccb's fix-up) and is unchanged.
+   `areaEdgeNearest` now finds the inside of a band at a corner (0.1 m off
+   the point in whichever of eight directions lies in it): a chord's nearest
+   point on a thin strip is usually its corner, where a step off one edge's
+   normal missed the band on both sides.
+4. **Tier-2 red is weighed (3e3a3603's `tier2RedLoad`).** A metre over a
+   charted hazard's keep-out (an obstruction's, wreck's or rock's buffer —
+   not a mark's avoidance disc, not OSM furniture) weighs
+   `TIER2_HAZARD_RED_WEIGHT` = 2 against a metre of charted-shallow water a
+   tide may clear; water no tide clears is still weighed first. Under the
+   strict policy (production) any water no chart gives a depth for is red,
+   wherever the leg runs: no S-57 band under it (cut at the band edges), or,
+   where the layers hold no bands, a no-evidence grid cell or a sample off
+   the grid. Before, a lateral chain's own discs vouched for that water
+   (isUnvouchedCell: a mark's preferred cell is vouched), so a chain over
+   water no chart charts tied a charted lead (0 m of red each) and kept the
+   leg.
+    - DECIDED: weighted, not first. 3e3a3603's fix-up measured every
+      keep-out first putting the Hamilton reach bend back over 2 m water
+      (the RECTRC there crosses a mark's disc and an obstruction's buffer,
+      110 m; its ride carried 184 m of red against the chain's 511 m). At
+      2× the ride is at most 294 m and still wins.
+5. **The grid cache counts the ring as the grid holds it.** Admission
+   reserves w × h for the ring (61e36ccb); after the engine attaches it,
+   `recountNavGridCacheEntry` sets the entry to the grid's real bytes (an
+   empty ring where no shallow band exists — w × h less) and trims the other
+   entries to the 48 MB budget.
+6. **A saved voyage-form plan keeps the near stretches.** `routeGeoJSON`
+   carries `nearShallowSpans` (each stretch: segment and fraction, depth,
+   clearance, red or amber, channel edge) beside the `nearShallow` summary,
+   which now counts `red` and the `channel` edges apart. A plan shown again
+   (`savedInshoreRouteCaveats`: the planner, the departure sweep, a followed
+   route) says what the route said, from the stretches, falling back to the
+   summary an older save kept.
+    - DECIDED: the departure sweep does not gate departures on a near
+      stretch. It gates the water under the line (shallowRuns) and reports
+      "UKC at the worst spot" from it; a band beside the line is not under
+      the keel. The sweep shows the near stretches' note with the plan's
+      other caveats.
+
+- **Goldens** (each in its own process, against 3e3a3603): every corridor
+  route is byte-identical, and so is its red. Rivergate (2.40 and 2.44 m):
+  7 channel edges, 139 m drawn amber out of the channel's yellow; its 4
+  open-water near stretches (125 m) no longer refuse Save or Plan My Day
+  with no tide loaded (they do again after the fix-up review below).
+  Tangalooma: 2 channel edges, 10 m. newport-shane and the marks corridor:
+  their one near stretch no longer refuses (it does again, below). No pin
+  moved; the Rivergate golden now pins the channel edges.
+- **Measured on the Pi's cells** (copied read-only, sha256-checked, deleted
+  after; the six saved test routes, tide unknown and at a 2.5 / 3 m top,
+  with and without the SE-QLD marker file; before = 3e3a3603): every
+  route's line is byte-identical, and so are Auto's distance, its leg
+  review, the land, drying and no-tide audits and the red. Drawn:
+  Tangalooma's last leg now shows 16 m amber 'edge' (27.4 m from a 0–2 m
+  band, in its channel — the review's case); nothing else changes colour.
+  Named: the Newport exit's stretches beside the bank drying 2 m (14.7–24.4
+  m off, 120 + 60 + 31 m, on its red needs-tide segments) are channel edges
+  again on Rivergate, Tangalooma and newport-shane with the marker file, so
+  their route notes gain "In the marked channel this route runs close to the
+  edge of the channel's charted shallows: 15 m from water charted to dry
+  2.0 m …". Without the marker file (no pairs, no channel there) they stay
+  open-water near stretches, and at a 2.5 m top they are red (−2.0 m + 2.5 m
+  < 2.9 m) — the stretch 21.9–28.4 m off at the river mouth is now measured
+  at the band's corners too (27 + 21 + 8 m more, on segments already red).
+  Rivergate's 1 m beside a 2 m band (8.8 m off, open water) and
+  Tangalooma's 10 m (1.1 m off) are amber and no longer refuse Save. Route
+  times unchanged within noise (the string pull 4–467 ms, the ring
+  0.08–0.64 s).
+
+#### Round-3 fix-up review — no tide is red, Plan My Day and the tide, channel edges, deep wrecks (2026-10-03, late night)
+
+A review of the fix-up above (Shane, 2026-10-03: "keep going claude, i am
+off to bed"). Each change is tested first (it fails on the fix-up's code):
+`tests/engine/nearStretchVerdict.test.ts`, `tests/tier4/tier2ChainVsRectrc.test.ts`
+and `tests/dayPlannerEngine.test.ts`.
+
+1. **No tide loaded for the place is red again (high).** A near stretch a
+   tide could lift kept `tideLiftable` when the route had no tide ceiling
+   for its place (a failed tide fetch, a partial load, no station), so a
+   line 1 m or 4 m from a reef drying 3 m was saveable and planned amber
+   while the map drew it solid red "no tide data". Owner decision 10 says no
+   tide data can't prove it, and 3e3a3603 refused it. `collectShallowRuns`
+   now marks such a stretch `tideUnknown` (no ceiling at either end or the
+   middle), and `nearSpanBlocks` refuses it. The map is unchanged: it still
+   lifts the stretch under a live tide and draws it red without one.
+    - DECIDED: every band, not only drying ones. The map draws them all red
+      without a tide, and every other stretch drawn red is refused.
+    - DECIDED: a new field rather than dropping `tideLiftable`, so the map
+      can still draw the stretch amber when a live tide arrives after the
+      route was planned. Save then still refuses until the route is planned
+      again with the tide loaded: the safe way round.
+2. **Plan My Day refuses an amber near stretch as a tide it cannot verify
+   (medium).** It refuses every other tide dependency it cannot check (the
+   route's needs-tide words, the leg review's `needsTide`), but the near
+   note has no tide words, so a stretch beside a 0–2 m band that a 2.5 m tide
+   covers was planned for any departure, low water included.
+   `assessDayPlanRoute` now refuses any near stretch that is not a channel
+   edge: red ones with "passes too close …", amber ones with "The route
+   depends on a tide or tidal clearance that this planner cannot verify."
+   Save is unchanged: it keeps an amber one with its note.
+    - DECIDED: refuse outright, as on-line needs-tide water is refused,
+      rather than check the departure against the band's DRVAL1 like the
+      tide chips do. Reason: one rule for every tide dependency, and no new
+      tide reader in the planner. Checking the window is the better product
+      and is left for later.
+3. **A channel edge within 5 m of the bank is an ordinary near stretch
+   (low).** `CHANNEL_EDGE_FLOOR_M` (engine/shallowRuns). A probe put a line
+   1 m off a bank drying 3 m inside a dredged channel, under a 0.5 m tide
+   ceiling, and it was an amber channel edge, saveable and planned. Now it
+   is red (no tide clears the bank) and refused. With Serene Summer's 4.9 m
+   beam, a line 5 m off puts her side 2.5 m from the bank. The goldens' and
+   the real cells' channel edges are all 14.7 m or more, so none of them
+   changes.
+    - DECIDED: 5 m, fixed. Reason: the router does not carry the beam, and
+      5 m covers half of Serene Summer's beam plus a margin.
+    - Not done: relax-only cells (a far-snapped pin's relax circle) are
+      still called "In the marked channel". Making them ordinary near
+      stretches could refuse common marina routes, and it needs its own
+      words. Left for a later round.
+4. **A wreck charted deep enough is not a doubled hazard in tier-2 (low).**
+   `navGrid` buffers every charted point hazard whatever its VALSOU, but the
+   final audit skips one sounded deep enough (VALSOU >= draft + UKC), so the
+   engine never draws its keep-out red. `tier2RedLoad` weighed those metres
+   twice. The grid now marks the cells only such hazards closed
+   (`deepHazardOnly`, allocated only where one exists; any other hazard's
+   claim on a cell clears it, in either order), and `tier2RedLoad` weighs
+   them once.
+5. **The route notes count a stretch once, and a marginal channel edge does
+   not title them (low).** The engine cuts a stretch wherever the band
+   beside it changes and at every vertex. `nearShallowSummary` now joins a
+   piece that starts where the last piece of its kind ended, so Rivergate's
+   7 channel-edge pieces are 2 places ("and on 1 more stretch", not "on 6
+   more"), and its 4 open-water pieces are 2. A channel edge titles the
+   notice ("Close to the channel edge") only when it falls 5 m or more short
+   (`CHANNEL_EDGE_HEADLINE_SHORT_M`) or nothing else is said. A marginal one
+   is still named in the notes, under the survey title when there is one.
+   Measured on the goldens: Rivergate says "(and on 1 more stretch)" for
+   both its open-water and its channel-edge note (2 red stretches); the
+   Tangalooma golden (28.2 m against 30 m, 1.6 m short) has no other note,
+   so it keeps the title "Close to the channel edge".
+    - Not done: naming the drying band before a closer 0 m band. That is a
+      judgement call between "nearest" and "worst", so it stays as it was.
+
+- **Goldens** (each in its own process, TZ=UTC, against the fix-up's
+  measurements): every corridor polyline is byte-identical, and so is every
+  drawn metre (danger, tide, green, channel, edge, with and without a 2.5 m
+  tide). With no tide loaded, Rivergate's 4 open-water near stretches (2.40
+  and 2.44 m drafts) and newport-shane's and the marks corridor's one each
+  refuse again, as at 3e3a3603. Tangalooma and moreton-tier2 are unchanged.
+- **Suites and size:** the router suites (154 files, in batches of 4, one
+  worker) pass in local time and in UTC: 2,341 passed, 0 failed, 3 expected
+  failures, 5 skipped. A vite build of this tree measures 10,722,336 B of JS
+  (10.23 of the 10.25 MiB budget, 25.6 KB left), 4.8 KB more than the last
+  build at 3e3a3603 for the round-3 fix-up and this review together.
+
 ### Left for Shane (server side, not done here)
 
 The edge function, its `_shared` modules and its secrets are still deployed and

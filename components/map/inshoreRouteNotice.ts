@@ -4,7 +4,13 @@
  * showing. Pure, so the choice between them is testable.
  */
 import type { PassageNotice } from './usePassagePlanner';
-import type { ChartedShallowSpan, PinOffWater, PinTail, SurveyRunInfo } from '../../services/engine/types';
+import {
+    nearSpanBlocks,
+    type ChartedShallowSpan,
+    type PinOffWater,
+    type PinTail,
+    type SurveyRunInfo,
+} from '../../services/engine/types';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 
 export interface InshoreRouteNoticeInput {
@@ -46,45 +52,122 @@ export interface InshoreRouteNoticeInput {
  * The stretches of a route that pass inside the clearance the router keeps
  * from a shallow band (ChartedShallowSpan.near — the real-chart check,
  * 2026-10-03): how many, and the one that falls furthest short. The map draws
- * them and Auto will not save them; a plan from the voyage form kept none of
- * it (fix-up review, 2026-10-03), so the route says it and the saved route
+ * them and Auto will not save a red one; a plan from the voyage form kept none
+ * of it (fix-up review, 2026-10-03), so the route says it and the saved route
  * carries it (inshoreRouteToGeoJSON). Undefined when there are none.
+ *
+ * Round-3 fix-up (2026-10-03): `red` counts the near stretches no tide lifts
+ * or no tide was loaded for (nearSpanBlocks — what Save refuses; Plan My Day
+ * refuses every near stretch but a channel edge), and `channel` the channel
+ * edges (ChartedShallowSpan.channelEdge), said apart. With channel edges
+ * only, `stretches` is 0 and the worst fields repeat the channel's.
  */
-export interface NearShallowSummary {
-    stretches: number;
+export interface NearShallowWorst {
     clearanceM: number;
     depthM: number | null;
     requiredM: number;
 }
+export interface NearShallowSummary extends NearShallowWorst {
+    stretches: number;
+    red?: number;
+    channel?: NearShallowWorst & { stretches: number };
+}
 
 export function nearShallowSummary(spans: readonly ChartedShallowSpan[] | undefined): NearShallowSummary | undefined {
-    let out: NearShallowSummary | undefined;
+    let open: (NearShallowWorst & { stretches: number; red: number }) | undefined;
+    let channel: (NearShallowWorst & { stretches: number }) | undefined;
+    const worse = (n: NearShallowWorst, w: NearShallowWorst | undefined): boolean =>
+        !w || n.requiredM - n.clearanceM > w.requiredM - w.clearanceM;
+    // A piece that starts where the last piece of its kind ended (route
+    // parameter: segment + fraction) is the same stretch (fix-up review,
+    // 2026-10-03): the engine cuts a stretch where the band beside it changes
+    // and at every vertex, and Rivergate's 7 channel-edge pieces, said as "on
+    // 6 more stretches", were 2 places.
+    let openEnd = NaN;
+    let channelEnd = NaN;
+    let openRed = false;
+    const joins = (s: ChartedShallowSpan, end: number): boolean => Math.abs(s.startSeg + s.startT - end) < 1e-6;
     for (const s of Array.isArray(spans) ? spans : []) {
         const n = s?.near;
         if (!n || !Number.isFinite(n.clearanceM) || !Number.isFinite(n.requiredM)) continue;
         const depthM = typeof n.depthM === 'number' && Number.isFinite(n.depthM) ? n.depthM : null;
-        if (!out || n.requiredM - n.clearanceM > out.requiredM - out.clearanceM)
-            out = { stretches: out?.stretches ?? 0, clearanceM: n.clearanceM, depthM, requiredM: n.requiredM };
-        out.stretches++;
+        const w = { clearanceM: n.clearanceM, depthM, requiredM: n.requiredM };
+        if (s.channelEdge === true) {
+            if (worse(w, channel)) channel = { ...w, stretches: channel?.stretches ?? 0 };
+            if (!joins(s, channelEnd)) channel!.stretches++;
+            channelEnd = s.endSeg + s.endT;
+            continue;
+        }
+        if (worse(w, open)) open = { ...w, stretches: open?.stretches ?? 0, red: open?.red ?? 0 };
+        if (!joins(s, openEnd)) {
+            open!.stretches++;
+            openRed = false;
+        }
+        if (nearSpanBlocks(s) && !openRed) {
+            open!.red++;
+            openRed = true;
+        }
+        openEnd = s.endSeg + s.endT;
     }
-    return out;
+    if (!open && !channel) return undefined;
+    const base = open ?? { ...channel!, stretches: 0, red: 0 };
+    return {
+        stretches: base.stretches,
+        clearanceM: base.clearanceM,
+        depthM: base.depthM,
+        requiredM: base.requiredM,
+        ...(base.red > 0 ? { red: base.red } : {}),
+        ...(channel ? { channel } : {}),
+    };
 }
+
+/** "water charted to dry 1.5 m" / "water charted 2.0 m". */
+function nearWater(d: number | null): string {
+    return typeof d === 'number' && Number.isFinite(d)
+        ? d < 0
+            ? `water charted to dry ${(-d).toFixed(1)} m`
+            : `water charted ${d.toFixed(1)} m`
+        : 'charted water with no depth given';
+}
+
+/** " (and on 2 more stretches)". */
+const moreStretches = (n: number): string => (n > 0 ? ` (and on ${n} more stretch${n > 1 ? 'es' : ''})` : '');
 
 /** The caveat for nearShallowSummary, in the route notes' words. */
 function nearShallowCaveat(near: NearShallowSummary | undefined): string | null {
     if (!near || !(near.stretches > 0) || !Number.isFinite(near.clearanceM) || !Number.isFinite(near.requiredM))
         return null;
-    const d = near.depthM;
-    const water =
-        typeof d === 'number' && Number.isFinite(d)
-            ? d < 0
-                ? `water charted to dry ${(-d).toFixed(1)} m`
-                : `water charted ${d.toFixed(1)} m`
-            : 'charted water with no depth given';
+    const water = nearWater(near.depthM);
     const where =
         near.clearanceM < 1 ? `runs on the edge of ${water}` : `passes ${Math.round(near.clearanceM)} m from ${water}`;
-    const more = near.stretches - 1;
-    return `This route ${where} — closer than the ${Math.round(near.requiredM)} m the router keeps off it${more > 0 ? ` (and on ${more} more stretch${more > 1 ? 'es' : ''})` : ''}. Check the chart there before you go.`;
+    return `This route ${where} — closer than the ${Math.round(near.requiredM)} m the router keeps off it${moreStretches(near.stretches - 1)}. Check the chart there before you go.`;
+}
+
+/** The caveat for a summary's channel edges (round-3 fix-up, 2026-10-03):
+ *  amber, never a refusal — the marks own the line there. */
+function channelEdgeCaveat(near: NearShallowSummary | undefined): string | null {
+    const c = near?.channel;
+    if (!c || !(c.stretches > 0) || !Number.isFinite(c.clearanceM) || !Number.isFinite(c.requiredM)) return null;
+    const water = nearWater(c.depthM);
+    const where =
+        c.clearanceM < 1
+            ? `on the edge of ${water}`
+            : `${Math.round(c.clearanceM)} m from ${water}, inside the ${Math.round(c.requiredM)} m the router keeps off it elsewhere`;
+    return `In the marked channel this route runs close to the edge of the channel's charted shallows: ${where}${moreStretches(c.stretches - 1)}. Keep to the middle of the channel.`;
+}
+
+/**
+ * How far short of its clearance a channel edge must fall to title the route
+ * notes (fix-up review, 2026-10-03): Tangalooma's notice was titled 'Close to
+ * the channel edge' for 28.2 m against the 30 m kept, 1.6 m short in its own
+ * dredged channel, over its survey notes. A marginal edge is still named in
+ * the notes; it titles them only when nothing else is said.
+ */
+export const CHANNEL_EDGE_HEADLINE_SHORT_M = 5;
+
+function channelEdgeHeadlines(near: NearShallowSummary | undefined): boolean {
+    const c = near?.channel;
+    return !!c && c.requiredM - c.clearanceM >= CHANNEL_EDGE_HEADLINE_SHORT_M;
 }
 
 /** Metres in a skipper's words: "1.3 km", "450 m". */
@@ -213,9 +296,12 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     };
     shallowPin('departure', input.pinTail?.origin);
     shallowPin('destination', input.pinTail?.destination);
-    // Too close to a shallow band (the real-chart check, 2026-10-03).
+    // Too close to a shallow band (the real-chart check, 2026-10-03), and
+    // close to a channel's edge (round-3 fix-up, 2026-10-03).
     const near = nearShallowCaveat(input.nearShallow);
     if (near) out.push(near);
+    const edge = channelEdgeCaveat(input.nearShallow);
+    if (edge) out.push(edge);
     // Owner decision 11 (2026-10-01): where the route crosses water a tide
     // must clear and no tide was loaded for that place (offline, or a partial
     // load — fix-up, 2026-10-01), the router could not rule out water no tide
@@ -278,7 +364,10 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
                         ? 'Shallow pin'
                         : nearShallowCaveat(input.nearShallow)
                           ? 'Close to shallow water'
-                          : 'Survey quality',
+                          : channelEdgeCaveat(input.nearShallow) &&
+                              (channelEdgeHeadlines(input.nearShallow) || surveyCaveats(input).length === 0)
+                            ? 'Close to the channel edge'
+                            : 'Survey quality',
         message: caveats.join(' '),
     };
 }
@@ -331,15 +420,59 @@ function savedPinTail(v: unknown): PinTail | undefined {
  *  undefined when malformed — no words rather than wrong ones. */
 function savedNearShallow(v: unknown): NearShallowSummary | undefined {
     if (!v || typeof v !== 'object') return undefined;
-    const n = v as { stretches?: unknown; clearanceM?: unknown; depthM?: unknown; requiredM?: unknown };
     const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
-    if (!finite(n.stretches) || !finite(n.clearanceM) || !finite(n.requiredM)) return undefined;
+    const worst = (x: unknown): NearShallowWorst | undefined => {
+        const n = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+        if (!finite(n.clearanceM) || !finite(n.requiredM)) return undefined;
+        return { clearanceM: n.clearanceM, depthM: finite(n.depthM) ? n.depthM : null, requiredM: n.requiredM };
+    };
+    const n = v as { stretches?: unknown; red?: unknown; channel?: unknown };
+    const top = worst(v);
+    if (!finite(n.stretches) || !top) return undefined;
+    const c = n.channel as { stretches?: unknown } | undefined;
+    const channel = c && finite(c.stretches) ? worst(c) : undefined;
     return {
         stretches: n.stretches,
-        clearanceM: n.clearanceM,
-        depthM: finite(n.depthM) ? n.depthM : null,
-        requiredM: n.requiredM,
+        ...top,
+        ...(finite(n.red) && n.red > 0 ? { red: n.red } : {}),
+        ...(channel ? { channel: { ...channel, stretches: (c as { stretches: number }).stretches } } : {}),
     };
+}
+
+/**
+ * A saved route's near stretches themselves (inshoreRouteToGeoJSON
+ * nearShallowSpans; round-3 fix-up, 2026-10-03), checked, as the summary the
+ * live route said — undefined when absent or malformed (the saved summary
+ * then speaks, as before).
+ */
+function savedNearShallowSpans(v: unknown): NearShallowSummary | undefined {
+    if (!Array.isArray(v)) return undefined;
+    const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+    const spans: ChartedShallowSpan[] = [];
+    for (const x of v) {
+        if (!x || typeof x !== 'object') return undefined;
+        const s = x as Record<string, unknown>;
+        const near = s.near as Record<string, unknown> | undefined;
+        if (!finite(s.startSeg) || !finite(s.startT) || !finite(s.endSeg) || !finite(s.endT) || !finite(s.minDepthM))
+            return undefined;
+        if (!near || typeof near !== 'object' || !finite(near.clearanceM) || !finite(near.requiredM)) return undefined;
+        spans.push({
+            startSeg: s.startSeg,
+            startT: s.startT,
+            endSeg: s.endSeg,
+            endT: s.endT,
+            minDepthM: s.minDepthM,
+            ...(s.tideLiftable === true ? { tideLiftable: true } : {}),
+            ...(s.tideUnknown === true ? { tideUnknown: true } : {}),
+            ...(s.channelEdge === true ? { channelEdge: true } : {}),
+            near: {
+                clearanceM: near.clearanceM,
+                depthM: finite(near.depthM) ? near.depthM : null,
+                requiredM: near.requiredM,
+            },
+        });
+    }
+    return nearShallowSummary(spans);
 }
 
 /**
@@ -385,8 +518,10 @@ export function savedInshoreRouteCaveats(
             surveyRuns: Array.isArray(p.surveyRuns) ? (p.surveyRuns as SurveyRunInfo[]) : undefined,
             surveyUncheckedCells: strings(p.surveyUncheckedCells),
             waterPack: savedWaterPack(p.waterPack),
-            // Too close to a shallow band (fix-up review, 2026-10-03).
-            nearShallow: savedNearShallow(p.nearShallow),
+            // Too close to a shallow band (fix-up review, 2026-10-03): from
+            // the stretches themselves since the round-3 fix-up, else the
+            // summary an older save kept.
+            nearShallow: savedNearShallowSpans(p.nearShallowSpans) ?? savedNearShallow(p.nearShallow),
         });
     }
     const saved = plan.__inshoreRouting;

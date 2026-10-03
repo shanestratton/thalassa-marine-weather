@@ -227,7 +227,8 @@ describe("the router's notes and its line colours (2026-10-01)", () => {
             // land crossing, decision-1 water and needs-tide water before
             // the tide chips load are red too.
             'Red · land, shallow or unchecked — read the route notes',
-            'Amber · a tide clears it',
+            // …or a channel edge is close (round-3 fix-up, 2026-10-03).
+            'Amber · a tide clears it, or a channel edge is close',
             'Amber dots · survey quality',
             'Yellow · marked channel',
             'Teal · deep water',
