@@ -143,18 +143,28 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int) {
     let bob = try ExchangeParticipant(coordinator: b, owner: bobOwner, origin: args.origin, generation: bobGeneration)
     switch args.phase {
     case "prepare":
+        try args.status("running", stage: "prepare-relay-results")
         try runDmRelayResultProbe()
+        try args.status("running", stage: "prepare-coordinator")
         _ = try runDmCoordinatorProbe(root: FileManager.default.temporaryDirectory)
+        try args.status("running", stage: "prepare-lifecycle")
         let lifecycleChecks = try runLifecycleProbeForResearch()
         print("PASS isolated native lifecycle assertions: \(lifecycleChecks)")
+        try args.status("running", stage: "prepare-unresolved")
         let unresolvedChecks = try runUnresolvedProbeForResearch()
         print("PASS isolated native unresolved assertions: \(unresolvedChecks)")
+        try args.status("running", stage: "prepare-auth-session")
         let authChecks = try await runAuthSessionProbeForResearch()
         authFixtureAssertions = authChecks
         print("PASS isolated native Auth fixture assertions: \(authChecks)")
-        let directoryChecks = try await runAccountDirectoryProbeForResearch()
+        try args.status("running", stage: "prepare-account-directory")
+        let directoryChecks = try await runAccountDirectoryProbeForResearch(progressForResearch: { label in
+            // Fixed research labels only, no account IDs, key material or bearer values.
+            try? args.status("running", stage: label)
+        })
         accountDirectoryFixtureAssertions = directoryChecks
         print("PASS isolated native account directory fixture assertions: \(directoryChecks)")
+        try args.status("running", stage: "prepare-https-register")
         let now = Int64(Date().timeIntervalSince1970)
         for (person, prekey) in [(alice, "alice-prekey"), (bob, "bob-prekey")] {
             try await person.client.registerForResearch(prekeyId: prekey, expiresAt: now + 3600, now: now,

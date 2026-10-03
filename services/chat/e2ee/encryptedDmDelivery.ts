@@ -1,4 +1,4 @@
-import { decodeDirectMessageEnvelope, encodeDirectMessageEnvelope } from './directMessageEnvelope';
+import { decodeDirectMessageEnvelope, encodeDirectMessageEnvelope } from './directMessageEnvelope.ts';
 
 /**
  * Isolated delivery prototype, NOT live E2EE or a crypto/storage implementation.
