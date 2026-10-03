@@ -153,6 +153,7 @@ try {
             'VodozemacAuthSession.swift',
             'VodozemacAuthProbe.swift',
             'VodozemacAccountDirectory.swift',
+            'VodozemacSessionFacade.swift',
             'VodozemacAccountDirectoryProbe.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
@@ -333,6 +334,24 @@ try {
         receipt.lastNativeStatus = status
             ? { phase, status: status.status, stage: status.stage }
             : { phase, status: 'missing' };
+        if (status?.status !== 'passed' && status?.status !== 'failed') {
+            try {
+                process.kill(pid, 0);
+                receipt.nativeProcessAliveAtDeadline = true;
+            } catch {
+                receipt.nativeProcessAliveAtDeadline = false;
+            }
+            if (receipt.nativeProcessAliveAtDeadline) {
+                const samplePath = join(scratch, `native-timeout-${phase}.sample`);
+                const sampled = spawnSync('/usr/bin/sample', [String(pid), '1', '1', '-file', samplePath], {
+                    encoding: 'utf8',
+                    timeout: 10000,
+                    maxBuffer: 1024 * 1024,
+                });
+                receipt.timeoutStackSampleCaptured = sampled.status === 0 && existsSync(samplePath);
+                if (receipt.timeoutStackSampleCaptured) receipt.timeoutStackSamplePath = samplePath;
+            }
+        }
         saveReceipt();
         assert.equal(
             status?.status,

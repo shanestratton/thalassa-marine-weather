@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 2 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 3 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
 ## Shared-Mac workflow — owner's 1 October rules
 
@@ -27,17 +27,18 @@ third ratchet. This authorizes the isolated provider transition, not production
 release, a post-quantum claim, or changing Thalassa's source licence. libsignal is
 not the adoption candidate; its earlier probes below remain historical research.
 Keychain operations and ad-hoc simulator signing are confined to a disposable
-research app. No relay migration, Thalassa app linking/signing changes or
-distribution were started. Dependency/licence review, two real phones and an
+research app. An owner-approved isolated hosted relay now exists; no production
+relay migration, Thalassa app linking/signing changes or distribution occurred.
+Dependency/licence review, an iPhone–iPad exchange and an
 independent security review still gate release. An off-by-default switch is not
 a substitute for those checks or a way around a bundled dependency's licence.
 
 ## What exists today
 
 This is an isolated framing/delivery prototype, a real-provider native message
-coordinator, and a disposable device-directory/relay experiment, **not functioning
+coordinator, and an isolated device-directory/hosted-relay experiment, **not functioning
 E2EE in Thalassa**. Nothing is wired into live chat.
-No app dependency, native plugin, live database change, production encryption indicator, production deployment
+No shipping app dependency, implemented Capacitor plugin, production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
 
@@ -68,6 +69,105 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 3 October native facade and isolated hosted pilot
+
+`VodozemacSessionFacade.swift` now narrows account selection to native-created,
+single-use Auth fences. Fencing completes durably before SDK token acquisition.
+The facade exposes only public account/device data and an opaque credential
+binding; this is not peer trust, messaging readiness or a lifecycle version.
+Same-owner renewal retains existing pending ciphertext. A cold persisted
+selection cannot silently reopen under a new bearer: explicit native sign-out
+and verification are required. That cold-start policy still needs integration
+with the SDK adapter. This is native research code, **not a registered app plugin**.
+
+Internal review found that a returned directory scope could outlive the original
+reservation deadline. The scope now retains that exact monotonic deadline and
+checks it before and after reading native authority. The regression probe expires
+a shortened reservation while the inner Auth lease would otherwise still live;
+sealed state must remain unchanged. Internal review is not independent audit.
+
+Observed checks on the frozen native sources:
+
+- Nine disposable simulator process phases passed, exchanging **four actual Olm
+  encrypted messages** over ordinary URLSession HTTPS and on-disk SQL. The run
+  passed **266 Auth and 247 directory/facade fixture assertions**. Auth responses
+  were fixtures and both logical clients shared one simulator.
+- Those exact simulator-tested Swift sources compiled and linked for physical
+  iOS, **unsigned, never installed or executed**. Cached provider binaries were
+  hash-checked, not freshly built or independently attested. The disposable
+  simulator and its test CA were removed; receipts remain locally.
+- The native URLSession response-fixture runner passed 13 scenario groups,
+  including the exact trusted hosted prefix and hostile URL aliases. It compiled
+  for simulator and physical iOS; this was not live native hosted networking.
+- Focused relay tests: **568 passed in eight files**. Screen/SDK fixtures:
+  **111 passed in six files**. Focused pilot TypeScript and the actual Deno edge
+  entrypoint typecheck passed. These are not a full app build or device test.
+
+The separate free project is **Thalassa E2EE Pilot**, project
+`kmtupdvwdgbhtssqqova`, in **Thalassa Encryption Testing**. Production project
+`pcisdplnodrphauixcau` was untouched. `hosted/provision.mjs` requires that exact
+healthy project, organization, linked config and isolated worktree. It refuses
+an existing bootstrap rather than resetting data. The dedicated edge login has
+no table access, owner membership or elevated role flags; it can SET only the
+gateway role, which can execute only the three signed-path RPCs. Secrets remain
+server-side and in owner-only local artifacts, never committed or printed.
+
+The owner-supplied iPhone and iPad accounts were created only in that project.
+Admin-confirmed email flags and password-token checks are setup scaffolding, not
+mailbox or hardware ownership proof. No email was sent and neither human
+account's immutable device/prekey slot was used. Hosted smoke checks use two
+separate `.invalid` fixture actors, preserving their signing material for exact
+reruns. The wrapper temporarily selects those actors and restores the human
+participant allowlist in `finally`, including after failed assertions.
+
+Live hosted checks passed real Supabase password Auth and `/auth/v1/user`,
+Ed25519 registration, reciprocal prekey claims, exact signed request/message
+retries, bidirectional relay acceptance and recipient-only inbox reads. Invalid
+signatures, substituted accounts/device keys, an API key without a user, and
+endpoint/query aliases were refused. The payload was one-byte synthetic
+ciphertext: **this does not prove native Olm messages reached another phone**.
+Server acceptance is not device delivery or reading.
+
+Deployment initially exposed a missing schema USAGE grant: the managed postgres
+bootstrap role's NOINHERIT membership was not sufficient to issue it. A narrowly
+scoped owner-role repair restored only gateway schema USAGE; bootstrap now grants
+it after SET ROLE. Live ACL checks require both denied client/table privileges
+and affirmative gateway schema access, avoiding a vacuous all-denied pass.
+Per-transaction clients close after COMMIT/rollback to respect the two-connection
+pilot budget. Sequential live checks passed; burst capacity and independent
+concurrent PostgreSQL transactions remain unproved. No admin fallback or TLS
+verification bypass was introduced.
+
+The hosted adapter maps only the two observed exact Supabase internal URLs to
+the configured external HTTPS endpoints. It does not trust forwarded headers or
+permit native HTTP. The temporary JWT-protected routing canary was deleted and
+its source removed. Temporary response-shape diagnostics were removed; remaining
+driver logs contain only allowlisted error codes. Provisioning and smoke runners
+suppress private error bodies. Their CLI children disable telemetry for that
+process only, without changing the owner's global preference.
+
+Local evidence:
+
+- Native simulator: `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-dbAHR0/exchange-run.json`.
+- Physical target compile: `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-Odek1J/compile.json`.
+- Hosted initial pass: `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-hosted-fixtures-1XKFdZ/hosted-live-receipt-ab6366ac-476d-4a4e-86d5-eef0d56a5346.json`.
+- Hosted cleaned deployment rerun: `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-hosted-fixtures-1XKFdZ/hosted-live-receipt-6e037391-2de9-4076-ab5f-313ea613c1d9.json`. All 13 check categories passed. The receipt records source hashes and the unchanged JWT-gated deployed revision; these identify the run, not independently attest deployment provenance.
+
+An earlier simulator prepare phase timed out; its failed receipt remains in
+`thalassa-native-exchange-2vdZZh/exchange-run.json` under that temporary parent.
+The later pass does not establish the original cause. A separate unsupported Mac
+Keychain diagnostic also failed; no Keychain fallback or protection weakening was
+made. Its temporary source was removed and local artifacts retained. Some CLI
+commands reported success and then exited nonzero on PostHog shutdown; live
+readbacks, not those ambiguous exits, establish deployed behavior.
+
+Next gates: implement the actual app-native bridge and isolated login/device
+enrollment, execute the iPhone–iPad restart/logout/recovery plan, resolve immutable
+device/prekey recovery and concurrent-host limits, then independent security and
+dependency review before any production activation. The selected provider remains
+unchanged Olm Double Ratchet: no homemade third ratchet or post-quantum claim.
+The dated sections below are historical evidence, not today's deployment status.
 
 ### 2 October account directory and private message screen slice
 
