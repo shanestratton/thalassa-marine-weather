@@ -70,6 +70,86 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 4 October native messaging readiness and current relay policy
+
+Closed native text preparation, pending-send dispatch, acceptance and inbox
+application now require registration acknowledgement, the complete confirmed
+peer pin and a recent HTTPS response to a natively signed policy request. A first outgoing session
+also requires its verified, unexpired peer claim; an already-established current
+session does not reclaim an expired initial prekey. Historical owner/peer
+generations cannot revive a surviving session after logout.
+
+The new `policy` action reads both devices' revocation and both accounts' block
+flags under the SQL pilot lock. Even an exact request replay recomputes current
+flags rather than returning cached permission. The read does not consume the
+bounded mutation-nonce ledger. Native code matches every response binding and
+strict boolean to its saved request. Its permit exists only in memory, expires
+five seconds after the original monotonic request start, and retains the
+original account, credential and peer context. Starting a refresh invalidates
+the previous permit immediately. No automatic refresh is hidden inside send or
+receive, and a new clear permit cannot authorize an older in-flight response.
+
+Native operation and sealed-store commit guards recheck that exact permit.
+After a block/policy change, only an exact authenticated terminal refusal may
+settle the saved outgoing record through the original owner-only Auth lease.
+Acceptance cannot use that lane; refresh/logout cannot replace its authority.
+Local history and enrollment facts are not converted into current permission.
+The five-second read is not atomic remote authorization or instant detection of
+a later remote change: SQL still decides new actions. It is not trusted time
+across restart, a finished polling strategy or production latency policy.
+
+Observed evidence on frozen sources:
+
+- **709 native readiness assertions passed** with real Olm, Directory, facade,
+  Keychain and sealed SQLite, but synthetic Auth/policy/receipt transport.
+  These include independently verified native policy signatures, all four
+  denied flags, strict malformed replies, missing/historical claims, genuine
+  established-session continuation after fixture prekey expiry, permit expiry
+  during commit, and held-response races with refresh, peer changes and logout.
+  Explicit gate release and subsequent successful exchanges are positive
+  controls. Snapshot comparisons prove no durable mutation on refusal, not
+  that no cryptographic computation occurred. Synthetic metadata/time seams
+  are not actual device-clock rollback or live revocation evidence.
+- All nine disposable simulator phases passed. The prior research client
+  exchanged four actual encrypted messages over ordinary HTTPS and local SQL;
+  it does not exercise the new scoped policy client against SQL or the hosted
+  relay. The 266 Auth, 247 directory/facade, 40 enrollment-intent, 65 authority,
+  105 pairing/history, 81 scoped-relay and 188 scoped-enrollment assertions
+  passed again. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-ttJ1sM/exchange-run.json`.
+  The disposable simulator and temporary CA were removed. Two earlier attempts
+  failed before simulator creation on test-harness tuple/visibility compile
+  mistakes; their `thalassa-native-exchange-N6jXJx` and
+  `thalassa-native-exchange-uQijlQ` receipts remain retained, not counted as passes.
+- **592 focused TypeScript tests across nine suites passed**, using mocked Auth
+  and RPC dependencies with real request signatures. The focused strict relay
+  TypeScript check also passed, not a full app typecheck. **31 local SQL scenario
+  groups passed**, including fresh bilateral policy on exact nonce replay,
+  revoked-device diagnostics, unknown-peer refusal and no policy-ledger writes
+  at capacity. SQL artifacts: `thalassa-e2ee-relay-PRmgeI` in the same temporary
+  directory. This uses fixture Auth and synthetic ciphertext in single-connection
+  PGlite, not adversarial independent PostgreSQL connections or cloud deployment.
+- The separate transport proof passed 13 host URLSession fixture groups and
+  compiled for simulator/physical iOS; artifacts: `thalassa-native-network-VVmFfi`.
+  The new split send-completion behavior is covered by the readiness fixtures,
+  not those older 13 groups. All **28 exact simulator-tested Swift sources**
+  compiled/linked unsigned for physical iOS, without installation/execution.
+  Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-gKcK24/compile.json`.
+- The separate auth-only Capacitor app compiled/linked unsigned with 16 current
+  Swift sources and the unchanged existing research web bundle. All 13 shared
+  runtime hashes match the successful simulator run. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-auth-only-build-I5oHwz/build-receipt.json`.
+  Cached provider archives were hashed, not freshly rebuilt or independently
+  attested. No screen/SDK rerun, signing/install/launch, live login, human device
+  enrollment, cloud deployment, primary-app sync or independent audit occurred.
+
+The policy SQL/gateway changes are local candidates, not deployed to the hosted
+pilot. Concrete private-message plugin/adapter and screen wiring, native
+block/revoke controls, usable history and sync, iPhone–iPad execution and external
+security review remain missing. No production E2EE badge or master merge is
+authorized by this checkpoint.
+
 ### 4 October native registration and peer claims
 
 Closed native registration now seals the exact first signed bundle before
@@ -98,12 +178,13 @@ time policy across restart or later clock rollback. Missing optional fields in
 older version-5 research snapshots remain unknown, never promoted to success.
 Partial or inconsistent acknowledgements/confirmations fail closed.
 
-The scoped client exposes these native research operations only. They remain
-absent from the auth-only Capacitor plugin. Existing prepare/send/inbox research
-operations are not yet gated on enrollment/claim readiness or bilateral block
-policy. Do not label this a complete private-message port or expose a security
-badge from these facts. Physical-device, hosted native exchange and independent
-external review gates remain open.
+At this earlier registration checkpoint, the scoped client exposed only native
+research operations and prepare/send/inbox were not yet gated on enrollment or
+bilateral block policy. The readiness slice above adds those research gates;
+both slices remain absent from the auth-only Capacitor plugin. Do not label
+this a complete private-message port or expose a security badge from these
+facts. Physical-device, hosted native exchange and independent external review
+gates remain open.
 
 Observed evidence on frozen sources:
 
@@ -193,12 +274,12 @@ Observed evidence on frozen sources:
   No screen/SDK suite rerun, app signing/install/launch, live login, human device
   enrollment, cloud deployment or primary-app sync occurred in this slice.
 
-Scoped registration acknowledgment and full-pin prekey claim integration remain
-missing. These send/receive operations do not establish enrollment or claim
-readiness, bilateral block policy, a complete private-message port, pairing UI,
+At that 3 October checkpoint, scoped registration acknowledgement, full-pin
+claims and readiness gates were still missing. The 4 October slices above add
+those native research paths, not a complete private-message port, pairing UI,
 usable restart history, human-device exchange or independent security review.
-They remain isolated research, not functioning E2EE in Thalassa. The documentation
-records those distinctions rather than treating fixture passes as release gates.
+They remain isolated research, not functioning E2EE in Thalassa. Fixture passes
+do not satisfy release gates.
 
 ### 3 October native messaging authority and sealed pairing history
 

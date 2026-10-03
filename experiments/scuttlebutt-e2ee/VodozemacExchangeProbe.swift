@@ -34,7 +34,8 @@ private struct ExchangeArguments {
     func status(_ value: String, stage: String, authFixtureAssertions: Int = 0,
                 accountDirectoryFixtureAssertions: Int = 0, enrollmentIntentFixtureAssertions: Int = 0,
                 messageAuthorityFixtureAssertions: Int = 0, pairingHistoryFixtureAssertions: Int = 0,
-                scopedRelayFixtureAssertions: Int = 0, scopedEnrollmentFixtureAssertions: Int = 0) throws {
+                scopedRelayFixtureAssertions: Int = 0, scopedEnrollmentFixtureAssertions: Int = 0,
+                readinessFixtureAssertions: Int = 0) throws {
         let json: [String: Any] = ["runID": run.uuidString.lowercased(), "phase": phase, "status": value,
             "stage": stage, "pid": ProcessInfo.processInfo.processIdentifier, "physicalDeviceProtectionVerified": false,
             "authFixtureAssertions": authFixtureAssertions,
@@ -43,7 +44,8 @@ private struct ExchangeArguments {
             "messageAuthorityFixtureAssertions": messageAuthorityFixtureAssertions,
             "pairingHistoryFixtureAssertions": pairingHistoryFixtureAssertions,
             "scopedRelayFixtureAssertions": scopedRelayFixtureAssertions,
-            "scopedEnrollmentFixtureAssertions": scopedEnrollmentFixtureAssertions]
+            "scopedEnrollmentFixtureAssertions": scopedEnrollmentFixtureAssertions,
+            "readinessFixtureAssertions": readinessFixtureAssertions]
         let path = documents.appendingPathComponent("exchange-status-" + run.uuidString.lowercased() + ".json")
         try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: path, options: [.atomic])
     }
@@ -95,7 +97,7 @@ private struct ExchangeParticipant {
     }
 }
 
-private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, Int, Int, Int, Int, Int) {
+private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, Int, Int, Int, Int, Int, Int) {
     var authFixtureAssertions = 0
     var accountDirectoryFixtureAssertions = 0
     var enrollmentIntentFixtureAssertions = 0
@@ -103,6 +105,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
     var pairingHistoryFixtureAssertions = 0
     var scopedRelayFixtureAssertions = 0
     var scopedEnrollmentFixtureAssertions = 0
+    var readinessFixtureAssertions = 0
     if args.phase == "tls-refuse" {
         // Valid transport input reaches TLS: host separately requires an actual
         // failed TLS handshake and zero HTTP/Auth/SQL calls before CA install.
@@ -116,7 +119,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
             _ = try await transport.register(bundle: body, credential: credential, currentContext: { context })
             throw ExchangeFailure.assertion("untrusted-tls-accepted")
         } catch is DmRelayTransportError { /* Expected; no trust bypass. */ }
-        return (0, 0, 0, 0, 0, 0, 0)
+        return (0, 0, 0, 0, 0, 0, 0, 0)
     }
     if args.phase == "prepare" {
         try exchangeRequire(!FileManager.default.fileExists(atPath: args.root.path), "fresh-store-namespace")
@@ -136,7 +139,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
         try aStore.destroyForTesting(); try bStore.destroyForTesting()
         try exchangeRequire(try FileManager.default.contentsOfDirectory(atPath: args.root.path).isEmpty, "exact-empty-cleanup")
         try FileManager.default.removeItem(at: args.root)
-        return (0, 0, 0, 0, 0, 0, 0)
+        return (0, 0, 0, 0, 0, 0, 0, 0)
     }
     let ao = ExchangeFixture.alice, bo = ExchangeFixture.bob, generation = ExchangeFixture.peerGeneration
     let a: VodozemacDmCoordinator, b: VodozemacDmCoordinator
@@ -197,6 +200,10 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
             try? args.status("running", stage: label)
         })
         print("PASS isolated native scoped enrollment fixture assertions: \(scopedEnrollmentFixtureAssertions)")
+        readinessFixtureAssertions = try await runDmReadinessProbe(progressForResearch: { label in
+            try? args.status("running", stage: "readiness-" + label)
+        })
+        print("PASS isolated native readiness fixture assertions: \(readinessFixtureAssertions)")
         try args.status("running", stage: "prepare-https-register")
         let now = Int64(Date().timeIntervalSince1970)
         for (person, prekey) in [(alice, "alice-prekey"), (bob, "bob-prekey")] {
@@ -352,7 +359,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
     }
     return (authFixtureAssertions, accountDirectoryFixtureAssertions, enrollmentIntentFixtureAssertions,
             messageAuthorityFixtureAssertions, pairingHistoryFixtureAssertions, scopedRelayFixtureAssertions,
-            scopedEnrollmentFixtureAssertions)
+            scopedEnrollmentFixtureAssertions, readinessFixtureAssertions)
 }
 
 @main
@@ -390,7 +397,8 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
                 try args.status("passed", stage: "complete", authFixtureAssertions: checks.0,
                                 accountDirectoryFixtureAssertions: checks.1, enrollmentIntentFixtureAssertions: checks.2,
                                 messageAuthorityFixtureAssertions: checks.3, pairingHistoryFixtureAssertions: checks.4,
-                                scopedRelayFixtureAssertions: checks.5, scopedEnrollmentFixtureAssertions: checks.6)
+                                scopedRelayFixtureAssertions: checks.5, scopedEnrollmentFixtureAssertions: checks.6,
+                                readinessFixtureAssertions: checks.7)
                 print("PASS isolated native HTTPS exchange phase: " + args.phase)
                 fflush(stdout); exit(0)
             } catch {
@@ -403,6 +411,7 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
                 else if case DmPairingHistoryProbeError.assertion(let label) = error { stage = "pairing-history-check-" + label }
                 else if case DmScopedRelayProbeError.assertion(let label) = error { stage = "scoped-relay-check-" + label }
                 else if case DmScopedEnrollmentProbeError.assertion(let label) = error { stage = "scoped-enrollment-check-" + label }
+                else if case DmReadinessProbeError.assertion(let label) = error { stage = "readiness-check-" + label }
                 else if error is DmCoordinatorError { stage = "native-state-or-result-refused" }
                 else if error is DmRelayTransportError { stage = "network-unresolved" }
                 else if error is VodozemacSealedStoreError { stage = "sealed-store-refused" }

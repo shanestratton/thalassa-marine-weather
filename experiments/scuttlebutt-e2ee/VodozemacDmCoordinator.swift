@@ -101,8 +101,16 @@ final class VodozemacDmCoordinator {
     private struct MessageAuthority {
         let context: DmRelayNetworkContext
         let check: () throws -> Void
+        var policy: DmNativeRelayPolicyPermit?
+        var initialClaimRequired = false
     }
     private var messageAuthority: MessageAuthority?
+    // Permission is short-lived native MEMORY, not a durable enrollment fact.
+    // Reopening a store or another coordinator never restores an old allow.
+    private let policyClock: () -> ContinuousClock.Instant
+    private var policyQuery: DmNativeRelayPolicyRequest?
+    private var policyPermit: DmNativeRelayPolicyPermit?
+    private var policyState: DmNativeRelayPolicyState?
     // Test-only interference hook, not a guard or a production/plugin argument.
     // Lets the probe commit a competing lifecycle change before our sealed CAS.
     private let beforeCommitForResearch: (() throws -> Void)?
@@ -182,9 +190,11 @@ final class VodozemacDmCoordinator {
         var unresolved: [UnresolvedItem]
     }
 
-    init(store: VodozemacSealedStore, beforeCommitForResearch: (() throws -> Void)? = nil) throws {
+    init(store: VodozemacSealedStore, beforeCommitForResearch: (() throws -> Void)? = nil,
+         policyClockForResearch: (() -> ContinuousClock.Instant)? = nil) throws {
         self.store = store
         self.beforeCommitForResearch = beforeCommitForResearch
+        self.policyClock = policyClockForResearch ?? { ContinuousClock.now }
         _ = try withState { _, _ in () }
     }
 
@@ -259,6 +269,61 @@ final class VodozemacDmCoordinator {
             case .pairingState: return try withState { _, state in .pairingState(Self.pairingState(state)) }
             case .relayEnrollmentState:
                 return try withState { _, state in .enrollmentState(try Self.enrollmentState(state)) }
+            case .invalidateRelayPolicy:
+                policyQuery = nil; policyPermit = nil; policyState = nil
+                return try withState { _, state in .enrollmentState(try Self.enrollmentState(state)) }
+            case .relayPolicyWire:
+                // Fail closed immediately, including failed refresh/signing.
+                policyQuery = nil; policyPermit = nil; policyState = nil
+                return try withState { revision, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil,
+                          state.registrationAcknowledgement != nil,
+                          let peer = state.peer, let pin = state.peerIdentity,
+                          let fingerprint = state.peerFingerprint else { throw DmCoordinatorError.unavailable }
+                    let now = try Self.nativeRelayTime(), startedAt = policyClock()
+                    let requestId = UUID().uuidString.lowercased()
+                    let payload = "[" + (try [pin.userId, pin.deviceId, pin.identityKeyId].map(DmRelayCodec.quote).joined(separator: ",")) + "]"
+                    let wire = try signRelay(state: state, revision: revision, owner: owner, action: "policy",
+                        payload: payload, requestId: requestId, expiresAt: now + 240, now: now, persistState: false)
+                    let request = DmNativeRelayPolicyRequest(wire: wire, context: context, peer: pin,
+                        peerGeneration: peer.generation, peerFingerprint: fingerprint,
+                        requestId: requestId, startedAtSeconds: now, startedAt: startedAt)
+                    policyQuery = request
+                    return .policyRequest(request)
+                }
+            case .relayPolicyResponse(let request, let response):
+                return try withState { _, state in
+                    guard context.peerGeneration == nil, let saved = policyQuery,
+                          saved.wire == request.wire, saved.context == request.context, request.context == context,
+                          saved.peer == request.peer, saved.peerGeneration == request.peerGeneration,
+                          saved.peerFingerprint == request.peerFingerprint, saved.requestId == request.requestId,
+                          saved.startedAt == request.startedAt, saved.startedAtSeconds == request.startedAtSeconds,
+                          state.peerIdentity == request.peer, state.peerFingerprint == request.peerFingerprint,
+                          state.peer?.generation == request.peerGeneration,
+                          policyClock() >= request.startedAt,
+                          policyClock() < request.startedAt.advanced(by: .seconds(5)) else {
+                        throw DmCoordinatorError.unavailable
+                    }
+                    let flags = try DmRelayResultCodec.policy(response, request: request)
+                    let paired = DmRelayNetworkContext(userId: context.userId, deviceId: context.deviceId,
+                        ownerGeneration: context.ownerGeneration, credentialEpoch: context.credentialEpoch,
+                        peerGeneration: request.peerGeneration)
+                    policyPermit = DmNativeRelayPolicyPermit(id: UUID(), context: paired,
+                        peerFingerprint: request.peerFingerprint, startedAtSeconds: request.startedAtSeconds,
+                        startedAt: request.startedAt)
+                    policyState = flags; policyQuery = nil
+                    return .policyState(flags)
+                }
+            case .relayPolicyState:
+                return try withState { _, state in
+                    guard let permit = policyPermit, let flags = policyState else { throw DmCoordinatorError.unavailable }
+                    try requirePolicyFacts(permit, context: context, state: state)
+                    return .policyState(flags)
+                }
+            case .relayPolicyGuard(let permit):
+                try armReadiness(context, expected: permit)
+                guard let flags = policyState else { throw DmCoordinatorError.unavailable }
+                return .policyState(flags)
             case .relayRegistrationWire:
                 return try withState { _, state in
                     guard context.peerGeneration == nil, state.authProjectOrigin != nil else {
@@ -359,6 +424,7 @@ final class VodozemacDmCoordinator {
                 // Native text-only/nonblank policy; JS checks are not authority.
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       text.utf8.count <= DmContentCodec.maxTextBytes else { throw DmCoordinatorError.invalidInput }
+                try armReadiness(context, initialClaim: true)
                 let generation = try withState { _, state in try Self.requireFullPair(context, state) }
                 let millis = Date().timeIntervalSince1970 * 1000
                 guard millis.isFinite, (1...Double(Self.generationMax)).contains(millis) else {
@@ -384,14 +450,18 @@ final class VodozemacDmCoordinator {
                         guard let reason = item.reason else { throw DmCoordinatorError.conflict }
                         return .relayReceipt(.rejected(item.record, reason))
                     case .pending:
+                        try armReadiness(context)
+                        guard let permit = policyPermit else { throw DmCoordinatorError.unavailable }
                         let now = try Self.nativeRelayTime()
                         let wire = try signedSendForResearch(item.record, requestId: UUID().uuidString.lowercased(),
                             expiresAt: now + 240, now: now, owner: owner, peerGeneration: generation,
                             credentialEpoch: context.credentialEpoch)
-                        return .sendRequest(DmNativeRelaySendRequest(wire: wire, record: item.record))
+                        return .sendRequest(DmNativeRelaySendRequest(wire: wire, record: item.record, policy: permit))
                     }
                 }
-            case .relaySendReceipt(let record, let response):
+            case .relaySendReceipt(let request, let response):
+                try armReadiness(context, expected: request.policy)
+                let record = request.record
                 let generation = try withState { _, state in
                     let generation = try Self.requireFullPair(context, state)
                     guard record.ownerSessionGeneration == owner.generation,
@@ -411,13 +481,29 @@ final class VodozemacDmCoordinator {
                         credentialEpoch: context.credentialEpoch)
                 }
                 return .relayReceipt(receipt)
+            case .relayRejectedReceipt(let record, let response):
+                guard context.peerGeneration == nil else { throw DmCoordinatorError.unavailable }
+                _ = try withState { _, state in
+                    guard record.ownerUserId == owner.userId, record.ownerSessionGeneration == owner.generation else {
+                        throw DmCoordinatorError.unavailable
+                    }
+                    return try Self.outboxIndex(record, state)
+                }
+                guard case .rejected(_, let reason) = try DmRelayResultCodec.receipt(response, expected: record) else {
+                    throw DmCoordinatorError.unavailable
+                }
+                try confirmRejection(record, reason: reason, owner: owner, credentialEpoch: context.credentialEpoch)
+                return .relayReceipt(.rejected(record, reason))
             case .relayInboxWire:
-                _ = try withState { _, state in try Self.requireFullPair(context, state) }
+                try armReadiness(context)
+                guard let permit = policyPermit else { throw DmCoordinatorError.unavailable }
                 let now = try Self.nativeRelayTime()
-                return .relayRequest(try signedListForResearch(requestId: UUID().uuidString.lowercased(),
+                let wire = try signedListForResearch(requestId: UUID().uuidString.lowercased(),
                     afterId: 0, batch: 16, expiresAt: now + 240, now: now,
-                    owner: owner, credentialEpoch: context.credentialEpoch))
-            case .relayInboxResponse(let response):
+                    owner: owner, credentialEpoch: context.credentialEpoch)
+                return .inboxRequest(DmNativeRelayInboxRequest(wire: wire, policy: permit))
+            case .relayInboxResponse(let request, let response):
+                try armReadiness(context, expected: request.policy)
                 let input = try withState { _, state -> (Int64, [DmRelayInboxRow]) in
                     let generation = try Self.requireFullPair(context, state)
                     let identity = try publicIdentity(owner: owner)
@@ -494,6 +580,71 @@ final class VodozemacDmCoordinator {
         }
         _ = try requirePeer(state.owner, generation, state)
         return generation
+    }
+
+    // Attach the exact ephemeral permit to this lexical CLOSED operation. It
+    // is then checked by every nested read/return and store CAS, not only once
+    // before crypto or HTTP. Raw provider fixture helpers remain isolated seams.
+    private func armReadiness(_ context: DmRelayNetworkContext,
+                              expected: DmNativeRelayPolicyPermit? = nil, initialClaim: Bool = false) throws {
+        let armed = try withState { _, state -> (DmNativeRelayPolicyPermit, Bool) in
+            guard let current = policyPermit, expected == nil || expected == current else {
+                throw DmCoordinatorError.unavailable
+            }
+            let claimRequired = state.session == nil && (initialClaim || state.peer.map {
+                Self.initiates(state.owner.deviceId, $0.deviceId)
+            } == true)
+            try requireMessaging(current, context: context, state: state,
+                initialClaim: claimRequired)
+            return (current, claimRequired)
+        }
+        messageAuthority?.policy = armed.0
+        messageAuthority?.initialClaimRequired = armed.1
+    }
+
+    private func requirePolicyFacts(_ permit: DmNativeRelayPolicyPermit,
+                                    context: DmRelayNetworkContext, state: State) throws {
+        guard policyPermit == permit, policyState != nil,
+              permit.context.userId == context.userId, permit.context.deviceId == context.deviceId,
+              permit.context.ownerGeneration == context.ownerGeneration,
+              permit.context.credentialEpoch == context.credentialEpoch,
+              context.peerGeneration == nil || context.peerGeneration == permit.context.peerGeneration,
+              state.peer?.generation == permit.context.peerGeneration,
+              state.peerFingerprint == permit.peerFingerprint, state.peerIdentity != nil,
+              policyClock() >= permit.startedAt,
+              policyClock() < permit.startedAt.advanced(by: .seconds(5)) else { throw DmCoordinatorError.unavailable }
+    }
+
+    private func requireMessaging(_ permit: DmNativeRelayPolicyPermit, context: DmRelayNetworkContext,
+                                  state: State, initialClaim: Bool) throws {
+        let generation = try Self.requireFullPair(context, state)
+        try requirePolicyFacts(permit, context: context, state: state)
+        guard state.registrationAcknowledgement != nil, let flags = policyState,
+              !flags.ownerRevoked, !flags.peerRevoked, !flags.blockedByMe, !flags.blockedByPeer else {
+            throw DmCoordinatorError.unavailable
+        }
+        if state.session != nil {
+            // A surviving pickle is not a new owner's established conversation.
+            // Existing native message generations quarantine it after logout or
+            // peer replacement rather than silently reviving old ratchet state.
+            guard state.outbox.allSatisfy({ $0.record.ownerSessionGeneration == state.owner.generation && $0.record.recipientIdentityGeneration == generation }),
+                  state.inbox.allSatisfy({ $0.ownerGeneration == state.owner.generation && $0.peerGeneration == generation }),
+                  state.unresolved.allSatisfy({ $0.ownerGeneration == state.owner.generation && $0.peerGeneration == generation }) else {
+                throw DmCoordinatorError.unavailable
+            }
+        }
+        if initialClaim {
+            guard let peer = state.peer, Self.initiates(state.owner.deviceId, peer.deviceId),
+                  let claim = state.claimConfirmation, claim.owner == state.owner, claim.peer == peer,
+                  claim.peerFingerprint == state.peerFingerprint,
+                  let intent = state.claimIntent, intent.owner == state.owner, intent.peer == peer,
+                  intent.claimId == claim.claimId else { throw DmCoordinatorError.unavailable }
+            let elapsed = permit.startedAt.duration(to: policyClock()).components
+            guard elapsed.seconds >= 0, elapsed.attoseconds >= 0,
+                  permit.startedAtSeconds <= DmRelayCodec.maxSafeInteger - 6 else { throw DmCoordinatorError.unavailable }
+            let floor = permit.startedAtSeconds + elapsed.seconds + (elapsed.attoseconds == 0 ? 0 : 1)
+            _ = try DmRelayCodec.verifyBundle(claim.signedBundle, now: max(try Self.nativeRelayTime(), floor))
+        }
     }
 
     private static func pairingState(_ state: State) -> DmNativePairingState {
@@ -786,14 +937,15 @@ final class VodozemacDmCoordinator {
     }
 
     private func signRelay(state: State, revision: Int64, owner: DmOwnerContext, action: String, payload: String,
-                           requestId: String, expiresAt: Int64, now: Int64) throws -> String {
+                           requestId: String, expiresAt: Int64, now: Int64, persistState: Bool = true) throws -> String {
         try DmRelayCodec.expiry(expiresAt, now: now, maximum: 300)
         let signed = try signPublicRequest(accountPickle: state.account, pickleKey: store.providerPickleKey(),
             message: DmRelayCodec.requestSigningBytes(owner: owner, action: action, requestId: requestId, expiresAt: expiresAt, payload: payload))
         guard signed.signingKey == state.signingKey else { throw DmCoordinatorError.conflict }
         let wire = try DmRelayCodec.requestWire(owner: owner, action: action, requestId: requestId, expiresAt: expiresAt,
                                                payload: payload, signature: signed.signature)
-        try persist(state, revision: revision)
+        if persistState { try persist(state, revision: revision) }
+        else { try checkMessageAuthority(state) }
         return wire
     }
 
@@ -1152,6 +1304,9 @@ final class VodozemacDmCoordinator {
             generation: context.ownerGeneration), state)
         try Self.requireEpoch(context.credentialEpoch, state)
         if let generation = context.peerGeneration { _ = try Self.requirePeer(state.owner, generation, state) }
+        if let permit = authority.policy {
+            try requireMessaging(permit, context: context, state: state, initialClaim: authority.initialClaimRequired)
+        }
         try authority.check()
     }
 

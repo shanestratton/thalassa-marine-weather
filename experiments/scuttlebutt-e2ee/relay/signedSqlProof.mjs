@@ -555,6 +555,137 @@ export async function runSignedSqlProof(db, rpc) {
             await rejects(async () => dispatch(capacity, await sign(capacity, 'list', [0, 1], 'capacity-0')));
             assert.equal(await count('requests', capacity), 512);
         });
+
+        await check(
+            'signed policy reads recompute bilateral flags on exact replay without ledger writes or cap consumption',
+            async () => {
+                const policyOwner = await fixture('signed-policy-owner');
+                const policyPeer = await fixture('signed-policy-peer');
+                for (const actor of [policyOwner, policyPeer]) {
+                    actors.set(token(actor.userId), actor.userId);
+                    await gateway.register(token(actor.userId), actor.bundle);
+                }
+                const target = [policyPeer.userId, policyPeer.deviceId, policyPeer.identityKeyId];
+                const policyWire = await sign(policyOwner, 'policy', target, 'policy-current');
+                const expected = {
+                    requestId: 'policy-current',
+                    ownerUserId: policyOwner.userId,
+                    ownerDeviceId: policyOwner.deviceId,
+                    peerUserId: policyPeer.userId,
+                    peerDeviceId: policyPeer.deviceId,
+                    peerIdentityKeyId: policyPeer.identityKeyId,
+                    ownerRevoked: false,
+                    peerRevoked: false,
+                    blockedByMe: false,
+                    blockedByPeer: false,
+                };
+                const assertCurrent = async (patch = {}) => {
+                    const before = await count('requests', policyOwner);
+                    assert.deepEqual(await dispatch(policyOwner, policyWire), { ...expected, ...patch });
+                    assert.equal(await count('requests', policyOwner), before);
+                    assert.equal(
+                        (
+                            await db.query(
+                                'SELECT count(*)::integer AS count FROM e2ee_research.requests WHERE owner_id=$1::text AND request_id=$2::text',
+                                [policyOwner.userId, 'policy-current'],
+                            )
+                        ).rows[0].count,
+                        0,
+                    );
+                };
+                await assertCurrent();
+                await assertCurrent();
+                const ownerBlock = await sign(policyOwner, 'block', [policyPeer.userId, true], 'policy-owner-block');
+                await dispatch(policyOwner, ownerBlock);
+                await assertCurrent({ blockedByMe: true });
+                await dispatch(
+                    policyPeer,
+                    await sign(policyPeer, 'block', [policyOwner.userId, true], 'policy-peer-block'),
+                );
+                await assertCurrent({ blockedByMe: true, blockedByPeer: true });
+                await dispatch(
+                    policyOwner,
+                    await sign(policyOwner, 'block', [policyPeer.userId, false], 'policy-owner-unblock'),
+                );
+                await assertCurrent({ blockedByPeer: true });
+                await dispatch(
+                    policyPeer,
+                    await sign(policyPeer, 'block', [policyOwner.userId, false], 'policy-peer-unblock'),
+                );
+                // Historical mutation acknowledgements must not become current policy.
+                assert.deepEqual(await dispatch(policyOwner, ownerBlock), { blocked: true });
+                await assertCurrent();
+
+                const beforeInvalid = await count('requests', policyOwner);
+                for (const [index, unknownTarget] of [
+                    ['policy-missing-user', policyPeer.deviceId, policyPeer.identityKeyId],
+                    [policyPeer.userId, 'policy-missing-device', policyPeer.identityKeyId],
+                    [policyPeer.userId, policyPeer.deviceId, 'policy-missing-key'],
+                    [peer.userId, policyPeer.deviceId, policyPeer.identityKeyId],
+                ].entries()) {
+                    const invalid = await sign(policyOwner, 'policy', unknownTarget, `policy-unknown-${index}`);
+                    await rejects(() => dispatch(policyOwner, invalid));
+                    await rejects(() => rpc('execute_request', executeArgs(invalid)));
+                }
+                const base = JSON.parse(policyWire);
+                for (const [index, payload] of [
+                    '[]',
+                    JSON.stringify(target.slice(0, 2)),
+                    JSON.stringify([...target, 'extra']),
+                    JSON.stringify([policyOwner.userId, policyPeer.deviceId, policyPeer.identityKeyId]),
+                    JSON.stringify([policyPeer.userId, policyOwner.deviceId, policyPeer.identityKeyId]),
+                    `["${policyPeer.userId}", "${policyPeer.deviceId}","${policyPeer.identityKeyId}"]`,
+                    JSON.stringify([policyPeer.userId, policyPeer.deviceId, null]),
+                ].entries()) {
+                    const invalid = JSON.stringify({ ...base, requestId: `policy-invalid-${index}`, payload });
+                    // Independent SQL framing defense; these are rejected before
+                    // cryptographic verification by the trusted gateway as well.
+                    await rejects(() => rpc('execute_request', executeArgs(invalid)));
+                }
+                const missingActor = await sign(policyOwner, 'policy', target, 'policy-missing-actor', {
+                    userId: 'policy-missing-owner',
+                    deviceId: 'policy-missing-owner-device',
+                });
+                await rejects(() => rpc('execute_request', executeArgs(missingActor)));
+                for (const expiresAt of [nowSeconds() - 1, nowSeconds() + 3600]) {
+                    const expired = await sign(policyOwner, 'policy', target, `policy-ttl-${expiresAt}`, { expiresAt });
+                    await rejects(() => dispatch(policyOwner, expired));
+                    await rejects(() => rpc('execute_request', executeArgs(expired)));
+                }
+                // Reusing an existing mutation nonce still cannot change its contents.
+                const collision = await sign(policyOwner, 'policy', target, 'policy-owner-block');
+                await rejects(() => dispatch(policyOwner, collision));
+                assert.equal(await count('requests', policyOwner), beforeInvalid);
+
+                await dispatch(policyOwner, await sign(policyOwner, 'revoke', [], 'policy-owner-revoke'));
+                await assertCurrent({ ownerRevoked: true });
+                await dispatch(policyPeer, await sign(policyPeer, 'revoke', [], 'policy-peer-revoke'));
+                await assertCurrent({ ownerRevoked: true, peerRevoked: true });
+
+                // The earlier cap fixture has all 512 mutation-ledger slots filled.
+                const capacityWire = await sign(
+                    capacity,
+                    'policy',
+                    [peer.userId, peer.deviceId, peer.identityKeyId],
+                    'capacity-policy',
+                );
+                const capacityExpected = {
+                    requestId: 'capacity-policy',
+                    ownerUserId: capacity.userId,
+                    ownerDeviceId: capacity.deviceId,
+                    peerUserId: peer.userId,
+                    peerDeviceId: peer.deviceId,
+                    peerIdentityKeyId: peer.identityKeyId,
+                    ownerRevoked: false,
+                    peerRevoked: false,
+                    blockedByMe: false,
+                    blockedByPeer: false,
+                };
+                assert.deepEqual(await dispatch(capacity, capacityWire), capacityExpected);
+                assert.deepEqual(await dispatch(capacity, capacityWire), capacityExpected);
+                assert.equal(await count('requests', capacity), 512);
+            },
+        );
         return checks;
     } catch (error) {
         // A fixed scenario label helps the caller report failure without dumping

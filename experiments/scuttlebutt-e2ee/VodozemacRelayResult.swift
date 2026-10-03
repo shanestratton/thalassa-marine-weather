@@ -39,6 +39,30 @@ enum DmRelayResultCodec {
         return bundle
     }
 
+    /// Strict current-policy diagnostic. Parsing alone is NOT authentication:
+    /// use only native configured HTTPS bytes under the original Auth lease,
+    /// then let the coordinator bind the result to its exact saved peer/permit.
+    /// The existing parser detects duplicates, including escaped key aliases,
+    /// and never coerces numbers/strings/null into the four policy booleans.
+    static func policy(_ data: Data, request: DmNativeRelayPolicyRequest) throws -> DmNativeRelayPolicyState {
+        try validateIdentity(request.peer)
+        for id in [request.context.userId, request.context.deviceId, request.requestId] { try validateId(id) }
+        guard request.context.peerGeneration == nil, uint(request.context.ownerGeneration), uint(request.peerGeneration),
+              !same(request.context.userId, request.peer.userId),
+              !same(request.context.deviceId, request.peer.deviceId) else { throw invalid }
+        let fields = try object(parse(data), keys: ["requestId", "ownerUserId", "ownerDeviceId", "peerUserId",
+            "peerDeviceId", "peerIdentityKeyId", "ownerRevoked", "peerRevoked", "blockedByMe", "blockedByPeer"])
+        guard same(try string(fields, "requestId"), request.requestId),
+              same(try string(fields, "ownerUserId"), request.context.userId),
+              same(try string(fields, "ownerDeviceId"), request.context.deviceId),
+              same(try string(fields, "peerUserId"), request.peer.userId),
+              same(try string(fields, "peerDeviceId"), request.peer.deviceId),
+              same(try string(fields, "peerIdentityKeyId"), request.peer.identityKeyId) else { throw invalid }
+        return try DmNativeRelayPolicyState(ownerRevoked: boolean(fields, "ownerRevoked"),
+            peerRevoked: boolean(fields, "peerRevoked"), blockedByMe: boolean(fields, "blockedByMe"),
+            blockedByPeer: boolean(fields, "blockedByPeer"))
+    }
+
     /// Match every immutable outbox field, including ciphertext bytes. Malformed
     /// results are unresolved failures, never converted into terminal refusals.
     static func receipt(_ data: Data, expected: DmOutboxRecord) throws -> DmRelayReceipt {
