@@ -105,6 +105,11 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
     // river is OSM-vouched water, and decision 1 never applied there, before
     // or after. Charted drying ground crossed stays 30 m (pinned below), land
     // 0 m.
+    //
+    // Round 2 item (a), any-angle string pulling (2026-10-03, measured in its
+    // own process): 23.23 → 23.22 NM, 34 → 33 points — one grid stair pulled
+    // straight where its chord is at least as safe (engine/stringPull). Red
+    // 19,791 m, caution 22, land 0 m and drying ground 30 m all unchanged.
     it('distance pinned at 23.22 NM ±2%', () => {
         expectConnected(r);
         expect(r.distanceNM).toBeGreaterThan(23.22 * 0.98);
@@ -366,6 +371,12 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
     // skin), unchanged: 20.18 NM, 27 points, caution 15, 0 m of charted land
     // and 0 m of drying ground. Without that protection it crossed 1.6 km of
     // charted land at the Newport canal mouth.
+    //
+    // Round 2 item (a), any-angle string pulling (2026-10-03; own process):
+    // 20.18 → 20.16 NM, 27 → 24 points — three grid-stair vertices pulled
+    // out where each chord is at least as safe (engine/stringPull). Red
+    // 14,098 → 14,079 m (the 'needs tide' stretches 6,283 → 6,264 m), never
+    // longer; 0 m of land and drying ground as before.
     it('distance pinned at 20.35 NM ±2%', () => {
         expectConnected(r);
         expect(r.distanceNM).toBeGreaterThan(20.35 * 0.98);
@@ -401,7 +412,7 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
     });
 
-    it('caution cells at or below the lock-in baseline (15)', () => {
+    it('caution cells at or below the lock-in baseline (13)', () => {
         expectConnected(r);
         // RE-PIN 10→11 (3-tier Phase 4 + along-segment caution, 42bf48c8):
         // route distance is byte-identical (18.43 NM pinned green), only the
@@ -447,7 +458,12 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         // the 4,302 m of 'charts disagree' — the overview and general cells'
         // land over OC-61-351824's water, the pin's tail included — is not
         // caution any more; 35 → 27 points, 0 m of land.
-        expect(cautionCount(r)).toBeLessThanOrEqual(15);
+        //
+        // RE-PIN 15 → 13 (round 2 item a, any-angle string pulling,
+        // 2026-10-03; own process): two caution segments' stair vertices are
+        // pulled out — their chords read no state the stair did not, over no
+        // more of it (engine/stringPull) — 27 → 24 points.
+        expect(cautionCount(r)).toBeLessThanOrEqual(13);
     });
 
     // RE-PIN (owner decision 10, 2026-09-30): red OR needs-tide amber where

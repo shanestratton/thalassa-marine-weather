@@ -336,6 +336,16 @@ describe.skipIf(!HAVE_DATA)("Shane's second Whitsunday field route on the real c
         if (process.env.THALASSA_REAL_REPORT) writeFileSync(process.env.THALASSA_REAL_REPORT, report);
         else console.log(report);
         expect(ok.polyline.length).toBeGreaterThan(1);
+        // Round 2 item (a), any-angle string pulling (2026-10-03): the route
+        // Auto ships here is the PROMOTED Seaway route (the engine's own is
+        // one straight 17.33 NM line), and its connector legs were the A*
+        // cell chain itself — 498 points, each 50 m east or 70.7 m
+        // south-east: the display's legs 4→5 east then 5→6 south-east where
+        // the straight line crosses 15–20 m water. Pulled taut where each
+        // chord is at least as safe (engine/stringPull): 6 points, 18.22 →
+        // 18.00 NM, every segment green, 0 m of land.
+        expect(ok.polyline.length).toBeLessThanOrEqual(12);
+        expect(ok.distanceNM).toBeLessThan(18.1);
         // Measured 2026-10-03 (AU421148): the corner's caution segments pass
         // 12.3 m+ from its 2–5 m band, 31.6 m+ from its 0–2 m band and 43 m+
         // from the reef drying 3.6 m — clear of 10 m and 30 m, so GRID_ONLY

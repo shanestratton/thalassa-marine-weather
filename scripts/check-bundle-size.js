@@ -43,7 +43,17 @@ const BUDGETS = {
     // catalogue bring the measured payload to 9.96 MiB. package.json and
     // package-lock.json are unchanged from production: no new frontend
     // dependency. Keep ~2.4% headroom; total and entry budgets stay unchanged.
-    javascript: 10.2 * MIB,
+    // 10.25, was 10.2 (2026-10-03). Router round 2, part 3: stage A (charted
+    // hazard areas kept clear, a shallow pin goes direct, ~10.8 KB) and stage
+    // B (the any-angle string pull and gate threading, ~16.8 KB) are ~27 KB of
+    // deliberate router code in the main chunk; routeInshore is synchronous,
+    // so it cannot move to a lazy chunk. Stage B was trimmed by 2.6 KB first
+    // (shared local-plane helpers, constants for its exposure tables), which
+    // left the measured payload 643 B over the 10.2 line (10,696,118 B).
+    // package.json and package-lock.json are unchanged: no new dependency.
+    // 10.25 leaves ~51 KB (0.5%): small enough that an accidental lodger
+    // still trips it.
+    javascript: 10.25 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
 };

@@ -9,10 +9,17 @@
  */
 import type { FeatureCollection, LineString, MultiLineString, MultiPolygon, Polygon, Position } from 'geojson';
 import type { InshoreLayers, NavGrid } from './types';
-import { geometryBbox, haversineM, latLonToGrid, pointInGeometry, segmentGeometryDistanceM } from './geometry';
+import {
+    bboxBuckets,
+    geometryBbox,
+    haversineM,
+    latLonToGrid,
+    pointInGeometry,
+    segmentGeometryDistanceM,
+} from './geometry';
 import { UNKNOWN_OPEN } from './constants';
 import { navLineLeads } from '../leadingLine';
-import { navLinesOnWater } from '../routing/leadLandClip';
+import { indexArea, navLinesOnWater, pointInArea } from '../routing/leadLandClip';
 import {
     backstopVerdict,
     bandClaimOf,
@@ -191,19 +198,44 @@ export function hardLandAtPoint(layers: InshoreLayers): (lon: number, lat: numbe
 }
 
 function buildHardLandAtPoint(layers: InshoreLayers): (lon: number, lat: number) => boolean {
-    const land = indexTaggedAreas<number | null>([layers.LNDARE], (p) =>
-        typeof p?._scaleRank === 'number' ? p._scaleRank : null,
+    const land = fastTagged(
+        indexTaggedAreas<number | null>([layers.LNDARE], (p) =>
+            typeof p?._scaleRank === 'number' ? p._scaleRank : null,
+        ),
     );
-    if (land.length === 0) return () => false;
-    const osmWater = indexTaggedAreas<true>([layers.DEPARE, layers.FAIRWY], (p) =>
-        isAuthoritativeOsmWater(p) ? true : undefined,
+    if (land.count === 0) return () => false;
+    const osmWater = fastTagged(
+        indexTaggedAreas<true>([layers.DEPARE, layers.FAIRWY], (p) => (isAuthoritativeOsmWater(p) ? true : undefined)),
     );
-    const bands = indexTaggedAreas<BandClaim>([layers.DEPARE, layers.DRGARE], (p) => bandClaimOf(p) ?? undefined);
+    const bands = fastTagged(
+        indexTaggedAreas<BandClaim>([layers.DEPARE, layers.DRGARE], (p) => bandClaimOf(p) ?? undefined),
+    );
     return (lon, lat) => {
-        const landRanks = tagsAt(lon, lat, land);
+        const landRanks = land.tagsAt(lon, lat);
         if (landRanks.length === 0) return false;
-        if (pointInIndexedAreas(lon, lat, osmWater)) return false;
-        return chartLandVerdict(tagsAt(lon, lat, bands), landRanks) === 'land';
+        if (osmWater.tagsAt(lon, lat).length > 0) return false;
+        return chartLandVerdict(bands.tagsAt(lon, lat), landRanks) === 'land';
+    };
+}
+
+/**
+ * tagsAt over the same areas, answered from a bucket grid of their boxes and
+ * each ring's latitude-banded edge index (leadLandClip indexArea /
+ * pointInArea: the same ray cast, over only the edges that can cross the
+ * point's latitude) — identical answers, in the areas' own order. The
+ * any-angle string pull (engine/stringPull, 2026-10-03) asks hardLandAtPoint
+ * of thousands of spots beside a mainland coast of thousands of vertices.
+ */
+function fastTagged<T>(areas: readonly TaggedArea<T>[]): { count: number; tagsAt: (lon: number, lat: number) => T[] } {
+    const indexed = areas.map((a) => ({ area: indexArea(a.geometry, null), tag: a.tag }));
+    const near = bboxBuckets(indexed, (x) => x.area.bbox);
+    return {
+        count: areas.length,
+        tagsAt: (lon, lat) => {
+            const out: T[] = [];
+            for (const x of near([lon, lat, lon, lat])) if (pointInArea(x.area, lon, lat)) out.push(x.tag);
+            return out;
+        },
     };
 }
 
@@ -474,8 +506,21 @@ export function hazardBufferSegments(
     bufferM: number,
     needM: number,
 ): boolean[] {
-    const segs: boolean[] = new Array(Math.max(0, polyline.length - 1)).fill(false);
-    if (segs.length === 0) return segs;
+    if (polyline.length < 2) return [];
+    return hazardBufferReader(layers, bufferM, needM)(polyline);
+}
+
+/**
+ * hazardBufferSegments with the hazards read once: the reader answers for
+ * any polyline, per segment. The any-angle string pull (engine/stringPull)
+ * asks it of every chord it weighs, and reading every OBSTRN / WRECKS /
+ * UWTROC feature again per chord cost it 60 ms on one route (2026-10-03).
+ */
+export function hazardBufferReader(
+    layers: InshoreLayers,
+    bufferM: number,
+    needM: number,
+): (polyline: readonly (readonly [number, number])[]) => boolean[] {
     const points: [number, number][] = [];
     const areas: (Polygon | MultiPolygon)[] = [];
     for (const fcol of [layers.OBSTRN, layers.WRECKS, layers.UWTROC]) {
@@ -492,47 +537,50 @@ export function hazardBufferSegments(
             else if (g.type === 'Polygon' || g.type === 'MultiPolygon') areas.push(g);
         }
     }
-    if (points.length === 0 && areas.length === 0) return segs;
-    const lat0 = polyline[0][1];
-    const kx = 111_320 * Math.cos((lat0 * Math.PI) / 180);
-    const ky = 110_540;
-    const padLon = bufferM / kx;
-    const padLat = bufferM / ky;
     const areaBoxes = areas.map((a) => ({ a, b: geometryBbox(a) }));
-    for (let i = 0; i + 1 < polyline.length; i++) {
-        const [ax, ay] = polyline[i];
-        const [bx, by] = polyline[i + 1];
-        const minX = Math.min(ax, bx) - padLon;
-        const maxX = Math.max(ax, bx) + padLon;
-        const minY = Math.min(ay, by) - padLat;
-        const maxY = Math.max(ay, by) + padLat;
-        const dx = (bx - ax) * kx;
-        const dy = (by - ay) * ky;
-        const l2 = dx * dx + dy * dy;
-        for (const [px, py] of points) {
-            if (px < minX || px > maxX || py < minY || py > maxY) continue;
-            const qx = (px - ax) * kx;
-            const qy = (py - ay) * ky;
-            const t = l2 > 0 ? Math.max(0, Math.min(1, (qx * dx + qy * dy) / l2)) : 0;
-            if (Math.hypot(qx - t * dx, qy - t * dy) < bufferM) {
-                segs[i] = true;
-                break;
+    return (polyline) => {
+        const segs: boolean[] = new Array(Math.max(0, polyline.length - 1)).fill(false);
+        if (segs.length === 0 || (points.length === 0 && areas.length === 0)) return segs;
+        const lat0 = polyline[0][1];
+        const kx = 111_320 * Math.cos((lat0 * Math.PI) / 180);
+        const ky = 110_540;
+        const padLon = bufferM / kx;
+        const padLat = bufferM / ky;
+        for (let i = 0; i + 1 < polyline.length; i++) {
+            const [ax, ay] = polyline[i];
+            const [bx, by] = polyline[i + 1];
+            const minX = Math.min(ax, bx) - padLon;
+            const maxX = Math.max(ax, bx) + padLon;
+            const minY = Math.min(ay, by) - padLat;
+            const maxY = Math.max(ay, by) + padLat;
+            const dx = (bx - ax) * kx;
+            const dy = (by - ay) * ky;
+            const l2 = dx * dx + dy * dy;
+            for (const [px, py] of points) {
+                if (px < minX || px > maxX || py < minY || py > maxY) continue;
+                const qx = (px - ax) * kx;
+                const qy = (py - ay) * ky;
+                const t = l2 > 0 ? Math.max(0, Math.min(1, (qx * dx + qy * dy) / l2)) : 0;
+                if (Math.hypot(qx - t * dx, qy - t * dy) < bufferM) {
+                    segs[i] = true;
+                    break;
+                }
+            }
+            if (segs[i] || areaBoxes.length === 0) continue;
+            // An area gets the same keep-out a point does, measured exactly
+            // (round-2 review fix-up 2, 2026-10-03): it used to be a point-in-area
+            // test every 10 m, so a line 1 m beside foul ground that covers and
+            // uncovers, or across a strip of it narrower than 10 m between two
+            // samples, was clear of every hazard's buffer — and GRID_ONLY then
+            // drew it green. Through the area, or within `bufferM` of its rings.
+            for (const { a, b } of areaBoxes) {
+                if (b[2] < minX || b[0] > maxX || b[3] < minY || b[1] > maxY) continue;
+                if (segmentGeometryDistanceM(polyline[i], polyline[i + 1], a, kx, ky) < bufferM) {
+                    segs[i] = true;
+                    break;
+                }
             }
         }
-        if (segs[i] || areaBoxes.length === 0) continue;
-        // An area gets the same keep-out a point does, measured exactly
-        // (round-2 review fix-up 2, 2026-10-03): it used to be a point-in-area
-        // test every 10 m, so a line 1 m beside foul ground that covers and
-        // uncovers, or across a strip of it narrower than 10 m between two
-        // samples, was clear of every hazard's buffer — and GRID_ONLY then
-        // drew it green. Through the area, or within `bufferM` of its rings.
-        for (const { a, b } of areaBoxes) {
-            if (b[2] < minX || b[0] > maxX || b[3] < minY || b[1] > maxY) continue;
-            if (segmentGeometryDistanceM(polyline[i], polyline[i + 1], a, kx, ky) < bufferM) {
-                segs[i] = true;
-                break;
-            }
-        }
-    }
-    return segs;
+        return segs;
+    };
 }

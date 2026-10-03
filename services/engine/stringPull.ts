@@ -1,0 +1,970 @@
+/**
+ * Any-angle string pulling — field round 2, item (a) (Shane's second auto
+ * route, 2026-10-02, Whitsundays; built 2026-10-03).
+ *
+ * The finding: legs 4→5 ran due east ~200 m and 5→6 south-east ~140 m where
+ * the straight 4→6 crosses 15–20 m water — a 50 m, 8-connected grid
+ * artefact. Measured on the Pi's cells, the shipped route there was the
+ * PROMOTED Seaway Graph route (InshoreRouter: the engine's own route was one
+ * straight 17.3 NM line), and its connector legs are raw A* cell chains:
+ * 498 points, every one a cell centre, 50 m east or 70.7 m diagonal, nothing
+ * ever pulled straight. The engine's own smoothers could not have helped
+ * there, and on the engine path they are cost-gated (smoothPath: a chord
+ * must cost no more than the cells it replaces, so the centring term keeps a
+ * stagger) or near-collinear only (the scaffold collapse's 2.5 m, the grid
+ * Douglas-Peucker's quarter cell) — the tier-2 grid search's 71 m sideways
+ * step at Newport's marks 3/4/5/7 survives all three.
+ *
+ * The rule, on principle: a run of segments is replaced by the straight chord
+ * between two of its vertices when the chord is AT LEAST AS SAFE as the run,
+ * read by the same exact checks the finished route is held to. Equal or
+ * better is enough; the state need not be identical. Concretely
+ * (pathNoWorse), against the segments it replaces:
+ *   • every state that colours a whole segment (LINE_STATE: a caution cell,
+ *     a charted hazard's buffer, charted-shallow or uncharted water,
+ *     decision-1 water, an amber survey, too near a shallow band, a low
+ *     structure, a closed cell, hard land, water no tide clears) is one the
+ *     chord may carry only if EVERY replaced segment carries it — so no red,
+ *     amber or dashed stretch ever spreads onto water that was green;
+ *   • every exposure (the X_* indices below: the same things and their
+ *     sub-reasons — a wing, relaxed land, an NtM survey cell, no-evidence
+ *     water — plus water off the preferred fairway and cells beside land) is
+ *     no LONGER on the chord than on the run, and none it never had;
+ *   • its shallowest charted depth is no shallower than the run's (any
+ *     depth, not only below the keel floor: a chord never trades the A*'s
+ *     deeper water for a shorter line over shallower ground);
+ *   • BAND BY BAND, it keeps from every shallow band at least that band's
+ *     clearance (engine/shallowRuns nearShallowBand: 30 m from a band that
+ *     dries, charts no depth or never clears the keel; 10 m from one whose
+ *     deep end does), or the closest the run came to that same band where
+ *     the run was nearer — so a chord never hugs a reef. Stage-B review,
+ *     2026-10-03: compared as ONE number (the worst shortfall over all
+ *     bands), a chord sharing a vertex 3 m off a 2–5 m flat inherited that
+ *     vertex's 7 m shortfall and spent it 24 m from a drying reef the stair
+ *     kept 58 m off, drawn green;
+ *   • its survey error margin is no larger, and it comes no nearer the edge
+ *     of confined water than the run does (the grid's centring field: a
+ *     chord may not cut a channel's bend toward its bank). These two stay
+ *     single maxima over the line — a chord that shares a vertex with the
+ *     run inherits that vertex's value — on purpose (DECIDED 2026-10-03):
+ *     the survey margin only caps the number a leg note discloses, while
+ *     whether a survey's error eats the keel's margin is read per piece as
+ *     survey-margin metres, which a chord may not gain; and the centring
+ *     field is the grid's mid-channel preference, not a clearance — what
+ *     keeps a chord off a bank is the per-band clearance above, cells beside
+ *     land (metres no longer than the run's), hard land, and the corridor
+ *     for any chord that is not clean;
+ *   • no charted mark lies between the run and the chord — it passes every
+ *     mark on the side the run does, so it never skips a gate or swaps a
+ *     lateral mark's side, however the marks pair — and it passes each mark
+ *     no closer than the run did (or than 25 m, where the run was further);
+ *   • where it is not clean (any state but an amber survey), it stays within
+ *     a cell's diagonal of the vertices it replaces: an exposure may total no
+ *     more than the run's, but where nothing proves the water the same amount
+ *     elsewhere is not the same water.
+ * Pinned vertices are never removed: the route's ends, every gate anchor
+ * (tierPipeline gateAnchorMask), every vertex on a charted lead (NAVLNE
+ * CATNAV 3 / RECTRC), and the seams between runs of a different kind (canal,
+ * marked channel, offshore, a Seaway graph edge). Runs the caller marks
+ * unpullable (the canal centre-line, a marked channel's follower, a graph
+ * edge's centreline) are copied as they are.
+ *
+ * The search is greedy from each anchor, galloping (2, 4, 8 … segments) and
+ * then bisecting to the furthest chord that passes — O(log n) chord checks
+ * per kept vertex, each exact along the chord.
+ *
+ * threadGateCentres (below) is the same rule applied to moving a vertex: a
+ * lateral gate the route crosses close by one of its marks is threaded
+ * through its centre where that is at least as safe.
+ *
+ * Bundle note (stage-B review, 2026-10-03): this module sits in the main
+ * chunk (routeInshore is synchronous, so no dynamic import), against a JS
+ * budget the round left ~3 KB over. The exposure indices and states are
+ * plain module constants rather than objects (a property read survives
+ * minification, a constant does not), and the local-plane distances go
+ * through geometry's segmentDistanceM — the same arithmetic as before.
+ */
+import type { InshoreLayers, NavGrid, SurveyUncheckedCell, TideCeiling } from './types';
+import {
+    bboxBuckets,
+    forEachCellOnSegment,
+    haversineM,
+    latLonToGrid,
+    mPerDegLon,
+    pointInRing,
+    segmentDistanceM,
+} from './geometry';
+import { hardLandAtPoint, hazardBufferReader, isUnvouchedCell } from './safetyAudit';
+import {
+    chartPiecesAlong,
+    nearShallowBand,
+    surveyPiecesReader,
+    SHALLOW_CLIFF_CLEARANCE_M,
+    type ChartLinePiece,
+    type NearBand,
+} from './shallowRuns';
+import { noTideClearsAt, tideCeilingLookup } from './tideCeiling';
+import { chartAreaIndexFor, indexArea, piecesAlong, pointInArea, type IndexedArea } from '../routing/leadLandClip';
+import { polylineCrossesClearanceBar } from '../routing/overheadClearance';
+
+/** The sample step (m) exposures are measured on, and the tolerance a chord's
+ *  exposure may exceed its run's by where the run has that exposure at all. */
+export const PULL_STEP_M = 10;
+
+/** A vertex within this of a charted lead rides it, and is kept. */
+export const LEAD_ANCHOR_M = 3;
+
+/** Marks this near the old or the new path must be passed no closer… */
+const MARK_WATCH_M = 150;
+/** …than before, or than this where they were further: half a 50 m gate,
+ *  so a line moving toward a gate's centre may come this close to its far
+ *  mark (DECIDED 2026-10-03). */
+const MARK_COMFORT_M = 25;
+/** Metres per degree of latitude in the plane the marks, the corridor and
+ *  the leads are measured in. */
+const KY = 110_540;
+/** A chord sharing the run's vertex reads that vertex's distance to a band
+ *  again in a plane a few metres north or south: equal to well under this. */
+const BAND_TOLERANCE_M = 1e-3;
+
+// What a line is exposed to, in metres along it: the index into
+// LineExposure.metres, and the bit cellBits sets for a cell.
+/** A closed (NaN) grid cell, or one the caller blocks. */
+const X_BLOCKED = 0;
+/** Any caution cell (charted-shallow, relaxed land, a wing, no evidence…). */
+const X_CAUTION = 1;
+/** A pair-wing's outboard caution (passing outside a lateral mark). */
+const X_WING = 2;
+/** Charted land the router opened (a relax zone, a carve). */
+const X_RELAXED_LAND = 3;
+/** A Notice to Mariners survey's sub-floor cell. */
+const X_NTM = 4;
+/** A decision-1 (charts disagree) cell. */
+const X_CONFLICT_CELL = 5;
+/** A caution cell a shallow chart band alone explains. */
+const X_SHALLOW_BAND = 6;
+/** A caution cell nothing else here explains. */
+const X_CAUTION_OTHER = 7;
+/** Water no evidence vouches for (strict policy). */
+const X_UNVOUCHED = 8;
+/** Outside the preferred fairway / dredged corridor. */
+const X_OFF_PREFERRED = 9;
+/** A cell beside a land cell. */
+const X_NEAR_LAND = 10;
+/** Hard land by the land audit's own point rule. */
+const X_HARD_LAND = 11;
+/** Water no tide clears for this boat (owner decision 11). */
+const X_NO_TIDE = 12;
+/** Charted (finest survey or NtM) shallower than draft + UKC. */
+const X_CHART_SHALLOW = 13;
+/** No chart depth at all. */
+const X_CHART_UNCHARTED = 14;
+/** Decision-1 water on the chart's own pieces. */
+const X_CHART_CONFLICT = 15;
+/** Inside a charted hazard's buffer. */
+const X_HAZARD = 16;
+const X_SURVEY_POOR = 17;
+const X_SURVEY_MARGIN = 18;
+const X_SURVEY_UNGRADED = 19;
+const X_SURVEY_UNCHECKED = 20;
+const X_COUNT = 21;
+
+// States that colour a WHOLE segment — the chord may carry one only if every
+// segment it replaces does (no colour ever spreads).
+const S_GRID_CAUTION = 1;
+const S_HAZARD = 2;
+const S_CHART_SHALLOW = 4;
+const S_CHART_UNCHARTED = 8;
+const S_CHART_CONFLICT = 16;
+const S_SURVEY_AMBER = 32;
+const S_NEAR_SHALLOW = 64;
+const S_LOW_STRUCTURE = 128;
+const S_BLOCKED = 256;
+const S_HARD_LAND = 512;
+const S_NO_TIDE = 1024;
+export const LINE_STATE = {
+    GRID_CAUTION: S_GRID_CAUTION,
+    HAZARD: S_HAZARD,
+    CHART_SHALLOW: S_CHART_SHALLOW,
+    CHART_UNCHARTED: S_CHART_UNCHARTED,
+    CHART_CONFLICT: S_CHART_CONFLICT,
+    SURVEY_AMBER: S_SURVEY_AMBER,
+    NEAR_SHALLOW: S_NEAR_SHALLOW,
+    LOW_STRUCTURE: S_LOW_STRUCTURE,
+    BLOCKED: S_BLOCKED,
+    HARD_LAND: S_HARD_LAND,
+    NO_TIDE: S_NO_TIDE,
+} as const;
+
+/** The state each exposure's metres set, where it has any. */
+const STATE_OF: readonly (readonly [number, number])[] = [
+    [X_CAUTION, S_GRID_CAUTION],
+    [X_CHART_SHALLOW, S_CHART_SHALLOW],
+    [X_CHART_UNCHARTED, S_CHART_UNCHARTED],
+    [X_CHART_CONFLICT, S_CHART_CONFLICT],
+    [X_SURVEY_POOR, S_SURVEY_AMBER],
+    [X_SURVEY_MARGIN, S_SURVEY_AMBER],
+    [X_SURVEY_UNGRADED, S_SURVEY_AMBER],
+    [X_BLOCKED, S_BLOCKED],
+    [X_HARD_LAND, S_HARD_LAND],
+    [X_NO_TIDE, S_NO_TIDE],
+];
+/** A survey piece's reason → its exposure (any other: not checked). */
+const SURVEY_X: Readonly<Record<string, number>> = {
+    'survey-poor': X_SURVEY_POOR,
+    'survey-margin': X_SURVEY_MARGIN,
+    'survey-ungraded': X_SURVEY_UNGRADED,
+};
+
+export interface LineExposure {
+    /** LINE_STATE bits. */
+    state: number;
+    /** Metres along the line per exposure (the X_* indices). */
+    metres: Float64Array;
+    /** The shallowest charted depth along it (m, any value; Infinity: none). */
+    leastM: number;
+    /** Every shallow band it comes inside the clearance of, and how near
+     *  (nearShallowBand `within`): weighed band by band. */
+    nearBands: readonly NearBand[];
+    /** The largest survey error margin on it (m; 0: none). */
+    surveyErrM: number;
+    /** Its closest approach to the edges of confined water, as the grid's
+     *  centring field reads it (aStar computeCentreFactor: 1 mid-channel or in
+     *  open water, up to 1 + CENTRE_BIAS against a bank or a shallow edge). */
+    centreMax: number;
+}
+
+export interface PullContext {
+    layers: InshoreLayers;
+    grid: NavGrid;
+    draftM: number;
+    safetyM: number;
+    /** The route's charted-hazard buffer (RouteRequest.obstructionBufferM). */
+    obstructionBufferM: number;
+    /** The strict uncharted policy: no-evidence water is caution. */
+    strictUncharted: boolean;
+    tideCeilings?: readonly TideCeiling[];
+    surveyUncheckedCells?: readonly SurveyUncheckedCell[];
+    /** Cells no chord may touch beyond what its run did (a re-solve's blocks;
+     *  read at each call, so a caller may grow or replace it between calls). */
+    blockedIdx?: ReadonlySet<number>;
+}
+
+type LonLat = readonly [number, number];
+
+const bit = (k: number): number => 1 << k;
+
+/** [w, s, e, n] round some points. */
+const boxOf = (pts: readonly LonLat[]): number[] => {
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const p of pts) {
+        box[0] = Math.min(box[0], p[0]);
+        box[1] = Math.min(box[1], p[1]);
+        box[2] = Math.max(box[2], p[0]);
+        box[3] = Math.max(box[3], p[1]);
+    }
+    return box;
+};
+
+/** A box grown by padLon / padLat degrees. */
+const grow = (box: readonly number[], padLon: number, padLat: number): number[] => [
+    box[0] - padLon,
+    box[1] - padLat,
+    box[2] + padLon,
+    box[3] + padLat,
+];
+
+/** Metres from p to segment a→b in the local plane (kx metres per degree of
+ *  longitude; default at p's latitude). */
+const segM = (p: LonLat, a: LonLat, b: LonLat, kx = mPerDegLon(p[1])): number => segmentDistanceM(a, b, p, p, kx, KY);
+
+const pathPointM = (path: readonly LonLat[], p: LonLat): number => {
+    let best = Infinity;
+    for (let i = 0; i + 1 < path.length; i++) best = Math.min(best, segM(p, path[i], path[i + 1]));
+    return best;
+};
+
+/** The new path passes mark m closer than the old one did (or, where the old
+ *  was further, than MARK_COMFORT_M), either passing within MARK_WATCH_M. */
+const passesCloser = (m: LonLat, next: readonly LonLat[], was: readonly LonLat[]): boolean => {
+    const now = pathPointM(next, m);
+    const then = pathPointM(was, m);
+    return (now <= MARK_WATCH_M || then <= MARK_WATCH_M) && now < Math.min(then, MARK_COMFORT_M) - 0.5;
+};
+
+/** Land paint, and everything the land audit's verdict at a spot depends on —
+ *  the depth bands and the water OSM or the fairways vouch for — bucketed by
+ *  box: a line cut at all their edges reads one verdict per piece. */
+interface VerdictIndex {
+    landIn: (box: readonly number[]) => IndexedArea[];
+    verdictIn: (box: readonly number[]) => IndexedArea[];
+}
+const verdictMemo = new WeakMap<object, { parts: unknown[]; index: VerdictIndex | null }>();
+function verdictIndexFor(layers: InshoreLayers): VerdictIndex | null {
+    const parts = [layers.LNDARE, layers.DEPARE, layers.DRGARE, layers.FAIRWY];
+    const key = (layers.LNDARE ?? layers) as object;
+    const hit = verdictMemo.get(key);
+    if (hit && hit.parts.every((p, i) => p === parts[i])) return hit.index;
+    const land = chartAreaIndexFor(layers).land;
+    let out: VerdictIndex | null = null;
+    if (land.length > 0) {
+        const areas: IndexedArea[] = [...land];
+        for (const fcol of [layers.DEPARE, layers.DRGARE, layers.FAIRWY])
+            for (const f of fcol?.features ?? []) {
+                const g = f.geometry;
+                if (g && (g.type === 'Polygon' || g.type === 'MultiPolygon')) areas.push(indexArea(g, null));
+            }
+        out = { landIn: bboxBuckets(land, (x) => x.bbox), verdictIn: bboxBuckets(areas, (x) => x.bbox) };
+    }
+    verdictMemo.set(key, { parts, index: out });
+    return out;
+}
+
+/**
+ * The exposure reader for one route: what a straight line a→b ([lon, lat])
+ * is exposed to, by the finished route's own exact checks.
+ */
+export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => LineExposure {
+    const { grid, layers, draftM, safetyM } = ctx;
+    const floorM = draftM + safetyM;
+    const w = grid.width;
+    const h = grid.height;
+    const sd = grid.shallowDepthM;
+    const centre = grid.centreFactor;
+    const chart = chartPiecesAlong({ layers, grid, draftM, safetyM });
+    const depthBands = chart.hasBands ? chartAreaIndexFor(layers).depth : [];
+    const onHardLand = hardLandAtPoint(layers);
+    const tide = tideCeilingLookup(ctx.tideCeilings);
+    const noTideAt = tide.size > 0 ? noTideClearsAt(layers, tide, floorM) : null;
+    const structures = layers.OBSTRN?.features ?? [];
+    const hazardsNear = hazardBufferReader(layers, ctx.obstructionBufferM, floorM);
+    let verdict: VerdictIndex | null | undefined;
+    const hardLandM = (a: LonLat, b: LonLat): number => {
+        if (verdict === undefined) verdict = verdictIndexFor(layers);
+        if (!verdict) return 0;
+        const box = boxOf([a, b]);
+        const land = verdict.landIn(box);
+        if (land.length === 0) return 0;
+        let m = 0;
+        for (const q of piecesAlong(verdict.verdictIn(box), [a as [number, number], b as [number, number]])) {
+            if (!land.some((x) => pointInArea(x, q.lon, q.lat))) continue;
+            if (onHardLand(q.lon, q.lat)) m += q.m;
+        }
+        return m;
+    };
+    // A shallow band's clearance is only ever owed near a shallow-band caution
+    // cell (nearShallowBand reads the bands owning those cells' centres within
+    // its reach): look for one first, and hand it only the bands round the line.
+    const bandsIn = depthBands.length > 0 ? bboxBuckets(depthBands, (x) => x.bbox) : null;
+    const midLat = grid.minLat + (grid.height * grid.dLat) / 2;
+    const cellWm = grid.dLon * 111_320 * Math.cos((midLat * Math.PI) / 180);
+    const cellHm = grid.dLat * 111_320;
+    // Two cell diagonals past the clearance (nearShallowBand cellReachM): a
+    // band's edge can lie a cell beyond the centres that rasterize it.
+    const cellReachM = 2 * Math.hypot(cellWm, cellHm);
+    const reachM = SHALLOW_CLIFF_CLEARANCE_M + cellReachM;
+    const reachCells = Math.ceil(reachM / Math.max(1, Math.min(cellWm, cellHm))) + 1;
+    const padLonDeg = (2 * reachM) / Math.max(1, cellWm / grid.dLon);
+    const padLatDeg = (2 * reachM) / 111_320;
+    /** Some cell within r cells of cell idx is `is`. */
+    const around = (idx: number, r: number, is: (j: number) => boolean): boolean => {
+        const x = idx % w;
+        const y = (idx - x) / w;
+        for (let dy = -r; dy <= r; dy++)
+            for (let dx = -r; dx <= r; dx++) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx >= 0 && ny >= 0 && nx < w && ny < h && is(ny * w + nx)) return true;
+            }
+        return false;
+    };
+    const isShallowCell = (j: number): boolean => grid.cells[j] < 0 && !Number.isNaN(sd![j]);
+    const shallowCellNear = (a: LonLat, b: LonLat): boolean => {
+        let found = false;
+        forEachCellOnSegment(grid, a, b, (idx) => {
+            found ||= around(idx, reachCells, isShallowCell);
+        });
+        return found;
+    };
+    const surveyOf = surveyPiecesReader({
+        layers,
+        grid,
+        draftM,
+        safetyM,
+        uncheckedCells: ctx.surveyUncheckedCells,
+    });
+    const land = grid.landBlocked;
+    const cellBits = (idx: number): number => {
+        let bits = 0;
+        const v = grid.cells[idx];
+        if (ctx.blockedIdx?.has(idx)) bits |= bit(X_BLOCKED);
+        if (Number.isNaN(v)) bits |= bit(X_BLOCKED);
+        else if (v < 0) {
+            bits |= bit(X_CAUTION);
+            let other = 0;
+            if (grid.wingCaution?.[idx] === 1) other |= bit(X_WING);
+            if (land?.[idx] === 1 || grid.relaxMask?.[idx] === 1) other |= bit(X_RELAXED_LAND);
+            if ((grid.ntmRiseM?.[idx] ?? 0) > 0) other |= bit(X_NTM);
+            if (grid.wetConflict?.[idx] === 1) other |= bit(X_CONFLICT_CELL);
+            bits |= other || bit(sd && !Number.isNaN(sd[idx]) ? X_SHALLOW_BAND : X_CAUTION_OTHER);
+        } else if (ctx.strictUncharted && isUnvouchedCell(grid, idx)) {
+            bits |= bit(X_CAUTION) | bit(X_UNVOUCHED);
+        }
+        if (grid.preferred[idx] !== 1) bits |= bit(X_OFF_PREFERRED);
+        if (land && around(idx, 1, (j) => land[j] === 1)) bits |= bit(X_NEAR_LAND);
+        return bits;
+    };
+    /** No chart band at all (fixtures): the grid's own depth at a spot. */
+    const gridDepthAt = (lon: number, lat: number): number | null => {
+        const { x, y } = latLonToGrid(grid, lat, lon);
+        if (x < 0 || y < 0 || x >= w || y >= h) return null;
+        const idx = y * w + x;
+        const v = grid.cells[idx];
+        if (v > 0) return v;
+        if (v < 0 && sd && !Number.isNaN(sd[idx])) return sd[idx];
+        return null; // land, no evidence (UNKNOWN_OPEN) or a caution cell with no depth
+    };
+
+    return (a, b) => {
+        const metres = new Float64Array(X_COUNT);
+        let state = 0;
+        let leastM = Infinity;
+        const lengthM = haversineM(a[1], a[0], b[1], b[0]);
+        const n = Math.max(1, Math.ceil(lengthM / PULL_STEP_M));
+        const pieceM = lengthM / n;
+        const at = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+        const depthAt = (d: number | null, m: number): void => {
+            if (d === null) metres[X_CHART_UNCHARTED] += m;
+            else {
+                if (d < leastM) leastM = d;
+                if (d < floorM) metres[X_CHART_SHALLOW] += m;
+            }
+        };
+
+        // ── The grid's cells, every piece of the line ───────────────────
+        let centreMax = 1;
+        for (let k = 0; k < n; k++) {
+            let bits = 0;
+            forEachCellOnSegment(grid, at(k / n), at((k + 1) / n), (idx) => {
+                bits |= cellBits(idx);
+                const c = centre?.[idx] ?? 0;
+                if (c > centreMax) centreMax = c;
+            });
+            for (let e = 0; e < X_COUNT; e++) if (bits & bit(e)) metres[e] += pieceM;
+        }
+        // Hard land, by the land audit's own point rule, read only under land
+        // paint: the line is cut at the land areas' edges, and only a piece
+        // inside one is walked (a mainland coast's thousands of vertices per
+        // test, every 10 m beside it, cost a route a second).
+        metres[X_HARD_LAND] = hardLandM(a, b);
+
+        // ── The chart itself, cut at its bands' edges ───────────────────
+        const shallowPieces: ChartLinePiece[] = [];
+        if (chart.hasBands) {
+            for (const q of chart.piecesOf(a, b)) {
+                const d = q.ntm !== null ? q.ntm : q.finest;
+                depthAt(d, q.m);
+                if (d !== null && d < floorM) shallowPieces.push(q);
+                if (q.conflict) metres[X_CHART_CONFLICT] += q.m;
+            }
+        } else {
+            for (let k = 0; k < n; k++) depthAt(gridDepthAt(...at((k + 0.5) / n)), pieceM);
+        }
+
+        // ── Water no tide clears (decision 11): only ever charted-shallow ─
+        if (noTideAt) {
+            for (const q of shallowPieces) {
+                const parts = Math.max(1, Math.ceil(q.m / PULL_STEP_M));
+                for (let k = 0; k < parts; k++)
+                    if (noTideAt(...at(q.t0 + ((q.t1 - q.t0) * (k + 0.5)) / parts))) metres[X_NO_TIDE] += q.m / parts;
+            }
+        }
+
+        // ── A charted hazard's buffer, exactly (safetyAudit) ────────────
+        if (hazardsNear([a, b])[0]) {
+            state |= S_HAZARD;
+            const pts: [number, number][] = [];
+            for (let k = 0; k <= n; k++) pts.push(at(k / n));
+            metres[X_HAZARD] = Math.max(pieceM, hazardsNear(pts).filter(Boolean).length * pieceM);
+        }
+
+        // ── A shallow band's clearance (the GRID_ONLY rule), band by band ─
+        let nearBands: NearBand[] = [];
+        if (bandsIn && sd && shallowCellNear(a, b)) {
+            nearBands = nearShallowBand({
+                grid,
+                depthBands: bandsIn(grow(boxOf([a, b]), padLonDeg, padLatDeg)),
+                floorM,
+                cliffClearanceM: SHALLOW_CLIFF_CLEARANCE_M,
+                a,
+                b,
+                cellReachM,
+            }).within;
+            if (nearBands.length > 0) state |= S_NEAR_SHALLOW;
+        }
+
+        // ── Survey quality (decision 9) ─────────────────────────────────
+        let surveyErrM = 0;
+        for (const r of surveyOf ? surveyOf(a, b) : []) {
+            metres[SURVEY_X[r.reason] ?? X_SURVEY_UNCHECKED] += r.m;
+            if (r.errorM !== undefined && r.errorM > surveyErrM) surveyErrM = r.errorM;
+        }
+
+        for (const [e, s] of STATE_OF) if (metres[e] > 0) state |= s;
+        if (structures.length > 0 && polylineCrossesClearanceBar([a, b], structures)) state |= S_LOW_STRUCTURE;
+
+        return { state, metres, leastM, nearBands, surveyErrM, centreMax };
+    };
+}
+
+/**
+ * Is a new PATH (one chord, or a vertex moved onto a gate's centre) at least
+ * as safe as the run of segments it would replace? The rule in the module
+ * comment: no colouring state the run does not carry on every segment, no
+ * exposure longer than the run's (or one it never had), no shallower water,
+ * no closer pass to any shallow band than the run made to that band (where
+ * inside its clearance), no larger survey error, no nearer a bank. (The
+ * marks and the corridor are the callers': they read the run's geometry,
+ * not its exposures.)
+ */
+export function pathNoWorse(path: readonly LineExposure[], run: readonly LineExposure[], stepM = PULL_STEP_M): boolean {
+    if (run.length === 0 || path.length === 0) return false;
+    let allState = ~0;
+    let leastM = Infinity;
+    let surveyErrM = 0;
+    let centreMax = 1;
+    const sum = new Float64Array(X_COUNT);
+    /** Per band: the nearest the run came to it, inside its clearance. */
+    const bandM = new Map<object, number>();
+    for (const r of run) {
+        allState &= r.state;
+        if (r.leastM < leastM) leastM = r.leastM;
+        if (r.surveyErrM > surveyErrM) surveyErrM = r.surveyErrM;
+        if (r.centreMax > centreMax) centreMax = r.centreMax;
+        for (let e = 0; e < X_COUNT; e++) sum[e] += r.metres[e];
+        for (const q of r.nearBands) bandM.set(q.band, Math.min(bandM.get(q.band) ?? Infinity, q.clearanceM));
+    }
+    const pathSum = new Float64Array(X_COUNT);
+    for (const c of path) {
+        if ((c.state & ~allState) !== 0) return false;
+        if (c.leastM < leastM - 1e-6 || c.surveyErrM > surveyErrM + 1e-6 || c.centreMax > centreMax + 1e-6)
+            return false;
+        // A band the run never came inside the clearance of reads Infinity:
+        // the chord must keep that band's whole clearance.
+        for (const q of c.nearBands)
+            if (q.clearanceM < (bandM.get(q.band) ?? Infinity) - BAND_TOLERANCE_M) return false;
+        for (let e = 0; e < X_COUNT; e++) pathSum[e] += c.metres[e];
+    }
+    for (let e = 0; e < X_COUNT; e++) {
+        const m = pathSum[e];
+        if (m > 0 && (sum[e] <= 0 || m > sum[e] + stepM)) return false;
+    }
+    return true;
+}
+
+export interface PullOptions {
+    /** Per vertex: never removed (the ends always are). */
+    pinned?: readonly boolean[];
+    /** The furthest (m) a replaced vertex may lie off a chord that is not
+     *  clean (any state but an amber survey): a grid artefact, not another
+     *  way through water nothing proves. Default 0: such a chord only where
+     *  the run is straight. */
+    corridorM?: number;
+    /** Per segment: false copies it as it is (a follower's own geometry). */
+    pullable?: readonly boolean[];
+    /** Per segment: its kind; no chord spans a change of kind. */
+    runKey?: readonly string[];
+    /** What a straight line is exposed to (lineExposureReader). */
+    exposureOf: (a: LonLat, b: LonLat) => LineExposure;
+    /** Charted marks ([lon, lat]; chartMarkPoints): a chord passes every one
+     *  on the side the run it replaces does — none may lie between them. */
+    marks?: readonly LonLat[];
+}
+
+export interface PullResult {
+    polyline: [number, number][];
+    /** Per new segment: the first original segment it replaces. */
+    fromSeg: number[];
+    /** Per new vertex: its index in the original polyline. */
+    kept: number[];
+    /** Vertices removed. */
+    pulled: number;
+}
+
+/**
+ * Pull a polyline taut: from each kept vertex, the furthest vertex a chord
+ * may reach without passing a pinned vertex, a change of kind or an
+ * unpullable segment, and only where pathNoWorse says the chord is at least
+ * as safe as the segments it replaces. Returns the new polyline and, per new
+ * segment, the index of the first original segment it replaces (its
+ * per-segment facts — kind, masks — carry over: a chord never spans two
+ * kinds), each kept vertex's original index, and how many vertices went.
+ */
+export function pullTaut(polyline: readonly [number, number][], opts: PullOptions): PullResult {
+    const n = polyline.length;
+    if (n === 0) return { polyline: [], fromSeg: [], kept: [], pulled: 0 };
+    const segCount = n - 1;
+    const isPinned = (v: number): boolean =>
+        opts.pinned?.[v] === true || (opts.runKey !== undefined && opts.runKey[v - 1] !== opts.runKey[v]);
+    const isPullable = (s: number): boolean => opts.pullable?.[s] !== false;
+    const segExposure: LineExposure[] = [];
+    const segAt = (s: number): LineExposure => (segExposure[s] ??= opts.exposureOf(polyline[s], polyline[s + 1]));
+    const corridorM = opts.corridorM ?? 0;
+    const marksIn =
+        opts.marks && opts.marks.length > 0 ? bboxBuckets(opts.marks, (m) => [m[0], m[1], m[0], m[1]]) : null;
+    const ok = (i: number, j: number): boolean => {
+        const run = polyline.slice(i, j + 1);
+        const chord = [polyline[i], polyline[j]];
+        if (marksIn) {
+            const box = boxOf(run);
+            // A mark between the run and its chord: the chord would pass it
+            // on the other side (a lateral mark's wrong side, a gate missed).
+            if (marksIn(box).some((m) => pointInRing(m[0], m[1], run as [number, number][]))) return false;
+            // Every mark near either passed no closer than the run passed it
+            // (or than MARK_COMFORT_M, where the run was further): a chord up
+            // Newport's entrance passed port beacon 2 at 1 m, where the stair
+            // it replaced kept 24 m. A mark's keep-out is the grid's (navGrid's
+            // mark discs); this keeps a chord from shaving one the grid has no
+            // disc for.
+            const near = marksIn(grow(box, MARK_WATCH_M / mPerDegLon((box[1] + box[3]) / 2), MARK_WATCH_M / KY));
+            if (near.some((m) => passesCloser(m, chord, run))) return false;
+        }
+        const exposure = opts.exposureOf(polyline[i], polyline[j]);
+        // A chord that is not clean stays within a grid artefact's reach of
+        // the cells it replaces: its exposures may total no more than theirs,
+        // but where nothing proves the water, the same amount elsewhere is
+        // not the same water (a 3.2 km diagonal across Newport's charted-shallow
+        // entrance, off its marks, totalled less than the stair up the marks).
+        if ((exposure.state & ~S_SURVEY_AMBER) !== 0) {
+            const kx = mPerDegLon((polyline[i][1] + polyline[j][1]) / 2);
+            for (let v = i + 1; v < j; v++)
+                if (segM(polyline[v], polyline[i], polyline[j], kx) > corridorM) return false;
+        }
+        const replaced: LineExposure[] = [];
+        for (let s = i; s < j; s++) replaced.push(segAt(s));
+        return pathNoWorse([exposure], replaced);
+    };
+    const out: [number, number][] = [[polyline[0][0], polyline[0][1]]];
+    const fromSeg: number[] = [];
+    const kept: number[] = [0];
+    let i = 0;
+    while (i < segCount) {
+        let best = i + 1;
+        if (isPullable(i)) {
+            // The furthest vertex this run may reach.
+            let limit = i + 1;
+            while (limit < segCount && !isPinned(limit) && isPullable(limit)) limit++;
+            if (limit >= i + 2) {
+                // Gallop (2, 4, 8 … segments), then bisect to the furthest pass.
+                let lo = i + 1;
+                let hi = -1;
+                for (let span = 2; ; span *= 2) {
+                    const j = Math.min(limit, i + span);
+                    if (ok(i, j)) {
+                        lo = j;
+                        if (j === limit) break;
+                    } else {
+                        hi = j;
+                        break;
+                    }
+                }
+                if (hi !== -1)
+                    while (hi - lo > 1) {
+                        const mid = (lo + hi) >> 1;
+                        if (ok(i, mid)) lo = mid;
+                        else hi = mid;
+                    }
+                best = lo;
+            }
+        }
+        out.push([polyline[best][0], polyline[best][1]]);
+        fromSeg.push(i);
+        kept.push(best);
+        i = best;
+    }
+    return { polyline: out, fromSeg, kept, pulled: n - out.length };
+}
+
+/** Per vertex: on a charted lead (within LEAD_ANCHOR_M of one of `leads`). */
+export function leadVertexMask(
+    polyline: readonly LonLat[],
+    leads: readonly (readonly LonLat[])[],
+    toleranceM = LEAD_ANCHOR_M,
+): boolean[] {
+    const segs = leads.flatMap((line) => line.slice(1).map((q, k) => [line[k], q] as const));
+    return polyline.map((p) => {
+        const kx = mPerDegLon(p[1]);
+        const padLon = toleranceM / Math.max(1, kx);
+        const padLat = toleranceM / KY;
+        return segs.some(
+            ([a, b]) =>
+                p[0] >= Math.min(a[0], b[0]) - padLon &&
+                p[0] <= Math.max(a[0], b[0]) + padLon &&
+                p[1] >= Math.min(a[1], b[1]) - padLat &&
+                p[1] <= Math.max(a[1], b[1]) + padLat &&
+                segM(p, a, b, kx) <= toleranceM,
+        );
+    });
+}
+
+/** Each charted mark point of `keys` ([lon, lat] and its properties): router
+ *  furniture (a feature tagged `_class`, such as a pair's channel midpoint)
+ *  is not a mark. MultiPoints too where `multi`. */
+function eachMark(
+    layers: InshoreLayers,
+    keys: readonly string[],
+    multi: boolean,
+    fn: (p: [number, number], props: Record<string, unknown>) => void,
+): void {
+    const all = layers as unknown as Record<string, { features?: unknown[] } | undefined>;
+    for (const key of keys)
+        for (const f of (all[key]?.features ?? []) as {
+            geometry?: { type?: string; coordinates?: unknown } | null;
+            properties?: Record<string, unknown> | null;
+        }[]) {
+            const props = f.properties ?? {};
+            const g = f.geometry;
+            if (typeof props._class === 'string' || !g || !Array.isArray(g.coordinates)) continue;
+            const pts = g.type === 'Point' ? [g.coordinates] : multi && g.type === 'MultiPoint' ? g.coordinates : [];
+            for (const c of pts as number[][])
+                if (Number.isFinite(c[0]) && Number.isFinite(c[1])) fn([c[0], c[1]], props);
+        }
+}
+
+/**
+ * The charted marks a chord must pass on the same side as the route it
+ * replaces: every lateral, cardinal, isolated-danger and special mark point
+ * (BOYLAT, BCNLAT, BOYCAR, BCNCAR, BOYISD, BCNISD, BOYSPP, BCNSPP). Testing
+ * that no mark lies between the run and its chord is the gate rule without
+ * the gate pairing: a chord that skips a gate leaves a mark of it between,
+ * whichever way the marks were paired (the chart pairer pairs Newport's
+ * entrance 2/3, 4/5, 6/7 where the channel is 3/4, 5/6, 7/8).
+ */
+export function chartMarkPoints(layers: InshoreLayers): [number, number][] {
+    const out: [number, number][] = [];
+    eachMark(layers, ['BOYLAT', 'BCNLAT', 'BOYCAR', 'BCNCAR', 'BOYISD', 'BCNISD', 'BOYSPP', 'BCNSPP'], true, (p) =>
+        out.push(p),
+    );
+    return out;
+}
+
+/** A lateral gate: a port and a starboard mark each the other's nearest mark
+ *  of the other side, GATE_MIN_M to GATE_MAX_M apart. */
+export interface MarkGate {
+    port: [number, number];
+    stbd: [number, number];
+    centre: [number, number];
+    widthM: number;
+}
+
+const GATE_MIN_M = 15;
+const GATE_MAX_M = 300;
+/** A route crossing a gate further than this share of its width (or
+ *  GATE_OFF_CENTRE_MIN_M) from the centre is threaded through the centre
+ *  when that is at least as safe. */
+export const GATE_OFF_CENTRE_FRACTION = 0.1;
+export const GATE_OFF_CENTRE_MIN_M = 5;
+
+const localM = (a: LonLat, b: LonLat): number =>
+    Math.hypot((b[0] - a[0]) * mPerDegLon((a[1] + b[1]) / 2), (b[1] - a[1]) * KY);
+
+/**
+ * The lateral gates of the chart's own marks: every port (CATLAM 1) and
+ * starboard (CATLAM 2) BOYLAT / BCNLAT mark point that is the other's nearest
+ * mark of the other side (router furniture excluded). Paired by place, not
+ * by number, so a channel the chart numbers 3/4, 5/6, 7/8 pairs as it lies.
+ */
+export function lateralMarkGates(layers: InshoreLayers): MarkGate[] {
+    const port: [number, number][] = [];
+    const stbd: [number, number][] = [];
+    eachMark(layers, ['BOYLAT', 'BCNLAT'], false, (p, props) => {
+        const cat = Number(props.CATLAM);
+        const list = cat === 1 ? port : cat === 2 ? stbd : null;
+        if (list && !list.some((q) => q[0] === p[0] && q[1] === p[1])) list.push(p);
+    });
+    const nearest = (p: [number, number], from: [number, number][]): number => {
+        let best = -1;
+        let bestM = Infinity;
+        from.forEach((q, i) => {
+            const m = localM(p, q);
+            if (m < bestM) {
+                bestM = m;
+                best = i;
+            }
+        });
+        return best;
+    };
+    const gates: MarkGate[] = [];
+    port.forEach((p, i) => {
+        const j = nearest(p, stbd);
+        if (j < 0 || nearest(stbd[j], port) !== i) return;
+        const widthM = localM(p, stbd[j]);
+        if (widthM < GATE_MIN_M || widthM > GATE_MAX_M) return;
+        gates.push({
+            port: p,
+            stbd: stbd[j],
+            centre: [(p[0] + stbd[j][0]) / 2, (p[1] + stbd[j][1]) / 2],
+            widthM,
+        });
+    });
+    return gates;
+}
+
+/** Where segment a→b crosses segment p→q: [t along a→b, s along p→q], or null. */
+function crossing(a: LonLat, b: LonLat, p: LonLat, q: LonLat): [number, number] | null {
+    const rx = b[0] - a[0];
+    const ry = b[1] - a[1];
+    const sx = q[0] - p[0];
+    const sy = q[1] - p[1];
+    const den = rx * sy - ry * sx;
+    if (Math.abs(den) < 1e-18) return null;
+    const t = ((p[0] - a[0]) * sy - (p[1] - a[1]) * sx) / den;
+    const u = ((p[0] - a[0]) * ry - (p[1] - a[1]) * rx) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [t, u] : null;
+}
+
+export interface GateThreadOptions extends PullOptions {
+    gates: readonly MarkGate[];
+}
+
+/** How far a crossing of gate g's line lies from its centre (m), or null. */
+function gateCrossOffM(a: LonLat, b: LonLat, g: MarkGate): number | null {
+    const c = crossing(a, b, g.port, g.stbd);
+    return c ? Math.abs(c[1] - 0.5) * g.widthM : null;
+}
+const offCentre = (offM: number, g: MarkGate): boolean =>
+    offM > Math.max(GATE_OFF_CENTRE_MIN_M, GATE_OFF_CENTRE_FRACTION * g.widthM);
+
+/**
+ * Thread each lateral gate the route crosses close by one of its marks
+ * through the gate's centre (the Newport entrance, 2026-10-03: the tier-2
+ * grid search crossed the 5/6 gate 12 m from mark 5, where the gate is 54 m
+ * wide). The vertex nearest the crossing — when it lies within the corridor
+ * of the gate's line — moves onto the centre, or the centre is added to the
+ * crossing segment; and where the line from that centre on crosses the next
+ * gate off its centre too, that centre is added as well (up to three gates
+ * in one move: centring 5/6 alone brought the line closer to mark 4 of the
+ * next gate, 3/4). A move stands only where the new path is at least as safe
+ * as the old (pathNoWorse; no mark between them; within the corridor where
+ * the water is not clean), passes every other mark near it no closer than
+ * the old one did (or than MARK_COMFORT_M), and keeps further from each
+ * gate's nearer mark than the old one did. Pinned vertices and unpullable
+ * segments are never touched. Returns the new polyline, per new segment the
+ * original segment it lies on, per new vertex whether it sits on a gate
+ * centre (an anchor for any later pull), and how many gates it threaded.
+ */
+export function threadGateCentres(
+    polyline: readonly [number, number][],
+    opts: GateThreadOptions,
+): { polyline: [number, number][]; fromSeg: number[]; onCentre: boolean[]; threaded: number } {
+    let pts = polyline.map((p) => [p[0], p[1]] as [number, number]);
+    let fromSeg = Array.from({ length: Math.max(0, pts.length - 1) }, (_, i) => i);
+    let pinned = pts.map((_, v) => v === 0 || v === pts.length - 1 || opts.pinned?.[v] === true);
+    let onCentre = pts.map(() => false);
+    let threaded = 0;
+    if (pts.length < 2 || opts.gates.length === 0) return { polyline: pts, fromSeg, onCentre, threaded };
+    const marks = opts.marks ?? [];
+    const pullable = (seg: number): boolean => opts.pullable?.[fromSeg[seg]] !== false;
+    const kindOf = (seg: number): string | undefined => opts.runKey?.[fromSeg[seg]];
+    const corridorM = opts.corridorM ?? 0;
+    const isClean = (e: LineExposure): boolean => (e.state & ~S_SURVEY_AMBER) === 0;
+    const isMarkOf = (m: LonLat, gs: readonly MarkGate[]): boolean =>
+        gs.some((g) => (m[0] === g.port[0] && m[1] === g.port[1]) || (m[0] === g.stbd[0] && m[1] === g.stbd[1]));
+    const nearerMarkM = (path: readonly LonLat[], g: MarkGate): number =>
+        Math.min(pathPointM(path, g.port), pathPointM(path, g.stbd));
+    const exposuresOf = (path: readonly LonLat[]): LineExposure[] =>
+        path.slice(1).map((q, k) => opts.exposureOf(path[k], q));
+    /** Add the centres of the next gates the path's last leg crosses off centre. */
+    const chainOn = (path: [number, number][], used: MarkGate[]): void => {
+        for (let k = 0; k < 2; k++) {
+            const a = path[path.length - 2];
+            const b = path[path.length - 1];
+            let next: MarkGate | null = null;
+            let nextT = Infinity;
+            for (const g of opts.gates) {
+                if (used.includes(g)) continue;
+                const off = gateCrossOffM(a, b, g);
+                if (off === null || !offCentre(off, g)) continue;
+                const t = crossing(a, b, g.port, g.stbd)?.[0] ?? Infinity;
+                if (t < nextT) {
+                    nextT = t;
+                    next = g;
+                }
+            }
+            if (!next) return;
+            path.splice(path.length - 1, 0, next.centre);
+            used.push(next);
+        }
+    };
+    // A pass may fail to thread a gate its neighbour later makes possible.
+    for (let pass = 0; pass < 3; pass++) {
+        const before = threaded;
+        for (const g of opts.gates) {
+            // Its crossings (one through a vertex counted once).
+            const hits: number[] = [];
+            for (let i = 0; i + 1 < pts.length; i++) {
+                const c = crossing(pts[i], pts[i + 1], g.port, g.stbd);
+                if (!c) continue;
+                if (c[0] < 1e-9 && hits[hits.length - 1] === i - 1) continue;
+                hits.push(i);
+            }
+            if (hits.length !== 1) continue;
+            const seg = hits[0];
+            const off = gateCrossOffM(pts[seg], pts[seg + 1], g);
+            if (off === null || !offCentre(off, g) || !pullable(seg)) continue;
+            type Cand = { from: number; to: number; path: [number, number][]; used: MarkGate[] };
+            const cands: Cand[] = [];
+            for (const v of [seg, seg + 1]) {
+                if (pinned[v] || v === 0 || v === pts.length - 1) continue;
+                if (segM(pts[v], g.port, g.stbd) > corridorM) continue;
+                if (!pullable(v - 1) || !pullable(v) || kindOf(v - 1) !== kindOf(v)) continue;
+                cands.push({ from: v - 1, to: v + 1, path: [pts[v - 1], g.centre, pts[v + 1]], used: [g] });
+            }
+            cands.push({ from: seg, to: seg + 1, path: [pts[seg], g.centre, pts[seg + 1]], used: [g] });
+            for (const cand of cands) {
+                chainOn(cand.path, cand.used);
+                const old = pts.slice(cand.from, cand.to + 1);
+                const newExp = exposuresOf(cand.path);
+                if (!pathNoWorse(newExp, exposuresOf(old))) continue;
+                // Where the water is not clean, within a grid artefact's reach.
+                if (
+                    !newExp.every(isClean) &&
+                    (old.some((p) => pathPointM(cand.path, p) > corridorM) ||
+                        cand.path.some((p) => pathPointM(old, p) > corridorM))
+                )
+                    continue;
+                // No mark between the old path and the new.
+                const ring = [...old, ...[...cand.path].reverse()];
+                if (marks.some((m) => pointInRing(m[0], m[1], ring))) continue;
+                // Every other mark near either passed no closer than before.
+                if (marks.some((m) => !isMarkOf(m, cand.used) && passesCloser(m, cand.path, old))) continue;
+                // Each gate's nearer mark further off than before.
+                if (cand.used.some((u) => nearerMarkM(cand.path, u) <= nearerMarkM(old, u) + 1)) continue;
+                // Accept: the new interior vertices replace the old ones.
+                const inner = cand.path.slice(1, -1);
+                const seam = cand.to - cand.from; // old segments replaced
+                const newSegs: number[] = [];
+                for (let k = 0; k <= inner.length; k++) newSegs.push(fromSeg[cand.from + Math.min(k, seam - 1)]);
+                const splice = <T>(arr: T[], ins: T[]): T[] => [
+                    ...arr.slice(0, cand.from + 1),
+                    ...ins,
+                    ...arr.slice(cand.to),
+                ];
+                pts = splice(pts, inner);
+                fromSeg = [...fromSeg.slice(0, cand.from), ...newSegs, ...fromSeg.slice(cand.to)];
+                pinned = splice(
+                    pinned,
+                    inner.map(() => true),
+                );
+                onCentre = splice(
+                    onCentre,
+                    inner.map(() => true),
+                );
+                threaded += cand.used.length;
+                break;
+            }
+        }
+        if (threaded === before) break;
+    }
+    return { polyline: pts, fromSeg, onCentre, threaded };
+}

@@ -377,6 +377,14 @@ export interface RouteDebug {
      *  near-collinear points (within 2.5 m) inside runs of one state (round
      *  4, 2026-09-30; engine/geometry collapseStateRuns). */
     scaffoldCollapsed?: number;
+    /** Vertices the any-angle string pull removed from the four-tier route:
+     *  grid stair-steps a chord replaced where it is at least as safe as the
+     *  segments it replaces (field round 2 item a, 2026-10-03;
+     *  engine/stringPull). */
+    stringPulled?: number;
+    /** Lateral gates the route crossed close by a mark and now threads
+     *  through the centre (engine/stringPull threadGateCentres). */
+    gatesThreaded?: number;
     /** True when the marina-centerline pipeline refined a clean-water route
      *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
     marinaCenterline?: boolean;

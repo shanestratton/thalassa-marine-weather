@@ -84,6 +84,14 @@ import { splitMarkFeatures, type PointFeatureLike } from './markSplit';
 import { compileSeawayGraph } from './graphCompiler';
 import { gateDistM, type RegionalPair } from './gateExtractor';
 import type { GateNode, SeawayEdge, SeawayLatLon } from './types';
+import {
+    chartMarkPoints,
+    lineExposureReader,
+    pullTaut,
+    type PullContext,
+    type PullOptions,
+} from '../engine/stringPull';
+import { forEachCellOnSegment } from '../engine/geometry';
 
 export interface SeawayShadowRoute {
     /** [lon, lat] — RouteResult convention. */
@@ -134,6 +142,9 @@ export interface SeawayShadowRoute {
      *  along the segment — the promoted route's honest red shading (the engine's
      *  caution recompute never sees a promoted polyline). */
     cautionSegMask: boolean[];
+    /** Vertices the any-angle string pull removed from the connector legs
+     *  (engine/stringPull; field round 2, item a). */
+    pulledVertices?: number;
 }
 
 export type ShadowFailReason =
@@ -237,9 +248,16 @@ export function routeCachedGrid(layers: InshoreLayers, req: RouteRequest, direct
  * Per segment of `line`: true where the grid reads land, a blocked cell
  * or water below the keel margin along it (25 m samples, ends included) —
  * a shadow route's honest red. Cells off the grid are not judged.
- * Exported 2026-10-01 for the lead-graph shadow.
+ * Exported 2026-10-01 for the lead-graph shadow. A segment `exact` marks (a
+ * chord the string pull drew) is read at every cell it touches as well
+ * (stage-B review, 2026-10-03: a chord clipping a caution cell for less than
+ * one 25 m step drew green, where the pull had weighed it by that walk).
  */
-export function gridCautionSegMask(grid: NavGrid, line: readonly SeawayLatLon[]): boolean[] {
+export function gridCautionSegMask(
+    grid: NavGrid,
+    line: readonly SeawayLatLon[],
+    exact?: readonly boolean[],
+): boolean[] {
     const mask: boolean[] = [];
     for (let i = 0; i + 1 < line.length; i++) {
         const a = line[i];
@@ -254,6 +272,11 @@ export function gridCautionSegMask(grid: NavGrid, line: readonly SeawayLatLon[])
             const d = grid.cells[y * grid.width + x];
             red = Number.isNaN(d) || d < 0;
         }
+        if (!red && exact?.[i])
+            forEachCellOnSegment(grid, [a.lon, a.lat], [b.lon, b.lat], (idx) => {
+                const d = grid.cells[idx];
+                red ||= Number.isNaN(d) || d < 0;
+            });
         mask.push(red);
     }
     return mask;
@@ -468,6 +491,24 @@ export function shadowCompare(
 
     let blocked: Set<number> | undefined;
     let resolveRounds = 0;
+    /** Vertices the last round's string pull removed (telemetry). */
+    let pulledVertices = 0;
+    // The string pull's reader and the chart's marks, built once, on the
+    // first round that composes a route (stage-B review, 2026-10-03: they
+    // were rebuilt every re-solve round): a round only grows the blocked set,
+    // which the reader reads at each call.
+    const pullCtx: PullContext = {
+        layers,
+        grid,
+        draftM: req.draftM,
+        safetyM: req.safetyM ?? 1.0,
+        obstructionBufferM: req.obstructionBufferM ?? 30,
+        strictUncharted: req.unchartedPolicy === 'strict',
+        tideCeilings: req.tideCeilings,
+        surveyUncheckedCells: req.surveyUncheckedCells,
+    };
+    let exposureOf: PullOptions['exposureOf'] | undefined;
+    let pullMarks: PullOptions['marks'];
     let lastViolationCount = Infinity;
     for (;;) {
         const fromOrigin = connectToTargets(grid, originAnchor, oTargets, { blockedIdx: blocked });
@@ -575,34 +616,88 @@ export function shadowCompare(
         };
         const edgesUsed: string[] = [];
         let onGraphM = 0;
-        // PER-LEG detour (masterplan §3): each leg's actual length over the
-        // straight-line chord between its own endpoints. Math.max across all
-        // legs is the promotion arbiter — a near-straight open-water connector
-        // reads ~1.0 even when it is long, so the direct-bay route survives.
-        let maxLegDetour = 0;
-        const legDetour = (pts: SeawayLatLon[]): number => {
-            if (pts.length < 2) return 0;
-            const chord = gateDistM(pts[0], pts[pts.length - 1]);
-            const len = polylineLengthM(pts);
-            return chord > 1 ? len / chord : len > 1 ? Infinity : 0;
-        };
+        // The vertex each leg ends on: a node of the graph path (a gate, a
+        // portal, a junction) — never removed by the string pull below.
+        const legEnds: number[] = [];
+        /** Per segment: a chord the pull drew (read exactly for its red). */
+        let chordSeg: boolean[] = [];
         const entryPts = entries.get(entryNode.id)!.path.map(cellToLatLon);
-        maxLegDetour = Math.max(maxLegDetour, legDetour(entryPts));
         push(entryPts);
+        legEnds.push(line.length - 1);
         for (let i = 2; i < nodePath.length - 1; i++) {
             const link = prevLink[nodePath[i]];
             if (!link) continue;
-            maxLegDetour = Math.max(maxLegDetour, legDetour(link.polyline));
             push(link.polyline, Boolean(link.edgeId));
+            legEnds.push(line.length - 1);
             if (link.edgeId) {
                 edgesUsed.push(link.edgeId);
                 onGraphM += link.weightM;
             }
         }
         const exitPts = [...exits.get(exitNode.id)!.path.map(cellToLatLon)].reverse();
-        maxLegDetour = Math.max(maxLegDetour, legDetour(exitPts));
         push(exitPts);
+        legEnds.push(line.length - 1);
         mark('assemble');
+
+        // ── Any-angle string pull (field round 2, item a, 2026-10-03) ──
+        // A connector leg is the A* cell chain itself: every point a 50 m
+        // cell centre, every step east, south-east or south. On Shane's
+        // second field route it shipped as 498 points, and the display drew
+        // its stair as legs 4→5 east then 5→6 south-east where the straight
+        // line crosses 15–20 m water. Each connector and hop is pulled taut
+        // (engine/stringPull): a chord replaces cells only where it is at
+        // least as safe as they are, by the finished route's own checks —
+        // with no charted mark between it and the cells (so it passes every
+        // mark on the side they do), none passed closer, and no cell a
+        // re-solve blocked. Channel edges are the graph's own geometry and
+        // every leg end a node of its path: both are kept. The cross-line
+        // validation below reads the pulled line.
+        {
+            const tPull = Date.now();
+            pullCtx.blockedIdx = blocked;
+            exposureOf ??= lineExposureReader(pullCtx);
+            pullMarks ??= chartMarkPoints(layers);
+            const pinned = new Array<boolean>(line.length).fill(false);
+            for (const v of legEnds) pinned[v] = true;
+            while (segIsChannel.length < line.length - 1) segIsChannel.push(false);
+            const pulled = pullTaut(
+                line.map((p): [number, number] => [p.lon, p.lat]),
+                {
+                    pinned,
+                    pullable: segIsChannel.map((c) => !c),
+                    runKey: segIsChannel.map((c) => (c ? 'channel' : 'connector')),
+                    exposureOf,
+                    marks: pullMarks,
+                    corridorM: Math.SQRT2 * Math.max(grid.dLat * 110_540, 1),
+                },
+            );
+            if (pulled.pulled > 0) {
+                const newIndex = new Map<number, number>(pulled.kept.map((v, k) => [v, k]));
+                const channelWas = segIsChannel.slice();
+                line.splice(0, line.length, ...pulled.polyline.map(([lon, lat]) => ({ lat, lon })));
+                segIsChannel.splice(0, segIsChannel.length, ...pulled.fromSeg.map((i) => channelWas[i]));
+                for (let k = 0; k < legEnds.length; k++) legEnds[k] = newIndex.get(legEnds[k]) ?? legEnds[k];
+                chordSeg = pulled.fromSeg.map((_, k) => pulled.kept[k + 1] - pulled.kept[k] > 1);
+            }
+            pulledVertices = pulled.pulled;
+            timings.stringPull = (timings.stringPull ?? 0) + (Date.now() - tPull);
+            t = Date.now();
+        }
+
+        // PER-LEG detour (masterplan §3): each leg's actual length over the
+        // straight-line chord between its own endpoints. Math.max across all
+        // legs is the promotion arbiter — a near-straight open-water connector
+        // reads ~1.0 even when it is long, so the direct-bay route survives.
+        // Measured on the line as shipped (after the pull): a connector's
+        // grid stair is not a detour the boat sails.
+        let maxLegDetour = 0;
+        for (let k = 0; k < legEnds.length; k++) {
+            const pts = line.slice(k === 0 ? 0 : legEnds[k - 1], legEnds[k] + 1);
+            if (pts.length < 2) continue;
+            const chord = gateDistM(pts[0], pts[pts.length - 1]);
+            const len = polylineLengthM(pts);
+            maxLegDetour = Math.max(maxLegDetour, chord > 1 ? len / chord : len > 1 ? Infinity : 0);
+        }
 
         // ── MEASURED cross-line compliance (crossLine.ts) ─────────────
         // Span crossings are measured facts; wing/keep-out crossings are
@@ -655,7 +750,7 @@ export function shadowCompare(
         // Honest red for the promoted path: the engine's caution recompute never sees a
         // promoted polyline, so sample each segment against the grid here (25 m step,
         // endpoints inclusive) — land/uncharted/below-keel-margin cells flag the segment.
-        const cautionSegMask = gridCautionSegMask(grid, line);
+        const cautionSegMask = gridCautionSegMask(grid, line, chordSeg);
         // segIsChannel accrues one entry per appended vertex after the first —
         // exactly line.length-1 by construction; assert-by-pad against drift.
         while (segIsChannel.length < line.length - 1) segIsChannel.push(false);
@@ -678,6 +773,7 @@ export function shadowCompare(
                 exitNodeId: exitNode.id,
                 channelSegMask: segIsChannel.slice(0, Math.max(0, line.length - 1)),
                 cautionSegMask,
+                pulledVertices,
             },
             portalCount,
             ...base,

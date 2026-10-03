@@ -453,6 +453,148 @@ reported · review required", with Save blocked. On the Pi's cells at
       (`inshoreRouteToGeoJSON` keeps `pinTail`; `savedInshoreRouteCaveats`
       rebuilds it). Alone, the notice is titled "Shallow pin".
 
+### Field round 2, part 3 (stage B) — any-angle string pulling (2026-10-03)
+
+Round 2's item (a): on Shane's 18.3 NM route, legs 4→5 ran due east
+(~200 m) and 5→6 south-east (~140 m) where the straight 4→6 (~317 m) crosses
+15–20 m water — a 50 m, 8-connected grid artefact.
+
+- **Why nothing pulled it straight.** Measured on the Pi's cells (read-only
+  copies, deleted after): the route Auto shipped there was the promoted
+  Seaway Graph route, not the engine's (whose own route was one straight
+  17.33 NM line). A Seaway connector leg is the A\* cell chain itself: the
+  route was 498 points, each a cell centre 50 m east or 70.7 m south-east,
+  and no smoother ever saw it. On the engine's own path the smoothers are
+  cost-gated (`smoothPath`: a chord may cost no more than the cells it
+  replaces, so the centring term keeps a stagger) or collinear-only (the
+  scaffold collapse's 2.5 m, the grid Douglas-Peucker's quarter cell), so
+  the tier-2 grid search's 71 m sideways step at Newport's entrance marks
+  survived all three.
+- **The rule** (`services/engine/stringPull.ts`). A run of segments becomes
+  the straight chord between two of its vertices when the chord is at least
+  as safe as the run, by the finished route's own exact checks. Equal or
+  better is enough.
+    - Every state that colours a whole segment — a caution cell, a charted
+      hazard's buffer, charted-shallow or uncharted water, decision-1 water,
+      an amber survey, too near a shallow band, a low structure, a closed
+      cell, hard land, water no tide clears — the chord may carry only if
+      every segment it replaces carries it. No red, amber or dashed stretch
+      spreads onto water that was green.
+    - Every exposure is no longer on the chord than on the run, and none is
+      new: those states and their reasons (a wing, relaxed land, an NtM
+      survey cell, no-evidence water), water off the preferred fairway, and
+      cells beside land.
+    - Its shallowest charted depth is no shallower than the run's, at any
+      depth: a chord never trades the A\*'s deeper water for a shorter line
+      over shallower ground. Band by band, it keeps from every shallow band
+      at least that band's clearance (the GRID_ONLY rule, 30 m from a band
+      that dries, charts no depth or never clears the keel, 10 m from one
+      whose deep end does), or the closest the run came to that same band
+      where the run was nearer. It reads the bands two cell diagonals out,
+      where GRID_ONLY reads half of one: a 60 m drying reef whose only cell
+      centre lay 66 m off a chord passing 19 m from its edge went
+      unmeasured. Its survey error is no larger, and it comes no nearer a
+      channel's bank than the run did (the grid's centring field), so a
+      chord never cuts a bend toward the bank.
+    - No charted mark lies between the run and the chord: it passes every
+      mark on the side the run does, whichever way the marks pair. It passes
+      each mark no closer than the run did, or than 25 m where the run was
+      further. On the chart-only Newport capture a chord passed port beacon
+      2 at 1 m where the stair kept 24 m.
+    - Where it is not clean, it stays within a cell's diagonal of the
+      vertices it replaces. A 3.2 km chord across Newport's charted-shallow
+      entrance, off its marks, totalled less exposure than the stair up the
+      marks; the same amount elsewhere is not the same water.
+    - Kept: the route's ends, gate anchors, vertices on a charted lead
+      (NAVLNE CATNAV 3 or RECTRC), seams between kinds, the canal
+      centre-line and a marked channel's follower (the engine), and a graph
+      edge and every leg end (the Seaway route). The charted tails come
+      after, as before.
+- **Gates threaded at their centres** (`threadGateCentres`). A lateral gate
+  (a port and a starboard mark, each the other's nearest) that the route
+  crosses more than 10% of its width (or 5 m) off its centre is threaded
+  through the centre, by the same rule: the new path at least as safe, no
+  mark between, no other mark passed closer, each gate's nearer mark further
+  off. A line from one centre that crosses the next gate off centre takes
+  that centre too, since centring 5/6 alone brought the line closer to mark
+  4 of the next gate.
+- **Measured.**
+    - Shane's field route on the Pi's cells: 498 → 6 points, 18.22 → 18.00
+      NM, every segment green, 0 m of land. The stair at legs 4→5→6 is gone.
+    - Newport-shane (chart-only capture): kinks near the marks 4 → 2 (the
+      bound is restored). The entrance passes mark 5 at 27.1 m (was 12.2 m),
+      mark 4 at 23.7 m (was 6.0 m), and no entrance mark closer than 23 m.
+      The two kinks left are the channel's own: the turn north between
+      mark 7 and the unnumbered starboard sector-light beacon, and the bend
+      at the 5/6 centre.
+    - Corridor goldens, red never longer: Rivergate 23.23 → 23.22 NM;
+      Tangalooma 20.18 → 20.16 NM, caution 15 → 13; newport-shane red
+      11,517 → 11,487 m; the marks corridor 8,875 → 8,861 m; Moreton tier-2
+      17.92 → 17.88 NM. Pi cells: Shute out → jetty 40 → 20 points, Airlie →
+      Shute 30 → 22, red unchanged; the others identical.
+    - Stage A's synthetic corner case round a foul area (straight line 3.26
+      NM): 3.50 → 3.40 NM at a 30 m buffer, 3.46 → 3.35 NM at 60 m.
+    - Cost: about 0.2 s on an 18 NM route on the Mac. `hardLandAtPoint` now
+      answers from each ring's edge index and a bucket grid, with identical
+      answers: tested every 10 m beside a mainland coast, it had cost a
+      route a second.
+- `tests/engine/anyAngleStringPull.test.ts`. It fails first on ea300aa8:
+  the synthetic Seaway connector was 27 points with its corner 226 m off
+  its chord, and is now 2.
+- **Review fix-up (stage B, 2026-10-03).**
+    - _Shallow bands weighed one by one._ The review found the clearance
+      compared as one number, the worst shortfall over all bands. A chord
+      shares the run's first vertex, so it inherits that vertex's shortfall.
+      A stair 3 m off a 2–5 m flat (10 m asked, 7 m short on every segment)
+      licensed a chord 24 m from a reef drying 1 m (30 m asked), which the
+      stair kept 58 m off. Neither line touched a caution cell, so both drew
+      green. `nearShallowBand` now returns every band inside its clearance
+      (`within`). The chord must keep from each band at least that band's
+      clearance, or the closest the run came to the same band. A synthetic
+      test pins the case; it failed first (chord 25.6 m off the reef). The
+      corridor goldens and Shane's field route on the Pi's cells (18.00 NM,
+      6 points, every segment green) are unchanged.
+    - _Two maxima stay single numbers, on purpose._ The survey error margin
+      and the centring field are still compared as maxima over the line, so
+      a chord sharing a vertex inherits its value. The survey margin only
+      caps the number a leg note discloses. Whether a survey's error eats
+      the keel's margin is read piece by piece as survey-margin metres,
+      which a chord may not gain. The centring field is the grid's
+      mid-channel preference, not a clearance. A chord is kept off a bank by
+      the per-band clearance, by cells beside land (no longer than the
+      run's), by hard land, and by the one-diagonal corridor for any chord
+      that is not clean.
+    - _A drawn chord's red is read exactly._ A chord the pull or the gate
+      threading draws was coloured by the 25 m sampler alone, so one
+      clipping a caution cell for less than a step drew green. The engine
+      now adds the exact cell walk the pull weighed it by. The Seaway route
+      does the same for its pulled chords, by the sampler's own rule (a
+      closed cell or a caution cell). No golden's caution count moved:
+      measured with the exact read and without it, identical.
+    - _A Seaway connector is not a lead follower._ The engine keeps every
+      vertex within 3 m of a charted lead, because there the route rides the
+      lead. A Seaway connector's cell chain only crosses near a lead, cell
+      centre by cell centre. Pinning those cells would keep the stair, so
+      only its leg ends and graph edges are kept (DECIDED 2026-10-03). The
+      review's probe of five goldens: the pulls removed 865 vertices within
+      150 m of a lead, but no chord ran further from the lead than its run
+      at its furthest (85 → 52 m, 357 → 204 m, 77 → 13 m, 479 → 480 m). The
+      mean distance rose on three stretches (42 → 57 m, 20 → 38 m,
+      30 → 35 m). Off-preferred water is an exposure a chord may not
+      lengthen, which keeps it in the lead's preferred corridor.
+    - _The Seaway pull's reader is built once per comparison_, on the first
+      round that composes a route. It was rebuilt every re-solve round. A
+      round only grows the blocked set, which the reader reads at each call.
+      Each round still pulls its own cell chain. Pulling only a round that
+      can be returned would change which violations the re-solve blocks, so
+      it is left for a later pass.
+    - _Bundle._ Stage A and stage B together took the JS 3,222 B past the
+      10.2 MiB budget. Stage B was trimmed by 2.6 KB first: shared
+      local-plane helpers through `segmentDistanceM` (the same arithmetic),
+      one mark walker, and plain constants for the exposure tables. That
+      left it 643 B over (10,696,118 B), so the budget moved to 10.25 MiB,
+      with its reason dated in `scripts/check-bundle-size.js`.
+
 ### Left for Shane (server side, not done here)
 
 The edge function, its `_shared` modules and its secrets are still deployed and

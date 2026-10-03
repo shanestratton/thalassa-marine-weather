@@ -105,7 +105,16 @@ import {
     tupleDistM,
     tupleLineCrossesHardLand,
 } from './engine/tierPipeline';
-import { navLineLeads } from './leadingLine';
+import { navLineLeads, parseLeadingLines } from './leadingLine';
+import {
+    chartMarkPoints,
+    lateralMarkGates,
+    leadVertexMask,
+    lineExposureReader,
+    LINE_STATE,
+    pullTaut,
+    threadGateCentres,
+} from './engine/stringPull';
 import { chartAreaIndexFor, chartedDepthAt, navLinesOnWater } from './routing/leadLandClip';
 import { clearanceBarAt, clearanceRefusalMessage, polylineCrossesClearanceBar } from './routing/overheadClearance';
 import {
@@ -2120,6 +2129,109 @@ function routeInshoreOnceEnds(
                 debug.scaffoldCollapsed = dropped;
             }
             mark('scaffoldCollapse', tCollapse);
+        }
+        // ── Any-angle string pull (field round 2, item a, 2026-10-03) ─────
+        // The collapse above merges only what is collinear to 2.5 m, and the
+        // grid smoothers before the tiers are cost-gated (smoothPath) or
+        // collinear to a quarter cell (Douglas-Peucker), so a 50 m grid stair
+        // the tier-2 search draws between marks survives all three — at
+        // Newport's marks 3/4/5/7 it steps 71 m sideways and back (90°, 45°,
+        // 45°, 42°, passing 12 m from mark 5). A chord replaces a run of
+        // segments where it is at least as safe as they are, by the finished
+        // route's own checks (engine/stringPull: the grid's cells, the chart's
+        // depth and land, hazard buffers, a shallow band's clearance, survey,
+        // structures, water no tide clears, a bank's clearance; no charted
+        // mark between the stair and its chord, none passed closer). Gate
+        // anchors and vertices on a charted lead are kept, and a canal
+        // centre-line or marked-channel follower is left as it is. Before the
+        // charted tails, which no smoother may re-draw.
+        {
+            const tPull = Date.now();
+            const anchorKeys = new Set<string>();
+            threeTier.polyline.forEach((p, i) => {
+                if (threeTier.gateMask[i]) anchorKeys.add(`${p[0]},${p[1]}`);
+            });
+            const leads = [
+                ...parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]),
+                ...parseLeadingLines((layers.RECTRC?.features ?? []) as Parameters<typeof parseLeadingLines>[0]),
+            ].map((l) => l.pts.map((q): [number, number] => [q.lon, q.lat]));
+            const exposureOf = lineExposureReader({
+                layers,
+                grid,
+                draftM: req.draftM,
+                safetyM,
+                obstructionBufferM,
+                strictUncharted,
+                tideCeilings: req.tideCeilings,
+                surveyUncheckedCells: req.surveyUncheckedCells,
+            });
+            const marks = chartMarkPoints(layers);
+            const corridorM = Math.SQRT2 * resolutionM;
+            /** The pull's view of the route as it stands: anchors, kinds. */
+            const shape = () => {
+                const onLead = leadVertexMask(finalPolyline, leads);
+                return {
+                    pinned: finalPolyline.map((p, i) => onLead[i] || anchorKeys.has(`${p[0]},${p[1]}`)),
+                    pullable: finalCaution.map((_, i) => !finalCanalMask[i] && !finalChannelMask[i]),
+                    runKey: finalCaution.map(
+                        (_, i) =>
+                            `${finalCanalMask[i] ? 'K' : ''}${finalChannelMask[i] ? 'Y' : ''}${finalOffshoreMask[i] ? 'O' : ''}`,
+                    ),
+                };
+            };
+            /** Adopt a reshaped route: masks follow each new segment's
+             *  original, caution is read afresh on every segment that changed
+             *  — by the sampler, and by the exact cell walk the pull weighed it
+             *  with (stage-B review, 2026-10-03: a chord clipping a caution cell
+             *  for less than one 25 m step would otherwise draw green). */
+            const adopt = (polyline: [number, number][], from: number[]): void => {
+                const was = finalPolyline;
+                const wasCaution = finalCaution;
+                finalCaution = from.map((i, k) => {
+                    const [a, b] = [polyline[k], polyline[k + 1]];
+                    const same =
+                        a[0] === was[i][0] && a[1] === was[i][1] && b[0] === was[i + 1][0] && b[1] === was[i + 1][1];
+                    return same
+                        ? wasCaution[i]
+                        : segCrossesCaution(a[0], a[1], b[0], b[1]) ||
+                              (exposureOf(a, b).state & LINE_STATE.GRID_CAUTION) !== 0;
+                });
+                finalCanalMask = from.map((i) => finalCanalMask[i]);
+                finalChannelMask = from.map((i) => finalChannelMask[i]);
+                finalOffshoreMask = from.map((i) => finalOffshoreMask[i]);
+                finalPolyline = polyline;
+            };
+            let removed = 0;
+            const pull = (extraPins?: readonly boolean[]): void => {
+                const sh = shape();
+                const pulled = pullTaut(finalPolyline, {
+                    ...sh,
+                    pinned: sh.pinned.map((p, i) => p || extraPins?.[i] === true),
+                    exposureOf,
+                    marks,
+                    corridorM,
+                });
+                if (pulled.pulled === 0) return;
+                removed += pulled.pulled;
+                adopt(pulled.polyline, pulled.fromSeg);
+            };
+            pull();
+            // A lateral gate the route crosses close by a mark is threaded
+            // through its centre where that is at least as safe (Newport's
+            // entrance: 12 m off mark 5 in a 54 m gate), and the route is
+            // pulled again round the centres it now holds.
+            const gates = lateralMarkGates(layers);
+            if (gates.length > 0 && finalPolyline.length >= 2) {
+                const sh = shape();
+                const th = threadGateCentres(finalPolyline, { ...sh, exposureOf, marks, corridorM, gates });
+                if (th.threaded > 0) {
+                    adopt(th.polyline, th.fromSeg);
+                    debug.gatesThreaded = th.threaded;
+                    pull(th.onCentre);
+                }
+            }
+            if (removed > 0) debug.stringPulled = removed;
+            mark('stringPull', tPull);
         }
         debug.threeTier = threeTier.provenance;
         if (ENGINE_DEBUG)
