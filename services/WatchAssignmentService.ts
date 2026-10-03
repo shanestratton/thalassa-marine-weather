@@ -12,7 +12,12 @@
  *   3. The send-push edge function can notify crew when the skipper
  *      publishes / updates the schedule.
  *
- * RLS: voyage owner manages, accepted crew members can read.
+ * RLS: the voyage owner reads and writes the raw rows. Crew who may see the
+ * watch schedule read, raw, only their OWN assigned watches, and the whole
+ * bill BY NAME through get_crew_watch_bill (20261003140000): per watch,
+ * assigned, yours, and a name from the person's own name record — never an
+ * email or a user id. Until that migration is pushed the function is missing
+ * (PGRST202 / 42883) and the raw read stands, as before.
  */
 
 import { supabase } from './supabase';
@@ -24,6 +29,8 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from './authIdentityScope';
+import type { CrewNameParts } from './floatPlanCrew';
+import { isOwnWatch } from './watchAssignee';
 
 const log = createLogger('WatchAssign');
 
@@ -40,6 +47,10 @@ export interface WatchAssignment {
     assigned_by: string | null;
     created_at: string;
     updated_at: string;
+    /** Crew view only: the slot is assigned, though no email came with it. */
+    is_assigned?: boolean;
+    /** Crew view only: the slot is the signed-in account's own. */
+    is_self?: boolean;
 }
 
 /** Local fallback when Supabase is unavailable / unauthenticated. */
@@ -84,19 +95,154 @@ type RemoteIdentityResult = 'match' | 'unavailable' | 'mismatch' | 'stale';
  * identity fence. Verify both sides around remote work so a response obtained
  * with B's token can never be cached or returned to an A-scoped caller.
  */
-async function verifyRemoteIdentity(scope: AuthIdentityScope): Promise<RemoteIdentityResult> {
-    if (!supabase || !scope.userId) return 'unavailable';
+async function checkRemoteIdentity(
+    scope: AuthIdentityScope,
+): Promise<{ result: RemoteIdentityResult; email: string | null }> {
+    if (!supabase || !scope.userId) return { result: 'unavailable', email: null };
     try {
         const {
             data: { user },
             error,
         } = await supabase.auth.getUser();
-        if (!isAuthIdentityScopeCurrent(scope)) return 'stale';
-        if (error || !user) return 'unavailable';
-        return user.id === scope.userId ? 'match' : 'mismatch';
+        if (!isAuthIdentityScopeCurrent(scope)) return { result: 'stale', email: null };
+        if (error || !user) return { result: 'unavailable', email: null };
+        if (user.id !== scope.userId) return { result: 'mismatch', email: null };
+        return { result: 'match', email: typeof user.email === 'string' ? user.email : null };
     } catch {
-        return isAuthIdentityScopeCurrent(scope) ? 'unavailable' : 'stale';
+        return { result: isAuthIdentityScopeCurrent(scope) ? 'unavailable' : 'stale', email: null };
     }
+}
+
+async function verifyRemoteIdentity(scope: AuthIdentityScope): Promise<RemoteIdentityResult> {
+    return (await checkRemoteIdentity(scope)).result;
+}
+
+type Self = { userId: string | null; email: string | null };
+
+/**
+ * What crew's own-rows read returns (20261003140000): nothing, or only rows
+ * that are this account's own watches and that it did not assign. A row this
+ * account assigned, or one that is not its own, means the raw read is the
+ * whole bill: the skipper's, or crew's before that migration is pushed.
+ */
+function isOwnRowsRead(rows: WatchAssignment[], self: Self): boolean {
+    return rows.every((row) => row.assigned_by !== self.userId && isOwnWatch(row, self));
+}
+
+/**
+ * The crew read failed: the last bill read, with this account's own watches
+ * taken from the fresh raw read instead. That raw read is the truth about
+ * whose watch it is now, so a pre-watch alarm follows a watch the skipper
+ * moved, and a bad signal still never drops one.
+ */
+function withOwnWatches(cached: WatchAssignment[], own: WatchAssignment[], self: Self): WatchAssignment[] {
+    const byIndex = new Map<number, WatchAssignment>();
+    for (const row of cached) if (!isOwnWatch(row, self)) byIndex.set(row.watch_index, row);
+    for (const row of own) byIndex.set(row.watch_index, row);
+    return [...byIndex.values()].sort((a, b) => a.watch_index - b.watch_index);
+}
+
+type RenderName = (parts: CrewNameParts) => string;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function text(value: unknown, max: number): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed.slice(0, max) : null;
+}
+
+function isMissingFunction(error: unknown): boolean {
+    const code = isRecord(error) ? error.code : undefined;
+    return code === 'PGRST202' || code === '42883';
+}
+
+/**
+ * get_crew_watch_bill's payload → watch rows, the allow-list again client
+ * side. No email, user id or assigner is ever kept, whatever the server sent.
+ * Null when the payload is not the shape the function returns.
+ */
+function fromCrewWatchBill(value: unknown, voyageId: string, renderName: RenderName): WatchAssignment[] | null {
+    if (!isRecord(value) || !Array.isArray(value.watches)) return null;
+    const fetchedAt = new Date().toISOString();
+    const seen = new Set<number>();
+    return value.watches.flatMap((entry): WatchAssignment[] => {
+        if (!isRecord(entry)) return [];
+        const index = entry.watchIndex;
+        if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || seen.has(index)) return [];
+        const label = text(entry.watchLabel, 200);
+        const timeLabel = text(entry.watchTimeLabel, 200);
+        if (!label || !timeLabel) return [];
+        seen.add(index);
+        const assigned = entry.assigned === true;
+        const name = assigned
+            ? renderName({
+                  prefix: text(entry.prefix, 40),
+                  first_name: text(entry.firstName, 80),
+                  nickname: text(entry.nickname, 80),
+                  last_name: text(entry.lastName, 80),
+              }).trim()
+            : '';
+        return [
+            {
+                id: `crew-view_${voyageId}_${index}`,
+                voyage_id: voyageId,
+                watch_index: index,
+                watch_label: label,
+                watch_time_label: timeLabel,
+                assigned_crew_email: null,
+                assigned_crew_name: name || null,
+                assigned_crew_user_id: null,
+                assigned_at: null,
+                assigned_by: null,
+                created_at: fetchedAt,
+                updated_at: fetchedAt,
+                is_assigned: assigned,
+                is_self: assigned && entry.isSelf === true,
+            },
+        ];
+    });
+}
+
+/**
+ * The watch bill by name, for a passage this account crews on. [] when the
+ * server says there is nothing to show (NULL: not crew on it). 'missing' when
+ * the function is not pushed yet, so the raw read was the whole answer.
+ * 'failed' (an error, an odd payload, or a lost signal after the read) keeps
+ * the cached bill, so a bad signal never drops a crew member's pre-watch
+ * alarms; 'discarded' only after an account switch.
+ */
+async function readCrewWatchBill(
+    voyageId: string,
+    scope: AuthIdentityScope,
+): Promise<WatchAssignment[] | 'missing' | 'failed' | 'discarded'> {
+    if (!supabase) return 'failed';
+    const { data, error } = await supabase.rpc('get_crew_watch_bill', { p_voyage_id: voyageId });
+    if (!isAuthIdentityScopeCurrent(scope)) return 'discarded';
+    if (error) {
+        if (isMissingFunction(error)) return 'missing';
+        log.warn('crew watch bill could not be read; keeping the cached bill:', error.message);
+        return 'failed';
+    }
+    const identity = await verifyRemoteIdentity(scope);
+    if (identity === 'unavailable') {
+        log.warn('crew watch bill could not be confirmed for this account; keeping the cached bill');
+        return 'failed';
+    }
+    if (identity !== 'match') return 'discarded';
+    if (data === null || data === undefined) return [];
+    // The same byline grammar as the crewing view's manifest, loaded only on
+    // this path so the skipper's alarms never pull it in.
+    const { renderCrewDisplayName } = await import('./floatPlanCrew');
+    if (!isAuthIdentityScopeCurrent(scope)) return 'discarded';
+    const rows = fromCrewWatchBill(data, voyageId, (parts) => renderCrewDisplayName(parts));
+    if (!rows) {
+        log.warn('crew watch bill had an unexpected shape; keeping the cached bill');
+        return 'failed';
+    }
+    return rows;
 }
 
 export const WatchAssignmentService = {
@@ -122,10 +268,24 @@ export const WatchAssignmentService = {
 
                 if (!isAuthIdentityScopeCurrent(scope)) return [];
                 if (!error && data) {
-                    const after = await verifyRemoteIdentity(scope);
-                    if (after !== 'match') return [];
-                    writeToLocal(voyageId, data as WatchAssignment[], scope);
-                    return data as WatchAssignment[];
+                    const after = await checkRemoteIdentity(scope);
+                    // A lost signal is not an account switch: keep the cached bill.
+                    if (after.result === 'unavailable') return readFromLocal(voyageId, scope);
+                    if (after.result !== 'match') return [];
+                    let rows = data as WatchAssignment[];
+                    // Nothing, or only this account's own watches, is what crew
+                    // read raw once 20261003140000 is pushed: ask for the bill
+                    // by name. A row this account assigned, or someone else's,
+                    // means the raw read is the whole bill.
+                    const self: Self = { userId: scope.userId, email: after.email };
+                    if (isOwnRowsRead(rows, self)) {
+                        const crewView = await readCrewWatchBill(voyageId, scope);
+                        if (crewView === 'discarded') return [];
+                        if (crewView === 'failed') return withOwnWatches(readFromLocal(voyageId, scope), rows, self);
+                        if (crewView !== 'missing') rows = crewView;
+                    }
+                    writeToLocal(voyageId, rows, scope);
+                    return rows;
                 }
             } catch (e) {
                 log.warn('list failed, using localStorage:', e);
