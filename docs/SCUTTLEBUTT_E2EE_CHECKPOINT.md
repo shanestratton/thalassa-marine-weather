@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 3 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 4 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
 ## Shared-Mac workflow — owner's 1 October rules
 
@@ -69,6 +69,76 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 4 October native registration and peer claims
+
+Closed native registration now seals the exact first signed bundle before
+dispatch. A lost or malformed reply leaves that intent pending; retries replay
+the same bytes, even after expiry, rather than replacing keys or extending the
+bundle. A strict reply must identify this native user and device before a digest
+of the exact bundle is sealed as an acknowledgement. Exact acknowledged retries
+return locally without HTTP. This is a historical registration fact, not proof
+of current server permission, revocation status or readiness to send.
+
+The lower ASCII device can request a peer prekey only after registration
+acknowledgement and complete out-of-band identity confirmation. Native code
+retains one stable claim ID across uncertain retries while signing a new outer
+request nonce. Completion uses the original facade/account/credential/peer
+snapshot and compares every returned identity key, including the signing key,
+to the full sealed pin. The exact verified signed bundle is stored against the
+claim ID, original owner and peer generations, and confirmed fingerprint.
+No claim operation creates a ratchet/session. A changed generation reports
+historical state and refuses rebinding; the higher device refuses before HTTP.
+
+Expiry at completion uses the greater of native wall time and the native start
+time plus monotonic elapsed time. Reopening verifies saved signature/canonical
+bytes without rejecting the entire store when the old prekey expires. Cached
+`verified`/`expired` labels use the current device clock; they are not a trusted
+time policy across restart or later clock rollback. Missing optional fields in
+older version-5 research snapshots remain unknown, never promoted to success.
+Partial or inconsistent acknowledgements/confirmations fail closed.
+
+The scoped client exposes these native research operations only. They remain
+absent from the auth-only Capacitor plugin. Existing prepare/send/inbox research
+operations are not yet gated on enrollment/claim readiness or bilateral block
+policy. Do not label this a complete private-message port or expose a security
+badge from these facts. Physical-device, hosted native exchange and independent
+external review gates remain open.
+
+Observed evidence on frozen sources:
+
+- **188 scoped-enrollment assertions passed** with real provider, Directory,
+  facade, Keychain and sealed SQLite, using synthetic Auth/relay responses.
+  They cover lost/malformed/duplicate-field replies, exact registration replay,
+  stable claim IDs with fresh signed request nonces, signing-key-only
+  substitution, expired bundles, responder refusal, refresh/logout completion,
+  cached/historical facts and seven partial/mismatched-state reopen refusals.
+  An explicitly synthetic native start-time seam proves the monotonic floor
+  refuses a still-wall-valid bundle, with the same original token as a positive
+  control. This is not an actual system-clock rollback or live enrollment test.
+  Expired saved confirmations remain readable and cached without HTTP; exact
+  disposable payload/key restoration is not rollback-resistance evidence.
+- All nine simulator phases passed, including the prior research client's four
+  actual encrypted messages over ordinary HTTPS and local SQL. The 266 Auth,
+  247 directory/facade, 40 enrollment-intent, 65 messaging-authority, 103
+  pairing/history and 81 scoped-relay assertions passed again. The new scoped
+  registration/claim client used synthetic transport fixtures, **not** the
+  hosted relay or that local SQL exchange. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-UvTwg0/exchange-run.json`.
+  Its disposable simulator and temporary CA were removed.
+- All 26 exact simulator-tested Swift sources compiled/linked unsigned for
+  physical iOS, without installation or execution. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-rqYYSq/compile.json`.
+  Cached provider archives were hashed, not rebuilt or independently attested.
+  The test-only probe emitted two unused-cleanup-result warnings; both native
+  compile checks succeeded. No warning-free build is claimed for the harness.
+- The separate auth-only Capacitor app compiled/linked unsigned for physical
+  iOS with 15 current Swift sources and the unchanged existing research web
+  bundle. Twelve shared source hashes match the simulator-tested sources.
+  Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-auth-only-build-x62sG7/build-receipt.json`.
+  No signing/install/launch, live login, human enrollment, cloud deployment,
+  primary-app sync, screen/SDK rerun or independent external audit occurred.
 
 ### 3 October native relay send and receive
 
