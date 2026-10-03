@@ -1190,25 +1190,41 @@ function routeInshoreOnceEnds(
         //     corridor at the shortest gap forces the correct exit.
         const MAX_BRIDGE_CELLS = 10; // 500 m navigable
         const MAX_CAUTION_BRIDGE_CELLS = 60; // 3 km red corridor
-        // The CAUTION search is O(smallCells × window²). Only run the
-        // wide (±50) window for genuinely small islanded pockets (marina
-        // canal estates ≤ a few thousand cells); for big components fall
-        // back to the cheap ±10 window so we never pay 100M+ iterations.
-        const SMALL_FOR_CAUTION_BRIDGE = 3000;
+        // Only a genuinely small islanded pocket (a marina canal estate, ≤ a
+        // few thousand cells) is bridged, never two large water bodies
+        // (2026-10-04). Between two large bodies the bridge carved up to
+        // 500 m of land as clear navigable water: through the 300 m wall
+        // between decision 11's two basins, whose only link dries, it made a
+        // route where there must be none (tests/engine/noTideClears), and
+        // round a wall it drew a 16 km detour clear across 320 m of land
+        // (tests/engine/componentBridge). It only ever fired when neither
+        // body was numbered 0 (below): once in 65 measured fixture routes,
+        // which was refused anyway. A way through a thin wall between two
+        // large bodies is the localized relax retry's: straight, red, and
+        // reported as land. The search is O(pocketCells × window²).
+        const SMALL_POCKET_CELLS = 3000;
         // Generous snap radius just to identify which component each
         // endpoint belongs to (same 10 km used by the shared-component
         // snap below).
         const bridgeSnapCells = Math.ceil(10_000 / resolutionM);
         const oCell = snapToNavigable(grid, req.fromLat, req.fromLon, bridgeSnapCells);
         const dCell = snapToNavigable(grid, req.toLat, req.toLon, bridgeSnapCells);
-        const lo = oCell ? labels[oCell.y * grid.width + oCell.x] : 0;
-        const ld = dCell ? labels[dCell.y * grid.width + dCell.x] : 0;
-        if (lo > 0 && ld > 0 && lo !== ld) {
+        // -1: no water within reach. Components are numbered from 0, and 0 is
+        // often the open bay (the first water the scan from the grid's
+        // south-west corner meets: Moreton Bay on four of the five corridor
+        // fixtures). With 0 standing for "none", no pocket was bridged to it
+        // (2026-05-20 to 2026-10-04), and the Newport canal pocket was cut
+        // off at some alignments: refused for 1.2–1.4 km of charted land, or
+        // for water no tide clears (tests/noTideFixtureOffsets).
+        const lo = oCell ? labels[oCell.y * grid.width + oCell.x] : -1;
+        const ld = dCell ? labels[dCell.y * grid.width + dCell.x] : -1;
+        const pocketCells = Math.min(sizes.get(lo) ?? 0, sizes.get(ld) ?? 0);
+        if (lo >= 0 && ld >= 0 && lo !== ld && pocketCells <= SMALL_POCKET_CELLS) {
             // Bridge the smaller component to the larger one.
             const small = (sizes.get(lo) ?? 0) <= (sizes.get(ld) ?? 0) ? lo : ld;
             const large = small === lo ? ld : lo;
-            const smallSize = sizes.get(small) ?? 0;
-            const searchCap = smallSize <= SMALL_FOR_CAUTION_BRIDGE ? MAX_CAUTION_BRIDGE_CELLS : MAX_BRIDGE_CELLS;
+            const smallSize = pocketCells;
+            const searchCap = MAX_CAUTION_BRIDGE_CELLS;
             // Collect the small component's cells once, then probe each
             // for a large-component cell within searchCap.
             let bestGap = Infinity;
