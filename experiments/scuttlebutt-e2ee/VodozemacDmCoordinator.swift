@@ -122,6 +122,13 @@ final class VodozemacDmCoordinator {
         // Stable relay prekey reservation, independent of an expiring HTTP nonce.
         let claimId: String
     }
+    private struct ClaimConfirmation: Codable {
+        let owner: DmOwnerContext
+        let peer: DmPeerContext
+        let claimId: String
+        let peerFingerprint: String
+        let signedBundle: String
+    }
     private enum OutboxStatus: String, Codable { case pending, accepted, rejected }
     private struct OutboxItem: Codable {
         let messageId: String
@@ -165,7 +172,11 @@ final class VodozemacDmCoordinator {
         var peerFingerprint: String?
         var session: Session?
         var registrationIntent: RegistrationIntent?
+        // Optional v5 research additions. Missing fields are UNKNOWN, never
+        // promoted to acknowledged/verified or used to recreate old keys.
+        var registrationAcknowledgement: Data?
         var claimIntent: ClaimIntent?
+        var claimConfirmation: ClaimConfirmation?
         var outbox: [OutboxItem]
         var inbox: [DmReceivedMessage]
         var unresolved: [UnresolvedItem]
@@ -192,7 +203,8 @@ final class VodozemacDmCoordinator {
         let state = State(version: 5, owner: owner, ownerActive: true, credentialEpoch: UUID(), authProjectOrigin: nil, conversationId: conversationId,
             identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
             account: account.accountPickle, peer: nil, peerIdentity: nil, peerFingerprint: nil,
-            session: nil, registrationIntent: nil, claimIntent: nil,
+            session: nil, registrationIntent: nil, registrationAcknowledgement: nil,
+            claimIntent: nil, claimConfirmation: nil,
             outbox: [], inbox: [], unresolved: [])
         try validate(state)
         try store.commit(expectedRevision: before.revision, payload: JSONEncoder().encode(state))
@@ -245,6 +257,99 @@ final class VodozemacDmCoordinator {
                     return .pairingState(Self.pairingState(state))
                 }
             case .pairingState: return try withState { _, state in .pairingState(Self.pairingState(state)) }
+            case .relayEnrollmentState:
+                return try withState { _, state in .enrollmentState(try Self.enrollmentState(state)) }
+            case .relayRegistrationWire:
+                return try withState { _, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil else {
+                        throw DmCoordinatorError.unavailable
+                    }
+                    if state.registrationAcknowledgement != nil {
+                        return .enrollmentState(try Self.enrollmentState(state))
+                    }
+                    if let intent = state.registrationIntent {
+                        // Exact saved bytes, even after their expiry. Do NOT
+                        // sign again or invent a replacement device/prekey.
+                        return .registrationRequest(intent.signedBundle)
+                    }
+                    let now = try Self.nativeRelayTime()
+                    guard now <= DmRelayCodec.maxSafeInteger - 604_800 else { throw DmCoordinatorError.unavailable }
+                    let wire = try signedBundleForResearch(prekeyId: UUID().uuidString.lowercased(),
+                        expiresAt: now + 604_800, now: now, owner: owner, credentialEpoch: context.credentialEpoch)
+                    return .registrationRequest(wire)
+                }
+            case .relayRegistrationResponse(let wire, let response):
+                return try withState { revision, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil,
+                          let intent = state.registrationIntent,
+                          intent.signedBundle.utf8.elementsEqual(wire.utf8) else { throw DmCoordinatorError.unavailable }
+                    let identity = try publicIdentity(owner: owner)
+                    try DmRelayResultCodec.registration(response, expected: identity)
+                    let digest = Data(SHA256.hash(data: Data(wire.utf8)))
+                    if let saved = state.registrationAcknowledgement {
+                        guard saved == digest else { throw DmCoordinatorError.conflict }
+                    } else {
+                        state.registrationAcknowledgement = digest
+                        try persist(state, revision: revision)
+                    }
+                    return .enrollmentState(try Self.enrollmentState(state))
+                }
+            case .relayClaimWire:
+                return try withState { _, state in
+                    let generation = try Self.requireFullPair(context, state)
+                    let peer = try Self.requirePeer(owner, generation, state)
+                    guard state.registrationAcknowledgement != nil,
+                          Self.initiates(owner.deviceId, peer.deviceId),
+                          let fingerprint = state.peerFingerprint else { throw DmCoordinatorError.unavailable }
+                    if let saved = state.claimConfirmation {
+                        guard saved.owner == owner, saved.peer == peer, saved.peerFingerprint == fingerprint else {
+                            throw DmCoordinatorError.unavailable
+                        }
+                        return .enrollmentState(try Self.enrollmentState(state))
+                    }
+                    guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty,
+                          state.unresolved.isEmpty else { throw DmCoordinatorError.unavailable }
+                    let stableId: String
+                    if let intent = state.claimIntent {
+                        guard intent.owner == owner, intent.peer == peer else { throw DmCoordinatorError.unavailable }
+                        stableId = intent.claimId
+                    } else { stableId = UUID().uuidString.lowercased() }
+                    let startedAt = ContinuousClock.now
+                    let now = try Self.nativeRelayTime()
+                    let wire = try signedClaimForResearch(requestId: UUID().uuidString.lowercased(),
+                        expiresAt: now + 240, now: now, owner: owner, peerGeneration: generation,
+                        credentialEpoch: context.credentialEpoch, claimId: stableId)
+                    // Nested signing committed intent under the same authority;
+                    // this outer read MUST NOT persist its older state copy.
+                    return .claimRequest(DmNativeRelayClaimRequest(wire: wire, context: context,
+                        claimId: stableId, peerFingerprint: fingerprint, startedAtSeconds: now, startedAt: startedAt))
+                }
+            case .relayClaimResponse(let request, let response):
+                return try withState { revision, state in
+                    let generation = try Self.requireFullPair(context, state)
+                    let peer = try Self.requirePeer(owner, generation, state)
+                    guard request.context == context, state.registrationAcknowledgement != nil,
+                          Self.initiates(owner.deviceId, peer.deviceId), let pin = state.peerIdentity,
+                          let fingerprint = state.peerFingerprint, fingerprint == request.peerFingerprint,
+                          let intent = state.claimIntent, intent.owner == owner, intent.peer == peer,
+                          intent.claimId == request.claimId else { throw DmCoordinatorError.unavailable }
+                    let bundle = try DmRelayResultCodec.claim(response, pinned: pin,
+                        now: try Self.claimCompletionTime(request))
+                    let wire = try DmRelayCodec.bundleWire(pin, prekeyId: bundle.prekeyId,
+                        expiresAt: bundle.expiresAt, signature: bundle.signature)
+                    if let saved = state.claimConfirmation {
+                        guard saved.owner == owner, saved.peer == peer, saved.claimId == request.claimId,
+                              saved.peerFingerprint == fingerprint,
+                              saved.signedBundle.utf8.elementsEqual(wire.utf8) else { throw DmCoordinatorError.conflict }
+                    } else {
+                        guard state.session == nil, state.outbox.isEmpty, state.inbox.isEmpty,
+                              state.unresolved.isEmpty else { throw DmCoordinatorError.unavailable }
+                        state.claimConfirmation = ClaimConfirmation(owner: owner, peer: peer,
+                            claimId: request.claimId, peerFingerprint: fingerprint, signedBundle: wire)
+                        try persist(state, revision: revision)
+                    }
+                    return .enrollmentState(try Self.enrollmentState(state))
+                }
             case .thread:
                 return try withState { _, state in
                     let generation = try Self.requireFullPair(context, state)
@@ -350,6 +455,37 @@ final class VodozemacDmCoordinator {
         guard seconds.isFinite, seconds >= 1,
               seconds <= Double(DmRelayCodec.maxSafeInteger - 240) else { throw DmCoordinatorError.unavailable }
         return Int64(seconds)
+    }
+
+    private static func claimCompletionTime(_ request: DmNativeRelayClaimRequest) throws -> Int64 {
+        let elapsed = request.startedAt.duration(to: ContinuousClock.now).components
+        guard elapsed.seconds >= 0, elapsed.attoseconds >= 0,
+              request.startedAtSeconds > 0, request.startedAtSeconds <= DmRelayCodec.maxSafeInteger else {
+            throw DmCoordinatorError.unavailable
+        }
+        let ceiling = elapsed.seconds.addingReportingOverflow(elapsed.attoseconds == 0 ? 0 : 1)
+        guard !ceiling.overflow, ceiling.partialValue <= DmRelayCodec.maxSafeInteger - request.startedAtSeconds else {
+            throw DmCoordinatorError.unavailable
+        }
+        return max(try nativeRelayTime(), request.startedAtSeconds + ceiling.partialValue)
+    }
+
+    private static func enrollmentState(_ state: State) throws -> DmNativeRelayEnrollmentState {
+        let registration: DmNativeRegistrationState = state.registrationAcknowledgement != nil ? .acknowledged
+            : state.registrationIntent == nil ? .none : .pending
+        let claim: DmNativeClaimState
+        let expiry: Int64?
+        if let saved = state.claimConfirmation {
+            let savedExpiry = try DmRelayCodec.verifyStoredBundle(saved.signedBundle).expiresAt
+            expiry = savedExpiry
+            if saved.owner != state.owner || saved.peer != state.peer || saved.peerFingerprint != state.peerFingerprint {
+                claim = .historical
+            } else { claim = savedExpiry > (try nativeRelayTime()) ? .verified : .expired }
+        } else if let intent = state.claimIntent {
+            expiry = nil
+            claim = intent.owner == state.owner && intent.peer == state.peer ? .pending : .historical
+        } else { claim = .none; expiry = nil }
+        return DmNativeRelayEnrollmentState(registration: registration, claim: claim, claimedPrekeyExpiresAt: expiry)
     }
 
     private static func requireFullPair(_ context: DmRelayNetworkContext, _ state: State) throws -> Int64 {
@@ -1186,8 +1322,16 @@ final class VodozemacDmCoordinator {
         try validateKey(state.signingKey)
         try validateKey(state.prekey)
         if let intent = state.registrationIntent { _ = try registrationBundle(intent, state: state) }
+        if let acknowledgement = state.registrationAcknowledgement {
+            guard state.authProjectOrigin != nil, let intent = state.registrationIntent,
+                  acknowledgement.count == 32,
+                  acknowledgement == Data(SHA256.hash(data: Data(intent.signedBundle.utf8))) else {
+                throw DmCoordinatorError.unsupportedState
+            }
+        }
         guard let peer = state.peer else {
-            guard state.peerIdentity == nil, state.peerFingerprint == nil, state.session == nil, state.claimIntent == nil, state.outbox.isEmpty,
+            guard state.peerIdentity == nil, state.peerFingerprint == nil, state.session == nil, state.claimIntent == nil,
+                  state.claimConfirmation == nil, state.outbox.isEmpty,
                   state.inbox.isEmpty, state.unresolved.isEmpty else {
                 throw DmCoordinatorError.unsupportedState
             }
@@ -1212,6 +1356,18 @@ final class VodozemacDmCoordinator {
                   intent.peer.identityKeyId == peer.identityKeyId, intent.peer.curve == peer.curve,
                   intent.peer.prekey == peer.prekey, intent.peer.generation <= peer.generation,
                   intent.peer.status == .accepted else { throw DmCoordinatorError.unsupportedState }
+        }
+        if let confirmation = state.claimConfirmation {
+            guard state.registrationAcknowledgement != nil, let intent = state.claimIntent,
+                  confirmation.owner == intent.owner, confirmation.peer == intent.peer,
+                  confirmation.claimId == intent.claimId, confirmation.peerFingerprint == state.peerFingerprint,
+                  initiates(confirmation.owner.deviceId, confirmation.peer.deviceId),
+                  let pin = state.peerIdentity else { throw DmCoordinatorError.unsupportedState }
+            let bundle = try DmRelayCodec.verifyStoredBundle(confirmation.signedBundle)
+            let identity = DmPublicIdentity(userId: bundle.userId, deviceId: bundle.deviceId,
+                identityKeyId: bundle.identityKeyId, signingKey: bundle.signingKey,
+                curve: bundle.curveKey, prekey: bundle.prekey)
+            guard identity == pin else { throw DmCoordinatorError.unsupportedState }
         }
         if let session = state.session {
             try validateKey(session.id)

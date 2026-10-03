@@ -18,6 +18,11 @@ enum DmNativeMessageOperation {
     case relaySendReceipt(record: DmOutboxRecord, response: Data)
     case relayInboxWire
     case relayInboxResponse(Data)
+    case relayEnrollmentState
+    case relayRegistrationWire
+    case relayRegistrationResponse(wire: String, response: Data)
+    case relayClaimWire
+    case relayClaimResponse(request: DmNativeRelayClaimRequest, response: Data)
 }
 
 enum DmNativeMessageResult {
@@ -31,6 +36,35 @@ enum DmNativeMessageResult {
     case relayReceipt(DmRelayReceipt)
     case relayRequest(String)
     case inboxReport(DmRelayInboxReport)
+    case enrollmentState(DmNativeRelayEnrollmentState)
+    case registrationRequest(String)
+    case claimRequest(DmNativeRelayClaimRequest)
+}
+
+// Historical control-plane facts ONLY. An acknowledgement is not current
+// server permission, bilateral block status, delivery, or a can-send predicate.
+// verified/expired classification uses the current device clock on reads; this
+// is not a trusted-time guarantee across restart or subsequent clock changes.
+enum DmNativeRegistrationState { case none, pending, acknowledged }
+enum DmNativeClaimState { case none, pending, verified, expired, historical }
+struct DmNativeRelayEnrollmentState {
+    let registration: DmNativeRegistrationState
+    let claim: DmNativeClaimState
+    let claimedPrekeyExpiresAt: Int64?
+}
+
+/// Native-only completion intent. Not Codable or a JS/plugin argument. Its
+/// native monotonic start prevents clock rollback during HTTP from extending a
+/// peer prekey's validity. The original facade snapshot remains the authority.
+struct DmNativeRelayClaimRequest: CustomStringConvertible, CustomDebugStringConvertible {
+    let wire: String
+    let context: DmRelayNetworkContext
+    let claimId: String
+    let peerFingerprint: String
+    let startedAtSeconds: Int64
+    let startedAt: ContinuousClock.Instant
+    var description: String { "NativeRelayClaimRequest(<native-only>)" }
+    var debugDescription: String { description }
 }
 
 /// In-memory transport intent, not a plugin value or send permission. The
