@@ -3020,7 +3020,13 @@ export interface RegionalChannelData {
  * hardcode a colour here). The channel itself is the corridor BETWEEN
  * paired port+starboard markers — never around either individually.
  */
-type Marker = { lat: number; lon: number; kind: 'port' | 'starboard' | 'special' };
+type Marker = {
+    lat: number;
+    lon: number;
+    kind: 'port' | 'starboard' | 'special';
+    /** From the chart (ENC lateral fold), not the regional file. */
+    chart?: true;
+};
 type Midpoint = { lat: number; lon: number; pairDistM: number; chainId: number; chainOrder: number };
 
 /**
@@ -3515,7 +3521,7 @@ export async function fetchRegionalMarkers(
                 const mx = 111_320 * Math.cos((m.lat * Math.PI) / 180);
                 const dup = markers.some((e) => Math.hypot((e.lon - m.lon) * mx, (e.lat - m.lat) * 110_540) < DEDUPE_M);
                 if (dup) continue;
-                markers.push({ lat: m.lat, lon: m.lon, kind: m.kind });
+                markers.push({ lat: m.lat, lon: m.lon, kind: m.kind, chart: true });
                 folded++;
             }
             if (folded > 0)
@@ -3710,7 +3716,8 @@ export async function fetchRegionalMarkers(
         const midpointCoords: Midpoint[] = [];
         // Accepted pair endpoints — Step 4.5 emits outboard CAUTION wings
         // from these (masterplan Phase 3; geometry in services/pairWings.ts).
-        const acceptedPairs: Array<{ port: { lat: number; lon: number }; stbd: { lat: number; lon: number } }> = [];
+        type PairEnd = { lat: number; lon: number; chart?: true };
+        const acceptedPairs: Array<{ port: PairEnd; stbd: PairEnd }> = [];
         const soloMarkers: Marker[] = [];
 
         for (let chainId = 0; chainId < clusters.length; chainId++) {
@@ -3722,14 +3729,17 @@ export async function fetchRegionalMarkers(
                 continue;
             }
 
-            const clusterPorts: { lat: number; lon: number }[] = [];
-            const clusterStbds: { lat: number; lon: number }[] = [];
-            const clusterSpecials: { lat: number; lon: number }[] = [];
+            const clusterPorts: PairEnd[] = [];
+            const clusterStbds: PairEnd[] = [];
+            const clusterSpecials: PairEnd[] = [];
             for (const idx of cluster) {
                 const m = markers[idx];
-                if (m.kind === 'port') clusterPorts.push({ lat: m.lat, lon: m.lon });
-                else if (m.kind === 'starboard') clusterStbds.push({ lat: m.lat, lon: m.lon });
-                else clusterSpecials.push({ lat: m.lat, lon: m.lon });
+                // The chart flag rides along so Step 4 can tell a pair of one
+                // regional and one chart mark (finding B's lone gates).
+                const e: PairEnd = m.chart ? { lat: m.lat, lon: m.lon, chart: true } : { lat: m.lat, lon: m.lon };
+                if (m.kind === 'port') clusterPorts.push(e);
+                else if (m.kind === 'starboard') clusterStbds.push(e);
+                else clusterSpecials.push(e);
             }
             if ((clusterPorts.length === 0 || clusterStbds.length === 0) && clusterSpecials.length === 0) {
                 // Single-colour cluster with no specials — hazard indicators, not
@@ -4043,17 +4053,34 @@ export async function fetchRegionalMarkers(
         }
 
         // ── Step 4: Build midpoint Point features ───────────────
-        const midpoints: unknown[] = midpointCoords.map((m) => ({
-            type: 'Feature',
-            properties: {
-                _class: 'channel_midpoint',
-                _source: 'pair-inferred-chain-ordered',
-                _pairDistanceM: Math.round(m.pairDistM),
-                _chainId: m.chainId,
-                _chainOrder: m.chainOrder,
-            },
-            geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
-        }));
+        // _axisDeg (port→starboard bearing) and _mixedSource (one regional
+        // and one chart mark) let tier-2 thread a lone gate only where the leg
+        // crosses its line, and never a phantom gate two disagreeing copies
+        // of one buoy make (finding B fix-up, 2026-10-03).
+        const midpoints: unknown[] = midpointCoords.map((m, i) => {
+            const pr = acceptedPairs[i];
+            let pairProps = {};
+            if (pr) {
+                const east = (pr.stbd.lon - pr.port.lon) * Math.cos((pr.port.lat * Math.PI) / 180);
+                const axisDeg = (Math.atan2(east, pr.stbd.lat - pr.port.lat) * 180) / Math.PI;
+                pairProps = {
+                    _axisDeg: Math.round(((axisDeg + 360) % 360) * 10) / 10,
+                    _mixedSource: !pr.port.chart !== !pr.stbd.chart,
+                };
+            }
+            return {
+                type: 'Feature',
+                properties: {
+                    _class: 'channel_midpoint',
+                    _source: 'pair-inferred-chain-ordered',
+                    _pairDistanceM: Math.round(m.pairDistM),
+                    _chainId: m.chainId,
+                    _chainOrder: m.chainOrder,
+                    ...pairProps,
+                },
+                geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
+            };
+        });
 
         // ── Step 4.5: Outboard CAUTION wings per accepted pair ───
         // Masterplan §3 Phase 3: the water outboard of each mark is the

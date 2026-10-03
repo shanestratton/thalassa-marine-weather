@@ -2033,6 +2033,7 @@ function routeInshoreOnceEnds(
         relaxZones,
         req.tideCeilings ?? [],
         req.tideBarriers ?? [],
+        strictUncharted ? isUnvouchedIdx : undefined,
     );
     if (threeTier) {
         finalPolyline = threeTier.polyline;

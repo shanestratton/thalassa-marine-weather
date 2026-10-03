@@ -23,6 +23,7 @@ import { followChannelGates, deSpike, TIER3_DESPIKE_DEG, TIER3_FAIRLEAD_MIN_FRAC
 import { engineLog } from '../engine/constants';
 import { freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
+import { chartedDepthAt, piecesAlong, type IndexedDepthArea } from '../routing/leadLandClip';
 import type { LateralMark } from '../fairlead';
 
 interface LL {
@@ -54,6 +55,168 @@ export interface Tier4Context {
     /** When the engine has deliberately inserted a canal→channel egress, that
      *  egress track is the explicit route contract for this leg. */
     readonly preferChannelChains?: boolean;
+    /**
+     * Accepted port/starboard gates no chain carries (a one-gate cluster no
+     * chain end reaches, and no synthesised chain took): the pair's midpoint
+     * and half its width. On the real Brisbane cells (2026-10-03) the green
+     * at the Hamilton reach bend is the chart's alone; it pairs with the
+     * chart's red 210 m off, but that gate is 2.1 km from the regional
+     * file's nearest chain, so the chain the leg snapped never passed it.
+     * A chain-snapped leg threads every one it passes near (finding B).
+     */
+    readonly loneGates?: readonly LoneGate[];
+    /** The chart's depth bands and draft + safety, so the red finding B
+     *  weighs (tier2RedLoad) includes charted-shallow water the grid misses. */
+    readonly chart?: Tier2Chart;
+    /** Under the strict uncharted policy (production), the engine's
+     *  no-evidence rule for a grid cell (isUnvouchedCell): it draws that water
+     *  red, so tier2RedLoad weighs it as red too. Absent: permissive. */
+    readonly isUnvouched?: (idx: number) => boolean;
+}
+
+/** A lone accepted gate (Tier4Context.loneGates). */
+export interface LoneGate {
+    readonly lat: number;
+    readonly lon: number;
+    /** Half the port↔starboard distance (m). */
+    readonly halfWidthM: number;
+    /** Bearing (° true) from the port mark to the starboard mark, when known:
+     *  a leg threads the gate only if it crosses this line. */
+    readonly axisDeg?: number;
+}
+
+/** A lone gate further than its half-width plus this from a chain-snapped leg
+ *  is not on it (a gate in a parallel channel, or across the bay). */
+export const LONE_GATE_REACH_M = 150;
+/** A leg already inside the middle half of a lone gate threads it. */
+const LONE_GATE_MIDDLE_FRAC = 0.5;
+/** Never bend the leg harder than this to thread a lone gate. */
+const LONE_GATE_MAX_TURN_DEG = 90;
+/** A spliced stretch may add at most this much water no tide clears, red or
+ *  WING (sampling noise only: it must not add any). */
+export const TIER2_RED_TIE_M = 1;
+/** Sample step for a leg's red / WING load. */
+const RED_LOAD_STEP_M = 5;
+
+/**
+ * Red / WING metres within this are a tie between whole tier-2 legs (3c), so
+ * the chain keeps the leg: one grid cell's diagonal (a line on any heading
+ * crosses at most that much of one cell), at least 25 m. A single cell's
+ * defect on the chain's line must not swap the whole leg, and with it the
+ * gate-centring on every gate, for a RECTRC offset to the deep side.
+ */
+export function tier2TieM(grid: NavGrid): number {
+    const lat = grid.minLat + (grid.height * grid.dLat) / 2;
+    const ns = grid.dLat * 110_540;
+    const ew = grid.dLon * 111_320 * Math.cos((lat * Math.PI) / 180);
+    return Math.max(25, Math.hypot(ns, ew));
+}
+
+/** The charted depth bands and the depth (m, draft + safety) below which a
+ *  leg over them is charted-shallow red — the engine's own SHALLOW reason. */
+export interface Tier2Chart {
+    readonly bands: readonly IndexedDepthArea[];
+    readonly floorM: number;
+}
+
+/** What tier2RedLoad weighs besides the grid's own cells. */
+export interface Tier2Weights {
+    readonly chart?: Tier2Chart;
+    readonly isUnvouched?: (idx: number) => boolean;
+}
+
+/** A leg's load: metres over water no tide clears, red, and WING. */
+export interface Tier2Load {
+    /** Over water no tide clears (grid.noTideClears: blocked like land, and
+     *  the engine clips or refuses a route there). Part of redM too. A
+     *  hazard's keep-out is red, not this: the RECTRC is snapped with land
+     *  as its only veto, as a charted track is never vetoed by the hazard
+     *  it guides past. */
+    noTideM: number;
+    redM: number;
+    wingM: number;
+}
+
+/**
+ * Metres of a leg over water the engine draws red or will not pass — CAUTION
+ * or blocked grid cells, a charted depth below draft + safety (`chart`), which
+ * a 50 m cell can miss, or uncharted water under the strict policy
+ * (`isUnvouched`) — and of those, over water no tide clears (noTideM) and
+ * over a pair-wing's outboard cells (WING: the wrong side of a channel mark).
+ * Sampled every 5 m; the chart is cut exactly at its band edges.
+ */
+export function tier2RedLoad(grid: NavGrid, line: readonly LL[], w: Tier2Weights = {}): Tier2Load {
+    const chart = w.chart;
+    let noTideM = 0;
+    let redM = 0;
+    let wingM = 0;
+    for (let i = 0; i + 1 < line.length; i++) {
+        const a = line[i];
+        const b = line[i + 1];
+        const len = distM(a, b);
+        if (!(len > 0)) continue;
+        // Charted-shallow pieces of a→b, as [t0, t1) fractions of it.
+        const shallow: [number, number][] = [];
+        if (chart && chart.bands.length > 0) {
+            const near = chart.bands.filter(
+                (x) =>
+                    !(
+                        x.bbox[2] < Math.min(a.lon, b.lon) ||
+                        x.bbox[0] > Math.max(a.lon, b.lon) ||
+                        x.bbox[3] < Math.min(a.lat, b.lat) ||
+                        x.bbox[1] > Math.max(a.lat, b.lat)
+                    ),
+            );
+            const pieces =
+                near.length > 0
+                    ? piecesAlong(near, [
+                          [a.lon, a.lat],
+                          [b.lon, b.lat],
+                      ])
+                    : [];
+            const total = pieces.reduce((acc, q) => acc + q.m, 0);
+            let acc = 0;
+            for (const q of pieces) {
+                const t0 = acc / total;
+                acc += q.m;
+                const d = chartedDepthAt(near, q.lon, q.lat);
+                if (d !== null && d < chart.floorM) shallow.push([t0, acc / total]);
+            }
+        }
+        const n = Math.max(1, Math.ceil(len / RED_LOAD_STEP_M));
+        const step = len / n;
+        let si = 0;
+        for (let k = 0; k < n; k++) {
+            const t = (k + 0.5) / n;
+            while (si < shallow.length && shallow[si][1] <= t) si++;
+            let red = si < shallow.length && shallow[si][0] <= t;
+            const idx = cellIdx(grid, a.lon + (b.lon - a.lon) * t, a.lat + (b.lat - a.lat) * t);
+            const d = idx < 0 ? 0 : grid.cells[idx];
+            if (Number.isNaN(d) || d < 0 || (idx >= 0 && w.isUnvouched?.(idx))) red = true;
+            if (!red) continue;
+            redM += step;
+            if (idx >= 0 && grid.noTideClears?.[idx] === 1) noTideM += step;
+            if (idx >= 0 && grid.wingCaution?.[idx] === 1) wingM += step;
+        }
+    }
+    return { noTideM, redM, wingM };
+}
+
+/** `now` carries more water no tide clears, red or WING than `was` (a
+ *  splice that must not be kept). */
+const addsLoad = (now: Tier2Load, was: Tier2Load): boolean =>
+    now.noTideM > was.noTideM + TIER2_RED_TIE_M ||
+    now.redM > was.redM + TIER2_RED_TIE_M ||
+    now.wingM > was.wingM + TIER2_RED_TIE_M;
+
+/**
+ * Leg load `a` beats `b` (3c): less water no tide clears first — a leg never
+ * wins by crossing more of it than the other — then less red, then (red
+ * tied) less WING, red and WING tied within `tieM`.
+ */
+export function tier2LoadBeats(a: Tier2Load, b: Tier2Load, tieM: number): boolean {
+    if (Math.abs(a.noTideM - b.noTideM) > TIER2_RED_TIE_M) return a.noTideM < b.noTideM;
+    return a.redM < b.redM - tieM || (a.redM <= b.redM + tieM && a.wingM < b.wingM - tieM);
 }
 
 const cellIdx = (g: NavGrid, lon: number, lat: number): number => {
@@ -120,6 +283,75 @@ function turnDeg(a: LL, b: LL, c: LL): number {
 }
 
 /**
+ * a→mid→b crosses the gate line (through `mid`, along the port→starboard
+ * bearing `axisDeg`): a and b lie on opposite sides of it. Both on one side
+ * is a detour to the gate and back, not a passage through it.
+ */
+function crossesGateLine(a: LL, b: LL, mid: LL, axisDeg: number): boolean {
+    const mx = 111_320 * Math.cos((mid.lat * Math.PI) / 180);
+    const my = 110_540;
+    const ux = Math.sin((axisDeg * Math.PI) / 180);
+    const uy = Math.cos((axisDeg * Math.PI) / 180);
+    const side = (p: LL): number => ux * (p.lat - mid.lat) * my - uy * (p.lon - mid.lon) * mx;
+    return side(a) * side(b) < 0;
+}
+
+/** RECTRC pieces whose ends meet within this join into one line. */
+const TRACK_JOIN_M = 10;
+/** …where the track turns at most this much at the joint. */
+const TRACK_JOIN_TURN_DEG = 60;
+
+/**
+ * Charted tracks whose ends meet (within 10 m, turning at most 60° there),
+ * joined into one line each — the Brisbane River's RECTRC is a run of
+ * 2-point pieces, one per reach, so a snap onto one piece chords the next
+ * bend. The joined lines come first, then every piece as charted.
+ */
+export function joinedTracks(lines: readonly LeadingLine[]): LeadingLine[] {
+    const pool = lines.filter((l) => l.pts.length >= 2).map((l) => l.pts.map((p) => ({ lat: p.lat, lon: p.lon })));
+    const used = pool.map(() => false);
+    const extend = (line: LL[], atEnd: boolean): boolean => {
+        const tip = atEnd ? line[line.length - 1] : line[0];
+        const inner = atEnd ? line[line.length - 2] : line[1];
+        let best = -1;
+        let bestRev = false;
+        let bestTurn = TRACK_JOIN_TURN_DEG;
+        for (let k = 0; k < pool.length; k++) {
+            if (used[k]) continue;
+            for (const rev of [false, true]) {
+                const c = pool[k];
+                const first = rev ? c[c.length - 1] : c[0];
+                const next = rev ? c[c.length - 2] : c[1];
+                if (distM(tip, first) > TRACK_JOIN_M) continue;
+                const turn = turnDeg(inner, tip, next);
+                if (turn <= bestTurn) {
+                    best = k;
+                    bestRev = rev;
+                    bestTurn = turn;
+                }
+            }
+        }
+        if (best < 0) return false;
+        used[best] = true;
+        const c = bestRev ? pool[best].slice().reverse() : pool[best];
+        if (atEnd) line.push(...c.slice(1));
+        else line.unshift(...c.slice(1).reverse());
+        return true;
+    };
+    const joined: LeadingLine[] = [];
+    for (let k = 0; k < pool.length; k++) {
+        if (used[k]) continue;
+        used[k] = true;
+        const line = pool[k].slice();
+        let grew = false;
+        while (extend(line, true)) grew = true;
+        while (extend(line, false)) grew = true;
+        if (grew) joined.push({ pts: line });
+    }
+    return [...joined, ...lines];
+}
+
+/**
  * Build the tier-2 leg for one span, or refuse.
  *
  * @param span         the tier-2 span (entry/exit BoundaryNodes + the [from,to]
@@ -145,8 +377,18 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         const d = ctx.grid.cells[i];
         return Number.isNaN(d) || d < 0;
     };
+    /** The straight a→b touches land (sampled every 25 m, both ends included). */
+    const crossesLand = (a: LL, b: LL): boolean => {
+        const n = Math.max(1, Math.ceil(distM(a, b) / 25));
+        for (let k = 0; k <= n; k++) {
+            const t = k / n;
+            if (isLand({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t })) return true;
+        }
+        return false;
+    };
 
-    let poly: LL[] = fullPolyline.slice(lo, hi + 1).map(([lon, lat]) => ({ lat, lon }));
+    const spanPoly: LL[] = fullPolyline.slice(lo, hi + 1).map(([lon, lat]) => ({ lat, lon }));
+    let poly: LL[] = spanPoly.slice();
     const prov: string[] = [];
     const isEgressSpan = ctx.preferChannelChains && (ctx.egressMask?.slice(lo, hi + 1).some(Boolean) ?? false);
     const chainTracks = (): readonly LeadingLine[] =>
@@ -259,142 +501,317 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         return false;
     };
 
-    if (isEgressSpan) {
-        const explicitGates = forceExplicitChainGeometry(chainTracks(), false);
-        if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
-        else snapChannelChain();
-    }
+    /**
+     * Lone gates (ctx.loneGates) a chain-snapped leg passes near but not
+     * through its middle: splice each gate's midpoint into the leg where it
+     * comes closest — only where the leg then crosses the gate's
+     * port↔starboard line (not a detour to a side channel's entrance and
+     * back), off land, no turn sharper than 90° at the midpoint nor past the
+     * de-spike limit at its neighbours, and only where the spliced stretch
+     * carries no more water no tide clears, red or WING than the stretch it
+     * replaces. Merged into the chain's line, never replacing it.
+     */
+    const threadLoneGates = (): number => {
+        let threaded = 0;
+        for (const g of ctx.loneGates ?? []) {
+            if (poly.length < 2) break;
+            let at = -1;
+            let nearM = Infinity;
+            for (let i = 0; i + 1 < poly.length; i++) {
+                const d = pointToSegmentM(g, poly[i], poly[i + 1]);
+                if (d < nearM) {
+                    nearM = d;
+                    at = i;
+                }
+            }
+            if (at < 0 || nearM > g.halfWidthM + LONE_GATE_REACH_M) continue;
+            if (nearM <= g.halfWidthM * LONE_GATE_MIDDLE_FRAC) continue;
+            const a = poly[at];
+            const b = poly[at + 1];
+            const mid = { lat: g.lat, lon: g.lon };
+            if (distM(a, mid) < 1 || distM(mid, b) < 1) continue;
+            if (g.axisDeg !== undefined && !crossesGateLine(a, b, mid, g.axisDeg)) continue;
+            if (turnDeg(a, mid, b) > LONE_GATE_MAX_TURN_DEG) continue;
+            if (at > 0 && turnDeg(poly[at - 1], a, mid) > TIER3_DESPIKE_DEG) continue;
+            if (at + 2 < poly.length && turnDeg(mid, b, poly[at + 2]) > TIER3_DESPIKE_DEG) continue;
+            if (crossesLand(a, mid) || crossesLand(mid, b)) continue;
+            if (addsLoad(tier2RedLoad(ctx.grid, [a, mid, b], ctx), tier2RedLoad(ctx.grid, [a, b], ctx))) continue;
+            poly = [...poly.slice(0, at + 1), mid, ...poly.slice(at + 1)];
+            threaded++;
+        }
+        return threaded;
+    };
 
-    // 1. CHANNEL-MIDPOINT CHAIN — the vetted red/green pair midpoints outrank the charted
-    //    RECTRC (the contract: yellow passes through the MIDDLE of every pair; a recommended
-    //    track is often deliberately offset to the deep side, so track-first shipped the
-    //    offset line THROUGH a gated reach). A buoyed chain IS the channel: isBlocked is
-    //    OMITTED (no land veto) and there is no gate-pairing, so this one snap sidesteps
-    //    ALL THREE gate declines (near<2/side, gates0, body-land) that otherwise leave the
-    //    leg a stepped A* staircase. Generous corridor captures the de-spiked A* slice a
-    //    few 50 m cells off-centre; low minRun lets the short Newport exit snap.
-    //    snapToLeadingLines pins origin/dest + rejects a perpendicular brush-by
-    //    (maxAngleDeg), so it can't grab the PARALLEL channel ~1.1 km away. Needs ≥4
-    //    vertices; on no-snap, falls through to the RECTRC spine.
-    if (prov.length === 0) {
-        const explicitGates = forceExplicitChainGeometry(
-            [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])],
-            true,
-        );
-        if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
-        else snapChannelChain();
-    }
-
-    // 1b. RECTRC spine — where no vetted pair chain covers the leg, snap onto the
-    //    recommended track. The whole route is already RECTRC-snapped before
-    //    segmentation, so this is usually a no-op confirmation; it catches a span the
-    //    global pass didn't cover. Tight corridor; `protect` undefined because tier-2
-    //    IS the protected track.
-    if (prov.length === 0 && ctx.recommendedTracks.length > 0) {
-        const ll = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.recommendedTracks], {
+    /** The RECTRC snap (step 1b) and ride (step 3b), as one snapToLeadingLines pass each. */
+    const SNAP_1B = { corridorM: 150, minRunM: 80, maxAngleDeg: 30 } as const;
+    const RIDE_3B = { corridorM: 250, minRunM: 40, maxAngleDeg: 45 } as const;
+    const snapTrack = (
+        line: LL[],
+        o: { corridorM: number; minRunM: number; maxAngleDeg: number },
+        tracks: readonly LeadingLine[] = ctx.recommendedTracks,
+    ) =>
+        snapToLeadingLines(line, line.map(isCaution), [...tracks], {
             isBlocked: isLand,
             isCaution,
-            corridorM: 150,
-            minRunM: 80,
-            maxAngleDeg: 30,
+            ...o,
             // Follow the RECTRC's curve through river bends, don't chord across (wall-hug fix).
             followInteriorVertices: true,
         });
-        if (ll.snapped > 0) {
-            poly = ll.polyline;
-            prov.push(`rectrc×${ll.snapped}`);
-        }
-    }
 
-    // 1c. Fairlead — preserve the proven lateral-mark follower for charted
-    // buoyed channels. This catches wider synthetic/real gate spacing where the
-    // nearest-gate fallback declines, while still keeping the tier-2 boundary.
-    if (prov.length === 0 && ctx.marks.length >= 3) {
-        const fl = refineWithFairlead(poly, [...ctx.marks], isLand, {
-            fromIdx: 0,
-            minAlongFraction: TIER3_FAIRLEAD_MIN_FRAC,
-            traverseM: 500,
-        });
-        if (fl.replacedRange) {
-            poly = fl.polyline;
-            prov.push(`fairlead${fl.channelKey ? `(${fl.channelKey})` : ''}`);
+    type Shape = 'chain' | 'chain+rectrc' | 'rectrc';
+    let joined: LeadingLine[] | undefined;
+    /** The RECTRC lines a shape snaps: joined for the finding-B candidates,
+     *  as charted for the leg as it always was. */
+    const tracksFor = (shape: Shape): readonly LeadingLine[] =>
+        shape === 'chain' ? ctx.recommendedTracks : (joined ??= joinedTracks(ctx.recommendedTracks));
+    /**
+     * Steps 1b + 3b over the stretches of a chain-snapped leg the chain did
+     * not shape: each run of vertices still the span's own (the A* slice),
+     * between the chain's vertices or the leg's ends, which stay fixed. Each
+     * RECTRC's snap is kept only where the stretch then carries no more red
+     * and no more WING than before. Returns the RECTRC runs it kept (none
+     * where the chain moved no vertex).
+     */
+    const rideTrackOffChain = (): number => {
+        const own = new Set(spanPoly.map((p) => `${p.lon}|${p.lat}`));
+        const fixed = poly.map((p, i) => i === 0 || i === poly.length - 1 || !own.has(`${p.lon}|${p.lat}`));
+        // A chain that claimed the leg without moving it (its gates already on
+        // the A* slice) shaped nothing: that leg is the 'rectrc' candidate's.
+        if (!fixed.some((f, i) => f && i > 0 && i < poly.length - 1)) return 0;
+        const out: LL[] = [];
+        let kept = 0;
+        let i = 0;
+        while (i < poly.length - 1) {
+            // [i, j]: a fixed vertex, the free run after it, the next fixed vertex.
+            let j = i + 1;
+            while (j < poly.length - 1 && !fixed[j]) j++;
+            let part = poly.slice(i, j + 1);
+            let was: Tier2Load | null = null;
+            for (const o of [SNAP_1B, RIDE_3B]) {
+                for (const track of tracksFor('chain+rectrc')) {
+                    if (part.length < 4) break;
+                    const r = snapTrack(part, o, [track]);
+                    if (r.snapped === 0) continue;
+                    was ??= tier2RedLoad(ctx.grid, part, ctx);
+                    const now = tier2RedLoad(ctx.grid, r.polyline, ctx);
+                    if (addsLoad(now, was)) continue;
+                    part = r.polyline;
+                    was = now;
+                    kept += r.snapped;
+                }
+            }
+            out.push(...(out.length ? part.slice(1) : part));
+            i = j;
         }
-    }
+        if (kept > 0) poly = out;
+        return kept;
+    };
 
-    // 2. Gate-follower fallback — where no RECTRC covers the marks (the Newport
-    //    exit gate channel: buoys, no recommended track). Its INTERNAL land veto
-    //    (MARK_VOUCH_M=150 m) rejects a cross-paired midpoint that lands on a
-    //    mudflat → null. We REFUSE rather than fabricate a centreline.
-    // gateDecline carries WHY followChannelGates bailed (sub<2 / nearNpMs / gatesN / midsN /
-    // entry-land / body-land / exit-land), folded into provenance below — without it the
-    // device cannot say why a tier-2 leg renders the stepped A* slice instead of straight.
-    let gateDecline = ctx.marks.length < 3 ? `marks${ctx.marks.length}` : '';
+    let gateDecline = '';
     const gateMids: LL[] = []; // exact pair midpoints the follower threaded — pinned against de-spike
-    if (prov.length === 0 && ctx.marks.length >= 3) {
-        const followed = followChannelGates(
-            poly,
-            [...ctx.marks],
-            ctx.grid,
-            (r) => {
-                gateDecline = r;
-            },
-            (mids) => gateMids.push(...mids),
-        );
-        if (followed) {
-            poly = followed;
-            prov.push('gates');
-            gateDecline = '';
-        }
-        // else: keep the A* slice (de-spiked below) rather than REFUSE. A marked
-        // channel the gate-follower can't cleanly resolve (e.g. two parallel
-        // channels lumped, gate:body-land) stays tier-2 (YELLOW) on its A* geometry
-        // — it does NOT drop the whole route to the monolith. The A* slice is on
-        // navigable water, so the never-cross-land guarantee holds (honest A*, not
-        // a fabricated centreline).
-    }
+    let rodeTrack = false;
+    /**
+     * Steps 1–3b on a fresh copy of the span. 'chain' is the leg as the
+     * lateral chains shape it; 'chain+rectrc' also rides the RECTRC where the
+     * chain did not reach; 'rectrc' skips the chains (step 1). Finding B
+     * weighs the three (3c). False: the leg came out shorter than 2 vertices.
+     */
+    const shapeSpan = (shape: Shape): boolean => {
+        poly = spanPoly.slice();
+        prov.length = 0;
+        gateMids.length = 0;
+        rodeTrack = false;
+        gateDecline = ctx.marks.length < 3 ? `marks${ctx.marks.length}` : '';
+        const withChains = shape !== 'rectrc';
 
-    // 3. De-spike backstop — no >120° reversal survives the leg body. The
-    // exception is a deliberate canal-egress chain: Newport→Pinkenba must sail
-    // out through the outer gate before turning back toward the bay route, and
-    // the Gluer has an explicit allow-list for that seam. Vertices sitting ON a
-    // pair midpoint or chain vertex are pinned — a sharp dog-leg BETWEEN gates
-    // is deliberate pilotage, never a spike.
-    if (!(isEgressSpan && prov.some((p) => p.startsWith('chain×')))) {
-        const protectPts: LL[] = [...gateMids];
-        if (prov.some((p) => p.startsWith('chain×'))) {
-            for (const t of [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])]) {
-                for (const q of t.pts) protectPts.push({ lat: q.lat, lon: q.lon });
+        if (withChains && isEgressSpan) {
+            const explicitGates = forceExplicitChainGeometry(chainTracks(), false);
+            if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
+            else snapChannelChain();
+        }
+
+        // 1. CHANNEL-MIDPOINT CHAIN — the vetted red/green pair midpoints outrank the charted
+        //    RECTRC (the contract: yellow passes through the MIDDLE of every pair; a recommended
+        //    track is often deliberately offset to the deep side, so track-first shipped the
+        //    offset line THROUGH a gated reach). A buoyed chain IS the channel: isBlocked is
+        //    OMITTED (no land veto) and there is no gate-pairing, so this one snap sidesteps
+        //    ALL THREE gate declines (near<2/side, gates0, body-land) that otherwise leave the
+        //    leg a stepped A* staircase. Generous corridor captures the de-spiked A* slice a
+        //    few 50 m cells off-centre; low minRun lets the short Newport exit snap.
+        //    snapToLeadingLines pins origin/dest + rejects a perpendicular brush-by
+        //    (maxAngleDeg), so it can't grab the PARALLEL channel ~1.1 km away. Needs ≥4
+        //    vertices; on no-snap, falls through to the RECTRC spine.
+        if (withChains && prov.length === 0) {
+            const explicitGates = forceExplicitChainGeometry(
+                [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])],
+                true,
+            );
+            if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
+            else snapChannelChain();
+        }
+
+        // 1b. RECTRC spine — where no vetted pair chain covers the leg, snap onto the
+        //    recommended track. The whole route is already RECTRC-snapped before
+        //    segmentation, so this is usually a no-op confirmation; it catches a span the
+        //    global pass didn't cover. Tight corridor; `protect` undefined because tier-2
+        //    IS the protected track.
+        if (prov.length === 0 && ctx.recommendedTracks.length > 0) {
+            const ll = snapTrack(poly, SNAP_1B, tracksFor(shape));
+            if (ll.snapped > 0) {
+                poly = ll.polyline;
+                prov.push(`rectrc×${ll.snapped}`);
             }
         }
-        const protectMid =
-            protectPts.length > 0 ? (p: LL): boolean => protectPts.some((g) => distM(g, p) < 5) : undefined;
-        poly = deSpike(poly, TIER3_DESPIKE_DEG, protectMid);
-    }
-    if (poly.length < 2) return { refused: true, reason: 'disconnected-grid' };
 
-    // 3b. Ride the recommended track. A HUGGING tier-2 leg — a partial RECTRC snap (rectrc×k, the
-    //     rest still raw A*) or a gate-decline A* slice — rides the channel EDGE near the bank, not
-    //     its centre (Shane's Pinkenba: the route hugs the NW edge of a channel that itself
-    //     correctly runs near the NW wall). The RECTRC IS the channel CENTRELINE, so a firmer
-    //     re-snap NOW — after the de-spike, when the leg is smoother + more parallel; the step-1
-    //     snap only caught a few vertices off the raw A* staircase — rides the route down the
-    //     channel centre. Skips clean paired-mark structures (chain/fairlead/gates own their
-    //     centreline). isBlocked=isLand keeps it off land; corridor + maxAngle reject a
-    //     perpendicular brush-by so it can't grab a parallel channel.
-    const ridable = !prov.some((p) => p.startsWith('gates') || p.startsWith('chain') || p.startsWith('fairlead'));
-    if (ridable && ctx.recommendedTracks.length > 0) {
-        const ride = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.recommendedTracks], {
-            isBlocked: isLand,
-            isCaution,
-            corridorM: 250,
-            minRunM: 40,
-            maxAngleDeg: 45,
-            followInteriorVertices: true,
-        });
-        if (ride.snapped > 0) {
-            poly = ride.polyline;
-            engineLog.warn(`[channelRide] tier2 rode RECTRC +${ride.snapped} (was ${prov.join('+') || 'astar'})`);
+        // 1c. Fairlead — preserve the proven lateral-mark follower for charted
+        // buoyed channels. This catches wider synthetic/real gate spacing where the
+        // nearest-gate fallback declines, while still keeping the tier-2 boundary.
+        if (prov.length === 0 && ctx.marks.length >= 3) {
+            const fl = refineWithFairlead(poly, [...ctx.marks], isLand, {
+                fromIdx: 0,
+                minAlongFraction: TIER3_FAIRLEAD_MIN_FRAC,
+                traverseM: 500,
+            });
+            if (fl.replacedRange) {
+                poly = fl.polyline;
+                prov.push(`fairlead${fl.channelKey ? `(${fl.channelKey})` : ''}`);
+            }
         }
+
+        // 2. Gate-follower fallback — where no RECTRC covers the marks (the Newport
+        //    exit gate channel: buoys, no recommended track). Its INTERNAL land veto
+        //    (MARK_VOUCH_M=150 m) rejects a cross-paired midpoint that lands on a
+        //    mudflat → null. We REFUSE rather than fabricate a centreline.
+        // gateDecline carries WHY followChannelGates bailed (sub<2 / nearNpMs / gatesN / midsN /
+        // entry-land / body-land / exit-land), folded into provenance below — without it the
+        // device cannot say why a tier-2 leg renders the stepped A* slice instead of straight.
+        if (prov.length === 0 && ctx.marks.length >= 3) {
+            const followed = followChannelGates(
+                poly,
+                [...ctx.marks],
+                ctx.grid,
+                (r) => {
+                    gateDecline = r;
+                },
+                (mids) => gateMids.push(...mids),
+            );
+            if (followed) {
+                poly = followed;
+                prov.push('gates');
+                gateDecline = '';
+            }
+            // else: keep the A* slice (de-spiked below) rather than REFUSE. A marked
+            // channel the gate-follower can't cleanly resolve (e.g. two parallel
+            // channels lumped, gate:body-land) stays tier-2 (YELLOW) on its A* geometry
+            // — it does NOT drop the whole route to the monolith. The A* slice is on
+            // navigable water, so the never-cross-land guarantee holds (honest A*, not
+            // a fabricated centreline).
+        }
+
+        // 3. De-spike backstop — no >120° reversal survives the leg body. The
+        // exception is a deliberate canal-egress chain: Newport→Pinkenba must sail
+        // out through the outer gate before turning back toward the bay route, and
+        // the Gluer has an explicit allow-list for that seam. Vertices sitting ON a
+        // pair midpoint or chain vertex are pinned — a sharp dog-leg BETWEEN gates
+        // is deliberate pilotage, never a spike.
+        const chained = prov.some((p) => p.startsWith('chain×'));
+        if (!(isEgressSpan && chained)) {
+            const protectPts: LL[] = [...gateMids];
+            if (chained) {
+                for (const t of [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])]) {
+                    for (const q of t.pts) protectPts.push({ lat: q.lat, lon: q.lon });
+                }
+            }
+            const protectMid =
+                protectPts.length > 0 ? (p: LL): boolean => protectPts.some((g) => distM(g, p) < 5) : undefined;
+            poly = deSpike(poly, TIER3_DESPIKE_DEG, protectMid);
+        }
+        if (poly.length < 2) return false;
+
+        // 3a. A chain claims the whole leg — no RECTRC, fairlead or gate-follower
+        //     runs after it — so a chain that snapped 2 km away left the Hamilton
+        //     reach bend on the raw A* line (finding B, real-chart check
+        //     2026-10-03). 'chain+rectrc' rides the RECTRC where the chain did
+        //     not reach; then the gates no chain carries are threaded in (the
+        //     chart's own green and red at that bend: the regional file lacks
+        //     the green). Not on the canal egress: that chain is the contract.
+        if (chained && !isEgressSpan) {
+            if (shape === 'chain+rectrc' && ctx.recommendedTracks.length > 0) {
+                const rode = rideTrackOffChain();
+                if (rode > 0) prov.push(`rectrc×${rode}`);
+            }
+            const lone = threadLoneGates();
+            if (lone > 0) prov.push(`lonegate×${lone}`);
+        }
+
+        // 3b. Ride the recommended track. A HUGGING tier-2 leg — a partial RECTRC snap (rectrc×k, the
+        //     rest still raw A*) or a gate-decline A* slice — rides the channel EDGE near the bank, not
+        //     its centre (Shane's Pinkenba: the route hugs the NW edge of a channel that itself
+        //     correctly runs near the NW wall). The RECTRC IS the channel CENTRELINE, so a firmer
+        //     re-snap NOW — after the de-spike, when the leg is smoother + more parallel; the step-1
+        //     snap only caught a few vertices off the raw A* staircase — rides the route down the
+        //     channel centre. Skips clean paired-mark structures (chain/fairlead/gates own their
+        //     centreline). isBlocked=isLand keeps it off land; corridor + maxAngle reject a
+        //     perpendicular brush-by so it can't grab a parallel channel.
+        const ridable = !prov.some((p) => p.startsWith('gates') || p.startsWith('chain') || p.startsWith('fairlead'));
+        if (ridable && ctx.recommendedTracks.length > 0) {
+            const ride = snapTrack(poly, RIDE_3B, tracksFor(shape));
+            if (ride.snapped > 0) {
+                poly = ride.polyline;
+                rodeTrack = true;
+                engineLog.warn(`[channelRide] tier2 rode RECTRC +${ride.snapped} (was ${prov.join('+') || 'astar'})`);
+            }
+        }
+        return true;
+    };
+    if (!shapeSpan('chain')) return { refused: true, reason: 'disconnected-grid' };
+
+    // 3c. Chain vs RECTRC (finding B). Where a lateral chain shaped the leg and
+    //     a RECTRC is charted, the leg is also built riding the RECTRC where the
+    //     chain did not reach, and without the chains at all. The least water
+    //     no tide clears wins first (no leg wins by crossing more of it), then
+    //     the least red (CAUTION and blocked cells, charted below draft +
+    //     safety, strict-uncharted), then the least WING (the wrong side of a
+    //     channel mark). Red and WING within one grid cell are a tie, and a
+    //     tie keeps the chain's leg (the yellow through the middle of every
+    //     pair). Not on the canal egress.
+    if (!isEgressSpan && ctx.recommendedTracks.length > 0 && prov.some((p) => p.startsWith('chain×'))) {
+        type Built = {
+            poly: LL[];
+            prov: string[];
+            gateMids: LL[];
+            gateDecline: string;
+            load: Tier2Load;
+        };
+        const keep = (): Built => ({
+            poly,
+            prov: [...prov],
+            gateMids: [...gateMids],
+            gateDecline,
+            load: tier2RedLoad(ctx.grid, poly, ctx),
+        });
+        const tieM = tier2TieM(ctx.grid);
+        const beats = (a: Tier2Load, b: Tier2Load): boolean => tier2LoadBeats(a, b, tieM);
+        let best = keep();
+        const chainLoad = best.load;
+        if (shapeSpan('chain+rectrc') && prov.some((p) => p.startsWith('rectrc×'))) {
+            const merged = keep();
+            if (beats(merged.load, best.load)) best = merged;
+        }
+        if (shapeSpan('rectrc') && (rodeTrack || prov.some((p) => p.startsWith('rectrc×')))) {
+            const track = keep();
+            if (beats(track.load, best.load)) best = track;
+        }
+        poly = best.poly;
+        prov.length = 0;
+        prov.push(...best.prov);
+        gateMids.length = 0;
+        gateMids.push(...best.gateMids);
+        gateDecline = best.gateDecline;
+        if (best.load !== chainLoad)
+            engineLog.warn(
+                `[tier2] ${prov.join('+')} over the lateral chain alone: no-tide ${Math.round(best.load.noTideM)} m (chain ${Math.round(chainLoad.noTideM)} m), red ${Math.round(best.load.redM)} m (chain ${Math.round(chainLoad.redM)} m), WING ${Math.round(best.load.wingM)} m (chain ${Math.round(chainLoad.wingM)} m)`,
+            );
     }
 
     // 4. Back to contract tuples; pin endpoints to the exact boundary nodes so the
