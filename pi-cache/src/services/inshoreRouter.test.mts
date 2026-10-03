@@ -346,31 +346,26 @@ test('reports failure when origin is on land with no escape', () => {
     assert.equal(repeated.code, result.code);
 });
 
-// The Pi's old hand-merged copy classified this 'origin-on-land' (Pi-only fix
-// 01383633, 2026-08-06: read the origin's navigability before the endpoint
-// carve). The app engine never got that fix: its 60 m origin bubble makes the
-// origin look navigable, so it says 'destination-disconnected'. Since
-// 2026-10-04 the Pi runs the app engine unchanged, so this waits for the fix
-// in services/inshoreRouterEngine.ts.
-test(
-    'an origin with no water within reach is classified origin-on-land',
-    { todo: 'port 01383633 into the app engine (services/inshoreRouterEngine.ts)' },
-    () => {
-        const layers: InshoreLayers = {
-            LNDARE: makePolygons([
-                [
-                    [-81.1, 31.9],
-                    [-80.85, 31.9],
-                    [-80.85, 32.1],
-                    [-81.1, 32.1],
-                ],
-            ]),
-        };
-        const result = routeInshore(layers, { fromLat: 32.0, fromLon: -81.0, toLat: 32.0, toLon: -80.9, draftM: 2.5 });
-        assert(!isSuccess(result));
-        assert.equal(result.code, 'origin-on-land');
-    },
-);
+// Each pin's water is read before the origin's 60 m carve bubble, which would
+// otherwise make this origin look navigable ('destination-disconnected'). The
+// Pi's old hand-merged copy fixed it first (01383633, 2026-08-06); the app
+// engine got the fix on 2026-10-04 (e4db0314), and the Pi runs that engine
+// unchanged.
+test('an origin with no water within reach is classified origin-on-land', () => {
+    const layers: InshoreLayers = {
+        LNDARE: makePolygons([
+            [
+                [-81.1, 31.9],
+                [-80.85, 31.9],
+                [-80.85, 32.1],
+                [-81.1, 32.1],
+            ],
+        ]),
+    };
+    const result = routeInshore(layers, { fromLat: 32.0, fromLon: -81.0, toLat: 32.0, toLon: -80.9, draftM: 2.5 });
+    assert(!isSuccess(result));
+    assert.equal(result.code, 'origin-on-land');
+});
 
 // ── Test 7: snap to navigable — origin on land but water nearby ─────
 
