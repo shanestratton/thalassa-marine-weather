@@ -600,7 +600,7 @@ Round 2's item (a): on Shane's 18.3 NM route, legs 4→5 ran due east
 The saved test routes (the three Brisbane goldens and Shane's three
 Whitsunday field routes) were run through the app path on the Pi's own cells,
 copied read-only to scratch and deleted after. Four findings are fixed here;
-the fifth (B, the Hamilton reach's lateral chain) is not.
+the fifth (B, the Hamilton reach's lateral chain) follows, below.
 
 - **A — a segment inside a shallow band's clearance was drawn green.** The
   clearance rule (`nearShallowBand`: 30 m from a band that dries, charts no
@@ -743,6 +743,125 @@ the fifth (B, the Hamilton reach's lateral chain) is not.
   only (through areaEdgeNearest and every band over the spot, one
   Whitsunday grid's 12,000 asks took 0.36 s). Route times unchanged within
   noise (1.3–7.4 s).
+
+#### Finding B — the Hamilton reach's lateral chain (2026-10-03)
+
+With the SE-QLD marker file loaded (the normal online case) the Brisbane
+River's Hamilton reach bend left the 9.1 m dredged channel and crossed ~250 m
+of 2 m water 87 m NW of the chart's green beacon at -27.41840,153.14142
+(Rivergate leg 26 red SHALLOW|WING 424 m; newport-shane leg 30, 2,418 m).
+Without the file it stayed in the channel.
+
+- **Why.** The last tier-2 leg runs from the bay to the destination. With the
+  file, a two-gate regional chain at the river mouth (-27.400) snapped onto
+  it (`tier2:chain×1`), and a chain claims the WHOLE leg: no RECTRC snap,
+  fairlead, gate-follower or RECTRC ride runs after it. The bend, 2 km on,
+  kept the raw A\* slice. Without the file there are no pairs at all (the
+  fetch failing drops the chart's pairs too) and the RECTRC shaped the leg
+  (`tier2:rectrc×1`). The bend's green is the chart's alone; it pairs with
+  the chart's red 6F 210 m off into a one-gate cluster 2.1 km from the
+  nearest regional chain end, so no chain carried it.
+- **The fix (`routeTier4` 3a/3c).** Where a chain shaped a leg and a RECTRC
+  is charted, the leg is also built riding the RECTRC where the chain did not
+  reach (the chain's own vertices fixed; each RECTRC kept only where its
+  stretch carries no more water no tide clears, red or WING), and without the
+  chains at all. The RECTRC's 2-point pieces are joined where they meet
+  (≤ 10 m, ≤ 60°), so a ride follows the river round successive bends. The
+  candidates are weighed by `tier2RedLoad`, sampled every 5 m: the least
+  water no tide clears wins first, then the least red, then the least WING.
+  Red is grid CAUTION or blocked cells, charted depth below draft + safety
+  (cut at the band edges, which a 50 m cell misses) and, under the strict
+  uncharted policy production runs, uncharted water — what the engine draws
+  red, plus the keep-outs it will not pass. Red and WING within one grid
+  cell's diagonal (at least 25 m) are a tie, and a tie keeps the chain's
+  leg.
+- **Lone gates, merged.** An accepted pair no chain carries (no chain end
+  within 800 m, not in the synthesised chain) is a lone gate
+  (`channelChainsFromMidpoints`). A chain-snapped leg that passes one within
+  its half-width + 150 m, outside its middle half, threads its midpoint —
+  only where the leg then crosses the line between its two marks, no turn
+  over 90° at the midpoint and none past the de-spike limit (120°) at its
+  neighbours, off land, and only where that carries no more water no tide
+  clears, red or WING. Merged into the chain's line, never replacing it. A
+  pair of one regional and one chart mark is never a lone gate.
+- DECIDED: red first, then WING — WING cells are CAUTION, so a leg with
+  less WING but more red has more water out of the channel overall.
+- DECIDED: not on the canal egress span — that chain is the engine's
+  explicit contract (the Gluer's double-back allowance rides on it).
+- DECIDED: the 'chain+rectrc' leg wins only when it beats the chain alone;
+  a tie keeps the chain's leg exactly (no golden moved on a tie).
+- DECIDED: a chain that "claims" a leg without moving a vertex (its gates
+  already on the A\* slice) shaped nothing, so only the RECTRC-only leg is
+  weighed against it.
+- **Review fix-up (2026-10-03).**
+    - DECIDED: water no tide clears (`grid.noTideClears`) is weighed before
+      red, so no leg wins by crossing more of it: the engine clips or refuses
+      a route there, where a chain over 2 m water passes at high tide. A
+      hazard's keep-out (an obstruction's buffer, a mark's avoidance disc)
+      stays red, not first: the RECTRC is snapped with land as its only veto,
+      as a charted track is never vetoed by the hazard it guides past. Tried
+      the other way on the real cells, weighing every non-land blocked cell
+      first put the bend back over 2 m water (Rivergate 463 m SHALLOW|WING):
+      on the reach below the bend (-27.4105,153.1484) the RECTRC crosses a
+      mark's avoidance disc and an obstruction's buffer, 110 m of blocked
+      cells, so its ride was refused.
+    - DECIDED: uncharted water counts as red under the strict policy (the
+      engine's `isUnvouchedIdx`, passed through `applyThreeTier`). Before,
+      a RECTRC leg over any amount of it beat a chain with 5 m of CAUTION.
+    - DECIDED: the 3c tie is one grid cell's diagonal (a line on any heading
+      crosses at most that much of one cell), at least 25 m, so one cell's
+      defect on the chain's line can't swap the whole leg, and the
+      gate-centring on every gate, for a RECTRC offset to the deep side. The
+      splice checks (a RECTRC stretch, a lone gate) keep 1 m: they must add
+      nothing.
+    - DECIDED: a lone gate is threaded only where the leg crosses its
+      port↔starboard line (a and b on opposite sides of it, from the
+      midpoint's new `_axisDeg`): reaching a side channel's entrance gate and
+      back is not passing through it. A threshold on the leg's heading
+      (|cos| ≤ 0.5, 60° or more) would have dropped the Hamilton bend's own
+      gate: the line between its marks meets the reach above it at 49°.
+    - DECIDED: a pair of one regional and one chart mark (`_mixedSource`) is
+      never a lone gate: where the two disagree on a buoy's colour, its two
+      copies 25–600 m apart pair into a phantom gate on one physical buoy. No
+      such phantom exists in the SE-QLD file plus the Brisbane cells; the
+      Hamilton bend's gate is both chart marks.
+- **Measured on the Pi's cells** (copied read-only, sha256-checked, deleted
+  after; SE-QLD marker file loaded; before = 61e36ccb):
+    - Rivergate 23.98 → 24.02 NM, 18 → 16 caution segments, red 7,272 →
+      6,848 m: the bend's 424 m SHALLOW|WING is gone. The leg leaves the
+      green to starboard (80 m) and the red 6F to port (78 m) — through the
+      gate — where it left the green to port 87 m off. The leg is
+      `tier2:chain×1+rectrc×3`: the chain at the river mouth, the RECTRC from
+      there (red 511 → 184 m by `tier2RedLoad`; the RECTRC alone 990 m, as it
+      chords past the east cardinal's disc at the mouth).
+    - newport-shane 24.59 → 24.69 NM, 20 → 18 caution segments, red 9,080 →
+      6,662 m: the 2,418 m SHALLOW from the bend is gone, and the red beacon
+      at -27.43169,153.11990 is passed 74 m off, not 5 m.
+    - At a 2.5 m tide the same (amber 3,756 → 3,295 m on Rivergate, 5,759 →
+      3,341 m on newport-shane). Unchanged: Tangalooma (with the marker
+      file), Rivergate and newport-shane without it (no pairs at all, so no
+      chain), and the three Whitsunday routes (their legs are never
+      chain-snapped). Route times unchanged within noise.
+    - After the review fix-up, re-run on the same cells: Rivergate and
+      newport-shane (tide unknown and 2.5 m) and Tangalooma, routes,
+      colours and Auto's review byte-identical to the measurements above.
+    - The corridor goldens are unchanged, but that tests nothing here: their
+      fixtures carry no `channel_midpoint` features, so tier-2 has no chain
+      and no lone gate there. Finding B is tested by the synthetic file
+      below; the only committed suite that feeds regional chains through
+      `routeInshore` is `tests/repro/newportPinkenba.repro.test.ts`
+      (variants D and G).
+- **Not fixed here:** when the marker file's fetch fails (offline),
+  `fetchRegionalMarkers` throws before the chart's own laterals are paired,
+  so an offline route has no chart gates either — the harness's "no marker
+  file" run had no channel chains at all. The chart's pairs should survive
+  a failed fetch (pair with `url = null`).
+- `tests/tier4/tier2ChainVsRectrc.test.ts` reproduces the bend on synthetic
+  geometry (a RECTRC through a dredged bend, a chain that stops short of it)
+  and fails on 61e36ccb; its fix-up cases (water no tide clears, a
+  keep-out on the RECTRC, uncharted water, one cell on the chain's line, a
+  lone gate in a sharp corner or beside the leg, the phantom gate) fail on
+  the change before the fix-up, except the keep-out guard.
 
 ### Left for Shane (server side, not done here)
 

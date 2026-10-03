@@ -21,12 +21,13 @@ import {
 import { segmentRoute, type TierSpan } from '../routing/segmentRoute';
 import { routeTier3, type Tier3Context } from '../tier3/tier3Router';
 import { spanNearBerths } from '../tier3/fineCanalGrid';
-import { routeTier4, type Tier4Context } from '../tier4/tier4Router';
+import { routeTier4, type LoneGate, type Tier4Context } from '../tier4/tier4Router';
 import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from '../tier3/canalLineFollower';
 import { clampRouteToCardinalSafeSide, parseCardinalDiscs } from '../tier3/cardinalClamp';
 import { stitchLegs } from '../glue/gluer';
 import { isRefusal, freezeLeg, type Leg, type LegResult } from '../routing/legContract';
 import { validateAgainstCrossLines } from '../seaway/crossLine';
+import { chartAreaIndexFor } from '../routing/leadLandClip';
 import type { GateNode } from '../seaway/types';
 
 /** Shane-confirmed rising-tide bar margin (docs/THREE_TIER_ROUTING.md §1.5).
@@ -1053,6 +1054,138 @@ function severLinesAtClearanceBars<T extends ReadonlyArray<ReadonlyArray<readonl
 }
 
 /**
+ * The channel-midpoint chains tier-2 snaps onto, and the lone gates no chain
+ * carries (finding B), from the pair-inferred `channel_midpoint` features
+ * (InshoreRouter's regional + ENC lateral pairing) and the A* route.
+ */
+export function channelChainsFromMidpoints(
+    boylat: readonly { properties?: unknown; geometry?: { type?: string } | null }[],
+    polyline: readonly (readonly [number, number])[],
+): { channelChains: LeadingLine[]; loneGates: LoneGate[] } {
+    // CHANNEL-MIDPOINT CHAINS → ordered centrelines for tier-2. The same OSM
+    // pair-inferred midpoints carry _chainId + _chainOrder; group by chain, sort by
+    // order ⇒ one LeadingLine per buoyed channel = Shane's "7-5-3-1" spine. Tier-2
+    // snaps onto these FIRST (a buoyed chain IS the channel), bypassing the fragile
+    // gate-pairing AND the land veto — no cross-pair, no body-land. Tier-3 untouched.
+    type Mid = { lat: number; lon: number; widthM?: number; axisDeg?: number; mixed?: boolean };
+    const chainGroups = new Map<number, (Mid & { order: number })[]>();
+    for (const f of boylat) {
+        const cp = f.properties as {
+            _class?: string;
+            _chainId?: number;
+            _chainOrder?: number;
+            _pairDistanceM?: number;
+            _axisDeg?: number;
+            _mixedSource?: boolean;
+        } | null;
+        if (cp?._class !== 'channel_midpoint' || f.geometry?.type !== 'Point') continue;
+        if (typeof cp._chainId !== 'number' || typeof cp._chainOrder !== 'number') continue;
+        const [lon, lat] = (f.geometry as { coordinates: number[] }).coordinates;
+        const pt = {
+            order: cp._chainOrder,
+            lon,
+            lat,
+            widthM: cp._pairDistanceM,
+            axisDeg: cp._axisDeg,
+            mixed: cp._mixedSource,
+        };
+        const g = chainGroups.get(cp._chainId);
+        if (g) g.push(pt);
+        else chainGroups.set(cp._chainId, [pt]);
+    }
+    const channelChains: LeadingLine[] = [];
+    const singletonChainPts: Mid[] = [];
+    for (const g of chainGroups.values()) {
+        if (g.length < 2) {
+            // 1-gate cluster (isolated gate pair). Collect; handle below.
+            singletonChainPts.push(g[0]);
+            continue;
+        }
+        g.sort((a, b) => a.order - b.order);
+        channelChains.push({ pts: g.map((p) => ({ lat: p.lat, lon: p.lon })) });
+    }
+    // ── SINGLETON STEP 1: attach to nearest multi-point chain endpoint ──
+    // The outermost Newport exit gate is in its own 1-gate cluster (spatially
+    // separate from the inner gates). If a multi-point chain ends within 800 m,
+    // it is an extension — append or prepend so the snap threads the outer gate.
+    const SINGLETON_ATTACH_M = 800;
+    const unattachedSingles: Mid[] = [];
+    for (const sp of singletonChainPts) {
+        let bestChain: LeadingLine | null = null;
+        let bestDist = SINGLETON_ATTACH_M;
+        let appendToEnd = true;
+        for (const chain of channelChains) {
+            const pts = chain.pts;
+            const dEnd = llDistM(pts[pts.length - 1], sp);
+            const dStart = llDistM(pts[0], sp);
+            const d = Math.min(dEnd, dStart);
+            if (d < bestDist) {
+                bestDist = d;
+                bestChain = chain;
+                appendToEnd = dEnd <= dStart;
+            }
+        }
+        if (bestChain) {
+            const at = { lat: sp.lat, lon: sp.lon };
+            if (appendToEnd) bestChain.pts.push(at);
+            else bestChain.pts.unshift(at);
+        } else {
+            unattachedSingles.push(sp);
+        }
+    }
+    // ── SINGLETON STEP 2: synthesise chain when all gates are isolated ──
+    // Newport: every gate pair can end up in its own 1-gate cluster (no multi-
+    // point chain to attach to). Sort all unattached singletons by proximity
+    // along the A* polyline → the natural inner→outer order → a synthesised
+    // LeadingLine that snapToLeadingLines can snap onto, centering the route
+    // through EVERY gate in sequence.
+    const synthesised = new Set<(typeof unattachedSingles)[number]>();
+    if (unattachedSingles.length >= 2) {
+        const SYNTH_NEAR_ROUTE_M = 500;
+        const sorted = unattachedSingles
+            .map((sp) => {
+                let minD = Infinity;
+                let bestIdx = 0;
+                for (let i = 0; i < polyline.length; i++) {
+                    const d = haversineM(sp.lat, sp.lon, polyline[i][1], polyline[i][0]);
+                    if (d < minD) {
+                        minD = d;
+                        bestIdx = i;
+                    }
+                }
+                return { sp, bestIdx, minD };
+            })
+            .filter((s) => s.minD < SYNTH_NEAR_ROUTE_M)
+            .sort((a, b) => a.bestIdx - b.bestIdx);
+        if (sorted.length >= 2) {
+            channelChains.push({ pts: sorted.map((s) => ({ lat: s.sp.lat, lon: s.sp.lon })) });
+            for (const s of sorted) synthesised.add(s.sp);
+        }
+    }
+    // LONE GATES (finding B, real-chart check 2026-10-03): an accepted pair no
+    // chain carries — neither attached to a chain end nor taken into the
+    // synthesised chain. The Hamilton reach bend's green is the chart's alone
+    // (the regional file lacks it); it pairs with the chart's red 6F into a
+    // one-gate cluster 2.1 km from the nearest regional chain end. Tier-2
+    // threads these into a chain-snapped leg (Tier4Context.loneGates). Not a
+    // pair of one regional and one chart mark: where the two sources disagree
+    // on a buoy's colour, its two copies (25–600 m apart) pair into a phantom
+    // gate on one physical buoy.
+    const loneGates: LoneGate[] = unattachedSingles
+        .filter((sp) => !synthesised.has(sp) && sp.mixed !== true && typeof sp.widthM === 'number' && sp.widthM > 0)
+        .map((sp) => ({
+            lat: sp.lat,
+            lon: sp.lon,
+            halfWidthM: (sp.widthM as number) / 2,
+            ...(typeof sp.axisDeg === 'number' ? { axisDeg: sp.axisDeg } : {}),
+        }));
+    engineLog.warn(
+        `[chain] chains=${channelChains.length}(pts=${channelChains.map((c) => c.pts.length).join(',')}) sing=${singletonChainPts.length} unatt=${unattachedSingles.length}`,
+    );
+    return { channelChains, loneGates };
+}
+
+/**
  * Four-tier contract path — segment the REAL A*
  * route into ordered tier spans, route each by tier, glue with the concat-only
  * Gluer. Tier-1/2 spans re-home onto the canal/channel followers WITHOUT the
@@ -1078,6 +1211,10 @@ export function applyThreeTier(
      *  closed, when the route is one. */
     tideCeilings: readonly TideCeiling[] = [],
     tideBarriers: readonly TideBarrier[] = [],
+    /** The strict uncharted policy's no-evidence rule per grid cell (the
+     *  engine's isUnvouchedIdx), so tier-2 weighs uncharted water as the red
+     *  the engine draws there. Absent: permissive. */
+    isUnvouched?: (idx: number) => boolean,
 ): {
     polyline: [number, number][];
     provenance: string;
@@ -1108,90 +1245,7 @@ export function applyThreeTier(
             return { lat, lon, side: 'port' as const, key: '_mp', seq: 0, name: 'midpoint' };
         });
     const segMarks = midpointMarks.length ? [...marks, ...midpointMarks] : marks;
-    // CHANNEL-MIDPOINT CHAINS → ordered centrelines for tier-2. The same OSM
-    // pair-inferred midpoints carry _chainId + _chainOrder; group by chain, sort by
-    // order ⇒ one LeadingLine per buoyed channel = Shane's "7-5-3-1" spine. Tier-2
-    // snaps onto these FIRST (a buoyed chain IS the channel), bypassing the fragile
-    // gate-pairing AND the land veto — no cross-pair, no body-land. Tier-3 untouched.
-    const chainGroups = new Map<number, { order: number; lon: number; lat: number }[]>();
-    for (const f of layers.BOYLAT?.features ?? []) {
-        const cp = f.properties as { _class?: string; _chainId?: number; _chainOrder?: number } | null;
-        if (cp?._class !== 'channel_midpoint' || f.geometry?.type !== 'Point') continue;
-        if (typeof cp._chainId !== 'number' || typeof cp._chainOrder !== 'number') continue;
-        const [lon, lat] = (f.geometry as { coordinates: number[] }).coordinates;
-        const g = chainGroups.get(cp._chainId);
-        if (g) g.push({ order: cp._chainOrder, lon, lat });
-        else chainGroups.set(cp._chainId, [{ order: cp._chainOrder, lon, lat }]);
-    }
-    const channelChains: LeadingLine[] = [];
-    const singletonChainPts: { lat: number; lon: number }[] = [];
-    for (const g of chainGroups.values()) {
-        if (g.length < 2) {
-            // 1-gate cluster (isolated gate pair). Collect; handle below.
-            singletonChainPts.push({ lat: g[0].lat, lon: g[0].lon });
-            continue;
-        }
-        g.sort((a, b) => a.order - b.order);
-        channelChains.push({ pts: g.map((p) => ({ lat: p.lat, lon: p.lon })) });
-    }
-    // ── SINGLETON STEP 1: attach to nearest multi-point chain endpoint ──
-    // The outermost Newport exit gate is in its own 1-gate cluster (spatially
-    // separate from the inner gates). If a multi-point chain ends within 800 m,
-    // it is an extension — append or prepend so the snap threads the outer gate.
-    const SINGLETON_ATTACH_M = 800;
-    const unattachedSingles: { lat: number; lon: number }[] = [];
-    for (const sp of singletonChainPts) {
-        let bestChain: LeadingLine | null = null;
-        let bestDist = SINGLETON_ATTACH_M;
-        let appendToEnd = true;
-        for (const chain of channelChains) {
-            const pts = chain.pts;
-            const dEnd = llDistM(pts[pts.length - 1], sp);
-            const dStart = llDistM(pts[0], sp);
-            const d = Math.min(dEnd, dStart);
-            if (d < bestDist) {
-                bestDist = d;
-                bestChain = chain;
-                appendToEnd = dEnd <= dStart;
-            }
-        }
-        if (bestChain) {
-            if (appendToEnd) bestChain.pts.push(sp);
-            else bestChain.pts.unshift(sp);
-        } else {
-            unattachedSingles.push(sp);
-        }
-    }
-    // ── SINGLETON STEP 2: synthesise chain when all gates are isolated ──
-    // Newport: every gate pair can end up in its own 1-gate cluster (no multi-
-    // point chain to attach to). Sort all unattached singletons by proximity
-    // along the A* polyline → the natural inner→outer order → a synthesised
-    // LeadingLine that snapToLeadingLines can snap onto, centering the route
-    // through EVERY gate in sequence.
-    if (unattachedSingles.length >= 2) {
-        const SYNTH_NEAR_ROUTE_M = 500;
-        const sorted = unattachedSingles
-            .map((sp) => {
-                let minD = Infinity;
-                let bestIdx = 0;
-                for (let i = 0; i < polyline.length; i++) {
-                    const d = haversineM(sp.lat, sp.lon, polyline[i][1], polyline[i][0]);
-                    if (d < minD) {
-                        minD = d;
-                        bestIdx = i;
-                    }
-                }
-                return { sp, bestIdx, minD };
-            })
-            .filter((s) => s.minD < SYNTH_NEAR_ROUTE_M)
-            .sort((a, b) => a.bestIdx - b.bestIdx);
-        if (sorted.length >= 2) {
-            channelChains.push({ pts: sorted.map((s) => s.sp) });
-        }
-    }
-    engineLog.warn(
-        `[chain] chains=${channelChains.length}(pts=${channelChains.map((c) => c.pts.length).join(',')}) sing=${singletonChainPts.length} unatt=${unattachedSingles.length}`,
-    );
+    const { channelChains, loneGates } = channelChainsFromMidpoints(layers.BOYLAT?.features ?? [], polyline);
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
     // OSM canal centre-lines (layers.CANAL) — the dead-centre route through a canal
     // estate, drawn down the middle of every canal. tier-1 follows these FIRST.
@@ -1318,6 +1372,12 @@ export function applyThreeTier(
         egressTracks,
         egressMask: canalEgress.forceTier2,
         preferChannelChains: canalEgress.spliced,
+        loneGates,
+        // Finding B weighs a leg's red as the engine draws it: grid CAUTION,
+        // charted depth below draft + safety (the SHALLOW reason) and, under
+        // the strict policy, uncharted water.
+        chart: { bands: chartAreaIndexFor(layers).depth, floorM: draftM + safetyM },
+        isUnvouched,
     };
     // Pull each tier-2↔tier-3 SEAM — the shared boundary vertex where the bay (tier-3) leg hands off
     // to the marked-channel (tier-2) leg — onto the RECTRC. The seam sits on the raw A* route, which
