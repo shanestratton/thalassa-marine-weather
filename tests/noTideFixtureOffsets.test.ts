@@ -58,12 +58,29 @@ const STEP_DEG = 0.00006;
  * refused rather than routed over drying ground or land, and that every
  * route crosses at most clips of water no tide clears and no more charted
  * land than it did.
+ *
+ * RE-PIN (2026-10-04, the component bridge's label fix; measured against
+ * HEAD cfb5980a, each fixture in one process): that was its own fix. The cut
+ * off canal pocket is exactly what the component bridge joins to the bay —
+ * and the bridge skipped every pocket whose bay was numbered 0, as Moreton
+ * Bay is on these grids. Bridged, no alignment is cut off. With the ceilings
+ * (permissive, as here, and strict, as the app routes): Tangalooma k = 8–11
+ * and Rivergate k = 10 route instead of refusing 'no-tide-clears', across at
+ * most a 30 m clip of water no tide clears and 0–49 m of charted land.
+ * Without them they take the same routes, where they crossed 1.2–1.4 km of
+ * charted land and 548–559 m of drying ground (strict refused them
+ * 'hard-land-crossing'). The land: 25–49 m at the Newport canal
+ * mouth (153.0934° E, 27.2028° S) for Tangalooma k = 8–10 and 23 m at the
+ * river mouth for Rivergate k = 10 — the two spots the Rivergate limit
+ * below already allows. Tangalooma k = 11 crosses none. The planner and
+ * Auto still refuse a route with any land away from the pins.
  */
-const CUT_OFF: Record<string, readonly number[]> = { tangalooma: [8, 9, 10, 11], rivergate: [10] };
-/** The longest charted-land run a routed alignment may cross (m): 0 m, or the
- * ~50 m at the Newport canal mouth and the river mouth that Rivergate's
- * k = 3 and 5 cross at HEAD too (49–50 m and 25–42 m measured). */
-const MAX_LAND_RUN_M: Record<string, number> = { tangalooma: 0, rivergate: 50 };
+const CUT_OFF: Record<string, readonly number[]> = { tangalooma: [], rivergate: [] };
+/** The longest charted-land run a routed alignment may cross (m): the ~50 m
+ * at the Newport canal mouth and the river mouth that Rivergate's k = 3 and
+ * 5 cross at HEAD too (49–50 m and 25–42 m measured), and Tangalooma's
+ * k = 8–10 at the canal mouth since the label fix (25–49 m). */
+const MAX_LAND_RUN_M: Record<string, number> = { tangalooma: 50, rivergate: 50 };
 
 for (const [name, nudge, ks] of [
     ['tangalooma', 'east', [7, 8, 9, 10, 11]],
