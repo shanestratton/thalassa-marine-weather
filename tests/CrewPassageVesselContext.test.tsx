@@ -288,6 +288,24 @@ describe("the Watch Schedule on the skipper's passage", () => {
         expect(screen.queryByTestId('watch-assign-sheet')).not.toBeInTheDocument();
     });
 
+    it('reads the by-name bill (no emails at all) the same way: names, You, Crew', async () => {
+        // After 20261003140000 crew get get_crew_watch_bill rows: assigned and
+        // self flags, a name from the person's own record, never an email.
+        mocks.list.mockResolvedValue([
+            assignment(0, { is_assigned: true, is_self: false }),
+            assignment(1, { is_assigned: true, is_self: true }),
+            assignment(2, { is_assigned: true, is_self: false, assigned_crew_name: 'Ana Reyes' }),
+            assignment(3, { is_assigned: false }),
+        ]);
+        render(<WatchScheduleCard voyageId="voyage-1" crewCount={3} readOnly />);
+
+        expect(await screen.findByText('👤 Ana Reyes')).toBeInTheDocument();
+        expect(screen.getByText('👤 You')).toBeInTheDocument();
+        expect(screen.getByText('👤 Crew')).toBeInTheDocument();
+        expect(screen.getAllByText('Not assigned').length).toBeGreaterThan(0);
+        expect(document.body.textContent).not.toMatch(/@/);
+    });
+
     it("the skipper's own card still assigns and publishes", async () => {
         render(<WatchScheduleCard voyageId="voyage-1" crewCount={3} />);
         const [row] = await screen.findAllByRole('button', { name: /^Assign / });

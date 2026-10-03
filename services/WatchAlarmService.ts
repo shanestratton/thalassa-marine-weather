@@ -10,8 +10,9 @@
  * Flow:
  *   1. Skipper assigns watches via WatchAssignSheet → upserts into
  *      watch_assignments table.
- *   2. Each crew member's device queries assignments where
- *      assigned_crew_email == their email.
+ *   2. Each crew member's device reads the voyage's watch bill and keeps
+ *      the watches that are theirs (isOwnWatch: the crew view's isSelf, their
+ *      user id, or their own address on the skipper's raw rows).
  *   3. WatchAlarmService.scheduleForVoyage(voyageId) computes the
  *      concrete UTC start time for each of THEIR watches (from the
  *      voyage's departure_time + the watch slot's time-of-day) and
@@ -31,6 +32,7 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { supabase } from './supabase';
 import { WatchAssignmentService } from './WatchAssignmentService';
+import { isOwnWatch } from './watchAssignee';
 import { createLogger } from '../utils/createLogger';
 // Shared with the crew's own watch page — see utils/watchTimes.
 import { watchStartAfter } from '../utils/watchTimes';
@@ -214,12 +216,9 @@ export const WatchAlarmService = {
         // Load all assignments for the voyage and filter to current user
         const all = await WatchAssignmentService.list(voyageIdSnapshot);
         if (!isAuthIdentityScopeCurrent(scope)) return 0;
-        const normalizedEmail = userEmail.trim().toLowerCase();
-        const mine = all.filter(
-            (assignment) =>
-                typeof assignment.assigned_crew_email === 'string' &&
-                assignment.assigned_crew_email.trim().toLowerCase() === normalizedEmail,
-        );
+        // One rule with The Glass's Watch page (myWatches). Crew get the bill
+        // by name with no email at all, so their own watches come flagged.
+        const mine = all.filter((assignment) => isOwnWatch(assignment, { userId: scope.userId, email: userEmail }));
         if (mine.length === 0) return 0;
 
         // Build LocalNotifications payload

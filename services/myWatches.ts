@@ -10,13 +10,14 @@
  * and the UI is expected to render nothing rather than an empty state. A
  * watch page for someone with no watch is furniture.
  *
- * The matching rule is the one WatchAlarmService already uses, because the
- * page and the alarm must never disagree about whose watch it is: the
- * skipper assigns by email, and each crew device claims the rows carrying its
- * own address, compared case-insensitively.
+ * The matching rule is the one WatchAlarmService uses (isOwnWatch), because
+ * the page and the alarm must never disagree about whose watch it is: the
+ * crew view's isSelf flag (crew read the bill by name, with no email), else
+ * this user id, else this account's own address, compared case-insensitively.
  */
 import { getActiveVoyage } from './VoyageService';
 import { WatchAssignmentService } from './WatchAssignmentService';
+import { isOwnWatch } from './watchAssignee';
 import { supabase } from './supabase';
 import { createLogger } from '../utils/createLogger';
 import { watchStartAfter } from '../utils/watchTimes';
@@ -52,9 +53,7 @@ export async function myWatches(now: Date = new Date()): Promise<MyWatch[]> {
         if (!voyage?.id || !voyage.departure_time) return [];
 
         const all = await WatchAssignmentService.list(voyage.id);
-        const mine = all.filter(
-            (a) => typeof a.assigned_crew_email === 'string' && a.assigned_crew_email.trim().toLowerCase() === email,
-        );
+        const mine = all.filter((a) => isOwnWatch(a, { userId: user?.id, email }));
         if (mine.length === 0) return [];
 
         const departure = voyage.departure_time;

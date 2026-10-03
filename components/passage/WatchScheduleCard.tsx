@@ -14,6 +14,7 @@ import {
     useScopedReadinessStorageState,
 } from '../../hooks/useReadinessSync';
 import { WatchAssignmentService, type WatchAssignment } from '../../services/WatchAssignmentService';
+import { isOwnWatch, isWatchAssigned } from '../../services/watchAssignee';
 import { getMyCrew, type CrewMember } from '../../services/CrewService';
 import { WatchAssignSheet } from './WatchAssignSheet';
 import { supabase } from '../../services/supabase';
@@ -419,12 +420,12 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     // Count of slots currently assigned (excluding null assignments).
     // Drives the Publish button's enabled state — no point publishing
     // an empty schedule.
-    const assignedCount = Array.from(assignments.values()).filter((a) => a.assigned_crew_email).length;
+    const assignedCount = Array.from(assignments.values()).filter(isWatchAssigned).length;
 
     // ── Pre-watch alarm scheduling ──
     // Each crew member's device runs WatchAlarmService independently —
-    // it reads assignments where assigned_crew_email === this user's
-    // email and schedules iOS LocalNotifications for `alarmLeadMin`
+    // it keeps the watches that are this user's own (isOwnWatch) and
+    // schedules iOS LocalNotifications for `alarmLeadMin`
     // minutes before each watch starts. Re-runs whenever the
     // assignment Map changes so a freshly-assigned watch gets its
     // alarm set immediately.
@@ -907,13 +908,14 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     ) : (
                         schedule.watches.map((w, i) => {
                             const assignment = assignments.get(i);
-                            const isAssigned = !!assignment?.assigned_crew_email;
+                            const isAssigned = isWatchAssigned(assignment);
                             if (readOnly) {
-                                // Names only: never a peer's email.
+                                // Names only: never a peer's email. After
+                                // 20261003140000 crew rows carry no email at
+                                // all, only the assigned and self flags.
                                 const assignee = !isAssigned
                                     ? null
-                                    : assignment?.assigned_crew_user_id &&
-                                        assignment.assigned_crew_user_id === identityScope.userId
+                                    : isOwnWatch(assignment, { userId: identityScope.userId })
                                       ? 'You'
                                       : assignment?.assigned_crew_name?.trim() || 'Crew';
                                 return (

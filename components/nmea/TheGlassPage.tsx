@@ -1443,10 +1443,11 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                             not exist").
 
                             The watch itself comes from the passage planner's
-                            watch bill — the same watch_assignments rows the
-                            skipper filled in and the same email match
-                            WatchAlarmService uses, so the page and the alarm
-                            can never disagree about whose watch it is. */}
+                            watch bill — the watch_assignments rows the skipper
+                            filled in (crew read them by name) and the same
+                            isOwnWatch rule WatchAlarmService uses, so the page
+                            and the alarm can never disagree about whose watch
+                            it is. */}
                         {hasMyWatch && (
                             <section
                                 className={`w-full ${sectionHeight} snap-start snap-always shrink-0 overflow-hidden flex flex-col ${containerPx} pt-1`}
