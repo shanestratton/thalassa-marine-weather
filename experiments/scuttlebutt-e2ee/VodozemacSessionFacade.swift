@@ -177,6 +177,23 @@ final class VodozemacSessionFacade {
         } catch { throw DmSessionFacadeError.unavailable }
     }
 
+    /// Capture BEFORE HTTP. Removing the peer binding can settle only a strict
+    /// terminal refusal, never accept a message or renew the original lease.
+    func ownerOnlyCompletionSnapshot(from snapshot: DmNativeMessageSnapshot) throws -> DmNativeMessageSnapshot {
+        lock.lock(); defer { lock.unlock() }
+        do {
+            let current = try requireMessageLease(snapshot: snapshot)
+            let paired = try current.scope.messageCredential(peerGeneration: snapshot.context.peerGeneration,
+                checkAuthority: { try self.checkMessageDeadline(current) })
+            guard paired.context == snapshot.context else { throw DmSessionFacadeError.unavailable }
+            let owner = try current.scope.messageCredential(peerGeneration: nil,
+                checkAuthority: { try self.checkMessageDeadline(current) })
+            try checkMessageDeadline(current)
+            return DmNativeMessageSnapshot(facadeID: snapshot.facadeID, revision: snapshot.revision,
+                expires: snapshot.expires, credentialBinding: snapshot.credentialBinding, credential: owner)
+        } catch { throw DmSessionFacadeError.unavailable }
+    }
+
     /// Relay dispatch/completion callback. This does not return a new credential
     /// or silently upgrade an old snapshot to a renewed lease. Network awaits
     /// occur only AFTER every facade/Directory/index/Auth lock has been released.

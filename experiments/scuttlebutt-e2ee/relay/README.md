@@ -283,6 +283,32 @@ first-key verification or protection from a compromised native process.
 `ownerSessionGeneration` and `recipientIdentityGeneration` are immutable record
 comparison fields and local lifecycle guards, not server authentication claims.
 
+### Current bilateral policy read
+
+The signed `policy` action takes canonical
+`[peerUserId,peerDeviceId,peerIdentityKeyId]`. Its reply has exactly six string
+bindings (`requestId`, owner user/device, peer user/device/identity reference)
+and four strict booleans: `ownerRevoked`, `peerRevoked`, `blockedByMe` and
+`blockedByPeer`. The gateway verifies fresh Auth and the immutable registered
+request-signing key; the reply is authenticated by HTTPS, not independently
+signed. Native matches all bindings to its saved request and full sealed pin.
+
+SQL recomputes flags under the pilot lock on every read, including exact nonce
+replay. Known revoked devices may read their denial state; unknown or mismatched
+targets refuse. Policy reads do not write or exhaust the mutation nonce ledger.
+They do not create a send grant or alter immutable terminal decisions.
+
+The scoped native client explicitly refreshes policy before protected work.
+Each derived permit is memory-only and expires five seconds after the native
+request's original monotonic start. Refresh first invalidates old permission;
+send/inbox completion cannot adopt a replacement permit. Acceptance/inbox
+commit guards require the original paired permit, while only an exact terminal
+refusal may settle via the original owner-only lease. A later remote change can
+occur during this bounded interval: authoritative SQL still decides new actions.
+This is research gating, not finished polling, trusted time across restart or a
+production latency policy. These SQL/gateway changes have not been deployed to
+the hosted pilot.
+
 ## Directory and reservation contract
 
 Each account can register exactly one immutable device for its entire lifetime
@@ -400,7 +426,7 @@ one-heavy-job-at-a-time rule, including native jobs. The runner checks for
 then identifies itself in that build-slot check. It does not automatically detect
 every native build.
 
-For the seven focused TypeScript suites, first check the shared build slot with
+For the nine focused TypeScript suites, first check the shared build slot with
 `pgrep -fl "vite build|tsc|vitest"` and wait if another job is running. Then run:
 
 ```sh
@@ -421,7 +447,9 @@ node --max-old-space-size=1024 node_modules/typescript/bin/tsc \
   experiments/scuttlebutt-e2ee/relay/signedGateway.ts \
   experiments/scuttlebutt-e2ee/relay/httpGateway.ts \
   tests/E2eeResearchSupabaseAuth.test.ts tests/E2eeResearchSignedGateway.test.ts \
-  tests/E2eeResearchHttpGateway.test.ts
+  tests/E2eeResearchHttpGateway.test.ts \
+  experiments/scuttlebutt-e2ee/relay/hostedGateway.ts \
+  tests/E2eeHostedGateway.test.ts tests/ResearchRelayPolicy.test.ts
 ```
 
 Fetch the single pinned public research dependency:
