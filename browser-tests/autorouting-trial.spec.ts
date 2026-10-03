@@ -488,6 +488,10 @@ for (const size of [sizes[0], sizes[2]]) {
     test(`Setup and Review preserve the proposal and Show whole route clears the close-up at ${size.width}`, async ({
         page,
     }, info) => {
+        // WebKit at 1024 x3 on the CI runner took 28.9 s before the
+        // scale-ordered chart tiers (5e3402ac) and 31 s after (CI 37082667443),
+        // against the 30 s default; the other heavy map cases already get 60 s.
+        test.setTimeout(60_000);
         await openFixture(page, size, 'dark', 'ready', '', 'grouped');
         await calculateSmallFixtureRoute(page);
         const original = await routeGeometry(page);
