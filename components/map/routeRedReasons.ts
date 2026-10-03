@@ -58,6 +58,7 @@ const BLOCKED =
     "touches a cell the router's chart grid keeps closed (land, the shore's keep-out or water no tide clears) — check it on the chart";
 const GRID = "the router's chart grid reads shallow, uncharted or disputed water here";
 const NEAR = 'passes too close to water charted shallower than this boat needs';
+const CARDINAL = "passes a cardinal mark on its danger side — keep to the side it's named for";
 
 const metres = (m: number): string => `${m.toFixed(1)} m`;
 
@@ -169,6 +170,7 @@ export function routeRedStretches(
         if (why & CAUTION_WHY.UNCHARTED) parts.push(UNCHARTED);
         if (why & CAUTION_WHY.NEAR_SHALLOW)
             parts.push(nearWords(fits(masks.cautionNearShallow) ? masks.cautionNearShallow[i] : null));
+        if (why & CAUTION_WHY.CARDINAL) parts.push(CARDINAL);
         if (why & CAUTION_WHY.HAZARD) parts.push(HAZARD);
         if (why & CAUTION_WHY.WING) parts.push(WING);
         if (why & CAUTION_WHY.LAND) parts.push(LAND);

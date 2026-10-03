@@ -35,7 +35,13 @@ import type { NavGrid } from './engine/types';
 import { assembleTracerLayers } from './InshoreRouter';
 import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { parseLateralMarks, distM, type LatLon, type LateralMark } from './fairlead';
-import { parseCardinalDiscs, type CardinalDisc } from './tier3/cardinalClamp';
+import {
+    CARDINAL_HALF_M,
+    CARDINAL_REACH_M,
+    cardinalWrongSideAt,
+    parseCardinalDiscs,
+    type CardinalDisc,
+} from './tier3/cardinalClamp';
 import {
     isChartNavLine,
     navLineLeads,
@@ -215,13 +221,16 @@ export type TracerBuildResult =
 
 /** Extra water beyond draft+safety before a leg reads fully green. */
 const THIN_MARGIN_M = 1.0;
-/** Cardinal relevance band + minimum safe-side clearance (m). */
-const CARDINAL_BAND_M = 400;
-const CARDINAL_CLEAR_M = 90;
+/** Cardinal relevance band + minimum safe-side clearance (m) — the router's
+ *  own (tier3/cardinalClamp cardinalWrongSideAt reads both). */
+const CARDINAL_BAND_M = CARDINAL_REACH_M;
+const CARDINAL_CLEAR_M = CARDINAL_HALF_M;
 /** A gate is checked when the leg comes this close to its midpoint (m). */
 const GATE_BAND_M = 300;
 /** Solo-lateral "verify the side" advisory distance (m). */
 const SOLO_LATERAL_BAND_M = 60;
+/** Two opposite-hand solo laterals this close form a gate a leg may thread (m). */
+const SOLO_PAIR_MAX_M = 300;
 const LEAD_MAX_ANGLE_DEG = 30;
 const LEAD_OFF_CAUTION_M = 40;
 /** Context bbox padding (deg ≈ 2.2 km) and rebuild margin near the edge. */
@@ -901,12 +910,6 @@ function segmentsIntersect(a1: TracePoint, a2: TracePoint, b1: TracePoint, b2: T
     return ((d1 >= 0 && d2 <= 0) || (d1 <= 0 && d2 >= 0)) && ((d3 >= 0 && d4 <= 0) || (d3 <= 0 && d4 >= 0));
 }
 
-const SAFE_VEC: Record<CardinalDisc['dir'], readonly [number, number]> = {
-    n: [0, 1],
-    e: [1, 0],
-    s: [0, -1],
-    w: [-1, 0],
-};
 const DIR_WORD: Record<CardinalDisc['dir'], string> = { n: 'north', e: 'east', s: 'south', w: 'west' };
 
 /**
@@ -947,6 +950,31 @@ function ridingLeadAt(p: TracePoint, legBrgRad: number, leads: LeadingLine[]): b
         if (dDeg <= LEAD_MAX_ANGLE_DEG) return true;
     }
     return false;
+}
+
+/** The leg's points within CARDINAL_BAND_M of cardinal c — every ≤ 5 m, its
+ *  ends inside the band, and its closest point (`near`) — for §2's read of
+ *  every point (G2 review, 2026-10-04). */
+function cardinalBandPoints(
+    c: TracePoint,
+    a: TracePoint,
+    b: TracePoint,
+    near: { t: number; point: TracePoint; distM: number },
+): TracePoint[] {
+    const out: TracePoint[] = [near.point];
+    const legM = Math.hypot((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_DEG_LAT);
+    if (!(legM > 0)) return out;
+    // A little beyond the band's chord, so its ends are read (the rule itself
+    // stops at the band).
+    const halfT = (Math.sqrt(Math.max(0, CARDINAL_BAND_M ** 2 - near.distM ** 2)) + 5) / legM;
+    const t0 = Math.max(0, near.t - halfT);
+    const t1 = Math.min(1, near.t + halfT);
+    const n = Math.max(1, Math.ceil(((t1 - t0) * legM) / 5));
+    for (let k = 0; k <= n; k++) {
+        const t = t0 + ((t1 - t0) * k) / n;
+        out.push({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t });
+    }
+    return out;
 }
 
 // ── Grid sampling ──────────────────────────────────────────────────────────
@@ -1060,7 +1088,10 @@ function lateralPassRead(
     ny /= len;
     const boatSide = lateralSideRead(grid, m, ex, ny, keelM);
     const farSide = lateralSideRead(grid, m, -ex, -ny, keelM);
-    if (boatSide === 'shoal') return 'shoalside';
+    // Shoal both sides (a channel itself charted shallower than the keel —
+    // Newport's 0–2 m exit, G2 2026-10-04): the chart cannot say which side
+    // the channel is, so there is no side to send the boat to.
+    if (boatSide === 'shoal') return farSide === 'shoal' ? 'unknown' : 'shoalside';
     // A lateral guards a shoal on ONE side; the other side is the passing
     // water. So a CONFIRMED shoal on the FAR side means the boat is on the
     // passing side — clean — even when the boat side itself reads 'unknown'
@@ -1344,46 +1375,51 @@ export function validateTraceLeg(
     for (const c of ctx.cardinals) {
         const near = closestOnLeg(c, a, b);
         if (near.distM > CARDINAL_BAND_M) continue;
-        const safe = SAFE_VEC[c.dir];
-        const kx = mPerLon(c.lat);
-        const ex = (near.point.lon - c.lon) * kx;
-        const ny = (near.point.lat - c.lat) * M_PER_DEG_LAT;
-        // Along the safe direction, and across it.
-        const sideM = ex * safe[0] + ny * safe[1];
-        const acrossM = Math.abs(ex * safe[1] - ny * safe[0]);
-        // The wrong side: close in (under CARDINAL_CLEAR_M), the danger's
-        // whole half; beyond that, only its HAZARD quadrant — the closest
-        // point within ±45° of the danger's direction (|across| ≤ −along).
-        // A centimetre's grace either way, so a point on either line does
-        // not flip with float rounding: on the mark's own meridian (for an
-        // east cardinal) is a side, on the 45° line is the danger's. The
-        // real-chart check (2026-10-03): read from the
-        // along-offset alone, a leg whose nearest point lay 338 m SOUTH of an
-        // east cardinal, 24 m west of its meridian, was "the wrong side" —
-        // and a leg passing 390 m off "shaves" it. Fix-up review (that day):
-        // the quadrant rule alone turned a pass 30 m SSW of an east cardinal
-        // from danger into a caution Save does not stop for.
-        if (sideM < -0.01 && (near.distM < CARDINAL_CLEAR_M || acrossM <= -sideM + 0.01)) {
-            if (ridingLeadAt(near.point, legBrgRad, ctx.leads)) {
-                // Transit authority — same philosophy as the lateral rule's
-                // "chart confirms the side → silent": the harbour authority
-                // surveyed the lead PAST this buoy, so its side rule does not
-                // apply to the lead line. Green info, not silence, so the
-                // skipper sees the mark was considered, not missed.
-                issues.push({
-                    severity: 'info',
-                    message: `on the charted lead — ${DIR_WORD[c.dir]} cardinal ${Math.round(near.distM)} m off marks a danger the transit clears`,
-                    at: near.point,
-                    mark: { lat: c.lat, lon: c.lon },
-                });
-            } else {
-                issues.push({
-                    severity: 'danger',
-                    message: `wrong side of the ${DIR_WORD[c.dir]} cardinal — pass ${DIR_WORD[c.dir]} of it`,
-                    at: near.point,
-                    mark: { lat: c.lat, lon: c.lon },
-                });
-            }
+        // The wrong side (tier3/cardinalClamp cardinalWrongSideAt — the rule
+        // the router's own red reads): close in (under CARDINAL_CLEAR_M), the
+        // danger's whole half; beyond that, only its HAZARD quadrant (±45° of
+        // the danger's direction), a centimetre's grace on either line. The
+        // real-chart check (2026-10-03): read from the along-offset alone, a
+        // leg whose nearest point lay 338 m SOUTH of an east cardinal, 24 m
+        // west of its meridian, was "the wrong side" — and a leg passing
+        // 390 m off "shaves" it. Fix-up review (that day): the quadrant rule
+        // alone turned a pass 30 m SSW of an east cardinal from danger into a
+        // caution Save does not stop for.
+        //   Read at EVERY point of the leg inside the band, not only its
+        // closest (G2 review, 2026-10-04): a leg whose closest point lay
+        // 100 m north of an east cardinal, just east of its meridian, ran on
+        // 290 m west into its hazard quadrant and was graded clear, while the
+        // router drew the same line red and Save refused it. A wrong-side
+        // point riding a charted lead is the lead's; the nearest one that is
+        // not is the danger.
+        let wrong: { at: TracePoint; m: number } | null = null;
+        let onLead: { at: TracePoint; m: number } | null = null;
+        for (const p of cardinalBandPoints(c, a, b, near)) {
+            if (!cardinalWrongSideAt(c, p.lon, p.lat)) continue;
+            const m = Math.hypot((p.lon - c.lon) * mPerLon(c.lat), (p.lat - c.lat) * M_PER_DEG_LAT);
+            if (ridingLeadAt(p, legBrgRad, ctx.leads)) {
+                if (!onLead || m < onLead.m) onLead = { at: p, m };
+            } else if (!wrong || m < wrong.m) wrong = { at: p, m };
+        }
+        if (wrong) {
+            issues.push({
+                severity: 'danger',
+                message: `wrong side of the ${DIR_WORD[c.dir]} cardinal — pass ${DIR_WORD[c.dir]} of it`,
+                at: wrong.at,
+                mark: { lat: c.lat, lon: c.lon },
+            });
+        } else if (onLead) {
+            // Transit authority — same philosophy as the lateral rule's
+            // "chart confirms the side → silent": the harbour authority
+            // surveyed the lead PAST this buoy, so its side rule does not
+            // apply to the lead line. Green info, not silence, so the
+            // skipper sees the mark was considered, not missed.
+            issues.push({
+                severity: 'info',
+                message: `on the charted lead — ${DIR_WORD[c.dir]} cardinal ${Math.round(onLead.m)} m off marks a danger the transit clears`,
+                at: onLead.at,
+                mark: { lat: c.lat, lon: c.lon },
+            });
         } else if (near.distM < CARDINAL_CLEAR_M) {
             // Leads routinely run close past cardinals by design — on the
             // transit the shave is the surveyed geometry, and #5 already owns
@@ -1451,6 +1487,28 @@ export function validateTraceLeg(
             // with teeth.
             const read = grid ? lateralPassRead(grid, m, near.point, keelM) : 'unknown';
             if (read === 'clean') continue;
+            // Between it and an opposite-hand mark, with the side unknown:
+            // the leg threads the chart's own pair, a gate no regional file
+            // paired (offline, G2 2026-10-04: Newport's exit legs through
+            // each gate's midpoint, 27 m from each mark, were told "bank
+            // side of port mark 8 — cross to the channel side"), so no
+            // "verify your side". A CONFIRMED bank-side pass still warns (G2
+            // review, 2026-10-04: solo laterals are the marks the pairing
+            // declined to pair — two channels either side of a bank, a pair
+            // over shoal — and the skip dropped a real bank-side pass's only
+            // side warning).
+            if (
+                read === 'unknown' &&
+                ctx.soloLaterals.some(
+                    (o) =>
+                        o.side !== m.side &&
+                        distM(o, m) <= SOLO_PAIR_MAX_M &&
+                        (segmentsIntersect(a, b, m, o) ||
+                            closestOnLeg(a, m, o).distM < 1 ||
+                            closestOnLeg(b, m, o).distM < 1),
+                )
+            )
+                continue;
             const markName = `${m.side === 'port' ? 'port' : 'starboard'} mark${m.name ? ` ${m.name}` : ''}`;
             issues.push({
                 severity: 'caution',

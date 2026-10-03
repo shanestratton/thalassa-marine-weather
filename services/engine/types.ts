@@ -688,6 +688,16 @@ export interface SurveyRunInfo {
  *   • CANAL — not caution: red by the canal's own convention (canalMask, the
  *     marina basin's narrow water), named so no red carries no reason (the
  *     real-chart check, 2026-10-03). Set only where no other reason is;
+ *   • CARDINAL — some of the line lies on a cardinal mark's wrong side
+ *     (tier3/cardinalClamp cardinalWrongSideAt, the leg review's own rule:
+ *     within 400 m, the danger's whole half within 90 m, its hazard quadrant
+ *     beyond; not where the line rides a charted lead): red, beating a marked channel's yellow, and not
+ *     the tide's to lift (G2, 2026-10-04);
+ *   • STRETCH — SHALLOW alone, every caution cell a shallow band's, and the
+ *     finest survey charts only PART of the line shallower than draft +
+ *     safety: the segment is drawn red (or amber) over those stretches alone
+ *     (its chartedShallowSpans), its own colour elsewhere (G2, 2026-10-04:
+ *     newport-shane's last leg was red for 1,565 m over 488 m of 2 m);
  *   • UNEXPLAINED — none of those, and no exact reading, no shallow band's
  *     cell, or no band to measure the clearance from, to prove it is the
  *     cells' alone: red, said as the grid's.
@@ -706,6 +716,8 @@ export const CAUTION_WHY = {
     BLOCKED: 1024,
     NEAR_SHALLOW: 2048,
     CANAL: 4096,
+    CARDINAL: 8192,
+    STRETCH: 16384,
 } as const;
 
 /**
@@ -1177,9 +1189,16 @@ export interface NavGrid {
      * never a block: its factor (aStar shallowRingFactor) is folded into
      * centreFactor, and the Seaway connectors' search reads it here. Empty
      * (length 0) once applied to a grid with no shallow band; absent until
-     * applied.
+     * applied. May be priced lazily since G2 (2026-10-04): a cell's byte
+     * carries aStar RING_PENDING until shallowRingResolve prices it (aStar
+     * shallowRingClass reads it), RING_SEED on a band edge's seed cell. The
+     * engine's cached grids are priced in full (plain classes; G2 review).
      */
     shallowRing?: Uint8Array;
+    /** Prices a pending ring cell (engine/shallowRuns
+     *  attachShallowClearanceRing): its class, its factor folded into
+     *  centreFactor. Absent once the ring is fully priced. */
+    shallowRingResolve?: (idx: number) => number;
     /**
      * Per-cell "a paired channel mark governs this cell" flag (1 = inside a
      * mark-governed disc). Set alongside centreFactor at grid build. Used to keep

@@ -5,7 +5,7 @@
 import { M_PER_DEG_LAT } from './constants';
 import type { NavGrid, InshoreLayers, FairingMidpoint } from './types';
 import { mPerDegLon, bresenhamCells, perpendicularDistanceDeg } from './geometry';
-import { chainCostM, lineOfSightClear } from './aStar';
+import { centreFactorAt, chainCostM, lineOfSightClear } from './aStar';
 import { routeMarina, type Cell } from '../marinaCenterline';
 
 /**
@@ -113,7 +113,7 @@ export function deStaggerCentred(
             // grids lacking the mask fall back to the centreFactor gradient.
             if (grid.confined) {
                 if (grid.confined[idx] !== 1) return false;
-            } else if (grid.centreFactor && grid.centreFactor[idx] <= 1) {
+            } else if (grid.centreFactor && centreFactorAt(grid, idx) <= 1) {
                 return false;
             }
             // Don't reshape the route hard against a caution shoal: if any cell on

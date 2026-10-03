@@ -31,6 +31,7 @@ import { buildNavGrid } from '../../services/engine/navGrid';
 import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { isRefusal, type BoundaryNode, type LatLon, type Leg } from '../../services/routing/legContract';
 import type { TierSpan } from '../../services/routing/segmentRoute';
+import { cardinalWrongSideMetres } from '../../services/tier3/cardinalClamp';
 
 const M_PER_LAT = 110_540;
 const LAT0 = -27.25;
@@ -839,5 +840,60 @@ describe('round-3 fix-up — what a red metre weighs (2026-10-03)', () => {
             195,
         );
         expect(tier2RedLoad(grid, [ll(700, 1000), ll(1000, 1000)]).redM).toBe(0);
+    });
+});
+
+describe("G2 (2026-10-04) — a charted track's join never crosses a cardinal's wrong side", () => {
+    // The Brisbane River mouth with no regional marker file: an east cardinal
+    // at the origin, the charted track in two pieces — piece A down to a
+    // junction J 88 m east and 81 m north of the mark, piece B away SSW from
+    // J (it passes the mark 59 m east, and its meridian 167 m south: the south
+    // quadrant). The leg's A* slice comes down beside piece A, then south
+    // past the mark's east side; snapping piece B alone joins the slice to B
+    // across the mark's west side, 13 m off it. All deep water.
+    const J: [number, number] = [88, 81];
+    const dir: [number, number] = [-Math.sin((19.5 * Math.PI) / 180), -Math.cos((19.5 * Math.PI) / 180)];
+    const pieceA = { pts: [ll(180, 2400), ll(...J)] };
+    const pieceB = { pts: [ll(...J), ll(J[0] + dir[0] * 1700, J[1] + dir[1] * 1700)] };
+    const slice: LatLon[] = [
+        at(180, 2400),
+        at(63, 530),
+        at(12, -369),
+        at(-237, -919),
+        at(-300, -1200),
+        at(-470, -1500),
+    ];
+    const discs = [{ ...ll(0, 0), dir: 'e' as const, radiusM: 400 }];
+    const wrongM = (line: readonly LatLon[]) =>
+        cardinalWrongSideMetres(line as [number, number][], discs).reduce((m, x) => m + x, 0);
+    const deep = () => gridOf(() => 10);
+
+    it('the reproduction: with the cardinal unknown to the leg, piece B is snapped across its west side', () => {
+        const leg = legOf(
+            routeTier4(span(slice), slice, {
+                grid: deep(),
+                recommendedTracks: [pieceA, pieceB],
+                marks: [],
+                channelChains: [],
+            }),
+        );
+        expect(leg.provenance).toBe('tier2:rectrc×1');
+        expect(wrongM(leg.polyline)).toBeGreaterThan(50);
+    });
+
+    it('knowing it, the leg rides the joined track past the mark’s safe side', () => {
+        const leg = legOf(
+            routeTier4(span(slice), slice, {
+                grid: deep(),
+                recommendedTracks: [pieceA, pieceB],
+                marks: [],
+                channelChains: [],
+                cardinals: { discs, leads: [] },
+            }),
+        );
+        expect(leg.provenance).toMatch(/^tier2:rectrc×\d+$/);
+        expect(wrongM(leg.polyline)).toBe(0);
+        // Through the junction, on the track.
+        expect(nearestM(leg.polyline, J)).toBeLessThan(1);
     });
 });

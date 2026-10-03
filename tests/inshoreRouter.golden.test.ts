@@ -228,7 +228,13 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
         const near = (r.chartedShallowSpans ?? []).filter((x) => x.near);
         expect(near.filter((x) => x.channelEdge).length).toBe(7);
         const open = near.filter((x) => !x.channelEdge);
-        expect(open.length).toBe(4);
+        // RE-PIN (G2 review, 2026-10-04): 4 → 7. The three segments drawn
+        // red over their charted-shallow stretch alone (STRETCH) are measured
+        // off it as a clean segment is, so each one's approach inside a
+        // band's clearance is a near stretch (+44 m in all, 346 → 390 m; red
+        // drawn 8,404 → 8,451 m — it was 8,486 m whole-segment at 85dc7e07).
+        // Own process; the route is unchanged.
+        expect(open.length).toBe(7);
         expect(open.every((x) => x.tideUnknown === true || x.tideLiftable !== true)).toBe(true);
         expect(near.filter(nearSpanBlocks)).toEqual(open);
         const states = inshoreSegmentStates(r)!;
@@ -245,8 +251,14 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
                     );
                 return acc;
             }, 0);
-        expect(edgeM).toBeGreaterThan(139 * 0.9);
-        expect(edgeM).toBeLessThan(139 * 1.1);
+        // RE-PIN (G2, 2026-10-04): 139 → 164 m. Three segments red for a
+        // charted-shallow stretch of each are drawn over that stretch alone
+        // now (CAUTION_WHY.STRETCH), and 25 m of channel edge the whole-red
+        // segment hid shows on one's deep part. Measured in its own process;
+        // the route is unchanged. (G2 review, 2026-10-04: 161 m, the deep
+        // parts measured as a clean segment's.)
+        expect(edgeM).toBeGreaterThan(164 * 0.9);
+        expect(edgeM).toBeLessThan(164 * 1.1);
     });
 
     it('phaseTimings present and loosely bounded', () => {
@@ -338,6 +350,9 @@ describe('GOLDEN: Newport → Rivergate — survey quality on the route (decisio
         expect(amberM).toBeGreaterThan(72 * 0.8);
         expect(amberM).toBeLessThan(72 * 1.2);
         // The margin stretches all lie under the red: none of them is amber.
+        // (G2, 2026-10-04 re-pinned 9.7 m of dashes on a STRETCH segment's
+        // deep part; the G2 review measures that part's clearance as a clean
+        // segment's, and those 9.7 m lie inside a bank's — red. Back to 0.)
         expect(surveyAmberMetres(r.polyline, states, out.surveyRuns, r.chartedShallowSpans).marginM).toBe(0);
     });
 });

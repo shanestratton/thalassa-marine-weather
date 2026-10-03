@@ -304,7 +304,9 @@ export function assessDayPlanRoute(
         throw new Error(
             unchecked && unchecked.every((i) => route.engine!.cautionWhy?.[i] === CAUTION_WHY.NEAR_SHALLOW)
                 ? near
-                : 'Part of the route is drawn red with no charted depth behind it.',
+                : unchecked?.every((i) => (route.engine!.cautionWhy?.[i] ?? 0) & CAUTION_WHY.CARDINAL)
+                  ? 'Part of the route passes a cardinal mark on its danger side.'
+                  : 'Part of the route is drawn red with no charted depth behind it.',
         );
     if (route.engine.chartedShallowSpans?.some(nearSpanBlocks)) throw new Error(near);
     const reasons: string[] = [];

@@ -236,9 +236,13 @@ export function inshoreSegmentStates(r: InshoreRouteMasks): InshoreSegmentState[
     // while the line charted 5 m+ and the leg review said "no issue found".
     const why = r.cautionWhy && r.cautionWhy.length === segCount ? r.cautionWhy : null;
     return Array.from({ length: segCount }, (_, i): InshoreSegmentState => {
-        const caution = cautionMask[i] && why?.[i] !== CAUTION_WHY.GRID_ONLY;
+        // Red over its charted-shallow stretches alone (STRETCH, G2 2026-10-04):
+        // its chartedShallowSpans draw them, the segment keeps its own colour.
+        const w = why?.[i] ?? 0;
+        const caution = cautionMask[i] && w !== CAUTION_WHY.GRID_ONLY && !(w & CAUTION_WHY.STRETCH);
         if (caution && chartedShallow[i]) return 'danger'; // charted-shallow RED (beats yellow)
         if (caution && conflict?.[i]) return 'danger'; // decision-1 water RED (beats yellow)
+        if (caution && w & CAUTION_WHY.CARDINAL) return 'danger'; // a cardinal's wrong side RED (beats yellow)
         if (channelMask[i]) return 'channel'; // marked channel YELLOW (beats other caution)
         if (canalMask[i]) return 'danger'; // canal/marina RED
         if (caution) return 'danger'; // shallow/uncharted OPEN water RED

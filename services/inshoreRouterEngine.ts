@@ -117,6 +117,7 @@ import {
     tupleLineCrossesHardLand,
 } from './engine/tierPipeline';
 import { navLineLeads, parseLeadingLines } from './leadingLine';
+import { cardinalWrongSideMask } from './tier3/cardinalClamp';
 import {
     chartMarkPoints,
     lateralMarkGates,
@@ -808,7 +809,13 @@ function routeInshoreOnceEnds(
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     // The shallow bands' clearance ring, as a cost (the real-chart check,
     // 2026-10-03): once per cached grid, before this route's copy, so the
-    // Seaway shadow's read of the same cached grid prices it too.
+    // Seaway shadow's read of the same cached grid prices it too. Priced in
+    // full here, not lazily (G2 review, 2026-10-04): a lazily priced ring
+    // kept its pricing state (seeds, owners and ownership read so far) with
+    // the cached grid for as long as the cache held it, uncounted by the
+    // 48 MB budget — measured on the goldens, 21–23 MB per grid (Rivergate,
+    // Tangalooma) and 74 MB for newport-shane's two. Priced in full it is
+    // the ring's own bytes; the routes took 2.3% longer in all (median of 3).
     applyShallowClearanceRing(cachedGrid, layers, req.draftM + safetyM);
     // The ring's bytes, counted as the grid now holds them (round-3 fix-up,
     // 2026-10-03; admission only reserved w × h for it).
@@ -2958,6 +2965,17 @@ function routeInshoreOnceEnds(
             engineLog.warn(`[hazard] ${flagged} segment(s) pass inside a charted hazard's buffer — flagged caution`);
         }
     }
+    // ── A cardinal's wrong side on the FINAL geometry (G2, 2026-10-04) ──
+    // The followers that ride a charted track off the grid, and the joins
+    // onto it, never read a cardinal's keep-out: with no regional marker
+    // file, Newport → Rivergate passed 12 m on the WEST side of the river
+    // mouth's east cardinal, drawn as channel. Such a stretch is caution,
+    // named CARDINAL, red over a marked channel's yellow — never a refusal
+    // here (the leg review grades it danger, so Save and Plan My Day stop).
+    const cardinalMask = cardinalWrongSideMask(finalPolyline, layers);
+    cardinalMask.forEach((wrong, i) => {
+        if (wrong) finalCaution[i] = true;
+    });
 
     // ── Exact-vector hard-land veto ─────────────────────────────────
     // Grid rescues exist for small chart-alignment errors at marina mouths,
@@ -3114,6 +3132,7 @@ function routeInshoreOnceEnds(
         destinationTailStartSeg,
         originTailEndSeg,
         hazardMask: nearHazard,
+        cardinalMask,
         canalMask: finalCanalMask,
         // A near stretch no tide clears is red (round-3 fix-up, 2026-10-03).
         ...(req.tideCeilings?.length ? { tideCeilings: req.tideCeilings } : {}),
@@ -3286,6 +3305,9 @@ export {
     aStar,
     chainCostM,
     shallowRingFactor,
+    RING_CLASS,
+    RING_PENDING,
+    SHALLOW_RING_FACTOR,
 } from './engine/aStar';
 export { douglasPeucker } from './engine/geometry';
 export { fairPath } from './engine/pathShaping';

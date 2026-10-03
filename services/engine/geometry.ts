@@ -481,14 +481,19 @@ export function collapseStateRuns(
     return { polyline: out, fromSeg };
 }
 
+/** How many buckets wide bboxBuckets' coarse buckets are. */
+const BUCKET_COARSE = 16;
+
 /**
  * A bucket grid over bounding boxes ([w, s, e, n]): which items' boxes meet a
  * query box, in the items' own order — the same answer as filtering the whole
  * list, without reading every item. Items whose box spans more than
- * `maxCells` buckets (an overview cell's bands) are always candidates; a
- * query wider than `maxQueryCells` buckets filters the list. For the
- * any-angle string pull (engine/stringPull, 2026-10-03), which reads the
- * chart at thousands of spots along the chords it weighs.
+ * `maxCells` buckets (an overview cell's bands) go in a coarse grid of
+ * buckets BUCKET_COARSE times wider (G2, 2026-10-04: Brisbane's cells hold
+ * 910 such bands, and every spot asked read them all); wider still, they are
+ * always candidates. A query wider than `maxQueryCells` buckets filters the
+ * list. For the any-angle string pull (engine/stringPull, 2026-10-03), which
+ * reads the chart at thousands of spots along the chords it weighs.
  */
 export function bboxBuckets<T>(
     items: readonly T[],
@@ -512,6 +517,19 @@ export function bboxBuckets<T>(
     const key = (c: number, r: number): number => r * 1_000_003 + c;
     const big: number[] = [];
     const buckets = new Map<number, number[]>();
+    const coarse = new Map<number, number[]>();
+    // A coarse bucket holds BUCKET_COARSE² buckets (by their own indices, so
+    // a box meeting a query shares a coarse bucket with it).
+    const up = (v: number): number => Math.floor(v / BUCKET_COARSE);
+    const add = (into: Map<number, number[]>, c0: number, c1: number, r0: number, r1: number, i: number): void => {
+        for (let r = r0; r <= r1; r++)
+            for (let c = c0; c <= c1; c++) {
+                const k = key(c, r);
+                const list = into.get(k);
+                if (list) list.push(i);
+                else into.set(k, [i]);
+            }
+    };
     boxes.forEach((b, i) => {
         const c0 = col(b[0]);
         const c1 = col(b[2]);
@@ -521,17 +539,10 @@ export function bboxBuckets<T>(
             big.push(i);
             return;
         }
-        if ((c1 - c0 + 1) * (r1 - r0 + 1) > maxCells) {
-            big.push(i);
-            return;
-        }
-        for (let r = r0; r <= r1; r++)
-            for (let c = c0; c <= c1; c++) {
-                const k = key(c, r);
-                const list = buckets.get(k);
-                if (list) list.push(i);
-                else buckets.set(k, [i]);
-            }
+        if ((c1 - c0 + 1) * (r1 - r0 + 1) <= maxCells) add(buckets, c0, c1, r0, r1, i);
+        else if ((up(c1) - up(c0) + 1) * (up(r1) - up(r0) + 1) <= maxCells)
+            add(coarse, up(c0), up(c1), up(r0), up(r1), i);
+        else big.push(i);
     });
     const seen = new Uint32Array(items.length);
     let stamp = 0;
@@ -553,6 +564,12 @@ export function bboxBuckets<T>(
             if (meets(boxes[i], q)) hits.push(i);
         };
         for (const i of big) take(i);
+        if (coarse.size > 0)
+            for (let r = up(r0); r <= up(r1); r++)
+                for (let c = up(c0); c <= up(c1); c++) {
+                    const list = coarse.get(key(c, r));
+                    if (list) for (const i of list) take(i);
+                }
         for (let r = r0; r <= r1; r++)
             for (let c = c0; c <= c1; c++) {
                 const list = buckets.get(key(c, r));

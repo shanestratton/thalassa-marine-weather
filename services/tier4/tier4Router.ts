@@ -18,6 +18,7 @@
  */
 import type { NavGrid } from '../inshoreRouterEngine';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
+import { snapKeepingCardinalSide, type cardinalContext } from '../tier3/cardinalClamp';
 import { distM, refineWithFairlead } from '../fairlead';
 import { followChannelGates, deSpike, TIER3_DESPIKE_DEG, TIER3_FAIRLEAD_MIN_FRAC } from '../tier3/tier3Router';
 import { engineLog, UNKNOWN_OPEN } from '../engine/constants';
@@ -77,6 +78,10 @@ export interface Tier4Context {
      *  own discs vouch for where the channel is, never for its depth
      *  (round-3 fix-up, 2026-10-03). */
     readonly strictUncharted?: boolean;
+    /** The route's cardinals and the charted leads that may ride past them
+     *  (tier3/cardinalContext): a RECTRC snap never adds a metre on a
+     *  cardinal's wrong side (G2, 2026-10-04). Absent: none. */
+    readonly cardinals?: ReturnType<typeof cardinalContext>;
 }
 
 /** A lone accepted gate (Tier4Context.loneGates). */
@@ -603,13 +608,20 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         o: { corridorM: number; minRunM: number; maxAngleDeg: number },
         tracks: readonly LeadingLine[] = ctx.recommendedTracks,
     ) =>
-        snapToLeadingLines(line, line.map(isCaution), [...tracks], {
-            isBlocked: isLand,
-            isCaution,
-            ...o,
-            // Follow the RECTRC's curve through river bends, don't chord across (wall-hug fix).
-            followInteriorVertices: true,
-        });
+        snapKeepingCardinalSide(
+            line,
+            line.map(isCaution),
+            tracks,
+            {
+                isBlocked: isLand,
+                isCaution,
+                ...o,
+                // Follow the RECTRC's curve through river bends, don't chord across (wall-hug fix).
+                followInteriorVertices: true,
+            },
+            ctx.cardinals?.discs ?? [],
+            ctx.cardinals?.leads ?? [],
+        );
 
     type Shape = 'chain' | 'chain+rectrc' | 'rectrc';
     let joined: LeadingLine[] | undefined;
@@ -709,7 +721,13 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         //    global pass didn't cover. Tight corridor; `protect` undefined because tier-2
         //    IS the protected track.
         if (prov.length === 0 && ctx.recommendedTracks.length > 0) {
-            const ll = snapTrack(poly, SNAP_1B, tracksFor(shape));
+            let ll = snapTrack(poly, SNAP_1B, tracksFor(shape));
+            // A track piece whose join would cross a cardinal's wrong side
+            // (G2, 2026-10-04): its pieces joined where they meet may reach it
+            // past the mark's safe side (the Brisbane River mouth: the joined
+            // track passes 60 m east of the east cardinal).
+            if (ll.snapped === 0 && ll.refused > 0 && shape === 'chain')
+                ll = snapTrack(poly, SNAP_1B, tracksFor('rectrc'));
             if (ll.snapped > 0) {
                 poly = ll.polyline;
                 prov.push(`rectrc×${ll.snapped}`);
@@ -828,7 +846,19 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     //     channel mark). Red and WING within one grid cell are a tie, and a
     //     tie keeps the chain's leg (the yellow through the middle of every
     //     pair). Not on the canal egress.
-    if (!isEgressSpan && ctx.recommendedTracks.length > 0 && prov.some((p) => p.startsWith('chain×'))) {
+    const chainShaped = prov.some((p) => p.startsWith('chain×'));
+    // With no chain (G2, 2026-10-04: no regional marker file) a leg the
+    // charted track shaped, or the raw A* slice, is weighed the same way
+    // against the ride on the track's pieces joined where they meet (the
+    // 'rectrc' candidate): the pieces one at a time stopped where the first
+    // ended, and newport-shane's last leg chorded 488 m of 2 m water into
+    // Murrarie that the joined track follows the river round. So is the
+    // fairlead's: with the track's snap refused for crossing a cardinal's
+    // wrong side, the lateral follower took Rivergate's last leg outside the
+    // Hamilton reach's green (424 m of WING). The gate follower keeps its
+    // line: it threads the pairs' midpoints.
+    const trackWeighed = !chainShaped && !prov.some((p) => p.startsWith('gates'));
+    if (!isEgressSpan && ctx.recommendedTracks.length > 0 && (chainShaped || trackWeighed)) {
         type Built = {
             poly: LL[];
             prov: string[];
@@ -847,7 +877,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         const beats = (a: Tier2Load, b: Tier2Load): boolean => tier2LoadBeats(a, b, tieM);
         let best = keep();
         const chainLoad = best.load;
-        if (shapeSpan('chain+rectrc') && prov.some((p) => p.startsWith('rectrc×'))) {
+        if (chainShaped && shapeSpan('chain+rectrc') && prov.some((p) => p.startsWith('rectrc×'))) {
             const merged = keep();
             if (beats(merged.load, best.load)) best = merged;
         }

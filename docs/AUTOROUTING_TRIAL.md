@@ -1077,6 +1077,221 @@ and `tests/dayPlannerEngine.test.ts`.
   (10.23 of the 10.25 MiB budget, 25.6 KB left), 4.8 KB more than the last
   build at 3e3a3603 for the round-3 fix-up and this review together.
 
+#### G2 — route times, a cardinal's wrong side, the chart's own pairs offline, red over the stretch (2026-10-04, night)
+
+Shane, 2026-10-03: "keep going claude, i am off to bed". On top of 85dc7e07.
+Each change is tested first (it fails on 85dc7e07's code):
+`tests/engine/lazyClearanceRing.test.ts` (item 1), `tests/engine/cardinalWrongSide.test.ts`
+and the new block in `tests/tier4/tier2ChainVsRectrc.test.ts` (items 2 and 3), the new
+cases in `tests/routeTracer.test.ts` (item 4) and `tests/engine/redNamesItsReason.test.ts`
+(item 5).
+
+1. **Route times back to 7f48fe15's.** Route times on the Pi's cells had risen 18–37%
+   since 61e36ccb; the clearance ring alone cost 0.08–0.67 s per route, priced for every
+   cell of the cached grid on the main thread before A\* ran.
+    - _The ring is priced lazily_ (`attachShallowClearanceRing`): attaching finds the
+      seeds and marks every cell a band could be near `RING_PENDING`; a cell is priced the
+      first time A\*, a connector, `cellCostAt`, the string pull or the confined-water
+      reshaper reads it (`aStar shallowRingClass`), with the same class and the same
+      factor folded into `centreFactor` as pricing the whole grid (the test reads every
+      cell both ways). `applyShallowClearanceRing` still prices it all at once.
+    - Measured: the searches read nearly every cell a band could be near (Rivergate
+      9,580 of its 9,837 pending cells, Armit → Molles 61,187 of 62,694), so laziness
+      alone saved nothing. DECIDED: not corridor-limited either — a cell outside a
+      corridor would price as open water beside a reef, and A\* reads cells far off the
+      straight line. The time was in pricing each cell and in the Seaway connector's step
+      loop (1.2–2.4 s per route, 0.6–1.4 M pops):
+        - `bboxBuckets` puts boxes too big for its 0.01° buckets (an overview cell's
+          bands: 910 in the Brisbane cells, every one read for every spot asked) in
+          buckets 16 times wider; the same answer, in the items' order (tested against
+          filtering the list);
+        - the point-in-ring test and the segment-to-area distance walk their edge bands
+          without a closure per edge;
+        - one bucket index per band list (`depthBandsIn`), not one each for the ring, the
+          clearance stretches and the string pull;
+        - the connector's heuristic no longer allocates per target per push (term for
+          term the same arithmetic), and it reads the ring and the cost ladder once per
+          search, not through a call per neighbour.
+    - Every route line, mask and stretch is byte-identical to 85dc7e07's on the twelve
+      real-chart runs (line and colour hashes) before the routing changes below.
+    - Measured on the Pi's cells, the median of 3 runs, each in its own process, the
+      three trees interleaved on the same cells (ms, 7f48fe15 → 85dc7e07 → this; tide
+      unknown, then at a 2.5 or 3 m top; with the marker file): Rivergate 4,660 → 5,298 →
+      4,706 and 5,169 → 5,670 → 5,030; Tangalooma 5,211 → 6,457 → 5,291 and 5,658 → 6,660 →
+      5,594; newport-shane 4,310 → 4,858 → 4,219 and 4,625 → 5,300 → 4,636; Armit → Molles
+      3,772 → 4,650 → 3,718 and 3,712 → 4,635 → 3,503; Cid Harbour 2,724 → 3,400 → 2,708 and
+      2,837 → 3,554 → 2,802; Coral Sea Marina → Daydream 1,011 → 1,248 → 979 and 960 →
+      1,189 → 893. Every route is within 1.5% of 7f48fe15's (the target was 5%); all twelve
+      together −1.3% (85dc7e07: +18.5%). Measured in vitest, where an imported binding read
+      in a hot loop is a getter call — part of what 61e36ccb added, and what these reads
+      remove; the bundled app pays less for it.
+    - The lazy state (the bands, the seeds, the owners read so far) lives with the cached
+      grid and goes when the cache drops it; the grid's bytes count the ring (w × h), not
+      that state. (Superseded by the review fix-up below: the engine prices the ring in
+      full.)
+2. **A cardinal's wrong side is red, and the router keeps to its safe side.** With no
+   SE-QLD marker file, Newport → Rivergate passed 12 m (newport-shane 5 m) on the WEST
+   side of the river mouth's east cardinal (-27.39651, 153.15337), drawn as channel. The
+   chart's track (RECTRC) passes 60 m east of it; the tier-2 snap onto it, which has land
+   as its only veto, joined the route to the track's next piece across the mark's west
+   side.
+    - _Red, named_ (`tier3/cardinalClamp cardinalWrongSideMetres`, `CAUTION_WHY.CARDINAL`):
+      a segment with any of its line on a cardinal's wrong side inside its keep-out (the
+      disc's radius) is caution on the engine's route and on a promoted Seaway route,
+      red over a marked channel's yellow, not the tide's to lift, "passes a cardinal mark
+      on its danger side — keep to the side it's named for". Save and Plan My Day say
+      "…passes a cardinal mark on its danger side." where that is the only reason.
+      DECIDED: the leg review's rule, at every point of the line — the danger's whole
+      half within 90 m, beyond that only its hazard quadrant, and not where the line rides
+      a charted lead (within 40 m, within 30° of its heading). The whole half-disc would
+      have reddened the track itself 350 m south of this mark, where it bends into the
+      river in the south quadrant. (The review fix-up below: within 400 m, not the disc's
+      radius, and the leg review reads every point too.)
+    - _The snaps keep the safe side_ (`snapKeepingCardinalSide`): the whole-route RECTRC
+      snap, the seam snap and the tier-2 snap and ride take each track only where it adds
+      no metre on a cardinal's wrong side; with no cardinal near they are the same snaps.
+      A leg whose track piece was refused so is snapped onto the pieces joined where they
+      meet (finding B's join), which follows the track past the mark's east side.
+3. **The chart's own pairs survive a marker file that does not load.**
+   `fetchRegionalMarkers` threw before the chart's laterals were paired (the "not fixed
+   here" of finding B), so offline every chart lateral was a solo keep-out disc and no
+   gate was checked. Now it pairs them and says so (`markerFileFailed`); the leg review
+   still says "channel marks unchecked — mark data did not load" and checks the chart's
+   own pairs. DECIDED: fixed here — it is the root of item 5's route and item 4's advice
+   offline.
+4. **No crossing advice inside a gate.** Offline, the Newport exit's legs through each
+   gate's midpoint (27 m from each mark) were told "bank side of port mark 8 — cross to
+   the channel side": the channel itself is charted 0–2 m, so `lateralPassRead` read the
+   boat's side as shoal. A leg that passes between a solo lateral and an opposite-hand
+   one within 300 m threads their gate and is told nothing; shoal on both sides of a mark
+   reads 'unknown' ("verify your side"), not 'shoalside'. (The review fix-up below: a
+   confirmed bank-side pass there still warns.)
+5. **Red over the shallow stretch only (`CAUTION_WHY.STRETCH`), and deeper water into
+   Murrarie.** Offline, newport-shane's last leg was red for 1,565 m over 488 m charted
+   2 m. A caution segment red for its charted depth alone (SHALLOW, every caution cell a
+   shallow band's), only part of which the finest survey charts below draft + safety, is
+   drawn over those stretches (its `chartedShallowSpans`, with their runs, tide chips and
+   words) and its own colour elsewhere. It keeps its own depth facts (`tideDepthM`), so
+   its clearance is measured as before. DECIDED: only a band that dries counts beside it,
+   as on any caution segment a tide lifts — read as a clean segment, the Rivergate golden
+   gained 3 near stretches (approaches to the bank it crosses) that would have refused
+   Save for a needs-tide crossing the review already refuses. (Withdrawn by the review
+   fix-up below: it drew a line 5 m off a 0–2 m bank green.)
+    - The route: with the chart's pairs (item 3) the last leg follows the river's track
+      round the bend into Murrarie (-27.43087,153.11964 → -27.44131,153.11096 →
+      -27.44366,153.10604), as with the marker file. And a tier-2 leg no chain shaped (the
+      charted track's pieces, the raw A\* slice or the lateral follower) is weighed against
+      the ride on the track's pieces joined where they meet by finding B's `tier2RedLoad`;
+      a tie keeps the leg. DECIDED: the gate follower keeps its line (it threads the pairs'
+      midpoints).
+
+- **Goldens** (each in its own process): every polyline is byte-identical to 85dc7e07's.
+  Drawn: Rivergate (2.40 and 2.44 m) red 8,486 → 8,404 m, channel edge 139 → 164 m
+  (re-pinned: a STRETCH segment's deep part shows the edge the whole red hid), 9.7 m of
+  survey-margin dashes on another's deep part (re-pinned from 0); Tangalooma red 6,702 →
+  6,643 m;
+  newport-shane 11,533 → 11,528 m; the marks corridor 8,895 → 8,893 m; moreton-tier2
+  unchanged. Near stretches and Save refusals unchanged.
+- **Measured on the Pi's cells** (copied read-only, sha256-checked, deleted after; the six
+  saved test routes, tide unknown and at a 2.5 / 3 m top; before = 85dc7e07):
+    - With the SE-QLD marker file: every route line is unchanged, and so is every leg
+      review. Red: Rivergate 6,849 → 6,840 m, newport-shane 6,662 → 6,636 m, Tangalooma
+      6,893 → 6,892 m (STRETCH segments' deep parts, now their own colour or survey dashes).
+    - Without it: Rivergate 23.97 NM both, 56 m off the cardinal's EAST side (was 12 m
+      west of it), red 6,849 → 6,840 m (as with the file; at a 2.5 m top 3,674 → 3,554 m),
+      and 1,008 m of survey-margin dashes now shown where it rides the charted track at the
+      mouth; newport-shane 24.64 → 24.68 NM, 56 m off the cardinal's east side (was 5 m
+      west), red 8,227 → 6,636 m and charted below the keel's need 7,120 → 6,632 m (the
+      488 m of 2 m into Murrarie gone — as with the file); Tangalooma 23.37 → 23.34 NM.
+      Gone from the leg reviews: "wrong side of the east cardinal" (Rivergate,
+      newport-shane) and every "bank side of … mark — cross to the channel side" (16 on
+      Rivergate and Tangalooma, 17 on newport-shane); grades danger 18 / 18 / 22 → 18 / 18 /
+      20, caution 10 / 10 / 15 → 9 / 8 / 14. The Whitsunday routes are unchanged.
+- **Suites and size:** the router suites (225 files, in batches of 4, one worker) pass in
+  local time and in UTC: 3,206 passed, 0 failed, 3 expected failures, 5 skipped. A vite
+  build measures 10,727,079 B of JS (10.23 of the 10.25 MiB budget, 20.8 KB left), 4.7 KB
+  more than the round-3 review's build.
+
+#### G2 review fix-up (2026-10-04, night)
+
+Reviewed the same night. Each fix is tested first (it fails on the G2 build):
+`tests/engine/stretchClearance.test.ts` (item 1), the new block in
+`tests/engine/cardinalWrongSide.test.ts` and the new cases in `tests/routeTracer.test.ts`
+(items 2 and 3), and the new pin in `tests/RouteMemoryCeilings.test.ts` (item 4).
+
+1. **A STRETCH segment's approach to a bank is red again.** G2 measured a STRETCH
+   segment's clearance as it measures a needs-tide segment's, where only a band that dries
+   counts. But the rest of a STRETCH segment is drawn in its own colour. The review's probe:
+   a line runs 0–5 m north of a 0–2 m band for 920 m, then 1 m into the band for its last
+   17%. It was green over those 920 m, though the router itself keeps 30 m clear of that
+   band. At 85dc7e07 that water was red, and so it was on a clean segment and on a
+   GRID_ONLY one.
+    - The fix: the rest of a STRETCH segment is now measured as a clean segment is. Every
+      shallow band counts, and the part inside a band's clearance is a near stretch.
+    - Owner decision 10 then sets its colour. It is amber where a tide the route knows
+      clears the band. It is red, and Save and Plan My Day refuse it, where no tide was
+      loaded or no tide can clear it. So the approaches refuse a needs-tide crossing only
+      where a clean segment's approaches would.
+    - G2's DECIDED (only drying bands count beside a STRETCH segment) is withdrawn. The 3
+      near stretches it avoided on the Rivergate golden are approaches to a bank. They are
+      red with no tide loaded, as their whole segments were at 85dc7e07.
+    - Goldens, each in its own process; every polyline is unchanged:
+        - Rivergate (2.40 and 2.44 m): open-water near stretches 4 → 7 (re-pinned); near
+          stretches 346 → 390 m; red 8,404 → 8,451 m (85dc7e07: 8,486 m); channel edge
+          164 → 161 m. Survey-margin dashes are back to 0 m (were 9.7 m; re-pinned to 0),
+          because those metres lie inside a bank's clearance.
+        - Tangalooma: near stretches 2 → 5 (3 of them refuse Save with no tide); red
+          6,643 → 6,691 m (85dc7e07: 6,702 m).
+        - newport-shane: red 11,528 → 11,533 m. The marks corridor: 8,893 → 8,895 m. Both
+          equal 85dc7e07's. moreton-tier2 is unchanged.
+    - `redNamesItsReason`: the North Molle STRETCH case is re-pinned. Its approaches inside
+      the 10 m kept off the 2–5 m band (267 m each side, because the line is that oblique)
+      are now red with the crossing, named for the band's edge.
+2. **The router's cardinal red and the leg review read one rule.** G2's mask counted every
+   point within the disc's radius (400–1000 m, sized to reach the route). The leg review
+   looked only at a leg's closest point within 400 m. Two cases showed the gap:
+    - A leg 600 m west of an east cardinal with a 900 m disc was red and refused, but its
+      review said clear.
+    - A leg whose closest point lay 100 m north of an east cardinal, just east of its
+      meridian, ran on 290 m west into the mark's hazard quadrant. The review graded it
+      clear: a false green.
+
+    Now both read `cardinalWrongSideAt` (tier3/cardinalClamp), at every point of the line.
+    The rule: within 400 m of the mark (`CARDINAL_REACH_M`, the review's band), the danger's
+    whole half within 90 m, and beyond 90 m only its hazard quadrant. The review samples
+    every 5 m inside the band, and its closest point.
+    - DECIDED: the review reads every point, rather than the mask reading the closest point
+      only. The closest point alone misses a leg that runs on into a hazard quadrant.
+    - Two tracer tests had legs that ran into the hazard quadrant: a leg 50 m south that
+      started 300 m west, and a tangent 200 m off at 200° that reached 350 m west. They are
+      re-shaped to stay on the safe half, and the old legs are pinned as the wrong side.
+
+3. **A confirmed bank-side pass beside an opposite-hand solo lateral still warns.** The
+   gate skip (G2 item 4) ran before the side read, so it also dropped a confirmed
+   'shoalside' read. Solo laterals are the marks the pairing declined to pair, such as two
+   channels either side of a bank. The skip now applies only where the side is 'unknown'.
+4. **The engine prices the ring in full.** Under lazy pricing, the pricing state stayed
+   with the cached grid and the cache's 48 MB budget did not count it. Measured on the
+   goldens, dropping that state freed 21.6 MB (Rivergate), 23.3 MB (Tangalooma) and
+   73.8 MB (newport-shane's two grids).
+    - The engine now calls `applyShallowClearanceRing`. It gives the same classes and drops
+      the pricing state.
+    - Cost, median of 3, each in its own process (ms, lazy → full): Rivergate 1,104 →
+      1,149; Tangalooma 1,241 → 1,332; newport-shane 2,005 → 1,970. That is +2.3% in all.
+    - DECIDED: the memory outweighs ~90 ms on the worst golden, because the phone has a hard
+      2 GB WebContent cap. This was not re-measured on the Pi's cells, where G2 measured the
+      searches reading 97% or more of the pending cells anyway.
+
+- **Not re-run on the Pi's cells:** the G2 real-chart numbers above predate this fix-up.
+    - Item 1 adds red only on STRETCH segments' approaches to a band.
+    - Items 2 and 3 change the leg review only in two cases: where a leg runs into a
+      cardinal's hazard quadrant beyond its closest point, and where a leg passes a solo
+      lateral's confirmed bank side between it and an opposite-hand one.
+- **Suites and size:** the router suites pass in local time and in UTC: 226 files, in
+  batches of 4 on one worker; 3,219 passed, 0 failed, 3 expected failures, 5 skipped. A vite
+  build measures 10,727,744 B of JS (10.23 of the 10.25 MiB budget, 20.2 KB left), 665 B
+  more than G2's.
+
 ### Left for Shane (server side, not done here)
 
 The edge function, its `_shared` modules and its secrets are still deployed and

@@ -87,6 +87,7 @@ import { fetchSatelliteWater } from './satelliteWater';
 import { pairWingFeatures } from './pairWings';
 import { createLogger } from '../utils/createLogger';
 import { navLineLeads, osmNavLineLeads, withChartTrackSource } from './leadingLine';
+import { cardinalWrongSideMask } from './tier3/cardinalClamp';
 import {
     chartClearanceBars,
     curatedClearanceBars,
@@ -306,7 +307,11 @@ export function promotedSeawayRoute(
         opts.obstructionBufferM ?? 30,
         opts.draftM + opts.safetyM,
     );
-    const cautionMask = graphCaution?.map((c, i) => c || unvouched?.segMask[i] === true || nearHazard[i] === true);
+    // …and a cardinal's wrong side, as on the engine's route (G2, 2026-10-04).
+    const cardinalMask = cardinalWrongSideMask(g.polyline, layers);
+    const cautionMask = graphCaution?.map(
+        (c, i) => c || unvouched?.segMask[i] === true || nearHazard[i] === true || cardinalMask[i],
+    );
     const tiers = grid ? routeTierMasks(g.polyline, grid, layers, chanMask) : null;
     // Every segment's clearance from the shallow bands is measured here as on
     // an engine route (the real-chart check, 2026-10-03): the promoted
@@ -323,6 +328,7 @@ export function promotedSeawayRoute(
                   draftM: opts.draftM,
                   safetyM: opts.safetyM,
                   hazardMask: nearHazard,
+                  cardinalMask,
                   ...(tiers ? { canalMask: tiers.canalMask } : {}),
                   ...(base.tideCeilings?.length ? { tideCeilings: base.tideCeilings } : {}),
               })
@@ -3012,6 +3018,9 @@ export interface RegionalChannelData {
         wideAccepted: number;
         wideRejected: number;
     };
+    /** The marker file did not load (offline, an error): the pairs are the
+     *  chart's own laterals' alone (G2, 2026-10-04). */
+    markerFileFailed?: boolean;
 }
 
 /**
@@ -3468,7 +3477,21 @@ export async function fetchRegionalMarkers(
             if (url && rawMarkerFetchCache.get(url) === dataPromise) rawMarkerFetchCache.delete(url);
         });
     }
-    const data = dataPromise ? await dataPromise : { features: [] };
+    // A marker file that does not load leaves the chart's own laterals to
+    // pair (G2, 2026-10-04): it used to throw before them, so an offline
+    // route had no chart gate at all — every lateral a solo keep-out disc,
+    // and on the Pi's cells newport-shane crossed 488 m of 2 m water into
+    // Murrarie that the paired channel avoids.
+    let markerFileFailed = false;
+    const data = dataPromise
+        ? await dataPromise.catch((err: unknown) => {
+              markerFileFailed = true;
+              log.warn(
+                  `regional markers fetch failed — pairing the chart's own marks: ${err instanceof Error ? err.message : String(err)}`,
+              );
+              return { features: [] };
+          })
+        : { features: [] };
     return (async () => {
         // ── Step 1: Parse markers ───────────────────────────────
         // Two classes:
@@ -4291,7 +4314,15 @@ export async function fetchRegionalMarkers(
             })),
         ];
 
-        return { midpoints, segments, hazards, wings, acceptedPairs, diag: pairDiag };
+        return {
+            midpoints,
+            segments,
+            hazards,
+            wings,
+            acceptedPairs,
+            diag: pairDiag,
+            ...(markerFileFailed ? { markerFileFailed } : {}),
+        };
     })();
 }
 
@@ -4584,7 +4615,7 @@ export async function assembleTracerLayers(
     if (regionalMarkersUrl || encLaterals.length > 0) {
         try {
             const osmWaterForPairing = osmOverlay ? [...osmOverlay.water.features, ...osmOverlay.marina.features] : [];
-            const { hazards, acceptedPairs } = await fetchRegionalMarkers(
+            const { hazards, acceptedPairs, markerFileFailed } = await fetchRegionalMarkers(
                 regionalMarkersUrl,
                 merged.LNDARE?.features ?? [],
                 osmWaterForPairing,
@@ -4593,6 +4624,8 @@ export async function assembleTracerLayers(
             );
             gatePairs = acceptedPairs;
             osmRegionalHazards = hazards as { geometry?: { coordinates?: [number, number] } }[];
+            // The chart's own pairs are checked; the file's marks are not.
+            if (markerFileFailed) gateChecksUnavailable = true;
         } catch (err) {
             // NOT recoverable-by-silence. Every leg in this window is about to
             // be graded with zero gate pairs, which reads identically to "this

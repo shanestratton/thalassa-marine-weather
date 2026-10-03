@@ -97,6 +97,7 @@ import {
 import { hardLandAtPoint, hazardBufferReader, isUnvouchedCell } from './safetyAudit';
 import {
     chartPiecesAlong,
+    depthBandsIn,
     nearShallowBand,
     surveyPiecesReader,
     SHALLOW_CLIFF_CLEARANCE_M,
@@ -106,6 +107,7 @@ import {
 import { noTideClearsAt, tideCeilingLookup } from './tideCeiling';
 import { chartAreaIndexFor, indexArea, piecesAlong, pointInArea, type IndexedArea } from '../routing/leadLandClip';
 import { polylineCrossesClearanceBar } from '../routing/overheadClearance';
+import { centreFactorAt } from './aStar';
 
 /** The sample step (m) exposures are measured on, and the tolerance a chord's
  *  exposure may exceed its run's by where the run has that exposure at all. */
@@ -357,14 +359,8 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
     // reach) or near a shallow band itself — one holding no cell centre (a
     // drying patch, a thin strip; round-3 fix-up, 2026-10-03). Look for
     // either first, and hand it only the bands round the line.
-    const bandsIn = depthBands.length > 0 ? bboxBuckets(depthBands, (x) => x.bbox) : null;
-    const shallowBandsIn =
-        depthBands.length > 0
-            ? bboxBuckets(
-                  depthBands.filter((x) => x.drval1 === null || x.drval1 < floorM),
-                  (x) => x.bbox,
-              )
-            : null;
+    const bandsIn = depthBands.length > 0 ? depthBandsIn(depthBands) : null;
+    const shallowBandsIn = depthBands.length > 0 ? depthBandsIn(depthBands, floorM) : null;
     const midLat = grid.minLat + (grid.height * grid.dLat) / 2;
     const cellWm = grid.dLon * 111_320 * Math.cos((midLat * Math.PI) / 180);
     const cellHm = grid.dLat * 111_320;
@@ -456,7 +452,7 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
             let bits = 0;
             forEachCellOnSegment(grid, at(k / n), at((k + 1) / n), (idx) => {
                 bits |= cellBits(idx);
-                const c = centre?.[idx] ?? 0;
+                const c = centre ? centreFactorAt(grid, idx) : 0;
                 if (c > centreMax) centreMax = c;
             });
             for (let e = 0; e < X_COUNT; e++) if (bits & bit(e)) metres[e] += pieceM;

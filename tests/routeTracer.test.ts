@@ -510,9 +510,31 @@ describe('routeTracer — marker discipline (P2)', () => {
         });
 
         it('a leg 50 m south of it (a side quadrant) shaves it: give it 90 m', () => {
-            const issues = cardinalIssues(at(-50, -300), at(-50, 300));
+            // RE-SHAPED (G2 review, 2026-10-04): every point of the leg is read
+            // now, and this leg used to start 300 m WEST of the mark — in its
+            // hazard quadrant — so it is the wrong side (pinned below). From
+            // due south of it, eastward, it only shaves it.
+            const issues = cardinalIssues(at(-50, 0), at(-50, 300));
             expect(issues.map((i) => i.severity)).toEqual(['caution']);
             expect(issues[0].message).toContain('shaves the east cardinal');
+        });
+
+        it('a leg 50 m south of it that starts 300 m west of it (the hazard quadrant) is the wrong side', () => {
+            const issues = cardinalIssues(at(-50, -300), at(-50, 300));
+            expect(issues.map((i) => i.severity)).toEqual(['danger']);
+            expect(issues[0].message).toContain('wrong side of the east cardinal');
+        });
+
+        // G2 review (2026-10-04): read at its closest point alone, a leg 100 m
+        // north of it, just east of its meridian, running on 290 m west into
+        // its hazard quadrant, was graded clear — the router drew it red.
+        it('a leg whose closest point is on the safe side but which runs on into the hazard quadrant', () => {
+            const issues = cardinalIssues(at(90, 110), at(130, -290));
+            expect(issues.map((i) => i.severity)).toEqual(['danger']);
+            expect(issues[0].message).toContain('wrong side of the east cardinal');
+            // Flagged where it is nearest the mark on the wrong side, not at
+            // its closest point (which is on the safe side).
+            expect(issues[0].at!.lon).toBeLessThan(c.lon);
         });
 
         // Fix-up review (2026-10-03): the quadrant rule alone dropped a close
@@ -520,12 +542,13 @@ describe('routeTracer — marker discipline (P2)', () => {
         // Save does not stop for. Close in (under 90 m) the danger's whole
         // half stays the wrong side; the quadrant rule is for beyond that.
         /** A leg tangent, at `distM`, to the circle round the mark, its
-         *  closest point at `bearingDeg` from it. */
-        const tangent = (distM: number, bearingDeg: number) => {
+         *  closest point at `bearingDeg` from it, running `back` m one way
+         *  and `on` m the other (clockwise round the mark). */
+        const tangent = (distM: number, bearingDeg: number, back = 300, on = 300) => {
             const r = (bearingDeg * Math.PI) / 180;
             const [e, n] = [distM * Math.sin(r), distM * Math.cos(r)];
             const [ue, un] = [Math.cos(r), -Math.sin(r)];
-            return cardinalIssues(at(n - 300 * un, e - 300 * ue), at(n + 300 * un, e + 300 * ue));
+            return cardinalIssues(at(n - back * un, e - back * ue), at(n + on * un, e + on * ue));
         };
 
         it('30 m off it at 200° and 340° (SSW, NNW — the danger half, outside ±45°): still the wrong side', () => {
@@ -544,7 +567,12 @@ describe('routeTracer — marker discipline (P2)', () => {
         });
 
         it('200 m off at 200° (outside the quadrant, beyond 90 m): silent', () => {
-            expect(tangent(200, 200)).toEqual([]);
+            // RE-SHAPED (G2 review, 2026-10-04): every point is read now, and
+            // 300 m on round the mark this tangent reached 350 m west of it,
+            // 85 m south — its hazard quadrant (pinned below). Kept outside
+            // the quadrant (it meets the 45° line 93 m on), it is silent.
+            expect(tangent(200, 200, 300, 80)).toEqual([]);
+            expect(tangent(200, 200).map((i) => i.severity)).toEqual(['danger']);
         });
     });
 
@@ -639,6 +667,52 @@ describe('routeTracer — marker discipline (P2)', () => {
         };
         const wrong = validateTraceLeg({ lat: -27.00778, lon: 153.0095 }, { lat: -27.00778, lon: 153.0125 }, ctx);
         expect(wrong.issues.some((i) => i.message.includes('bank side of starboard mark 13'))).toBe(true);
+    });
+
+    // G2 review (2026-10-04): the pair test ran before the side read, so an
+    // opposite-hand solo lateral within 300 m dropped every warning for the
+    // mark — a CONFIRMED bank-side pass too. Solo laterals are the marks the
+    // pairing declined to pair (two channels either side of a bank, a pair
+    // over shoal), so a real bank-side pass beside such a "gate" lost its
+    // only side warning.
+    it('a confirmed bank-side pass warns even between it and an opposite-hand solo lateral', () => {
+        const ctx = {
+            ...baseCtx,
+            soloLaterals: [
+                { lat: -27.0075, lon: 153.011, side: 'stbd' as const, key: 'NUM', seq: 13, name: '13' },
+                { lat: -27.009, lon: 153.011, side: 'port' as const, key: 'NUM', seq: 12, name: '12' },
+            ],
+        };
+        const wrong = validateTraceLeg({ lat: -27.00778, lon: 153.0095 }, { lat: -27.00778, lon: 153.0125 }, ctx);
+        expect(wrong.issues.some((i) => i.message.includes('bank side of starboard mark 13'))).toBe(true);
+    });
+
+    // G2 (2026-10-04): offline (no regional marker file, so no gate pairs)
+    // every chart lateral is solo, and in a channel charted shallower than
+    // the keel (Newport's 0–2 m exit) both sides of a mark read shoal — the
+    // legs through each gate's midpoint, 27 m from each mark, were told
+    // "bank side of port mark 8 — cross to the channel side". Here the
+    // awash band (0–2 m) is the channel, its two marks 60 m apart inside it.
+    const awashPair = [
+        { lat: -27.017, lon: 153.0147, side: 'port' as const, key: 'NUM', seq: 8, name: '8' },
+        { lat: -27.017, lon: 153.0153, side: 'stbd' as const, key: 'NUM', seq: 7, name: '7' },
+    ];
+    const markWords = (v: ReturnType<typeof validateTraceLeg>) =>
+        v.issues.filter((i) => /(port|starboard) mark/.test(i.message)).map((i) => i.message);
+
+    it('a leg threading a pair of solo laterals is not told to cross to the channel side', () => {
+        const ctx = { ...baseCtx, soloLaterals: awashPair, gateChecksUnavailable: true };
+        const v = validateTraceLeg({ lat: -27.0175, lon: 153.015 }, { lat: -27.0165, lon: 153.015 }, ctx);
+        expect(markWords(v)).toEqual([]);
+        // A leg ending on the gate's line threads it too.
+        const ending = validateTraceLeg({ lat: -27.0175, lon: 153.015 }, { lat: -27.017, lon: 153.015 }, ctx);
+        expect(markWords(ending).filter((m) => m.includes('cross to the channel side'))).toEqual([]);
+    });
+
+    it('shoal on both sides of a solo lateral: verify the side, not cross to it', () => {
+        const ctx = { ...baseCtx, soloLaterals: [awashPair[0]], gateChecksUnavailable: true };
+        const v = validateTraceLeg({ lat: -27.0175, lon: 153.015 }, { lat: -27.0165, lon: 153.015 }, ctx);
+        expect(markWords(v)).toEqual(['30 m off port mark 8 — verify your side']);
     });
 
     it('a mark metres SHORT of abeam of the shared pin still nags only one leg', () => {
