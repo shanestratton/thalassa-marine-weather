@@ -38,7 +38,7 @@ a substitute for those checks or a way around a bundled dependency's licence.
 This is an isolated framing/delivery prototype, a real-provider native message
 coordinator, and an isolated device-directory/hosted-relay experiment, **not functioning
 E2EE in Thalassa**. Nothing is wired into live chat.
-No shipping app dependency, implemented Capacitor plugin, production database change, production encryption indicator, production deployment
+No shipping app dependency, implemented private-message Capacitor plugin, production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
 
@@ -69,6 +69,75 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 3 October separate native account authentication app
+
+`bridge-native/` now contains a registered **account-authentication-only**
+Capacitor plugin and a standalone iPhone/iPad application. Its distinct bundle is
+`app.thalassa.research.scuttlebutt-auth`; the generated project and artifacts stay
+in private temporary storage. The ordinary Thalassa target, its `ios` directory,
+production project and hosted relay were not changed in this slice.
+
+The native bundle pins the pilot origin, conversation and public API key. JS
+cannot choose an origin, account, device, key namespace or storage path. Native
+Auth fences complete before explicit SDK token acquisition; fresh server
+verification selects native account authority. Bearers pass from the memory-only
+SDK into native authentication and are not returned or persisted by native code.
+Capacitor logging and WebView debugging are disabled. The research web page has
+no browser fallback, remote script source or static public-config copy.
+
+Cold launch explicitly signs out the previous native owner before constructing
+the SDK. A device-only, nonsynchronizing WhenUnlocked Keychain locator must match
+protected native files before reopening the sealed account directory. Partial
+initialization, a remaining marker with missing files, or files without the
+marker refuse reopening; no recovery/reset method is exposed. If **both** marker
+and files are absent, the host treats that as first installation. It cannot
+distinguish first use from total previous-state loss, and reinstall/restore
+behavior has not been tested on a physical device.
+
+The purple/cyan research UI supports login, account re-verification and local
+logout. It shows only public account/device metadata and explicitly says
+“Messaging is not yet connected.” `credentialBinding` is not peer trust or a PM
+lifecycle version. This plugin does not implement the private-message port,
+peer enrollment, fingerprints, send/receive, complete thread history or block
+controls. Those require scoped native operation authority, not hardcoded
+readiness or permission flags.
+
+Observed evidence for this slice:
+
+- **151 screen/SDK fixture tests in seven files passed**, including 40 new
+  auth-bridge fixtures. Focused pilot TypeScript and the separate Vite web build
+  passed. These fixtures do not exercise a real plugin, live login or device.
+- The separate Capacitor app compiled and linked for physical iOS **unsigned**.
+  The runner verified arm64/iOS and absence of an app signature. It did not sign,
+  install, launch, enroll a human device or execute live native Auth. Cached
+  provider/bindings/frameworks were copied and hashed; this is not a fresh Rust
+  build or independent binary-provenance attestation.
+- Compile receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-auth-only-build-PAg2Ct/build-receipt.json`.
+  Two earlier link attempts failed because the generated project's provider
+  library search path was absent. Their failed receipts remain in
+  `thalassa-auth-only-build-1Ci8dy` and `thalassa-auth-only-build-3L5yyd` under the
+  same temporary parent. The generator now specifies that path.
+
+The coordinator also seals the first byte-identical registration bundle and a
+stable prekey-claim reservation independent of expiring outer request IDs.
+Reconciliation cannot extend bundle expiry, change registration parameters or
+rebind a claim after owner/peer generation changes. Optional metadata reopens old
+research states but refuses reconstructing enrollment from a used state.
+
+The frozen native regression rerun passed all nine disposable simulator phases,
+**40 new enrollment-intent assertions**, 266 Auth assertions and 247
+directory/facade assertions. Four actual Olm encrypted messages crossed ordinary
+URLSession HTTPS and on-disk SQL with process restarts and exact retries. Auth
+was a fixture; both clients ran inside one simulator, which was removed along
+with its temporary test CA. This does not execute the Capacitor auth app or
+connect native encryption to the hosted pilot. Receipt:
+`/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-k2cDZC/exchange-run.json`.
+Those exact simulator-tested sources also compiled/linked unsigned for physical
+iOS, without signing, installation or execution. Receipt:
+`/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-OqLbIX/compile.json`.
+Internal review is not independent audit.
 
 ### 3 October native facade and isolated hosted pilot
 
