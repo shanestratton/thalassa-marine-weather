@@ -87,7 +87,12 @@ import {
     isUnvouchedCell,
     MAX_UNVOUCHED_HARD_LAND_RUN_M,
 } from './engine/safetyAudit';
-import { chartStateAlong, collectShallowRuns, collectSurveyRuns } from './engine/shallowRuns';
+import {
+    applyShallowClearanceRing,
+    chartStateAlong,
+    collectShallowRuns,
+    collectSurveyRuns,
+} from './engine/shallowRuns';
 import { directTails } from './engine/directTail';
 import {
     smoothPath,
@@ -795,6 +800,11 @@ function routeInshoreOnceEnds(
         req.tideBarriers ?? [],
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
+    // The shallow bands' clearance ring, as a cost (the real-chart check,
+    // 2026-10-03): once per cached grid, before this route's copy, so the
+    // Seaway shadow's read of the same cached grid prices it too.
+    applyShallowClearanceRing(cachedGrid, layers, req.draftM + safetyM);
+    tPhase = mark('shallowRing', tPhase);
     // The endpoint carve and the component-bridge carve below write THIS
     // route's rescues into `cells` / `preferred`: a per-route copy, never the
     // cached grid (fix-up, 2026-09-30). Written into the cache, a re-route or
@@ -3094,6 +3104,7 @@ function routeInshoreOnceEnds(
         destinationTailStartSeg,
         originTailEndSeg,
         hazardMask: nearHazard,
+        canalMask: finalCanalMask,
     });
     // Survey quality on the route (owner decision 9, 2026-09-30): amber
     // stretches and the 'not checked' cells, from the finished geometry —
@@ -3262,6 +3273,7 @@ export {
     computeCentreFactor,
     aStar,
     chainCostM,
+    shallowRingFactor,
 } from './engine/aStar';
 export { douglasPeucker } from './engine/geometry';
 export { fairPath } from './engine/pathShaping';

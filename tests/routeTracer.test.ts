@@ -482,6 +482,72 @@ describe('routeTracer — marker discipline (P2)', () => {
         expect(right.issues.filter((i) => i.message.includes('cardinal'))).toHaveLength(0);
     });
 
+    // The real-chart check (2026-10-03): the side was read from the closest
+    // point's offset along the safe direction alone. Rivergate leg 23 and
+    // newport-shane leg 27 read "wrong side of the east cardinal" with their
+    // nearest point 338 m SOUTH of it (24 m west of its meridian) — and the
+    // "give it 90 m" note fired 390 m off for the same reason.
+    describe('an east cardinal: only its hazard quadrant is the wrong side', () => {
+        const c = { lat: -27.012, lon: 153.027, dir: 'e' as const, radiusM: 100 };
+        const ctx = () => ({ ...baseCtx, cardinals: [c] });
+        const kx = 111_320 * Math.cos((c.lat * Math.PI) / 180);
+        const at = (northM: number, eastM: number) => ({ lat: c.lat + northM / 111_320, lon: c.lon + eastM / kx });
+        const cardinalIssues = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) =>
+            validateTraceLeg(a, b, ctx()).issues.filter((i) => i.message.includes('cardinal'));
+
+        it('a leg ending 338 m south of it, 24 m west of its meridian, is not the wrong side', () => {
+            expect(cardinalIssues(at(-338, -400), at(-338, -24))).toEqual([]);
+        });
+
+        it('a leg 390 m north of it, 10 m east of its meridian, does not "shave" it', () => {
+            expect(cardinalIssues(at(390, 10), at(390, 400))).toEqual([]);
+        });
+
+        it('a leg 60 m west of it, in its hazard quadrant, is still the wrong side', () => {
+            const issues = cardinalIssues(at(-200, -60), at(200, -60));
+            expect(issues.map((i) => i.severity)).toEqual(['danger']);
+            expect(issues[0].message).toContain('wrong side of the east cardinal');
+        });
+
+        it('a leg 50 m south of it (a side quadrant) shaves it: give it 90 m', () => {
+            const issues = cardinalIssues(at(-50, -300), at(-50, 300));
+            expect(issues.map((i) => i.severity)).toEqual(['caution']);
+            expect(issues[0].message).toContain('shaves the east cardinal');
+        });
+
+        // Fix-up review (2026-10-03): the quadrant rule alone dropped a close
+        // pass on the danger's half, outside ±45°, from danger to a caution
+        // Save does not stop for. Close in (under 90 m) the danger's whole
+        // half stays the wrong side; the quadrant rule is for beyond that.
+        /** A leg tangent, at `distM`, to the circle round the mark, its
+         *  closest point at `bearingDeg` from it. */
+        const tangent = (distM: number, bearingDeg: number) => {
+            const r = (bearingDeg * Math.PI) / 180;
+            const [e, n] = [distM * Math.sin(r), distM * Math.cos(r)];
+            const [ue, un] = [Math.cos(r), -Math.sin(r)];
+            return cardinalIssues(at(n - 300 * un, e - 300 * ue), at(n + 300 * un, e + 300 * ue));
+        };
+
+        it('30 m off it at 200° and 340° (SSW, NNW — the danger half, outside ±45°): still the wrong side', () => {
+            for (const brg of [200, 210, 330, 340]) {
+                const issues = tangent(30, brg);
+                expect(issues.map((i) => i.severity)).toEqual(['danger']);
+                expect(issues[0].message).toContain('wrong side of the east cardinal');
+            }
+        });
+
+        it('exactly on the 45° line it is the wrong side, at any distance in the band', () => {
+            for (const d of [30, 200]) {
+                expect(tangent(d, 225).map((i) => i.severity)).toEqual(['danger']);
+                expect(tangent(d, 315).map((i) => i.severity)).toEqual(['danger']);
+            }
+        });
+
+        it('200 m off at 200° (outside the quadrant, beyond 90 m): silent', () => {
+            expect(tangent(200, 200)).toEqual([]);
+        });
+    });
+
     it('shaving a cardinal on the safe side is a caution', () => {
         const ctx = { ...baseCtx, cardinals: [{ lat: -27.005, lon: 153.005, dir: 'n' as const, radiusM: 100 }] };
         // ~55 m north of the mark — safe side, inside the 90 m clearance.

@@ -1346,8 +1346,24 @@ export function validateTraceLeg(
         if (near.distM > CARDINAL_BAND_M) continue;
         const safe = SAFE_VEC[c.dir];
         const kx = mPerLon(c.lat);
-        const sideM = (near.point.lon - c.lon) * kx * safe[0] + (near.point.lat - c.lat) * M_PER_DEG_LAT * safe[1];
-        if (sideM < 0) {
+        const ex = (near.point.lon - c.lon) * kx;
+        const ny = (near.point.lat - c.lat) * M_PER_DEG_LAT;
+        // Along the safe direction, and across it.
+        const sideM = ex * safe[0] + ny * safe[1];
+        const acrossM = Math.abs(ex * safe[1] - ny * safe[0]);
+        // The wrong side: close in (under CARDINAL_CLEAR_M), the danger's
+        // whole half; beyond that, only its HAZARD quadrant — the closest
+        // point within ±45° of the danger's direction (|across| ≤ −along).
+        // A centimetre's grace either way, so a point on either line does
+        // not flip with float rounding: on the mark's own meridian (for an
+        // east cardinal) is a side, on the 45° line is the danger's. The
+        // real-chart check (2026-10-03): read from the
+        // along-offset alone, a leg whose nearest point lay 338 m SOUTH of an
+        // east cardinal, 24 m west of its meridian, was "the wrong side" —
+        // and a leg passing 390 m off "shaves" it. Fix-up review (that day):
+        // the quadrant rule alone turned a pass 30 m SSW of an east cardinal
+        // from danger into a caution Save does not stop for.
+        if (sideM < -0.01 && (near.distM < CARDINAL_CLEAR_M || acrossM <= -sideM + 0.01)) {
             if (ridingLeadAt(near.point, legBrgRad, ctx.leads)) {
                 // Transit authority — same philosophy as the lateral rule's
                 // "chart confirms the side → silent": the harbour authority
@@ -1368,7 +1384,7 @@ export function validateTraceLeg(
                     mark: { lat: c.lat, lon: c.lon },
                 });
             }
-        } else if (sideM < CARDINAL_CLEAR_M) {
+        } else if (near.distM < CARDINAL_CLEAR_M) {
             // Leads routinely run close past cardinals by design — on the
             // transit the shave is the surveyed geometry, and #5 already owns
             // off-lead drift. Skip, don't nag.

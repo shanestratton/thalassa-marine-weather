@@ -38,7 +38,7 @@
 
 import { useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
-import { inshoreRouteCaveats } from './inshoreRouteNotice';
+import { inshoreRouteCaveats, nearShallowSummary } from './inshoreRouteNotice';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
 import { rdpTracePoints, capSegmentLength } from '../../services/routeTracer';
@@ -249,6 +249,8 @@ export function useAutoRouteLeg(deps: AutoRouteLegDeps): () => void {
                                 surveyUncheckedCells: res.surveyUncheckedCells,
                                 // Canal water from the offline pack (Phase 2b).
                                 waterPack: res.waterPack,
+                                // Too close to a shallow band (fix-up review, 2026-10-03).
+                                nearShallow: nearShallowSummary(res.chartedShallowSpans),
                             });
                             const withCaveats = (d: string | null): string | null =>
                                 caveats.length === 0 ? d : [d, ...caveats].filter(Boolean).join(' ');

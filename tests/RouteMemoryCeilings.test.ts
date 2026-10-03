@@ -14,9 +14,15 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { NAV_GRID_CACHE_BYTE_BUDGET, navGridBytes, navGridCache, trimNavGridCache } from '../services/engine/navGrid';
+import {
+    NAV_GRID_CACHE_BYTE_BUDGET,
+    buildNavGridCached,
+    navGridBytes,
+    navGridCache,
+    trimNavGridCache,
+} from '../services/engine/navGrid';
 import { coarseCellM, isCanalNarrow, MAX_FINE_PASS_COARSE_RES_M } from '../services/tier3/fineCanalGrid';
-import type { NavGrid } from '../services/engine/types';
+import type { InshoreLayers, NavGrid } from '../services/engine/types';
 
 const fakeGrid = (cellCount: number): NavGrid =>
     ({
@@ -49,6 +55,23 @@ describe('navGridCache byte budget', () => {
         expect([...navGridCache.keys()]).toEqual(['c']);
         trimNavGridCache(0); // the memory-warning dump
         expect(navGridCache.size).toBe(0);
+    });
+
+    it('a cached grid is admitted with room for the clearance ring the engine attaches after it', () => {
+        // Fix-up review (2026-10-03): applyShallowClearanceRing adds a
+        // Uint8Array(w × h) to the CACHED grid after it is admitted (0.8 MB on
+        // the 1123 × 715 Tangalooma grid), so every entry was undercounted.
+        const { grid } = buildNavGridCached(
+            { DEPARE: { type: 'FeatureCollection', features: [] } } as unknown as InshoreLayers,
+            [153, -27.01, 153.01, -27],
+            50,
+            2.4,
+            0.5,
+            30,
+        );
+        const entry = [...navGridCache.values()].find((v) => v.grid === grid);
+        expect(grid.shallowRing).toBeUndefined();
+        expect(entry?.bytes).toBe(navGridBytes(grid) + grid.width * grid.height);
     });
 });
 

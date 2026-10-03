@@ -18,7 +18,7 @@ import { DeepAnalysisReport } from '../types';
 import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/createLogger';
 import { withTimeout } from '../utils/deadline';
-import { inshoreRouteCaveats, isFinalInshoreRefusal } from '../components/map/inshoreRouteNotice';
+import { inshoreRouteCaveats, isFinalInshoreRefusal, nearShallowSummary } from '../components/map/inshoreRouteNotice';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
@@ -853,6 +853,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                                 surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
                                                 // Canal water from the offline pack (Phase 2b).
                                                 waterPack: inshoreRes.waterPack,
+                                                // Too close to a shallow band (fix-up review, 2026-10-03).
+                                                nearShallow: nearShallowSummary(inshoreRes.chartedShallowSpans),
                                             }),
                                         },
                                     };

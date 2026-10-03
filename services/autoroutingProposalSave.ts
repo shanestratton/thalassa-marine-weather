@@ -13,6 +13,9 @@ import {
 import type { PushResult } from './savedRoutesSync';
 import { backstopUnavailableSaveReason, backstopUnavailableWords } from './routing/landBackstopWords';
 
+const NEAR_SHALLOW_SAVE =
+    'Part of this route passes too close to water charted shallower than this boat needs. It cannot be saved.';
+
 export interface ReviewedProposalSaveInput {
     name: string;
     route: AutoroutingTrialRoute;
@@ -54,13 +57,18 @@ export function evaluateAutoroutingProposalSave(
     // round-2 review fix-up 2, 2026-10-03) has charted depth under it, so the
     // words say what it is; it is not saved either — it was red, and blocked,
     // before GRID_ONLY, and the clearance is what the router could not prove.
+    // Since the real-chart check (2026-10-03) that clearance is a stretch of
+    // any segment (a chartedShallowSpans entry with `near`), red or — where a
+    // tide clears the band itself — amber: a tide dependency the leg review
+    // cannot see, the water under the line being deep. Neither is saved.
     const unchecked = dangerWithoutChartedDepth(route.engine);
     if ((unchecked ?? [0]).length > 0)
         return deny(
             unchecked && unchecked.every((i) => route.engine!.cautionWhy?.[i] === CAUTION_WHY.NEAR_SHALLOW)
-                ? 'Part of this route is drawn red where it passes too close to water charted shallower than this boat needs. It cannot be saved.'
+                ? NEAR_SHALLOW_SAVE
                 : 'Part of this route is drawn red with no charted depth behind it (land, uncharted water or a charted hazard). It cannot be saved.',
         );
+    if (route.engine.chartedShallowSpans?.some((s) => s.near)) return deny(NEAR_SHALLOW_SAVE);
     // The satellite land check could not finish (offline, or online and it
     // failed: 2026-10-02, the field route timed out on Wi-Fi + 4G and was told
     // "offline"). Shown with what happened; saved only once it has run —

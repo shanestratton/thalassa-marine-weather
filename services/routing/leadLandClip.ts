@@ -325,6 +325,213 @@ export function segmentAreaDistanceM(
     return best;
 }
 
+/**
+ * WHERE along a→b the line comes within `reachM` of an indexed area (the
+ * real-chart check, 2026-10-03: a line metres off a reef is red over the
+ * stretch inside the clearance, not the whole segment). `near`: the
+ * parameter intervals t ∈ [0, 1] within reachM of a ring edge, exactly — the
+ * line's chord through each edge's capsule (its rectangle and end discs), in
+ * the local plane segmentAreaDistanceM measures in. `inside`: the stretches
+ * further than reachM from every edge yet inside the area (deep inside a
+ * wide band no edge is near; a gap between `near` intervals holds no edge
+ * crossing, so it is wholly in or wholly out). Both sorted, disjoint.
+ */
+export function segmentAreaNearIntervals(
+    area: IndexedArea,
+    a: readonly number[],
+    b: readonly number[],
+    reachM: number,
+): { near: [number, number][]; inside: [number, number][] } {
+    const out: { near: [number, number][]; inside: [number, number][] } = { near: [], inside: [] };
+    const midLat = (a[1] + b[1]) / 2;
+    const kx = 111_320 * Math.cos((midLat * Math.PI) / 180);
+    const ky = 111_320;
+    const padLat = reachM / ky;
+    const padLon = reachM / Math.max(kx, 1);
+    const lat0 = Math.min(a[1], b[1]) - padLat;
+    const lat1 = Math.max(a[1], b[1]) + padLat;
+    const [minLon, minLat, maxLon, maxLat] = area.bbox;
+    if (
+        maxLon < Math.min(a[0], b[0]) - padLon ||
+        minLon > Math.max(a[0], b[0]) + padLon ||
+        maxLat < lat0 ||
+        minLat > lat1
+    )
+        return out;
+    const dx = (b[0] - a[0]) * kx;
+    const dy = (b[1] - a[1]) * ky;
+    const dd = dx * dx + dy * dy;
+    if (!(dd > 0)) {
+        if (segmentAreaDistanceM(area, a, a, reachM) < reachM) out.near.push([0, 1]);
+        return out;
+    }
+    const r2 = reachM * reachM;
+    const raw: [number, number][] = [];
+    for (const ring of area.rings) {
+        const pts = ring.ring;
+        const n = pts.length;
+        forEachEdgeNear(ring, lat0, lat1, (i) => {
+            const p = pts[i === 0 ? n - 1 : i - 1];
+            const q = pts[i];
+            const px = (p[0] - a[0]) * kx;
+            const py = (p[1] - a[1]) * ky;
+            const qx = (q[0] - a[0]) * kx;
+            const qy = (q[1] - a[1]) * ky;
+            let lo = Infinity;
+            let hi = -Infinity;
+            // The end discs: |t·D − c|² < r².
+            for (const [cx, cy] of [
+                [px, py],
+                [qx, qy],
+            ]) {
+                const bq = -2 * (dx * cx + dy * cy);
+                const cq = cx * cx + cy * cy - r2;
+                const disc = bq * bq - 4 * dd * cq;
+                if (disc <= 0) continue;
+                const s = Math.sqrt(disc);
+                lo = Math.min(lo, (-bq - s) / (2 * dd));
+                hi = Math.max(hi, (-bq + s) / (2 * dd));
+            }
+            // The rectangle: 0 ≤ along ≤ len and |across| < r.
+            const ex = qx - px;
+            const ey = qy - py;
+            const len = Math.hypot(ex, ey);
+            if (len > 0) {
+                const ux = ex / len;
+                const uy = ey / len;
+                let t0 = -Infinity;
+                let t1 = Infinity;
+                const slab = (rate: number, offset: number, min: number, max: number): void => {
+                    // min ≤ t·rate − offset ≤ max
+                    if (rate === 0) {
+                        if (-offset < min || -offset > max) t1 = -Infinity;
+                        return;
+                    }
+                    const u0 = (min + offset) / rate;
+                    const u1 = (max + offset) / rate;
+                    t0 = Math.max(t0, Math.min(u0, u1));
+                    t1 = Math.min(t1, Math.max(u0, u1));
+                };
+                slab(dx * ux + dy * uy, px * ux + py * uy, 0, len);
+                slab(-dx * uy + dy * ux, -px * uy + py * ux, -reachM, reachM);
+                if (t0 < t1) {
+                    lo = Math.min(lo, t0);
+                    hi = Math.max(hi, t1);
+                }
+            }
+            lo = Math.max(0, lo);
+            hi = Math.min(1, hi);
+            if (lo < hi) raw.push([lo, hi]);
+        });
+    }
+    raw.sort((x, y) => x[0] - y[0]);
+    for (const iv of raw) {
+        const last = out.near[out.near.length - 1];
+        if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1]);
+        else out.near.push([iv[0], iv[1]]);
+    }
+    // The gaps: wholly inside or wholly outside.
+    let from = 0;
+    for (const [t0, t1] of [...out.near, [1, 1] as [number, number]]) {
+        if (t0 > from) {
+            const tm = (from + t0) / 2;
+            if (pointInArea(area, a[0] + (b[0] - a[0]) * tm, a[1] + (b[1] - a[1]) * tm)) out.inside.push([from, t0]);
+        }
+        from = Math.max(from, t1);
+    }
+    return out;
+}
+
+/**
+ * The point of an indexed area's BOUNDARY nearest the segment a→b (a = b: a
+ * point), and a point just inside the area there — where to ask whose survey
+ * owns the water at a band's nearest edge (the real-chart check's fix-up,
+ * 2026-10-03: a drying patch or a thin strip holding no grid cell's centre
+ * was never measured, because its band was found only through the cells
+ * whose centres it owns). Null when no edge lies within `reachM` (only edges
+ * within it, by latitude, are read). `inside` steps 0.1 m off the nearest
+ * edge to whichever side lies in the area — the edge point itself where
+ * neither side tests inside (a sliver).
+ */
+export function areaEdgeNearest(
+    area: IndexedArea,
+    a: readonly number[],
+    b: readonly number[],
+    reachM: number,
+): { distM: number; inside: [number, number] } | null {
+    const midLat = (a[1] + b[1]) / 2;
+    const kx = 111_320 * Math.cos((midLat * Math.PI) / 180);
+    const ky = 111_320;
+    const padLat = reachM / ky;
+    const lat0 = Math.min(a[1], b[1]) - padLat;
+    const lat1 = Math.max(a[1], b[1]) + padLat;
+    const bx = (b[0] - a[0]) * kx;
+    const by = (b[1] - a[1]) * ky;
+    const bb = bx * bx + by * by;
+    let best = Infinity;
+    // The nearest edge point and its edge's direction, in metres from a.
+    let hx = 0;
+    let hy = 0;
+    let ux = 0;
+    let uy = 0;
+    for (const r of area.rings) {
+        const ring = r.ring;
+        const n = ring.length;
+        forEachEdgeNear(r, lat0, lat1, (i) => {
+            const p = ring[i === 0 ? n - 1 : i - 1];
+            const q = ring[i];
+            const px = (p[0] - a[0]) * kx;
+            const py = (p[1] - a[1]) * ky;
+            const ex = (q[0] - a[0]) * kx - px;
+            const ey = (q[1] - a[1]) * ky - py;
+            const ee = ex * ex + ey * ey;
+            if (!(ee > 0)) return;
+            const take = (d: number, x: number, y: number): void => {
+                if (d < best) {
+                    best = d;
+                    hx = x;
+                    hy = y;
+                    ux = ex;
+                    uy = ey;
+                }
+            };
+            // The line crosses the edge: there.
+            const den = bx * ey - by * ex;
+            if (den !== 0) {
+                const s = (px * ey - py * ex) / den;
+                const u = (px * by - py * bx) / den;
+                if (s >= 0 && s <= 1 && u >= 0 && u <= 1) {
+                    take(0, px + u * ex, py + u * ey);
+                    return;
+                }
+            }
+            // Else an end of one against the other.
+            for (const [cx, cy] of [
+                [0, 0],
+                [bx, by],
+            ]) {
+                const u = Math.max(0, Math.min(1, ((cx - px) * ex + (cy - py) * ey) / ee));
+                take(Math.hypot(px + u * ex - cx, py + u * ey - cy), px + u * ex, py + u * ey);
+            }
+            for (const [cx, cy] of [
+                [px, py],
+                [px + ex, py + ey],
+            ]) {
+                const s = bb > 0 ? Math.max(0, Math.min(1, (cx * bx + cy * by) / bb)) : 0;
+                take(Math.hypot(cx - s * bx, cy - s * by), cx, cy);
+            }
+        });
+    }
+    if (!(best < reachM)) return null;
+    const at = (x: number, y: number): [number, number] => [a[0] + x / kx, a[1] + y / ky];
+    const len = Math.hypot(ux, uy);
+    for (const side of [1, -1]) {
+        const p = at(hx - (side * 0.1 * uy) / len, hy + (side * 0.1 * ux) / len);
+        if (pointInArea(area, p[0], p[1])) return { distM: best, inside: p };
+    }
+    return { distM: best, inside: at(hx, hy) };
+}
+
 /** Build the index for a layer set. Cheap (bboxes only); memoized on the
  * layer collections' identity by chartAreaIndexFor. */
 export function buildChartAreaIndex(layers: ClipLayers): ChartAreaIndex {

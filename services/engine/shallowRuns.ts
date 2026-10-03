@@ -23,6 +23,7 @@
  * becomes an exact stretch the planner draws red (chartedShallowSpans) and
  * part of a run — so a tide chip — like any caution (the backstop below).
  */
+import type { Position } from 'geojson';
 import type {
     CautionNearShallow,
     ChartedShallowSpan,
@@ -37,6 +38,7 @@ import { AMBER_SURVEY_REASONS, CAUTION_WHY } from './types';
 import { bboxBuckets, forEachCellOnSegment, haversineM, latLonToGrid, segmentDistanceM } from './geometry';
 import { UNKNOWN_OPEN } from './constants';
 import {
+    areaEdgeNearest,
     areaGeometry,
     chartAreaIndexFor,
     chartedDepthAt,
@@ -48,9 +50,11 @@ import {
     pointInArea,
     readNum,
     segmentAreaDistanceM,
+    segmentAreaNearIntervals,
     type IndexedArea,
     type IndexedDepthArea,
 } from '../routing/leadLandClip';
+import { SHALLOW_RING_FACTOR } from './aStar';
 import { surveyGradeAt, surveyVerdict, type SurveyZone } from '../routing/leadReview';
 import { surveyRanksTie } from '../enc/scaleShadow';
 
@@ -70,6 +74,10 @@ export interface ShallowRunInput {
      * hazardBufferSegments). Owner decision 10: its red is not the tide's to
      * lift. Absent: no segment gets a tideDepthM (fail-safe — red). */
     hazardMask?: readonly boolean[];
+    /** Per segment: the canal (RouteResult.canalMask) — red by its own
+     *  convention, so its red is named CANAL where nothing else names it, and
+     *  it gets no clearance stretch (the real-chart check, 2026-10-03). */
+    canalMask?: readonly boolean[];
 }
 
 export interface ShallowRunOutput {
@@ -460,18 +468,361 @@ export function nearShallowBand(input: {
     let worst: CautionNearShallow | null = null;
     const within: NearBand[] = [];
     for (const band of bands) {
-        const d1 = band.drval1;
-        const d2 = band.drval2 ?? null;
-        const cliff = d1 === null || d1 < 0 || d2 === null || d2 < floorM;
-        const requiredM = cliff ? cliffM : SHALLOW_BAND_CLEARANCE_M;
+        const requiredM = bandClearanceM(band, floorM, cliffM);
         const clearanceM = segmentAreaDistanceM(band, a, b, requiredM);
         if (!(clearanceM < requiredM)) continue;
         within.push({ band, clearanceM });
         // The band that falls furthest short of what it asks for.
         if (!worst || requiredM - clearanceM > worst.requiredM - worst.clearanceM)
-            worst = { clearanceM, depthM: d1, requiredM };
+            worst = { clearanceM, depthM: band.drval1, requiredM };
     }
     return { unmeasured, near: worst, within };
+}
+
+/** The clearance a shallow band asks for (nearShallowBand): `cliffM` where it
+ *  dries, charts no depth, or its deepest value never clears the keel
+ *  (DRVAL2 < floor, or none); SHALLOW_BAND_CLEARANCE_M where its deep end does. */
+export function bandClearanceM(band: IndexedDepthArea, floorM: number, cliffM = SHALLOW_CLIFF_CLEARANCE_M): number {
+    const d1 = band.drval1;
+    const d2 = band.drval2 ?? null;
+    return d1 === null || d1 < 0 || d2 === null || d2 < floorM ? Math.max(0, cliffM) : SHALLOW_BAND_CLEARANCE_M;
+}
+
+/**
+ * Where the marks own the line (fix-up review, 2026-10-03): preferred
+ * channel water (FAIRWY / DRGARE, a lead's corridor, a mark pair's gate), a
+ * paired mark's governed disc, a relax corridor — the shore skin's
+ * exemptions. The clearance ring does not price these cells, so the router
+ * cannot be steered off a bank there, and a clearance stretch the router
+ * did not choose is not drawn there either (collectShallowRuns).
+ */
+export function shallowRingExempt(grid: NavGrid, idx: number): boolean {
+    return grid.preferred[idx] === 1 || grid.markGoverned?.[idx] === 1 || grid.relaxMask?.[idx] === 1;
+}
+
+/**
+ * Whether a shallow band's own survey owns the water where it is nearest the
+ * line a→b (a = b: a point) — just inside its nearest edge (leadLandClip
+ * areaEdgeNearest), at a or b where they lie in it, or at an `extra` point
+ * (the caller's stretches under the line): it is among the finest-survey
+ * owners there (chartedDepthOwnersAt, the grid's own rule) and no Notice to
+ * Mariners survey is stamped on that cell (the survey outranks the chart).
+ * Fix-up review (2026-10-03): a band was found only through the cells whose
+ * centres it owns, so a patch or a strip between them never was.
+ */
+function bandOwnsNear(
+    grid: NavGrid,
+    band: IndexedDepthArea,
+    a: readonly [number, number],
+    b: readonly [number, number],
+    reachM: number,
+    bandsAt: (box: readonly number[]) => readonly IndexedDepthArea[],
+    extra: readonly (readonly [number, number])[] = [],
+): boolean {
+    const ownsAt = (lon: number, lat: number): boolean => {
+        const rise = grid.ntmRiseM;
+        if (rise) {
+            const { x, y } = latLonToGrid(grid, lat, lon);
+            if (x >= 0 && y >= 0 && x < grid.width && y < grid.height && !Number.isNaN(rise[y * grid.width + x]))
+                return false;
+        }
+        return chartedDepthOwnersAt(bandsAt([lon, lat, lon, lat]), lon, lat).includes(band);
+    };
+    const e = areaEdgeNearest(band, a, b, reachM);
+    if (e && ownsAt(e.inside[0], e.inside[1])) return true;
+    for (const p of [a, b]) if (pointInArea(band, p[0], p[1]) && ownsAt(p[0], p[1])) return true;
+    return extra.some((p) => ownsAt(p[0], p[1]));
+}
+
+/**
+ * The shallow bands' clearance as a COST on the grid (the real-chart check,
+ * 2026-10-03): every navigable cell from whose centre a step could pass
+ * inside the clearance nearShallowBand asks for — SHALLOW_CLIFF_CLEARANCE_M
+ * of a band that dries, charts no depth or never clears the keel,
+ * SHALLOW_BAND_CLEARANCE_M of one whose deep end does (a centre within
+ * √(clearance² + half a diagonal²) of it) — is a ring cell (NavGrid.shallowRing 2 / 1), and its
+ * price is multiplied by SHALLOW_RING_FACTOR (folded into centreFactor, as
+ * the shore skin is, so A*, cellCostAt, the smoother and the string pull's
+ * "no nearer a bank" all read it; the Seaway connectors read shallowRing).
+ * On the Pi's cells the connectors' cell chain ran 4.3 m off South Molle's
+ * reef: nothing priced the cells beside a reef above open water. A cost, not
+ * a block: where the ring is the only way through, the route still goes, and
+ * the clearance stretch says so.
+ *
+ * The bands are found as nearShallowBand finds them — those owning the
+ * centre of a shallow-band CAUTION cell (the grid's finest-survey rule; not
+ * an NtM stamp) within reach — and, since the fix-up review (2026-10-03), by
+ * their EDGES: every cell a shallow band's ring edge passes through seeds
+ * that band, where its survey owns the water just inside the edge there
+ * (bandOwnsAt). A drying patch or a 30 m strip between the cells' centres
+ * owned none, and was never ringed. Each band is measured exactly. Not where
+ * the marks own the line (shallowRingExempt: preferred channel water, a
+ * paired mark's governed disc, a relax corridor — the shore skin's
+ * exemptions); caution, unknown and blocked cells already price their own
+ * risk. Applied once per grid (the engine, on the cached grid it routes on);
+ * later calls are no-ops.
+ */
+export function applyShallowClearanceRing(grid: NavGrid, layers: InshoreLayers, floorM: number): number {
+    if (grid.shallowRing) return 0;
+    const sd = grid.shallowDepthM;
+    const centre = grid.centreFactor;
+    const all = sd && centre ? chartAreaIndexFor(layers).depth : [];
+    const isShallowBand = (x: IndexedDepthArea): boolean => x.drval1 === null || x.drval1 < floorM;
+    const shallowBands = all.filter(isShallowBand);
+    if (!sd || !centre || shallowBands.length === 0) {
+        grid.shallowRing = new Uint8Array(0);
+        return 0;
+    }
+    const { width: w, height: h, cells } = grid;
+    const ring = new Uint8Array(w * h);
+    const kx = 111_320 * Math.cos(((grid.minLat + (h * grid.dLat) / 2) * Math.PI) / 180);
+    const cellW = grid.dLon * kx;
+    const cellH = grid.dLat * 111_320;
+    const cliffM = SHALLOW_CLIFF_CLEARANCE_M;
+    // A cell is ring where its centre lies within √(R² + (d/2)²) of the band
+    // (R its clearance, d a cell's diagonal): then no step between two cells
+    // off the ring — whose line is at most a diagonal long — passes within R
+    // of it (the worst spot is on the step's perpendicular bisector). By the
+    // centres alone, a diagonal step through a reef's corner could graze it:
+    // on the Pi's cells Coral Sea Marina → Daydream passed 24.7 m off
+    // Daydream's reef between two cells 30 m+ from it.
+    const halfDiag = 0.5 * Math.hypot(cellW, cellH);
+    const ringM = (requiredM: number): number => Math.hypot(requiredM, halfDiag);
+    const k = Math.max(1, Math.ceil((ringM(cliffM) + halfDiag) / Math.min(cellW, cellH)));
+    const ntm = grid.ntmRiseM;
+    const shallowCell = (idx: number): boolean => cells[idx] < 0 && !Number.isNaN(sd[idx]) && !((ntm?.[idx] ?? 0) > 0);
+    const centreOf = (idx: number): [number, number] => {
+        const x = idx % w;
+        return [grid.minLon + (x + 0.5) * grid.dLon, grid.minLat + ((idx - x) / w + 0.5) * grid.dLat];
+    };
+    const bandsIn = bboxBuckets(all, (x) => x.bbox);
+    // Bands by number (shallowBands' index), per-band facts once.
+    const bandNo = new Map<IndexedDepthArea, number>(shallowBands.map((x, i) => [x, i]));
+    const nb = shallowBands.length;
+    const bandCls = new Uint8Array(nb);
+    const bandReachM = new Float64Array(nb);
+    shallowBands.forEach((band, i) => {
+        const requiredM = bandClearanceM(band, floorM, cliffM);
+        bandCls[i] = requiredM === cliffM && cliffM > SHALLOW_BAND_CLEARANCE_M ? 2 : 1;
+        bandReachM[i] = ringM(requiredM);
+    });
+    // A shallow cell's owning shallow bands (by number), once per cell:
+    // ownerSlot 0 = not read yet, else 1 + its list.
+    const ownerSlot = new Int32Array(w * h);
+    const ownerLists: number[][] = [];
+    const ownersOf = (idx: number): number[] => {
+        const slot = ownerSlot[idx];
+        if (slot !== 0) return ownerLists[slot - 1];
+        const [lon, lat] = centreOf(idx);
+        const o = chartedDepthOwnersAt(bandsIn([lon, lat, lon, lat]), lon, lat)
+            .filter(isShallowBand)
+            .map((x) => bandNo.get(x) as number);
+        ownerLists.push(o);
+        ownerSlot[idx] = ownerLists.length;
+        return o;
+    };
+    // The cells within k of a seed: the only ones a band can be near.
+    const candidate = new Uint8Array(w * h);
+    const markAround = (idx: number): void => {
+        const x = idx % w;
+        const y = (idx - x) / w;
+        for (let ny = Math.max(0, y - k); ny <= Math.min(h - 1, y + k); ny++)
+            for (let nx = Math.max(0, x - k); nx <= Math.min(w - 1, x + k); nx++) candidate[ny * w + nx] = 1;
+    };
+    // Seeds (1): a shallow cell beside navigable water (its centre's bands).
+    for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+            const idx = y * w + x;
+            if (!shallowCell(idx)) continue;
+            let edge = false;
+            for (let dy = -1; dy <= 1 && !edge; dy++)
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx >= 0 && ny >= 0 && nx < w && ny < h && cells[ny * w + nx] > 0) {
+                        edge = true;
+                        break;
+                    }
+                }
+            if (edge) markAround(idx);
+        }
+    // Seeds (2): every cell a shallow band's edge passes through (fix-up
+    // review, 2026-10-03) — a band that holds no cell's centre is seeded
+    // too. seedOf: 0 none, else 1 + its slot: the band numbers, and for each
+    // one edge through the cell (its ring in ringPts, its end vertex) to ask
+    // the band's ownership at.
+    const seedOf = new Int32Array(w * h);
+    const seedLists: number[][] = [];
+    const seedRing: number[][] = [];
+    const seedVertex: number[][] = [];
+    // Per ring: its points, and whether the band's water lies LEFT of its
+    // edges (an outer ring wound counter-clockwise, or a hole clockwise).
+    const ringPts: Position[][] = [];
+    const ringLeft: boolean[] = [];
+    const maxLon = grid.minLon + w * grid.dLon;
+    const maxLat = grid.minLat + h * grid.dLat;
+    shallowBands.forEach((band, bi) => {
+        const [b0, b1, b2, b3] = band.bbox;
+        if (b2 < grid.minLon || b0 > maxLon || b3 < grid.minLat || b1 > maxLat) return;
+        let rid = -1;
+        let vertex = 0;
+        const seed = (idx: number): void => {
+            const si = seedOf[idx];
+            if (si === 0) {
+                seedLists.push([bi]);
+                seedRing.push([rid]);
+                seedVertex.push([vertex]);
+                seedOf[idx] = seedLists.length;
+                markAround(idx);
+                return;
+            }
+            const list = seedLists[si - 1];
+            if (list[list.length - 1] === bi || list.includes(bi)) return;
+            list.push(bi);
+            seedRing[si - 1].push(rid);
+            seedVertex[si - 1].push(vertex);
+        };
+        for (const poly of band.polys)
+            poly.forEach((r, ri) => {
+                const pts = r.ring;
+                if (r.maxLat < grid.minLat || r.minLat > maxLat) return;
+                const n = pts.length;
+                // Edge i joins pts[i - 1] (pts[n - 1] for i = 0) to pts[i].
+                const prev = (i: number): Position => pts[i === 0 ? n - 1 : i - 1];
+                let area2 = 0;
+                for (let i = 0; i < n; i++) area2 += prev(i)[0] * pts[i][1] - pts[i][0] * prev(i)[1];
+                ringPts.push(pts);
+                ringLeft.push(ri === 0 ? area2 > 0 : area2 < 0);
+                rid = ringPts.length - 1;
+                for (let i = 0; i < n; i++) {
+                    const p = prev(i);
+                    const q = pts[i];
+                    if (p[0] === q[0] && p[1] === q[1]) continue;
+                    if (Math.max(p[0], q[0]) < grid.minLon || Math.min(p[0], q[0]) > maxLon) continue;
+                    if (Math.max(p[1], q[1]) < grid.minLat || Math.min(p[1], q[1]) > maxLat) continue;
+                    vertex = i;
+                    forEachCellOnSegment(grid, p as [number, number], q as [number, number], seed);
+                }
+            });
+    });
+    // Whether a band's survey owns the water just inside its edge in seed
+    // cell s, once per (cell, band) — 0.1 m inside the seeding edge, by the
+    // point of it nearest the cell's centre: no FINER survey covers that
+    // spot (scaleShadow depthSurveyOwners — the finest ranked band and its
+    // ties own it, an unranked band always does; so a band owns a spot it
+    // covers unless a strictly finer, untied band covers it too) and no
+    // Notice to Mariners survey is stamped on its cell. A band no finer one
+    // overlaps owns all of its edge. (Asked through areaEdgeNearest and every
+    // band over the spot, a Whitsunday grid's 12,000 asks took 0.36 s.)
+    const finer = (band: IndexedDepthArea, o: IndexedDepthArea): boolean =>
+        band.rank !== null && o.rank !== null && o.rank > band.rank && !surveyRanksTie(band.rank, o.rank);
+    const hasFiner = shallowBands.map((band) => band.rank !== null && bandsIn(band.bbox).some((o) => finer(band, o)));
+    const rise = grid.ntmRiseM;
+    const owned = new Map<number, boolean>();
+    const ownedAtSeed = (s: number, bi: number, q: number): boolean => {
+        if (!hasFiner[bi] && !rise) return true;
+        const key = s * nb + bi;
+        let o = owned.get(key);
+        if (o === undefined) {
+            const slot = seedOf[s] - 1;
+            const rid = seedRing[slot][q];
+            const pts = ringPts[rid];
+            const v = seedVertex[slot][q];
+            const [cx, cy] = centreOf(s);
+            const kxl = 111_320 * Math.cos((cy * Math.PI) / 180);
+            const a0 = pts[v === 0 ? pts.length - 1 : v - 1];
+            const ex = (pts[v][0] - a0[0]) * kxl;
+            const ey = (pts[v][1] - a0[1]) * 111_320;
+            const px = (a0[0] - cx) * kxl;
+            const py = (a0[1] - cy) * 111_320;
+            const ee = ex * ex + ey * ey;
+            const u = ee > 0 ? Math.max(0, Math.min(1, -(px * ex + py * ey) / ee)) : 0;
+            const side = (ringLeft[rid] ? 0.1 : -0.1) / Math.max(Math.sqrt(ee), 1e-9);
+            const lon = cx + (px + u * ex - side * ey) / kxl;
+            const lat = cy + (py + u * ey + side * ex) / 111_320;
+            const at = latLonToGrid(grid, lat, lon);
+            const band = shallowBands[bi];
+            o =
+                !(rise && at.x >= 0 && at.y >= 0 && at.x < w && at.y < h && !Number.isNaN(rise[at.y * w + at.x])) &&
+                !bandsIn([lon, lat, lon, lat]).some((f) => finer(band, f) && pointInArea(f, lon, lat));
+            owned.set(key, o);
+        }
+        return o;
+    };
+    // The cells a band within reach could be seeded from, nearest first: a
+    // band's edge lies within half a diagonal of some centre it owns, and of
+    // the centre of every cell it passes through.
+    const reachCellM = ringM(cliffM) + halfDiag;
+    const around: [number, number, number][] = [];
+    for (let dy = -k; dy <= k; dy++)
+        for (let dx = -k; dx <= k; dx++) {
+            const m = Math.hypot(dx * cellW, dy * cellH);
+            if (m <= reachCellM + halfDiag) around.push([dx, dy, m]);
+        }
+    around.sort((p, q) => p[2] - q[2]);
+    const nAround = around.length;
+    const aroundDx = Int32Array.from(around, (a) => a[0]);
+    const aroundDy = Int32Array.from(around, (a) => a[1]);
+    const aroundM = Float64Array.from(around, (a) => a[2]);
+    // Per candidate: whether each band it meets lies within its ring radius
+    // (nearAt[bi] valid where seenAt[bi] is the candidate's idx + 1).
+    const seenAt = new Int32Array(nb);
+    const nearAt = new Uint8Array(nb);
+    let p: [number, number] = [0, 0];
+    let cand = 0;
+    let cls = 0;
+    /** Rings band `bi` if it is near enough and owned: a shallow cell's
+     *  owner owns that centre; an edge seed counts only where its band owns
+     *  the water just inside its edge. `sM`: metres from the candidate's
+     *  centre to seed s's. The seeds come nearest first, and every cell a
+     *  band's edge passes through seeds it, so a band first met (owned) from
+     *  an edge seed further than its reach plus half a diagonal is not
+     *  within reach of a part it owns. */
+    const consider = (bi: number, s: number, ownsCentre: boolean, sM: number, q: number): void => {
+        const c = bandCls[bi];
+        if (c <= cls) return;
+        if (!ownsCentre && !ownedAtSeed(s, bi, q)) return;
+        if (seenAt[bi] !== cand) {
+            seenAt[bi] = cand;
+            nearAt[bi] =
+                (ownsCentre || sM <= bandReachM[bi] + halfDiag) &&
+                segmentAreaDistanceM(shallowBands[bi], p, p, bandReachM[bi]) < bandReachM[bi]
+                    ? 1
+                    : 0;
+        }
+        if (nearAt[bi] === 1) cls = c;
+    };
+    let ringed = 0;
+    for (let idx = 0; idx < w * h; idx++) {
+        if (candidate[idx] !== 1 || !(cells[idx] > 0)) continue;
+        if (shallowRingExempt(grid, idx)) continue;
+        const x = idx % w;
+        const y = (idx - x) / w;
+        p = centreOf(idx);
+        cand = idx + 1;
+        cls = 0;
+        // The shallow cells' owners first (no ownership to probe), then the
+        // edge seeds — each pass nearest first.
+        for (let pass = 0; pass < 2 && cls < 2; pass++)
+            for (let j = 0; j < nAround && cls < 2; j++) {
+                const nx = x + aroundDx[j];
+                const ny = y + aroundDy[j];
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const s = ny * w + nx;
+                let list: number[] | null = null;
+                if (pass === 0) {
+                    if (shallowCell(s)) list = ownersOf(s);
+                } else if (seedOf[s] !== 0) list = seedLists[seedOf[s] - 1];
+                if (list)
+                    for (let q = 0; q < list.length && cls < 2; q++) consider(list[q], s, pass === 0, aroundM[j], q);
+            }
+        if (cls === 0) continue;
+        ring[idx] = cls;
+        centre[idx] *= SHALLOW_RING_FACTOR[cls];
+        ringed++;
+    }
+    grid.shallowRing = ring;
+    return ringed;
 }
 
 /** A shallow band a line comes inside the clearance of (nearShallowBand). */
@@ -642,8 +993,10 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
     // entering the band was all GRID_ONLY asked, and by construction its line
     // runs 0–35 m from that band, so a line metres off a steep-to drying reef,
     // or along its very edge, went from red to green and Save. It keeps its
-    // red, named (NEAR_SHALLOW: "passes 5 m from water charted to dry 3.0 m"),
-    // and a cell a Notice to Mariners survey stamped below the floor is never
+    // red, named ("passes 5 m from water charted to dry 3.0 m") — since the
+    // real-chart check (2026-10-03) over the stretch inside the clearance
+    // only, like every other segment's (the clearance pass below) — and a
+    // cell a Notice to Mariners survey stamped below the floor is never
     // a shallow band's here: its depth is read on a 5 m walk, so a line
     // clipping a 1.2 m survey cell's corner could read the chart's 10 m.
     const cautionNearShallow: (CautionNearShallow | null)[] = new Array(segCount).fill(null);
@@ -727,8 +1080,15 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
     };
     const facts: (LineFacts | null)[] = new Array(segCount).fill(null);
     const cautionWhy: number[] = new Array(segCount).fill(0);
+    const canalMask = input.canalMask && input.canalMask.length === segCount ? input.canalMask : null;
+    const isTail = (i: number): boolean =>
+        (destinationTailStartSeg >= 0 && i >= destinationTailStartSeg) || i <= originTailEndSeg;
+    const nearBySeg: (ReturnType<typeof nearShallowBand> | null)[] = new Array(segCount).fill(null);
     for (let i = 0; i < segCount; i++) {
-        if (!caution[i]) continue;
+        if (!caution[i]) {
+            if (canalMask?.[i]) cautionWhy[i] = CAUTION_WHY.CANAL;
+            continue;
+        }
         const f = factsOf(polyline[i], polyline[i + 1]);
         facts[i] = f;
         let why = 0;
@@ -738,10 +1098,9 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
         if (hazardMask?.[i]) why |= CAUTION_WHY.HAZARD;
         const cells = cautionCells(i);
         why |= cells.bits;
-        const tail = (destinationTailStartSeg >= 0 && i >= destinationTailStartSeg) || i <= originTailEndSeg;
         if (why === 0) {
             why = CAUTION_WHY.UNEXPLAINED;
-            if (depthBands.length > 0 && hazardMask && !tail && cells.onlyShallowBand) {
+            if (depthBands.length > 0 && hazardMask && !isTail(i) && cells.onlyShallowBand) {
                 const clear = nearShallowBand({
                     grid,
                     depthBands,
@@ -750,10 +1109,14 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
                     a: polyline[i],
                     b: polyline[i + 1],
                 });
-                if (clear.near) {
-                    why = CAUTION_WHY.NEAR_SHALLOW;
-                    cautionNearShallow[i] = clear.near;
-                } else if (!clear.unmeasured) why = CAUTION_WHY.GRID_ONLY;
+                // Too close to a band: the clearance pass draws the stretch
+                // inside it, the rest is the grid's alone (the real-chart
+                // check, 2026-10-03: the whole segment used to go red —
+                // Rivergate's 11.3 km bay chord, 3.7 m from a 2 m band).
+                if (!clear.unmeasured) {
+                    why = CAUTION_WHY.GRID_ONLY;
+                    nearBySeg[i] = clear;
+                }
             }
         }
         cautionWhy[i] = why;
@@ -940,6 +1303,215 @@ export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
     const cautionDepthM: (number | null)[] = segMinDepth.map((d, i) =>
         caution[i] && Number.isFinite(d) && d < cautionFloorM ? d : null,
     );
+    // ── The shallow bands' clearance, on EVERY segment (the real-chart
+    // check, 2026-10-03) ──────────────────────────────────────────────────
+    // It used to be measured only on a caution segment the grid's cells alone
+    // made caution, so a segment whose 50 m cells read clean was never
+    // measured: on the Pi's cells Shane's Cid Harbour route passed 4.3 m from
+    // South Molle's reef drying 3.6 m, and Coral Sea Marina → Daydream 24.6 m
+    // from Daydream's, both drawn green. Now every segment within reach of a
+    // shallow band (by the bands' bboxes) is measured by the same rule
+    // (nearShallowBand: 30 m from a band that dries, charts no depth or never
+    // clears the keel, 10 m from one whose deep end does), and the STRETCH
+    // inside the clearance — exactly (leadLandClip segmentAreaNearIntervals),
+    // never the whole segment — is a chartedShallowSpan with `near`: red, or
+    // amber where a tide clears the band itself (decision 10: its DRVAL1 is
+    // the depth a tide must lift; not in a hazard's buffer, not over
+    // decision-1 water nor water no band charts, not beside a band whose own
+    // water the charts dispute, never a band that charts no depth).
+    //   Not on a segment red whatever the tide (a caution segment with no
+    // tide depth), nor the canal (red by its own convention), nor a charted
+    // pin's tail (decision 7: the pin's own water). On a caution segment a
+    // tide may lift (amber where it does) the line is already in water that
+    // needs a tide, beside more of it: only a band that DRIES or charts no
+    // depth counts there — a reef beside a needs-tide stretch. Measured on
+    // the goldens, a 0–2 m band's 0 m end would have turned 527 m of
+    // Newport's marked exit, 6.6 m off it in its 2 m channel, from needs-tide
+    // amber to red at a 2.5 m tide.
+    //   Where the line enters a band, its approach inside the clearance is
+    // drawn with the crossing (by the same band's depth), so a bank's red or
+    // amber reaches 30 m either side of it.
+    const clearanceSpans = (): ChartedShallowSpan[] => {
+        const out: ChartedShallowSpan[] = [];
+        const shallowIn = bboxBuckets(
+            depthBands.filter((x) => x.drval1 === null || x.drval1 < cautionFloorM),
+            (x) => x.bbox,
+        );
+        const allIn = bboxBuckets(depthBands, (x) => x.bbox);
+        for (let i = 0; i < segCount; i++) {
+            if (canalMask?.[i] || isTail(i) || !(segLenM(i) > 0)) continue;
+            const gridOnly = cautionWhy[i] === CAUTION_WHY.GRID_ONLY;
+            const lift = caution[i] && !gridOnly ? tideDepthM[i] : null;
+            if (caution[i] && !gridOnly && lift === null) continue;
+            const [a, b] = [polyline[i], polyline[i + 1]];
+            const midLat = (a[1] + b[1]) / 2;
+            const padM = SHALLOW_CLIFF_CLEARANCE_M + 2 * Math.hypot(grid.dLon * 111_320, grid.dLat * 111_320);
+            const pad = [padM / (111_320 * Math.max(0.01, Math.cos((midLat * Math.PI) / 180))), padM / 111_320];
+            const box = [
+                Math.min(a[0], b[0]) - pad[0],
+                Math.min(a[1], b[1]) - pad[1],
+                Math.max(a[0], b[0]) + pad[0],
+                Math.max(a[1], b[1]) + pad[1],
+            ];
+            const shallowNear = shallowIn(box);
+            if (shallowNear.length === 0) continue;
+            const bands = allIn(box);
+            const nb =
+                nearBySeg[i] ??
+                nearShallowBand({
+                    grid,
+                    depthBands: bands,
+                    floorM: cautionFloorM,
+                    cliffClearanceM: SHALLOW_CLIFF_CLEARANCE_M,
+                    a,
+                    b,
+                });
+            const lerp = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+            // The bands nearShallowBand finds through the cells whose centres
+            // they own — and, since the fix-up review (2026-10-03), every
+            // shallow band within its clearance whose own survey owns the
+            // water at its nearest edge or under the line (bandOwnsNear): a
+            // patch drying 2 m between four cells' centres, or a 30 m strip
+            // between two rows of them, 10 m off a line was drawn green.
+            const found = new Set<IndexedDepthArea>(nb.within.map((w) => w.band));
+            const cover: { band: IndexedDepthArea; requiredM: number; ivs: [number, number][] }[] = [];
+            for (const band of [...found, ...shallowNear.filter((x) => !found.has(x))]) {
+                const d1 = band.drval1;
+                if (lift !== null && d1 !== null && d1 >= 0) continue;
+                const requiredM = bandClearanceM(band, cautionFloorM);
+                if (!found.has(band) && !(segmentAreaDistanceM(band, a, b, requiredM) < requiredM)) continue;
+                const { near, inside } = segmentAreaNearIntervals(band, a, b, requiredM);
+                // Deep inside a band counts where it owns the water (the
+                // finest survey's rule), not under a finer survey's.
+                const owns = inside.filter(([t0, t1]) =>
+                    chartedDepthOwnersAt(bands, ...lerp((t0 + t1) / 2)).includes(band),
+                );
+                if (
+                    !found.has(band) &&
+                    !bandOwnsNear(
+                        grid,
+                        band,
+                        a,
+                        b,
+                        requiredM,
+                        () => bands,
+                        owns.map(([t0, t1]) => lerp((t0 + t1) / 2)),
+                    )
+                )
+                    continue;
+                const ivs = [...near, ...owns];
+                if (ivs.length > 0) cover.push({ band, requiredM, ivs });
+            }
+            if (cover.length === 0) continue;
+            // Charted-shallow water under the line is its own stretch already.
+            const own = spansBySeg.get(i) ?? [];
+            const cuts = new Set<number>([0, 1]);
+            for (const c of cover) for (const [t0, t1] of c.ivs) cuts.add(t0).add(t1);
+            for (const u of own) cuts.add(u.t0).add(u.t1);
+            // Where the marks own the line (shallowRingExempt — the ring's own
+            // exemption, so the router could not be steered off the bank
+            // there) no clearance stretch is drawn (fix-up review,
+            // 2026-10-03): a dredged channel 50 m wide between drying banks
+            // was drawn red and refused Save and Plan My Day, where 7f48fe15
+            // drew it as channel and let it past. Cut at every cell edge the
+            // line crosses, so each piece lies in one cell. Not on a segment
+            // 7f230264 already reddened for its clearance (a cells-only
+            // caution segment near a band): that red, and its refusal, stand.
+            const exemptOk = !nearBySeg[i]?.near;
+            if (exemptOk) {
+                const fx = (lon: number): number => (lon - grid.minLon) / grid.dLon;
+                const fy = (lat: number): number => (lat - grid.minLat) / grid.dLat;
+                for (const [f0, f1] of [
+                    [fx(a[0]), fx(b[0])],
+                    [fy(a[1]), fy(b[1])],
+                ]) {
+                    if (f0 === f1) continue;
+                    for (let g = Math.floor(Math.min(f0, f1)) + 1; g <= Math.max(f0, f1); g++)
+                        cuts.add((g - f0) / (f1 - f0));
+                }
+            }
+            /** Every cell the point lies in (both, on a cell edge) is exempt. */
+            const exemptAt = (t: number): boolean => {
+                const [lon, lat] = lerp(t);
+                const fx = (lon - grid.minLon) / grid.dLon;
+                const fy = (lat - grid.minLat) / grid.dLat;
+                const xs = new Set([Math.floor(fx), Math.floor(fx - 1e-9), Math.floor(fx + 1e-9)]);
+                const ys = new Set([Math.floor(fy), Math.floor(fy - 1e-9), Math.floor(fy + 1e-9)]);
+                for (const x of xs)
+                    for (const y of ys) {
+                        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
+                        if (!shallowRingExempt(grid, y * grid.width + x)) return false;
+                    }
+                return true;
+            };
+            const ts = [...cuts].filter((t) => t >= 0 && t <= 1).sort((x, y) => x - y);
+            let pieces: ChartPiece[] | null = null;
+            let open: { t0: number; t1: number; key: string; covering: typeof cover } | null = null;
+            const flushOpen = (): void => {
+                if (!open) return;
+                const at = (t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+                const [p, q] = [at(open.t0), at(open.t1)];
+                let worst: CautionNearShallow | null = null;
+                let depth = Infinity;
+                let noDepth = false;
+                for (const c of open.covering) {
+                    const clearanceM = segmentAreaDistanceM(c.band, p, q, c.requiredM);
+                    const d1 = c.band.drval1;
+                    if (d1 === null) noDepth = true;
+                    else if (d1 < depth) depth = d1;
+                    if (!worst || c.requiredM - clearanceM > worst.requiredM - worst.clearanceM)
+                        worst = { clearanceM: Math.min(clearanceM, c.requiredM), depthM: d1, requiredM: c.requiredM };
+                }
+                // Decision-1 water, or water no band charts a depth for, under
+                // the stretch — or a band whose own water the charts dispute
+                // where this line crosses it: no tide settles that (as on any
+                // red), so red.
+                pieces ??= piecesOf(a, b).filter((x) => x.conflict || (x.finest === null && x.ntm === null));
+                const t0 = open.t0;
+                const t1 = open.t1;
+                const unproven =
+                    pieces.some((x) => x.t1 > t0 && x.t0 < t1) ||
+                    open.covering.some((c) => pieces!.some((x) => x.conflict && pointInArea(c.band, x.lon, x.lat)));
+                const liftable = !!hazardMask && !hazardMask[i] && !noDepth && !unproven;
+                out.push({
+                    startSeg: i,
+                    startT: t0,
+                    endSeg: i,
+                    endT: t1,
+                    minDepthM: noDepth ? Math.min(0, depth) : depth,
+                    ...(liftable ? { tideLiftable: true } : {}),
+                    near: worst as CautionNearShallow,
+                });
+                const prior = cautionNearShallow[i];
+                if (!prior || worst!.requiredM - worst!.clearanceM > prior.requiredM - prior.clearanceM)
+                    cautionNearShallow[i] = worst;
+                open = null;
+            };
+            for (let k = 0; k + 1 < ts.length; k++) {
+                const [t0, t1] = [ts[k], ts[k + 1]];
+                if (!(t1 - t0 > EPS_T)) continue;
+                const tm = (t0 + t1) / 2;
+                const covering =
+                    own.some((u) => tm > u.t0 && tm < u.t1) || (exemptOk && exemptAt(tm))
+                        ? []
+                        : cover.filter((c) => c.ivs.some(([x, y]) => tm > x && tm < y));
+                const key = covering.map((c) => cover.indexOf(c)).join(',');
+                if (open && open.key === key && Math.abs(open.t1 - t0) < EPS_T) {
+                    open.t1 = t1;
+                    continue;
+                }
+                flushOpen();
+                if (covering.length > 0) open = { t0, t1, key, covering };
+            }
+            flushOpen();
+        }
+        return out;
+    };
+    const nearSpans = depthBands.length > 0 && grid.shallowDepthM ? clearanceSpans() : [];
+    if (nearSpans.length > 0) {
+        chartedShallowSpans.push(...nearSpans);
+        chartedShallowSpans.sort((x, y) => x.startSeg + x.startT - (y.startSeg + y.startT));
+    }
     return {
         shallowRuns,
         chartedShallowMask,

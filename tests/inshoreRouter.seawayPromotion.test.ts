@@ -15,7 +15,7 @@ vi.mock('../services/OsmRouteOverlayService', () => ({ getOsmRouteOverlay: async
 
 import { seawayGraphSafetyFault, seawayPromotionBlockReason } from '../services/InshoreRouter';
 import { chartClearanceBars } from '../services/routing/overheadClearance';
-import type { InshoreLayers, ShallowRunInfo } from '../services/engine/types';
+import { CAUTION_WHY, type InshoreLayers, type ShallowRunInfo } from '../services/engine/types';
 import type { Feature, FeatureCollection } from 'geojson';
 
 describe('Seaway promotion guard', () => {
@@ -234,6 +234,8 @@ describe('a promoted Seaway route renders and saves like an engine route', () =>
         expect(r.canalMask).toEqual([true, true, false]);
         expect(r.offshoreMask).toEqual([false, false, false]);
         expect(inshoreSegmentStates(r)).toEqual(['danger', 'channel', 'green']);
+        // The canal's red names its reason (the real-chart check, 2026-10-03).
+        expect(r.cautionWhy).toEqual([CAUTION_WHY.CANAL, CAUTION_WHY.CANAL, 0]);
         expect(r.surveyRuns).toEqual([]);
         expect(r.debug?.seaway?.edgesUsed).toEqual(['e1']);
     });

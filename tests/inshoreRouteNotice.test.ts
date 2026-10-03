@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
     inshoreRouteCaveats,
     inshoreRouteNotice,
+    nearShallowSummary,
     savedInshoreRouteCaveats,
     surveyCaveats,
 } from '../components/map/inshoreRouteNotice';
@@ -335,6 +336,68 @@ describe('a shallow pin whose tail is not direct', () => {
         // A direct tail needs no note, saved or not.
         expect(
             savedInshoreRouteCaveats({ routeGeoJSON: geo({ pinTail: { origin: { ...tail, direct: true } } }) }),
+        ).toEqual([]);
+    });
+});
+
+// Fix-up review (2026-10-03): the map draws a stretch inside a shallow band's
+// clearance and Auto will not save it, but a plan from the voyage form kept
+// none of it (routeGeoJSON carried no near spans) and was saved without a
+// word. The route now says it, and the saved route carries it.
+describe('a route that passes inside a shallow band’s clearance', () => {
+    const span = (clearanceM: number, depthM: number | null, requiredM: number) => ({
+        startSeg: 0,
+        startT: 0.2,
+        endSeg: 0,
+        endT: 0.4,
+        minDepthM: depthM ?? 0,
+        near: { clearanceM, depthM, requiredM },
+    });
+    const spans = [
+        { startSeg: 0, startT: 0, endSeg: 0, endT: 0.1, minDepthM: 1.2 }, // water under the line: not this
+        span(8, 2, 10),
+        span(4.3, -3.6, 30),
+    ];
+    const line =
+        'This route passes 4 m from water charted to dry 3.6 m — closer than the 30 m the router keeps off it (and on 1 more stretch). Check the chart there before you go.';
+
+    it('summarises the stretches by the one that falls furthest short', () => {
+        expect(nearShallowSummary(spans)).toEqual({ stretches: 2, clearanceM: 4.3, depthM: -3.6, requiredM: 30 });
+        expect(nearShallowSummary([spans[0]])).toBeUndefined();
+        expect(nearShallowSummary(undefined)).toBeUndefined();
+    });
+
+    it('is a caveat, and alone the notice is titled for it', () => {
+        expect(inshoreRouteCaveats({ nearShallow: nearShallowSummary(spans) })).toEqual([line]);
+        expect(
+            inshoreRouteNotice({ stateMaskOk: true, nearShallow: nearShallowSummary(spans), ntmLockBanner: null }),
+        ).toEqual({ severity: 'warn', title: 'Close to shallow water', message: line });
+        expect(inshoreRouteCaveats({ nearShallow: nearShallowSummary([span(0.4, null, 30)]) })).toEqual([
+            'This route runs on the edge of charted water with no depth given — closer than the 30 m the router keeps off it. Check the chart there before you go.',
+        ]);
+    });
+
+    it('a saved route carries it and says it again, and ignores malformed facts', () => {
+        const feature = inshoreRouteToGeoJSON(
+            {
+                polyline: [
+                    [153.2, -27.4],
+                    [153.21, -27.41],
+                ],
+                distanceNM: 0.8,
+                cellsUsed: ['AU123'],
+                elapsedMs: 20,
+                chartedShallowSpans: spans,
+            },
+            { lat: -27.4, lon: 153.2 },
+            { lat: -27.41, lon: 153.21 },
+        );
+        expect(feature.properties?.nearShallow).toEqual({ stretches: 2, clearanceM: 4.3, depthM: -3.6, requiredM: 30 });
+        expect(savedInshoreRouteCaveats({ routeGeoJSON: feature })).toEqual([line]);
+        expect(
+            savedInshoreRouteCaveats({
+                routeGeoJSON: { properties: { source: 'inshore-router', nearShallow: { stretches: 'two' } } },
+            }),
         ).toEqual([]);
     });
 });

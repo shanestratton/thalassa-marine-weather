@@ -4,7 +4,7 @@
  * showing. Pure, so the choice between them is testable.
  */
 import type { PassageNotice } from './usePassagePlanner';
-import type { PinOffWater, PinTail, SurveyRunInfo } from '../../services/engine/types';
+import type { ChartedShallowSpan, PinOffWater, PinTail, SurveyRunInfo } from '../../services/engine/types';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 
 export interface InshoreRouteNoticeInput {
@@ -36,7 +36,55 @@ export interface InshoreRouteNoticeInput {
      *  the phone's offline pack or the Pi's stale copy, with its date — or an
      *  end whose water is not saved, routed on the charts alone. */
     waterPack?: WaterPackUse;
+    /** The stretches that pass inside a shallow band's clearance
+     *  (nearShallowSummary of InshoreRouteResult.chartedShallowSpans). */
+    nearShallow?: NearShallowSummary;
     ntmLockBanner: PassageNotice | null;
+}
+
+/**
+ * The stretches of a route that pass inside the clearance the router keeps
+ * from a shallow band (ChartedShallowSpan.near — the real-chart check,
+ * 2026-10-03): how many, and the one that falls furthest short. The map draws
+ * them and Auto will not save them; a plan from the voyage form kept none of
+ * it (fix-up review, 2026-10-03), so the route says it and the saved route
+ * carries it (inshoreRouteToGeoJSON). Undefined when there are none.
+ */
+export interface NearShallowSummary {
+    stretches: number;
+    clearanceM: number;
+    depthM: number | null;
+    requiredM: number;
+}
+
+export function nearShallowSummary(spans: readonly ChartedShallowSpan[] | undefined): NearShallowSummary | undefined {
+    let out: NearShallowSummary | undefined;
+    for (const s of Array.isArray(spans) ? spans : []) {
+        const n = s?.near;
+        if (!n || !Number.isFinite(n.clearanceM) || !Number.isFinite(n.requiredM)) continue;
+        const depthM = typeof n.depthM === 'number' && Number.isFinite(n.depthM) ? n.depthM : null;
+        if (!out || n.requiredM - n.clearanceM > out.requiredM - out.clearanceM)
+            out = { stretches: out?.stretches ?? 0, clearanceM: n.clearanceM, depthM, requiredM: n.requiredM };
+        out.stretches++;
+    }
+    return out;
+}
+
+/** The caveat for nearShallowSummary, in the route notes' words. */
+function nearShallowCaveat(near: NearShallowSummary | undefined): string | null {
+    if (!near || !(near.stretches > 0) || !Number.isFinite(near.clearanceM) || !Number.isFinite(near.requiredM))
+        return null;
+    const d = near.depthM;
+    const water =
+        typeof d === 'number' && Number.isFinite(d)
+            ? d < 0
+                ? `water charted to dry ${(-d).toFixed(1)} m`
+                : `water charted ${d.toFixed(1)} m`
+            : 'charted water with no depth given';
+    const where =
+        near.clearanceM < 1 ? `runs on the edge of ${water}` : `passes ${Math.round(near.clearanceM)} m from ${water}`;
+    const more = near.stretches - 1;
+    return `This route ${where} — closer than the ${Math.round(near.requiredM)} m the router keeps off it${more > 0 ? ` (and on ${more} more stretch${more > 1 ? 'es' : ''})` : ''}. Check the chart there before you go.`;
 }
 
 /** Metres in a skipper's words: "1.3 km", "450 m". */
@@ -165,6 +213,9 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     };
     shallowPin('departure', input.pinTail?.origin);
     shallowPin('destination', input.pinTail?.destination);
+    // Too close to a shallow band (the real-chart check, 2026-10-03).
+    const near = nearShallowCaveat(input.nearShallow);
+    if (near) out.push(near);
     // Owner decision 11 (2026-10-01): where the route crosses water a tide
     // must clear and no tide was loaded for that place (offline, or a partial
     // load — fix-up, 2026-10-01), the router could not rule out water no tide
@@ -225,7 +276,9 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
                           : 'Saved harbour water'
                       : shallowPinNote
                         ? 'Shallow pin'
-                        : 'Survey quality',
+                        : nearShallowCaveat(input.nearShallow)
+                          ? 'Close to shallow water'
+                          : 'Survey quality',
         message: caveats.join(' '),
     };
 }
@@ -274,6 +327,21 @@ function savedPinTail(v: unknown): PinTail | undefined {
     };
 }
 
+/** A saved route's near-shallow summary (inshoreRouteToGeoJSON), checked;
+ *  undefined when malformed — no words rather than wrong ones. */
+function savedNearShallow(v: unknown): NearShallowSummary | undefined {
+    if (!v || typeof v !== 'object') return undefined;
+    const n = v as { stretches?: unknown; clearanceM?: unknown; depthM?: unknown; requiredM?: unknown };
+    const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+    if (!finite(n.stretches) || !finite(n.clearanceM) || !finite(n.requiredM)) return undefined;
+    return {
+        stretches: n.stretches,
+        clearanceM: n.clearanceM,
+        depthM: finite(n.depthM) ? n.depthM : null,
+        requiredM: n.requiredM,
+    };
+}
+
 /**
  * The caveats a SAVED inshore route carries, for a plan shown again (round 3,
  * 2026-09-30): decision 8's bridges, a pin off the water and decision 9's
@@ -317,6 +385,8 @@ export function savedInshoreRouteCaveats(
             surveyRuns: Array.isArray(p.surveyRuns) ? (p.surveyRuns as SurveyRunInfo[]) : undefined,
             surveyUncheckedCells: strings(p.surveyUncheckedCells),
             waterPack: savedWaterPack(p.waterPack),
+            // Too close to a shallow band (fix-up review, 2026-10-03).
+            nearShallow: savedNearShallow(p.nearShallow),
         });
     }
     const saved = plan.__inshoreRouting;

@@ -165,8 +165,13 @@ describe('a departure on open flats', () => {
         expect(r.cautionMask?.slice(1)).not.toContain(true);
         expect(Math.abs(onEdge(r.polyline[1]))).toBeLessThan(40);
         expect(tail!.lengthM).toBeLessThan(1.1 * PERP_M);
-        // No longer than the nearest deep water and on from there.
-        expect(lengthM(r.polyline)).toBeLessThan(1.02 * viaFootM([2500, 4500]));
+        // No longer than the nearest deep water and on from there. 1.02 →
+        // 1.03 (2026-10-03, the real-chart check): the grid prices the 46 m
+        // beside the flats (1.2–2 m: a band that never clears the keel) as
+        // its clearance ring, so the route crosses that ring square-on before
+        // it turns for the destination — 5,641 m, 2.6% over this bound's
+        // straight way, 0.6% over the old 2%.
+        expect(lengthM(r.polyline)).toBeLessThan(1.03 * viaFootM([2500, 4500]));
         expect(r.debug?.directTail?.origin).toBeDefined();
         expect(revisits(r.polyline)).toBe(false);
     });

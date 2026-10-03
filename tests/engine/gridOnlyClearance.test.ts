@@ -24,6 +24,14 @@
  * its 2–5 m band, 31.6 m+ from the 0–2 m band and 43 m+ from the reef that
  * dries 3.6 m — clear of 10 m and 30 m, so the corner stays green.
  *
+ * Re-pinned 2026-10-03 (the real-chart check): a line too close keeps its red
+ * over the STRETCH inside the clearance — a chartedShallowSpan with `near`,
+ * on any segment (tests/engine/clearanceStretch.test.ts) — not by turning its
+ * whole segment NEAR_SHALLOW: the segment reads GRID_ONLY, the drawn line is
+ * red where it is close, Save is refused by the stretch, and a tide that
+ * clears the band itself may draw it amber (decision 10). Each line here runs
+ * beside its band end to end, so the whole of it is still drawn red.
+ *
  * Synthetic water off an invented coast — no chart data.
  */
 import { describe, expect, it } from 'vitest';
@@ -119,17 +127,38 @@ function read(layers: InshoreLayers, grid: NavGrid, line: [number, number][], ha
         cautionNearShallow: out.cautionNearShallow,
     };
     const states = inshoreSegmentStates(masks)!;
+    const pieces = inshoreRoutePieces(line, states, [], out.chartedShallowSpans);
     return {
         caution,
         out,
         states,
+        /** The drawn colours, in order (adjacent pieces of one colour merged). */
+        drawn: pieces.map((p) => p.state),
         unsaveable: dangerWithoutChartedDepth({ ...masks, stateMask: states }),
-        words: routeRedStretches(line, inshoreRoutePieces(line, states, [], out.chartedShallowSpans), {
+        save: evaluateAutoroutingProposalSave(
+            {
+                provider: 'Thalassa',
+                coordinates: line,
+                engine: { ...masks, stateMask: states, chartedShallowSpans: out.chartedShallowSpans, hardLandAwayM: 0 },
+            } as unknown as AutoroutingTrialRoute,
+            null,
+            DRAFT,
+            false,
+        ),
+        words: routeRedStretches(line, pieces, {
             ...masks,
+            chartedShallowSpans: out.chartedShallowSpans,
             tideNeedM: FLOOR,
         }).map((s) => s.why),
     };
 }
+
+/** No tide data: the words a liftable stretch ends with (decision 10). */
+const NO_TIDE = '; no tide data here shows a tide that clears it';
+const NEAR_SAVE = {
+    eligible: false,
+    reason: 'Part of this route passes too close to water charted shallower than this boat needs. It cannot be saved.',
+};
 
 // ── 1. A steep-to reef that dries 3 m, beside 5–10 m water ───────────────
 describe('a line beside a steep-to drying reef keeps its red', () => {
@@ -151,48 +180,50 @@ describe('a line beside a steep-to drying reef keeps its red', () => {
             // c0309771: GRID_ONLY, green and saveable. The line itself reads
             // 5 m+ (on the very edge too: the ray cast puts it in the deep band).
             expect(r.out.chartedShallowMask).toEqual([false, false]);
-            expect(r.out.cautionWhy).toEqual([CAUTION_WHY.NEAR_SHALLOW, CAUTION_WHY.NEAR_SHALLOW]);
+            // 7f230264: NEAR_SHALLOW, the whole segment red; since the
+            // real-chart check (2026-10-03) the segment is the grid's alone and
+            // the stretch inside the clearance — here all of it — is drawn red.
+            expect(r.out.cautionWhy).toEqual([CAUTION_WHY.GRID_ONLY, CAUTION_WHY.GRID_ONLY]);
             expect(r.out.cautionNearShallow.map((n) => n && [n.depthM, n.requiredM])).toEqual([
                 [-3, 30],
                 [-3, 30],
             ]);
             for (const n of r.out.cautionNearShallow) expect(n!.clearanceM).toBeCloseTo(offM, 3);
-            expect(r.states).toEqual(['danger', 'danger']);
-            expect(r.unsaveable).toEqual([0, 1]);
-            expect(r.words).toEqual(['runs on the edge of water charted to dry 3.0 m — the router keeps 30 m off it']);
+            const near = r.out.chartedShallowSpans.filter((x) => x.near);
+            expect(near.map((x) => [x.startSeg, x.startT, x.endSeg, x.endT, x.minDepthM])).toEqual([
+                [0, 0, 0, 1, -3],
+                [1, 0, 1, 1, -3],
+            ]);
+            expect(r.states).toEqual(['green', 'green']);
+            expect(r.drawn).toEqual(['danger']);
+            expect(r.save).toEqual(NEAR_SAVE);
+            expect(r.words).toEqual([
+                `runs on the edge of water charted to dry 3.0 m — the router keeps 30 m off it${NO_TIDE}`,
+            ]);
         });
 
-    it("its red is not a tide's to lift: the depth under the line is not what is short", () => {
+    it('the depth under the line is not what is short: a tide must clear the reef itself (decision 10)', () => {
         const r = read(layers, grid, eastAt(EDGE + 0.5 * M_LAT));
         expect(r.out.tideDepthM).toEqual([null, null]);
         expect(r.out.cautionDepthM).toEqual([null, null]);
+        // The stretch's tide depth is the reef's: −3 m needs +5.9 m.
+        expect(r.out.chartedShallowSpans.map((x) => [x.minDepthM, x.tideLiftable])).toEqual([
+            [-3, true],
+            [-3, true],
+        ]);
     });
 
     it('5 m off says how far', () => {
         const r = read(layers, grid, eastAt(EDGE + 5 * M_LAT));
-        expect(r.words).toEqual(['passes 5 m from water charted to dry 3.0 m — the router keeps 30 m off it']);
+        expect(r.words).toEqual([
+            `passes 5 m from water charted to dry 3.0 m — the router keeps 30 m off it${NO_TIDE}`,
+        ]);
     });
 
     it('Save says what it is: too close to shallow water, not "no charted depth"', () => {
-        const line = eastAt(EDGE + 0.5 * M_LAT);
-        const r = read(layers, grid, line);
-        const route = {
-            provider: 'Thalassa',
-            coordinates: line,
-            engine: {
-                stateMask: r.states,
-                cautionMask: r.caution,
-                canalMask: [false, false],
-                chartedShallowMask: r.out.chartedShallowMask,
-                landPaintConflictMask: r.out.landPaintConflictMask,
-                cautionWhy: r.out.cautionWhy,
-                hardLandAwayM: 0,
-            },
-        } as unknown as AutoroutingTrialRoute;
-        expect(evaluateAutoroutingProposalSave(route, null, DRAFT, false)).toEqual({
-            eligible: false,
-            reason: 'Part of this route is drawn red where it passes too close to water charted shallower than this boat needs. It cannot be saved.',
-        });
+        const r = read(layers, grid, eastAt(EDGE + 0.5 * M_LAT));
+        expect(r.unsaveable).toEqual([]);
+        expect(r.save).toEqual(NEAR_SAVE);
     });
 });
 
@@ -212,11 +243,13 @@ describe("a 2–5 m band's edge (the 5 m contour) asks for 10 m, not 30 m", () =
 
     it("9 m off (c0309771's own synthetic line): red, and says how close", () => {
         const r = read(layers, grid, eastAt(EDGE + 9 * M_LAT));
-        expect(r.out.cautionWhy).toEqual([CAUTION_WHY.NEAR_SHALLOW, CAUTION_WHY.NEAR_SHALLOW]);
+        // Re-pinned 2026-10-03: the stretch, not the segment (see the header).
+        expect(r.out.cautionWhy).toEqual([CAUTION_WHY.GRID_ONLY, CAUTION_WHY.GRID_ONLY]);
         expect(SHALLOW_BAND_CLEARANCE_M).toBe(10);
         expect(r.out.cautionNearShallow.map((n) => n && Math.round(n.clearanceM))).toEqual([9, 9]);
-        expect(r.states).toEqual(['danger', 'danger']);
-        expect(r.words).toEqual(['passes 9 m from water charted 2.0 m — the router keeps 10 m off it']);
+        expect(r.states).toEqual(['green', 'green']);
+        expect(r.drawn).toEqual(['danger']);
+        expect(r.words).toEqual([`passes 9 m from water charted 2.0 m — the router keeps 10 m off it${NO_TIDE}`]);
     });
 
     it('a deeper boat makes the same band a cliff: its deep end (5 m) no longer clears the keel', () => {
@@ -282,7 +315,7 @@ describe('the real engine through a gap in a drying reef', () => {
         return best;
     };
 
-    it('nothing within 30 m of the reef is drawn green, and the corner it cuts says why', () => {
+    it('nothing within 30 m of the reef is drawn green, and the stretch through the gap says why', () => {
         const r = routeInshore(layers, {
             fromLat: from[1],
             fromLon: from[0],
@@ -294,17 +327,26 @@ describe('the real engine through a gap in a drying reef', () => {
         expect('polyline' in r).toBe(true);
         if (!('polyline' in r)) return;
         const states = inshoreSegmentStates(r)!;
+        // Re-pinned 2026-10-03 (the real-chart check): the drawn line, read
+        // every metre — the stretch inside the clearance, on any segment.
+        const pieces = inshoreRoutePieces(r.polyline, states, r.surveyRuns ?? [], r.chartedShallowSpans ?? []);
+        const drawnAt = (u: number) => pieces.find((p) => u >= p.u0 && u <= p.u1)?.state;
         for (let i = 0; i < r.polyline.length - 1; i++) {
-            const offM = offReefM(r.polyline[i], r.polyline[i + 1]);
-            if (r.cautionMask?.[i] && offM < 30)
-                expect(states[i], `segment ${i}, ${offM.toFixed(1)} m off`).toBe('danger');
+            const [a, b] = [r.polyline[i], r.polyline[i + 1]];
+            const n = Math.max(1, Math.ceil(haversineM(a[1], a[0], b[1], b[0])));
+            for (let k = 1; k < n; k++) {
+                const t = k / n;
+                const p: [number, number] = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+                const offM = offReefM(p, p);
+                if (offM < 29.5)
+                    expect(drawnAt(i + t), `segment ${i} at ${t.toFixed(3)}, ${offM.toFixed(1)} m off`).toBe('danger');
+            }
         }
-        // c0309771: this segment was GRID_ONLY, 1 m off the reef, green.
-        const near = r.cautionWhy!.indexOf(CAUTION_WHY.NEAR_SHALLOW);
-        expect(near).toBeGreaterThanOrEqual(0);
-        expect(r.cautionNearShallow![near]).toMatchObject({ depthM: -3, requiredM: 30 });
-        expect(r.cautionNearShallow![near]!.clearanceM).toBeLessThan(5);
-        expect(states[near]).toBe('danger');
+        // c0309771: the gap's corner was cut 1 m off the reef, GRID_ONLY, green.
+        const near = (r.chartedShallowSpans ?? []).filter((x) => x.near);
+        expect(near.length).toBeGreaterThan(0);
+        for (const x of near) expect(x.near).toMatchObject({ depthM: -3, requiredM: 30 });
+        expect(Math.min(...near.map((x) => x.near!.clearanceM))).toBeLessThan(15);
     });
 });
 
@@ -332,9 +374,13 @@ describe('a drying band within reach counts though the line touches only a 2–5
     it('red: 15 m from water charted to dry, which asks for 30 m', () => {
         const r = read(layers, grid, line);
         expect(r.caution).toEqual([true, true]);
-        expect(r.out.cautionWhy).toEqual([CAUTION_WHY.NEAR_SHALLOW, CAUTION_WHY.NEAR_SHALLOW]);
-        expect(r.words).toEqual(['passes 15 m from water charted to dry 3.0 m — the router keeps 30 m off it']);
-        expect(r.states).toEqual(['danger', 'danger']);
+        // Re-pinned 2026-10-03: the stretch, not the segment (see the header).
+        expect(r.out.cautionWhy).toEqual([CAUTION_WHY.GRID_ONLY, CAUTION_WHY.GRID_ONLY]);
+        expect(r.words).toEqual([
+            `passes 15 m from water charted to dry 3.0 m — the router keeps 30 m off it${NO_TIDE}`,
+        ]);
+        expect(r.states).toEqual(['green', 'green']);
+        expect(r.drawn).toEqual(['danger']);
     });
 });
 

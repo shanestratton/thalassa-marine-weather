@@ -12,7 +12,9 @@
  * line does not support (caution for its 50 m cells alone, CAUTION_WHY
  * GRID_ONLY) is no longer drawn at all (inshoreSegmentStates); a line that
  * would be but passes too close to a shallow band (NEAR_SHALLOW, round-2
- * review fix-up 2, 2026-10-03) keeps its red and says how close, to what.
+ * review fix-up 2, 2026-10-03) keeps its red and says how close, to what —
+ * since the real-chart check (2026-10-03) on any segment, over the stretch
+ * inside the clearance (a ChartedShallowSpan with `near`).
  */
 import { CAUTION_WHY, type CautionNearShallow, type ChartedShallowSpan } from '../../services/engine/types';
 import { tideTopAlong, type InshoreRoutePiece, type RouteTide } from './inshoreRouteState';
@@ -85,11 +87,15 @@ function shallowWords(
         typeof needM === 'number' && Number.isFinite(needM)
             ? ` — shallower than the ${metres(needM)} this boat needs`
             : ' — shallower than this boat needs';
-    if (!liftable) return `${charted}${need}`;
+    return `${charted}${need}${liftable ? tideWords(tide, coords) : ''}`;
+}
+
+/** Why a tide the router lets lift this red (decision 10) does not. */
+function tideWords(tide: RouteTide | undefined, coords: readonly (readonly [number, number])[]): string {
     const top = tide ? tideTopAlong(tide, coords) : null;
     return top === null
-        ? `${charted}${need}; no tide data here shows a tide that clears it`
-        : `${charted}${need}; the highest tide here (${metres(top)}) does not clear it`;
+        ? '; no tide data here shows a tide that clears it'
+        : `; the highest tide here (${metres(top)}) does not clear it`;
 }
 
 /**
@@ -144,6 +150,7 @@ export function routeRedStretches(
         const i = Math.min(segCount - 1, Math.floor(um));
         const coords = [point(u0), point(u1)];
         const span = spans.find((s) => um > s.startSeg + s.startT && um < s.endSeg + s.endT);
+        if (span?.near) return `${nearWords(span.near)}${span.tideLiftable === true ? tideWords(tide, coords) : ''}`;
         if (span) return shallowWords(span.minDepthM, masks.tideNeedM, span.tideLiftable === true, tide, coords);
         if (fits(masks.canalMask) && masks.canalMask[i]) return CANAL;
         const why = fits(masks.cautionWhy) ? masks.cautionWhy[i] : 0;
@@ -166,6 +173,7 @@ export function routeRedStretches(
         if (why & CAUTION_WHY.MARK) parts.push(MARK);
         if (why & CAUTION_WHY.STRUCTURE) parts.push(STRUCTURE);
         if (why & CAUTION_WHY.BLOCKED) parts.push(BLOCKED);
+        if (why & CAUTION_WHY.CANAL) parts.push(CANAL);
         return parts.length > 0 ? parts.join('; ') : GRID;
     };
 

@@ -80,6 +80,7 @@ import { piCache } from './PiCacheService';
 import { fetchVerifiedFromPi, routeRequestBinding } from './PiPairingService';
 import { getOsmRouteOverlay, type OsmOverlayProvenance, type OsmRouteOverlay } from './OsmRouteOverlayService';
 import { applyWaterPack, waterPackUseFor, type WaterPackUse } from './waterPack/waterPackWords';
+import { nearShallowSummary } from '../components/map/inshoreRouteNotice';
 import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { fetchMapboxWater } from './mapboxWater';
 import { fetchSatelliteWater } from './satelliteWater';
@@ -303,6 +304,12 @@ export function promotedSeawayRoute(
         opts.draftM + opts.safetyM,
     );
     const cautionMask = graphCaution?.map((c, i) => c || unvouched?.segMask[i] === true || nearHazard[i] === true);
+    const tiers = grid ? routeTierMasks(g.polyline, grid, layers, chanMask) : null;
+    // Every segment's clearance from the shallow bands is measured here as on
+    // an engine route (the real-chart check, 2026-10-03): the promoted
+    // route's caution comes from the graph's cell samples, so a segment whose
+    // cells read clean was never measured — Cid Harbour's connector leg 4.3 m
+    // off South Molle's reef was drawn green.
     const runs =
         grid && cautionMask
             ? collectShallowRuns({
@@ -313,6 +320,7 @@ export function promotedSeawayRoute(
                   draftM: opts.draftM,
                   safetyM: opts.safetyM,
                   hazardMask: nearHazard,
+                  ...(tiers ? { canalMask: tiers.canalMask } : {}),
               })
             : null;
     const survey = collectSurveyRuns({
@@ -323,7 +331,6 @@ export function promotedSeawayRoute(
         uncheckedCells: base.surveyUncheckedCells,
         ...(grid ? { grid } : {}),
     });
-    const tiers = grid ? routeTierMasks(g.polyline, grid, layers, chanMask) : null;
     return {
         polyline: g.polyline,
         channelMask: chanMask,
@@ -2458,6 +2465,12 @@ export function inshoreRouteToGeoJSON(
             ...(result.surveyUncheckedCells?.length ? { surveyUncheckedCells: result.surveyUncheckedCells } : {}),
             // …and that it was routed with no tide loaded (decision 11).
             ...(result.tideCheck ? { tideCheck: result.tideCheck } : {}),
+            // …and where it passes inside a shallow band's clearance (fix-up
+            // review, 2026-10-03: a voyage-form plan kept none of it).
+            ...(() => {
+                const near = nearShallowSummary(result.chartedShallowSpans);
+                return near ? { nearShallow: near } : {};
+            })(),
             // …and where its canal water came from when that was not a live
             // download (Phase 2b, 2026-10-01): the saved plan says so again.
             ...(result.waterPack && result.waterPack.source !== 'online'

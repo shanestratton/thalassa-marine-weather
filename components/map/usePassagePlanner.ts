@@ -54,7 +54,7 @@ import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
 import { vesselDraftMetres, vesselAirDraftMetres, vesselDraftIsAssumed } from '../../services/units';
 import { peekPassageRequest, clearPassageRequest } from '../../services/passageHandoff';
-import { inshoreRouteCaveats, inshoreRouteNotice } from './inshoreRouteNotice';
+import { inshoreRouteCaveats, inshoreRouteNotice, nearShallowSummary } from './inshoreRouteNotice';
 import {
     inshoreRouteFeatures,
     inshoreRoutePieces,
@@ -890,6 +890,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
                         // Where the canal water came from offline (Phase 2b, 2026-10-01).
                         waterPack: inshoreRes.waterPack,
+                        // Too close to a shallow band (fix-up review, 2026-10-03).
+                        nearShallow: nearShallowSummary(inshoreRes.chartedShallowSpans),
                         // What this map actually draws as survey dashes (round-3 review,
                         // 2026-09-30): the caveat's colour words follow it.
                         surveyAmber: surveyAmberMetres(

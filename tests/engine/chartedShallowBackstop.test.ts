@@ -12,6 +12,12 @@
  * segment the grid did not flag, that stretch is red — cut at the band's own
  * edges — with a run (so a tide chip) like any caution. Since owner decision
  * 10 (2026-09-30) it is needs-tide amber instead where some tide clears it.
+ *
+ * Re-pinned 2026-10-03 (the real-chart check): every segment keeps its
+ * clearance from the shallow bands too, so the 30 m either side of the drying
+ * bank — inside the clearance the router keeps from water that dries — is
+ * drawn with it: two `near` spans flank the bank's own, coloured by the same
+ * band's depth (tests/engine/clearanceStretch.test.ts).
  */
 import { describe, expect, it } from 'vitest';
 import type { Feature, FeatureCollection } from 'geojson';
@@ -74,9 +80,15 @@ describe('the backstop: charted-shallow water on a segment the grid did not flag
         hazardMask: [false, false],
     });
 
+    /** The bank's own stretch: charted-shallow water under the line. */
+    const own = (spans: typeof out.chartedShallowSpans) => spans.filter((x) => !x.near);
+    /** 30 m of segment 1 (W+0.012 → W+0.045, ~3.27 km), as a fraction. */
+    const kx = 111_320 * Math.cos((27 * Math.PI) / 180);
+    const tOf30 = 30 / (0.033 * kx);
+
     it('is found, cut at the band’s own edges, with its charted depth', () => {
-        expect(out.chartedShallowSpans).toHaveLength(1);
-        const s = out.chartedShallowSpans[0];
+        expect(own(out.chartedShallowSpans)).toHaveLength(1);
+        const s = own(out.chartedShallowSpans)[0];
         expect(s.startSeg).toBe(1);
         expect(s.endSeg).toBe(1);
         expect(s.minDepthM).toBeCloseTo(-2.2, 5);
@@ -85,6 +97,16 @@ describe('the backstop: charted-shallow water on a segment the grid did not flag
         expect(s.endT).toBeCloseTo(0.012 / 0.033, 4);
         // Whole-segment masks stay caution-only (no 3 km of red for 400 m).
         expect(out.chartedShallowMask).toEqual([false, false]);
+        // 2026-10-03: and the 30 m either side, the bank's clearance.
+        const near = out.chartedShallowSpans.filter((x) => x.near);
+        expect(near.map((x) => [x.minDepthM, x.near!.requiredM, x.near!.clearanceM])).toEqual([
+            [-2.2, 30, 0],
+            [-2.2, 30, 0],
+        ]);
+        expect(near[0].startT).toBeCloseTo(s.startT - tOf30, 3);
+        expect(near[0].endT).toBeCloseTo(s.startT, 9);
+        expect(near[1].startT).toBeCloseTo(s.endT, 9);
+        expect(near[1].endT).toBeCloseTo(s.endT + tOf30, 3);
     });
 
     it('ships a run — so a tide chip — for it, anchored on the bank', () => {
@@ -114,8 +136,9 @@ describe('the backstop: charted-shallow water on a segment the grid did not flag
         const pieces = inshoreRoutePieces(polyline, states!, [], out.chartedShallowSpans);
         expect(pieces.map((p) => p.state)).toEqual(['channel', 'danger', 'channel']);
         const red = pieces[1].coordinates;
-        expect(red[0][0]).toBeCloseTo(W + 0.02, 9);
-        expect(red[red.length - 1][0]).toBeCloseTo(W + 0.024, 9);
+        // The bank, and its 30 m clearance either side (2026-10-03).
+        expect(red[0][0]).toBeCloseTo(W + 0.02 - 30 / kx, 6);
+        expect(red[red.length - 1][0]).toBeCloseTo(W + 0.024 + 30 / kx, 6);
         // Red beats decision 9's amber too.
         const amber = [
             {
@@ -210,27 +233,29 @@ describe('a backstop stretch is the tide’s to lift only when its depth alone i
 
     it('charted depth alone: liftable, amber where the tide clears it', () => {
         const out = run({ hazardMask: [false, false] });
-        expect(out.chartedShallowSpans[0].tideLiftable).toBe(true);
+        // The bank's own stretch and its clearance either side (2026-10-03).
+        expect(out.chartedShallowSpans.map((x) => x.tideLiftable)).toEqual([true, true, true]);
         expect(drawn(out.chartedShallowSpans)).toEqual(['channel', 'tide', 'channel']);
     });
 
     it('inside a charted hazard’s buffer: red whatever the tide', () => {
         const out = run({ hazardMask: [false, true] });
-        expect(out.chartedShallowSpans).toHaveLength(1);
-        expect(out.chartedShallowSpans[0].tideLiftable).toBeUndefined();
+        expect(out.chartedShallowSpans.filter((x) => !x.near)).toHaveLength(1);
+        expect(out.chartedShallowSpans.map((x) => x.tideLiftable)).toEqual([undefined, undefined, undefined]);
         expect(drawn(out.chartedShallowSpans)).toEqual(['channel', 'danger', 'channel']);
         expect(out.shallowRuns[0].nearHazard).toBe(true);
     });
 
     it('no hazard mask from the caller: red whatever the tide (fail-safe)', () => {
         const out = run();
-        expect(out.chartedShallowSpans[0].tideLiftable).toBeUndefined();
+        expect(out.chartedShallowSpans.map((x) => x.tideLiftable)).toEqual([undefined, undefined, undefined]);
         expect(drawn(out.chartedShallowSpans)).toEqual(['channel', 'danger', 'channel']);
     });
 
     it('over decision-1 water: red whatever the tide, and the run says the charts disagree', () => {
         const out = run({ hazardMask: [false, false], wetConflictUnder: true });
-        expect(out.chartedShallowSpans[0].tideLiftable).toBeUndefined();
+        // The bank's clearance either side too: the charts dispute the bank.
+        expect(out.chartedShallowSpans.map((x) => x.tideLiftable)).toEqual([undefined, undefined, undefined]);
         expect(drawn(out.chartedShallowSpans)).toEqual(['channel', 'danger', 'channel']);
         expect(out.shallowRuns[0].chartsDisagree).toBe(true);
     });
