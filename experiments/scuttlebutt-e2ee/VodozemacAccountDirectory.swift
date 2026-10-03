@@ -126,6 +126,39 @@ final class VodozemacAccountAccess {
         return context
     }
 
+    // This private path is the messaging authority, not the research snapshot
+    // getters above. Hold Directory -> sealed index -> AuthSession through the
+    // ENTIRE synchronous coordinator operation. Never await or reenter the
+    // directory/session from its callback. An AuthSession renewal can clear its
+    // lease before entering the directory, so an index gate alone is not enough.
+    fileprivate func withMessageAuthority<T>(expected: DmRelayNetworkContext,
+                                             nativeDeadline: ContinuousClock.Instant,
+                                             operation: (DmRelayNetworkCredential, () throws -> Void) throws -> T) throws -> T {
+        do {
+            return try scopeGuard.withCurrentScope {
+                guard locallyValid() else { throw DmAccountDirectoryError.unavailable }
+                return try session.withCurrentCredential(expected: expected, nativeDeadline: nativeDeadline) { credential, requireCurrent in
+                    return try withoutActuallyEscaping(requireCurrent) { requireCurrentEscaping in
+                        let check = {
+                            try requireCurrentEscaping()
+                            guard self.locallyValid() else { throw DmAccountDirectoryError.unavailable }
+                        }
+                        try check()
+                        let result = try operation(credential, check)
+                        try check()
+                        return result
+                    }
+                }
+            }
+        } catch { throw DmAccountDirectoryError.unavailable }
+    }
+
+    fileprivate func executeMessageOperation(_ operation: DmNativeMessageOperation,
+                                             context: DmRelayNetworkContext,
+                                             checkAuthority: () throws -> Void) throws -> DmNativeMessageResult {
+        try coordinatorForResearch.executeMessageOperation(operation, context: context, checkAuthority: checkAuthority)
+    }
+
     func lifecycleForResearch() throws -> DmLifecycleSnapshot {
         do {
             try requireAuthority()
@@ -190,8 +223,9 @@ final class VodozemacAccountDirectory {
         var debugDescription: String { description }
     }
     /// Holds only one exact accepted credential binding; a later renewal cannot
-    /// turn an old completion into authority for the new winner. No coordinator,
-    /// store, credential, key or token is returned to the facade/JS.
+    /// turn an old completion into authority for the new winner. The facade may
+    /// capture a native-only network credential, but no coordinator, store, key
+    /// or token can be exported through the closed message-operation dispatcher.
     final class AuthenticatedScope {
         private let access: VodozemacAccountAccess
         private let expected: DmRelayNetworkContext
@@ -208,6 +242,56 @@ final class VodozemacAccountDirectory {
             guard ContinuousClock.now < nativeDeadline, access.currentContext() == expected,
                   ContinuousClock.now < nativeDeadline else { return nil }
             return expected
+        }
+
+        // Used only by the native facade. A peer generation is an additional
+        // coordinator-validated binding, never a replacement owner/epoch claim.
+        func messageCredential(peerGeneration: Int64?, checkAuthority: () throws -> Void) throws -> DmRelayNetworkCredential {
+            let context = DmRelayNetworkContext(userId: expected.userId, deviceId: expected.deviceId,
+                ownerGeneration: expected.ownerGeneration, credentialEpoch: expected.credentialEpoch,
+                peerGeneration: peerGeneration)
+            return try withMessageAuthority(context: context, checkAuthority: checkAuthority) { credential, _ in credential }
+        }
+
+        func executeMessageOperation(_ operation: DmNativeMessageOperation, context: DmRelayNetworkContext,
+                                     checkAuthority: () throws -> Void,
+                                     insideAuthority: (() throws -> Void)? = nil) throws -> DmNativeMessageResult {
+            try withMessageAuthority(context: context, checkAuthority: checkAuthority) { _, check in
+                try insideAuthority?()
+                try check()
+                return try access.executeMessageOperation(operation, context: context, checkAuthority: check)
+            }
+        }
+
+        private func withMessageAuthority<T>(context: DmRelayNetworkContext, checkAuthority: () throws -> Void,
+                                             operation: (DmRelayNetworkCredential, () throws -> Void) throws -> T) throws -> T {
+            guard context.userId == expected.userId, context.deviceId == expected.deviceId,
+                  context.ownerGeneration == expected.ownerGeneration,
+                  context.credentialEpoch == expected.credentialEpoch else { throw DmAccountDirectoryError.unavailable }
+            // The nested callback is escaping in its function TYPE, but these
+            // private closed operations cannot retain it or return a closure.
+            // Keep the caller's authority lexical rather than marking it
+            // escaping and allowing it to outlive already-held native locks.
+            return try withoutActuallyEscaping(checkAuthority) { authority in
+                try access.withMessageAuthority(expected: context, nativeDeadline: nativeDeadline) { credential, requireCurrent in
+                    return try withoutActuallyEscaping(requireCurrent) { requireCurrentEscaping in
+                        // All mutable authority is already held. These checks
+                        // must not reacquire Directory/Auth/coordinator locks.
+                        // Coordinator/store call this just before mutation/CAS.
+                        let check = {
+                            try requireCurrentEscaping()
+                            guard !Task.isCancelled, ContinuousClock.now < self.nativeDeadline else {
+                                throw DmAccountDirectoryError.unavailable
+                            }
+                            try authority()
+                        }
+                        try check()
+                        let result = try operation(credential, check)
+                        try check()
+                        return result
+                    }
+                }
+            }
         }
     }
     private final class ScopeGuard: DmNativeAuthScopeGuard {

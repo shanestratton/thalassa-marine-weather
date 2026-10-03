@@ -229,7 +229,8 @@ final class VodozemacSealedStore {
     /// Persisted ciphertext may only be dispatched by a future coordinator after
     /// this commit has succeeded.
     @discardableResult
-    func commit(expectedRevision: Int64, payload: Data, fault: CommitFault = .none) throws -> Int64 {
+    func commit(expectedRevision: Int64, payload: Data, fault: CommitFault = .none,
+                checkAuthority: (() throws -> Void)? = nil) throws -> Int64 {
         try Self.validatePayload(payload)
         guard expectedRevision >= 0 else { throw VodozemacSealedStoreError.invalidInput }
         lock.lock(); defer { lock.unlock() }
@@ -247,6 +248,10 @@ final class VodozemacSealedStore {
             try checked(sqlite3_bind_int64(query, 1, next))
             try bind(ciphertext, to: query, column: 2)
             try checked(sqlite3_bind_int64(query, 3, expectedRevision))
+            // Native held-scope checker only; must not await or reenter this
+            // store/Directory/Auth. Keychain, encoding, encryption and SQLite
+            // reservation cannot extend an already expired credential lease.
+            try checkAuthority?()
             try done(query)
             guard sqlite3_changes(database) == 1 else { throw VodozemacSealedStoreError.staleRevision }
             try protectFiles()
@@ -255,6 +260,9 @@ final class VodozemacSealedStore {
             case .beforeCommit, .beforeCommitAndRollbackFailure:
                 throw VodozemacSealedStoreError.injectedFailure
             }
+            // If expiry/cancellation occurs after UPDATE/protectFiles, roll the
+            // transaction back instead of releasing a durable late mutation.
+            try checkAuthority?()
             try execute("COMMIT")
             return next
         } catch {

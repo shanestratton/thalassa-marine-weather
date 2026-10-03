@@ -26,7 +26,7 @@ struct DmPeerContext: Codable, Equatable {
     var status: DmPeerStatus
 }
 
-struct DmPublicIdentity {
+struct DmPublicIdentity: Codable, Equatable {
     let userId: String
     let deviceId: String
     let identityKeyId: String
@@ -95,7 +95,14 @@ final class VodozemacDmCoordinator {
     private static let generationMax: Int64 = 9_007_199_254_740_991
     private static let capacity = 16
     private let store: VodozemacSealedStore
-    private let lock = NSLock()
+    // Closed authority dispatch holds this across nested existing operations.
+    // No caller callback can obtain/reenter the coordinator from the facade.
+    private let lock = NSRecursiveLock()
+    private struct MessageAuthority {
+        let context: DmRelayNetworkContext
+        let check: () throws -> Void
+    }
+    private var messageAuthority: MessageAuthority?
     // Test-only interference hook, not a guard or a production/plugin argument.
     // Lets the probe commit a competing lifecycle change before our sealed CAS.
     private let beforeCommitForResearch: (() throws -> Void)?
@@ -123,6 +130,10 @@ final class VodozemacDmCoordinator {
         let requestDigest: Data
         var status: OutboxStatus
         var reason: DmRejectionReason?
+        // Sealed locally with the ratchet/outbox commit. Optional only for old
+        // research fixtures; absence never licenses recreating ciphertext.
+        let text: String?
+        let localCreatedAtMillis: Int64?
     }
     private enum UnresolvedReason: String, Codable { case messageNotOpened, contentNotBound }
     private struct UnresolvedItem: Codable {
@@ -150,6 +161,8 @@ final class VodozemacDmCoordinator {
         let prekey: String
         var account: String
         var peer: DmPeerContext?
+        var peerIdentity: DmPublicIdentity?
+        var peerFingerprint: String?
         var session: Session?
         var registrationIntent: RegistrationIntent?
         var claimIntent: ClaimIntent?
@@ -178,11 +191,131 @@ final class VodozemacDmCoordinator {
         let account = try newAccount(pickleKey: store.providerPickleKey())
         let state = State(version: 5, owner: owner, ownerActive: true, credentialEpoch: UUID(), authProjectOrigin: nil, conversationId: conversationId,
             identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
-            account: account.accountPickle, peer: nil, session: nil, registrationIntent: nil, claimIntent: nil,
+            account: account.accountPickle, peer: nil, peerIdentity: nil, peerFingerprint: nil,
+            session: nil, registrationIntent: nil, claimIntent: nil,
             outbox: [], inbox: [], unresolved: [])
         try validate(state)
         try store.commit(expectedRevision: before.revision, payload: JSONEncoder().encode(state))
         return try VodozemacDmCoordinator(store: store)
+    }
+
+    /// The only messaging entry point used by native facade authority. The
+    /// checker is scoped to this synchronous call; never retained after return.
+    /// No locks are held over HTTP/await. Lower-level *ForResearch methods are
+    /// fixture seams, not alternatives for a JS/native app integration.
+    func executeMessageOperation(_ operation: DmNativeMessageOperation, context: DmRelayNetworkContext,
+                                 checkAuthority: () throws -> Void) throws -> DmNativeMessageResult {
+        try withoutActuallyEscaping(checkAuthority) { check in
+            lock.lock(); defer { lock.unlock() }
+            guard messageAuthority == nil else { throw DmCoordinatorError.unavailable }
+            messageAuthority = MessageAuthority(context: context, check: check)
+            defer { messageAuthority = nil }
+            let owner = DmOwnerContext(userId: context.userId, deviceId: context.deviceId, generation: context.ownerGeneration)
+            switch operation {
+            case .publicIdentity: return .publicIdentity(try publicIdentity(owner: owner))
+            case .pairingCard:
+                return try withState { _, state in
+                    guard let origin = state.authProjectOrigin else { throw DmCoordinatorError.unavailable }
+                    let card = DmPairingCard(projectOrigin: origin, conversationId: state.conversationId,
+                                            identity: try publicIdentity(owner: owner))
+                    _ = try card.fingerprint()
+                    return .pairingCard(card)
+                }
+            case .confirmPeer(let card, let fingerprint):
+                return try withState { revision, state in
+                    guard context.peerGeneration == nil, card.projectOrigin == state.authProjectOrigin,
+                          card.conversationId == state.conversationId,
+                          try card.fingerprint().utf8.elementsEqual(fingerprint.utf8) else {
+                        throw DmCoordinatorError.invalidInput
+                    }
+                    let identity = card.identity
+                    let peer = DmPeerContext(userId: identity.userId, deviceId: identity.deviceId,
+                        identityKeyId: identity.identityKeyId, curve: identity.curve, prekey: identity.prekey,
+                        generation: 1, status: .accepted)
+                    try Self.validatePeer(peer, owner: state.owner)
+                    if let existing = state.peer {
+                        // Exact idempotent confirmation only. Do not promote a
+                        // legacy partial fixture pin or accept replacement keys.
+                        guard existing == peer, state.peerIdentity == identity,
+                              state.peerFingerprint == fingerprint else { throw DmCoordinatorError.conflict }
+                    } else {
+                        state.peer = peer; state.peerIdentity = identity; state.peerFingerprint = fingerprint
+                        try persist(state, revision: revision)
+                    }
+                    return .pairingState(Self.pairingState(state))
+                }
+            case .pairingState: return try withState { _, state in .pairingState(Self.pairingState(state)) }
+            case .thread:
+                return try withState { _, state in
+                    let generation = try Self.requireFullPair(context, state)
+                    return .thread(Self.thread(state, peerGeneration: generation))
+                }
+            case .prepareText(let id, let text):
+                // Native text-only/nonblank policy; JS checks are not authority.
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      text.utf8.count <= DmContentCodec.maxTextBytes else { throw DmCoordinatorError.invalidInput }
+                let generation = try withState { _, state in try Self.requireFullPair(context, state) }
+                let millis = Date().timeIntervalSince1970 * 1000
+                guard millis.isFinite, (1...Double(Self.generationMax)).contains(millis) else {
+                    throw DmCoordinatorError.unavailable
+                }
+                return .outbox(try prepare(clientMessageId: id, text: text, owner: owner,
+                    peerGeneration: generation, localCreatedAtMillis: Int64(millis)))
+            case .pendingRecords:
+                let generation = try withState { _, state in try Self.requireFullPair(context, state) }
+                return .pendingRecords(try pending(owner: owner, peerGeneration: generation))
+            }
+        }
+    }
+
+    private static func requireFullPair(_ context: DmRelayNetworkContext, _ state: State) throws -> Int64 {
+        guard let generation = context.peerGeneration, state.peerIdentity != nil, state.peerFingerprint != nil else {
+            throw DmCoordinatorError.unavailable
+        }
+        _ = try requirePeer(state.owner, generation, state)
+        return generation
+    }
+
+    private static func pairingState(_ state: State) -> DmNativePairingState {
+        let status: DmNativePeerState
+        if let peer = state.peer {
+            switch peer.status {
+            case .accepted: status = state.peerIdentity == nil ? .legacyUnverified : .confirmed
+            case .blocked: status = .blocked
+            case .changed: status = .changed
+            case .revoked: status = .revoked
+            }
+        } else { status = .unpaired }
+        let role: DmNativeSessionRole
+        if state.session != nil { role = .established }
+        else if let peer = state.peer { role = initiates(state.owner.deviceId, peer.deviceId) ? .initiator : .responder }
+        else { role = .unpaired }
+        let generation = state.peer?.generation
+        return DmNativePairingState(status: status, peerGeneration: generation, confirmedFingerprint: state.peerFingerprint,
+            sessionRole: role,
+            outgoingCount: state.outbox.filter { $0.record.ownerSessionGeneration == state.owner.generation
+                && $0.record.recipientIdentityGeneration == generation }.count,
+            incomingCount: state.inbox.filter { $0.ownerGeneration == state.owner.generation && $0.peerGeneration == generation }.count,
+            unresolvedCount: state.unresolved.filter { $0.ownerGeneration == state.owner.generation && $0.peerGeneration == generation }.count)
+    }
+
+    private static func thread(_ state: State, peerGeneration: Int64) -> DmNativeThread {
+        // Bounded sealed insertion order; no fabricated ordering by remote time.
+        let outgoing = state.outbox.filter { $0.record.ownerSessionGeneration == state.owner.generation
+            && $0.record.recipientIdentityGeneration == peerGeneration }.map { item in
+            let delivery: DmNativeThreadDelivery
+            switch item.status { case .pending: delivery = .pending; case .accepted: delivery = .serverAccepted; case .rejected: delivery = .rejected }
+            return DmNativeThreadMessage(clientMessageId: item.messageId, direction: .outgoing,
+                text: item.text, delivery: delivery, reason: item.reason, localCreatedAtMillis: item.localCreatedAtMillis)
+        }
+        let incoming = state.inbox.filter { $0.ownerGeneration == state.owner.generation && $0.peerGeneration == peerGeneration }.map { item in
+            DmNativeThreadMessage(clientMessageId: item.clientMessageId, direction: .incoming,
+                text: item.text, delivery: .received, reason: nil, localCreatedAtMillis: nil)
+        }
+        return DmNativeThread(ownerGeneration: state.owner.generation, peerGeneration: peerGeneration,
+            messages: outgoing + incoming,
+            unresolvedCount: state.unresolved.filter { $0.ownerGeneration == state.owner.generation && $0.peerGeneration == peerGeneration }.count,
+            outgoingCapacity: capacity, incomingCapacity: capacity)
     }
 
     // Research-native lifecycle authority, not proof of a real Auth sign-in.
@@ -456,11 +589,15 @@ final class VodozemacDmCoordinator {
     }
 
     func prepare(clientMessageId: String, text: String, owner: DmOwnerContext, peerGeneration: Int64,
+                 localCreatedAtMillis: Int64? = nil,
                  fault: VodozemacSealedStore.CommitFault = .none) throws -> DmOutboxRecord {
         try withState { revision, state in
             let peer = try Self.requirePeer(owner, peerGeneration, state)
             try DmContentCodec.validateIdentifier(clientMessageId)
             guard text.utf8.count <= DmContentCodec.maxTextBytes else { throw DmCoordinatorError.invalidInput }
+            if let timestamp = localCreatedAtMillis, !(1...Self.generationMax).contains(timestamp) {
+                throw DmCoordinatorError.invalidInput
+            }
             let digest = Data(SHA256.hash(data: Data(text.utf8)))
             if let prior = state.outbox.first(where: { $0.messageId == clientMessageId }) {
                 guard prior.requestDigest == digest,
@@ -496,7 +633,7 @@ final class VodozemacDmCoordinator {
                 recipientIdentityGeneration: peer.generation, serializedEnvelope: envelope)
             state.session = Session(pickle: sealed.sessionPickle, id: sealed.sessionId)
             state.outbox.append(OutboxItem(messageId: clientMessageId, record: record,
-                requestDigest: digest, status: .pending, reason: nil))
+                requestDigest: digest, status: .pending, reason: nil, text: text, localCreatedAtMillis: localCreatedAtMillis))
             try persist(state, revision: revision, fault: fault)
             return record
         }
@@ -775,13 +912,35 @@ final class VodozemacDmCoordinator {
         catch { throw DmCoordinatorError.unsupportedState }
         var state = decoded
         try Self.validate(state)
-        return try operation(snapshot.revision, &state)
+        try checkMessageAuthority(state)
+        let result = try operation(snapshot.revision, &state)
+        // Another raw research coordinator can write without this object's
+        // lock. Re-read the durable context before releasing any public result.
+        if messageAuthority != nil {
+            let latest = try JSONDecoder().decode(State.self, from: store.read().payload)
+            try Self.validate(latest)
+            try checkMessageAuthority(latest)
+        }
+        return result
+    }
+
+    private func checkMessageAuthority(_ state: State) throws {
+        guard let authority = messageAuthority else { return }
+        try authority.check()
+        let context = authority.context
+        try Self.requireOwner(DmOwnerContext(userId: context.userId, deviceId: context.deviceId,
+            generation: context.ownerGeneration), state)
+        try Self.requireEpoch(context.credentialEpoch, state)
+        if let generation = context.peerGeneration { _ = try Self.requirePeer(state.owner, generation, state) }
+        try authority.check()
     }
 
     private func persist(_ state: State, revision: Int64, fault: VodozemacSealedStore.CommitFault = .none) throws {
         try Self.validate(state)
         try beforeCommitForResearch?()
-        try store.commit(expectedRevision: revision, payload: JSONEncoder().encode(state), fault: fault)
+        try checkMessageAuthority(state)
+        try store.commit(expectedRevision: revision, payload: JSONEncoder().encode(state), fault: fault,
+                         checkAuthority: { try self.checkMessageAuthority(state) })
     }
 
     private static func requireOwner(_ owner: DmOwnerContext, _ state: State) throws {
@@ -944,13 +1103,21 @@ final class VodozemacDmCoordinator {
         try validateKey(state.prekey)
         if let intent = state.registrationIntent { _ = try registrationBundle(intent, state: state) }
         guard let peer = state.peer else {
-            guard state.session == nil, state.claimIntent == nil, state.outbox.isEmpty,
+            guard state.peerIdentity == nil, state.peerFingerprint == nil, state.session == nil, state.claimIntent == nil, state.outbox.isEmpty,
                   state.inbox.isEmpty, state.unresolved.isEmpty else {
                 throw DmCoordinatorError.unsupportedState
             }
             return
         }
         try validatePeer(peer, owner: state.owner)
+        guard (state.peerIdentity == nil) == (state.peerFingerprint == nil) else { throw DmCoordinatorError.unsupportedState }
+        if let identity = state.peerIdentity {
+            guard let origin = state.authProjectOrigin, let fingerprint = state.peerFingerprint,
+                  identity.userId == peer.userId, identity.deviceId == peer.deviceId,
+                  identity.identityKeyId == peer.identityKeyId, identity.curve == peer.curve, identity.prekey == peer.prekey,
+                  try DmPairingCard(projectOrigin: origin, conversationId: state.conversationId, identity: identity)
+                    .fingerprint().utf8.elementsEqual(fingerprint.utf8) else { throw DmCoordinatorError.unsupportedState }
+        }
         if let intent = state.claimIntent {
             try validateOwner(intent.owner)
             try validatePeer(intent.peer, owner: intent.owner)
@@ -984,6 +1151,15 @@ final class VodozemacDmCoordinator {
                   (0...peer.generation).contains(item.record.recipientIdentityGeneration),
                   (item.status == .rejected) == (item.reason != nil) else {
                 throw DmCoordinatorError.unsupportedState
+            }
+            if let text = item.text {
+                guard text.utf8.count <= DmContentCodec.maxTextBytes,
+                      Data(SHA256.hash(data: Data(text.utf8))) == item.requestDigest else {
+                    throw DmCoordinatorError.unsupportedState
+                }
+            }
+            if let timestamp = item.localCreatedAtMillis {
+                guard item.text != nil, (1...generationMax).contains(timestamp) else { throw DmCoordinatorError.unsupportedState }
             }
         }
         for message in state.inbox {

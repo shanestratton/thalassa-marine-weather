@@ -310,6 +310,31 @@ final class VodozemacAuthSession {
         return try DmRelayNetworkCredential(context: context(current.lifecycle, peerGeneration: peerGeneration), bearer: current.bearer)
     }
 
+    /// Called only while the Directory/index scope gate is held. Keep this
+    /// session lock THROUGH the synchronous coordinator read/CAS: renewal must
+    /// not clear readiness after a successful preflight but before a commit.
+    /// The supplied checker runs under the coordinator lock. It therefore
+    /// checks memory/deadlines only, NEVER reenters requireLease/coordinator.
+    func withCurrentCredential<T>(expected: DmRelayNetworkContext, nativeDeadline: ContinuousClock.Instant,
+                                  operation: (DmRelayNetworkCredential, () throws -> Void) throws -> T) throws -> T {
+        lock.lock(); defer { lock.unlock() }
+        let current = try requireLease(peerGeneration: expected.peerGeneration)
+        guard context(current.lifecycle, peerGeneration: expected.peerGeneration) == expected else {
+            throw DmAuthSessionError.unavailable
+        }
+        let check = {
+            guard !Task.isCancelled, self.attempt == nil,
+                  self.lease?.lifecycle == current.lifecycle, self.lease?.expires == current.expires,
+                  self.clock() < current.expires, ContinuousClock.now < nativeDeadline else {
+                throw DmAuthSessionError.unavailable
+            }
+        }
+        try check()
+        let result = try operation(DmRelayNetworkCredential(context: expected, bearer: current.bearer), check)
+        try check()
+        return result
+    }
+
     /// Used by the existing relay client's dispatch/completion guards. Returns
     /// public context only, never token/key material. Expiry/auth failure stops
     /// activity; it does not manufacture a receipt or silently retry plaintext.
