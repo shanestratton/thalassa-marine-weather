@@ -480,3 +480,85 @@ export function collapseStateRuns(
     }
     return { polyline: out, fromSeg };
 }
+
+/**
+ * A bucket grid over bounding boxes ([w, s, e, n]): which items' boxes meet a
+ * query box, in the items' own order — the same answer as filtering the whole
+ * list, without reading every item. Items whose box spans more than
+ * `maxCells` buckets (an overview cell's bands) are always candidates; a
+ * query wider than `maxQueryCells` buckets filters the list. For the
+ * any-angle string pull (engine/stringPull, 2026-10-03), which reads the
+ * chart at thousands of spots along the chords it weighs.
+ */
+export function bboxBuckets<T>(
+    items: readonly T[],
+    bboxOf: (item: T) => readonly number[],
+    cellDeg = 0.01,
+    maxCells = 256,
+    maxQueryCells = 4096,
+): (box: readonly number[]) => T[] {
+    const boxes = items.map(bboxOf);
+    const meets = (b: readonly number[], q: readonly number[]): boolean =>
+        !(b[2] < q[0] || b[0] > q[2] || b[3] < q[1] || b[1] > q[3]);
+    if (items.length === 0) return () => [];
+    let lon0 = Infinity;
+    let lat0 = Infinity;
+    for (const b of boxes) {
+        if (b[0] < lon0) lon0 = b[0];
+        if (b[1] < lat0) lat0 = b[1];
+    }
+    const col = (lon: number): number => Math.floor((lon - lon0) / cellDeg);
+    const row = (lat: number): number => Math.floor((lat - lat0) / cellDeg);
+    const key = (c: number, r: number): number => r * 1_000_003 + c;
+    const big: number[] = [];
+    const buckets = new Map<number, number[]>();
+    boxes.forEach((b, i) => {
+        const c0 = col(b[0]);
+        const c1 = col(b[2]);
+        const r0 = row(b[1]);
+        const r1 = row(b[3]);
+        if (!(Number.isFinite(c0) && Number.isFinite(c1) && Number.isFinite(r0) && Number.isFinite(r1))) {
+            big.push(i);
+            return;
+        }
+        if ((c1 - c0 + 1) * (r1 - r0 + 1) > maxCells) {
+            big.push(i);
+            return;
+        }
+        for (let r = r0; r <= r1; r++)
+            for (let c = c0; c <= c1; c++) {
+                const k = key(c, r);
+                const list = buckets.get(k);
+                if (list) list.push(i);
+                else buckets.set(k, [i]);
+            }
+    });
+    const seen = new Uint32Array(items.length);
+    let stamp = 0;
+    return (q) => {
+        const c0 = Math.max(col(q[0]), -1);
+        const c1 = col(q[2]);
+        const r0 = Math.max(row(q[1]), -1);
+        const r1 = row(q[3]);
+        if ((c1 - c0 + 1) * (r1 - r0 + 1) > maxQueryCells) return items.filter((_, i) => meets(boxes[i], q));
+        stamp++;
+        if (stamp === 0xffffffff) {
+            seen.fill(0);
+            stamp = 1;
+        }
+        const hits: number[] = [];
+        const take = (i: number): void => {
+            if (seen[i] === stamp) return;
+            seen[i] = stamp;
+            if (meets(boxes[i], q)) hits.push(i);
+        };
+        for (const i of big) take(i);
+        for (let r = r0; r <= r1; r++)
+            for (let c = c0; c <= c1; c++) {
+                const list = buckets.get(key(c, r));
+                if (list) for (const i of list) take(i);
+            }
+        hits.sort((x, y) => x - y);
+        return hits.map((i) => items[i]);
+    };
+}

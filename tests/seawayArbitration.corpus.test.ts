@@ -335,6 +335,20 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
         //     (the first D12 build turned it into a degenerate 'graph' row —
         //     entry = exit node BC#0/h19, 1 of 5 gates, 0 % on the graph — which
         //     is no success, and is gone with drying bands keeping their land).
+        // RE-PIN directNM (round 2 item a, any-angle string pulling,
+        // 2026-10-03; every shadow outcome unchanged; regenerated, each golden
+        // measured in its own process): engine/stringPull pulls the four-tier
+        // route's grid stairs taut where a chord is at least as safe, and
+        // threads a lateral gate crossed close by a mark through its centre.
+        //   • newport-rivergate 23.23 → 23.22, newport-tangalooma 20.18 →
+        //     20.16, newport-rivergate-marks 22.75 → 22.74: shorter by the
+        //     stairs (red never longer; see the goldens' re-pins).
+        //   • dog-leg-channel 2.58 → 2.55: the engine route, which cuts the
+        //     corner across uniformly deep water as this case is built to,
+        //     loses its one bend (3 → 2 points): a straight line with no mark
+        //     between it and the bend. Its graph route is 3.39 NM as before,
+        //     so its detourRatio against the shorter engine line reads 1.314 →
+        //     1.328.
         const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as { rows: ArbitrationRow[] };
         expect(rows).toEqual(baseline.rows);
     });

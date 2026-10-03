@@ -34,7 +34,7 @@ import type {
     SurveyUncheckedCell,
 } from './types';
 import { AMBER_SURVEY_REASONS, CAUTION_WHY } from './types';
-import { forEachCellOnSegment, haversineM, latLonToGrid, segmentDistanceM } from './geometry';
+import { bboxBuckets, forEachCellOnSegment, haversineM, latLonToGrid, segmentDistanceM } from './geometry';
 import { UNKNOWN_OPEN } from './constants';
 import {
     areaGeometry,
@@ -382,6 +382,11 @@ export const SHALLOW_CLIFF_CLEARANCE_M = 30;
  * owning its centre explains (a Notice to Mariners survey's stamp, water the
  * chart index does not hold) — nothing to measure, so nothing is proved.
  * `near`: the band that falls shortest of its clearance (null: none does).
+ * `within`: every band the line comes inside its clearance of, and how near
+ * — what the string pull weighs a chord by, band by band (stage-B review,
+ * 2026-10-03: one worst-shortfall number let a chord sharing a vertex 3 m off
+ * a 2–5 m flat pass 24 m from a drying reef the stair it replaced kept 58 m
+ * off).
  */
 export function nearShallowBand(input: {
     grid: NavGrid;
@@ -390,18 +395,26 @@ export function nearShallowBand(input: {
     cliffClearanceM: number;
     a: readonly [number, number];
     b: readonly [number, number];
-}): { unmeasured: boolean; near: CautionNearShallow | null } {
+    /** How far past the clearance a shallow-band cell's centre may lie and
+     *  still name its band (m). Default half a cell's diagonal. A band is
+     *  rasterized by the cells whose CENTRES it holds, so its edge can lie up
+     *  to a cell beyond them: the any-angle string pull (engine/stringPull)
+     *  asks two diagonals, and a 60 m drying reef whose only cell centre was
+     *  66 m off a chord passing 19 m from its edge is measured (2026-10-03). */
+    cellReachM?: number;
+}): { unmeasured: boolean; near: CautionNearShallow | null; within: NearBand[] } {
     const { grid, floorM, a, b } = input;
     const sd = grid.shallowDepthM;
-    if (!sd) return { unmeasured: true, near: null };
+    if (!sd) return { unmeasured: true, near: null, within: [] };
     const cliffM = Math.max(0, input.cliffClearanceM);
     const reachM = Math.max(cliffM, SHALLOW_BAND_CLEARANCE_M);
     const midLat = (a[1] + b[1]) / 2;
     const kx = 111_320 * Math.cos((midLat * Math.PI) / 180);
     const ky = 111_320;
     const halfDiagM = 0.5 * Math.hypot(grid.dLon * kx, grid.dLat * ky);
-    const padLon = (reachM + 2 * halfDiagM) / Math.max(kx, 1);
-    const padLat = (reachM + 2 * halfDiagM) / ky;
+    const cellReachM = Math.max(halfDiagM, input.cellReachM ?? halfDiagM);
+    const padLon = (reachM + cellReachM + halfDiagM) / Math.max(kx, 1);
+    const padLat = (reachM + cellReachM + halfDiagM) / ky;
     const box = [
         Math.min(a[0], b[0]) - padLon,
         Math.min(a[1], b[1]) - padLat,
@@ -431,7 +444,7 @@ export function nearShallowBand(input: {
         for (const o of owners) bands.add(o);
     };
     for (const idx of touched) if (isShallowCell(idx)) take(idx, true);
-    // Every shallow-band cell whose centre is within reach (+ half a diagonal).
+    // Every shallow-band cell whose centre is within reach (+ cellReachM).
     const x0 = Math.max(0, Math.floor((box[0] - grid.minLon) / grid.dLon));
     const x1 = Math.min(grid.width - 1, Math.floor((box[2] - grid.minLon) / grid.dLon));
     const y0 = Math.max(0, Math.floor((box[1] - grid.minLat) / grid.dLat));
@@ -441,10 +454,11 @@ export function nearShallowBand(input: {
             const idx = y * grid.width + x;
             if (touched.has(idx) || !isShallowCell(idx)) continue;
             const c: [number, number] = [grid.minLon + (x + 0.5) * grid.dLon, grid.minLat + (y + 0.5) * grid.dLat];
-            if (segmentDistanceM(a, b, c, c, kx, ky) > reachM + halfDiagM) continue;
+            if (segmentDistanceM(a, b, c, c, kx, ky) > reachM + cellReachM) continue;
             take(idx, false);
         }
     let worst: CautionNearShallow | null = null;
+    const within: NearBand[] = [];
     for (const band of bands) {
         const d1 = band.drval1;
         const d2 = band.drval2 ?? null;
@@ -452,11 +466,19 @@ export function nearShallowBand(input: {
         const requiredM = cliff ? cliffM : SHALLOW_BAND_CLEARANCE_M;
         const clearanceM = segmentAreaDistanceM(band, a, b, requiredM);
         if (!(clearanceM < requiredM)) continue;
+        within.push({ band, clearanceM });
         // The band that falls furthest short of what it asks for.
         if (!worst || requiredM - clearanceM > worst.requiredM - worst.clearanceM)
             worst = { clearanceM, depthM: d1, requiredM };
     }
-    return { unmeasured, near: worst };
+    return { unmeasured, near: worst, within };
+}
+
+/** A shallow band a line comes inside the clearance of (nearShallowBand). */
+export interface NearBand {
+    band: IndexedDepthArea;
+    /** Metres from the line to the band (0: on or in it). */
+    clearanceM: number;
 }
 
 /**
@@ -480,6 +502,24 @@ export function chartStateAlong(input: {
         const f = factsOf(a, b);
         return `${Number.isFinite(f.min) ? f.min.toFixed(2) : '-'}|${f.uncharted ? 'u' : ''}|${f.conflict ? 'x' : ''}`;
     };
+}
+
+/** One stretch of a straight line over which the chart reads the same. */
+export type ChartLinePiece = Readonly<ChartPiece>;
+
+/**
+ * The chart reader's own pieces along a→b (chartSampler piecesOf: cut at the
+ * depth bands' edges, NtM surveys and decision-1 water walked every ≤5 m),
+ * and whether the layers hold any S-57 depth band at all — what the any-angle
+ * string pull (engine/stringPull, field round 2 item a, 2026-10-03) weighs a
+ * chord and the segments it replaces by, read the way the shallow runs are.
+ */
+export function chartPiecesAlong(input: { layers: InshoreLayers; grid: NavGrid; draftM: number; safetyM: number }): {
+    hasBands: boolean;
+    piecesOf: (a: readonly [number, number], b: readonly [number, number]) => ChartLinePiece[];
+} {
+    const { depthBands, piecesOf } = chartSampler(input.layers, input.grid, input.draftM + input.safetyM);
+    return { hasBands: depthBands.length > 0, piecesOf };
 }
 
 export function collectShallowRuns(input: ShallowRunInput): ShallowRunOutput {
@@ -1152,4 +1192,124 @@ export function collectSurveyRuns(input: SurveyRunInput): SurveyRunOutput {
     }
     flush();
     return { surveyRuns, surveyMask, uncheckedCells: [...uncheckedSeen] };
+}
+
+/** The survey reader's bucket grids, per zone list (surveyZonesOf memoizes
+ *  it per layer set) and chart index. */
+const surveyBucketMemo = new WeakMap<
+    object,
+    {
+        index: object;
+        zonesIn: (box: readonly number[]) => SurveyZone[];
+        bandsIn: (box: readonly number[]) => IndexedDepthArea[];
+        landIn: (box: readonly number[]) => IndexedArea[];
+    }
+>();
+
+/** One stretch of a straight line over which the survey verdict is one. */
+export interface SurveyLinePiece {
+    reason: SurveyRunReason;
+    /** Metres. */
+    m: number;
+    /** The margin the survey's error allows (m), where it is a margin. */
+    errorM?: number;
+}
+
+/**
+ * The survey verdict along a straight line, EXACT — cut at every survey zone,
+ * depth band and land edge and at the not-checked cells' bounds, one verdict
+ * per piece (surveyReasonAt, collectSurveyRuns' own rule), the NtM-surveyed
+ * cells walked every ≤5 m. For the any-angle string pull (engine/stringPull,
+ * field round 2 item a, 2026-10-03), which weighs a chord against the
+ * segments it replaces: collectSurveyRuns samples every 25 m, and over a
+ * 30 km chord through a 1:90,000 cell's thousands of bands that cost the pull
+ * half a second on the Mac. Null when the layers hold no survey zone and no
+ * cell is known to lack them (nothing to read).
+ */
+export function surveyPiecesReader(input: {
+    layers: InshoreLayers;
+    grid?: NavGrid;
+    draftM: number;
+    safetyM: number;
+    uncheckedCells?: readonly SurveyUncheckedCell[];
+}): ((a: readonly [number, number], b: readonly [number, number]) => SurveyLinePiece[]) | null {
+    const { layers, grid } = input;
+    const zones = surveyZonesOf(layers);
+    const unchecked = input.uncheckedCells ?? [];
+    if (zones.length === 0 && unchecked.length === 0) return null;
+    const index = chartAreaIndexFor(layers);
+    const needM = input.draftM + input.safetyM;
+    let buckets = surveyBucketMemo.get(zones);
+    if (!buckets || buckets.index !== index) {
+        buckets = {
+            index,
+            zonesIn: bboxBuckets(zones, (z) => z.area.bbox),
+            bandsIn: bboxBuckets(index.depth, (x) => x.bbox),
+            landIn: bboxBuckets(index.land, (x) => x.bbox),
+        };
+        surveyBucketMemo.set(zones, buckets);
+    }
+    const { zonesIn, bandsIn, landIn } = buckets;
+    const rise = grid?.ntmRiseM;
+    const ntmAt = (lon: number, lat: number): boolean => {
+        if (!grid || !rise) return false;
+        const { x, y } = latLonToGrid(grid, lat, lon);
+        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
+        return !Number.isNaN(rise[y * grid.width + x]);
+    };
+    return (a, b) => {
+        const segM = haversineM(a[1], a[0], b[1], b[0]);
+        const sb = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+        const near = (q: readonly number[]): boolean => !(q[2] < sb[0] || q[0] > sb[2] || q[3] < sb[1] || q[1] > sb[3]);
+        const segZones = zonesIn(sb);
+        const segBands = bandsIn(sb);
+        const segLand = landIn(sb);
+        const segUnchecked = unchecked.filter((c) => near(c.bbox));
+        // The cuts: every edge of what decides the verdict, and the bounds of
+        // the cells known to lack survey zones.
+        const ts: number[] = [0, 1];
+        let acc = 0;
+        if (segM > 0)
+            for (const q of piecesAlong(
+                [...segZones.map((z) => z.area), ...segBands, ...segLand],
+                [a as [number, number], b as [number, number]],
+            )) {
+                acc += q.m;
+                ts.push(Math.min(1, acc / segM));
+            }
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        // A not-checked cell's box [w, s, e, n]: its west and east edges cut
+        // the line where its longitude meets them, south and north its latitude.
+        for (const c of segUnchecked)
+            c.bbox.forEach((edge, k) => {
+                const d = k % 2 ? dy : dx;
+                const t = d !== 0 ? (edge - a[k % 2]) / d : 0;
+                if (t > 0 && t < 1) ts.push(t);
+            });
+        ts.sort((x, y) => x - y);
+        const out: SurveyLinePiece[] = [];
+        for (let k = 0; k + 1 < ts.length; k++) {
+            const t0 = ts[k];
+            const t1 = ts[k + 1];
+            if (t1 - t0 < 1e-12) continue;
+            const m = (t1 - t0) * segM;
+            const parts = rise ? Math.max(1, Math.ceil(m / 5)) : 1;
+            for (let p = 0; p < parts; p++) {
+                const t = t0 + ((t1 - t0) * (p + 0.5)) / parts;
+                const lon = a[0] + dx * t;
+                const lat = a[1] + dy * t;
+                const spot = [lon, lat, lon, lat];
+                const at = ntmAt(lon, lat)
+                    ? null
+                    : surveyReasonAt(lon, lat, zonesIn(spot), bandsIn(spot), landIn(spot), segUnchecked, needM);
+                if (!at?.reason) continue;
+                const last = out[out.length - 1];
+                const errorM = at.errorM;
+                if (last && last.reason === at.reason && last.errorM === errorM) last.m += m / parts;
+                else out.push({ reason: at.reason, m: m / parts, ...(errorM !== undefined ? { errorM } : {}) });
+            }
+        }
+        return out;
+    };
 }

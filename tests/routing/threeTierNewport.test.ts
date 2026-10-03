@@ -61,12 +61,49 @@ describe('four-tier wiring — Newport→Murrarie (Shane real route)', () => {
     // 5). A 50 m-grid artefact, not a new rule: it is round 2's item (a)
     // (any-angle string pulling), which should bring this back to 2. The
     // production shape (chart leads + OSM overlay) has 1 such kink (HEAD 0).
+    //
+    // RESTORED 4 → 2 (round 2 item a, any-angle string pulling, 2026-10-03;
+    // measured in its own process): engine/stringPull pulls the stair taut
+    // where a chord is as safe, and threads the 5/6 and 3/4 gates through
+    // their centres. Two kinks remain near the marks, both the channel's own
+    // shape: the turn north between mark 7 and the unnumbered starboard
+    // sector-light beacon between 7 and 5 (78°), and the bend at the 5/6
+    // centre (35°). The pull may not pass that beacon on its other side, nor
+    // any mark closer than the stair did (or than 25 m).
     it('measured against the real marks — stepping AT the gates stays bounded', () => {
         if (!('polyline' in result)) throw new Error('route failed');
         const s = auditStepping(result.polyline, gates);
         // gate-proximal kinks (the bead-on-a-string signature) must be few;
         // this is the assertion my earlier no-gates version vacuously passed.
-        expect(s.kinksNearGate).toBeLessThanOrEqual(4);
+        expect(s.kinksNearGate).toBeLessThanOrEqual(2);
+    });
+
+    // Round 2 item (a), 2026-10-03: the stair passed mark 5 at 12.2 m and
+    // mark 4 at 6.0 m inside gates 54 m and 50 m wide. Threaded through the
+    // gate centres, the entrance passes no lateral mark closer than 23 m
+    // (measured: mark 6 23.2 m, 4 23.7 m, 2 23.9 m, 3 24.3 m, 7 26.0 m, 5 27.1 m).
+    it('passes the entrance marks 3 to 7 wide, not by metres', () => {
+        if (!('polyline' in result)) throw new Error('route failed');
+        const p = result.polyline;
+        const entrance = marks.filter(
+            (m) => m.lat > -27.1945 && m.lat < -27.182 && m.lon > 153.1015 && m.lon < 153.1035,
+        );
+        expect(entrance.length).toBeGreaterThanOrEqual(6);
+        for (const m of entrance) {
+            const kx = 111_320 * Math.cos((m.lat * Math.PI) / 180);
+            const ky = 110_540;
+            let best = Infinity;
+            for (let i = 0; i + 1 < p.length; i++) {
+                const dx = (p[i + 1][0] - p[i][0]) * kx;
+                const dy = (p[i + 1][1] - p[i][1]) * ky;
+                const qx = (m.lon - p[i][0]) * kx;
+                const qy = (m.lat - p[i][1]) * ky;
+                const l2 = dx * dx + dy * dy;
+                const t = l2 > 0 ? Math.max(0, Math.min(1, (qx * dx + qy * dy) / l2)) : 0;
+                best = Math.min(best, Math.hypot(qx - t * dx, qy - t * dy));
+            }
+            expect(best, `mark ${m.name ?? m.key}${m.seq}`).toBeGreaterThan(20);
+        }
     });
 
     it('the route spans origin → destination', () => {
