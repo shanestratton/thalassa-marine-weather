@@ -13,6 +13,72 @@ final class VodozemacScopedRelayClient {
         self.transport = transport
     }
 
+    /// Register the existing immutable native device, or return its already
+    /// acknowledged enrollment state without HTTP. The native dispatcher
+    /// requires owner-only network context and owns exact durable bundle replay;
+    /// uncertainty never authorizes replacing keys/prekeys or automatic retry.
+    func registerDevice(snapshot: DmNativeMessageSnapshot) async throws -> DmNativeRelayEnrollmentState {
+        do {
+            try requireCurrent(snapshot)
+            let prepared = try facade.executeMessageOperation(snapshot: snapshot, operation: .relayRegistrationWire)
+            let state: DmNativeRelayEnrollmentState
+            switch prepared {
+            case .enrollmentState(let cached):
+                state = cached
+            case .registrationRequest(let wire):
+                try requireCurrent(snapshot)
+                // Closed preparation has returned and released all authority
+                // locks. Transport checks the ORIGINAL native snapshot at
+                // dispatch/completion, not an independently refreshed lease.
+                let response = try await transport.register(bundle: wire, credential: snapshot.credential,
+                    currentContext: { self.facade.currentMessageContext(snapshot: snapshot) })
+                try requireCurrent(snapshot)
+                guard case .enrollmentState(let committed) = try facade.executeMessageOperation(snapshot: snapshot,
+                    operation: .relayRegistrationResponse(wire: wire, response: response)) else {
+                    throw DmRelayTransportError.unresolved
+                }
+                state = committed
+            default:
+                throw DmRelayTransportError.unresolved
+            }
+            try requireCurrent(snapshot)
+            return state
+        } catch { throw DmRelayTransportError.unresolved }
+    }
+
+    /// Claim the explicitly confirmed peer only when native enrollment, full
+    /// OOB identity pin and lower-device initiation policy permit it. The opaque
+    /// native request retains stable claim metadata across this ONE await; no
+    /// JS peer/clock/role input, snapshot renewal or automatic retry is accepted.
+    func claimPeer(snapshot: DmNativeMessageSnapshot) async throws -> DmNativeRelayEnrollmentState {
+        do {
+            try requireCurrent(snapshot)
+            let prepared = try facade.executeMessageOperation(snapshot: snapshot, operation: .relayClaimWire)
+            let state: DmNativeRelayEnrollmentState
+            switch prepared {
+            case .enrollmentState(let cached):
+                state = cached
+            case .claimRequest(let request):
+                try requireCurrent(snapshot)
+                // No authority lock crosses the network await. Completion gets
+                // the same entire native request and ORIGINAL snapshot so it
+                // cannot rebind stale/historical results to a new lease/pin.
+                let response = try await transport.dispatch(request: request.wire, credential: snapshot.credential,
+                    currentContext: { self.facade.currentMessageContext(snapshot: snapshot) })
+                try requireCurrent(snapshot)
+                guard case .enrollmentState(let committed) = try facade.executeMessageOperation(snapshot: snapshot,
+                    operation: .relayClaimResponse(request: request, response: response)) else {
+                    throw DmRelayTransportError.unresolved
+                }
+                state = committed
+            default:
+                throw DmRelayTransportError.unresolved
+            }
+            try requireCurrent(snapshot)
+            return state
+        } catch { throw DmRelayTransportError.unresolved }
+    }
+
     /// Dispatch ONE durable native outbox record. An already-terminal exact ID
     /// is reconciled locally without sending anything. An uncertain response
     /// remains unresolved; no automatic retry, replacement encryption or new
