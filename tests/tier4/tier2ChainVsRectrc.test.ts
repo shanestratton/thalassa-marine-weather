@@ -19,6 +19,7 @@ import {
     routeTier4,
     tier2RedLoad,
     tier2TieM,
+    TIER2_HAZARD_RED_WEIGHT,
     type LoneGate,
     type Tier4Context,
 } from '../../services/tier4/tier4Router';
@@ -26,6 +27,7 @@ import { isUnvouchedCell } from '../../services/engine/safetyAudit';
 import { UNKNOWN_OPEN } from '../../services/engine/constants';
 import { channelChainsFromMidpoints } from '../../services/engine/tierPipeline';
 import { chartAreaIndexFor } from '../../services/routing/leadLandClip';
+import { buildNavGrid } from '../../services/engine/navGrid';
 import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { isRefusal, type BoundaryNode, type LatLon, type Leg } from '../../services/routing/legContract';
 import type { TierSpan } from '../../services/routing/segmentRoute';
@@ -643,5 +645,199 @@ describe('joinedTracks', () => {
         expect(joinedTracks(sharp)).toEqual(sharp);
         const gap = [{ pts: [ll(0, 1000), ll(0, 0)] }, { pts: [ll(0, -20), ll(0, -1000)] }];
         expect(joinedTracks(gap)).toEqual(gap);
+    });
+});
+
+// Round-3 fix-up (2026-10-03): tier2RedLoad weighed every red metre the same,
+// and under the strict policy counted water no chart gives a depth for as 0 m
+// wherever a lateral chain's discs vouched for it (isUnvouchedCell: a mark's
+// preferred cell is vouched) — so a chain over uncharted water tied a charted
+// lead and kept the leg.
+describe('round-3 fix-up — what a red metre weighs (2026-10-03)', () => {
+    /** Cell index of a point (x, y) in local metres. */
+    const cellOf = (grid: NavGrid, x: number, y: number): number =>
+        Math.floor((y + 1600) / CELL_M) * grid.width + Math.floor((x + 1600) / CELL_M);
+
+    it("a charted hazard's keep-out weighs TIER2_HAZARD_RED_WEIGHT; a mark's disc and 2 m water once", () => {
+        const grid = riverGrid();
+        grid.obstnBlocked = new Uint8Array(grid.width * grid.height);
+        grid.markDiscBlocked = new Uint8Array(grid.width * grid.height);
+        // Down reach 1 at x = 10: an obstruction's keep-out over y 1000–1200,
+        // a mark's disc over y 1400–1600 (both blocked cells).
+        for (let y = 1025; y < 1200; y += CELL_M) {
+            const i = cellOf(grid, 10, y);
+            grid.cells[i] = NaN;
+            grid.obstnBlocked[i] = 1;
+        }
+        for (let y = 1425; y < 1600; y += CELL_M) {
+            const i = cellOf(grid, 10, y);
+            grid.cells[i] = NaN;
+            grid.obstnBlocked[i] = 1;
+            grid.markDiscBlocked[i] = 1;
+        }
+        const load = tier2RedLoad(grid, [ll(10, 900), ll(10, 1700)]);
+        expect(TIER2_HAZARD_RED_WEIGHT).toBe(2);
+        expect(load.hazardM).toBeGreaterThan(195);
+        expect(load.hazardM).toBeLessThan(205);
+        // 200 m × 2 (the keep-out) + 200 m (the disc).
+        expect(load.redM).toBeGreaterThan(590);
+        expect(load.redM).toBeLessThan(610);
+        expect(load.noTideM).toBe(0);
+        // 2 m water (CAUTION) weighs once.
+        const shallow = tier2RedLoad(grid, [ll(300, 900), ll(300, 1100)]);
+        expect(shallow.hazardM).toBe(0);
+        expect(shallow.redM).toBeCloseTo(200, 0);
+    });
+
+    // Fix-up review (2026-10-03): a hazard charted deep enough for the keel
+    // (VALSOU >= draft + UKC) is buffered like any other, but the final audit
+    // exempts it, so the engine never draws its keep-out red for it — weighing
+    // it double let a RECTRC ride past a deep wreck lose to a chain over
+    // charted-shallow water.
+    it('a keep-out only a hazard charted deep enough closed weighs once, not double', () => {
+        const grid = riverGrid();
+        grid.obstnBlocked = new Uint8Array(grid.width * grid.height);
+        grid.deepHazardOnly = new Uint8Array(grid.width * grid.height);
+        for (let y = 1025; y < 1200; y += CELL_M) {
+            const i = cellOf(grid, 10, y);
+            grid.cells[i] = NaN;
+            grid.obstnBlocked[i] = 1;
+            grid.deepHazardOnly[i] = 1;
+        }
+        const load = tier2RedLoad(grid, [ll(10, 900), ll(10, 1300)]);
+        expect(load.hazardM).toBe(0);
+        expect(load.redM).toBeGreaterThan(195);
+        expect(load.redM).toBeLessThan(205);
+    });
+
+    it('navGrid marks the cells only a deep-charted hazard closed (deepHazardOnly)', () => {
+        const point = (x: number, y: number, valsou?: number) => ({
+            type: 'Feature' as const,
+            properties: { acronym: 'WRECKS', ...(valsou === undefined ? {} : { VALSOU: valsou }) },
+            geometry: { type: 'Point' as const, coordinates: at(x, y) },
+        });
+        const [x0, y0, x1, y1] = [-600, -600, 600, 600];
+        const deep = {
+            type: 'Feature' as const,
+            properties: { acronym: 'DEPARE', DRVAL1: 10, DRVAL2: 15 },
+            geometry: {
+                type: 'Polygon' as const,
+                coordinates: [[at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1), at(x0, y0)]],
+            },
+        };
+        const layers = (...wrecks: ReturnType<typeof point>[]) =>
+            ({
+                DEPARE: { type: 'FeatureCollection', features: [deep] },
+                WRECKS: { type: 'FeatureCollection', features: wrecks },
+            }) as never;
+        const bbox = [...at(x0, y0), ...at(x1, y1)] as [number, number, number, number];
+        const build = (...wrecks: ReturnType<typeof point>[]) =>
+            buildNavGrid(layers(...wrecks), bbox, 50, 2.4, 0.5, 30);
+        const count = (m: Uint8Array | undefined) => (m ? m.reduce((n, v) => n + v, 0) : 0);
+        // A wreck sounded 10 m: every cell it closes is deep-only.
+        const alone = build(point(0, 0, 10));
+        expect(count(alone.obstnBlocked)).toBeGreaterThan(0);
+        expect(count(alone.deepHazardOnly)).toBe(count(alone.obstnBlocked));
+        // A wreck sounded 1 m, or with no sounding: none is.
+        expect(build(point(0, 0, 1)).deepHazardOnly).toBeUndefined();
+        expect(build(point(0, 0)).deepHazardOnly).toBeUndefined();
+        // A shallow wreck beside the deep one, either order: the cells it
+        // also closes are not deep-only, the deep one's others still are.
+        for (const both of [build(point(0, 0, 10), point(40, 0, 1)), build(point(40, 0, 1), point(0, 0, 10))]) {
+            const shallowOnly = build(point(40, 0, 1));
+            let shared = 0;
+            for (let i = 0; i < both.cells.length; i++) {
+                if (shallowOnly.obstnBlocked![i] === 1) expect(both.deepHazardOnly?.[i] ?? 0).toBe(0);
+                else if (alone.obstnBlocked![i] === 1) {
+                    expect(both.deepHazardOnly![i]).toBe(1);
+                    shared++;
+                }
+            }
+            expect(shared).toBeGreaterThan(0);
+        }
+    });
+
+    it('a chain over water no chart gives a depth for never ties a charted lead (strict policy)', () => {
+        // The inside of the bend, where the chain's A* slice cuts across, is
+        // water a mark vouches for (preferred) but no chart gives a depth for
+        // (UNKNOWN_OPEN, no evidence); the RECTRC round the bend is charted
+        // 10 m. isUnvouchedCell calls the slice's water vouched (a mark's
+        // preferred cell), so before the fix-up both legs carried 0 m of red
+        // and the tie kept the chain.
+        const inside = (c: [number, number]): boolean =>
+            offChannelM(c) > CHANNEL_HALF_M && c[0] < 0 && c[1] > -600 && c[1] < 900;
+        const grid = gridOf((c) => (offChannelM(c) <= CHANNEL_HALF_M ? 10 : inside(c) ? UNKNOWN_OPEN : CAUTION));
+        grid.unvouched = new Uint8Array(grid.width * grid.height);
+        for (let y = 0; y < grid.height; y++)
+            for (let x = 0; x < grid.width; x++) {
+                const i = y * grid.width + x;
+                if (grid.cells[i] !== UNKNOWN_OPEN) continue;
+                grid.unvouched[i] = 1;
+                grid.preferred[i] = 1;
+            }
+        const isUnvouched = (idx: number): boolean => isUnvouchedCell(grid, idx);
+        const slice: LatLon[] = [
+            at(0, 2400),
+            at(10, 1600),
+            at(10, 1200),
+            at(5, 800),
+            at(-180, 150),
+            at(-260, 0),
+            at(-500, -420),
+            at(...REACH2_END),
+        ];
+        // The precondition: the engine's own rule reads none of it red.
+        expect(tier2RedLoad(grid, asLL(slice), { isUnvouched }).redM).toBeLessThan(tier2TieM(grid));
+        const strict = tier2RedLoad(grid, asLL(slice), { isUnvouched, strictUncharted: true });
+        expect(strict.redM).toBeGreaterThan(400);
+        const ctx: Tier4Context = {
+            grid,
+            recommendedTracks: RECTRC,
+            marks: [],
+            channelChains: [{ pts: [ll(0, 1600), ll(0, 1200), ll(0, 800)] }],
+            isUnvouched,
+            strictUncharted: true,
+        };
+        const leg = legOf(routeTier4(span(slice), slice, ctx));
+        expect(leg.provenance).toMatch(/rectrc×/);
+        expect(nearestM(leg.polyline, BEND)).toBeLessThan(5);
+        // Permissive (no strict flag): the tie keeps the chain, as before.
+        const permissive = legOf(
+            routeTier4(span(slice), slice, { ...ctx, isUnvouched: undefined, strictUncharted: undefined }),
+        );
+        expect(permissive.provenance).toBe('tier2:chain×1');
+    });
+
+    it('with chart bands: a stretch no band covers is red under the strict policy, outside the grid too', () => {
+        const grid = gridOf(() => 10);
+        // One 10–15 m band over x −100…100 (the channel down reach 1).
+        const chart = {
+            bands: chartAreaIndexFor({
+                DEPARE: {
+                    type: 'FeatureCollection',
+                    features: [
+                        {
+                            type: 'Feature',
+                            properties: { acronym: 'DEPARE', DRVAL1: 10, DRVAL2: 15 },
+                            geometry: {
+                                type: 'Polygon',
+                                coordinates: [[at(-100, 0), at(100, 0), at(100, 2600), at(-100, 2600), at(-100, 0)]],
+                            },
+                        },
+                    ],
+                },
+            } as never).depth,
+            floorM: 2.9,
+        };
+        const line = [ll(0, 1000), ll(400, 1000)];
+        expect(tier2RedLoad(grid, line, { chart }).redM).toBe(0);
+        const strict = tier2RedLoad(grid, line, { chart, strictUncharted: true }).redM;
+        expect(strict).toBeGreaterThan(295);
+        expect(strict).toBeLessThan(305);
+        // Off the grid's east edge (x > 800) with no bands at all: red.
+        expect(tier2RedLoad(grid, [ll(700, 1000), ll(1000, 1000)], { strictUncharted: true }).redM).toBeGreaterThan(
+            195,
+        );
+        expect(tier2RedLoad(grid, [ll(700, 1000), ll(1000, 1000)]).redM).toBe(0);
     });
 });

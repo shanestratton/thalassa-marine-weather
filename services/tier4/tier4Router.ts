@@ -20,7 +20,7 @@ import type { NavGrid } from '../inshoreRouterEngine';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
 import { distM, refineWithFairlead } from '../fairlead';
 import { followChannelGates, deSpike, TIER3_DESPIKE_DEG, TIER3_FAIRLEAD_MIN_FRAC } from '../tier3/tier3Router';
-import { engineLog } from '../engine/constants';
+import { engineLog, UNKNOWN_OPEN } from '../engine/constants';
 import { freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
 import { chartedDepthAt, piecesAlong, type IndexedDepthArea } from '../routing/leadLandClip';
@@ -72,6 +72,11 @@ export interface Tier4Context {
      *  no-evidence rule for a grid cell (isUnvouchedCell): it draws that water
      *  red, so tier2RedLoad weighs it as red too. Absent: permissive. */
     readonly isUnvouched?: (idx: number) => boolean;
+    /** The strict uncharted policy (production): water with no charted
+     *  depth is red in tier2RedLoad wherever the leg runs — a lateral chain's
+     *  own discs vouch for where the channel is, never for its depth
+     *  (round-3 fix-up, 2026-10-03). */
+    readonly strictUncharted?: boolean;
 }
 
 /** A lone accepted gate (Tier4Context.loneGates). */
@@ -123,17 +128,35 @@ export interface Tier2Chart {
 export interface Tier2Weights {
     readonly chart?: Tier2Chart;
     readonly isUnvouched?: (idx: number) => boolean;
+    readonly strictUncharted?: boolean;
 }
+
+/**
+ * What a metre over a charted hazard's keep-out (an obstruction's, wreck's or
+ * rock's buffer — not a mark's avoidance disc) weighs in a leg's red, against
+ * a metre of charted-shallow water a tide may clear (round-3 fix-up,
+ * 2026-10-03): no tide lifts a rock. Weighed, not first: 3e3a3603's fix-up
+ * measured every keep-out first putting the Hamilton reach bend back over
+ * 2 m water (the RECTRC there crosses a mark's disc and an obstruction's
+ * buffer, 110 m; its ride carried 184 m of red against the chain's 511 m).
+ */
+export const TIER2_HAZARD_RED_WEIGHT = 2;
 
 /** A leg's load: metres over water no tide clears, red, and WING. */
 export interface Tier2Load {
     /** Over water no tide clears (grid.noTideClears: blocked like land, and
-     *  the engine clips or refuses a route there). Part of redM too. A
-     *  hazard's keep-out is red, not this: the RECTRC is snapped with land
-     *  as its only veto, as a charted track is never vetoed by the hazard
-     *  it guides past. */
+     *  the engine clips or refuses a route there). Part of redM too, and
+     *  weighed before it. A hazard's keep-out is red, not this: the RECTRC
+     *  is snapped with land as its only veto, as a charted track is never
+     *  vetoed by the hazard it guides past. */
     noTideM: number;
+    /** Red metres, weighted: a charted hazard's keep-out counts
+     *  TIER2_HAZARD_RED_WEIGHT times (hazardM), every other red once —
+     *  CAUTION or blocked cells, charted depth below draft + safety, water
+     *  no tide clears and, under the strict policy, uncharted water. */
     redM: number;
+    /** Of the red, metres over a charted hazard's keep-out (unweighted). */
+    hazardM: number;
     wingM: number;
 }
 
@@ -141,23 +164,35 @@ export interface Tier2Load {
  * Metres of a leg over water the engine draws red or will not pass — CAUTION
  * or blocked grid cells, a charted depth below draft + safety (`chart`), which
  * a 50 m cell can miss, or uncharted water under the strict policy
- * (`isUnvouched`) — and of those, over water no tide clears (noTideM) and
- * over a pair-wing's outboard cells (WING: the wrong side of a channel mark).
- * Sampled every 5 m; the chart is cut exactly at its band edges.
+ * (`isUnvouched`, and since the round-3 fix-up (2026-10-03) `strictUncharted`:
+ * any water with no charted depth — no S-57 band under it, or a no-evidence
+ * grid cell where the chart has no bands — even where a lateral chain's discs
+ * mark the channel; outside the grid too) — and of those, over water no tide
+ * clears (noTideM), over a charted hazard's keep-out (hazardM, weighed
+ * TIER2_HAZARD_RED_WEIGHT times in redM) and over a pair-wing's outboard
+ * cells (WING: the wrong side of a channel mark). Before the fix-up every
+ * red metre weighed the same, and a chain over water no chart gave a depth
+ * for (0 m of red) tied a charted lead and kept the leg. Sampled every 5 m;
+ * the chart is cut exactly at its band edges.
  */
 export function tier2RedLoad(grid: NavGrid, line: readonly LL[], w: Tier2Weights = {}): Tier2Load {
     const chart = w.chart;
+    const strict = w.strictUncharted === true;
     let noTideM = 0;
     let redM = 0;
+    let hazardM = 0;
     let wingM = 0;
     for (let i = 0; i + 1 < line.length; i++) {
         const a = line[i];
         const b = line[i + 1];
         const len = distM(a, b);
         if (!(len > 0)) continue;
-        // Charted-shallow pieces of a→b, as [t0, t1) fractions of it.
+        // Charted-shallow pieces of a→b, as [t0, t1) fractions of it — and,
+        // under the strict policy, the pieces no band charts a depth for.
         const shallow: [number, number][] = [];
-        if (chart && chart.bands.length > 0) {
+        const uncharted: [number, number][] = [];
+        const charted = !!chart && chart.bands.length > 0;
+        if (chart && charted) {
             const near = chart.bands.filter(
                 (x) =>
                     !(
@@ -181,25 +216,43 @@ export function tier2RedLoad(grid: NavGrid, line: readonly LL[], w: Tier2Weights
                 acc += q.m;
                 const d = chartedDepthAt(near, q.lon, q.lat);
                 if (d !== null && d < chart.floorM) shallow.push([t0, acc / total]);
+                else if (d === null && strict) uncharted.push([t0, acc / total]);
             }
+            // No band near the line at all: all of it is uncharted.
+            if (strict && pieces.length === 0) uncharted.push([0, 1]);
         }
         const n = Math.max(1, Math.ceil(len / RED_LOAD_STEP_M));
         const step = len / n;
         let si = 0;
+        let ui = 0;
         for (let k = 0; k < n; k++) {
             const t = (k + 0.5) / n;
             while (si < shallow.length && shallow[si][1] <= t) si++;
-            let red = si < shallow.length && shallow[si][0] <= t;
+            while (ui < uncharted.length && uncharted[ui][1] <= t) ui++;
+            let red = (si < shallow.length && shallow[si][0] <= t) || (ui < uncharted.length && uncharted[ui][0] <= t);
             const idx = cellIdx(grid, a.lon + (b.lon - a.lon) * t, a.lat + (b.lat - a.lat) * t);
             const d = idx < 0 ? 0 : grid.cells[idx];
             if (Number.isNaN(d) || d < 0 || (idx >= 0 && w.isUnvouched?.(idx))) red = true;
+            // Strict, with no chart bands to read: a no-evidence cell (or
+            // outside the grid) has no charted depth.
+            if (strict && !charted && (idx < 0 || d === UNKNOWN_OPEN)) red = true;
             if (!red) continue;
-            redM += step;
+            // Not a hazard the final audit exempts as charted deep enough
+            // (deepHazardOnly; fix-up review, 2026-10-03): the engine never
+            // draws its keep-out red for it.
+            const hazard =
+                idx >= 0 &&
+                grid.obstnBlocked?.[idx] === 1 &&
+                grid.markDiscBlocked?.[idx] !== 1 &&
+                grid.furnitureHazardBlocked?.[idx] !== 1 &&
+                grid.deepHazardOnly?.[idx] !== 1;
+            redM += hazard ? step * TIER2_HAZARD_RED_WEIGHT : step;
+            if (hazard) hazardM += step;
             if (idx >= 0 && grid.noTideClears?.[idx] === 1) noTideM += step;
             if (idx >= 0 && grid.wingCaution?.[idx] === 1) wingM += step;
         }
     }
-    return { noTideM, redM, wingM };
+    return { noTideM, redM, hazardM, wingM };
 }
 
 /** `now` carries more water no tide clears, red or WING than `was` (a

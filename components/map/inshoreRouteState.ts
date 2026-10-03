@@ -384,9 +384,13 @@ export function tideTopAlong(
  * too-rough survey under water the route otherwise draws teal, yellow or
  * blue — drawn as amber DASHES since decision 10 (SURVEY_DASH). 'tide' is
  * decision 10's amber: shallow water some tide clears, drawn solid in
- * NEEDS_TIDE_AMBER with its tide-window chip.
+ * NEEDS_TIDE_AMBER with its tide-window chip. 'edge' (round-3 fix-up,
+ * 2026-10-03) is a channel edge (ChartedShallowSpan.channelEdge): in water
+ * the marks own, inside the clearance the router keeps from a shallow band —
+ * the same solid amber, but never a chip (the tide does not lift it; the
+ * route notes name it).
  */
-export type InshoreRenderState = InshoreSegmentState | 'survey' | 'tide';
+export type InshoreRenderState = InshoreSegmentState | 'survey' | 'tide' | 'edge';
 
 export interface InshoreRoutePiece {
     state: InshoreRenderState;
@@ -498,18 +502,34 @@ export function inshoreRoutePieces(
                 span.tideLiftable === true &&
                 clears(span.minDepthM, [from, to]) &&
                 (overridable || (span.near !== undefined && base === 'danger' && clears(segDepth(i), [from, to])));
-            const state: InshoreRenderState = span
-                ? spanLifts
-                    ? 'tide'
-                    : 'danger'
-                : base === 'danger'
-                  ? clears(segDepth(i), [from, to])
+            // A channel edge (round-3 fix-up, 2026-10-03) is amber over the
+            // channel's own colour; on red water the segment's own rule.
+            const edge = !!span && span.channelEdge === true && span.near !== undefined;
+            const state: InshoreRenderState = edge
+                ? overridable
+                    ? 'edge'
+                    : clears(segDepth(i), [from, to])
                       ? 'tide'
                       : 'danger'
-                  : overridable && inAmber(um)
-                    ? 'survey'
-                    : base;
-            push(state, from, to, i + t0, i + t1, state === 'tide' ? (span ? span.minDepthM : segDepth(i)) : null);
+                : span
+                  ? spanLifts
+                      ? 'tide'
+                      : 'danger'
+                  : base === 'danger'
+                    ? clears(segDepth(i), [from, to])
+                        ? 'tide'
+                        : 'danger'
+                    : overridable && inAmber(um)
+                      ? 'survey'
+                      : base;
+            push(
+                state,
+                from,
+                to,
+                i + t0,
+                i + t1,
+                state === 'tide' ? (span && !edge ? span.minDepthM : segDepth(i)) : null,
+            );
         }
     }
     return pieces;
@@ -583,6 +603,7 @@ const ROUTE_LINE_COLOURS: readonly [string, string][] = [
     ['safe', '#00e676'],
     ['caution', '#ff9100'],
     ['tide', NEEDS_TIDE_AMBER],
+    ['edge', NEEDS_TIDE_AMBER],
     ['danger', '#ff1744'],
     ['channel', '#facc15'],
     ['harbour', '#38bdf8'],
@@ -593,6 +614,7 @@ const ROUTE_CORE_COLOURS: readonly [string, string][] = [
     ['safe', '#b9f6ca'],
     ['caution', '#ffe0b2'],
     ['tide', '#ffe0b2'],
+    ['edge', '#ffe0b2'],
     ['danger', '#ffcdd2'],
     ['channel', '#fcd34d'],
     ['harbour', '#bae6fd'],

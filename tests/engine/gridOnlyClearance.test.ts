@@ -101,7 +101,20 @@ const eastAt = (lat: number): [number, number][] => [
     [W + 0.016, lat],
 ];
 
-function read(layers: InshoreLayers, grid: NavGrid, line: [number, number][], hazard?: boolean[]) {
+/** The highest tide here, as the route was planned with it (owner decision
+ *  11's ceiling): 2.5 m — no tide clears a reef drying 3 m. Since the round-3
+ *  fix-up (2026-10-03) only a RED near stretch refuses Save: one no tide
+ *  lifts, or — the fix-up review the same night, owner decision 10 — one with
+ *  no tide loaded for the place to prove a tide does (tideUnknown). */
+const TOP_2_5 = [{ lat: -40.996, lon: W + 0.01, highestM: 2.5, days: 14 }];
+
+function read(
+    layers: InshoreLayers,
+    grid: NavGrid,
+    line: [number, number][],
+    hazard?: boolean[],
+    tideCeilings: typeof TOP_2_5 = [],
+) {
     const caution = cautionOf(grid, line);
     const hazardMask = hazard ?? line.slice(0, -1).map(() => false);
     const out = collectShallowRuns({
@@ -112,6 +125,7 @@ function read(layers: InshoreLayers, grid: NavGrid, line: [number, number][], ha
         draftM: DRAFT,
         safetyM: SAFETY,
         hazardMask,
+        tideCeilings,
     });
     const none = caution.map(() => false);
     const masks = {
@@ -196,6 +210,10 @@ describe('a line beside a steep-to drying reef keeps its red', () => {
             ]);
             expect(r.states).toEqual(['green', 'green']);
             expect(r.drawn).toEqual(['danger']);
+            // Round-3 fix-up (2026-10-03): refused where no tide clears the
+            // reef (the 2.5 m top the route was planned with), and where no
+            // tide was loaded to prove one does (fix-up review).
+            expect(read(layers, grid, line, undefined, TOP_2_5).save).toEqual(NEAR_SAVE);
             expect(r.save).toEqual(NEAR_SAVE);
             expect(r.words).toEqual([
                 `runs on the edge of water charted to dry 3.0 m — the router keeps 30 m off it${NO_TIDE}`,
@@ -203,6 +221,7 @@ describe('a line beside a steep-to drying reef keeps its red', () => {
         });
 
     it('the depth under the line is not what is short: a tide must clear the reef itself (decision 10)', () => {
+        // No tide loaded: the reef's depth alone is its red, so a tide may lift it.
         const r = read(layers, grid, eastAt(EDGE + 0.5 * M_LAT));
         expect(r.out.tideDepthM).toEqual([null, null]);
         expect(r.out.cautionDepthM).toEqual([null, null]);
@@ -211,6 +230,16 @@ describe('a line beside a steep-to drying reef keeps its red', () => {
             [-3, true],
             [-3, true],
         ]);
+        // …but with no tide loaded nothing proves one does: red for Save
+        // (tideUnknown; owner decision 10, fix-up review 2026-10-03).
+        expect(r.out.chartedShallowSpans.map((x) => x.tideUnknown)).toEqual([true, true]);
+        expect(r.save).toEqual(NEAR_SAVE);
+        // With the 2.5 m top the route was planned with, no tide clears it.
+        expect(
+            read(layers, grid, eastAt(EDGE + 0.5 * M_LAT), undefined, TOP_2_5).out.chartedShallowSpans.map(
+                (x) => x.tideLiftable,
+            ),
+        ).toEqual([undefined, undefined]);
     });
 
     it('5 m off says how far', () => {
@@ -221,7 +250,7 @@ describe('a line beside a steep-to drying reef keeps its red', () => {
     });
 
     it('Save says what it is: too close to shallow water, not "no charted depth"', () => {
-        const r = read(layers, grid, eastAt(EDGE + 0.5 * M_LAT));
+        const r = read(layers, grid, eastAt(EDGE + 0.5 * M_LAT), undefined, TOP_2_5);
         expect(r.unsaveable).toEqual([]);
         expect(r.save).toEqual(NEAR_SAVE);
     });

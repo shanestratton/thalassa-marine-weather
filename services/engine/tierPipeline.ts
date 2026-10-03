@@ -1375,9 +1375,12 @@ export function applyThreeTier(
         loneGates,
         // Finding B weighs a leg's red as the engine draws it: grid CAUTION,
         // charted depth below draft + safety (the SHALLOW reason) and, under
-        // the strict policy, uncharted water.
+        // the strict policy, uncharted water — any water no chart gives a
+        // depth for, even inside a lateral chain's discs (round-3 fix-up,
+        // 2026-10-03: a chain over it tied a charted lead and kept the leg).
         chart: { bands: chartAreaIndexFor(layers).depth, floorM: draftM + safetyM },
         isUnvouched,
+        ...(isUnvouched ? { strictUncharted: true } : {}),
     };
     // Pull each tier-2↔tier-3 SEAM — the shared boundary vertex where the bay (tier-3) leg hands off
     // to the marked-channel (tier-2) leg — onto the RECTRC. The seam sits on the raw A* route, which

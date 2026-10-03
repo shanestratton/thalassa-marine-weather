@@ -78,7 +78,13 @@ import {
     collapseStateRuns,
 } from './engine/geometry';
 import { aStar, chainCostM, MinHeap } from './engine/aStar';
-import { buildNavGridCached, snapWithPredicate, snapToNavigable, labelConnectedComponents } from './engine/navGrid';
+import {
+    buildNavGridCached,
+    recountNavGridCacheEntry,
+    snapWithPredicate,
+    snapToNavigable,
+    labelConnectedComponents,
+} from './engine/navGrid';
 import {
     auditUnvouchedHardLand,
     hardLandAtPoint,
@@ -804,6 +810,9 @@ function routeInshoreOnceEnds(
     // 2026-10-03): once per cached grid, before this route's copy, so the
     // Seaway shadow's read of the same cached grid prices it too.
     applyShallowClearanceRing(cachedGrid, layers, req.draftM + safetyM);
+    // The ring's bytes, counted as the grid now holds them (round-3 fix-up,
+    // 2026-10-03; admission only reserved w × h for it).
+    recountNavGridCacheEntry(cachedGrid);
     tPhase = mark('shallowRing', tPhase);
     // The endpoint carve and the component-bridge carve below write THIS
     // route's rescues into `cells` / `preferred`: a per-route copy, never the
@@ -3106,6 +3115,8 @@ function routeInshoreOnceEnds(
         originTailEndSeg,
         hazardMask: nearHazard,
         canalMask: finalCanalMask,
+        // A near stretch no tide clears is red (round-3 fix-up, 2026-10-03).
+        ...(req.tideCeilings?.length ? { tideCeilings: req.tideCeilings } : {}),
     });
     // Survey quality on the route (owner decision 9, 2026-09-30): amber
     // stretches and the 'not checked' cells, from the finished geometry —
