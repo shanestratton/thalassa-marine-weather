@@ -1037,6 +1037,11 @@ export const NAV_LAYER_IDS = [
     'route-glow',
     'route-line-layer',
     'route-harbour-dash',
+    // An unverified line: bright red and white dashes on a dark edge
+    // (2026-10-03, inshoreRouteState unverifiedRouteDashLayers), bottom to top.
+    'route-unverified-casing',
+    'route-unverified-gap',
+    'route-unverified',
     'route-core',
     // Decision 9's survey stretches: amber dots on a dark casing (owner
     // decision 10, 2026-09-30; dots since the round-4 review;

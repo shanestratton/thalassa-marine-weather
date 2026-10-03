@@ -1002,16 +1002,6 @@ export interface NavGrid {
      */
     wetConflict?: Uint8Array;
     /**
-     * Per-cell flag (owner decision 12, 2026-10-02): 1 = an overview or
-     * general chart's land paint (usage band 1–2) covers the cell and was
-     * ignored, because a detailed chart (band 3+) charts never-drying depth
-     * there (navGrid Pass 2). The cell is that chart's water, depth and all;
-     * the flag only lets the leg review say why a route runs where the
-     * overview chart draws land (routeTracer, an 'info' note — never a
-     * grade). Absent when no cell qualified, and on cached grids.
-     */
-    overviewLandIgnored?: Uint8Array;
-    /**
      * Per-cell localized-relax flag (1 = LNDARE softened to CAUTION inside an
      * endpoint relax zone). Exposed so the relax-retry acceptance can detect
      * a route CIRCUMVENTING a low-clearance bridge overland (relax-carved

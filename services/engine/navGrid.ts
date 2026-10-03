@@ -1062,9 +1062,6 @@ export function buildNavGrid(
     // Decision-1 water whose finest band is deep enough for this keel (see
     // grid.chartedShallow). Allocated on the first such cell.
     let d1DeepBand: Uint8Array | null = null;
-    // Cells whose overview / general land paint decision 12 ignored (see
-    // grid.overviewLandIgnored). Allocated on the first such cell.
-    let overviewLandIgnored: Uint8Array | null = null;
     for (const f of lndare) {
         const g = f.geometry;
         if (!landRankAt || !g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
@@ -1115,7 +1112,6 @@ export function buildNavGrid(
             // decision 1, as does land of unknown scale.
             if (held !== LAND_UNRANKED && overviewLandYieldsAt(idx, held)) {
                 protectedCells[idx] = 1;
-                (overviewLandIgnored ??= new Uint8Array(width * height))[idx] = 1;
                 landRankAt[idx] = LAND_NONE;
                 continue;
             }
@@ -1171,7 +1167,6 @@ export function buildNavGrid(
         }
     }
 
-    if (overviewLandIgnored) grid.overviewLandIgnored = overviewLandIgnored;
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
 
     // ── Pass 2b: OSM coastline (lines) — block the thin land/water boundary ─

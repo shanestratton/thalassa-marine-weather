@@ -165,7 +165,7 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
             severity: 'warn',
             title: 'Route shown — verification incomplete',
             message:
-                'The inshore router returned missing or mismatched safety classifications. The dashed amber line cannot be saved, exported or shared; retry after charts are synced.',
+                'The inshore router returned missing or mismatched safety classifications. The dashed red line cannot be saved, exported or shared; retry after charts are synced.',
         });
     }
     if (input.destinationInlandTrimM) {

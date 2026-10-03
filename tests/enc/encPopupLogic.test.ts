@@ -6,7 +6,12 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { ENC_VEC_LAYERS } from '../../components/map/encLayerIds';
+import {
+    ENC_AREA_TIER_GROUPS,
+    ENC_VEC_LAYERS,
+    encAreaTierGroup,
+    encBaseLayerId,
+} from '../../components/map/encLayerIds';
 import {
     buildFeaturePopupHtml,
     buildGebcoDepthPopupBodyHtml,
@@ -59,6 +64,24 @@ describe('pickAreaTap — area-tap precedence', () => {
         ]);
         expect(pick?.index).toBe(2);
         expect(pick?.cautionsUnder).toEqual([{ cls: 'ACHARE' }]);
+    });
+
+    it('a finer scale tier’s water fill is the water too (scale-ordered groups, item f)', () => {
+        // Cid Harbour: the 1:90,000 chart's water (tier 5) draws over the
+        // overview's land (tier 1), so a tap there hits tier-5 water first.
+        const caution = { _caution: 'RESARE' };
+        const pick = pickAreaTap([
+            hit(ENC_VEC_LAYERS.CAUTION_AREA_FILL, caution),
+            hit(encAreaTierGroup(5).water, { DRVAL1: 10 }),
+            hit(ENC_VEC_LAYERS.LNDARE),
+        ]);
+        expect(pick).toEqual({ index: 1, cautionsUnder: [caution] });
+        for (const g of ENC_AREA_TIER_GROUPS) {
+            expect(encBaseLayerId(g.water)).toBe(ENC_VEC_LAYERS.DEPARE);
+            expect(encBaseLayerId(g.land)).toBe(ENC_VEC_LAYERS.LNDARE);
+            expect(encBaseLayerId(g.coast)).toBe(ENC_VEC_LAYERS.COALNE);
+        }
+        expect(encBaseLayerId(ENC_VEC_LAYERS.WRECKS)).toBe(ENC_VEC_LAYERS.WRECKS);
     });
 
     it('caution wash with NO water beneath answers as the caution itself', () => {

@@ -26,9 +26,15 @@ import {
     setEncRouteFocusMode,
     setEncVectorVisibility,
 } from '../../components/map/EncVectorLayer';
-import { ENC_VEC_LAYERS } from '../../components/map/encLayerIds';
+import {
+    ENC_COAST_LINE_LAYERS,
+    ENC_LAND_FILL_LAYERS,
+    ENC_VEC_LAYERS,
+    ENC_WATER_FILL_LAYERS,
+} from '../../components/map/encLayerIds';
 import type mapboxgl from 'mapbox-gl';
 import { SATELLITE_KEY, satelliteBaseOn, setEncMapBase } from '../../components/map/encDepthStyleState';
+import { ENC_DRAW_TIER_COUNT } from '../../services/enc/scaleShadow';
 
 /** Stub map: every layer exists; records the last visibility per layer. */
 function stubMap(): { map: mapboxgl.Map; vis: Map<string, string> } {
@@ -53,14 +59,41 @@ describe('ENC visibility state machine', () => {
             setLayerZoomRange: (id: string, min: number) => ranges.set(id, min),
         } as unknown as mapboxgl.Map;
         setEncOverviewMode(map, true);
-        expect([...ranges.values()]).toEqual([5, 5, 5, 5, 5]);
+        // Every scale tier's water, land and coastline (the scale-ordered
+        // groups, item f) plus the islets.
+        const baseLayers = 3 * ENC_DRAW_TIER_COUNT + 1;
+        expect([...ranges.values()]).toEqual(Array(baseLayers).fill(5));
+        for (const id of [...ENC_WATER_FILL_LAYERS, ...ENC_LAND_FILL_LAYERS, ...ENC_COAST_LINE_LAYERS])
+            expect(ranges.get(id)).toBe(5);
         expect(ranges.get(ENC_VEC_LAYERS.DEPARE)).toBe(5);
         expect(ranges.has(ENC_VEC_LAYERS.RECTRC)).toBe(false);
         expect(ranges.has(ENC_VEC_LAYERS.BCNLAT)).toBe(false);
         expect(ranges.has(ENC_VEC_LAYERS.DEPCNT_SAFETY)).toBe(false);
         expect(ranges.has(ENC_VEC_LAYERS.SOUNDG)).toBe(false);
         setEncOverviewMode(map, false);
-        expect([...ranges.values()]).toEqual([7, 7, 7, 7, 7]);
+        expect([...ranges.values()]).toEqual(Array(baseLayers).fill(7));
+    });
+
+    it('every scale tier’s fills obey the same hides as tier 1’s (scale-ordered groups, item f)', () => {
+        const { map, vis } = stubMap();
+        setEncRouteFocusMode(map, true);
+        for (const id of [...ENC_WATER_FILL_LAYERS, ...ENC_LAND_FILL_LAYERS, ...ENC_COAST_LINE_LAYERS])
+            expect(vis.get(id), id).toBe('none');
+        setEncRouteFocusMode(map, false);
+        setEncChartDetail(map, false); // clean chart: the water goes, land + coast stay
+        for (const id of ENC_WATER_FILL_LAYERS) expect(vis.get(id), id).toBe('none');
+        for (const id of [...ENC_LAND_FILL_LAYERS, ...ENC_COAST_LINE_LAYERS]) expect(vis.get(id), id).toBe('visible');
+        setEncChartDetail(map, true);
+        // The satellite base hides every tier's land and coastline.
+        const sat = stubMap();
+        setEncMapBase(sat.map, true);
+        applyEncVisibility(sat.map);
+        for (const id of [...ENC_LAND_FILL_LAYERS, ...ENC_COAST_LINE_LAYERS]) expect(sat.vis.get(id), id).toBe('none');
+        // The plotting keel floor keeps every tier's water on the paper chart.
+        const plot = stubMap();
+        setEncPlottingMode(plot.map, true);
+        setEncVectorVisibility(plot.map, false);
+        for (const id of ENC_WATER_FILL_LAYERS) expect(plot.vis.get(id), id).toBe('visible');
     });
 
     it('keeps an isolated ENC chart independent of the other map imagery preference', () => {

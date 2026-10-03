@@ -1517,7 +1517,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 }
             } else {
                 // Too few points — the verification override below decides
-                // whether this base feature is verified or amber/unverified.
+                // whether this base feature is verified or unverified (red dashes).
                 features.push({
                     type: 'Feature',
                     properties: { safety: 'safe' },
@@ -1643,7 +1643,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             dispatchPassageNotice({
                 severity: 'warn',
                 title: 'Route shown — not verified',
-                message: `${reason}. The dashed amber line cannot be saved, exported or shared. Retry when chart and depth data are available.`,
+                message: `${reason}. The dashed red line cannot be saved, exported or shared. Retry when chart and depth data are available.`,
             });
         };
 

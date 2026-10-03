@@ -34,7 +34,7 @@
  *
  * PRE-EXISTING LEAKS, CARRIED UNCHANGED: cleanup removes only the window
  * listeners, so an unmount mid-isochrone leaves the route-preview source and
- * layer on the map, and the pin-drop timers and marker are untracked. Both
+ * layers on the map, and the pin-drop timers and marker are untracked. Both
  * want their own commits with their own device verification.
  */
 
@@ -46,8 +46,13 @@
 import { useEffect } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { unverifiedRouteDashLayers } from './inshoreRouteState';
 
 const log = createLogger('MapHub');
+
+/** The progressive preview's layer ids (route-preview-unverified-casing, -gap
+ *  and the dashes), for the cleanup. */
+const PREVIEW_LAYERS = unverifiedRouteDashLayers('route-preview', 'route-preview');
 
 export interface PassageRouterEventDeps {
     /** Read at FIRE time only, never during render. */
@@ -81,27 +86,21 @@ export function usePassageRouterEvents({ mapRef, setIsoProgress, setPassageNotic
             if (d?.partialRoute && d.partialRoute.length >= 2) {
                 const map = mapRef.current;
                 if (!map) return;
-                // Lazily create preview source/layer
+                // Lazily create the preview source and its layers.
                 if (!map.getSource('route-preview')) {
                     map.addSource('route-preview', {
                         type: 'geojson',
                         data: { type: 'FeatureCollection', features: [] },
                     });
-                    map.addLayer({
-                        id: 'route-preview-layer',
-                        type: 'line',
-                        source: 'route-preview',
-                        layout: { 'line-join': 'round', 'line-cap': 'round' },
-                        paint: {
-                            // Progressive wavefront geometry has not completed
-                            // the final chart/depth pass. Amber dashes prevent a
-                            // growing preview from being mistaken for a safe line.
-                            'line-color': '#f59e0b',
-                            'line-width': 2,
-                            'line-opacity': 0.75,
-                            'line-dasharray': [4, 4],
-                        },
-                    });
+                    // Progressive wavefront geometry has not completed the
+                    // final chart/depth pass: it is drawn exactly as the
+                    // unverified line is (inshoreRouteState
+                    // unverifiedRouteDashLayers — red and white dashes on a
+                    // dark edge, 2026-10-03; amber dashes until then, which
+                    // read as a lead), so a growing preview is never mistaken
+                    // for a safe line and matches the legend's 'Checking route'.
+                    for (const spec of unverifiedRouteDashLayers('route-preview', 'route-preview'))
+                        map.addLayer(spec as mapboxgl.AnyLayer);
                 }
                 const src = map.getSource('route-preview') as mapboxgl.GeoJSONSource;
                 if (src) {
@@ -110,7 +109,8 @@ export function usePassageRouterEvents({ mapRef, setIsoProgress, setPassageNotic
                         features: [
                             {
                                 type: 'Feature',
-                                properties: {},
+                                // What the preview's layers paint (their filter).
+                                properties: { safety: 'unverified' },
                                 geometry: {
                                     type: 'LineString',
                                     coordinates: d.partialRoute,
@@ -124,10 +124,10 @@ export function usePassageRouterEvents({ mapRef, setIsoProgress, setPassageNotic
         const onComplete = () => {
             log.info('Isochrone complete — clearing progress');
             setIsoProgress(null);
-            // Clean up the progressive preview layer
+            // Clean up the progressive preview's layers, then its source.
             const map = mapRef.current;
             if (map) {
-                if (map.getLayer('route-preview-layer')) map.removeLayer('route-preview-layer');
+                for (const { id } of PREVIEW_LAYERS) if (map.getLayer(id)) map.removeLayer(id);
                 if (map.getSource('route-preview')) map.removeSource('route-preview');
             }
         };

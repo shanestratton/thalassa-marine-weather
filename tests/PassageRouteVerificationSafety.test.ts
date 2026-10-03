@@ -2,6 +2,13 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateRouteSegments } from '../services/isochrone/landAvoidance';
+import {
+    BLOCKED_LEAD_DASH,
+    UNVERIFIED_ROUTE_DASH,
+    inshoreRouteLineLayers,
+    unverifiedRouteDashLayers,
+} from '../components/map/inshoreRouteState';
+import { NAV_LAYER_IDS } from '../components/map/isobarLayerSetup';
 
 const read = (path: string): string => readFileSync(resolve(process.cwd(), path), 'utf8');
 const plannerSource = read('components/map/usePassagePlanner.ts');
@@ -10,6 +17,20 @@ const mapInitSource = read('components/map/useMapInit.ts');
 const routerEventsSource = read('components/map/usePassageRouterEvents.ts');
 const bannerSource = read('components/map/PassageBanner.tsx');
 const validationSource = read('services/isochrone/landAvoidance.ts');
+const autoSource = read('components/autorouting/AutoroutingTrialWorkspace.tsx');
+const legendSource = read('components/map/RouteLegend.tsx');
+const chartKeySource = read('components/map/ChartKeyPanel.tsx');
+const noticeSource = read('components/map/inshoreRouteNotice.ts');
+const leadsSource = read('components/map/useChartLeadsLayer.ts');
+
+/** WCAG relative luminance of a #rrggbb ink. */
+function luminance(hex: string): number {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+        const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
 
 describe('Passage Planner fail-closed route verification contract', () => {
     it('returns an explicit unverified outcome when geometry cannot be validated', async () => {
@@ -71,14 +92,84 @@ describe('Passage Planner fail-closed route verification contract', () => {
         expect(plannerSource).toContain('isoResultRef.current = isoResult');
     });
 
-    it('styles every unverified and progressive preview as amber/grey rather than green', () => {
-        // The solid route colours moved to inshoreRouteState on 2026-10-01
-        // (shared with Auto's map); useMapInit draws them from there.
+    it('styles every unverified and progressive preview as bright red DASHES, never green and never solid', () => {
+        // Shane 2026-10-03: "as long as they are a bright red, it should be
+        // fine". They were amber dashes — the leads' own colour. Red dashes
+        // are "not checked"; solid red is "checked and dangerous".
+        expect(UNVERIFIED_ROUTE_DASH.ink).toBe('#ff1744');
+        expect(UNVERIFIED_ROUTE_DASH.dasharray.length).toBe(2);
+        const [casing, gap, dash] = unverifiedRouteDashLayers('route-line');
+        expect([casing.id, gap.id, dash.id]).toEqual([
+            'route-unverified-casing',
+            'route-unverified-gap',
+            'route-unverified',
+        ]);
+        expect(dash.paint['line-color']).toBe('#ff1744');
+        expect(dash.paint['line-dasharray']).toEqual([...UNVERIFIED_ROUTE_DASH.dasharray]);
+        expect(casing.paint['line-color']).toBe(UNVERIFIED_ROUTE_DASH.casing);
+        expect(casing.paint['line-width']).toBeGreaterThan(dash.paint['line-width']);
+        // Every unverified piece is dashed, dashed flag or not…
+        for (const layer of [casing, gap, dash]) expect(layer.filter).toEqual(['==', ['get', 'safety'], 'unverified']);
+        // …and no solid layer ever paints one: an unchecked line cannot read
+        // as the solid red of a checked danger.
+        for (const solid of inshoreRouteLineLayers('route-line')) {
+            expect(solid.filter).toContainEqual(['!=', ['get', 'safety'], 'unverified']);
+            expect(JSON.stringify(solid.paint)).not.toContain('"unverified"');
+        }
+        // The planner map, the progressive preview and Auto's map all draw it.
         expect(mapInitSource).toContain("inshoreRouteLineLayers('route-line')");
-        expect(stateSource).toContain("['unverified', '#f59e0b']");
-        expect(mapInitSource).toContain("['match', ['get', 'safety'], 'unverified', '#f59e0b', '#38bdf8']");
-        expect(routerEventsSource).toContain("'line-color': '#f59e0b'");
+        expect(mapInitSource).toContain("unverifiedRouteDashLayers('route-line')");
+        expect(mapInitSource).not.toContain("'unverified', '#f59e0b'");
+        expect(routerEventsSource).toContain("unverifiedRouteDashLayers('route-preview', 'route-preview')");
+        expect(routerEventsSource).toContain("properties: { safety: 'unverified' }");
+        expect(routerEventsSource).not.toContain("'line-color': '#f59e0b'");
         expect(routerEventsSource).not.toContain("'line-color': '#00e676'");
+        expect(autoSource).toContain("unverifiedRouteDashLayers('thalassa-route', 'thalassa-route')");
+        expect(autoSource).not.toContain("'line-color': '#f59e0b'");
+        // The keys say red, and no copy calls the unverified line amber.
+        expect(legendSource).toContain('UNVERIFIED_ROUTE_DASH.ink');
+        expect(chartKeySource).toContain('UNVERIFIED_ROUTE_DASH.ink');
+        for (const source of [plannerSource, noticeSource, legendSource, chartKeySource])
+            expect(source).not.toMatch(/dashed amber line/);
+        expect(plannerSource).toContain('The dashed red line cannot be saved, exported or shared.');
+    });
+
+    // Review fix-up (2026-10-03): the leads overlay's BLOCKED lead (a bridge or
+    // power line the mast cannot clear) is red dashes on this same dark casing
+    // at nearly the same width and rhythm, and the planner map shows both. The
+    // unverified line keeps Shane's bright red, but its gaps are PALE — red
+    // and white dashes on a dark edge — so the two never read as one.
+    it('the unverified line never looks like a blocked lead: red and white dashes, not red on dark', () => {
+        const [casing, gap, dash] = unverifiedRouteDashLayers('route-line');
+        // The gap: a pale solid line under the dashes, exactly as wide, on the
+        // dark casing.
+        expect(gap.paint['line-color']).toBe(UNVERIFIED_ROUTE_DASH.gap);
+        expect(gap.paint['line-width']).toBe(dash.paint['line-width']);
+        expect(gap.paint['line-opacity']).toBe(1);
+        expect('line-dasharray' in gap.paint).toBe(false);
+        expect(casing.paint['line-width']).toBeGreaterThan(gap.paint['line-width']);
+        expect(luminance(UNVERIFIED_ROUTE_DASH.gap)).toBeGreaterThan(0.8);
+        // The blocked lead's gaps show its dark casing.
+        expect(luminance(BLOCKED_LEAD_DASH.casing)).toBeLessThan(0.05);
+        // Pattern, ink and gap all differ from the blocked lead's.
+        expect([...UNVERIFIED_ROUTE_DASH.dasharray]).not.toEqual([...BLOCKED_LEAD_DASH.dasharray]);
+        expect(UNVERIFIED_ROUTE_DASH.ink).not.toBe(BLOCKED_LEAD_DASH.ink);
+        expect(UNVERIFIED_ROUTE_DASH.gap).not.toBe(BLOCKED_LEAD_DASH.casing);
+        // The leads overlay draws its blocked lead from that one spec…
+        expect(leadsSource).toContain('BLOCKED_INK = BLOCKED_LEAD_DASH.ink');
+        expect(leadsSource).toContain("'line-dasharray': [...BLOCKED_LEAD_DASH.dasharray]");
+        // …and the chart key shows each in its own pattern.
+        expect(chartKeySource).toContain('UNVERIFIED_ROUTE_DASH.gap');
+        expect(chartKeySource).toContain('BLOCKED_LEAD_DASH.ink');
+        expect(chartKeySource).toContain('BLOCKED_LEAD_DASH.casing');
+        expect(legendSource).toContain('UNVERIFIED_ROUTE_DASH.gap');
+        // The planner map lifts the three layers above the weather in order.
+        const navIds: readonly string[] = NAV_LAYER_IDS;
+        const order = ['route-unverified-casing', 'route-unverified-gap', 'route-unverified'].map((id) =>
+            navIds.indexOf(id),
+        );
+        expect(order.every((i) => i >= 0)).toBe(true);
+        expect([...order].sort((a, b) => a - b)).toEqual(order);
     });
 
     it('binds Save, GPX and Brief availability to the exact verified displayed geometry', () => {

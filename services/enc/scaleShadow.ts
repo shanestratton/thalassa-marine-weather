@@ -345,6 +345,133 @@ export function overviewLandYields(
     );
 }
 
+// ── Scale-ordered chart drawing: the map's half of the same fineness ──
+
+/**
+ * The chart layer's DRAW TIER boundaries (compilation scale denominators,
+ * coarsest first). A cell of compilation scale `cscl` draws in tier
+ * 1 + (the number of bounds it is at or finer than): tier 1 coarsest … tier 12
+ * finest. Every usage-band boundary (1:1,500,000, 1:350,000, 1:90,000,
+ * 1:22,000, 1:4,000) is a bound, so the tiers nest inside the router's usage
+ * bands; the others split a band between the standard compilation scales the
+ * charts on the Pi actually use (measured 2026-10-03, read-only, over its 723
+ * AU cells' blobs: 1:350,000 and 1:180,000 in band 3; 1:90,000 and 1:45,000
+ * in band 4; 1:22,000, 1:18,000, 1:12,000 and 1:8,000 in band 5; 1:4,000 and
+ * 1:3,000–1:2,000 in band 6). The 1:20,000 bound (review fix-up, 2026-10-03)
+ * splits 1:22,000 from 1:18,000: over the Pi's 727 distinct OC-61 cells by
+ * metadata, the only two overlapping mixed-scale pairs inside one tier were
+ * those two scales (both at Cocos (Keeling) Islands, identical bboxes), where
+ * the 1:22,000 chart's land painted over the 1:18,000 chart's water. Inside a
+ * tier, two scales still paint in merge order, land over water: 1:3,500,000
+ * with 1:3,000,000 in tier 1 (no overlapping pair measured).
+ */
+export const ENC_DRAW_TIER_BOUNDS = [
+    1_500_000, 350_000, 250_000, 90_000, 60_000, 22_000, 20_000, 15_000, 10_000, 4_000, 3_500,
+] as const;
+
+/** How many draw tiers the chart layer has (one water, land and coastline
+ *  layer each). */
+export const ENC_DRAW_TIER_COUNT = ENC_DRAW_TIER_BOUNDS.length + 1;
+
+/** The draw tier of a compilation scale (see ENC_DRAW_TIER_BOUNDS). */
+export function drawTierOfScale(cscl: number): number {
+    let tier = 1;
+    for (const bound of ENC_DRAW_TIER_BOUNDS) if (cscl <= bound) tier++;
+    return tier;
+}
+
+/** The coarsest and the finest tier a usage band spans (bands 1–6). */
+function bandTierSpan(band: number): [number, number] {
+    // The band's coarsest and finest compilation scales (usageBandOfScale).
+    const span: Record<number, [number, number]> = {
+        1: [1e9, 1_500_001],
+        2: [1_500_000, 350_001],
+        3: [350_000, 90_001],
+        4: [90_000, 22_001],
+        5: [22_000, 4_001],
+        6: [4_000, 1],
+    };
+    const [coarse, fine] = span[Math.max(1, Math.min(6, band))];
+    return [drawTierOfScale(coarse), drawTierOfScale(fine)];
+}
+
+/**
+ * The DRAW TIER of a cell's area fills and coastline on the chart layer (item
+ * f, Shane 2026-10-02: "we should overlay the charts the other way so the
+ * water is drawn over the land"). The renderer draws one water, land and
+ * coastline layer per tier, coarsest first — tier 1's water, then its land and
+ * coastline, then tier 2's, … — so a finer chart's fills cover a coarser
+ * one's, as chart plotters draw the best scale on top. Cid Harbour,
+ * 2026-10-02: the 1:90,000 AU421148's 10–15 m water now covers the
+ * 1:3,500,000 AU130120's land, and a detailed chart's island still covers an
+ * overview's water (all water over all land would paint the overview's water
+ * over islands only the detailed chart has).
+ *
+ * The fineness is the router's own (cellFinenessRank's facts, in its order:
+ * the compilation scale, else the S-57 name's usage band — never the bbox),
+ * grouped into tiers that nest inside its usage bands, so the map and the
+ * route agree on which chart is finer: wherever decision 12 ignores overview
+ * land (overviewLandYields), the detailed chart's water draws over it. A cell
+ * known by its band alone draws its water at the band's COARSEST tier and its
+ * land at the band's FINEST — the router's tie rule (surveyRanksTie,
+ * landRankKey): "somewhere in this band" never out-ranks a band-mate's land.
+ * Two more fail-safe cases:
+ *   • unknown fineness (no compilation scale, no S-57 band in the name): its
+ *     land and coastline draw in the TOP tier and its water in the BOTTOM one
+ *     — the router's "the land paint stands, the bands beat nothing"
+ *     (finerBandBeatsLand);
+ *   • `referenceUnderNavigation` (referenceWaterYields: an unsigned reference
+ *     pack a navigation chart in the same merge overlaps): its WATER draws in
+ *     tier 1, so a trusted navigation chart's water and land always paint over
+ *     it (inside tier 1 the merge's references-first order puts navigation
+ *     water on top too). Its land and coastline keep their own tier, and so
+ *     does the water of a reference pack no navigation chart overlaps. Review
+ *     fix-up, 2026-10-03: the first build sent ALL of a reference pack to tier
+ *     1 — an imported 1:12,000 plan's island then sat under a 1:1,500,000
+ *     navigation chart's water, and for a user whose charts are all imported
+ *     (every Pi-less user's: localEncPackImport) the plan's harbour sat under
+ *     the imported overview's land again.
+ * Two cells in one tier paint in the merge's coarse→fine order, land over
+ * water: equal-scale siblings (the router's equal rank: the land paint
+ * stands), and the rare pair of scales one tier holds (see
+ * ENC_DRAW_TIER_BOUNDS).
+ */
+export function encDrawTier(
+    facts: CellScaleFacts | null | undefined,
+    kind: 'water' | 'land',
+    referenceUnderNavigation = false,
+): number {
+    if (referenceUnderNavigation && kind === 'water') return 1;
+    const cscl = compilationScaleOf(facts?.nativeScale);
+    if (cscl !== null) return drawTierOfScale(cscl);
+    const rank = cellFinenessRank(facts);
+    if (rank === null) return kind === 'water' ? 1 : ENC_DRAW_TIER_COUNT;
+    const [coarsest, finest] = bandTierSpan(usageBandOfRank(rank));
+    return kind === 'water' ? coarsest : finest;
+}
+
+/**
+ * Whether an unsigned reference cell's WATER draws in tier 1 (encDrawTier's
+ * `referenceUnderNavigation`): a navigation cell in the same merge overlaps
+ * its registry bbox (touching counts — the water drops). Decided once per cell
+ * per merge from the merge's own cell list; a navigation cell's water never
+ * yields, and another reference pack never makes one yield. A cell with no
+ * authority is a navigation cell (CellExtent's default).
+ */
+export function referenceWaterYields(cell: CellExtent, all: readonly CellExtent[]): boolean {
+    if (cell.authority !== 'reference') return false;
+    const [w, s, e, n] = cell.bbox;
+    return all.some(
+        (o) =>
+            o.id !== cell.id &&
+            (o.authority ?? 'navigation') === 'navigation' &&
+            o.bbox[0] <= e &&
+            o.bbox[2] >= w &&
+            o.bbox[1] <= n &&
+            o.bbox[3] >= s,
+    );
+}
+
 /** A depth band that never dries (decision 1): a charted DRVAL1 ≥ 0. A
  * missing or malformed DRVAL1 is not evidence of water. */
 export function bandNeverDries(drval1: number | null | undefined): boolean {

@@ -11,11 +11,17 @@
  */
 
 import React, { memo } from 'react';
+import { UNVERIFIED_ROUTE_DASH } from './inshoreRouteState';
 
 interface RouteLegendEntry {
     color: string;
     label: string;
     dashed?: boolean;
+    /** A dark edge round the swatch (the unverified line's casing). */
+    casing?: string;
+    /** The ink between the dashes (the unverified line's white gap); the
+     *  panel shows through when absent. */
+    gap?: string;
     glowColor?: string;
 }
 
@@ -39,10 +45,16 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(
             verificationStatus === 'verified'
                 ? ROUTE_LEGEND
                 : [
+                      // The unverified line as the map draws it — the planner's
+                      // line and the progressive preview alike: bright red and
+                      // white dashes on a dark edge (2026-10-03; amber until
+                      // then).
                       {
-                          color: '#f59e0b',
+                          color: UNVERIFIED_ROUTE_DASH.ink,
                           label: verificationStatus === 'pending' ? 'Checking route' : 'Unverified route',
                           dashed: true,
+                          gap: UNVERIFIED_ROUTE_DASH.gap,
+                          casing: UNVERIFIED_ROUTE_DASH.casing,
                       },
                   ];
 
@@ -96,8 +108,8 @@ export const RouteLegend: React.FC<RouteLegendProps> = memo(
                                         boxShadow: entry.glowColor ? `0 0 6px ${entry.glowColor}` : 'none',
                                         ...(entry.dashed
                                             ? {
-                                                  background: `repeating-linear-gradient(90deg, ${entry.color} 0px, ${entry.color} 4px, transparent 4px, transparent 7px)`,
-                                                  boxShadow: 'none',
+                                                  background: `repeating-linear-gradient(90deg, ${entry.color} 0px, ${entry.color} 4px, ${entry.gap ?? 'transparent'} 4px, ${entry.gap ?? 'transparent'} 7px)`,
+                                                  boxShadow: entry.casing ? `0 0 0 1px ${entry.casing}` : 'none',
                                                   border: 'none',
                                               }
                                             : {}),

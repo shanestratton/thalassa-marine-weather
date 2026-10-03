@@ -239,6 +239,15 @@ describe('ChartKeyPanel', () => {
             screen.getByText('No tide clears it, no tide data, charts disagree, uncharted, canal or hazard'),
         ).toBeInTheDocument();
         expect(screen.getByText('Charted lead (leads overlay) that needs tide')).toBeInTheDocument();
+        // Review fix-up (2026-10-03): the unverified route line and the leads
+        // overlay's blocked lead are both red dashes; each has its own row, and
+        // the words name the pattern that tells them apart.
+        expect(screen.getByText('Not checked yet — red and white dashes; it can’t be saved')).toBeInTheDocument();
+        expect(
+            screen.getByText(
+                'Charted lead (leads overlay) blocked — red dashes: your mast can’t clear it, or no air draft set',
+            ),
+        ).toBeInTheDocument();
     });
 });
 

@@ -27,7 +27,7 @@ import { installScaleBarLabel } from './scaleBarLabel';
 import { registerChartMap } from './chartMapRegistry';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
-import { inshoreRouteLineLayers, surveyDashLayers } from './inshoreRouteState';
+import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
 let mapInstanceSeq = 0;
@@ -996,19 +996,24 @@ export function useMapInit(opts: UseMapInitOptions) {
             });
 
             // ── Harbour Dash: rendered ABOVE confidence braid so it's always visible ──
+            // The navigate-yourself harbour legs only. An UNVERIFIED line is
+            // the bright red and white dashes on a dark edge just above
+            // (2026-10-03; they were this layer's amber dash, which read as a
+            // lead).
             map.addLayer({
                 id: 'route-harbour-dash',
                 type: 'line',
                 source: 'route-line',
-                filter: ['==', ['get', 'dashed'], true],
+                filter: ['all', ['==', ['get', 'dashed'], true], ['!=', ['get', 'safety'], 'unverified']],
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
-                    'line-color': ['match', ['get', 'safety'], 'unverified', '#f59e0b', '#38bdf8'],
-                    'line-width': ['match', ['get', 'safety'], 'unverified', 3.5, 2.5],
-                    'line-opacity': ['match', ['get', 'safety'], 'unverified', 0.95, 0.85],
+                    'line-color': '#38bdf8',
+                    'line-width': 2.5,
+                    'line-opacity': 0.85,
                     'line-dasharray': [4, 4],
                 },
             });
+            for (const spec of unverifiedRouteDashLayers('route-line')) map.addLayer(spec as mapboxgl.AnyLayer);
 
             // ── Seamark Navigation Markers (regional nav_markers.geojson) —
             // DISPLAY REMOVED 2026-06-18. The regional SE-QLD marker file sits

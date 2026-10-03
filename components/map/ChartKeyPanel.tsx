@@ -2,7 +2,7 @@ import { CAUTION_BAND_COLOR, DEPARE_BAND_COLORS, SHALLOW_CAUTION_COLOR } from '.
 import { CAUTION_CLASS_COLOURS, CAUTION_DEFAULT_COLOUR } from './encPopup';
 import { seamarkIconDataUri } from './seamarkIcons';
 import { LIGHT_COLOUR_HEX } from '../../services/enc/types';
-import { NEEDS_TIDE_AMBER, SURVEY_DASH } from './inshoreRouteState';
+import { BLOCKED_LEAD_DASH, NEEDS_TIDE_AMBER, SURVEY_DASH, UNVERIFIED_ROUTE_DASH } from './inshoreRouteState';
 
 /**
  * The planned route's colours (owner decision 10, Shane 2026-09-30: "Amber if
@@ -22,6 +22,18 @@ const ROUTE_KEY: readonly { swatch: string; label: string }[] = [
         label: 'Survey may be out, or old',
     },
     { swatch: '#ff1744', label: 'No tide clears it, no tide data, charts disagree, uncharted, canal or hazard' },
+    {
+        // The unverified line (inshoreRouteState UNVERIFIED_ROUTE_DASH): red
+        // and white DASHES on a dark edge — not checked, where the solid red
+        // above is checked and dangerous (2026-10-03; amber dashes until
+        // then). The white gaps keep it apart from the blocked lead below.
+        swatch: [
+            `linear-gradient(${UNVERIFIED_ROUTE_DASH.casing}, ${UNVERIFIED_ROUTE_DASH.casing}) top / 100% 1px no-repeat`,
+            `linear-gradient(${UNVERIFIED_ROUTE_DASH.casing}, ${UNVERIFIED_ROUTE_DASH.casing}) bottom / 100% 1px no-repeat`,
+            `repeating-linear-gradient(90deg, ${UNVERIFIED_ROUTE_DASH.ink} 0 5px, ${UNVERIFIED_ROUTE_DASH.gap} 5px 8px)`,
+        ].join(', '),
+        label: 'Not checked yet — red and white dashes; it can’t be saved',
+    },
     { swatch: '#1e40af', label: 'Offshore' },
     {
         // The leads overlay's own inks (useChartLeadsLayer AMBER_INK on
@@ -29,6 +41,14 @@ const ROUTE_KEY: readonly { swatch: string; label: string }[] = [
         // hook into the key).
         swatch: `repeating-linear-gradient(90deg, ${NEEDS_TIDE_AMBER} 0 5px, ${SURVEY_DASH.casing} 5px 9px)`,
         label: 'Charted lead (leads overlay) that needs tide',
+    },
+    {
+        // The leads overlay's blocked lead (owner decision 5): red dashes on
+        // its dark casing (BLOCKED_LEAD_DASH) — keyed here, beside the route's
+        // red and white dashes, so the two are never read as one (review
+        // fix-up, 2026-10-03).
+        swatch: `repeating-linear-gradient(90deg, ${BLOCKED_LEAD_DASH.ink} 0 5px, ${BLOCKED_LEAD_DASH.casing} 5px 8px)`,
+        label: 'Charted lead (leads overlay) blocked — red dashes: your mast can’t clear it, or no air draft set',
     },
 ];
 

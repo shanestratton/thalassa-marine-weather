@@ -237,13 +237,13 @@ reported · review required", with Save blocked. On the Pi's cells at
       `hardLandAtPoint` and `auditUnvouchedHardLand`);
     - the satellite check's chart evidence (`backstopVerdict`). Its scale rule
       is the same line: `BACKSTOP_MIN_VOUCH_BAND = DETAILED_CHART_MIN_BAND`.
-- **The leg review says why (review fix-up, 2026-10-03).** Until the chart
-  layer draws the detailed chart over the overview (item (f)), the map still
-  shows the overview's brown land under a green Cid Harbour line. Each leg
-  over such ground now carries a note, "overview chart shows land here;
-  detailed chart charts water" (`grid.overviewLandIgnored`, routeTracer). It
-  is an 'info' note and never changes the grade. Ship decision 12 in the same
-  push as (f); the note is the fallback, not the fix.
+- **The map now agrees (item (f), 2026-10-03).** Decision 12 first shipped
+  with a stop-gap leg note, "overview chart shows land here; detailed chart
+  charts water", because the map still drew the overview's brown land over
+  Cid Harbour. The chart layer now draws by scale (`scaleShadow`
+  `encDrawTier`, one water / land / coastline group per scale tier, coarsest
+  first), so the detailed chart's water covers the overview's land wherever
+  decision 12 ignores it, and the note and its per-cell grid record are gone.
 - **Measured on the real cells** (read-only copies from the Pi, in scratch,
   deleted after; `tests/repro/detailedChartOverviewLandRealCells.local.test.ts`,
   no tide data; "after" is the fix-up's final code):

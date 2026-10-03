@@ -5,6 +5,7 @@
  */
 
 import type { S57PointMarkClass } from '../../services/enc/types';
+import { ENC_DRAW_TIER_COUNT } from '../../services/enc/scaleShadow';
 
 // ── Source IDs ─────────────────────────────────────────────────────
 
@@ -31,15 +32,23 @@ export const ENC_VEC_SRC = {
 // legacy '-circle' suffix even though they're symbol layers now.
 // Renaming is a separate mechanical commit, never a drive-by.
 export const ENC_VEC_LAYERS = {
+    /** SCALE-ORDERED AREA FILLS (item f, Shane 2026-10-02: "we should overlay
+     *  the charts the other way so the water is drawn over the land"). One
+     *  water fill, land fill and coastline line PER SCALE TIER, drawn
+     *  coarsest first (ENC_AREA_TIER_GROUPS), so a finer chart's fills cover
+     *  a coarser one's: the 1:90,000 chart's water over the 1:3,500,000
+     *  overview's land in Cid Harbour, and its islands over the overview's
+     *  water. The tier is the router's fineness (scaleShadow encDrawTier,
+     *  stamped `_drawTier` by the merge). These three ids are tier 1's:
+     *  DEPARE stays the bottom of the chart stack (the imagery anchor and the
+     *  tap answer key), LNDARE / COALNE the land and coast popups' keys; the
+     *  finer tiers' ids are generated (`enc-vec-depare-t4-fill`, …). The
+     *  DEPARE_FINE repaint (2026-07-11, Mooloolah's canals under a 1:90,000
+     *  land blob) is retired into this: it was the same fix for harbour-grade
+     *  cells only, by bbox size. */
     LNDARE: 'enc-vec-lndare-fill',
     LNDARE_ISLET: 'enc-vec-lndare-islet',
     DEPARE: 'enc-vec-depare-fill',
-    /** Fine-survey water REPAINTED ABOVE land (2026-07-11: the coarse
-     *  1:90k cell's crude LNDARE blob swallowed the Mooloolah river +
-     *  canal estates — "where is our beautiful layer??? help help").
-     *  Land-over-water is right for a cell's OWN generalisation; wrong
-     *  across scales. Harbour-grade bands overrule coarse land bleed. */
-    DEPARE_FINE: 'enc-vec-depare-fine-fill',
     /** Depth contours INTERPOLATED from our own spot soundings (honest,
      *  official-data-derived, dashed + faint so they never masquerade as
      *  surveyed DEPCNT lines). Densifies shallow water the way SonarChart
@@ -114,18 +123,75 @@ export const ENC_VEC_LAYERS = {
     VHF_BADGE_VTS: 'enc-vec-vhf-badge-vts',
 } as const;
 
+/** One scale tier's area layers: its water fill, land fill and coastline. */
+export interface EncAreaTierGroup {
+    tier: number;
+    water: string;
+    land: string;
+    coast: string;
+}
+
+/** The scale-ordered area groups, COARSEST FIRST (= bottom-to-top). Every
+ *  area fill and coastline paints in exactly one of them, by its `_drawTier`
+ *  (1 … ENC_DRAW_TIER_COUNT). Tier 1 keeps the legacy ids. */
+export const ENC_AREA_TIER_GROUPS: readonly EncAreaTierGroup[] = Array.from(
+    { length: ENC_DRAW_TIER_COUNT },
+    (_, i): EncAreaTierGroup =>
+        i === 0
+            ? { tier: 1, water: ENC_VEC_LAYERS.DEPARE, land: ENC_VEC_LAYERS.LNDARE, coast: ENC_VEC_LAYERS.COALNE }
+            : {
+                  tier: i + 1,
+                  water: `enc-vec-depare-t${i + 1}-fill`,
+                  land: `enc-vec-lndare-t${i + 1}-fill`,
+                  coast: `enc-vec-coalne-t${i + 1}-line`,
+              },
+);
+/** The area layers of one draw tier (1 … ENC_DRAW_TIER_COUNT). */
+export function encAreaTierGroup(tier: number): EncAreaTierGroup {
+    return ENC_AREA_TIER_GROUPS[Math.max(1, Math.min(ENC_DRAW_TIER_COUNT, tier)) - 1];
+}
+/** Every tier's DEPARE(+DRGARE) water fill — what DEPARE alone used to be. */
+export const ENC_WATER_FILL_LAYERS: readonly string[] = ENC_AREA_TIER_GROUPS.map((g) => g.water);
+/** Every tier's LNDARE land fill. */
+export const ENC_LAND_FILL_LAYERS: readonly string[] = ENC_AREA_TIER_GROUPS.map((g) => g.land);
+/** Every tier's COALNE coastline. */
+export const ENC_COAST_LINE_LAYERS: readonly string[] = ENC_AREA_TIER_GROUPS.map((g) => g.coast);
+
+const AREA_BASE_ID = new Map<string, string>([
+    ...ENC_WATER_FILL_LAYERS.map((id) => [id, ENC_VEC_LAYERS.DEPARE] as [string, string]),
+    ...ENC_LAND_FILL_LAYERS.map((id) => [id, ENC_VEC_LAYERS.LNDARE] as [string, string]),
+    ...ENC_COAST_LINE_LAYERS.map((id) => [id, ENC_VEC_LAYERS.COALNE] as [string, string]),
+]);
+
+/** The layer a tier layer stands for (enc-vec-depare-t5-fill → DEPARE): the
+ *  popup, the tap precedence and the depth-popup gate key on the base ids.
+ *  Any other id is returned as it is. */
+export function encBaseLayerId(id: string): string {
+    return AREA_BASE_ID.get(id) ?? id;
+}
+
+/** Retired layer ids a live map may still carry (an older bundle on the same
+ *  map — dev reloads): the mount removes them so nothing paints off-stack. */
+export const RETIRED_ENC_LAYER_IDS: readonly string[] = ['enc-vec-depare-fine-fill'];
+
 // All layer IDs, ordered bottom-to-top for correct stacking. The
 // mount is idempotent-additive: each layer is inserted before the
 // next HIGHER layer that already exists (see beforeIdFor), so new
 // layers slot into a live map in the right place rather than
 // appending on top.
-export const ALL_LAYER_IDS = [
-    ENC_VEC_LAYERS.DEPARE, // bottom (water fills)
-    ENC_VEC_LAYERS.DEPARE_GLAZE, // satellite twin directly above (opacity-0 on chart)
-    ENC_VEC_LAYERS.LNDARE,
+export const ALL_LAYER_IDS: readonly string[] = [
+    // The scale-ordered area groups, coarsest tier first: tier 1's water at
+    // the very bottom (the chart stack's anchor for imagery and weather), the
+    // satellite twin directly above it (opacity-0 on the chart), then each
+    // tier's land and coastline over its own water, and the next tier's water
+    // over all of it.
+    ...ENC_AREA_TIER_GROUPS.flatMap((g) =>
+        g.tier === 1 ? [g.water, ENC_VEC_LAYERS.DEPARE_GLAZE, g.land, g.coast] : [g.water, g.land, g.coast],
+    ),
+    // Point islets over every tier's fills: a dot of land is drawn once, and a
+    // harbour cell's own islets no longer sit under its own water (they did
+    // under the retired DEPARE_FINE repaint).
     ENC_VEC_LAYERS.LNDARE_ISLET,
-    ENC_VEC_LAYERS.COALNE,
-    ENC_VEC_LAYERS.DEPARE_FINE, // fine-survey water beats coarse land bleed
     // Caution AREAS over the water fills but UNDER contours/soundings/marks,
     // so numbers + navaids always read on top of a restricted/cable wash.
     // SBDARE's subtle fill sits lowest of the three (pure background info).
@@ -138,7 +204,8 @@ export const ALL_LAYER_IDS = [
     // surveyed line always draws over an interpolated one where both exist.
     ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
     ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL,
-    // Contours + the bold safety contour sit ABOVE the fine repaint.
+    // Contours + the bold safety contour sit ABOVE every tier's fills
+    // (2026-10-03: the scale-ordered groups replaced the fine repaint).
     // They used to sit just above DEPARE — when the fine-survey twin
     // landed (0eb6cc19) SOUNDG was re-slotted above it but the DEPCNT
     // trio was forgotten, so the 0.95-opacity repaint buried the one
@@ -210,7 +277,6 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         // …but the coloured arc IS tappable (#3a): "am I in the red/white/green?"
         // is the most safety-critical tap-to-read moment; without it a tap on a
         // red sector fell through to the DEPARE water popup.
-        id !== ENC_VEC_LAYERS.DEPARE_FINE &&
         id !== ENC_VEC_LAYERS.DEPARE_GLAZE &&
         id !== ENC_VEC_LAYERS.SEAARE_LABEL &&
         id !== ENC_VEC_LAYERS.LNDARE_LABEL &&

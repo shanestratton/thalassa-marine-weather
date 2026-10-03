@@ -43,7 +43,7 @@ import { leadGraphOverlayGeoJSON } from '../../services/routing/leadCompiler';
 import { leadGraphForView } from '../../services/routing/leadOverlayData';
 import { createLogger } from '../../utils/createLogger';
 import { ENC_VEC_LAYERS } from './encLayerIds';
-import { NEEDS_TIDE_AMBER, SURVEY_DASH } from './inshoreRouteState';
+import { BLOCKED_LEAD_DASH, NEEDS_TIDE_AMBER, SURVEY_DASH } from './inshoreRouteState';
 
 const log = createLogger('useChartLeadsLayer');
 
@@ -83,8 +83,11 @@ export const AMBER_CASING_INK = SURVEY_DASH.casing;
 export const UNKNOWN_INK = '#9ca3af';
 /** 'blocked': a structure this mast cannot clear (owner decision 5) — the
  *  app's danger red (--day-ui-danger), dashed on the same dark casing, so it
- *  reads as "not for this boat" and never as the amber "check this". */
-export const BLOCKED_INK = '#f87171';
+ *  reads as "not for this boat" and never as the amber "check this". One spec
+ *  (inshoreRouteState BLOCKED_LEAD_DASH) for the overlay, the chart key and
+ *  the unverified route line, whose red and white dashes must never pass for
+ *  it (review fix-up, 2026-10-03). */
+export const BLOCKED_INK = BLOCKED_LEAD_DASH.ink;
 const AMBER_CLASSES = ['needs-tide', 'needs-review'];
 /** Classes drawn on the dark casing: amber and blocked. */
 const CASED_CLASSES = [...AMBER_CLASSES, 'blocked'];
@@ -155,7 +158,7 @@ function layerSpecs(): mapboxgl.AnyLayer[] {
                 'line-color': BLOCKED_INK,
                 'line-width': width,
                 'line-opacity': 0.95,
-                'line-dasharray': [2.6, 1.4],
+                'line-dasharray': [...BLOCKED_LEAD_DASH.dasharray],
             },
         },
         {

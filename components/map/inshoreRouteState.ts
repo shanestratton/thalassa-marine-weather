@@ -85,6 +85,115 @@ export const SURVEY_DASH = {
     cap: 'round',
 } as const;
 
+/**
+ * The leads overlay's BLOCKED lead (owner decision 5: a bridge or power line
+ * the mast cannot clear, or no air draft set): red dashes on the overlay's
+ * dark casing (useChartLeadsLayer). Here so the chart key and the unverified
+ * route line below read the same values the overlay draws.
+ */
+export const BLOCKED_LEAD_DASH = {
+    ink: '#f87171',
+    casing: SURVEY_DASH.casing,
+    dasharray: [2.6, 1.4],
+} as const;
+
+/**
+ * A route line nobody has verified — the router's chart check did not run on
+ * it, did not finish, or its safety classifications did not arrive intact
+ * (Shane 2026-10-03: "as long as they are a bright red, it should be fine").
+ * BRIGHT RED AND WHITE DASHES on a dark edge, wherever such a line is drawn
+ * (the planner, its progressive preview, Auto's map) and in every key:
+ *   • red dashes are "not checked"; SOLID red (with its glow) is "checked and
+ *     dangerous" — the pattern tells them apart, the red says neither is a
+ *     line to follow;
+ *   • the PALE gaps tell it from the leads overlay's blocked lead
+ *     (BLOCKED_LEAD_DASH: red dashes whose gaps show the dark casing, at
+ *     nearly this width and rhythm, on the same planner map). Review fix-up,
+ *     2026-10-03: with dark gaps the two were one pattern, and the chart key
+ *     and the leads' Settings copy each called "red dashes" something else;
+ *   • the hue tells them from the amber leads (the chart's RECTRC #f59e0b
+ *     dash, the leads overlay's amber dash on the dark casing) and from
+ *     decision 9's amber survey dots — unverified lines were amber dashes
+ *     until 2026-10-03 and read as leads;
+ *   • the (opaque) dark edge keeps the line legible where the red alone is
+ *     weak: the red reads about 3.5:1 on the white chart but only 1.7:1 on
+ *     the tan land and 2.9:1 under the red night scrim; the edge itself
+ *     stands 16:1 off the white chart (9:1 at night) and 7.6:1 off the land,
+ *     and inside it the red is 3.8:1 against its white gaps.
+ * The ink is the danger red (#ff1744) on purpose: never a colour that could
+ * pass for a verified state.
+ */
+export const UNVERIFIED_ROUTE_DASH = {
+    ink: '#ff1744',
+    gap: '#ffffff',
+    casing: '#1c1917',
+    dasharray: [3, 2],
+    width: 3,
+    casingWidth: 6,
+} as const;
+
+type RouteDashLayerSpec = RouteLineLayerSpec & {
+    paint: RouteLineLayerSpec['paint'] & { 'line-dasharray': number[] };
+};
+
+/**
+ * The unverified line's three layers (pure, like inshoreRouteLineLayers): the
+ * dark edge, the white gap line exactly as wide as the dashes, and the red
+ * dashes over it. They paint every 'unverified' piece — and only those; the
+ * solid layers leave 'unverified' out, so an unchecked line can never be
+ * drawn solid. `idPrefix` 'route' gives the planner's ids
+ * (route-unverified-casing, route-unverified-gap, route-unverified); Auto
+ * passes its own ('thalassa-route'), the progressive preview 'route-preview'.
+ */
+export function unverifiedRouteDashLayers(
+    source: string,
+    idPrefix = 'route',
+): [RouteLineLayerSpec, RouteLineLayerSpec, RouteDashLayerSpec] {
+    const filter = ['==', ['get', 'safety'], 'unverified'];
+    const layout = { 'line-join': 'round', 'line-cap': 'butt' } as const;
+    return [
+        {
+            id: `${idPrefix}-unverified-casing`,
+            type: 'line',
+            source,
+            filter: structuredClone(filter),
+            layout: { ...layout },
+            paint: {
+                'line-color': UNVERIFIED_ROUTE_DASH.casing,
+                'line-width': UNVERIFIED_ROUTE_DASH.casingWidth,
+                // Opaque: a see-through edge lets the chart under it thin the
+                // line's contrast.
+                'line-opacity': 1,
+            },
+        },
+        {
+            id: `${idPrefix}-unverified-gap`,
+            type: 'line',
+            source,
+            filter: structuredClone(filter),
+            layout: { ...layout },
+            paint: {
+                'line-color': UNVERIFIED_ROUTE_DASH.gap,
+                'line-width': UNVERIFIED_ROUTE_DASH.width,
+                'line-opacity': 1,
+            },
+        },
+        {
+            id: `${idPrefix}-unverified`,
+            type: 'line',
+            source,
+            filter: structuredClone(filter),
+            layout: { ...layout },
+            paint: {
+                'line-color': UNVERIFIED_ROUTE_DASH.ink,
+                'line-width': UNVERIFIED_ROUTE_DASH.width,
+                'line-opacity': 1,
+                'line-dasharray': [...UNVERIFIED_ROUTE_DASH.dasharray],
+            },
+        },
+    ];
+}
+
 export type InshoreSegmentState = 'danger' | 'channel' | 'offshore' | 'green';
 
 export interface InshoreRouteMasks {
@@ -467,7 +576,6 @@ const ROUTE_LINE_COLOURS: readonly [string, string][] = [
     ['caution', '#ff9100'],
     ['tide', NEEDS_TIDE_AMBER],
     ['danger', '#ff1744'],
-    ['unverified', '#f59e0b'],
     ['channel', '#facc15'],
     ['harbour', '#38bdf8'],
     ['offshore', '#1e40af'],
@@ -478,7 +586,6 @@ const ROUTE_CORE_COLOURS: readonly [string, string][] = [
     ['caution', '#ffe0b2'],
     ['tide', '#ffe0b2'],
     ['danger', '#ffcdd2'],
-    ['unverified', '#cbd5e1'],
     ['channel', '#fcd34d'],
     ['harbour', '#bae6fd'],
     ['offshore', '#93c5fd'],
@@ -492,11 +599,19 @@ const ROUTE_CORE_DEFAULT = '#99f6e4';
  * shallow water some tide clears — is the ONE needs-tide amber, solid;
  * decision 9's 'survey' stretches are that amber in dots on a dark casing
  * (surveyDashLayers), so these layers leave them out, and dashed pieces too.
+ * An 'unverified' piece is never drawn solid either, dashed flag or not
+ * (2026-10-03): solid red is "checked and dangerous", and an unchecked line is
+ * the red and white DASHES of unverifiedRouteDashLayers.
  * `idPrefix` 'route' gives the planner's own ids (route-glow, route-line-layer,
  * route-core); another map passes its own.
  */
 export function inshoreRouteLineLayers(source: string, idPrefix = 'route'): RouteSolidLayerSpec[] {
-    const filter = ['all', ['!=', ['get', 'dashed'], true], ['!=', ['get', 'safety'], 'survey']];
+    const filter = [
+        'all',
+        ['!=', ['get', 'dashed'], true],
+        ['!=', ['get', 'safety'], 'survey'],
+        ['!=', ['get', 'safety'], 'unverified'],
+    ];
     const colour = (table: readonly [string, string][], fallback: string) => [
         'match',
         ['get', 'safety'],
