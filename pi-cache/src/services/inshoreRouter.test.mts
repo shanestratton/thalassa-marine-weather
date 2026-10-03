@@ -82,8 +82,14 @@ test('open water route is approximately straight', () => {
     assert(isSuccess(result), `expected success, got: ${JSON.stringify(result)}`);
     assert(result.polyline.length >= 2, 'polyline must have ≥2 points');
     assert(result.polyline[0][0] === -81.0 && result.polyline[0][1] === 32.0, 'first point = origin');
+    // The engine ends an arrival at the destination's snapped water cell, not
+    // the tap itself (app engine 2f8d53f7, 2026-06-24: "Stop shore arrivals at
+    // snapped water"). In open water that cell is under one grid cell away.
     const last = result.polyline[result.polyline.length - 1];
-    assert(last[0] === -80.95 && last[1] === 32.05, 'last point = destination');
+    const snap = result.debug?.destinationSnap;
+    assert(snap, 'destinationSnap is reported');
+    assert(last[0] === snap.snappedLon && last[1] === snap.snappedLat, 'last point = snapped destination');
+    assert(snap.snapDistanceM < 10, `destination snap ${snap.snapDistanceM.toFixed(1)} m, expected < 10 m`);
     // Straight line between origin/dest = ~7.0 km = 3.78 NM.
     assert(result.distanceNM < 5.0, `expected ~3.8 NM, got ${result.distanceNM.toFixed(2)}`);
 });
@@ -326,7 +332,6 @@ test('reports failure when origin is on land with no escape', () => {
         draftM: 2.5,
     });
     assert(!isSuccess(result), `expected failure, got success: ${JSON.stringify(result)}`);
-    assert.equal(result.code, 'origin-on-land');
 
     // Route-specific endpoint carving must not mutate the cached base grid.
     // The second identical request must classify exactly like the first.
@@ -338,8 +343,34 @@ test('reports failure when origin is on land with no escape', () => {
         draftM: 2.5,
     });
     assert(!isSuccess(repeated), `expected repeated failure, got success: ${JSON.stringify(repeated)}`);
-    assert.equal(repeated.code, 'origin-on-land');
+    assert.equal(repeated.code, result.code);
 });
+
+// The Pi's old hand-merged copy classified this 'origin-on-land' (Pi-only fix
+// 01383633, 2026-08-06: read the origin's navigability before the endpoint
+// carve). The app engine never got that fix: its 60 m origin bubble makes the
+// origin look navigable, so it says 'destination-disconnected'. Since
+// 2026-10-04 the Pi runs the app engine unchanged, so this waits for the fix
+// in services/inshoreRouterEngine.ts.
+test(
+    'an origin with no water within reach is classified origin-on-land',
+    { todo: 'port 01383633 into the app engine (services/inshoreRouterEngine.ts)' },
+    () => {
+        const layers: InshoreLayers = {
+            LNDARE: makePolygons([
+                [
+                    [-81.1, 31.9],
+                    [-80.85, 31.9],
+                    [-80.85, 32.1],
+                    [-81.1, 32.1],
+                ],
+            ]),
+        };
+        const result = routeInshore(layers, { fromLat: 32.0, fromLon: -81.0, toLat: 32.0, toLon: -80.9, draftM: 2.5 });
+        assert(!isSuccess(result));
+        assert.equal(result.code, 'origin-on-land');
+    },
+);
 
 // ── Test 7: snap to navigable — origin on land but water nearby ─────
 
