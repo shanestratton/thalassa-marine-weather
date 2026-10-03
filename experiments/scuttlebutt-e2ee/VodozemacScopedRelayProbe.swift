@@ -1,6 +1,6 @@
 // ISOLATED NATIVE FIXTURES: synthetic URLProtocol Auth and relay responses,
 // real provider bytes, Directory/Facade authority, Keychain and sealed SQLite.
-// No live login/relay, scoped enrollment/claim completion, app/plugin activation,
+// No live login/relay, app/plugin activation,
 // physical device exchange or independent security audit is established here.
 // Accepted means relay-accepted only, never peer delivery or reading. Complete
 // structural inbox validation is tested; per-row storage is NOT batch atomic.
@@ -53,6 +53,7 @@ private final class DmScopedRelayGate: @unchecked Sendable {
 
 private enum DmScopedRelayReply {
     case accepted, rejected(DmRejectionReason), malformed, lostResponse, inbox(Data)
+    case registration, claim(Data), policy(DmNativeRelayPolicyState)
 }
 private struct DmScopedRelayScript {
     let reply: DmScopedRelayReply
@@ -140,7 +141,7 @@ private final class DmScopedRelayProtocol: URLProtocol, @unchecked Sendable {
             respond(Data("{\"id\":\"\(user)\",\"user_metadata\":{\"deviceId\":\"spoofed-device\"}}".utf8), url: url)
             return
         }
-        guard url.path == "/v1/dispatch", request.httpMethod == "POST" else { fail(); return }
+        guard ["/v1/dispatch", "/v1/register"].contains(url.path), request.httpMethod == "POST" else { fail(); return }
         var body = request.httpBody ?? Data()
         if request.httpBody == nil, let stream = request.httpBodyStream {
             stream.open(); defer { stream.close() }
@@ -152,7 +153,7 @@ private final class DmScopedRelayProtocol: URLProtocol, @unchecked Sendable {
             }
         }
         guard !body.isEmpty, body.count <= 102400,
-              let frame = try? JSONDecoder().decode(DmScopedRelayFrame.self, from: body), frame.userId == user else {
+              let fields = try? JSONSerialization.jsonObject(with: body) as? [String: Any], fields["userId"] as? String == user else {
             fail(); return
         }
         Self.fixtureLock.lock()
@@ -160,6 +161,7 @@ private final class DmScopedRelayProtocol: URLProtocol, @unchecked Sendable {
         let script = Self.scripts.isEmpty ? nil : Self.scripts.removeFirst()
         Self.fixtureLock.unlock()
         guard let script else { fail(); return }
+        let capturedBody = body
         // Never block URLProtocol's loading queue: a concurrent native Auth
         // refresh must be able to run while this synthetic relay reply is held.
         DispatchQueue.global(qos: .userInitiated).async { [self] in
@@ -168,7 +170,29 @@ private final class DmScopedRelayProtocol: URLProtocol, @unchecked Sendable {
                 let bytes: Data
                 switch script.reply {
                 case .inbox(let data): bytes = data
+                case .registration:
+                    guard url.path == "/v1/register" else { fail(); return }
+                    let bundle = try JSONDecoder().decode(DmRelayBundle.self, from: capturedBody)
+                    bytes = try JSONSerialization.data(withJSONObject: ["registered": true,
+                        "userId": bundle.userId, "deviceId": bundle.deviceId], options: [.sortedKeys, .withoutEscapingSlashes])
+                case .claim(let data):
+                    let frame = try JSONDecoder().decode(DmScopedRelayFrame.self, from: capturedBody)
+                    guard frame.action == "claim", url.path == "/v1/dispatch" else { fail(); return }
+                    bytes = data
+                case .policy(let state):
+                    let frame = try JSONDecoder().decode(DmScopedRelayFrame.self, from: capturedBody)
+                    guard frame.action == "policy", url.path == "/v1/dispatch",
+                          let peer = try JSONSerialization.jsonObject(with: Data(frame.payload.utf8)) as? [String], peer.count == 3 else {
+                        fail(); return
+                    }
+                    bytes = try JSONSerialization.data(withJSONObject: ["requestId": frame.requestId,
+                        "ownerUserId": frame.userId, "ownerDeviceId": frame.deviceId,
+                        "peerUserId": peer[0], "peerDeviceId": peer[1], "peerIdentityKeyId": peer[2],
+                        "ownerRevoked": state.ownerRevoked, "peerRevoked": state.peerRevoked,
+                        "blockedByMe": state.blockedByMe, "blockedByPeer": state.blockedByPeer],
+                        options: [.sortedKeys, .withoutEscapingSlashes])
                 case .accepted, .rejected, .malformed, .lostResponse:
+                    let frame = try JSONDecoder().decode(DmScopedRelayFrame.self, from: capturedBody)
                     guard frame.action == "send" else { fail(); return }
                     let record = try JSONDecoder().decode(DmOutboxRecord.self, from: Data(frame.payload.utf8))
                     switch script.reply {
@@ -192,7 +216,7 @@ private final class DmScopedRelayProtocol: URLProtocol, @unchecked Sendable {
         // Auth /user remains raw. Every relay reply, including a response lost
         // after its body, has the actual transport's exact outer JSON framing.
         var responseBody = body
-        if url.path == "/v1/dispatch" {
+        if ["/v1/dispatch", "/v1/register"].contains(url.path) {
             responseBody = Data("{\"version\":1,\"result\":".utf8)
             responseBody.append(body)
             responseBody.append(Data("}".utf8))
@@ -353,6 +377,23 @@ private final class DmScopedRelayActor {
     func snapshot() throws -> DmNativeMessageSnapshot {
         try facade.messageSnapshot(credentialBinding: account.credentialBinding, peerGeneration: generation)
     }
+    func ownerSnapshot() throws -> DmNativeMessageSnapshot {
+        try facade.messageSnapshot(credentialBinding: account.credentialBinding)
+    }
+    func refreshPolicyForFixture() async throws {
+        let clear = DmNativeRelayPolicyState(ownerRevoked: false, peerRevoked: false, blockedByMe: false, blockedByPeer: false)
+        DmScopedRelayProtocol.setScripts([.init(.policy(clear))])
+        guard try await client.refreshPolicy(snapshot: ownerSnapshot()) == clear else {
+            throw DmScopedRelayProbeError.assertion("native scoped fixture authenticated clear policy")
+        }
+    }
+    func sendRequest(id: String) throws -> DmNativeRelaySendRequest {
+        guard case .sendRequest(let request) = try facade.executeMessageOperation(snapshot: snapshot(),
+            operation: .relaySendWire(clientMessageId: id)) else {
+            throw DmScopedRelayProbeError.assertion("native scoped send completion fixture")
+        }
+        return request
+    }
     func renew() async throws {
         let fence = try facade.fenceSession(mode: .verify)
         account = try await facade.authenticate(accessToken: bearer, authFence: fence.authFence)
@@ -408,8 +449,35 @@ private func dmScopedRelayPair(_ first: DmScopedRelayFixture, _ second: DmScoped
     let aa = try DmScopedRelayActor(fixture: first, facade: a.0, account: a.1, bearer: "scoped-native-a", card: a.2, generation: ag)
     let ba = try DmScopedRelayActor(fixture: second, facade: b.0, account: b.1, bearer: "scoped-native-b", card: b.2, generation: bg)
     guard aa.account.deviceId != ba.account.deviceId else { throw DmScopedRelayProbeError.assertion("scoped relay distinct native devices") }
-    return aa.account.deviceId < ba.account.deviceId ? DmScopedRelayPair(initiator: aa, responder: ba)
+    let pair = aa.account.deviceId < ba.account.deviceId ? DmScopedRelayPair(initiator: aa, responder: ba)
         : DmScopedRelayPair(initiator: ba, responder: aa)
+    // Explicit synthetic Auth/HTTPS enrollment and policy, no operational gate
+    // bypass. Register both; only lower-device initiator reserves peer prekey.
+    var wires: [String: String] = [:]
+    for actor in [aa, ba] {
+        DmScopedRelayProtocol.setScripts([.init(.registration)])
+        let state = try await actor.client.registerDevice(snapshot: actor.ownerSnapshot())
+        let captures = DmScopedRelayProtocol.captured()
+        guard state.registration == .acknowledged, state.claim == .none, captures.count == 1,
+              let wire = String(data: captures[0].body, encoding: .utf8) else {
+            throw DmScopedRelayProbeError.assertion("native scoped fixture registration acknowledgement")
+        }
+        let signed = try DmRelayCodec.verifyBundle(wire, now: Int64(Date().timeIntervalSince1970))
+        guard signed.userId == actor.userId, signed.deviceId == actor.account.deviceId,
+              signed.signingKey == actor.card.identity.signingKey else {
+            throw DmScopedRelayProbeError.assertion("native scoped fixture genuine registration")
+        }
+        wires[actor.userId] = wire
+    }
+    guard let peerWire = wires[pair.responder.userId] else {
+        throw DmScopedRelayProbeError.assertion("native scoped fixture peer registered bundle")
+    }
+    DmScopedRelayProtocol.setScripts([.init(.claim(try dmScopedEnrollmentClaimResult(peerWire)))])
+    let claim = try await pair.initiator.client.claimPeer(snapshot: pair.initiator.snapshot())
+    guard claim.claim == .verified else { throw DmScopedRelayProbeError.assertion("native scoped fixture initiator claim") }
+    for actor in [aa, ba] { try await actor.refreshPolicyForFixture() }
+    DmScopedRelayProtocol.setScripts([])
+    return pair
 }
 
 private func dmScopedRelayNormalized(_ store: VodozemacSealedStore) throws -> Data {
@@ -440,9 +508,9 @@ private func dmScopedRelayVerify(_ capture: DmScopedRelayCapture, actor: DmScope
         "captured native domain signature independently verifies")
     return frame
 }
-private func dmScopedRelayCommitted(_ actor: DmScopedRelayActor, record: DmOutboxRecord, response: Data) throws -> DmRelayReceipt {
+private func dmScopedRelayCommitted(_ actor: DmScopedRelayActor, request: DmNativeRelaySendRequest, response: Data) throws -> DmRelayReceipt {
     guard case .relayReceipt(let receipt) = try actor.facade.executeMessageOperation(snapshot: actor.snapshot(),
-        operation: .relaySendReceipt(record: record, response: response)) else {
+        operation: .relaySendReceipt(request: request, response: response)) else {
         throw DmScopedRelayProbeError.assertion("scoped relay closed receipt result")
     }
     return receipt
@@ -451,6 +519,7 @@ private func dmScopedRelayCommitted(_ actor: DmScopedRelayActor, record: DmOutbo
 private func dmScopedRelayLostRetry(_ pair: DmScopedRelayPair, checks: DmScopedRelayChecks) async throws {
     let actor = pair.initiator, text = "fixture uncertain native send"
     let record = try actor.prepare(id: "scoped-lost-response", text: text), snapshot = try actor.snapshot()
+    let nativeRequest = try actor.sendRequest(id: "scoped-lost-response")
     let pending = try actor.message(id: "scoped-lost-response", direction: .outgoing), crypto = try dmScopedRelayCrypto(actor.store)
     let envelope = try DmEnvelope.decode(record.serializedEnvelope)
     try checks.require(try envelope.messageType == "prekey" && envelope.wire.body.count > 32,
@@ -481,16 +550,17 @@ private func dmScopedRelayLostRetry(_ pair: DmScopedRelayPair, checks: DmScopedR
         "sealed accepted receipt is returned locally for an exact terminal ID")
     try checks.require(try actor.store.read() == terminal && DmScopedRelayProtocol.captured().count == 2,
         "accepted idempotency neither redispatches nor rewrites sealed state")
-    try checks.require(try dmScopedRelayCommitted(actor, record: record, response: dmScopedRelayReceipt(record)) == .accepted(record),
+    try checks.require(try dmScopedRelayCommitted(actor, request: nativeRequest, response: dmScopedRelayReceipt(record)) == .accepted(record),
         "identical accepted completion is idempotent")
     try checks.refuses("opposite terminal rejection cannot replace acceptance") {
-        _ = try dmScopedRelayCommitted(actor, record: record, response: dmScopedRelayReceipt(record, reason: .blocked))
+        _ = try dmScopedRelayCommitted(actor, request: nativeRequest, response: dmScopedRelayReceipt(record, reason: .blocked))
     }
     try checks.require(try actor.store.read() == terminal, "terminal receipt replay/conflict preserves exact accepted snapshot")
 }
 
 private func dmScopedRelayMalformed(_ pair: DmScopedRelayPair, checks: DmScopedRelayChecks) async throws {
     let actor = pair.initiator, record = try pair.initiator.prepare(id: "scoped-malformed", text: "fixture rejected native send")
+    let nativeRequest = try actor.sendRequest(id: "scoped-malformed")
     let snapshot = try actor.snapshot(), pending = try actor.message(id: "scoped-malformed", direction: .outgoing)
     let crypto = try dmScopedRelayCrypto(actor.store)
     DmScopedRelayProtocol.setScripts([DmScopedRelayScript(.malformed), DmScopedRelayScript(.rejected(.blocked))])
@@ -514,10 +584,10 @@ private func dmScopedRelayMalformed(_ pair: DmScopedRelayPair, checks: DmScopedR
     let localReceipt = try await actor.client.sendPending(clientMessageId: "scoped-malformed", snapshot: snapshot)
     try checks.require(localReceipt == rejected,
         "sealed rejected receipt is returned without redispatch")
-    try checks.require(try dmScopedRelayCommitted(actor, record: record, response: dmScopedRelayReceipt(record, reason: .blocked)) == rejected,
+    try checks.require(try dmScopedRelayCommitted(actor, request: nativeRequest, response: dmScopedRelayReceipt(record, reason: .blocked)) == rejected,
         "identical rejected completion is idempotent")
     try checks.refuses("opposite terminal acceptance cannot replace rejection") {
-        _ = try dmScopedRelayCommitted(actor, record: record, response: dmScopedRelayReceipt(record))
+        _ = try dmScopedRelayCommitted(actor, request: nativeRequest, response: dmScopedRelayReceipt(record))
     }
     try checks.require(try actor.store.read() == terminal && DmScopedRelayProtocol.captured().count == 2,
         "rejected terminal paths make no HTTP request or sealed rewrite")
@@ -606,7 +676,13 @@ private func dmScopedRelayInboxRun(_ pair: DmScopedRelayPair, checks: DmScopedRe
         try checks.require(frame.payload == "[0,16]" && nonces.insert(frame.requestId).inserted,
             "native inbox rescans from zero with batch sixteen and fresh native nonce")
     }
-    for index in 2..<16 { replies.append(try b.prepare(id: "scoped-reply-\(index)", text: "fixture reply \(index)")) }
+    for index in 2..<16 {
+        // Explicit actual synthetic HTTPS refresh at a fixture-work boundary,
+        // not an automatic operational refresh or a policy lifetime bypass.
+        if index == 8 { try await b.refreshPolicyForFixture() }
+        replies.append(try b.prepare(id: "scoped-reply-\(index)", text: "fixture reply \(index)"))
+    }
+    try await a.refreshPolicyForFixture()
     DmScopedRelayProtocol.setScripts([DmScopedRelayScript(.inbox(try dmScopedRelayInbox(replies, extraRow: true))),
         DmScopedRelayScript(.inbox(try dmScopedRelayInbox(replies)))])
     // Still only two stored rows. If a broken bound starts processing this

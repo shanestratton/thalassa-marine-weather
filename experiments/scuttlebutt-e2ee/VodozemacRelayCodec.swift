@@ -106,7 +106,7 @@ enum DmRelayCodec {
 
     static func requestValues(owner: DmOwnerContext, action: String, requestId: String, expiresAt: Int64, payload: String) throws -> [String] {
         for id in [owner.userId, owner.deviceId, requestId] { try DmContentCodec.validateIdentifier(id) }
-        guard ["claim", "send", "list", "block", "revoke"].contains(action),
+        guard ["claim", "send", "list", "block", "revoke", "policy"].contains(action),
               payload.utf8.count <= maxRequestBytes, payload.utf8.allSatisfy({ (32...126).contains($0) }) else { throw DmCoordinatorError.invalidInput }
         return ["1", try quote("olm-v1"), try quote(owner.userId), try quote(owner.deviceId),
                 try quote(action), try quote(requestId), String(expiresAt), try quote(payload)]

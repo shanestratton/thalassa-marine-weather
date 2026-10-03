@@ -79,6 +79,31 @@ final class VodozemacScopedRelayClient {
         } catch { throw DmRelayTransportError.unresolved }
     }
 
+    /// Explicit current-policy refresh using an ORIGINAL owner-only snapshot.
+    /// The closed wire operation invalidates the old permit before signing, so
+    /// a failed/held refresh never leaves a previous allow usable. No message
+    /// operation calls this automatically, and no result establishes peer trust.
+    func refreshPolicy(snapshot: DmNativeMessageSnapshot) async throws -> DmNativeRelayPolicyState {
+        do {
+            try requireCurrent(snapshot)
+            guard snapshot.context.peerGeneration == nil,
+                  case .policyRequest(let request) = try facade.executeMessageOperation(snapshot: snapshot,
+                    operation: .relayPolicyWire), request.context == snapshot.context else {
+                throw DmRelayTransportError.unresolved
+            }
+            try requireCurrent(snapshot)
+            let response = try await transport.dispatch(request: request.wire, credential: snapshot.credential,
+                currentContext: { self.facade.currentMessageContext(snapshot: snapshot) })
+            try requireCurrent(snapshot)
+            guard case .policyState(let state) = try facade.executeMessageOperation(snapshot: snapshot,
+                operation: .relayPolicyResponse(request: request, response: response)) else {
+                throw DmRelayTransportError.unresolved
+            }
+            try requireCurrent(snapshot)
+            return state
+        } catch { throw DmRelayTransportError.unresolved }
+    }
+
     /// Dispatch ONE durable native outbox record. An already-terminal exact ID
     /// is reconciled locally without sending anything. An uncertain response
     /// remains unresolved; no automatic retry, replacement encryption or new
@@ -88,33 +113,58 @@ final class VodozemacScopedRelayClient {
             try requireCurrent(snapshot)
             let prepared = try facade.executeMessageOperation(snapshot: snapshot,
                 operation: .relaySendWire(clientMessageId: clientMessageId))
-            let receipt: DmRelayReceipt
             switch prepared {
             case .relayReceipt(let terminal):
                 // Native dispatcher verified the exact existing terminal ID.
                 // No transport call, registration, claim or automatic retry.
-                receipt = terminal
+                try requireCurrent(snapshot)
+                return terminal
             case .sendRequest(let request):
-                try requireCurrent(snapshot)
-                // Synchronous authority has RETURNED before this await. The
-                // transport separately checks this exact ORIGINAL snapshot at
-                // actual dispatch, headers and completion; no locks cross await.
-                let response = try await transport.dispatch(request: request.wire, credential: snapshot.credential,
-                    currentContext: { self.facade.currentMessageContext(snapshot: snapshot) })
-                try requireCurrent(snapshot)
-                guard case .relayReceipt(let committed) = try facade.executeMessageOperation(snapshot: snapshot,
-                    operation: .relaySendReceipt(record: request.record, response: response)) else {
-                    throw DmRelayTransportError.unresolved
+                try requirePolicy(request.policy, snapshot: snapshot)
+                // Capture the rejection lane BEFORE await from the same exact
+                // accepted lease. It cannot renew its credential epoch/deadline
+                // or authorize acceptance after a peer/policy transition.
+                let owner = try facade.ownerOnlyCompletionSnapshot(from: snapshot)
+                try requireCurrent(owner)
+                // All authority locks have returned. Actual dispatch still
+                // requires the original paired context and policy; response
+                // completion needs the ORIGINAL owner-only Auth lease so that
+                // an authenticated terminal refusal is not stranded by block.
+                let response = try await transport.dispatch(request: request.wire, credential: owner.credential,
+                    dispatchContext: {
+                        try self.requirePolicy(request.policy, snapshot: snapshot)
+                        try self.requireCurrent(owner)
+                        return owner.context
+                    }, completionContext: {
+                        try self.requireCurrent(owner)
+                        return owner.context
+                    })
+                try requireCurrent(owner)
+                do {
+                    try requirePolicy(request.policy, snapshot: snapshot)
+                    guard case .relayReceipt(let receipt) = try facade.executeMessageOperation(snapshot: snapshot,
+                        operation: .relaySendReceipt(request: request, response: response)) else {
+                        throw DmRelayTransportError.unresolved
+                    }
+                    // A valid earlier commit is not undone if this final view
+                    // publication guard refuses after a later policy change.
+                    try requirePolicy(request.policy, snapshot: snapshot)
+                    return receipt
+                } catch {
+                    // This narrow closed operation parses AGAIN and accepts
+                    // ONLY an exact rejected receipt for the saved outbox. An
+                    // accepted/malformed/unrelated response cannot use fallback.
+                    // No replacement snapshot or policy refresh is performed.
+                    try requireCurrent(owner)
+                    guard case .relayReceipt(let receipt) = try facade.executeMessageOperation(snapshot: owner,
+                        operation: .relayRejectedReceipt(record: request.record, response: response)),
+                          case .rejected = receipt else { throw DmRelayTransportError.unresolved }
+                    try requireCurrent(owner)
+                    return receipt
                 }
-                receipt = committed
             default:
                 throw DmRelayTransportError.unresolved
             }
-            // A stale completion must not publish into a newer native account,
-            // credential or peer. A valid earlier commit is not undone if this
-            // final publication check refuses after authority changes.
-            try requireCurrent(snapshot)
-            return receipt
         } catch {
             // No provider/Auth/HTTP response, bearer, URL or raw error escapes.
             // Failure never becomes a fabricated acceptance/rejection receipt.
@@ -128,16 +178,23 @@ final class VodozemacScopedRelayClient {
     func syncInbox(snapshot: DmNativeMessageSnapshot) async throws -> DmRelayInboxReport {
         do {
             try requireCurrent(snapshot)
-            guard case .relayRequest(let request) = try facade.executeMessageOperation(snapshot: snapshot,
+            guard case .inboxRequest(let request) = try facade.executeMessageOperation(snapshot: snapshot,
                 operation: .relayInboxWire) else { throw DmRelayTransportError.unresolved }
-            try requireCurrent(snapshot)
+            try requirePolicy(request.policy, snapshot: snapshot)
             // The closed preparation call has released every authority lock.
-            let response = try await transport.dispatch(request: request, credential: snapshot.credential,
-                currentContext: { self.facade.currentMessageContext(snapshot: snapshot) })
-            try requireCurrent(snapshot)
+            // Unlike negative send settlement, inbox dispatch AND completion
+            // retain the original paired context and exact policy permit.
+            let response = try await transport.dispatch(request: request.wire, credential: snapshot.credential,
+                currentContext: {
+                    try self.requirePolicy(request.policy, snapshot: snapshot)
+                    return snapshot.context
+                })
+            try requirePolicy(request.policy, snapshot: snapshot)
             guard case .inboxReport(let report) = try facade.executeMessageOperation(snapshot: snapshot,
-                operation: .relayInboxResponse(response)) else { throw DmRelayTransportError.unresolved }
-            try requireCurrent(snapshot)
+                operation: .relayInboxResponse(request: request, response: response)) else {
+                throw DmRelayTransportError.unresolved
+            }
+            try requirePolicy(request.policy, snapshot: snapshot)
             return report
         } catch { throw DmRelayTransportError.unresolved }
     }
@@ -146,5 +203,16 @@ final class VodozemacScopedRelayClient {
         guard !Task.isCancelled, facade.currentMessageContext(snapshot: snapshot) == snapshot.context else {
             throw DmRelayTransportError.unresolved
         }
+    }
+
+    private func requirePolicy(_ permit: DmNativeRelayPolicyPermit, snapshot: DmNativeMessageSnapshot) throws {
+        try requireCurrent(snapshot)
+        guard permit.context == snapshot.context,
+              case .policyState(let state) = try facade.executeMessageOperation(snapshot: snapshot,
+                operation: .relayPolicyGuard(permit)),
+              !state.ownerRevoked, !state.peerRevoked, !state.blockedByMe, !state.blockedByPeer else {
+            throw DmRelayTransportError.unresolved
+        }
+        try requireCurrent(snapshot)
     }
 }

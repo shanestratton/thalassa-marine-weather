@@ -70,7 +70,7 @@ export function createHostedResearchRpc(database: HostedResearchDatabase) {
                 values.length !== 7 ||
                 !matches(ID, values[1]) ||
                 !matches(ID, values[2]) ||
-                !['revoke', 'block', 'claim', 'send', 'list'].includes(values[3] as string) ||
+                !['revoke', 'block', 'claim', 'send', 'list', 'policy'].includes(values[3] as string) ||
                 typeof values[4] !== 'string' ||
                 values[4].length > 100000 ||
                 typeof values[5] !== 'number' ||
