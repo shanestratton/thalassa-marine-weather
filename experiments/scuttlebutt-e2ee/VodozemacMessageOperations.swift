@@ -1,0 +1,87 @@
+// ISOLATED native messaging authority. Not a JS plugin, shipping PM port, or
+// evidence of a hosted/device exchange. Operations cannot supply owner claims,
+// credentials, clocks, store paths or arbitrary coordinator callbacks.
+import Foundation
+import CryptoKit
+
+enum DmNativeMessageOperation {
+    case publicIdentity
+    case pairingCard
+    case confirmPeer(card: DmPairingCard, confirmedFingerprint: String)
+    case pairingState
+    case thread
+    case prepareText(clientMessageId: String, text: String)
+    case pendingRecords
+}
+
+enum DmNativeMessageResult {
+    case publicIdentity(DmPublicIdentity)
+    case pairingCard(DmPairingCard)
+    case pairingState(DmNativePairingState)
+    case thread(DmNativeThread)
+    case outbox(DmOutboxRecord)
+    case pendingRecords([DmOutboxRecord])
+}
+
+/// Public out-of-band pairing material, not proof of the human/account behind
+/// it. Confirm its fingerprint with the peer separately. Native pins ALL keys,
+/// including the signing key, to the configured project and conversation.
+struct DmPairingCard: Codable, Equatable {
+    let projectOrigin: String
+    let conversationId: String
+    let identity: DmPublicIdentity
+
+    func fingerprint() throws -> String {
+        let fields = try canonicalFields()
+        let bytes = Data(("thalassa-research-pairing-v1\n" + fields.joined(separator: "\n") + "\n").utf8)
+        return SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func canonicalFields() throws -> [String] {
+        guard let parts = URLComponents(string: projectOrigin), parts.scheme == "https", parts.host != nil,
+              projectOrigin.utf8.count <= 256, projectOrigin.utf8.allSatisfy({ (33...126).contains($0) }),
+              parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
+              parts.path.isEmpty, parts.url?.absoluteString == projectOrigin else { throw DmCoordinatorError.invalidInput }
+        for field in [conversationId, identity.userId, identity.deviceId, identity.identityKeyId] {
+            try DmContentCodec.validateIdentifier(field)
+        }
+        for field in [identity.signingKey, identity.curve, identity.prekey] {
+            _ = try DmRelayCodec.keyBytes(field)
+        }
+        return [projectOrigin, conversationId, identity.userId, identity.deviceId,
+                identity.identityKeyId, identity.signingKey, identity.curve, identity.prekey]
+    }
+}
+
+enum DmNativePeerState: String { case unpaired, confirmed, legacyUnverified, changed, revoked, blocked }
+enum DmNativeSessionRole: String { case unpaired, initiator, responder, established }
+struct DmNativePairingState {
+    let status: DmNativePeerState
+    let peerGeneration: Int64?
+    let confirmedFingerprint: String?
+    let sessionRole: DmNativeSessionRole
+    let outgoingCount: Int
+    let incomingCount: Int
+    let unresolvedCount: Int
+}
+
+enum DmNativeThreadDirection: String { case outgoing, incoming }
+enum DmNativeThreadDelivery: String { case pending, serverAccepted, rejected, received }
+struct DmNativeThreadMessage: Equatable {
+    let clientMessageId: String
+    let direction: DmNativeThreadDirection
+    let text: String?
+    let delivery: DmNativeThreadDelivery
+    let reason: DmRejectionReason?
+    // Device-local creation/observation only; NOT authenticated sender time.
+    // Older native fixtures have no timestamp. Never invent one on read/retry.
+    let localCreatedAtMillis: Int64?
+}
+struct DmNativeThread {
+    let ownerGeneration: Int64
+    let peerGeneration: Int64
+    let messages: [DmNativeThreadMessage]
+    let unresolvedCount: Int
+    let outgoingCapacity: Int
+    let incomingCapacity: Int
+}
