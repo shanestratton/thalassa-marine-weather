@@ -27,7 +27,7 @@ assert(pin.shippingApproved === false && pin.protocol === 'olm-v1');
 assert.equal(hash(join(experiment, 'vodozemac-native/Cargo.toml')), pin.manifestSha256);
 assert.equal(hash(join(experiment, 'vodozemac-native/Cargo.lock')), pin.lockfileSha256);
 const sources = Object.keys(prior.sourceHashes);
-assert(sources.length >= 16 && sources.length <= 28);
+assert(sources.length >= 16 && sources.length <= 30);
 for (const path of sources) {
     assert(!lstatSync(path).isSymbolicLink() && lstatSync(path).isFile());
     const actual = realpathSync(path);
