@@ -3028,7 +3028,7 @@ check(
         ]) &&
         /map\.addSource\('satellite-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?Maxar/.test(mapInit) &&
         /map\.addSource\('hybrid-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?OpenStreetMap/.test(mapInit) &&
-        /map\.addSource\('maptiler-ocean',[\s\S]*?attribution:[\s\S]*?MapTiler[\s\S]*?OpenStreetMap/.test(mapInit) &&
+        !/maptiler/i.test(mapInit) &&
         /map\.addSource\('openseamap-permanent',[\s\S]*?attribution:[\s\S]*?OpenSeaMap/.test(mapInit) &&
         !/attribution:\s*['"]\s*['"]/.test(mapInit) &&
         !read('index.css').includes('.mapboxgl-ctrl-attrib') &&

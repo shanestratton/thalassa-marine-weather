@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { destinationBounds, publicMapDestination } from '../src/publicMapDestination';
-import { installMusgraveImagery, MUSGRAVE_IMAGERY } from '../src/publicSatelliteCoverage';
+import { existsSync, readFileSync } from 'node:fs';
 
 const camera = vi.hoisted(() => ({
     fitBounds: vi.fn(),
@@ -10,7 +10,7 @@ const camera = vi.hoisted(() => ({
     resize: vi.fn(),
     getMap: vi.fn(),
     getContainer: vi.fn(),
-    onStyleData: undefined as undefined | ((event: { target: Parameters<typeof installMusgraveImagery>[0] }) => void),
+    onStyleData: undefined as undefined | ((event: { target: unknown }) => void),
 }));
 vi.mock('../src/voyageLogApi', async (original) => ({
     ...(await original<typeof import('../src/voyageLogApi')>()),
@@ -98,70 +98,13 @@ describe('public destination exploration', () => {
         expect(screen.queryByText('Voyage End')).not.toBeInTheDocument();
     });
 
-    it('fills the Musgrave imagery gap below labels and keeps it off the ordinary Map style', () => {
-        const layers = new Set<string>();
-        const sources = new Set<string>();
-        const map = {
-            getLayer: vi.fn((id: string) => (layers.has(id) ? { id } : undefined)),
-            getSource: vi.fn((id: string) => (sources.has(id) ? { id } : undefined)),
-            addSource: vi.fn((id: string) => {
-                sources.add(id);
-            }),
-            addLayer: vi.fn((layer: { id: string }, beforeId: string) => {
-                if (!layers.has(beforeId)) throw new Error('Insertion target is not loaded');
-                layers.add(layer.id);
-            }),
-        };
-        camera.getMap.mockReturnValue(map);
-        const fireStyleData = () =>
-            camera.onStyleData?.({ target: map as unknown as Parameters<typeof installMusgraveImagery>[0] });
-        render(<MapContainer {...props} />);
-        fireStyleData(); // Style still downloading: do not add before a missing layer.
-        expect(map.addSource).not.toHaveBeenCalled();
-        layers.add(MUSGRAVE_IMAGERY.beforeId);
-        fireStyleData();
-        expect(map.addSource).toHaveBeenCalledWith(
-            'musgrave-satellite',
-            expect.objectContaining({
-                type: 'raster',
-                bounds: MUSGRAVE_IMAGERY.bounds,
-                tileSize: 512,
-                minzoom: 10,
-                maxzoom: 18,
-                tiles: [expect.stringContaining('api.maptiler.com/tiles/satellite-v2/')],
-                attribution: expect.stringContaining('https://www.maptiler.com/copyright/'),
-            }),
-        );
-        expect(map.addLayer).toHaveBeenCalledWith(
-            expect.objectContaining({ id: 'musgrave-satellite-layer' }),
-            MUSGRAVE_IMAGERY.beforeId,
-        );
-        fireStyleData();
-        expect(map.addLayer).toHaveBeenCalledTimes(1);
-        fireEvent.click(screen.getByRole('button', { name: 'Map basemap' }));
-        layers.clear(); // setStyle removes the old style's additions.
-        sources.clear();
-        fireStyleData();
-        expect(map.addLayer).toHaveBeenCalledTimes(1);
-        fireEvent.click(screen.getByRole('button', { name: 'Satellite basemap' }));
-        fireStyleData(); // React selected Satellite, but Mapbox still has dark-v11.
-        expect(map.addLayer).toHaveBeenCalledTimes(1);
-        layers.add(MUSGRAVE_IMAGERY.beforeId);
-        fireStyleData();
-        expect(map.addLayer).toHaveBeenCalledTimes(2);
-    });
-
-    it('keeps the repair local to Musgrave and never requests its tiles over Lady Elliot', () => {
-        const [west, south, east, north] = MUSGRAVE_IMAGERY.bounds;
-        expect(west).toBeLessThan(152.3896667);
-        expect(east).toBeGreaterThan(152.4324);
-        expect(south).toBeLessThan(-23.9149833);
-        expect(north).toBeGreaterThan(-23.9);
-        const tileX = (lon: number, zoom: number) => Math.floor(((lon + 180) / 360) * 2 ** zoom);
-        for (let zoom = MUSGRAVE_IMAGERY.minzoom; zoom <= MUSGRAVE_IMAGERY.maxzoom; zoom++) {
-            // Even the entire easternmost boundary tile excludes Elliot.
-            expect(tileX(152.715, zoom)).toBeGreaterThan(tileX(east, zoom));
-        }
+    it('patches no third-party imagery over Musgrave (the MapTiler repair is gone, 2026-10-04)', () => {
+        // MapTiler's free key is non-commercial. Mapbox's own imagery there is
+        // uniformly navy (measured z13-15), and no licensed seamless photo
+        // source replaces it, so the page shows Mapbox's imagery and labels.
+        expect(existsSync('src/publicSatelliteCoverage.ts')).toBe(false);
+        const page = readFileSync('src/components/MapContainer.tsx', 'utf8');
+        expect(page).not.toMatch(/musgrave-satellite|installMusgraveImagery/);
     });
 
     it('uses the selected route endpoint, never a contradictory destination name or coordinate', () => {

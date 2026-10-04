@@ -71,7 +71,7 @@ describe('the storm cloud layer', () => {
         // cyclone view mounts). Two subsystems that anchor differently is how
         // one of them ended up under an opaque satellite tile.
         const order = readFileSync('components/map/imageryOrder.ts', 'utf8');
-        expect(order).toContain("['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer']");
+        expect(order).toContain("['satellite-base-layer', 'hybrid-base-layer']");
         // The anchor is now the CALLER's responsibility — both pages pass a
         // beforeId from the shared helper, which is the point of the helper.
         expect(squall).toContain('cloudOverlayBeforeId(styleLayers)');

@@ -614,11 +614,12 @@ for (const size of cases) {
 
         // Opening a picker intentionally overlays map information; the
         // coverage warning must not intercept its options as it loads.
+        // Satellite: on the fixture's empty style only imagery carries credits.
         await page.getByRole('button', { name: /^Map base:/ }).click();
-        await page.getByRole('menuitemradio', { name: /^Ocean / }).click();
-        await expect(page.getByRole('button', { name: 'Map base: Ocean', exact: true })).toBeVisible();
+        await page.getByRole('menuitemradio', { name: /^Satellite / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Satellite', exact: true })).toBeVisible();
         await expect(warning).toBeVisible();
-        await expectControlsClear('after-ocean-selection');
+        await expectControlsClear('after-base-selection');
 
         // Opened, the credits run left along the chart, over whatever passive
         // furniture shares their row: nothing may lie on any part of them.
@@ -828,13 +829,13 @@ for (const size of [
         await expect(credits).not.toBeVisible();
         // Native source-change handling must survive the custom compact mode.
         await page.getByRole('button', { name: /^Map base:/ }).click();
-        await page.getByRole('menuitemradio', { name: /^Ocean / }).click();
-        await expect(page.getByRole('button', { name: 'Map base: Ocean', exact: true })).toBeVisible();
+        await page.getByRole('menuitemradio', { name: /^Hybrid / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Hybrid', exact: true })).toBeVisible();
         await expect(attribution).toHaveCount(1);
         await expect(attribution).toHaveClass(/mapboxgl-compact/);
         await toggle.click();
         await expect(credits).toBeVisible();
-        await expect(credits).toContainText('MapTiler');
+        await expect(credits).toContainText('Maxar');
         await expect(credits).toContainText('OpenStreetMap');
         await expectFullHitTarget(toggle, 'Mapbox attribution toggle');
         await expectFullHitTarget(attribution, 'Opened Mapbox credits');

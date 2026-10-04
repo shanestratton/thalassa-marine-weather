@@ -356,9 +356,10 @@ export function syncOwnshipObstacle(map: mapboxgl.Map, lngLat: [number, number] 
 // faded out, just that feature, and faded back in once own-ship is clear of
 // it. Collision settings and layer order stay exactly as they are.
 //
-// Only the base style's own settlement layers (Mapbox `composite`, MapTiler
-// `openmaptiles`) and only town and suburb names are ever touched: never ENC,
-// seamark, navaid, AIS, route, waypoint, MOB or hazard labels, and never an
+// Only the base style's own settlement layers (Mapbox `composite`, an
+// OpenMapTiles-schema style's `openmaptiles`) and only town and suburb names
+// are ever touched: never ENC, seamark, navaid, AIS, route, waypoint, MOB or
+// hazard labels, and never an
 // island name (ownshipLabelFade). The fade is a feature-state switch on their
 // opacity, so the label keeps its placement: the next look still sees it under
 // the boat, and a name the dot merely sits near is left alone.
@@ -695,7 +696,7 @@ function ownshipFootprintParts(dot: { x: number; y: number }, chips: readonly Sc
  * it and Hybrid hides them, with no camera move and no fix; this is how the
  * ticker notices without reading the whole style.
  */
-const BASE_IMAGERY_LAYERS = ['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer'] as const;
+const BASE_IMAGERY_LAYERS = ['satellite-base-layer', 'hybrid-base-layer'] as const;
 
 /** Which base place layers and which imagery are showing, cheaply. */
 function basePlaceLabelViewSignature(map: mapboxgl.Map): string {

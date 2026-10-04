@@ -30,7 +30,7 @@ export const OWNSHIP_LABEL_STATE = 'thalassaOwnshipHidden';
 
 export type LabelLayerIdentity = { id: string; type?: string; source?: unknown };
 
-/** The base style's own vector sources: Mapbox `composite`, MapTiler `openmaptiles`. */
+/** The base style's own vector sources: Mapbox `composite`, OpenMapTiles-schema `openmaptiles`. */
 const BASE_LABEL_SOURCES: ReadonlySet<unknown> = new Set(['composite', 'openmaptiles']);
 
 /**

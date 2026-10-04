@@ -16,9 +16,8 @@ describe('map provider attribution contract', () => {
         expect(helper).toContain("map.addControl(control, 'bottom-right')");
         expect(source).toMatch(/map\.addSource\('satellite-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?Maxar/);
         expect(source).toMatch(/map\.addSource\('hybrid-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?OpenStreetMap/);
-        expect(source).toMatch(
-            /map\.addSource\('maptiler-ocean',[\s\S]*?attribution:[\s\S]*?MapTiler[\s\S]*?OpenStreetMap/,
-        );
+        // MapTiler is gone (2026-10-04): its free key was non-commercial.
+        expect(source).not.toMatch(/maptiler/i);
         expect(source).toMatch(/map\.addSource\('openseamap-permanent',[\s\S]*?attribution:[\s\S]*?OpenSeaMap/);
         expect(source).not.toMatch(/attribution:\s*['"]\s*['"]/);
     });
@@ -28,7 +27,9 @@ describe('map provider attribution contract', () => {
         const offlineMap = read('components/map/ThalassaMap.tsx');
 
         expect(voyageMap).toMatch(/<Map[\s\S]*?attributionControl/);
-        expect(voyageMap).toMatch(/id="bathy-ocean"[\s\S]*?attribution="[^"]*MapTiler[^"]*OpenStreetMap/);
+        // The public page's depth hint is Mapbox's own bathymetry tileset now,
+        // credited by the Mapbox line the style already shows.
+        expect(voyageMap).toMatch(/id="bathy-ocean"[\s\S]*?url="mapbox:\/\/mapbox\.mapbox-bathymetry-v2"/);
         expect(offlineMap).toMatch(/<Map[\s\S]*?attributionControl/);
         expect(offlineMap).toMatch(/attribution:[\s\S]*?OpenStreetMap/);
         expect(offlineMap).toMatch(/attribution:[\s\S]*?OpenSeaMap/);

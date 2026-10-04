@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { destinationBounds, publicMapDestination } from '../publicMapDestination';
-import { installMusgraveImagery } from '../publicSatelliteCoverage';
 import type { VoyageLogDestination } from '../voyageLogApi';
 import Map, { AttributionControl, Source, Layer, Marker, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
@@ -783,10 +782,6 @@ function MapContainer({
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
-                onStyleData={() => {
-                    const map = mapRef.current?.getMap();
-                    if (map) installMusgraveImagery(map);
-                }}
                 onLoad={readLabelFrame}
                 onMoveEnd={readLabelFrame}
                 onResize={readLabelFrame}
@@ -806,55 +801,39 @@ function MapContainer({
                     it folds to an (i) on a phone rather than eating the map. */}
                 <AttributionControl customAttribution="AIS data: AISHub" compact position="bottom-right" />
 
-                {/* Bathymetry tint over the satellite imagery (Shane
-                    2026-07-09) — same MapTiler Ocean raster the app uses,
-                    translucent so depth contours read through the water
-                    while the imagery stays photographic. FIRST child so
-                    the track/markers mount above it; always mounted with
-                    visibility toggled (a conditional mount after the
-                    track would append the raster on top of it). Chart
-                    mode hides it — that style shades water itself. */}
-                <Source
-                    id="bathy-ocean"
-                    type="raster"
-                    tiles={['https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e']}
-                    tileSize={512}
-                    maxzoom={16}
-                    attribution="© MapTiler © OpenStreetMap contributors"
-                >
+                {/* Depth hint over the satellite imagery (Shane 2026-07-09),
+                    from Mapbox's own bathymetry tileset since 2026-10-04: the
+                    raster tint it replaces came on a key licensed for
+                    non-commercial use only. The depth polygons exist only over
+                    water, so the land and its photography are never veiled
+                    (the "milky layer", 2026-09-02). They stop at z7 and,
+                    overzoomed, draw false straight depth edges, so the hint is
+                    gone by z9: offshore, where the imagery is featureless blue
+                    anyway. FIRST child so the track and markers mount above
+                    it; always mounted, with visibility toggled. Chart mode
+                    hides it, because that style shades water itself. */}
+                <Source id="bathy-ocean" type="vector" url="mapbox://mapbox.mapbox-bathymetry-v2">
                     <Layer
                         id="bathy-ocean-layer"
-                        type="raster"
+                        type="fill"
+                        source-layer="depth"
                         layout={{ visibility: styleMode === 'satellite' && !destinationDetail ? 'visible' : 'none' }}
                         paint={{
-                            // The MapTiler Ocean raster is a FULL basemap — it
-                            // paints land as well as sea — so a flat tint at
-                            // any strength greys out the satellite imagery
-                            // underneath and the page looks like a chart with
-                            // a photo hiding behind it.
-                            //
-                            // So it now fades with zoom, which is also how a
-                            // sailor actually uses it: offshore and zoomed out
-                            // the depth structure IS the story, and there is
-                            // nothing to see in the imagery but blue; zoomed
-                            // into an anchorage the imagery is the story —
-                            // reefs, sand, the colour of the water you are
-                            // about to drop the pick into — so the tint gets
-                            // out of the way almost entirely.
-                            'raster-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.32, 6, 0.26, 9, 0.12, 12, 0],
-                            // Kept DELIBERATELY faint at every zoom and gone
-                            // entirely by 12. This raster has no transparency
-                            // over land, so any strength at all veils the
-                            // continents — which is precisely the "milky
-                            // layer" Shane saw (2026-09-02). It now reads as a
-                            // hint of depth structure on open water, where the
-                            // imagery is featureless blue anyway, and hands
-                            // the coast back to the photography, which already
-                            // shows the reef shallows better than a tint can.
-                            // Warmed toward teal for what little of it shows.
-                            'raster-saturation': 0.3,
-                            'raster-hue-rotate': -14,
-                            'raster-fade-duration': 0,
+                            'fill-antialias': false,
+                            'fill-color': [
+                                'interpolate',
+                                ['linear'],
+                                ['get', 'min_depth'],
+                                0,
+                                '#3fa7c9',
+                                200,
+                                '#2a7fab',
+                                1000,
+                                '#1d5f8a',
+                                4000,
+                                '#123f66',
+                            ],
+                            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.32, 6, 0.26, 8, 0.12, 9, 0],
                         }}
                     />
                 </Source>
