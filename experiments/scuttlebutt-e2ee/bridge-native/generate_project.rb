@@ -110,9 +110,19 @@ begin
     'CFBundleName' => '$(PRODUCT_NAME)',
     'CFBundlePackageType' => 'APPL',
     'CFBundleShortVersionString' => '0.1.0',
-    'CFBundleVersion' => '1',
+    'CFBundleVersion' => '2',
     'LSRequiresIPhoneOS' => true,
     'UILaunchScreen' => {},
+    'UIApplicationSceneManifest' => {
+      'UIApplicationSupportsMultipleScenes' => false,
+      'UISceneConfigurations' => {
+        'UIWindowSceneSessionRoleApplication' => [{
+          'UISceneConfigurationName' => 'Research Window',
+          'UISceneClassName' => 'UIWindowScene',
+          'UISceneDelegateClassName' => 'ResearchSceneDelegate'
+        }]
+      }
+    },
     'UISupportedInterfaceOrientations' => %w[UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight],
     'UISupportedInterfaceOrientations~ipad' => %w[UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight]
   }
