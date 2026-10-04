@@ -9,7 +9,9 @@ import { URL as NodeURL } from 'node:url';
 import {
     MESSAGING_NOTICES,
     ResearchMessagingController,
+    researchSendSetupReady,
     renderResearchMessages,
+    type ResearchMessageFacts,
     type ResearchMessagingNativePlugin,
     type ResearchThreadMessage,
 } from '../experiments/scuttlebutt-e2ee/bridge-web/messaging';
@@ -34,7 +36,7 @@ function authenticated(binding = BINDING): ResearchAuthState {
         },
     };
 }
-function facts(binding = BINDING) {
+function facts(binding = BINDING): ResearchMessageFacts {
     return {
         status: 'state',
         credentialBinding: binding,
@@ -179,6 +181,273 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
+const unreadySetups: { name: string; patch: Partial<ResearchMessageFacts> }[] = [
+    { name: 'unpaired peer', patch: { pairing: 'unpaired', role: 'unpaired', fingerprint: null } },
+    { name: 'legacy incomplete pin', patch: { pairing: 'legacyUnverified' } },
+    { name: 'changed peer', patch: { pairing: 'changed' } },
+    { name: 'revoked peer', patch: { pairing: 'revoked' } },
+    { name: 'blocked peer', patch: { pairing: 'blocked' } },
+    { name: 'missing full fingerprint', patch: { fingerprint: null } },
+    { name: 'unregistered device', patch: { registration: 'none' } },
+    { name: 'pending registration', patch: { registration: 'pending' } },
+    { name: 'unpaired role', patch: { role: 'unpaired' } },
+    { name: 'initial responder', patch: { role: 'responder', claim: 'none' } },
+    { name: 'initiator without claim', patch: { claim: 'none' } },
+    { name: 'initiator pending claim', patch: { claim: 'pending' } },
+    { name: 'initiator expired claim', patch: { claim: 'expired' } },
+    { name: 'initiator historical claim', patch: { claim: 'historical' } },
+];
+
+describe('research send setup hint — not a native permission', () => {
+    it('refuses unknown setup and accepts only complete acknowledged initiator setup', () => {
+        expect(researchSendSetupReady(null)).toBe(false);
+        expect(researchSendSetupReady(facts())).toBe(true);
+    });
+    it.each(unreadySetups)('refuses $name', ({ patch }) => {
+        expect(researchSendSetupReady({ ...facts(), ...patch })).toBe(false);
+    });
+    it.each(
+        unreadySetups.filter(
+            ({ patch }) =>
+                patch.pairing !== undefined || patch.fingerprint !== undefined || patch.registration !== undefined,
+        ),
+    )('still requires full pairing and registration for an established session: $name', ({ patch }) => {
+        expect(researchSendSetupReady({ ...facts(), ...patch, role: 'established', claim: 'historical' })).toBe(false);
+    });
+    it.each(['none', 'pending', 'verified', 'expired', 'historical'] as const)(
+        'allows an established session with %s claim facts without claiming permission',
+        (claim) => {
+            expect(researchSendSetupReady({ ...facts(), role: 'established', claim })).toBe(true);
+        },
+    );
+    it.each(['ownerRevoked', 'peerRevoked', 'blockedByMe', 'blockedByPeer'] as const)(
+        'does not turn cached %s policy facts into a permission decision',
+        (flag) => {
+            expect(researchSendSetupReady({ ...facts(), policy: { ...CLEAR, [flag]: true } })).toBe(true);
+        },
+    );
+});
+
+describe('fresh native setup before new preparation — injected fixtures only', () => {
+    it.each(unreadySetups)('preserves the draft and creates no attempt for $name', async ({ patch }) => {
+        const f = fixture();
+        const current = { ...facts(), ...patch };
+        f.native.messageState.mockResolvedValueOnce(current);
+        f.controller.setDraft('keep this draft until native setup is ready');
+        await f.controller.sendText();
+        expect(f.native.messageThread).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+        expect(f.native.messageState).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+        expect(f.controller.getState()).toMatchObject({
+            draft: 'keep this draft until native setup is ready',
+            attempt: null,
+            facts: current,
+            busy: false,
+        });
+        expect(f.controller.getState().notice).not.toBe(MESSAGING_NOTICES.idle);
+        expect(f.controller.getState().notice).not.toBe(MESSAGING_NOTICES.unavailable);
+        if (patch.role === 'responder') expect(f.controller.getState().notice).toMatch(/responder|receive/i);
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        expect(f.threadResponse().messages).toEqual([]);
+    });
+    it('refuses unavailable fresh facts without acquiring policy, consuming a UUID or dropping the draft', async () => {
+        const f = fixture();
+        f.native.messageState.mockResolvedValueOnce({ status: 'unavailable', reason: 'unavailable' });
+        f.controller.setDraft('draft survives missing setup evidence');
+        await f.controller.sendText();
+        expect(f.controller.getState()).toMatchObject({
+            draft: 'draft survives missing setup evidence',
+            attempt: null,
+            facts: null,
+            notice: MESSAGING_NOTICES.unavailable,
+        });
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+    it('does not use cached initiator readiness when the fresh native role is responder', async () => {
+        const f = fixture();
+        await f.controller.readState();
+        expect(researchSendSetupReady(f.controller.getState().facts)).toBe(true);
+        const responder = { ...facts(), role: 'responder' as const, claim: 'none' as const };
+        f.native.messageState.mockResolvedValueOnce(responder);
+        f.controller.setDraft('not an initial responder send');
+        await f.controller.sendText();
+        expect(f.native.messageState).toHaveBeenCalledTimes(2);
+        expect(f.controller.getState()).toMatchObject({
+            facts: responder,
+            attempt: null,
+            draft: 'not an initial responder send',
+        });
+        expect(researchSendSetupReady(f.controller.getState().facts)).toBe(false);
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+    it('reconciles a durable pending message before setup and never generates a replacement ID', async () => {
+        const f = fixture();
+        f.setRows([{ ...outgoing(), text: 'already durable' }]);
+        f.native.messageState.mockResolvedValue({ ...facts(), role: 'responder', claim: 'none' });
+        f.controller.setDraft('not a replacement');
+        await f.controller.sendText();
+        expect(f.controller.getState().attempt).toEqual({ clientMessageId: ID, text: 'already durable' });
+        expect(f.native.messageState).not.toHaveBeenCalled();
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+    it.each(['historical', 'expired'] as const)(
+        'permits a fresh established reply with a %s initial claim',
+        async (claim) => {
+            const f = fixture();
+            f.native.messageState.mockResolvedValue({ ...facts(), role: 'established', claim });
+            f.controller.setDraft('reply in the established native session');
+            await f.controller.sendText();
+            expect(f.native.messageState).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+            expect(f.native.messageRefreshPolicy).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+            expect(f.native.messagePrepareText).toHaveBeenCalledExactlyOnceWith({
+                credentialBinding: BINDING,
+                clientMessageId: ID,
+                text: 'reply in the established native session',
+            });
+            expect(f.native.messageSendPending).toHaveBeenCalledTimes(1);
+            expect(f.native.messageClaimPeer).not.toHaveBeenCalled();
+            expect(f.controller.getState().notice).toBe(MESSAGING_NOTICES.accepted);
+        },
+    );
+    it('refreshes responder facts after committed receive so the first reply uses an established session', async () => {
+        const f = fixture();
+        let established = false;
+        const responder = { ...facts(), role: 'responder' as const, claim: 'none' as const };
+        const current = { ...facts(), role: 'established' as const, claim: 'historical' as const };
+        const incoming: ResearchThreadMessage = {
+            clientMessageId: OTHER_ID,
+            direction: 'incoming',
+            text: 'native fixture committed initial message',
+            delivery: 'received',
+            reason: null,
+            localCreatedAtMillis: null,
+        };
+        f.native.messageState.mockImplementation(async (options) => {
+            if (established) expect(f.native.messageThread.mock.calls.length).toBeGreaterThan(0);
+            return { ...(established ? current : responder), credentialBinding: options.credentialBinding };
+        });
+        f.native.messageSyncInbox.mockImplementationOnce(async (options) => {
+            established = true; // Synthetic native effect, NOT provider/session proof.
+            f.setRows([incoming]);
+            return {
+                status: 'inbox_result',
+                credentialBinding: options.credentialBinding,
+                stored: 1,
+                duplicates: 0,
+                historical: 0,
+                unresolved: 0,
+                historicalUnresolved: 0,
+            };
+        });
+        await f.controller.readState();
+        expect(researchSendSetupReady(f.controller.getState().facts)).toBe(false);
+        await f.controller.receive();
+        expect(f.native.messageState).toHaveBeenCalledTimes(2);
+        expect(f.native.messageSyncInbox.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageThread.mock.invocationCallOrder[0],
+        );
+        expect(f.native.messageThread.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageState.mock.invocationCallOrder[1],
+        );
+        expect(f.controller.getState().facts).toEqual(current);
+        expect(f.controller.getState().thread?.messages).toEqual([incoming]);
+        expect(researchSendSetupReady(f.controller.getState().facts)).toBe(true);
+        f.controller.setDraft('explicit established reply');
+        await f.controller.sendText();
+        expect(f.native.messageState).toHaveBeenCalledTimes(3);
+        expect(f.native.messagePrepareText).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: BINDING,
+            clientMessageId: ID,
+            text: 'explicit established reply',
+        });
+        expect(f.native.messageSendPending).toHaveBeenCalledTimes(1);
+        expect(f.native.messageClaimPeer).not.toHaveBeenCalled();
+        expect(f.controller.getState().notice).toBe(MESSAGING_NOTICES.accepted);
+    });
+    it('does not continue when a setup-facts observer reenters and renews Auth at publication', async () => {
+        const f = fixture();
+        let fenced = false;
+        f.controller.subscribe((state) => {
+            if (state.busy && state.facts && !fenced) {
+                fenced = true;
+                f.publish({ status: 'verifying', account: null });
+                f.publish(authenticated(RENEWED));
+            }
+        });
+        f.controller.setDraft('do not carry this draft into renewed Auth');
+        await f.controller.sendText();
+        expect(fenced).toBe(true);
+        expect(f.controller.getState()).toMatchObject({
+            available: true,
+            busy: false,
+            draft: '',
+            attempt: null,
+            facts: null,
+            thread: null,
+        });
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+    it.each([
+        { operation: 'send', fence: 'renewed Auth' },
+        { operation: 'send', fence: 'hide/show' },
+        { operation: 'receive', fence: 'renewed Auth' },
+        { operation: 'receive', fence: 'hide/show' },
+    ] as const)(
+        'discards delayed $operation facts after $fence without continuing under the new ticket',
+        async ({ operation, fence }) => {
+            const f = fixture();
+            const gate = deferred();
+            f.native.messageState.mockImplementationOnce(() => gate.promise);
+            f.controller.setDraft('private draft before the fence');
+            const action = operation === 'send' ? f.controller.sendText() : f.controller.receive();
+            await settle();
+            expect(f.native.messageState).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+            expect(f.controller.getState().busy).toBe(true);
+            if (fence === 'renewed Auth') {
+                f.publish({ status: 'verifying', account: null });
+                f.publish(authenticated(RENEWED));
+            } else {
+                f.controller.setVisible(false);
+                f.controller.setVisible(true);
+            }
+            const callsAtFence = Object.values(f.native).map((method) => method.mock.calls.length);
+            expect(f.controller.getState().busy).toBe(true);
+            await f.controller.readState();
+            expect(Object.values(f.native).map((method) => method.mock.calls.length)).toEqual(callsAtFence);
+            gate.resolve({ ...facts(), role: 'established', claim: 'historical' });
+            await action;
+            expect(Object.values(f.native).map((method) => method.mock.calls.length)).toEqual(callsAtFence);
+            expect(f.controller.getState()).toMatchObject({
+                available: true,
+                busy: false,
+                facts: null,
+                policy: null,
+                thread: null,
+                draft: '',
+                attempt: null,
+                inboxReport: null,
+            });
+            expect(f.createMessageId).not.toHaveBeenCalled();
+            expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+            expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        },
+    );
+});
+
 describe('isolated research messaging controller — injected fixtures only', () => {
     it('does no initialization, auth-change, visibility or disposal networking', () => {
         const f = fixture();
@@ -267,6 +536,19 @@ describe('isolated research messaging controller — injected fixtures only', ()
         const f = fixture();
         f.controller.setDraft('<img src=x onerror=alert(1)>');
         await f.controller.sendText();
+        expect(f.native.messageState).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+        expect(f.native.messageThread.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageState.mock.invocationCallOrder[0],
+        );
+        expect(f.native.messageState.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageRefreshPolicy.mock.invocationCallOrder[0],
+        );
+        expect(f.native.messageRefreshPolicy.mock.invocationCallOrder[0]).toBeLessThan(
+            f.createMessageId.mock.invocationCallOrder[0],
+        );
+        expect(f.createMessageId.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messagePrepareText.mock.invocationCallOrder[0],
+        );
         expect(f.native.messageRefreshPolicy).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
         expect(f.native.messagePrepareText).toHaveBeenCalledExactlyOnceWith({
             credentialBinding: BINDING,
@@ -659,6 +941,15 @@ const phases: Phase[] = [
         }),
     },
     {
+        name: 'send setup',
+        method: 'messageState',
+        start: (f) => {
+            f.controller.setDraft('text');
+            return f.controller.sendText();
+        },
+        response: () => facts(),
+    },
+    {
         name: 'send policy',
         method: 'messageRefreshPolicy',
         start: (f) => {
@@ -742,6 +1033,12 @@ const phases: Phase[] = [
         }),
     },
     {
+        name: 'post-inbox setup',
+        method: 'messageState',
+        start: (f) => f.controller.receive(),
+        response: () => ({ ...facts(), role: 'established', claim: 'historical' }),
+    },
+    {
         name: 'retry reconciliation',
         method: 'messageThread',
         setup: uncertainAttempt,
@@ -816,8 +1113,13 @@ describe('strict native echoes and original UI-ticket races — injected fixture
         expect(f.controller.getState().busy).toBe(false);
         if (phase.name !== 'post-send thread') expect(f.controller.getState().notice).toMatch(/Unavailable|unresolved/);
         expect(f.controller.getState().thread).toBeNull();
-        if (phase.name === 'send policy' || phase.name === 'send preflight')
+        if (phase.name === 'send policy' || phase.name === 'send preflight' || phase.name === 'send setup')
             expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        if (phase.name === 'send setup') {
+            expect(f.createMessageId).not.toHaveBeenCalled();
+            expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+            expect(f.controller.getState()).toMatchObject({ draft: 'text', attempt: null, facts: null });
+        }
         if (phase.name === 'prepare') expect(f.native.messageSendPending).not.toHaveBeenCalled();
         if (phase.name === 'receive policy') expect(f.native.messageSyncInbox).not.toHaveBeenCalled();
     });

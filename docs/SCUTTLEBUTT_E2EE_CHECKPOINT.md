@@ -72,6 +72,56 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 4 October send setup guard and research app update
+
+The test screen now disables new sends until native facts show acknowledged
+registration, confirmed pairing and either a verified initiating claim or an
+established session. The controller rereads those facts after reconciling any
+durable pending attempt and before reserving a new message ID. A definite setup
+refusal keeps the draft and creates no unresolved attempt. Receiving remains
+available independently; fresh facts after receiving the opening message can
+enable the responder's reply. These are UI hints, not native/server permission.
+Original account/view checks, fresh policy and exact pending-ID retries remain
+in force. No native crypto or hosted policy code changed in this slice.
+
+Observed evidence:
+
+- **874 tests across 12 isolated suites passed**, including 196 messaging
+  controller fixtures, 49 Auth fixtures, 592 relay cases and 37 signing fixtures.
+  The 63 added cases cover setup refusals, preserved drafts, fresh roles,
+  established replies and lifecycle races. Named lint, diff checks and the
+  strict pilot TypeScript check passed. These are not full-app CI, a DOM test
+  of the Send button, or physical exchange evidence.
+- The fresh web bundle and receipt are in `thalassa-messaging-web-gfzEaL` under
+  the temporary parent below. The separate iOS app compiled successfully with
+  17 native source hashes unchanged from the previous installed candidate.
+  Its 54 unsigned file hashes were checked; signing produced 58 checked files
+  with the same four minimal research-only entitlements. Native build receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-zQEmeZ/build-receipt.json`.
+  Signed receipt: `thalassa-research-sign-c0rYyo/signing-receipt.json` under that
+  same temporary parent. The cached provider was not rebuilt or independently
+  attested; earlier signing/trust limitations still apply.
+- Both devices accepted the update over their existing research app. Normal
+  Thalassa's bundle/name/version/build metadata remained unchanged; its private
+  data was not inspected. Both launch requests were refused because the devices
+  were locked. No uninstall, store reset or key replacement occurred. Receipts:
+  `thalassa-research-device-update-mwqn5v/device-update-receipt.json` and
+  `thalassa-research-ipad-update-TtPPZG/ipad-update-receipt.json` under the same
+  temporary parent. An initial path guard refused the `/var` alias before any
+  device call; comparing canonical parent paths corrected that local check.
+- Read-only pilot preflight confirmed healthy project/organization, matching
+  participant allowlist, active JWT-verified Edge revision 26 and unused human
+  device slots at `2026-10-04T10:17:26.277Z`. Receipt:
+  `thalassa-pairing-preflight-ZfGGBT/preflight.json` under the same temporary
+  parent. Policy definition/privilege inspection also passed, with no deployment
+  or data write: `thalassa-e2ee-policy-cfclIa/policy-update-receipt.json`.
+
+The owner previously reported the login problem resolved, but current native
+verified account screens still need confirmation. Unlocking/opening the updated
+research app, human fingerprint comparison, enrollment and the real two-device
+exchange are next. Every D01–D17 case remains unrun; internal review is not an
+independent security audit. Production, primary sync and `master` are untouched.
+
 ### 4 October research signing and device installation
 
 The owner approved creating a separate development profile and signed in to
