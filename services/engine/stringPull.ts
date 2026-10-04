@@ -75,7 +75,9 @@
  *
  * threadGateCentres (below) is the same rule applied to moving a vertex: a
  * lateral gate the route crosses close by one of its marks is threaded
- * through its centre where that is at least as safe.
+ * through its centre where that is at least as safe — and one it passes
+ * OUTSIDE its marks (Port of Airlie, 2026-10-04), with the detour's own
+ * length allowed over water only shallower (pathNoWorse `detourM`).
  *
  * Bundle note (stage-B review, 2026-10-03): this module sits in the main
  * chunk (routeInshore is synchronous, so no dynamic import), against a JS
@@ -255,6 +257,28 @@ export interface PullContext {
 type LonLat = readonly [number, number];
 
 const bit = (k: number): number => 1 << k;
+
+/** The exposures that are the same water, only shallower (a caution cell a
+ *  shallow band explains, water charted under the keel's need, off the
+ *  fairway, a survey's grade). */
+const DEPTH_ONLY_X =
+    bit(X_CAUTION) |
+    bit(X_SHALLOW_BAND) |
+    bit(X_OFF_PREFERRED) |
+    bit(X_CHART_SHALLOW) |
+    bit(X_SURVEY_POOR) |
+    bit(X_SURVEY_MARGIN) |
+    bit(X_SURVEY_UNGRADED) |
+    bit(X_SURVEY_UNCHECKED);
+/** Water nothing proves: no chart depth, no evidence, relaxed land, the
+ *  charts at odds, a caution cell nothing explains. */
+const UNPROVEN_X =
+    bit(X_CHART_UNCHARTED) |
+    bit(X_UNVOUCHED) |
+    bit(X_RELAXED_LAND) |
+    bit(X_CONFLICT_CELL) |
+    bit(X_CHART_CONFLICT) |
+    bit(X_CAUTION_OTHER);
 
 /** [w, s, e, n] round some points. */
 const boxOf = (pts: readonly LonLat[]): number[] => {
@@ -526,6 +550,22 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
     };
 }
 
+/** An exposure reader that reads each line once (a context with no
+ *  `blockedIdx`, which may change between calls). */
+export function memoExposure(read: (a: LonLat, b: LonLat) => LineExposure): (a: LonLat, b: LonLat) => LineExposure {
+    const memo = new Map<string, LineExposure>();
+    return (a, b) => {
+        const key = `${a[0]},${a[1]},${b[0]},${b[1]}`;
+        let e = memo.get(key);
+        if (!e) memo.set(key, (e = read(a, b)));
+        return e;
+    };
+}
+
+/** Band approach `o` is at least as near a band at least as shallow as `q`'s. */
+const nearAsShallow = (o: NearBand, q: NearBand): boolean =>
+    o.clearanceM <= q.clearanceM + BAND_TOLERANCE_M && (o.band.drval1 ?? -Infinity) <= (q.band.drval1 ?? -Infinity);
+
 /**
  * Is a new PATH (one chord, or a vertex moved onto a gate's centre) at least
  * as safe as the run of segments it would replace? The rule in the module
@@ -535,10 +575,27 @@ export function lineExposureReader(ctx: PullContext): (a: LonLat, b: LonLat) => 
  * inside its clearance), no larger survey error, no nearer a bank. (The
  * marks and the corridor are the callers': they read the run's geometry,
  * not its exposures.)
+ *
+ * With `detourM` (a gate passed outside its marks, threaded through its
+ * centre: threadGateCentres), the new path is a detour, not a merge: it may
+ * carry any state the old path carries anywhere, but no water nothing proves
+ * (UNPROVEN_X: the corridor rule's case, where the same amount elsewhere is
+ * not the same water); its exposures to water only shallower (DEPTH_ONLY_X,
+ * a charted fairway's or dredged area's edge among them) may run `detourM`
+ * longer — the detour's own extra length, as its samples read it (a step a
+ * leg); and it may come nearer a shallow band than the run did where the run
+ * came as near one at least as shallow (so still never toward a drying reef
+ * from a 2 m flat).
  */
-export function pathNoWorse(path: readonly LineExposure[], run: readonly LineExposure[], stepM = PULL_STEP_M): boolean {
+export function pathNoWorse(
+    path: readonly LineExposure[],
+    run: readonly LineExposure[],
+    stepM = PULL_STEP_M,
+    detourM?: number,
+): boolean {
     if (run.length === 0 || path.length === 0) return false;
     let allState = ~0;
+    let anyState = 0;
     let leastM = Infinity;
     let surveyErrM = 0;
     let centreMax = 1;
@@ -547,6 +604,7 @@ export function pathNoWorse(path: readonly LineExposure[], run: readonly LineExp
     const bandM = new Map<object, number>();
     for (const r of run) {
         allState &= r.state;
+        anyState |= r.state;
         if (r.leastM < leastM) leastM = r.leastM;
         if (r.surveyErrM > surveyErrM) surveyErrM = r.surveyErrM;
         if (r.centreMax > centreMax) centreMax = r.centreMax;
@@ -554,19 +612,39 @@ export function pathNoWorse(path: readonly LineExposure[], run: readonly LineExp
         for (const q of r.nearBands) bandM.set(q.band, Math.min(bandM.get(q.band) ?? Infinity, q.clearanceM));
     }
     const pathSum = new Float64Array(X_COUNT);
+    const mayState = detourM === undefined ? allState : anyState;
     for (const c of path) {
-        if ((c.state & ~allState) !== 0) return false;
+        if ((c.state & ~mayState) !== 0) return false;
         if (c.leastM < leastM - 1e-6 || c.surveyErrM > surveyErrM + 1e-6 || c.centreMax > centreMax + 1e-6)
             return false;
         // A band the run never came inside the clearance of reads Infinity:
-        // the chord must keep that band's whole clearance.
+        // the chord must keep that band's whole clearance. A detour may come
+        // nearer a band where the run came as near one at least as shallow
+        // (through a channel 20 m off the flats on its one side, where the
+        // run crossed the flats on its other).
         for (const q of c.nearBands)
-            if (q.clearanceM < (bandM.get(q.band) ?? Infinity) - BAND_TOLERANCE_M) return false;
+            if (
+                q.clearanceM < (bandM.get(q.band) ?? Infinity) - BAND_TOLERANCE_M &&
+                !(detourM !== undefined && run.some((r) => r.nearBands.some((o) => nearAsShallow(o, q))))
+            )
+                return false;
         for (let e = 0; e < X_COUNT; e++) pathSum[e] += c.metres[e];
     }
     for (let e = 0; e < X_COUNT; e++) {
         const m = pathSum[e];
-        if (m > 0 && (sum[e] <= 0 || m > sum[e] + stepM)) return false;
+        if (m <= 0) continue;
+        if (detourM !== undefined && (UNPROVEN_X & bit(e)) !== 0) return false;
+        // A caution cell's reasons trade on a detour: a wing cell (outside a
+        // lateral mark) left for one a shallow band alone explains is the same
+        // caution, between the marks — its total and every other reason hold.
+        if (detourM !== undefined && e === X_SHALLOW_BAND) continue;
+        // Water off the preferred fairway is held like any water only
+        // shallower (review, 2026-10-04: skipped, a detour could leave a
+        // charted fairway for any length; held, Shane's pin's grew 101 m on an
+        // 84 m detour of four legs). Each leg's samples may read a step over.
+        const allowM =
+            stepM + (detourM !== undefined && (DEPTH_ONLY_X & bit(e)) !== 0 ? detourM + stepM * (path.length - 1) : 0);
+        if (sum[e] <= 0 || m > sum[e] + allowM) return false;
     }
     return true;
 }
@@ -819,8 +897,9 @@ export function lateralMarkGates(layers: InshoreLayers): MarkGate[] {
     return gates;
 }
 
-/** Where segment a→b crosses segment p→q: [t along a→b, s along p→q], or null. */
-function crossing(a: LonLat, b: LonLat, p: LonLat, q: LonLat): [number, number] | null {
+/** Where segment a→b crosses segment p→q: [t along a→b, s along p→q], or
+ *  null. With `line`, anywhere on the line through p and q. */
+function crossing(a: LonLat, b: LonLat, p: LonLat, q: LonLat, line = false): [number, number] | null {
     const rx = b[0] - a[0];
     const ry = b[1] - a[1];
     const sx = q[0] - p[0];
@@ -829,7 +908,7 @@ function crossing(a: LonLat, b: LonLat, p: LonLat, q: LonLat): [number, number] 
     if (Math.abs(den) < 1e-18) return null;
     const t = ((p[0] - a[0]) * sy - (p[1] - a[1]) * sx) / den;
     const u = ((p[0] - a[0]) * ry - (p[1] - a[1]) * rx) / den;
-    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [t, u] : null;
+    return t >= 0 && t <= 1 && (line || (u >= 0 && u <= 1)) ? [t, u] : null;
 }
 
 export interface GateThreadOptions extends PullOptions {
@@ -843,6 +922,48 @@ function gateCrossOffM(a: LonLat, b: LonLat, g: MarkGate): number | null {
 }
 const offCentre = (offM: number, g: MarkGate): boolean =>
     offM > Math.max(GATE_OFF_CENTRE_MIN_M, GATE_OFF_CENTRE_FRACTION * g.widthM);
+const pathLengthM = (path: readonly LonLat[]): number => path.slice(1).reduce((m, q, k) => m + localM(path[k], q), 0);
+/** Gate g's line in the local plane: the unit vector port → starboard. */
+function lineOf(g: MarkGate): [number, number] {
+    const ux = (g.stbd[0] - g.port[0]) * mPerDegLon(g.centre[1]);
+    const uy = (g.stbd[1] - g.port[1]) * KY;
+    const n = Math.hypot(ux, uy) || 1;
+    return [ux / n, uy / n];
+}
+/** The point square off gate g's centre, a gate's width (at most
+ *  MARK_WATCH_M) along its normal, on p's side of its line. */
+function squareOff(g: MarkGate, p: LonLat): [number, number] {
+    const kx = mPerDegLon(g.centre[1]);
+    const [ux, uy] = lineOf(g);
+    const side = Math.sign(ux * (p[1] - g.centre[1]) * KY - uy * (p[0] - g.centre[0]) * kx) || 1;
+    const m = Math.min(g.widthM, MARK_WATCH_M) * side;
+    return [g.centre[0] - (uy * m) / kx, g.centre[1] + (ux * m) / KY];
+}
+/** A detour through a pair passed outside may be this much longer than the
+ *  line it replaces (m), or twice the pair's width: the cost of passing
+ *  square through it, not a zig-zag (measured 2026-10-04 on the Pi's cells:
+ *  Port of Airlie's 57 m outer pair, squared through, 52–84 m). */
+const DETOUR_MIN_M = 60;
+/** A pair this near another (m), in line with it, is the next of one channel
+ *  (Port of Airlie's are 370 m apart; the line and the side carry the test). */
+const CHANNEL_NEXT_M = 1000;
+/** Gates g and h are pairs of one channel: within CHANNEL_NEXT_M, each in line
+ *  with the other's normal (within 30°), and red to the same side — so not two
+ *  pairs a buoyage change makes of each bank's red and green. */
+function oneChannel(g: MarkGate, h: MarkGate): boolean {
+    const vx = (h.centre[0] - g.centre[0]) * mPerDegLon(g.centre[1]);
+    const vy = (h.centre[1] - g.centre[1]) * KY;
+    const d = Math.hypot(vx, vy);
+    const [gx, gy] = lineOf(g);
+    const [hx, hy] = lineOf(h);
+    return (
+        d > 0 &&
+        d <= CHANNEL_NEXT_M &&
+        Math.abs(vx * gx + vy * gy) <= d / 2 &&
+        Math.abs(vx * hx + vy * hy) <= d / 2 &&
+        gx * hx + gy * hy > 0
+    );
+}
 
 /**
  * Thread each lateral gate the route crosses close by one of its marks
@@ -858,9 +979,30 @@ const offCentre = (offM: number, g: MarkGate): boolean =>
  * the water is not clean), passes every other mark near it no closer than
  * the old one did (or than MARK_COMFORT_M), and keeps further from each
  * gate's nearer mark than the old one did. Pinned vertices and unpullable
- * segments are never touched. Returns the new polyline, per new segment the
- * original segment it lies on, per new vertex whether it sits on a gate
- * centre (an anchor for any later pull), and how many gates it threaded.
+ * segments are never touched.
+ *
+ * A gate the route passes OUTSIDE its marks — crossing its line beyond one,
+ * within MARK_WATCH_M of it: that mark on its wrong side (Shane, Port of
+ * Airlie, 2026-10-04: a channel's A* span over the flats outside green 3,
+ * out past green 1) — is threaded the same way where the route is using its
+ * channel: where it passes between the marks of the channel's next pair
+ * (oneChannel; review, 2026-10-04: a line only crossing a channel, or passing
+ * a lone pair, is left alone). The differences: the vertex nearer the gate
+ * moves onto its centre wherever the gate is within MARK_WATCH_M of it, a
+ * channel's span and its seam included (a follower never draws a line
+ * outside its own marks; the moved vertex keeps each segment's kind). Failing
+ * a turn at the centre, the line goes square through the pair for a gate's
+ * width on either side first (the turn at the outer pair's centre cut its
+ * green's wing, and the leg on from it passed green 1 at 18 m). The new path
+ * is a detour, not a merge (pathNoWorse `detourM`): it may run its own extra
+ * length longer over water only shallower, and that length is at most twice
+ * the gate's width (DETOUR_MIN_M at least). And the marks of every gate it
+ * now passes between are on their right side, so they may lie between the
+ * old path and the new — but each is passed no nearer than the old path
+ * passed it, than MARK_COMFORT_M, or than the gate's centre does. Returns the
+ * new polyline, per new segment the original segment it lies on, per new
+ * vertex whether it is the move's (a gate centre or its square-off: an anchor
+ * for any later pull), and how many gates it threaded.
  */
 export function threadGateCentres(
     polyline: readonly [number, number][],
@@ -881,8 +1023,11 @@ export function threadGateCentres(
         gs.some((g) => (m[0] === g.port[0] && m[1] === g.port[1]) || (m[0] === g.stbd[0] && m[1] === g.stbd[1]));
     const nearerMarkM = (path: readonly LonLat[], g: MarkGate): number =>
         Math.min(pathPointM(path, g.port), pathPointM(path, g.stbd));
-    const exposuresOf = (path: readonly LonLat[]): LineExposure[] =>
-        path.slice(1).map((q, k) => opts.exposureOf(path[k], q));
+    // One read per leg: a gate's candidates share legs, and a pass retries them.
+    const legOf = memoExposure(opts.exposureOf);
+    const exposuresOf = (path: readonly LonLat[]): LineExposure[] => path.slice(1).map((q, k) => legOf(path[k], q));
+    const threads = (path: readonly LonLat[], g: MarkGate): boolean =>
+        path.slice(1).some((q, k) => crossing(path[k], q, g.port, g.stbd) !== null);
     /** Add the centres of the next gates the path's last leg crosses off centre. */
     const chainOn = (path: [number, number][], used: MarkGate[]): void => {
         for (let k = 0; k < 2; k++) {
@@ -905,55 +1050,135 @@ export function threadGateCentres(
             used.push(next);
         }
     };
+    /** The segments crossing gate g's line — between its marks, or (`outside`)
+     *  beyond one within MARK_WATCH_M; one through a vertex counted once. */
+    const crossers = (g: MarkGate, outside: boolean): number[] => {
+        const hits: number[] = [];
+        for (let i = 0; i + 1 < pts.length; i++) {
+            const c = crossing(pts[i], pts[i + 1], g.port, g.stbd, outside);
+            if (!c) continue;
+            if (outside) {
+                const beyondM = (c[1] < 0 ? -c[1] : c[1] - 1) * g.widthM;
+                if (!(beyondM > 0 && beyondM <= MARK_WATCH_M)) continue;
+            }
+            if (c[0] < 1e-9 && hits[hits.length - 1] === i - 1) continue;
+            hits.push(i);
+        }
+        return hits;
+    };
     // A pass may fail to thread a gate its neighbour later makes possible.
     for (let pass = 0; pass < 3; pass++) {
         const before = threaded;
         for (const g of opts.gates) {
-            // Its crossings (one through a vertex counted once).
-            const hits: number[] = [];
-            for (let i = 0; i + 1 < pts.length; i++) {
-                const c = crossing(pts[i], pts[i + 1], g.port, g.stbd);
-                if (!c) continue;
-                if (c[0] < 1e-9 && hits[hits.length - 1] === i - 1) continue;
-                hits.push(i);
+            // Its crossings between the marks; where there are none, a pass
+            // outside them (Port of Airlie, 2026-10-04: the route left the
+            // channel short of the outer pair, green 1 on its wrong side).
+            const hits = crossers(g, false);
+            const outs = hits.length === 0 ? crossers(g, true) : [];
+            const outside = outs.length === 1;
+            const seg = outside ? outs[0] : hits.length === 1 ? hits[0] : -1;
+            if (seg < 0) continue;
+            // Outside its marks, only in a channel the route is using: one whose
+            // next pair it passes between (review, 2026-10-04: a line only
+            // crossing a channel, or passing a lone pair, was dragged through a
+            // gate it never used, a zig-zag).
+            if (outside && !opts.gates.some((h) => h !== g && oneChannel(g, h) && threads(pts, h))) continue;
+            if (!outside) {
+                const off = gateCrossOffM(pts[seg], pts[seg + 1], g);
+                if (off === null || !offCentre(off, g) || !pullable(seg)) continue;
             }
-            if (hits.length !== 1) continue;
-            const seg = hits[0];
-            const off = gateCrossOffM(pts[seg], pts[seg + 1], g);
-            if (off === null || !offCentre(off, g) || !pullable(seg)) continue;
-            type Cand = { from: number; to: number; path: [number, number][]; used: MarkGate[] };
+            /** `split`: the new path's index of the gate centre — legs before
+             *  it lie on the first old segment, the rest on the last. */
+            type Cand = { from: number; to: number; path: [number, number][]; used: MarkGate[]; split: number };
             const cands: Cand[] = [];
-            for (const v of [seg, seg + 1]) {
+            /** Through the centre from a to b; outside the marks, failing that,
+             *  square to the gate's line for a gate's width on b's side, a's,
+             *  or both — through the pair, then the turn (Shane's pin, Port of
+             *  Airlie: the turn at the outer pair's centre cut 16 m past its
+             *  green, across the wing the router keeps outboard of it). */
+            const ways = (from: number, to: number): void => {
+                const [a, b] = [pts[from], pts[to]];
+                const via: LonLat[][] = outside ? [[], [b], [a], [a, b]] : [[]];
+                for (const sq of via) {
+                    const before = sq.includes(a) ? [squareOff(g, a)] : [];
+                    const after = sq.includes(b) ? [squareOff(g, b)] : [];
+                    const path: [number, number][] = [a, ...before, g.centre, ...after, b];
+                    cands.push({ from, to, path, used: [g], split: 1 + before.length });
+                }
+            };
+            // Outside the marks, the vertex nearer the gate moves onto its
+            // centre wherever the gate is within reach of it — a follower
+            // never draws a line outside its own marks, so a channel's span
+            // and its seam move too; between them, only within a grid
+            // artefact's reach, inside one run of one kind.
+            const vs = [seg, seg + 1];
+            if (outside && segM(pts[seg + 1], g.port, g.stbd) < segM(pts[seg], g.port, g.stbd)) vs.reverse();
+            for (const v of vs) {
                 if (pinned[v] || v === 0 || v === pts.length - 1) continue;
-                if (segM(pts[v], g.port, g.stbd) > corridorM) continue;
-                if (!pullable(v - 1) || !pullable(v) || kindOf(v - 1) !== kindOf(v)) continue;
-                cands.push({ from: v - 1, to: v + 1, path: [pts[v - 1], g.centre, pts[v + 1]], used: [g] });
+                if (segM(pts[v], g.port, g.stbd) > (outside ? MARK_WATCH_M : corridorM)) continue;
+                if (!outside && (!pullable(v - 1) || !pullable(v) || kindOf(v - 1) !== kindOf(v))) continue;
+                ways(v - 1, v + 1);
+                if (outside) break;
             }
-            cands.push({ from: seg, to: seg + 1, path: [pts[seg], g.centre, pts[seg + 1]], used: [g] });
+            ways(seg, seg + 1);
             for (const cand of cands) {
                 chainOn(cand.path, cand.used);
                 const old = pts.slice(cand.from, cand.to + 1);
                 const newExp = exposuresOf(cand.path);
-                if (!pathNoWorse(newExp, exposuresOf(old))) continue;
-                // Where the water is not clean, within a grid artefact's reach.
+                if (outside) {
+                    // A detour through the pair, no zig-zag (at most twice its
+                    // width longer): at least as safe, but for its own extra
+                    // length over water only shallower.
+                    const extraM = Math.max(0, pathLengthM(cand.path) - pathLengthM(old));
+                    if (extraM > Math.max(DETOUR_MIN_M, 2 * g.widthM)) continue;
+                    if (!pathNoWorse(newExp, exposuresOf(old), PULL_STEP_M, extraM)) continue;
+                } else {
+                    if (!pathNoWorse(newExp, exposuresOf(old))) continue;
+                    // Where the water is not clean, within a grid artefact's reach.
+                    if (
+                        !newExp.every(isClean) &&
+                        (old.some((p) => pathPointM(cand.path, p) > corridorM) ||
+                            cand.path.some((p) => pathPointM(old, p) > corridorM))
+                    )
+                        continue;
+                }
+                // The gates the new path passes between the marks of, and of
+                // those the ones the old did not: their marks are now each on
+                // its right side (a gate passed outside, put right).
+                const inNew = opts.gates.filter((x) => threads(cand.path, x));
+                const right = inNew.filter((x) => !threads(old, x));
+                // No mark between the old path and the new (but those), and each
+                // of those passed no nearer than the old path passed it, than
+                // MARK_COMFORT_M, or than the gate's own centre does (review,
+                // 2026-10-04: the leg on from the outer pair's centre passed
+                // green 1 at 18 m).
+                const ring = [...old, ...[...cand.path].reverse()];
+                if (marks.some((m) => !isMarkOf(m, right) && pointInRing(m[0], m[1], ring))) continue;
                 if (
-                    !newExp.every(isClean) &&
-                    (old.some((p) => pathPointM(cand.path, p) > corridorM) ||
-                        cand.path.some((p) => pathPointM(old, p) > corridorM))
+                    right.some((x) =>
+                        [x.port, x.stbd].some(
+                            (m) =>
+                                pathPointM(cand.path, m) <
+                                Math.min(pathPointM(old, m), MARK_COMFORT_M, x.widthM / 2) - 0.5,
+                        ),
+                    )
                 )
                     continue;
-                // No mark between the old path and the new.
-                const ring = [...old, ...[...cand.path].reverse()];
-                if (marks.some((m) => pointInRing(m[0], m[1], ring))) continue;
-                // Every other mark near either passed no closer than before.
-                if (marks.some((m) => !isMarkOf(m, cand.used) && passesCloser(m, cand.path, old))) continue;
-                // Each gate's nearer mark further off than before.
-                if (cand.used.some((u) => nearerMarkM(cand.path, u) <= nearerMarkM(old, u) + 1)) continue;
+                // Every other mark near either passed no closer than before; a
+                // gate both pass between, no nearer its nearer mark.
+                if (marks.some((m) => !isMarkOf(m, inNew) && passesCloser(m, cand.path, old))) continue;
+                if (inNew.some((x) => !right.includes(x) && nearerMarkM(cand.path, x) < nearerMarkM(old, x) - 0.5))
+                    continue;
+                // Each gate threaded further off its nearer mark than before (one
+                // passed outside is now passed between its marks, at its centre).
+                if (cand.used.some((u) => !right.includes(u) && nearerMarkM(cand.path, u) <= nearerMarkM(old, u) + 1))
+                    continue;
                 // Accept: the new interior vertices replace the old ones.
                 const inner = cand.path.slice(1, -1);
                 const seam = cand.to - cand.from; // old segments replaced
                 const newSegs: number[] = [];
-                for (let k = 0; k <= inner.length; k++) newSegs.push(fromSeg[cand.from + Math.min(k, seam - 1)]);
+                for (let k = 0; k <= inner.length; k++)
+                    newSegs.push(fromSeg[cand.from + (k < cand.split ? 0 : seam - 1)]);
                 const splice = <T>(arr: T[], ins: T[]): T[] => [
                     ...arr.slice(0, cand.from + 1),
                     ...ins,
