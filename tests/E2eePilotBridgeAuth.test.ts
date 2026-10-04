@@ -161,13 +161,13 @@ afterEach(() => {
 });
 
 describe('isolated auth-only research bridge with mocked SDK/native ports', () => {
-    it('closes native ownership on cold launch before constructing the memory-only SDK', async () => {
+    it('suspends native credentials on cold launch before constructing the memory-only SDK', async () => {
         const h = fixture();
         const fence = deferred<NativeFenceResult>();
         h.native.fenceSession.mockReturnValueOnce(fence.promise);
         const initialize = h.controller.initialize();
         await settle();
-        expect(h.native.fenceSession).toHaveBeenCalledWith({ mode: 'sign_out' });
+        expect(h.native.fenceSession).toHaveBeenCalledWith({ mode: 'verify' });
         expect(h.createSdk).not.toHaveBeenCalled();
         expect(h.sdk.getSession).not.toHaveBeenCalled();
         fence.resolve({ status: 'fenced', authFence: 'fixture-cold-fence' });
@@ -243,7 +243,7 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
     });
 
     it.each([unavailable(), { status: 'fenced' as const, authFence: 'invalid\n' }])(
-        'refuses cold start when native sign-out is not confirmed %#',
+        'refuses cold start when native credential fencing is not confirmed %#',
         async (result) => {
             const h = fixture();
             h.native.fenceSession.mockResolvedValueOnce(result);
@@ -252,6 +252,62 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
             expect(h.createSdk).not.toHaveBeenCalled();
         },
     );
+
+    it('allows explicit native logout after failed cold continuation, then fresh selection', async () => {
+        const h = fixture();
+        h.native.fenceSession.mockResolvedValueOnce(unavailable());
+        await h.controller.initialize();
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.canSignIn()).toBe(false);
+        expect(h.controller.canSignOut()).toBe(true);
+        expect(h.createSdk).not.toHaveBeenCalled();
+        await h.controller.signOut();
+        expect(h.native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['verify', 'sign_out']);
+        expect(h.sdk.signOut).not.toHaveBeenCalled();
+        expect(h.createSdk).toHaveBeenCalledTimes(1);
+        expect(h.controller.canSignIn()).toBe(true);
+        expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+        await h.controller.signIn('b@example.test', 'fixture-password');
+        expect(h.controller.getState().account?.accountId).toBe(ACCOUNT_B);
+    });
+
+    it('does not permit failed cold continuation to bypass a failed explicit logout', async () => {
+        const h = fixture();
+        h.native.fenceSession.mockResolvedValue(unavailable());
+        await h.controller.initialize();
+        await h.controller.signOut();
+        await h.controller.signIn('b@example.test', 'fixture-password');
+        expect(h.createSdk).not.toHaveBeenCalled();
+        expect(h.native.authenticate).not.toHaveBeenCalled();
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+    });
+
+    it('has no native recovery action before validated isolated configuration', async () => {
+        const h = fixture();
+        h.native.configuration.mockResolvedValueOnce({ status: 'unavailable' });
+        await h.controller.initialize();
+        expect(h.controller.canSignOut()).toBe(false);
+        await h.controller.signOut();
+        expect(h.native.fenceSession).not.toHaveBeenCalled();
+        expect(h.createSdk).not.toHaveBeenCalled();
+    });
+
+    it('retries SDK setup after a subscription failure without retaining partial state', async () => {
+        const h = fixture();
+        h.sdk.onAuthStateChange.mockImplementationOnce(() => {
+            throw new Error('fixture-subscription-failure');
+        });
+        await h.controller.initialize();
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.canSignIn()).toBe(false);
+        expect(h.sdk.stopAutoRefresh).toHaveBeenCalledTimes(1);
+        await h.controller.signOut();
+        expect(h.sdk.signOut).not.toHaveBeenCalled();
+        expect(h.createSdk).toHaveBeenCalledTimes(2);
+        expect(h.controller.canSignIn()).toBe(true);
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getState().account?.accountId).toBe(ACCOUNT_A);
+    });
 
     it('waits for a durable verify fence before password sign-in', async () => {
         const h = fixture();
@@ -268,7 +324,7 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         fence.resolve({ status: 'fenced', authFence: 'fixture-release' });
         await signIn;
         expect(h.operations).toEqual([
-            'native:sign_out',
+            'native:verify',
             'sdk:create',
             'native:verify',
             'sdk:sign-in',
@@ -488,13 +544,13 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         expect(h.controller.getState().account?.accountId).toBe(ACCOUNT_B);
     });
 
-    it('closes unsolicited SDK sign-ins rather than granting native account access', async () => {
+    it('suspends unsolicited SDK sign-ins rather than granting native account access', async () => {
         const h = fixture();
         await h.controller.initialize();
         h.setSdkSession(TOKEN_A);
         h.emit('SIGNED_IN');
         await settle();
-        expect(h.native.fenceSession.mock.calls.at(-1)?.[0]).toEqual({ mode: 'sign_out' });
+        expect(h.native.fenceSession.mock.calls.at(-1)?.[0]).toEqual({ mode: 'verify' });
         expect(h.sdk.signOut).toHaveBeenCalledTimes(1);
         expect(h.sdk.getSession).not.toHaveBeenCalled();
         expect(h.native.authenticate).not.toHaveBeenCalled();
@@ -511,15 +567,71 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         expect(h.sdk.getSession).not.toHaveBeenCalled();
     });
 
-    it('closes absent SDK sessions with another durable native sign-out fence', async () => {
+    it('suspends absent SDK sessions without a durable native sign-out', async () => {
         const h = fixture();
         await h.controller.initialize();
         await h.controller.reverify();
         expect(h.native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual([
-            'sign_out',
             'verify',
-            'sign_out',
+            'verify',
+            'verify',
         ]);
+        expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+    });
+
+    it.each(['SIGNED_OUT', 'PASSWORD_RECOVERY', 'UNEXPECTED_EVENT'])(
+        'keeps owner continuity but clears credentials on passive %s',
+        async (event) => {
+            const h = fixture();
+            await h.controller.initialize();
+            await h.controller.signIn('a@example.test', 'fixture-password');
+            h.setSdkSession(null);
+            h.emit(event);
+            expect(h.controller.getState()).toEqual({ status: 'verifying', account: null });
+            await settle();
+            expect(h.native.fenceSession.mock.calls.every(([options]) => options.mode === 'verify')).toBe(true);
+            expect(h.sdk.signOut).toHaveBeenCalledTimes(1);
+            expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+            // A permissive fake native port cannot bypass the controller's
+            // retained owner. Real sealed-state continuity is a native probe.
+            await h.controller.signIn('b@example.test', 'fixture-password');
+            expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+            await h.controller.signIn('a@example.test', 'fixture-password');
+            expect(h.controller.getState().account?.accountId).toBe(ACCOUNT_A);
+        },
+    );
+
+    it('keeps owner metadata across absent SDK sessions until explicit logout', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.setSdkSession(null);
+        await h.controller.reverify();
+        expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+        expect(h.native.fenceSession.mock.calls.every(([options]) => options.mode === 'verify')).toBe(true);
+        await h.controller.signIn('b@example.test', 'fixture-password');
+        expect(h.controller.getState().account).toBeNull();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getState().account?.accountId).toBe(ACCOUNT_A);
+        await h.controller.signOut();
+        expect(h.native.fenceSession.mock.calls.at(-1)?.[0]).toEqual({ mode: 'sign_out' });
+        await h.controller.signIn('b@example.test', 'fixture-password');
+        expect(h.controller.getState().account?.accountId).toBe(ACCOUNT_B);
+    });
+
+    it('never revives an expired-token response after explicit logout during suspension', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        const fence = deferred<NativeFenceResult>();
+        h.native.fenceSession.mockReturnValueOnce(fence.promise);
+        h.emit('SIGNED_OUT');
+        await settle();
+        await h.controller.signOut();
+        fence.resolve({ status: 'fenced', authFence: 'fixture-stale-suspension' });
+        await settle();
+        expect(h.native.fenceSession.mock.calls.at(-1)?.[0]).toEqual({ mode: 'sign_out' });
+        expect(h.sdk.signOut).toHaveBeenCalledTimes(1);
         expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
     });
 

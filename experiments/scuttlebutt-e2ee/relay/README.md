@@ -318,8 +318,9 @@ commit guards require the original paired permit, while only an exact terminal
 refusal may settle via the original owner-only lease. A later remote change can
 occur during this bounded interval: authoritative SQL still decides new actions.
 This is research gating, not finished polling, trusted time across restart or a
-production latency policy. These SQL/gateway changes have not been deployed to
-the hosted pilot.
+production latency policy. These SQL/gateway changes are deployed only to the
+isolated hosted pilot, with preservation and negative HTTP checks. No positive
+signed native-to-hosted policy exchange has run.
 
 ## Separate native research app
 
@@ -354,14 +355,29 @@ messages, drafts, pairing cards and old UI tickets clear immediately. Literal
 text-node rendering is tested with hostile-looking text; this is not a claim of
 OS clipboard or secure-memory erasure.
 
-Current limits: cold launch signs out and quarantines surviving history/session;
-there is no supported restart continuation or re-enrollment recovery. Hosted
+Cold launch now fences credentials and reopens only an exact sealed, selected,
+ready and active owner. Fresh same-account Auth is required before access;
+bearers, Auth leases and policy permits are never restored. Native close/reopen
+fixtures preserve ratchet/history and pending ciphertext, but no physical
+force-kill or power-loss case has run. Explicit logout still quarantines the
+old generation; no account/device replacement or prekey replenishment exists. Hosted
 policy SQL/gateway changes are deployed only to the pilot, with preservation and
 negative HTTP evidence, not a positive signed policy/native exchange. The human
-allowlist/device slots need checking before enrollment. Signing/installing, actual Capacitor
+allowlist metadata and unused human device slots were checked read-only on
+4 October; recheck before enrollment. Signing/installing, actual Capacitor
 invocation and the iPhone–iPad exchange remain unrun. Do not rerun provisioning
 or delete immutable rows to bypass those blocks. See the checkpoint for exact
 fixture, browser, compile and physical-test evidence categories.
+
+`bridge-native/signDevice.mjs` defaults to offline inspection of a hash-matched
+unsigned research app, a matching development identity and a profile for exactly
+the two selected devices. Only explicit `--sign` signs a new private copy, with
+the exact research bundle and minimal entitlements. Embedded frameworks/dylibs
+must be unsigned; cached signed inputs refuse safely. It does not provision,
+build, install, launch or call the server. Its 21 validator fixtures are not real
+CMS trust, code signing or device acceptance. A matching research profile is
+still missing and owner approval to create it is pending; do not reuse the normal
+app's identifier, profile or Keychain groups.
 
 ## Directory and reservation contract
 

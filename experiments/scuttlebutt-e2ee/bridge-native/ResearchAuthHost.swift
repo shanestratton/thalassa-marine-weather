@@ -1,4 +1,4 @@
-// AUTH-ONLY RESEARCH HOST. Never imported by the ordinary Thalassa target.
+// ISOLATED RESEARCH AUTH/MESSAGING HOST. Never imported by the ordinary target.
 // The Keychain locator survives reinstall; losing its matching native files
 // refuses reopening rather than implicitly enrolling a replacement identity.
 import Foundation
@@ -92,6 +92,10 @@ final class ResearchAuthHost {
             // automatic migration, identity replacement or recovery is offered.
             throw ResearchAuthHostError.unavailable
         }
+        // Reopen restores sealed state, NEVER credentials/readiness. A later
+        // verify may continue only an exact selected/ready/active owner after
+        // fresh same-account Auth. Logout, replacement and partial installation
+        // are not restart continuity and cannot be silently repaired here.
         facade = VodozemacSessionFacade(directory: directory)
     }
 

@@ -28,8 +28,8 @@ const messages: Record<ResearchAuthState['status'], { title: string; detail: str
         detail: 'No account authority is shown. Reverify or sign in if controls are available; otherwise reopen the research app after its setup is checked.',
     },
     signed_out: {
-        title: 'Signed out',
-        detail: 'The previous native owner is closed. Sign in to verify this research account. Previous message history is quarantined.',
+        title: 'Login required',
+        detail: 'Sign in with the same account to continue a saved research session. Explicit Log out closes that session and quarantines its history.',
     },
     verifying: {
         title: 'Verifying native account state…',
@@ -41,7 +41,6 @@ const messages: Record<ResearchAuthState['status'], { title: string; detail: str
     },
 };
 
-let started = false;
 auth.subscribe((state) => {
     element('auth-status').textContent = messages[state.status].title;
     element('auth-status').dataset.state = state.status;
@@ -49,12 +48,12 @@ auth.subscribe((state) => {
     element('account-id').textContent = state.account?.accountId ?? 'Unavailable';
     element('device-id').textContent = state.account?.deviceId ?? 'Unavailable';
     element('verification').textContent = state.account ? 'Server-verified account · research only' : 'Not verified';
-    const disabled = !started || state.status === 'unsupported' || state.status === 'verifying';
+    const disabled = !auth.canSignIn() || state.status === 'unsupported' || state.status === 'verifying';
     signIn.disabled = disabled;
     email.disabled = disabled;
     password.disabled = disabled;
     reverify.disabled = disabled || state.status === 'signed_out';
-    signOut.disabled = !started || state.status === 'unsupported';
+    signOut.disabled = !auth.canSignOut() || state.status === 'unsupported';
 });
 
 form.addEventListener('submit', (event) => {
@@ -195,10 +194,9 @@ window.addEventListener('pagehide', () => {
 });
 
 void auth.initialize().then(() => {
-    started = auth.getState().status !== 'unsupported' && auth.getState().status !== 'unavailable';
     const state = auth.getState();
-    signIn.disabled = !started || state.status === 'verifying';
+    signIn.disabled = !auth.canSignIn() || state.status === 'verifying';
     email.disabled = signIn.disabled;
     password.disabled = signIn.disabled;
-    signOut.disabled = !started;
+    signOut.disabled = !auth.canSignOut();
 });

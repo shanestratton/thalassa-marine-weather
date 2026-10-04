@@ -51,6 +51,7 @@ final class VodozemacAuthSession {
         let id: UUID
         let reserved: DmLifecycleSnapshot
         let expires: ContinuousClock.Instant
+        let continuation: Bool
         var consumed = false
     }
     private struct Lease {
@@ -125,6 +126,16 @@ final class VodozemacAuthSession {
         try reserveVerification(invocation: clearReadiness(), scopeGuard: scopeGuard)
     }
 
+    /// Native Directory selected-owner continuation ONLY (cold or renewal).
+    /// The original sealed owner must
+    /// already be active and project-pinned. Fresh Auth is still required; no
+    /// bearer, lease, policy or caller-owned identity survives construction.
+    /// A different verified account refuses without signing out this existing
+    /// ratchet. Explicit logout remains a separate durable transition.
+    func reserveContinuation(scopeGuard: DmNativeAuthScopeGuard) throws -> VerificationReservation {
+        try reserveVerification(invocation: clearReadiness(), scopeGuard: scopeGuard, continuation: true)
+    }
+
     /// Consume the exact earlier native reservation, using its original guard.
     /// No begin/epoch rotation occurs here. A stale, expired, foreign or already
     /// consumed reservation cannot dispatch Auth or clear another attempt/lease.
@@ -152,12 +163,13 @@ final class VodozemacAuthSession {
         }
     }
 
-    private func reserveVerification(invocation: UUID, scopeGuard: DmNativeAuthScopeGuard) throws -> VerificationReservation {
+    private func reserveVerification(invocation: UUID, scopeGuard: DmNativeAuthScopeGuard,
+                                     continuation: Bool = false) throws -> VerificationReservation {
         var reserved: Attempt?
         do {
             return try scopeGuard.withCurrentScope {
                 guard !Task.isCancelled else { throw DmAuthSessionError.unavailable }
-                let pending = try begin(guardedInvocation: invocation)
+                let pending = try begin(guardedInvocation: invocation, continuation: continuation)
                 reserved = pending
                 return VerificationReservation(sessionID: sessionID, attemptID: pending.id, scopeGuard: scopeGuard)
             }
@@ -232,7 +244,7 @@ final class VodozemacAuthSession {
         if attempt == nil, let accepted, lease?.lifecycle == accepted { lease = nil }
     }
 
-    private func begin(guardedInvocation: UUID? = nil) throws -> Attempt {
+    private func begin(guardedInvocation: UUID? = nil, continuation: Bool = false) throws -> Attempt {
         lock.lock(); defer { lock.unlock() }
         // A guarded call can wait outside this lock for directory authority.
         // Once a newer invocation clears readiness, the older waiter must not
@@ -246,8 +258,14 @@ final class VodozemacAuthSession {
         guard scope.projectOrigin == nil || scope.projectOrigin == authenticator.projectOrigin else {
             throw DmAuthSessionError.unavailable
         }
+        if continuation {
+            guard scope.lifecycle.active, scope.projectOrigin == authenticator.projectOrigin else {
+                throw DmAuthSessionError.unavailable
+            }
+        }
         let reserved = try coordinator.beginAuthVerificationForResearch(expected: scope.lifecycle)
-        let next = Attempt(id: UUID(), reserved: reserved, expires: clock().advanced(by: .seconds(60)))
+        let next = Attempt(id: UUID(), reserved: reserved, expires: clock().advanced(by: .seconds(60)),
+            continuation: continuation)
         attempt = next
         return next
     }
@@ -269,7 +287,9 @@ final class VodozemacAuthSession {
         guard clock() < expires else { throw DmAuthSessionError.unavailable }
         guard userId.utf8.elementsEqual(pending.reserved.owner.userId.utf8) else {
             attempt = nil; lease = nil
-            _ = try coordinator.deactivateAuthScopeForResearch(expected: pending.reserved)
+            if !pending.continuation {
+                _ = try coordinator.deactivateAuthScopeForResearch(expected: pending.reserved)
+            }
             throw DmAuthSessionError.unavailable
         }
         // Token format has been checked by the concrete authenticator. Validate

@@ -49,10 +49,25 @@ This integration is isolated, not a shipping private-message port. The later
 4 October hosted policy update and Edge revision 26 passed preservation checks
 and four negative HTTP canaries; no positive signed policy or native-to-hosted
 exchange was executed. Actual Capacitor calls, physical exchange and external
-review remain unrun. Cold-launch quarantine still blocks the restart-continuity requirements;
-do not infer a usable recovery design from sealed-store reopen fixtures. Native
+review remain unrun. A later bounded continuation permits only an exact sealed,
+selected and active owner after fresh same-account Auth. It restores neither
+bearers nor policy; explicit logout still quarantines the old generation.
+Do not infer physical restart or usable recovery from close/reopen fixtures. Native
 block/revoke controls, device/prekey lifecycle, sync/retention and app cutover
 need separate implementation and assessment.
+
+The latest rerun passed 795 focused tests across 12 suites, 282 native
+directory/facade assertions and 283 native bridge assertions, with all prior
+native suites and nine simulator phases passing. New continuity cases close and
+reopen endpoints within one process using real provider/Keychain/sealed state
+and synthetic Auth/relay responses; they preserve pending ciphertext and decrypt
+successor messages both ways. All 30 exact Swift sources compiled unsigned for
+physical iOS, and the separate 17-source Capacitor app compiled with matching
+shared hashes. These are not force-kill, power-loss, live hosted or physical
+exchange results. The offline research signing runner has 21 pure-validator
+cases, not actual signing/profile acceptance. No matching research profile or
+signed/installable artifact exists yet. Inspect the checkpoint's precise receipts
+and remaining Keychain/install, account/device and prekey recovery gaps.
 
 ## Review scope
 
