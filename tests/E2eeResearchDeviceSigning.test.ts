@@ -8,6 +8,7 @@ import {
     BUNDLE,
     DEVICES,
     appleSignatureRequirement,
+    certificateExtractionArguments,
     decodePlist,
     parseArguments,
     researchEntitlements,
@@ -76,6 +77,18 @@ describe('research-only offline signing validators', () => {
         expect(() => appleSignatureRequirement(TEAM, '" or true')).toThrow();
         expect(() => appleSignatureRequirement('" or true', BUNDLE)).toThrow();
     });
+    it('joins the optional certificate prefix to the codesign flag, never as a code target', () => {
+        expect(certificateExtractionArguments('/private/tmp/research/cert-', '/private/tmp/research/app')).toEqual([
+            '--display',
+            '--extract-certificates=/private/tmp/research/cert-',
+            '/private/tmp/research/app',
+        ]);
+        expect(() => certificateExtractionArguments('cert-', '/private/tmp/research/app')).toThrow();
+        expect(() => certificateExtractionArguments('/private/tmp/research/cert-', './app')).toThrow();
+        expect(() =>
+            certificateExtractionArguments('/private/tmp/research/cert-\n', '/private/tmp/research/app'),
+        ).toThrow();
+    });
     it('refuses missing, duplicate, unknown or privileged selectors', () => {
         for (const suffix of [
             ['--install'],
@@ -113,6 +126,49 @@ describe('research-only offline signing validators', () => {
         const result = validateProfile(profile, certificate, [...DEVICES], NOW);
         expect(result.final['keychain-access-groups']).toEqual([PREFIX + '.' + BUNDLE]);
         expect(() => validateFinalEntitlements(profile.Entitlements, TEAM, PREFIX)).toThrow();
+    });
+    it('accepts the observed Apple profile metadata without adding its token group to the app', () => {
+        const { profile, certificate } = fixture();
+        profile.Platform = ['iOS', 'xrOS', 'visionOS'];
+        profile.Entitlements['keychain-access-groups'] = [PREFIX + '.*', 'com.apple.token'];
+        const result = validateProfile(profile, certificate, [...DEVICES], NOW);
+        expect(result.final).toEqual(researchEntitlements(TEAM, PREFIX));
+        expect(result.final['keychain-access-groups']).toEqual([PREFIX + '.' + BUNDLE]);
+        validateFinalEntitlements(result.final, TEAM, PREFIX);
+        expect(() => validateFinalEntitlements(profile.Entitlements, TEAM, PREFIX)).toThrow();
+        expect(() =>
+            validateFinalEntitlements(
+                { ...result.final, 'keychain-access-groups': [PREFIX + '.' + BUNDLE, 'com.apple.token'] },
+                TEAM,
+                PREFIX,
+            ),
+        ).toThrow();
+    });
+    it.each([
+        ['com.apple.token'],
+        [PREFIX + '.*', 'com.apple.token', 'com.apple.token'],
+        [PREFIX + '.*', PREFIX + '.*'],
+        [PREFIX + '.*', PREFIX + '.' + BUNDLE],
+        [PREFIX + '.*', 'com.apple.other'],
+        [PREFIX + '.*', 'com.apple.token', PREFIX + '.shared'],
+    ])('refuses duplicate, absent-owner or unknown profile groups %j', (...groups) => {
+        const { profile, certificate } = fixture();
+        profile.Entitlements['keychain-access-groups'] = groups;
+        expect(() => validateProfile(profile, certificate, [...DEVICES], NOW)).toThrow();
+    });
+    it.each([
+        ['iOS', 'iOS'],
+        ['xrOS', 'visionOS'],
+        ['iOS', 'macOS'],
+        ['iOS', 'xrOS', 'unknown'],
+        ['iOS', 'xrOS', 'visionOS', 'macOS'],
+        ['iOS,visionOS,xrOS'],
+        ['iOS', 'visionOS,xrOS'],
+        [],
+    ])('refuses unknown, duplicate or unsupported profile platform sets %j', (...platform) => {
+        const { profile, certificate } = fixture();
+        profile.Platform = platform;
+        expect(() => validateProfile(profile, certificate, [...DEVICES], NOW)).toThrow();
     });
     it.each<[string, unknown]>([
         ['application-identifier', PREFIX + '.*'],
