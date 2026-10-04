@@ -72,6 +72,78 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October disabled login controls and empty setup repair
+
+Both research apps loaded configuration but disabled login with “Account access
+unavailable”. Their native setup roots each contained only one empty UUID
+directory; the device-only Keychain locator was still exactly `initializing\n`.
+No account index, account store or directory locator existed. Ordinary startup
+correctly refused to replace this uncertain installation.
+
+Hardware probes isolated a reproducible path defect, not the initially suspected
+WAL pragma issue. The same encrypted store succeeded in a temporary directory
+but failed in Application Support on both devices. The raw SQLite open returned
+14, with extended code 1550, while the kernel's physical path opened with the
+same flags. Foundation's path normalization retained the alias.
+[SQLite documents that NOFOLLOW forbids symbolic links in the database filename](https://sqlite.org/c3ref/open.html);
+[1550 identifies CANTOPEN_SYMLINK](https://sqlite.org/rescode.html#cantopen_symlink).
+
+Directory creation and reopening now validate the original existing directory
+leaf, resolve it with `Darwin.realpath`, verify the resulting URL retains that
+physical path, and validate its type again. SQLite NOFOLLOW, Keychain policy,
+store format, ownership checks and refusal of corrupt/missing stores remain
+unchanged. There is no normal-startup reset or replacement identity path.
+
+Observed evidence:
+
+- Fresh account-directory creation and encrypted index read/reopen succeeded in
+  Application Support on both physical devices after the fix. Synthetic stores
+  created by that successful probe were explicitly destroyed. Receipt:
+  `thalassa-probe-physical-SvIUfX/physical-receipt.json` under the macOS temporary
+  parent used by the build receipts below. The original failed setups were not
+  changed by this probe. This is not human Auth or a message-exchange test.
+- The owner explicitly approved clearing only the failed empty Research setups.
+  A temporary maintenance artifact suppressed the ordinary bridge, required the
+  exact inventoried empty UUID for each device and the exact unfinished marker
+  with its device-only/unlocked-only attributes, removed only empty directories
+  with `unlinkat(..., AT_REMOVEDIR)`, then deleted that marker last. Both devices
+  confirmed root absent and marker missing. No encryption key was deleted and
+  no account authentication or hosted mutation occurred. Receipt:
+  `thalassa-reset-physical-3irLre/physical-receipt.json` under that same parent.
+  The removed folders and marker are not recoverable, but contained no account
+  database, message history or user identity. This permission does not authorize
+  clearing any future incomplete or populated setup.
+- **883 tests across 14 isolated suites passed.** The new native-path fixture
+  compiles the actual extracted Swift helpers and checks a local ancestor alias,
+  retained SQLite NOFOLLOW, and refusal of missing, non-file, linked and regular
+  leaves. Other suites cover source/generator, SDK/controller and relay fixtures;
+  these are not full-app CI or an independent security review. Named lint,
+  formatting and diff checks passed.
+- The final ordinary Research artifact compiled and was signed locally, then
+  installed and launched on both devices. Both now have a root locator, index
+  locator and sealed database. Build receipt:
+  `thalassa-messaging-build-2aSM62/build-receipt.json`; signing receipt:
+  `thalassa-research-sign-LCeSVk/signing-receipt.json`; device receipt:
+  `thalassa-normal-physical-IAXMEU/physical-receipt.json`, under the temporary
+  parent above. The inventory
+  summary initially compared full relative names with bare filenames; the
+  corrected summary uses basenames against the same saved inventory.
+  A controlled process restart on each device retained the same public directory
+  locator and left the newly launched research process present. Receipt:
+  `thalassa-research-restart-q2V3oQ/restart-receipt.json`. This does not by itself
+  prove usable login controls or native verified account status.
+
+The owner then confirmed that the email/password fields and “Sign in and verify”
+controls are usable on both devices. This resolves the disabled-controls report;
+it is not confirmation of successful account authentication or encryption.
+
+The final Research app source contains neither diagnostics nor maintenance
+controls. Normal Thalassa's bundle/version/build metadata remained unchanged
+through the physical operations; its private files were not inspected. The owner
+clarified that the reported repeated closing was device auto-lock, not a new
+app crash. Human login, fingerprint comparison and the two-device encrypted
+exchange remain separate acceptance gates. Nothing is merged to `master`.
+
 ### 5 October iPhone launch crash corrected
 
 The owner clarified that the research app failed to open, rather than failing

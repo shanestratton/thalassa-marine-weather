@@ -17,6 +17,7 @@ export default {
             'tests/E2eePilotBridgeMessaging.test.ts',
             'tests/E2eeResearchDeviceSigning.test.ts',
             'tests/E2eeResearchLaunchLifecycle.test.ts',
+            'tests/E2eeResearchNativePath.test.ts',
         ],
         maxWorkers: 1,
         fileParallelism: false,
