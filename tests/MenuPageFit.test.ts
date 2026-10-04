@@ -108,6 +108,44 @@ describe('Vessel page fits one screen', () => {
     });
 });
 
+describe('Vessel page fills its screen', () => {
+    // Shane 2026-10-04: "make the whole thing take up the enitre page". Fitting
+    // left ~170 px of empty page under the menu box on a 390x844 phone.
+    it('shares the height left over between the Diary pair and the menu box, shrinking nothing', () => {
+        expect(value(css, '.vessel-hub-home .vessel-hub-port', 'display')).toBe('flex');
+        expect(value(css, '.vessel-hub-home .vessel-hub-port', 'flex-direction')).toBe('column');
+        // A screen with no height to spare scrolls rather than squeezes.
+        expect(value(css, '.vessel-hub-home .vessel-hub-port > *', 'flex-shrink')).toBe('0');
+        expect(value(css, '.vessel-hub-home .vessel-hub-journal', 'flex')).toBe('1 0 3.75rem');
+        expect(value(css, '.vessel-hub-home .vessel-hub-menu', 'flex-grow')).toBe('1');
+        expect(value(css, '.vessel-hub-home .vessel-hub-menu > .hub-row', 'flex')).toBe('1 0 auto');
+    });
+
+    it('keeps the Diary pair a 44 pt card at its floor, and stacks it only when it is tall', () => {
+        // The pair is a size container: its height is its floor plus its share.
+        expect(value(css, '.vessel-hub-home .vessel-hub-journal', 'container')).toBe('vessel-journal / size');
+        const compact = block(COMPACT);
+        expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'min-height')).toBe('44px');
+        expect(value(compact, '.vessel-hub-home .vessel-hub-journal', 'flex-basis')).toBe('44px');
+        const stacked = block('@container vessel-journal (min-height: 86px)');
+        expect(value(stacked, '.vessel-hub-journal .vessel-hub-tile', 'flex-direction')).toBe('column');
+        // The arrow and the faint glyph are hidden, never removed, on a short card.
+        expect(value(css, '.vessel-hub-tile-watermark', 'visibility')).toBe('hidden');
+        expect(stacked).toContain('visibility: visible;');
+        const card = readFileSync('components/vesselHub/JournalCard.tsx', 'utf8');
+        for (const hook of [
+            'vessel-hub-tile ',
+            'vessel-hub-tile-icon',
+            'vessel-hub-tile-text',
+            'vessel-hub-tile-title',
+            'vessel-hub-tile-watermark',
+            'vessel-hub-tile-go',
+        ]) {
+            expect(card).toContain(hook);
+        }
+    });
+});
+
 describe('Settings menu fits one screen', () => {
     it('is a size container whose rows keep 44 pt with one-line descriptions', () => {
         expect(value(css, '.settings-menu-screen', 'container')).toBe('settings-menu / size');

@@ -164,6 +164,16 @@ async function noScroll(page: Page, selector: string) {
     expect(overflow, `${selector} scrolls by ${overflow}px`).toBeLessThanOrEqual(1);
 }
 
+/** The page fills its screen (Shane 2026-10-04: "make the whole thing take up
+ *  the enitre page"): the menu box runs down to the floor, ending the port's
+ *  pb-2 and the root's 8 px above it, not a dead band of empty page. */
+async function filled(page: Page, limit: number) {
+    const box = (await page.getByTestId('vessel-hub-menu').boundingBox())!;
+    const gap = limit - (box.y + box.height);
+    expect(gap, `the menu box ends ${gap}px above the floor`).toBeGreaterThanOrEqual(-0.5);
+    expect(gap, `the menu box ends ${gap}px above the floor`).toBeLessThanOrEqual(17);
+}
+
 const MENU_ROWS = '[data-testid="vessel-hub-menu"] > button';
 const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'];
 
@@ -218,6 +228,7 @@ test.describe('Vessel page', () => {
                 '[data-testid="vessel-safety-controls"] > button, .vessel-hub-tile, .skipper-device-action',
                 limit,
             );
+            if (size.width < size.height) await filled(page, limit);
             if (size.width > size.height) {
                 // The left column stays clear of the bottom-left nav toggle.
                 const toggle = await page.getByRole('button', { name: /show navigation/ }).boundingBox();
@@ -235,7 +246,9 @@ test.describe('Vessel page', () => {
             });
             await settle(page);
             await noScroll(page, '.vessel-hub-port');
-            await wholeRows(page, MENU_ROWS, await floor(page));
+            const limit = await floor(page);
+            await wholeRows(page, MENU_ROWS, limit);
+            await filled(page, limit);
         });
     }
 
@@ -247,7 +260,9 @@ test.describe('Vessel page', () => {
             });
             await settle(page);
             await noScroll(page, '.vessel-hub-port');
-            await wholeRows(page, MENU_ROWS, await floor(page));
+            const limit = await floor(page);
+            await wholeRows(page, MENU_ROWS, limit);
+            await filled(page, limit);
         });
     }
 
