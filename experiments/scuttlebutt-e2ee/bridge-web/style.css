@@ -17,7 +17,8 @@ body {
         radial-gradient(ellipse at 0 90%, #132d3c 0, transparent 48%), #111025;
 }
 button,
-input {
+input,
+textarea {
     font: inherit;
 }
 button {
@@ -35,7 +36,8 @@ button:disabled {
     opacity: 0.45;
 }
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
     outline: 3px solid #5ae6e9;
     outline-offset: 3px;
 }
@@ -118,6 +120,7 @@ h2 {
     gap: 20px;
 }
 .card {
+    min-width: 0;
     border: 1px solid #83779530;
     border-radius: 20px;
     background: #201c32d9;
@@ -172,7 +175,8 @@ label {
     color: #c2bbd0;
     margin: 0 0 8px;
 }
-input {
+input:not([type='checkbox']),
+textarea {
     min-height: 48px;
     border: 1px solid #5b516a;
     border-radius: 11px;
@@ -251,6 +255,164 @@ footer {
     line-height: 1.7;
     margin-top: 27px;
 }
+.research-limits {
+    margin: 24px 0;
+    padding: 18px 21px;
+    border: 1px solid #bd97e044;
+    border-radius: 14px;
+    background: #a876d310;
+    color: #c3afdc;
+    font-size: 12px;
+    line-height: 1.7;
+}
+.research-limits p {
+    margin: 6px 0 0;
+}
+.messaging-panels {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr);
+    gap: 20px;
+    align-items: start;
+}
+.section-detail {
+    color: #ada5bd;
+    font-size: 12px;
+    line-height: 1.7;
+    margin: 16px 0;
+}
+.facts {
+    white-space: pre-line;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #cac0dc;
+}
+.wide {
+    width: 100%;
+    margin-bottom: 16px;
+    font-size: 12px;
+}
+textarea {
+    display: block;
+    resize: vertical;
+    min-height: 85px;
+    line-height: 1.6;
+}
+.public-card {
+    font:
+        11px/1.6 ui-monospace,
+        SFMono-Regular,
+        Menlo,
+        monospace;
+    overflow-wrap: anywhere;
+}
+.fingerprint {
+    font:
+        12px/1.8 ui-monospace,
+        SFMono-Regular,
+        Menlo,
+        monospace;
+    overflow-wrap: anywhere;
+    color: #cfc0e7;
+    margin: 0 0 16px;
+}
+.comparison {
+    display: flex;
+    gap: 11px;
+    align-items: flex-start;
+    margin: 18px 0;
+    line-height: 1.7;
+}
+.comparison input {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    accent-color: #62e1df;
+    margin-top: 1px;
+}
+.divider {
+    height: 1px;
+    background: #ffffff13;
+    margin: 24px 0;
+}
+.message-status {
+    font-size: 13px;
+    line-height: 1.7;
+    min-height: 44px;
+    color: #d6c8e9;
+}
+.thread-region {
+    min-height: 190px;
+    max-height: 460px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin: 22px 0;
+    border-radius: 14px;
+    background: #11101f88;
+    padding: 16px;
+}
+.empty-thread {
+    text-align: center;
+    color: #8f879f;
+    font-size: 12px;
+    line-height: 1.9;
+    margin: 46px 0;
+}
+.message-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.message-row {
+    padding: 14px;
+    border: 1px solid #88759930;
+    border-radius: 14px 14px 14px 3px;
+    background: #262034;
+    max-width: 92%;
+}
+.message-row.outgoing {
+    align-self: flex-end;
+    border-radius: 14px 14px 3px 14px;
+    background: #173239;
+    border-color: #65d3d02d;
+}
+.message-direction {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: #b3a4c8;
+}
+.message-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.7;
+    font-size: 14px;
+    margin: 8px 0;
+}
+.message-meta {
+    color: #a9a0b7;
+    font-size: 10px;
+    line-height: 1.6;
+    margin: 0;
+}
+.message-id {
+    color: #847b93;
+    font:
+        9px/1.6 ui-monospace,
+        SFMono-Regular,
+        Menlo,
+        monospace;
+    overflow-wrap: anywhere;
+    margin: 7px 0 0;
+}
+.pending-notice {
+    color: #d4bd9b;
+    font-size: 12px;
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+}
 @media (max-width: 700px) {
     .shell {
         padding-top: max(22px, env(safe-area-inset-top));
@@ -261,7 +423,8 @@ footer {
     .intro {
         padding-top: 28px;
     }
-    .panels {
+    .panels,
+    .messaging-panels {
         grid-template-columns: 1fr;
         gap: 16px;
     }

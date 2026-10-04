@@ -1,4 +1,4 @@
-// Separate AUTH-ONLY research application. No production plugins or target.
+// Separate research application. No production plugins or target.
 import UIKit
 import Capacitor
 

@@ -18,6 +18,7 @@
         "../../../tests/ChatSelfConversation.test.tsx",
         "../../../experiments/scuttlebutt-e2ee/bridge-web/auth.ts",
         "../../../experiments/scuttlebutt-e2ee/bridge-web/main.ts",
-        "../../../tests/E2eePilotBridgeAuth.test.ts"
+        "../../../tests/E2eePilotBridgeAuth.test.ts",
+        "../../../tests/E2eePilotBridgeMessaging.test.ts"
     ]
 }

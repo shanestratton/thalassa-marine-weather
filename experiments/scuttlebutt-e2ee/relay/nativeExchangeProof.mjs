@@ -162,6 +162,7 @@ try {
             'VodozemacScopedRelayProbe.swift',
             'VodozemacScopedEnrollmentProbe.swift',
             'VodozemacReadinessProbe.swift',
+            'VodozemacResearchBridgeProbe.swift',
             'VodozemacRelayPolicy.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
@@ -171,6 +172,7 @@ try {
             'VodozemacScopedRelayClient.swift',
             'VodozemacExchangeProbe.swift',
         ].map((name) => join(experiment, name)),
+        join(experiment, 'bridge-native/ResearchMessagingAdapter.swift'),
     ];
     for (const path of sources) assert(!lstatSync(path).isSymbolicLink() && lstatSync(path).isFile());
     receipt.sourceHashes = Object.fromEntries(sources.map((path) => [path, digest(path)]));
@@ -394,6 +396,8 @@ try {
             receipt.nativeScopedEnrollmentFixtureAssertions = status.scopedEnrollmentFixtureAssertions;
             assert(Number.isSafeInteger(status.readinessFixtureAssertions) && status.readinessFixtureAssertions > 0);
             receipt.nativeReadinessFixtureAssertions = status.readinessFixtureAssertions;
+            assert(Number.isSafeInteger(status.bridgeFixtureAssertions) && status.bridgeFixtureAssertions > 0);
+            receipt.nativeBridgeFixtureAssertions = status.bridgeFixtureAssertions;
         }
         receipt.completedPhases.push({
             phase,

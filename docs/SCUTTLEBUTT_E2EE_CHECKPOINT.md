@@ -38,7 +38,9 @@ a substitute for those checks or a way around a bundled dependency's licence.
 This is an isolated framing/delivery prototype, a real-provider native message
 coordinator, and an isolated device-directory/hosted-relay experiment, **not functioning
 E2EE in Thalassa**. Nothing is wired into live chat.
-No shipping app dependency, implemented private-message Capacitor plugin, production database change, production encryption indicator, production deployment
+The separate research app now has a native messaging plugin and explicit test
+screens. These are not a shipping private-message port. No shipping app dependency,
+production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
 
@@ -69,6 +71,76 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 4 October isolated research messaging bridge
+
+The separate Capacitor research app now exposes explicit native registration,
+public-card inspection and full-fingerprint confirmation, a lower-device peer
+claim, current-policy refresh, text preparation, exact pending-ID send/retry,
+inbox sync and guarded local history. Auth and messaging share one registered
+JavaScript proxy and one native host/facade. Native code derives authority;
+JavaScript supplies only bounded public inputs and the expected Auth binding.
+No keys, pickles, native record handles, bearer tokens or arbitrary authority
+selectors are returned by the messaging methods.
+
+Native publication retains the original account and complete peer snapshot
+across awaits. Delayed outputs captured before a peer change remain refused
+even after that peer is accepted again under a new generation. Fact-only
+acceptance and inbox counts report completed operations; they do not refresh
+current permission or release plaintext. The web controller checks exact DTO
+shapes, binding and view revision after every awaited phase. It clears visible
+content on Auth changes or hiding the view, but retains a private nonplaintext
+scheduling barrier until an old preparation settles. New message actions cannot
+race that preparation or queue replacement ciphertext. Exact retries reconcile
+the original native ID. Content is rendered with text nodes, never interpreted
+as markup.
+
+Observed evidence on frozen sources:
+
+- **765 focused TypeScript tests across 11 suites passed**: the prior 592 relay
+  cases, 40 Auth-controller cases and 133 messaging/controller cases. These use
+  mocked native/Auth/RPC parts; the renderer cases run in jsdom. The first run
+  passed 764 cases and failed a supplemental filesystem source-tripwire because
+  jsdom's URL class was passed to Node's filesystem API. Explicit Node URL use
+  corrected that harness error. A duplicate plugin registration warning led to
+  sharing the existing Auth proxy, not changing Auth lifecycle behavior.
+  The strict pilot TypeScript check and ESLint on the four changed TypeScript
+  files passed; these are not full ordinary-app checks.
+- **222 native bridge assertions passed** with real provider, Directory, facade,
+  Keychain and sealed SQLite, using synthetic Auth/relay transport. They include
+  an encrypted opening and reply plus stale Auth, refresh/logout and peer-change
+  publication races. All nine disposable simulator phases passed, including
+  the older client's four actual encrypted messages over ordinary HTTPS/local
+  SQL. The scoped bridge fixtures do not exercise hosted policy SQL or the
+  Capacitor runtime. The 266 Auth, 247 directory, 40 enrollment-intent, 65
+  authority, 105 pairing/history, 81 scoped-relay, 188 scoped-enrollment and
+  709 readiness assertions passed again. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-DePl99/exchange-run.json`.
+  The earlier 190-assertion pass remains in `thalassa-native-exchange-g8SQ5r`;
+  the final rerun adds peer-generation publication tests. Both disposable
+  simulators and their temporary CAs were removed.
+- All **30 exact simulator-tested Swift sources** compiled/linked unsigned for
+  physical iOS. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-aPXQjg/compile.json`.
+  This is compilation, not signing, installation or execution.
+- A fresh isolated Vite web bundle and the separate research Capacitor app
+  compiled. The app includes 17 Swift sources; all 14 shared runtime source
+  hashes match the final successful simulator receipt. App receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-pfu8Jk/build-receipt.json`.
+  Its public web bundle is in `thalassa-messaging-web-tM79Fp/public` under the
+  same temporary directory. Headless Chromium checks at 390×844 and 810×1080
+  found no horizontal overflow or external requests. These show the unsupported
+  browser screen with messaging disabled, not native Capacitor execution.
+
+Cached provider archives were hashed, not freshly rebuilt or independently
+attested. No signing/install/launch, actual Capacitor calls, human enrollment,
+native-to-hosted message exchange, primary-app sync or independent audit occurred.
+Cold launch deliberately signs out and quarantines surviving history/session
+state. Restart continuity and usable recovery remain missing, not proven by the
+simulator's older client or sealed-store reopen fixtures. Native block/revoke UI,
+device/prekey renewal, scalable sync and app cutover also remain release gates.
+The owner approved an update to the isolated hosted policy on 4 October; approval
+is not deployment evidence. No production activation or master merge is included.
 
 ### 4 October native messaging readiness and current relay policy
 
@@ -144,11 +216,11 @@ Observed evidence on frozen sources:
   attested. No screen/SDK rerun, signing/install/launch, live login, human device
   enrollment, cloud deployment, primary-app sync or independent audit occurred.
 
-The policy SQL/gateway changes are local candidates, not deployed to the hosted
-pilot. Concrete private-message plugin/adapter and screen wiring, native
-block/revoke controls, usable history and sync, iPhone–iPad execution and external
-security review remain missing. No production E2EE badge or master merge is
-authorized by this checkpoint.
+At this readiness checkpoint the policy SQL/gateway changes were local candidates,
+not deployed to the hosted pilot, and concrete plugin/screens were missing. The
+later bridge slice above adds isolated plugin/screens and bounded history/sync,
+not native block/revoke controls, production history/sync, iPhone–iPad execution
+or external review. No production E2EE badge or master merge is authorized.
 
 ### 4 October native registration and peer claims
 
@@ -181,7 +253,7 @@ Partial or inconsistent acknowledgements/confirmations fail closed.
 At this earlier registration checkpoint, the scoped client exposed only native
 research operations and prepare/send/inbox were not yet gated on enrollment or
 bilateral block policy. The readiness slice above adds those research gates;
-both slices remain absent from the auth-only Capacitor plugin. Do not label
+both slices were absent from the then auth-only Capacitor plugin. Do not label
 this a complete private-message port or expose a security badge from these
 facts. Physical-device, hosted native exchange and independent external review
 gates remain open.

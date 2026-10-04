@@ -1,4 +1,4 @@
-# Isolated AUTH-only Xcode project. Input sources/frameworks/resources must
+# Isolated research Xcode project. Input sources/frameworks/resources must
 # already be snapshots beneath the private project root; no Pods/cap sync.
 require 'json'
 require 'pathname'
@@ -103,7 +103,7 @@ begin
   end
   info = {
     'CFBundleDevelopmentRegion' => 'en',
-    'CFBundleDisplayName' => 'Scuttlebutt Auth Research',
+    'CFBundleDisplayName' => 'Scuttlebutt Research',
     'CFBundleExecutable' => '$(EXECUTABLE_NAME)',
     'CFBundleIdentifier' => '$(PRODUCT_BUNDLE_IDENTIFIER)',
     'CFBundleInfoDictionaryVersion' => '6.0',
@@ -123,7 +123,7 @@ begin
   scheme.add_build_target(target)
   scheme.set_launch_target(target)
   scheme.save_as(project.path, 'ScuttlebuttResearchAuth', true)
-  puts 'Generated isolated AUTH-only unsigned research project.'
+  puts 'Generated isolated unsigned research project.'
 rescue StandardError
   warn 'Unable to generate isolated research project; input/configuration refused.'
   exit 1

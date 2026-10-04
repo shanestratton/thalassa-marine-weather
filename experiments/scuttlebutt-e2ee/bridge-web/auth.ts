@@ -72,10 +72,12 @@ export interface ResearchAuthState {
     readonly account: ResearchAccount | null;
 }
 
-const native = registerPlugin<ResearchAuthNativePlugin>(RESEARCH_PLUGIN_NAME);
+// One Capacitor proxy for the one native host. Messaging projects its own
+// research-only method interface onto this proxy, never registers a second one.
+export const researchNativePlugin = registerPlugin<ResearchAuthNativePlugin>(RESEARCH_PLUGIN_NAME);
 
 const runtime: ResearchAuthDependencies = {
-    native,
+    native: researchNativePlugin,
     supported: () =>
         Capacitor.isNativePlatform() &&
         Capacitor.getPlatform() === 'ios' &&
