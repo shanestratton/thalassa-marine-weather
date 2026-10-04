@@ -1,6 +1,7 @@
 // ISOLATED Foundation adapter fixtures. Synthetic URLProtocol Auth/relay,
 // real native provider/Directory/Facade/Keychain-sealed stores. No Capacitor
-// runtime, hosted deployment, physical phone, persistence-resume or audit proof.
+// runtime, hosted deployment, physical phone, SIGKILL/power-loss or audit proof.
+// Restart fixtures close/reopen real sealed state in the SAME test process.
 // Reuses narrowly prefixed disposable enrollment fixture/cleanup helpers only.
 import Foundation
 
@@ -69,11 +70,11 @@ private func dmResearchBridgeReceipt(_ record: DmOutboxRecord, rejected: Bool = 
     if rejected { fields["reason"] = "blocked" }
     return try dmScopedEnrollmentJSON(fields)
 }
-private func dmResearchBridgeInbox(_ record: DmOutboxRecord) throws -> Data {
+private func dmResearchBridgeInbox(_ record: DmOutboxRecord, serverId: Int = 1) throws -> Data {
     guard var fields = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any] else {
         throw DmResearchBridgeProbeError.assertion("bridge fixture inbox fields")
     }
-    fields["accepted"] = true; fields["serverId"] = 1
+    fields["accepted"] = true; fields["serverId"] = serverId
     return try JSONSerialization.data(withJSONObject: [fields], options: [.sortedKeys, .withoutEscapingSlashes])
 }
 private func dmResearchBridgePolicy(_ actor: DmScopedEnrollmentActor, adapter: ResearchMessagingAdapter,
@@ -137,6 +138,74 @@ private func dmResearchBridgeSendRace(_ actor: DmScopedEnrollmentActor, adapter:
         task.cancel(); gate.release(); _ = await task.result
         throw error
     }
+}
+
+private func dmResearchBridgeContinuityPayload(_ snapshot: VodozemacSealedStore.Snapshot,
+                                             excludingCredentialEpoch: Bool = true) throws -> Data {
+    guard var state = try JSONSerialization.jsonObject(with: snapshot.payload) as? [String: Any] else {
+        throw DmResearchBridgeProbeError.assertion("bridge continuity exact sealed payload comparison")
+    }
+    if excludingCredentialEpoch {
+        guard state.removeValue(forKey: "credentialEpoch") != nil else {
+            throw DmResearchBridgeProbeError.assertion("bridge continuity sealed credential epoch")
+        }
+    }
+    return try dmScopedEnrollmentJSON(state)
+}
+
+private func dmResearchBridgeContinue(_ actor: DmScopedEnrollmentActor, adapter: ResearchMessagingAdapter,
+                                     checks: DmResearchBridgeChecks) async throws -> DmScopedEnrollmentActor {
+    let binding = actor.account.credentialBinding, original = try actor.snapshot(peer: true)
+    let heldThread = try adapter.thread(credentialBinding: binding)
+    let before = try dmResearchBridgeContinuityPayload(actor.store.read())
+    actor.fixture.directory.closeForResearch() // Fixture teardown, NOT durable logout.
+    let directory = try actor.fixture.reopen(auth: dmScopedEnrollmentAuth())
+    let facade = VodozemacSessionFacade(directory: directory)
+    let coldAdapter = ResearchMessagingAdapter(facade: facade,
+        transport: try VodozemacRelayTransport(serviceOrigin: dmScopedEnrollmentOrigin, deadlineSeconds: 3,
+            configurationForResearch: {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [DmScopedEnrollmentProtocol.self]
+                return configuration
+            }), projectOrigin: dmScopedEnrollmentOrigin, conversationId: DmScopedEnrollmentFixture.conversationId)
+    DmScopedEnrollmentProtocol.setScripts([])
+    try checks.require(facade.currentAccount() == nil, "cold facade restores no bearer or accepted account lease")
+    try checks.refuses("cold adapter cannot use a previous credential binding before fresh Auth") {
+        _ = try coldAdapter.thread(credentialBinding: binding).publish()
+    }
+    let fence = try facade.fenceSession(mode: .verify)
+    try checks.require(actor.facade.currentMessageContext(snapshot: original) == nil,
+        "closed old scope is unavailable before continuation Auth response")
+    try checks.refuses("captured old plaintext cannot publish after cold scope invalidation") { _ = try heldThread.publish() }
+    let account = try await facade.authenticate(accessToken: actor.bearer, authFence: fence.authFence)
+    let continued = try DmScopedEnrollmentActor(fixture: actor.fixture, facade: facade, account: account,
+        bearer: actor.bearer, card: actor.card)
+    continued.peerGeneration = actor.peerGeneration
+    let current = try continued.snapshot(peer: true)
+    try checks.require(account.accountId == actor.account.accountId && account.deviceId == actor.account.deviceId
+        && account.credentialBinding != binding && current.context.ownerGeneration == original.context.ownerGeneration
+        && current.context.peerGeneration == original.context.peerGeneration
+        && current.context.credentialEpoch != original.context.credentialEpoch,
+        "fresh continuation changes credential binding/epoch only, not owner/device/peer generations")
+    try checks.require(try dmResearchBridgeContinuityPayload(continued.store.read()) == before,
+        "cold reserve and verified continuation preserve every sealed ratchet/message/enrollment field except credential epoch")
+    let state = try coldAdapter.messageState(credentialBinding: account.credentialBinding).publish()
+    try checks.dto(state, keys: dmResearchBridgeStateKeys, status: "state", binding: account.credentialBinding)
+    try checks.require(state["registration"] as? String == "acknowledged" && state["pairing"] as? String == "confirmed"
+        && state["policy"] is NSNull && DmScopedEnrollmentProtocol.captured().isEmpty,
+        "authenticated continuation retains public enrollment facts but restores no policy or relay HTTP")
+    try checks.refuses("fresh continuation cannot recapture a previous facade's binding") {
+        _ = try coldAdapter.messageState(credentialBinding: binding).publish()
+    }
+    try await checks.refusesAsync("cold receive requires an explicit new policy query") {
+        _ = try await coldAdapter.syncInbox(credentialBinding: account.credentialBinding).publish()
+    }
+    try checks.require(DmScopedEnrollmentProtocol.captured().isEmpty,
+        "policy-free cold receive refuses without HTTP or silent policy refresh")
+    let thread = try coldAdapter.thread(credentialBinding: account.credentialBinding).publish()
+    try checks.require((thread["messages"] as? [[String: Any]])?.contains { $0["delivery"] as? String == "received" } == true,
+        "fresh same-generation authority can read provider-authenticated pre-restart local history")
+    return continued
 }
 
 func runDmResearchBridgeProbe(progressForResearch: ((String) -> Void)? = nil) async throws -> Int {
@@ -205,9 +274,9 @@ func runDmResearchBridgeProbe(progressForResearch: ((String) -> Void)? = nil) as
             }
             actor.peerGeneration = native.peerGeneration // Fixture-only; never a JS argument.
         }
-        let initiator = a.account.deviceId < b.account.deviceId ? a : b
-        let responder = initiator === a ? b : a
-        let ia = initiator === a ? aa : ba, ra = responder === a ? aa : ba
+        var initiator = a.account.deviceId < b.account.deviceId ? a : b
+        var responder = initiator === a ? b : a
+        var ia = initiator === a ? aa : ba, ra = responder === a ? aa : ba
         try checks.require(initiator.account.deviceId < responder.account.deviceId,
             "bridge roles derive from distinct native ASCII device identities")
         let openingID = "10000000-0000-4000-8000-000000000001"
@@ -329,6 +398,62 @@ func runDmResearchBridgeProbe(progressForResearch: ((String) -> Void)? = nil) as
             $0["clientMessageId"] as? String == replyID && $0["text"] as? String == "real provider bridge reply"
                 && $0["delivery"] as? String == "received"
         } == true, "second direction plaintext is exposed only from guarded committed native history")
+
+        progressForResearch?("bridge-cold-continuity")
+        try await dmResearchBridgePolicy(responder, adapter: ra, checks: checks)
+        let restartID = "10000000-0000-4000-8000-000000000003"
+        _ = try ra.prepareText(credentialBinding: responder.account.credentialBinding, clientMessageId: restartID,
+            text: "exact pending restart fixture").publish()
+        let restartRecord = try dmResearchBridgeRecord(responder, id: restartID), beforeLoss = try responder.store.read()
+        DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/dispatch", result: try dmResearchBridgeReceipt(restartRecord), loseAfterBody: true)])
+        try await checks.refusesAsync("synthetic accepted body followed by response loss stays unresolved, never fabricated refusal") {
+            _ = try await ra.sendPending(credentialBinding: responder.account.credentialBinding, clientMessageId: restartID).publish()
+        }
+        let lostCaptures = DmScopedEnrollmentProtocol.captured()
+        let afterLoss = try responder.store.read()
+        try checks.require(try lostCaptures.count == 1 && afterLoss.revision == beforeLoss.revision + 1
+            && dmResearchBridgeContinuityPayload(afterLoss, excludingCredentialEpoch: false)
+                == dmResearchBridgeContinuityPayload(beforeLoss, excludingCredentialEpoch: false)
+            && dmResearchBridgeRecord(responder, id: restartID) == restartRecord,
+            "request signing advances sealed revision only; actual response loss preserves every pending/ratchet/credential field")
+        let lostFrame = try JSONDecoder().decode(DmScopedEnrollmentFrame.self, from: lostCaptures[0].body)
+        initiator = try await dmResearchBridgeContinue(initiator, adapter: ia, checks: checks)
+        ia = try dmResearchBridgeAdapter(initiator)
+        responder = try await dmResearchBridgeContinue(responder, adapter: ra, checks: checks)
+        ra = try dmResearchBridgeAdapter(responder)
+        try checks.require(try dmResearchBridgeRecord(responder, id: restartID) == restartRecord,
+            "cold exact-ID retry uses byte-identical original ciphertext and immutable record")
+        try await checks.refusesAsync("cold pending send cannot silently acquire a new policy permit") {
+            _ = try await ra.sendPending(credentialBinding: responder.account.credentialBinding, clientMessageId: restartID).publish()
+        }
+        try checks.require(DmScopedEnrollmentProtocol.captured().isEmpty,
+            "cold pending send policy refusal makes zero HTTP")
+        try await dmResearchBridgePolicy(responder, adapter: ra, checks: checks)
+        try await dmResearchBridgePolicy(initiator, adapter: ia, checks: checks)
+        DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/dispatch", result: try dmResearchBridgeReceipt(restartRecord))])
+        let retried = try await ra.sendPending(credentialBinding: responder.account.credentialBinding, clientMessageId: restartID).publish()
+        try checks.require(retried["decision"] as? String == "server_accepted", "same pending ID settles after fresh continuation and explicit policy")
+        let retryCaptures = DmScopedEnrollmentProtocol.captured()
+        try checks.require(retryCaptures.count == 1, "continued pending send dispatched exactly once")
+        let retryFrame = try JSONDecoder().decode(DmScopedEnrollmentFrame.self, from: retryCaptures[0].body)
+        try checks.require(lostFrame.action == "send" && retryFrame.action == "send" && retryFrame.payload == lostFrame.payload
+            && retryFrame.requestId != lostFrame.requestId,
+            "continued exact ciphertext retry signs a fresh native outer nonce, not new encrypted content")
+        DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/dispatch", result: try dmResearchBridgeInbox(restartRecord, serverId: 2))])
+        let continuedInbox = try await ia.syncInbox(credentialBinding: initiator.account.credentialBinding).publish()
+        try checks.require(continuedInbox["stored"] as? Int == 1, "reopened initiator decrypts responder's exact pending successor")
+        let successorID = "10000000-0000-4000-8000-000000000004"
+        _ = try ia.prepareText(credentialBinding: initiator.account.credentialBinding, clientMessageId: successorID,
+            text: "post-restart bidirectional successor").publish()
+        let successor = try dmResearchBridgeRecord(initiator, id: successorID)
+        DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/dispatch", result: try dmResearchBridgeReceipt(successor))])
+        _ = try await ia.sendPending(credentialBinding: initiator.account.credentialBinding, clientMessageId: successorID).publish()
+        DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/dispatch", result: try dmResearchBridgeInbox(successor, serverId: 2))])
+        let successorInbox = try await ra.syncInbox(credentialBinding: responder.account.credentialBinding).publish()
+        let successorView = try ra.thread(credentialBinding: responder.account.credentialBinding).publish()
+        try checks.require(successorInbox["stored"] as? Int == 1 && (successorView["messages"] as? [[String: Any]])?.contains {
+            $0["clientMessageId"] as? String == successorID && $0["text"] as? String == "post-restart bidirectional successor"
+        } == true, "reopened responder decrypts newly prepared opposite-direction successor through guarded adapter")
 
         progressForResearch?("bridge-peer-publication-races")
         try await dmResearchBridgePolicy(responder, adapter: ra, checks: checks)

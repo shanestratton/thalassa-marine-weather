@@ -92,12 +92,23 @@ final class VodozemacAccountAccess {
         } catch { throw DmAccountDirectoryError.unavailable }
     }
 
-    fileprivate func reserveVerification(expires: ContinuousClock.Instant) throws -> VodozemacAuthSession.VerificationReservation {
+    fileprivate func reserveVerification(expires: ContinuousClock.Instant,
+                                         continuation: Bool = false) throws -> VodozemacAuthSession.VerificationReservation {
         do {
             try requireAuthority()
-            return try session.reserveVerification(scopeGuard: RenewalGuard(original: scopeGuard, coordinator: coordinatorForResearch,
-                userId: userId, deviceId: deviceId, projectOrigin: projectOrigin, expires: expires))
+            let guardScope = RenewalGuard(original: scopeGuard, coordinator: coordinatorForResearch,
+                userId: userId, deviceId: deviceId, projectOrigin: projectOrigin, expires: expires)
+            if continuation { return try session.reserveContinuation(scopeGuard: guardScope) }
+            return try session.reserveVerification(scopeGuard: guardScope)
         } catch { throw DmAccountDirectoryError.unavailable }
+    }
+
+    // Called only beneath Directory/index authority, never as a JS getter.
+    // Avoid reacquiring Directory while publishing a cold continuation.
+    fileprivate func hasAcceptedLifecycle(_ lifecycle: DmLifecycleSnapshot) -> Bool {
+        let expected = DmRelayNetworkContext(userId: lifecycle.owner.userId, deviceId: lifecycle.owner.deviceId,
+            ownerGeneration: lifecycle.owner.generation, credentialEpoch: lifecycle.credentialEpoch, peerGeneration: nil)
+        return locallyValid() && session.currentContext() == expected && locallyValid()
     }
 
     fileprivate func authenticate(bearer: String, reservation: VodozemacAuthSession.VerificationReservation) async throws -> DmLifecycleSnapshot {
@@ -208,6 +219,7 @@ final class VodozemacAccountDirectory {
     fileprivate enum VerificationKind {
         case selection(Attempt)
         case renewal(VodozemacAccountAccess, VodozemacAuthSession.VerificationReservation)
+        case continuation(Attempt, VodozemacAccountAccess, VodozemacAuthSession.VerificationReservation)
     }
     /// Native-issued, one-claim capability. Never reconstructed from SDK/JS
     /// account fields; a facade maps its own opaque fence to this exact value.
@@ -354,6 +366,10 @@ final class VodozemacAccountDirectory {
     // only while this local permit AND the durable directory epoch still match.
     private var liveScopeID: UUID?
     private var currentAccess: VodozemacAccountAccess?
+    // An exact cold selected/active store is opened internally, but it has no
+    // Auth lease and is never published until fresh same-owner verification.
+    // Failed/missing token acquisition can retry without deactivating its ratchet.
+    private var continuation: (ticket: Attempt, access: VodozemacAccountAccess)?
     private static let locatorName = "index-id"
     private static let capacity = 16
 
@@ -439,13 +455,16 @@ final class VodozemacAccountDirectory {
     func closeForResearch() {
         lock.lock(); defer { lock.unlock() }
         verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.closeForResearch(); currentAccess = nil
+        continuation = nil
         index.close()
     }
 
     /// Fence BEFORE SDK token acquisition. A live selected account can ONLY
     /// renew its existing active owner; unselected state can begin selection.
-    /// Cold reopen of a persisted selection has no native continuation permit:
-    /// this bounded pilot requires explicit signOut followed by fresh verify.
+    /// Cold reopen may ONLY continue the exact sealed selected/ready ACTIVE
+    /// owner. This creates a new native reservation, not a restored credential.
+    /// Unselected/inactive/incomplete state still requires explicit selection;
+    /// it must never be adopted as a surviving active messaging generation.
     // A native facade may tighten, but NEVER extend, this monotonic deadline.
     // It is not a plugin/SDK parameter or owner/device authority.
     func reserveVerification(expiresBy: ContinuousClock.Instant? = nil) throws -> VerificationReservation {
@@ -459,20 +478,32 @@ final class VodozemacAccountDirectory {
                 verificationID = id
                 let state = try readState()
                 if state.selectedUserId != nil {
-                    guard liveScopeID != nil, let access = currentAccess else { throw DmAccountDirectoryError.unavailable }
-                    return access
+                    if let access = currentAccess {
+                        guard liveScopeID != nil else { throw DmAccountDirectoryError.unavailable }
+                        return access
+                    }
+                    let cold = try beginContinuation(expires: expires)
+                    return cold.access
                 }
                 return nil
             }()
             if let access {
                 // Do not retain directory/index locks: this original guard
                 // reacquires them around the AuthSession reservation CAS.
-                let ticket = try access.reserveVerification(expires: expires)
+                // Every selected facade verification is active continuation:
+                // a wrong SDK account may not destroy the existing ratchet.
+                let ticket = try access.reserveVerification(expires: expires, continuation: true)
                 lock.lock(); defer { lock.unlock() }
                 guard verificationID == id, currentAccess === access, ContinuousClock.now < expires else {
                     throw DmAccountDirectoryError.unavailable
                 }
-                return VerificationReservation(directoryID: instanceID, id: id, kind: .renewal(access, ticket), expires: expires)
+                let kind: VerificationKind
+                // An earlier cold verification may have published while this
+                // reservation waited for index/Auth authority. Classify from
+                // the CURRENT private state, never a pre-reservation snapshot.
+                if let cold = continuation, cold.access === access { kind = .continuation(cold.ticket, access, ticket) }
+                else { kind = .renewal(access, ticket) }
+                return VerificationReservation(directoryID: instanceID, id: id, kind: kind, expires: expires)
             }
             let ticket = try begin(hooks: .init(), requireUnselected: true, expiresBy: expires)
             lock.lock(); defer { lock.unlock() }
@@ -499,6 +530,10 @@ final class VodozemacAccountDirectory {
                 accepted = try await completeSelection(bearer: bearer, ticket: ticket, fault: .none)
             case .renewal(let access, let ticket):
                 accepted = (access, try await access.authenticate(bearer: bearer, reservation: ticket))
+            case .continuation(let cold, let access, let ticket):
+                let lifecycle = try await access.authenticate(bearer: bearer, reservation: ticket)
+                try publishContinuation(ticket: cold, access: access, lifecycle: lifecycle, expires: reservation.expires)
+                accepted = (access, lifecycle)
             }
             let scope = AuthenticatedScope(access: accepted.access, lifecycle: accepted.lifecycle,
                 nativeDeadline: reservation.expires)
@@ -579,17 +614,94 @@ final class VodozemacAccountDirectory {
         try signOut(expectedEpoch: nil, hooks: hooks)
     }
 
+    /// Caller holds the Directory lock. A cold process can reopen only the
+    /// exact ready selection whose account is still ACTIVE. Rotate the index
+    /// epoch before reserving Auth so all previous handles are durably fenced.
+    /// No selection, deactivation, key creation or account-store migration occurs.
+    private func beginContinuation(expires: ContinuousClock.Instant)
+        throws -> (ticket: Attempt, access: VodozemacAccountAccess) {
+        guard !Task.isCancelled, ContinuousClock.now < expires, currentAccess == nil,
+              liveScopeID == nil, attempt == nil, continuation == nil else {
+            throw DmAccountDirectoryError.unavailable
+        }
+        let snapshot = try index.read()
+        var state = try decode(snapshot.payload)
+        guard let userId = state.selectedUserId,
+              let entry = state.accounts.first(where: { $0.userId == userId && $0.status == .ready }) else {
+            throw DmAccountDirectoryError.unavailable
+        }
+        var opened: (store: VodozemacSealedStore, coordinator: VodozemacDmCoordinator)?
+        do {
+            let local = try index.withAuthoritySnapshotForResearch { current in
+                guard current == snapshot, !Task.isCancelled, ContinuousClock.now < expires else {
+                    throw DmAccountDirectoryError.unavailable
+                }
+                let local = try reopenAccount(entry)
+                opened = local
+                let lifecycle = try local.coordinator.lifecycleForResearch()
+                guard lifecycle.active, lifecycle.owner.userId == entry.userId,
+                      lifecycle.owner.deviceId == entry.storeId, ContinuousClock.now < expires else {
+                    throw DmAccountDirectoryError.unavailable
+                }
+                return local
+            }
+            let session = try VodozemacAuthSession(coordinator: local.coordinator, authenticator: authenticator)
+            let ticket = Attempt(id: UUID(), epoch: UUID(), expires: expires)
+            state.epoch = ticket.epoch
+            guard !Task.isCancelled, ContinuousClock.now < expires else { throw DmAccountDirectoryError.unavailable }
+            _ = try commit(state, revision: snapshot.revision)
+            guard !Task.isCancelled, ContinuousClock.now < expires else { throw DmAccountDirectoryError.unavailable }
+            let access = VodozemacAccountAccess(store: local.store, coordinator: local.coordinator, session: session,
+                scopeGuard: ScopeGuard(directory: self, ticket: ticket, userId: userId, storeId: entry.storeId, selected: true),
+                authority: { [weak self] in
+                    self?.authorizes(epoch: ticket.epoch, userId: userId, storeId: entry.storeId) ?? false
+                }, logout: { [weak self] in
+                    guard let self else { throw DmAccountDirectoryError.unavailable }
+                    try self.signOut(expectedEpoch: ticket.epoch)
+                }, userId: userId, deviceId: entry.storeId, projectOrigin: authenticator.projectOrigin)
+            liveScopeID = ticket.id; currentAccess = access
+            continuation = (ticket, access)
+            return (ticket, access)
+        } catch {
+            // An index CAS may have won. Never compensate by deactivating the
+            // surviving account or restoring an old index/credential epoch.
+            opened?.store.close()
+            throw DmAccountDirectoryError.unavailable
+        }
+    }
+
+    private func publishContinuation(ticket: Attempt, access: VodozemacAccountAccess,
+                                     lifecycle: DmLifecycleSnapshot, expires: ContinuousClock.Instant) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard !Task.isCancelled, ContinuousClock.now < expires, liveScopeID == ticket.id,
+              currentAccess === access, continuation?.ticket.id == ticket.id, continuation?.access === access else {
+            throw DmAccountDirectoryError.unavailable
+        }
+        try index.withAuthoritySnapshotForResearch { snapshot in
+            let state = try decode(snapshot.payload)
+            guard state.epoch == ticket.epoch, state.selectedUserId == lifecycle.owner.userId,
+                  state.accounts.contains(where: { $0.userId == lifecycle.owner.userId
+                    && $0.storeId == lifecycle.owner.deviceId && $0.status == .ready }),
+                  access.hasAcceptedLifecycle(lifecycle), !Task.isCancelled, ContinuousClock.now < expires else {
+                throw DmAccountDirectoryError.unavailable
+            }
+        }
+        continuation = nil
+    }
+
     private func begin(hooks: TransitionHooksForResearch, requireUnselected: Bool = false,
                        expiresBy: ContinuousClock.Instant? = nil) throws -> Attempt {
         lock.lock(); defer { lock.unlock() }
         if let expiresBy, ContinuousClock.now >= expiresBy { throw DmAccountDirectoryError.unavailable }
         if !requireUnselected {
             verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+            continuation = nil
         }
         let snapshot = try index.read()
         var state = try decode(snapshot.payload)
         if requireUnselected, state.selectedUserId != nil { throw DmAccountDirectoryError.unavailable }
         verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+        continuation = nil
         let previous = state.selectedUserId.flatMap { user in state.accounts.first { $0.userId == user } }
         let epoch = UUID()
         state.epoch = epoch; state.selectedUserId = nil
@@ -745,11 +857,13 @@ final class VodozemacAccountDirectory {
             // local selection; it validates its epoch before this step.
             if expectedEpoch == nil {
                 verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+                continuation = nil
             }
             let snapshot = try index.read()
             var state = try decode(snapshot.payload)
             if let expectedEpoch, state.epoch != expectedEpoch { throw DmAccountDirectoryError.unavailable }
             verificationID = nil; attempt = nil; liveScopeID = nil; currentAccess?.invalidate(); currentAccess = nil
+            continuation = nil
             let previous = state.selectedUserId.flatMap { user in state.accounts.first { $0.userId == user } }
             state.epoch = UUID(); state.selectedUserId = nil
             _ = try commit(state, revision: snapshot.revision)
