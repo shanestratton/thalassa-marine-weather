@@ -30,7 +30,7 @@ The 4 October native control-plane changes passed 188 scoped-enrollment assertio
 
 The later 4 October slice passed 709 native readiness assertions with synthetic Auth/policy/receipt transport and real provider/Directory/facade/Keychain/sealed state. Closed messaging now requires acknowledged registration, a complete confirmed peer pin and a memory-only current-policy permit, with an unexpired full-pin claim for initial outgoing sessions. Native signs the policy request; HTTPS authenticates its response, which is not independently signed. The exact derived permit expires five seconds after its original monotonic start and is rechecked at mutation/commit and result publication; refresh invalidates prior permission. An exact authenticated terminal refusal alone may settle through the original owner-only lease after peer/policy changes, never acceptance or replacement Auth. Fixture races include positive controls and independent native-request signature verification. Snapshot equality demonstrates no durable mutation, not zero cryptographic computation. Review the freshness/latency policy and its separation from SQL's authoritative current-action checks.
 
-That rerun passed all nine simulator phases, four legacy-client native encrypted HTTPS/local-SQL messages and the existing native suites; 28 exact sources compiled unsigned for physical iOS. The separate auth-only app compiled 16 sources, with 13 shared runtime hashes matching the simulator receipt. Focused TypeScript tests passed 592 cases and the strict relay typecheck passed; 31 PGlite SQL scenario groups include current policy on exact replay without consuming nonce capacity. The new scoped policy path has not exchanged against local SQL or the hosted relay, and its SQL/gateway changes are not deployed. No fresh provider build, screen/SDK rerun, device installation/execution, live native login, primary sync or external audit occurred. At that checkpoint, concrete messaging plugin/screens were still missing. Native controls, physical exchange and independent review remain release gates. See the checkpoint for receipts, two failed harness compile attempts and evidence limits.
+That rerun passed all nine simulator phases, four legacy-client native encrypted HTTPS/local-SQL messages and the existing native suites; 28 exact sources compiled unsigned for physical iOS. The separate auth-only app compiled 16 sources, with 13 shared runtime hashes matching the simulator receipt. Focused TypeScript tests passed 592 cases and the strict relay typecheck passed; 31 PGlite SQL scenario groups include current policy on exact replay without consuming nonce capacity. The new scoped policy path had not exchanged against local SQL or the hosted relay, and its SQL/gateway changes were not deployed at that checkpoint. No fresh provider build, screen/SDK rerun, device installation/execution, live native login, primary sync or external audit occurred. At that checkpoint, concrete messaging plugin/screens were still missing. Native controls, physical exchange and independent review remain release gates. See the checkpoint for receipts, two failed harness compile attempts and evidence limits.
 
 The enrollment-retry slice seals exact first registration bytes and separates a stable prekey-claim reservation from expiring outer request IDs. A fresh nine-phase simulator rerun passed 40 enrollment-intent assertions, 266 Auth and 247 directory/facade assertions, plus four actual encrypted messages over local HTTPS/SQL. This exercises native fixture code, not the Capacitor UI or native-to-hosted delivery.
 
@@ -45,9 +45,11 @@ reconcile the same committed native ID; plaintext rendering uses text nodes.
 The checkpoint records executed counts and frozen artifact hashes, including
 the first failed source-tripwire fixture and its corrected rerun.
 
-This integration is isolated, not a shipping private-message port. Hosted policy
-deployment, actual Capacitor calls, physical exchange and external review remain
-unrun. Cold-launch quarantine still blocks the restart-continuity requirements;
+This integration is isolated, not a shipping private-message port. The later
+4 October hosted policy update and Edge revision 26 passed preservation checks
+and four negative HTTP canaries; no positive signed policy or native-to-hosted
+exchange was executed. Actual Capacitor calls, physical exchange and external
+review remain unrun. Cold-launch quarantine still blocks the restart-continuity requirements;
 do not infer a usable recovery design from sealed-store reopen fixtures. Native
 block/revoke controls, device/prekey lifecycle, sync/retention and app cutover
 need separate implementation and assessment.

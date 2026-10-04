@@ -35,6 +35,18 @@ other targets. `repair-gateway-schema` restores only gateway schema USAGE under
 the owner role; no elevated grants or data rewrite. The ordinary app has no pilot
 configuration, plugin registration or live chat cutover.
 
+`../hosted/updatePolicy.mjs` defaults to read-only inspection of the existing
+approved pilot. Explicit `apply-policy` replaces only three pinned function
+definitions under the pilot lock, with exact precommit data/catalog/authority
+preservation checks. It never reruns bootstrap or its unsigned privilege grants.
+`../hosted/deployPolicy.mjs --deploy /absolute/private/policy-update-receipt.json`
+requires an applied SQL receipt, deploys only the named pilot Edge function with
+JWT enabled, and checks unchanged secret metadata, SQL state and bounded negative
+HTTP responses. Neither script enrolls accounts, rotates keys, changes the
+participant allowlist or touches production. Negative checks and definition
+hashes cannot substitute for a positive signed policy/native exchange. See the
+checkpoint for the 4 October executed deployment and retained failed preflights.
+
 `../hosted/fixtureRelayProof.mjs HUMAN_ALLOWLIST_FILE [FIXTURE_CREDENTIALS_FILE]`
 uses two disposable `.invalid` actors, not the phone accounts. Private credentials
 and signing fixtures stay in 0700/0600 temporary artifacts outside the repo.
@@ -344,8 +356,9 @@ OS clipboard or secure-memory erasure.
 
 Current limits: cold launch signs out and quarantines surviving history/session;
 there is no supported restart continuation or re-enrollment recovery. Hosted
-policy SQL/gateway changes remain undeployed, and the human allowlist/device
-slots need checking before enrollment. Signing/installing, actual Capacitor
+policy SQL/gateway changes are deployed only to the pilot, with preservation and
+negative HTTP evidence, not a positive signed policy/native exchange. The human
+allowlist/device slots need checking before enrollment. Signing/installing, actual Capacitor
 invocation and the iPhone–iPad exchange remain unrun. Do not rerun provisioning
 or delete immutable rows to bypass those blocks. See the checkpoint for exact
 fixture, browser, compile and physical-test evidence categories.

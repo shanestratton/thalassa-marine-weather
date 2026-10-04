@@ -84,13 +84,17 @@ function revisions() {
 }
 
 function secretFingerprint() {
-    // This management endpoint returns names and digests, never secret values.
+    // The JSON schema names the digest field "value", not the table's DIGEST.
+    // Refuse a changed/plaintext response; independently match the public URL's
+    // known SHA-256 before treating these bounded hex fields as metadata.
+    // https://supabase.com/docs/reference/api/v1-list-all-secrets
     const result = cli(['secrets', 'list', '--project-ref', PROJECT, '--workdir', HERE, '--output', 'json']);
     assert(Array.isArray(result));
-    const metadata = result.map(({ name, digest }) => {
+    const metadata = result.map(({ name, value: digest }) => {
         assert(typeof name === 'string' && /^[0-9a-f]{64}$/.test(digest));
         return { name, digest };
     }).sort((a, b) => a.name.localeCompare(b.name));
+    assert.equal(metadata.find((item) => item.name === 'SUPABASE_URL')?.digest, hash(ORIGIN));
     assert(['E2EE_PILOT_DATABASE_URL', 'E2EE_PILOT_PARTICIPANTS'].every((name) => metadata.some((item) => item.name === name)));
     return hash(JSON.stringify(metadata));
 }
