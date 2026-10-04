@@ -173,6 +173,7 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         fence.resolve({ status: 'fenced', authFence: 'fixture-cold-fence' });
         await initialize;
         expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+        expect(h.controller.getUnavailableReason()).toBeNull();
         expect(h.createSdk).toHaveBeenCalledWith(
             { supabaseUrl: RESEARCH_SUPABASE_URL, publicApiKey: PUBLIC_KEY },
             MEMORY_AUTH_OPTIONS,
@@ -249,6 +250,7 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
             h.native.fenceSession.mockResolvedValueOnce(result);
             await h.controller.initialize();
             expect(h.controller.getState().status).toBe('unavailable');
+            expect(h.controller.getUnavailableReason()).toBe('verification_failed');
             expect(h.createSdk).not.toHaveBeenCalled();
         },
     );
@@ -300,6 +302,7 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         await h.controller.initialize();
         expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
         expect(h.controller.canSignIn()).toBe(false);
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
         expect(h.sdk.stopAutoRefresh).toHaveBeenCalledTimes(1);
         await h.controller.signOut();
         expect(h.sdk.signOut).not.toHaveBeenCalled();
@@ -359,6 +362,7 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         h.native.fenceSession.mockRejectedValueOnce(new Error('fixture-password fixture-bearer'));
         await h.controller.signIn('a@example.test', 'fixture-password');
         expect(h.sdk.signInWithPassword).not.toHaveBeenCalled();
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
         h.sdk.signInWithPassword.mockResolvedValueOnce({
             ...session(),
             error: new Error('fixture-private-diagnostic'),
@@ -366,6 +370,7 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         await h.controller.signIn('a@example.test', 'fixture-password');
         expect(h.native.authenticate).not.toHaveBeenCalled();
         expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
     });
 
     it('does not accept native authentication without a matching live currentAccount', async () => {
@@ -374,6 +379,101 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         h.native.currentAccount.mockResolvedValueOnce(authenticated(account(ACCOUNT_B)));
         await h.controller.signIn('a@example.test', 'fixture-password');
         expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
+    });
+
+    it.each(['returned', 'thrown'] as const)(
+        'labels only the own literal SDK invalid_credentials code as rejected credentials: %s',
+        async (delivery) => {
+            const h = fixture();
+            await h.controller.initialize();
+            const error = { code: 'invalid_credentials', message: 'fixture-password fixture-bearer' };
+            if (delivery === 'returned') h.sdk.signInWithPassword.mockResolvedValueOnce({ ...session(), error });
+            else h.sdk.signInWithPassword.mockRejectedValueOnce(error);
+            const observed: unknown[] = [];
+            const unsubscribe = h.controller.subscribe((state) =>
+                observed.push({ state, reason: h.controller.getUnavailableReason() }),
+            );
+            await h.controller.signIn('a@example.test', 'fixture-password');
+            expect(h.controller.getUnavailableReason()).toBe('credentials_rejected');
+            expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+            expect(observed.at(-1)).toEqual({
+                state: { status: 'unavailable', account: null },
+                reason: 'credentials_rejected',
+            });
+            expect(JSON.stringify(observed)).not.toContain('fixture-password');
+            expect(JSON.stringify(observed)).not.toContain('fixture-bearer');
+            expect(h.native.authenticate).not.toHaveBeenCalled();
+            unsubscribe();
+        },
+    );
+
+    it.each([
+        { label: 'message-only', error: { message: 'invalid_credentials fixture-private-message' } },
+        { label: 'wrong-case code', error: { code: 'Invalid_Credentials' } },
+        { label: 'inherited code', error: Object.create({ code: 'invalid_credentials' }) as unknown },
+        { label: 'nonliteral code', error: { code: { toString: () => 'invalid_credentials' } } },
+    ])('does not infer rejected credentials from $label diagnostics', async ({ error }) => {
+        const h = fixture();
+        await h.controller.initialize();
+        h.sdk.signInWithPassword.mockResolvedValueOnce({ ...session(), error });
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+    });
+
+    it('does not invoke an SDK diagnostic getter or classify a native error as bad credentials', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        const getter = vi.fn(() => {
+            throw new Error('fixture-private-diagnostic');
+        });
+        const error = Object.defineProperty({}, 'code', { get: getter });
+        h.sdk.signInWithPassword.mockResolvedValueOnce({ ...session(), error });
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(getter).not.toHaveBeenCalled();
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
+        h.native.authenticate.mockRejectedValueOnce({ code: 'invalid_credentials' });
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+    });
+
+    it('clears a failure label before reverification starts and on successful native verification', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        h.sdk.signInWithPassword.mockResolvedValueOnce({ ...session(), error: { code: 'invalid_credentials' } });
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getUnavailableReason()).toBe('credentials_rejected');
+        const gate = deferred<void>();
+        const fence = h.native.fenceSession.getMockImplementation()!;
+        h.native.fenceSession.mockImplementationOnce(async (options) => {
+            await gate.promise;
+            return fence(options);
+        });
+        const retry = h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getState()).toEqual({ status: 'verifying', account: null });
+        expect(h.controller.getUnavailableReason()).toBeNull();
+        gate.resolve(undefined);
+        await retry;
+        expect(h.controller.getState().status).toBe('authenticated');
+        expect(h.controller.getUnavailableReason()).toBeNull();
+    });
+
+    it('clears the label on explicit logout even when logout fails, and on disposal', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        h.sdk.signInWithPassword.mockResolvedValueOnce({ ...session(), error: { code: 'invalid_credentials' } });
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.native.fenceSession.mockResolvedValueOnce(unavailable());
+        await h.controller.signOut();
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.getUnavailableReason()).toBeNull();
+        h.native.authenticate.mockResolvedValueOnce(unavailable());
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
+        h.controller.dispose();
+        expect(h.controller.getUnavailableReason()).toBeNull();
     });
 
     it('takes identity only from native verification, ignoring SDK user and device claims', async () => {
@@ -499,6 +599,22 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         await signIn;
         expect(h.native.currentAccount).not.toHaveBeenCalled();
         expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+        expect(h.controller.getUnavailableReason()).toBeNull();
+    });
+
+    it('never publishes a stale native failure label after a newer successful verification', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        const pending = deferred<NativeAccountResult>();
+        h.native.authenticate.mockReturnValueOnce(pending.promise);
+        const earlier = h.controller.signIn('a@example.test', 'fixture-password');
+        await settle();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getState().status).toBe('authenticated');
+        pending.reject({ code: 'invalid_credentials', message: 'fixture-private-diagnostic' });
+        await earlier;
+        expect(h.controller.getState().status).toBe('authenticated');
+        expect(h.controller.getUnavailableReason()).toBeNull();
     });
 
     it('does not dispatch token acquisition for a stale fence or queued stale SDK action', async () => {
@@ -564,7 +680,37 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         h.expireNative();
         await h.controller.checkCurrentAccount();
         expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.getUnavailableReason()).toBe('verification_lost');
         expect(h.sdk.getSession).not.toHaveBeenCalled();
+    });
+
+    it('labels a failed check only after previously authenticated authority as verification lost', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.native.currentAccount.mockRejectedValueOnce({ code: 'invalid_credentials' });
+        await h.controller.checkCurrentAccount();
+        expect(h.controller.getUnavailableReason()).toBe('verification_lost');
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        await h.controller.reverify();
+        expect(h.controller.getState().status).toBe('authenticated');
+        expect(h.controller.getUnavailableReason()).toBeNull();
+    });
+
+    it('does not let an old account check overwrite the diagnostic from a newer sign-in', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        const pending = deferred<NativeAccountResult>();
+        h.native.currentAccount.mockReturnValueOnce(pending.promise);
+        const check = h.controller.checkCurrentAccount();
+        h.sdk.signInWithPassword.mockResolvedValueOnce({ ...session(), error: { code: 'invalid_credentials' } });
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getUnavailableReason()).toBe('credentials_rejected');
+        pending.resolve(unavailable());
+        await check;
+        expect(h.controller.getUnavailableReason()).toBe('credentials_rejected');
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
     });
 
     it('suspends absent SDK sessions without a durable native sign-out', async () => {
