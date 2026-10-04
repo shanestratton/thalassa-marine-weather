@@ -36,7 +36,7 @@ const EXPERIMENT = dirname(HERE);
 const PROJECT = 'kmtupdvwdgbhtssqqova',
     ORGANIZATION = 'tideqlkywysyczrqreiz';
 const BUILD_HASH = 'da321dde51ec3623b807750bd20e66f88d3f22e3d0376385ecb6183ead32decd';
-const GENERATOR_HASH = '37365d3bbc72aa5c520d8980e38967ce4facd4fb66f3e6eb8af746bb7309b35b';
+const GENERATOR_HASH = '40954dc593034adcdf2167aafa143d40c8d2cd3d8438d3f65ae1f222b8f30157';
 const MANIFEST_HASH = '8cef57a4b945989302db94361bb03df46157e9c305862232dd9d59379ed610d9';
 const LOCKFILE_HASH = '5788c45d3bd629c4640f88c5b533484c89d39029674a02bce0301597e6fe50f7';
 const NATIVE_SOURCES = [
@@ -608,10 +608,28 @@ export function main(argv = process.argv.slice(2)) {
         ensure(
             info.CFBundleIdentifier === BUNDLE &&
                 info.CFBundleExecutable === 'ScuttlebuttResearchAuth' &&
+                info.CFBundleVersion === '2' &&
                 info.MinimumOSVersion === '17.0' &&
                 JSON.stringify(info.UIDeviceFamily) === '[1,2]' &&
                 JSON.stringify(info.CFBundleSupportedPlatforms) === '["iPhoneOS"]',
             'research-app-metadata',
+        );
+        const scenes = info.UIApplicationSceneManifest;
+        exactKeys(scenes, ['UIApplicationSupportsMultipleScenes', 'UISceneConfigurations'], 'scene-manifest');
+        ensure(scenes.UIApplicationSupportsMultipleScenes === false, 'single-research-scene');
+        exactKeys(scenes.UISceneConfigurations, ['UIWindowSceneSessionRoleApplication'], 'scene-roles');
+        const configurations = scenes.UISceneConfigurations.UIWindowSceneSessionRoleApplication;
+        ensure(Array.isArray(configurations) && configurations.length === 1, 'scene-configuration-count');
+        exactKeys(
+            configurations[0],
+            ['UISceneConfigurationName', 'UISceneClassName', 'UISceneDelegateClassName'],
+            'scene-configuration',
+        );
+        ensure(
+            configurations[0].UISceneConfigurationName === 'Research Window' &&
+                configurations[0].UISceneClassName === 'UIWindowScene' &&
+                configurations[0].UISceneDelegateClassName === 'ResearchSceneDelegate',
+            'research-window-scene',
         );
         stage = 'development profile and identity';
         const profile = decodePlist(
