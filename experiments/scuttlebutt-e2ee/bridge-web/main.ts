@@ -1,6 +1,6 @@
 import './style.css';
 import { ResearchAuthController, type ResearchAuthState } from './auth';
-import { createResearchMessagingController, renderResearchMessages } from './messaging';
+import { createResearchMessagingController, renderResearchMessages, researchSendSetupReady } from './messaging';
 
 function element<T extends HTMLElement>(id: string): T {
     const found = document.getElementById(id);
@@ -123,7 +123,8 @@ messaging.subscribe((state) => {
     buttons['confirm-peer'].disabled =
         disabled || !!state.attempt || !state.inspectedPeer || !state.comparedOnOtherDevice;
     buttons['claim-peer'].disabled = disabled || state.facts?.role !== 'initiator';
-    buttons['send-message'].disabled = disabled || !!state.attempt || !state.draft.trim();
+    buttons['send-message'].disabled =
+        disabled || !!state.attempt || !state.draft.trim() || !researchSendSetupReady(state.facts);
     buttons['retry-pending'].disabled = disabled || !state.attempt;
     element('pending-attempt').textContent = state.attempt
         ? `Unresolved attempt ${state.attempt.clientMessageId}. New sends are disabled. Retry reconciles native history and reuses only this durable ID; it never prepares replacement ciphertext.`
