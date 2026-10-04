@@ -309,6 +309,47 @@ This is research gating, not finished polling, trusted time across restart or a
 production latency policy. These SQL/gateway changes have not been deployed to
 the hosted pilot.
 
+## Separate native research app
+
+The standalone `bridge-web/` screen now exposes explicit research messaging
+through the existing `ScuttlebuttResearchAuth` plugin. Auth and messaging share
+one JavaScript proxy and the exact same native host/facade. This is not the
+shipping `PrivateMessageNativePort`; the primary app and live chat are unchanged.
+The native host pins the pilot origin, conversation and hosted function mount.
+
+Each message call carries only the expected Auth `credentialBinding` and its
+bounded public inputs: a public pairing card/fingerprint or a message ID/text.
+Native derives account/device, owner/peer generations, policy authority, clocks,
+transport and storage. No keys, pickles, credentials, raw records, request wires,
+server responses or arbitrary callbacks are returned to JavaScript.
+
+`ResearchMessagingAdapter.swift` returns exact public setup facts, canonical
+pairing cards, guarded committed plaintext rows, prepared IDs and historical
+send/inbox outcomes. Its native-only `publish()` rechecks the original snapshot
+immediately before plugin resolution. Accepted/inbox outcomes are nonplaintext
+historical facts, not renewed policy permits; their commits already passed the
+scoped client's original-policy guard. Terminal rejection alone retains the
+captured original owner-only completion authority.
+
+The UI requires explicit registration, native card inspection and a full
+fingerprint comparison on the other device before confirmation. Only the native
+initiator claims the peer prekey. Send and Receive explicitly refresh policy;
+neither registration nor clear diagnostic flags create an encryption/readiness
+badge. A pending attempt reconciles native history and retries the same durable
+ID, never prepares replacement ciphertext. A nonplaintext scheduling barrier
+survives hide/Auth changes until the admitted action settles, while visible
+messages, drafts, pairing cards and old UI tickets clear immediately. Literal
+text-node rendering is tested with hostile-looking text; this is not a claim of
+OS clipboard or secure-memory erasure.
+
+Current limits: cold launch signs out and quarantines surviving history/session;
+there is no supported restart continuation or re-enrollment recovery. Hosted
+policy SQL/gateway changes remain undeployed, and the human allowlist/device
+slots need checking before enrollment. Signing/installing, actual Capacitor
+invocation and the iPhone–iPad exchange remain unrun. Do not rerun provisioning
+or delete immutable rows to bypass those blocks. See the checkpoint for exact
+fixture, browser, compile and physical-test evidence categories.
+
 ## Directory and reservation contract
 
 Each account can register exactly one immutable device for its entire lifetime

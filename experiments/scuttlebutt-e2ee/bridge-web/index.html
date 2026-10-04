@@ -18,12 +18,15 @@
                     <p class="eyebrow">THALASSA RESEARCH</p>
                     <h1>Scuttlebutt</h1>
                 </div>
-                <span class="research-tag">AUTH PILOT</span>
+                <span class="research-tag">NATIVE PILOT</span>
             </header>
             <section class="intro">
                 <p class="warning">Encryption test—not reviewed</p>
-                <h2>A separate place<br />to test account access.</h2>
-                <p>This research app checks account authentication on your device. Messaging is not yet connected.</p>
+                <h2>One peer.<br />Every step explicit.</h2>
+                <p>
+                    A separate native research app for account access, public-key pairing and bounded private-message
+                    experiments. Not independently reviewed. No production messaging fallback.
+                </p>
             </section>
             <div class="panels">
                 <section class="card account-card" aria-labelledby="account-heading">
@@ -90,13 +93,127 @@
                     <div class="messaging-note">
                         <span aria-hidden="true">○</span>
                         <div>
-                            <h4>Messaging not yet connected</h4>
+                            <h4>Account access is not messaging permission</h4>
                             <p>
                                 Signing in does not establish peer trust, message encryption, delivery, or device
                                 protection.
                             </p>
                         </div>
                     </div>
+                </section>
+            </div>
+            <section class="research-limits" aria-label="Research limitations">
+                <strong>Research limits</strong>
+                <p>
+                    One peer / one session. Restart or log out ends this session; old history is quarantined. Hosted
+                    messaging policy is not deployed, and a physical iPhone–iPad exchange has not run. Relay acceptance
+                    is not delivery or read confirmation.
+                </p>
+            </section>
+            <div class="messaging-panels">
+                <section class="card pairing-card" aria-labelledby="pairing-heading">
+                    <div class="card-heading">
+                        <span class="step">03</span>
+                        <h3 id="pairing-heading">Pair deliberately</h3>
+                    </div>
+                    <p class="section-detail">
+                        Register each native device explicitly. Exchange public cards and compare the fingerprint on the
+                        other device—not just in this screen.
+                    </p>
+                    <div class="actions">
+                        <button id="read-state" type="button" disabled>Read setup facts</button
+                        ><button id="register-device" type="button" disabled>Register device</button>
+                    </div>
+                    <p id="pairing-facts" class="facts">Setup facts unknown.</p>
+                    <button id="own-card-button" class="wide" type="button" disabled>
+                        Export my public pairing card
+                    </button>
+                    <label for="own-card">Your public card · no private keys</label>
+                    <textarea
+                        id="own-card"
+                        class="public-card"
+                        rows="3"
+                        readonly
+                        spellcheck="false"
+                        aria-label="Your public pairing card"
+                    ></textarea>
+                    <p id="own-fingerprint" class="fingerprint">Not exported</p>
+                    <button id="copy-card" class="wide" type="button" disabled>Copy public card</button>
+                    <p id="copy-status" class="footnote" role="status"></p>
+                    <div class="divider"></div>
+                    <label for="peer-card">Paste the other device’s public card</label>
+                    <textarea
+                        id="peer-card"
+                        class="public-card"
+                        rows="3"
+                        maxlength="4096"
+                        autocomplete="off"
+                        autocapitalize="none"
+                        autocorrect="off"
+                        spellcheck="false"
+                        disabled
+                    ></textarea>
+                    <button id="inspect-peer" class="wide" type="button" disabled>
+                        Inspect with native validation
+                    </button>
+                    <p id="peer-fingerprint" class="fingerprint">Inspect a public peer card first</p>
+                    <label class="comparison" for="compared-peer"
+                        ><input id="compared-peer" type="checkbox" disabled /><span
+                            >I compared this full fingerprint on the other device.</span
+                        ></label
+                    >
+                    <button id="confirm-peer" class="wide" type="button" disabled>Confirm this peer</button>
+                    <p id="role-detail" class="section-detail">The native role determines who starts.</p>
+                    <button id="claim-peer" class="wide" type="button" disabled>Initiator: claim peer prekey</button>
+                    <p class="footnote">
+                        No automatic enrollment, claim, rekey or retry. Inspection alone does not establish trust.
+                    </p>
+                </section>
+                <section class="card conversation-card" aria-labelledby="conversation-heading">
+                    <div class="card-heading">
+                        <span class="step">04</span>
+                        <h3 id="conversation-heading">Native local history</h3>
+                    </div>
+                    <p id="message-status" class="message-status" role="status" aria-live="polite">
+                        Sign in to use the native research controls.
+                    </p>
+                    <div class="actions">
+                        <button id="refresh-policy" type="button" disabled>Check relay policy</button
+                        ><button id="read-thread" type="button" disabled>Read local history</button>
+                    </div>
+                    <p id="policy-facts" class="section-detail">Relay policy unknown or expired.</p>
+                    <div class="thread-region" aria-label="Committed native messages">
+                        <p id="thread-empty" class="empty-thread">
+                            No committed native rows loaded.<br />Nothing is sent or received automatically.
+                        </p>
+                        <ol id="message-list" class="message-list"></ol>
+                    </div>
+                    <p id="capacity" class="footnote">Native research history is bounded: 16 outgoing / 16 incoming.</p>
+                    <p id="inbox-report" class="footnote"></p>
+                    <form id="message-form">
+                        <label for="message-draft">Message · kept in memory only</label>
+                        <textarea
+                            id="message-draft"
+                            rows="3"
+                            maxlength="16384"
+                            autocomplete="off"
+                            autocapitalize="sentences"
+                            disabled
+                        ></textarea>
+                        <button id="send-message" class="primary" type="submit" disabled>
+                            Check policy, prepare &amp; send
+                        </button>
+                    </form>
+                    <div class="actions">
+                        <button id="receive" type="button" disabled>Check policy &amp; receive</button
+                        ><button id="retry-pending" type="button" disabled>Retry same pending ID</button>
+                    </div>
+                    <p id="pending-attempt" class="pending-notice" role="status"></p>
+                    <p class="footnote">
+                        Only committed native rows are rendered. Incoming times may be unknown. Hiding this app clears
+                        displayed plaintext, drafts and pairing cards; the operating system manages any copied public
+                        card.
+                    </p>
                 </section>
             </div>
             <footer>Separate research bundle · iPhone &amp; iPad · No production account session</footer>

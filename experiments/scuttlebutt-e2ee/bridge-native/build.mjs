@@ -1,5 +1,5 @@
 /**
- * AUTH-only, separate Capacitor iOS compile. Never cap sync, sign, install,
+ * Separate research messaging Capacitor iOS compile. Never cap sync, sign, install,
  * launch, enroll a peer, acquire a human token or build the primary app.
  *
  * node build.mjs NATIVE_CACHE CAPACITOR_PRODUCTS_ROOT PUBLIC_DIST
@@ -159,7 +159,7 @@ async function reserveBuildSlot() {
         const others = check.stdout.trim().split('\n').filter((line) =>
             /^\d+\s/.test(line) && !line.startsWith(process.pid + ' ') &&
             !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|tail|grep|rg|pgrep)\s/.test(line));
-        if (!others.length) { process.title = 'vite build slot: isolated AUTH-only Capacitor compile'; return; }
+        if (!others.length) { process.title = 'vite build slot: isolated messaging Capacitor compile'; return; }
         releaseBuildSlot();
         if (!announced) console.info('Waiting for the shared build slot.');
         announced = true; await delay(5000);
@@ -212,18 +212,18 @@ try {
         'debug/libthalassa_vodozemac_native.a');
     regular(provider);
     const sourcePaths = [
-        ...['ResearchApp.swift', 'ScuttlebuttResearchAuthPlugin.swift', 'ResearchAuthHost.swift'].map((name) => join(HERE, name)),
+        ...['ResearchApp.swift', 'ScuttlebuttResearchAuthPlugin.swift', 'ResearchAuthHost.swift', 'ResearchMessagingAdapter.swift'].map((name) => join(HERE, name)),
         ...['VodozemacSealedStore.swift', 'VodozemacDmFrame.swift', 'VodozemacDmCoordinator.swift', 'VodozemacMessageOperations.swift',
             'VodozemacRelayCodec.swift', 'VodozemacRelayTransport.swift', 'VodozemacRelayResult.swift', 'VodozemacRelayPolicy.swift',
             'VodozemacScopedRelayClient.swift', 'VodozemacSupabaseAuth.swift',
             'VodozemacAuthSession.swift', 'VodozemacAccountDirectory.swift', 'VodozemacSessionFacade.swift'].map((name) => join(EXPERIMENT, name)),
     ];
     sourcePaths.forEach((path) => regular(path, 1024 * 1024));
-    scratch = mkdtempSync(join(tmpdir(), 'thalassa-auth-only-build-')); chmodSync(scratch, 0o700);
+    scratch = mkdtempSync(join(tmpdir(), 'thalassa-messaging-build-')); chmodSync(scratch, 0o700);
     assert(!scratch.startsWith(CHECKOUT + '/') && statfsSync(scratch).bavail * statfsSync(scratch).bsize > 3 * 1024 ** 3);
     receiptPath = join(scratch, 'build-receipt.json');
     receipt = {
-        status: 'preparing', authOnly: true, bundleId: BUNDLE, platform,
+        status: 'preparing', authOnly: false, researchMessagingBridgeImplemented: true, bundleId: BUNDLE, platform,
         project: PROJECT, organization: ORGANIZATION, sourceHashes: {}, copiedFrameworkHashes: {},
         cachedBindingHashes: {}, providerSha256: hash(provider),
         providerManifestSha256: pin.manifestSha256, providerLockfileSha256: pin.lockfileSha256,
@@ -232,12 +232,13 @@ try {
         providerProvenanceLimit: 'Locally cached bindings/archive and a completed fixture receipt; no signed provenance chain or fresh provider build.',
         signingPerformed: false, installed: false, launched: false, physicalDeviceExecution: false,
         compileOnly: true, unsignedApplication: null, primaryCapSyncExecuted: false, primaryTargetsBuilt: false,
-        liveAuthExecuted: false, peerEnrollmentImplemented: false, privateMessagePortImplemented: false,
+        liveAuthExecuted: false, peerEnrollmentImplemented: true, humanPeerEnrollmentExecuted: false,
+        livePolicyExecuted: false, privateMessagePortImplemented: false,
         applicationSignatureCheckedAbsent: false,
         cachedFrameworkSignatures: 'Any existing cached framework signatures are preserved; this runner performs no signing.',
         outputRoot: scratch,
     };
-    saveReceipt(); console.info('Nonsecret AUTH-only build receipt: ' + receiptPath);
+    saveReceipt(); console.info('Nonsecret research messaging build receipt: ' + receiptPath);
     stage = 'public pilot configuration';
     const config = publicConfig(keyFile);
     receipt.publicConfigurationSource = config.source;
@@ -321,10 +322,10 @@ try {
         for (const [file, expected] of Object.entries(receipt.copiedFrameworkHashes[name])) assert(hash(join(source, file)) === expected);
     }
     receipt.status = 'passed'; saveReceipt();
-    console.info('PASS isolated AUTH-only app compiled unsigned. No signing, installation, launch or live Auth run.');
+    console.info('PASS isolated research messaging app compiled unsigned. No signing, installation, launch, live Auth or device exchange run.');
 } catch {
     if (receipt) { receipt.status = 'failed'; receipt.failedStage = stage; saveReceipt(); }
-    console.error('AUTH-only build refused at stage: ' + stage + (receiptPath ? '. Receipt: ' + receiptPath : '.'));
+    console.error('Research messaging build refused at stage: ' + stage + (receiptPath ? '. Receipt: ' + receiptPath : '.'));
     process.exitCode = 1;
 } finally {
     try { releaseBuildSlot(); }
