@@ -15,6 +15,7 @@ export default {
             'tests/ResearchRelayPolicy.test.ts',
             'tests/E2eePilotBridgeAuth.test.ts',
             'tests/E2eePilotBridgeMessaging.test.ts',
+            'tests/E2eeResearchDeviceSigning.test.ts',
         ],
         maxWorkers: 1,
         fileParallelism: false,

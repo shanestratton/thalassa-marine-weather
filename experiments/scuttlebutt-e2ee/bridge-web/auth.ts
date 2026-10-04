@@ -161,6 +161,7 @@ export class ResearchAuthController {
     private disposed = false;
     private initialization?: Promise<void>;
     private sdk?: ResearchAuthSdk;
+    private configuration?: ResearchSdkConfiguration;
     private subscription?: { unsubscribe(): void };
     private intent: 'signed_in' | 'signed_out' = 'signed_out';
     // Identity continuity is metadata only, never a message capability. An
@@ -173,6 +174,16 @@ export class ResearchAuthController {
 
     getState(): ResearchAuthState {
         return this.state;
+    }
+
+    canSignIn(): boolean {
+        return this.initialized && !!this.sdk && !this.disposed;
+    }
+
+    canSignOut(): boolean {
+        // An inactive/incomplete cold selection cannot be adopted, but must
+        // still permit the explicit native logout fence after configuration.
+        return !!this.configuration && !this.disposed;
     }
 
     subscribe(listener: (state: ResearchAuthState) => void): () => void {
@@ -200,20 +211,32 @@ export class ResearchAuthController {
                 supabaseUrl: RESEARCH_SUPABASE_URL,
                 publicApiKey: configuration.publicApiKey,
             });
-            // Cold launch deliberately closes the old native owner. The SDK is
-            // constructed only after a confirmed durable native sign-out.
-            const fenced = await this.dependencies.native.fenceSession({ mode: 'sign_out' });
+            this.configuration = sdkConfiguration;
+            // Cold launch has no bearer or displayed authority. Native verify
+            // suspends credentials while retaining only a strictly reopened
+            // selected owner; fresh same-account Auth is still mandatory.
+            const fenced = await this.dependencies.native.fenceSession({ mode: 'verify' });
             if (!this.current(ticket)) return;
             if (!validFence(fenced)) throw new Error('Unavailable');
-            this.sdk = this.dependencies.createSdk(sdkConfiguration, MEMORY_AUTH_OPTIONS);
-            this.subscription = this.sdk.onAuthStateChange((event, session) =>
-                this.authChanged(event, session),
-            ).data.subscription;
-            this.initialized = true;
+            this.createSdk(sdkConfiguration);
             this.publish('signed_out');
         } catch {
             if (this.current(ticket)) this.publish('unavailable');
         }
+    }
+
+    private createSdk(configuration: ResearchSdkConfiguration): void {
+        const sdk = this.dependencies.createSdk(configuration, MEMORY_AUTH_OPTIONS);
+        try {
+            const subscription = sdk.onAuthStateChange((event, session) => this.authChanged(event, session)).data
+                .subscription;
+            this.sdk = sdk;
+            this.subscription = subscription;
+        } catch {
+            sdk.stopAutoRefresh?.();
+            throw new Error('Unavailable');
+        }
+        this.initialized = true;
     }
 
     async signIn(email: string, password: string): Promise<void> {
@@ -248,7 +271,7 @@ export class ResearchAuthController {
             const result = await this.sdkCall(ticket, 'acquire', acquire);
             if (!this.current(ticket)) return;
             if (result.error || !result.data?.session) {
-                if (!result.error) await this.close(ticket, false);
+                if (!result.error) await this.close(ticket, false, 'verify');
                 else this.fail(ticket);
                 return;
             }
@@ -283,20 +306,22 @@ export class ResearchAuthController {
 
     /** Clear displayed authority before either native or SDK asynchronous work. */
     async signOut(): Promise<void> {
-        if (!this.initialized || !this.sdk || this.disposed) return;
+        if (!this.canSignOut()) return;
         this.intent = 'signed_out';
         this.owner = null;
         const ticket = this.begin('verifying');
-        await this.close(ticket, true);
+        await this.close(ticket, true, 'sign_out');
     }
 
-    private async close(ticket: number, clearSdk: boolean): Promise<void> {
+    private async close(ticket: number, clearSdk: boolean, mode: 'verify' | 'sign_out'): Promise<void> {
         if (!this.current(ticket)) return;
         this.intent = 'signed_out';
-        this.owner = null;
+        // Expiry/absent tokens must revoke credentials, not destroy a ratchet.
+        // Only the explicit sign-out action discards owner continuity.
+        if (mode === 'sign_out') this.owner = null;
         let nativeClosed = false;
         try {
-            const fenced = await this.dependencies.native.fenceSession({ mode: 'sign_out' });
+            const fenced = await this.dependencies.native.fenceSession({ mode });
             if (!this.current(ticket)) return;
             nativeClosed = validFence(fenced);
         } catch {
@@ -311,6 +336,17 @@ export class ResearchAuthController {
             try {
                 const result = await this.sdkCall(ticket, 'sign_out', () => this.sdk!.signOut({ scope: 'local' }));
                 sdkClosed = !result.error;
+            } catch {
+                sdkClosed = false;
+            }
+        }
+        // Cold verification may have failed before SDK creation. A successful
+        // explicit native logout makes fresh selection possible, but never
+        // turns the failed continuation into authenticated state.
+        if (this.current(ticket) && nativeClosed && sdkClosed && !this.sdk && mode === 'sign_out') {
+            try {
+                if (!this.configuration) throw new Error('Unavailable');
+                this.createSdk(this.configuration);
             } catch {
                 sdkClosed = false;
             }
@@ -350,10 +386,12 @@ export class ResearchAuthController {
             }
         }
         // Unsolicited sessions, expiry and recovery events cannot open an owner.
+        // Clear SDK memory and fence native credentials, but retain the sealed
+        // owner for a later explicit same-account login (not account recovery).
         this.intent = 'signed_out';
         const ticket = this.begin('verifying');
         queueMicrotask(() => {
-            if (this.current(ticket)) void this.close(ticket, true);
+            if (this.current(ticket)) void this.close(ticket, true, 'verify');
         });
     }
 

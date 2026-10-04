@@ -72,6 +72,82 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 4 October research restart continuity and device preparation
+
+Cold launch now fences credentials without signing out the selected owner.
+Only an exact sealed, selected, ready and active account can continue. Native
+code rotates the directory and credential epochs, then requires fresh HTTPS
+`/auth/v1/user` verification for that same account before publishing access.
+No bearer, Auth lease or policy permit is restored. The owner and peer
+generations, ratchet, history, claim, cursor and pending ciphertext remain
+unchanged. A valid login to a different account refuses without deactivating
+the surviving ratchet. Explicit logout still clears selection and quarantines
+the old generation; account/device replacement and prekey replenishment are
+not implemented.
+
+The web SDK remains memory-only. Expired or unsolicited sessions fence native
+credentials and clear visible content, while an explicit same-account login
+may reopen the retained owner. An incomplete cold selection cannot be adopted;
+explicit logout remains available even if initialization failed before SDK
+creation. Failed SDK subscription setup does not publish a partial client.
+
+Observed evidence on the current sources:
+
+- **795 focused tests across 12 suites passed**: 592 relay cases, 49 Auth
+  controller cases, 133 messaging/controller cases and 21 pure signing-validator
+  cases. Auth/native/RPC inputs are mocked; signing cases use synthetic profile
+  and certificate metadata, not CMS trust or actual signing. The strict pilot
+  TypeScript check, named TypeScript lint and signing-runner syntax check passed.
+  These are not full ordinary-app tests or CI.
+- **282 directory/facade and 283 native bridge assertions passed**, along with
+  266 Auth, 40 enrollment-intent, 65 authority, 105 pairing/history, 81 scoped-relay,
+  188 scoped-enrollment and 709 readiness assertions. The new bridge cases close
+  and reopen both endpoints in one process, require fresh Auth and policy, retry
+  the original pending ciphertext, and decrypt subsequent messages both ways.
+  They use real provider/Keychain/sealed SQLite with synthetic Auth/relay replies.
+  This is not a physical force-kill, power-loss or hosted exchange test. All nine
+  disposable simulator phases also passed, including the older client's four
+  encrypted messages over ordinary HTTPS/local SQL. The simulator and temporary
+  CA were removed. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-t3jBSg/exchange-run.json`.
+- All **30 exact simulator-tested Swift sources** compiled/linked unsigned for
+  physical iOS. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-device-compile-d9YMxP/compile.json`.
+  The fresh separate Capacitor app compiled 17 Swift sources; all 14 shared
+  runtime hashes match the simulator receipt and current files. All 54 artifact
+  file hashes match its receipt. The app, two Debug dylibs and two frameworks
+  were independently checked unsigned. App receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-tqCOsi/build-receipt.json`.
+  The fresh web bundle is in `thalassa-messaging-web-yu3NRe/public` under the same
+  temporary directory. No browser layout rerun or actual Capacitor call occurred.
+
+Read-only device checks found the paired iPhone 15 Pro Max on iOS 27.0.1 and
+iPad 9th generation on iPadOS 26.5, with Developer Mode enabled. The separate
+research bundle is absent on both; the normal iPhone app remains version 1.2.0,
+build 119. Read-only pilot checks confirmed matching participant-allowlist
+metadata and unused device slots for both human test accounts. Neither was
+logged in or enrolled by this slice.
+
+The new `bridge-native/signDevice.mjs` defaults to offline inspection. Explicit
+`--sign` can sign only a fresh private copy of a hash-matched research artifact,
+using a matching development profile for exactly the two selected devices and
+four minimal entitlements. It refuses signed embedded inputs, extra capabilities
+and primary-app identifiers. It cannot build, provision, install, launch or call
+the relay. Internal review corrected literal `codesign --test-requirement`
+syntax before execution. The actual signing runner is unrun: no matching
+research profile exists, and owner approval to create it is pending. Pure
+validators and local unsigned checks are not iOS profile acceptance or fresh
+certificate-revocation evidence.
+
+Cached provider archives were hashed, not rebuilt or independently attested.
+No signing, installation, launch, human enrollment, positive native-to-hosted
+policy/message exchange, primary sync or independent security audit occurred.
+Physical restart cases remain unrun. Do not reset immutable pilot rows,
+re-enroll or start a new generation to manufacture continuity. Missing files or
+partial Keychain/install state, logout recovery, device/prekey lifecycle and
+shipping app integration remain unresolved release gates. Production and
+`master` were not changed.
+
 ### 4 October isolated hosted policy deployment
 
 The owner approved deployment only to pilot `kmtupdvwdgbhtssqqova`, not
@@ -182,9 +258,10 @@ Observed evidence on frozen sources:
 Cached provider archives were hashed, not freshly rebuilt or independently
 attested. No signing/install/launch, actual Capacitor calls, human enrollment,
 native-to-hosted message exchange, primary-app sync or independent audit occurred.
-Cold launch deliberately signs out and quarantines surviving history/session
-state. Restart continuity and usable recovery remain missing, not proven by the
-simulator's older client or sealed-store reopen fixtures. Native block/revoke UI,
+At that checkpoint, cold launch deliberately signed out and quarantined
+surviving history/session state. The later restart-continuity section above
+records the bounded same-owner implementation and its fixture limits; usable
+recovery and physical restart evidence remain missing. Native block/revoke UI,
 device/prekey renewal, scalable sync and app cutover also remain release gates.
 The later isolated hosted deployment is recorded separately above; these bridge
 fixtures are not that hosted exchange. No production activation or master merge
