@@ -88,8 +88,10 @@ DRY=()
 [ "${1:-}" = --dry-run ] && DRY=(--dry-run)
 
 send() { # local-subdir content-type
+  # --s3-no-head: R2 answers 501 NotImplemented to rclone 1.60's post-upload
+  # HEAD (it asks for the version R2 just returned), though the PUT succeeded.
   echo "== $VERSION/$1 ($2)"
-  rclone copy "$OUT/$1" "r2:$BUCKET/$VERSION/$1" "${DRY[@]}" \
+  rclone copy "$OUT/$1" "r2:$BUCKET/$VERSION/$1" "${DRY[@]}" --s3-no-head \
     --size-only --fast-list --transfers "$TRANSFERS" --checkers 32 --retries 5 --low-level-retries 20 \
     --header-upload "$IMMUTABLE" --header-upload "Content-Type: $2" \
     --stats 60s --stats-one-line --log-level NOTICE
@@ -101,6 +103,6 @@ for pyr in $PYRAMIDS; do
   send "$pyr/dem" image/webp
 done
 # The manifest last, so its presence means the tiles are complete. Short cache: it is metadata.
-[ -f "$OUT/manifest.json" ] && rclone copyto "$OUT/manifest.json" "r2:$BUCKET/$VERSION/manifest.json" "${DRY[@]}" \
+[ -f "$OUT/manifest.json" ] && rclone copyto "$OUT/manifest.json" "r2:$BUCKET/$VERSION/manifest.json" "${DRY[@]}" --s3-no-head \
   --header-upload 'Cache-Control: public, max-age=3600' --header-upload 'Content-Type: application/json'
 echo "done. Spot-check the public copy: $0 check https://<r2.dev host or custom domain>/$VERSION"
