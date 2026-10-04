@@ -72,6 +72,53 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 4 October isolated hosted policy deployment
+
+The owner approved deployment only to pilot `kmtupdvwdgbhtssqqova`, not
+production. Commit `1b7b3b60` adds an explicit policy updater; commit `ab1563db`
+adds the gateway deployment wrapper, followed by its JSON-metadata correction.
+The updater replaces only `parse_request`, `parse_request_payload` and
+`execute_request` from the pinned SQL candidate. A single owner transaction
+checks exact baseline bodies, acquires the existing pilot lock, and verifies
+preserved function OIDs, ACLs, security settings, other functions, roles,
+memberships, schema, relations, RLS, constraints and data before committing.
+It does not replay the bootstrap privilege tail, reset data or change enrollment.
+
+Read-only preflight initially refused a metadata representation mismatch:
+PostgreSQL serialized a function OID as a numeric string. Casting that metadata
+field to `bigint` retained the strict safe-integer check and passed inspection.
+The exact locked update then passed with 2 existing fixture devices, 0 blocks,
+2 claims, 2 decisions and 28 request rows unchanged. SQL receipt:
+`/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-policy-h0SenL/policy-update-receipt.json`.
+This is hosted definition/invariant evidence, not a signed policy exchange.
+
+The single Edge function was deployed from the isolated hosted configuration
+through Supabase's API, with JWT verification retained. Revision 25 became
+active revision 26, bundle SHA-256
+`17e7d6d4185737ef0f25f331b24391d74c3630538860fb267ca00aaeb512eddf`.
+The wrapper records local dependency hashes and deployment metadata; it does
+not independently attest the remote bundle's source or binary provenance.
+Secret metadata fingerprints, including the participant allowlist, were
+unchanged. Postflight verified the same policy definitions, authority/catalog
+snapshot and data diagnostics.
+
+Four bounded negative HTTPS checks passed: missing authorization returned 401,
+an unknown route 404, a wrong method 405 and a public API key used as a user
+credential produced an unresolved 503. The last three matched the generic
+runtime error body and no-store/nosniff headers. An aggregate 503 alone does
+not identify the exact internal refusing check. No register, claim, send,
+human login or positive signed policy request was executed. Receipt:
+`/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-policy-deploy-ijQ8ld/deployment-receipt.json`.
+
+The first deployment-wrapper attempt refused before deployment because it
+expected a `digest` JSON field; the CLI returns the digest in `value`. The
+correction validates bounded hexadecimal metadata and independently matches
+the known public project URL's SHA-256. The failed preflight receipt remains in
+`thalassa-e2ee-policy-deploy-OzJNc2`; it was not a failed remote deployment.
+No secret values or private CLI diagnostics were printed. Human-device
+enrollment, actual native-to-hosted policy/messaging, physical execution and
+independent review remain unrun. Production and the primary app were untouched.
+
 ### 4 October isolated research messaging bridge
 
 The separate Capacitor research app now exposes explicit native registration,
@@ -139,8 +186,9 @@ Cold launch deliberately signs out and quarantines surviving history/session
 state. Restart continuity and usable recovery remain missing, not proven by the
 simulator's older client or sealed-store reopen fixtures. Native block/revoke UI,
 device/prekey renewal, scalable sync and app cutover also remain release gates.
-The owner approved an update to the isolated hosted policy on 4 October; approval
-is not deployment evidence. No production activation or master merge is included.
+The later isolated hosted deployment is recorded separately above; these bridge
+fixtures are not that hosted exchange. No production activation or master merge
+is included.
 
 ### 4 October native messaging readiness and current relay policy
 
