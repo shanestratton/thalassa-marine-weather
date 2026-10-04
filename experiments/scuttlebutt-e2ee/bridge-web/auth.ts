@@ -71,6 +71,8 @@ export interface ResearchAuthState {
     readonly status: 'unsupported' | 'unavailable' | 'signed_out' | 'verifying' | 'authenticated';
     readonly account: ResearchAccount | null;
 }
+// Presentation only: these fixed labels neither grant nor retain account authority.
+export type ResearchAuthUnavailableReason = 'verification_failed' | 'verification_lost' | 'credentials_rejected' | null;
 
 // One Capacitor proxy for the one native host. Messaging projects its own
 // research-only method interface onto this proxy, never registers a second one.
@@ -152,9 +154,19 @@ function sameAccount(left: ResearchAccount, right: ResearchAccount) {
         left.credentialBinding === right.credentialBinding
     );
 }
+function invalidSdkCredentials(error: unknown): boolean {
+    try {
+        // Read only the SDK's own literal code. Never match/serialize a message,
+        // traverse an error cause, or invoke an untrusted diagnostic getter.
+        return object(error) && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'invalid_credentials';
+    } catch {
+        return false;
+    }
+}
 
 export class ResearchAuthController {
     private state: ResearchAuthState = Object.freeze({ status: 'unavailable', account: null });
+    private unavailableReason: ResearchAuthUnavailableReason = null;
     private readonly listeners = new Set<(state: ResearchAuthState) => void>();
     private revision = 0;
     private initialized = false;
@@ -174,6 +186,10 @@ export class ResearchAuthController {
 
     getState(): ResearchAuthState {
         return this.state;
+    }
+
+    getUnavailableReason(): ResearchAuthUnavailableReason {
+        return this.unavailableReason;
     }
 
     canSignIn(): boolean {
@@ -221,7 +237,7 @@ export class ResearchAuthController {
             this.createSdk(sdkConfiguration);
             this.publish('signed_out');
         } catch {
-            if (this.current(ticket)) this.publish('unavailable');
+            this.fail(ticket);
         }
     }
 
@@ -268,11 +284,21 @@ export class ResearchAuthController {
             if (!validFence(fenced)) throw new Error('Unavailable');
             // Serial SDK work also checks the ticket at actual dispatch. A
             // queued token acquisition is forbidden after a newer sign-out.
-            const result = await this.sdkCall(ticket, 'acquire', acquire);
+            let result: SdkSessionResult;
+            try {
+                result = await this.sdkCall(ticket, 'acquire', acquire);
+            } catch (error) {
+                this.fail(ticket, invalidSdkCredentials(error) ? 'credentials_rejected' : 'verification_failed');
+                return;
+            }
             if (!this.current(ticket)) return;
             if (result.error || !result.data?.session) {
                 if (!result.error) await this.close(ticket, false, 'verify');
-                else this.fail(ticket);
+                else
+                    this.fail(
+                        ticket,
+                        invalidSdkCredentials(result.error) ? 'credentials_rejected' : 'verification_failed',
+                    );
                 return;
             }
             const token = result.data.session.access_token;
@@ -351,7 +377,12 @@ export class ResearchAuthController {
                 sdkClosed = false;
             }
         }
-        if (this.current(ticket)) this.publish(nativeClosed && sdkClosed ? 'signed_out' : 'unavailable');
+        if (this.current(ticket)) {
+            if (!nativeClosed || !sdkClosed) {
+                if (mode === 'verify') this.fail(ticket);
+                else this.publish('unavailable'); // Explicit logout clears any previous diagnostic.
+            } else this.publish('signed_out');
+        }
     }
 
     /** Account metadata is native-owned; SDK user/device claims are never used. */
@@ -362,9 +393,9 @@ export class ResearchAuthController {
         try {
             const result = await this.dependencies.native.currentAccount();
             if (!this.current(ticket)) return;
-            if (!validAccount(result) || !sameAccount(result.account, expected)) this.fail(ticket);
+            if (!validAccount(result) || !sameAccount(result.account, expected)) this.fail(ticket, 'verification_lost');
         } catch {
-            this.fail(ticket);
+            this.fail(ticket, 'verification_lost');
         }
     }
 
@@ -419,13 +450,20 @@ export class ResearchAuthController {
         return this.revision;
     }
 
-    private fail(ticket: number): void {
+    private fail(ticket: number, reason: ResearchAuthUnavailableReason = 'verification_failed'): void {
         if (!this.current(ticket)) return;
         this.intent = 'signed_out';
-        this.publish('unavailable');
+        this.publish('unavailable', null, reason);
     }
 
-    private publish(status: ResearchAuthState['status'], account: ResearchAccount | null = null): void {
+    private publish(
+        status: ResearchAuthState['status'],
+        account: ResearchAccount | null = null,
+        reason: ResearchAuthUnavailableReason = null,
+    ): void {
+        // Install the diagnostic synchronously before observers see the state.
+        // Beginning, success, logout and disposal use the default cleared label.
+        this.unavailableReason = status === 'unavailable' ? reason : null;
         this.state = Object.freeze({
             status,
             account: account

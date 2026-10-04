@@ -16,6 +16,7 @@ const email = element<HTMLInputElement>('email');
 const password = element<HTMLInputElement>('password');
 const signIn = element<HTMLButtonElement>('sign-in');
 const reverify = element<HTMLButtonElement>('reverify');
+const reverifyPairing = element<HTMLButtonElement>('reverify-pairing');
 const signOut = element<HTMLButtonElement>('sign-out');
 
 const messages: Record<ResearchAuthState['status'], { title: string; detail: string }> = {
@@ -42,9 +43,29 @@ const messages: Record<ResearchAuthState['status'], { title: string; detail: str
 };
 
 auth.subscribe((state) => {
-    element('auth-status').textContent = messages[state.status].title;
+    // Fixed local-stage wording only. Never show SDK/native errors, credentials
+    // or infer a specific expiry cause from an unavailable native account.
+    const reason = auth.getUnavailableReason();
+    const message =
+        state.status === 'unavailable' && reason === 'verification_lost'
+            ? {
+                  title: 'Account verification needs renewing',
+                  detail: 'The previously verified account is no longer current. Tap Reverify account to check it again; no password is needed if this app still holds your sign-in.',
+              }
+            : state.status === 'unavailable' && reason === 'credentials_rejected'
+              ? {
+                    title: 'Research sign-in rejected',
+                    detail: 'Check your research account email and password. These test credentials are separate from normal Thalassa.',
+                }
+              : state.status === 'unavailable' && reason === 'verification_failed'
+                ? {
+                      title: 'Account verification did not complete',
+                      detail: 'This does not prove your password was rejected. Reverify if a sign-in is held; otherwise sign in again. Messaging stays locked until native verification succeeds.',
+                  }
+                : messages[state.status];
+    element('auth-status').textContent = message.title;
     element('auth-status').dataset.state = state.status;
-    element('auth-detail').textContent = messages[state.status].detail;
+    element('auth-detail').textContent = message.detail;
     element('account-id').textContent = state.account?.accountId ?? 'Unavailable';
     element('device-id').textContent = state.account?.deviceId ?? 'Unavailable';
     element('verification').textContent = state.account ? 'Server-verified account · research only' : 'Not verified';
@@ -53,6 +74,15 @@ auth.subscribe((state) => {
     email.disabled = disabled;
     password.disabled = disabled;
     reverify.disabled = disabled || state.status === 'signed_out';
+    reverifyPairing.disabled = reverify.disabled;
+    element('pairing-auth-status').textContent =
+        state.status === 'authenticated'
+            ? 'Account verified. Research checks are short-lived; reverify here if the setup controls lock.'
+            : state.status === 'verifying'
+              ? 'Checking your native account. Setup stays locked until verification completes.'
+              : state.status === 'unavailable' && reason === 'verification_lost'
+                ? 'Account check needs renewing. Reverify here to unlock setup; do not log out.'
+                : 'Sign in and verify above to unlock setup. Reverify here if your sign-in is still held.';
     signOut.disabled = !auth.canSignOut() || state.status === 'unsupported';
 });
 
@@ -63,6 +93,9 @@ form.addEventListener('submit', (event) => {
     void auth.signIn(email.value, enteredPassword);
 });
 reverify.addEventListener('click', () => void auth.reverify());
+// The same explicit verification only: never enroll, claim, send or retry as a
+// side effect of re-opening controls. All messaging guards remain unchanged.
+reverifyPairing.addEventListener('click', () => void auth.reverify());
 signOut.addEventListener('click', () => {
     password.value = '';
     void auth.signOut();
