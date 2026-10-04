@@ -35,6 +35,8 @@ describe('imageryTopIndex', () => {
     });
 
     it('covers every opaque base the map can show', () => {
+        // The relief, vector sea and land imagery all sit under the water's
+        // labels, far below these two, so a cloud above these clears them too.
         expect([...IMAGERY_LAYER_IDS]).toEqual(['satellite-base-layer', 'hybrid-base-layer']);
     });
 });

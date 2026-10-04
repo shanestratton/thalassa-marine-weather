@@ -16,8 +16,14 @@ describe('map provider attribution contract', () => {
         expect(helper).toContain("map.addControl(control, 'bottom-right')");
         expect(source).toMatch(/map\.addSource\('satellite-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?Maxar/);
         expect(source).toMatch(/map\.addSource\('hybrid-base',[\s\S]*?attribution:[\s\S]*?Mapbox[\s\S]*?OpenStreetMap/);
-        // MapTiler is gone (2026-10-04): its free key was non-commercial.
-        expect(source).not.toMatch(/maptiler/i);
+        // The relief sources carry GEBCO's and Geoscience Australia's credits
+        // and the not-for-navigation line (their licence conditions).
+        expect(source).toContain('addReliefBase(map)');
+        const relief = read('components/map/reliefBase.ts');
+        expect(relief).toMatch(/attribution: RELIEF_ATTRIBUTION/);
+        expect(relief).toMatch(
+            /export const RELIEF_ATTRIBUTION =[\s\S]*?GEBCO[\s\S]*?Geoscience Australia[\s\S]*?Not for navigation/,
+        );
         expect(source).toMatch(/map\.addSource\('openseamap-permanent',[\s\S]*?attribution:[\s\S]*?OpenSeaMap/);
         expect(source).not.toMatch(/attribution:\s*['"]\s*['"]/);
     });

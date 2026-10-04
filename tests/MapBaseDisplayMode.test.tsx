@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from '../components/map/MapBaseSelector';
-import { useMapBase } from '../components/map/useMapBase';
+import { MapBaseSelector, type MapBaseKind } from '../components/map/MapBaseSelector';
+import { RELIEF_TILE_BASE } from '../components/map/reliefBase';
+import { DEFAULT_MAP_BASE, defaultMapBase, useMapBase } from '../components/map/useMapBase';
 
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
@@ -11,8 +12,8 @@ vi.mock('../utils/system', async (importOriginal) => ({
 
 afterEach(() => vi.restoreAllMocks());
 
-function Harness({ daylightMode }: { daylightMode: boolean }) {
-    const { mapBase, setMapBase } = useMapBase(daylightMode);
+function Harness({ saved, save }: { saved?: unknown; save?: (value: MapBaseKind) => void }) {
+    const { mapBase, setMapBase } = useMapBase(saved, save);
     return (
         <MapBaseSelector
             visible
@@ -25,96 +26,69 @@ function Harness({ daylightMode }: { daylightMode: boolean }) {
     );
 }
 
-function selectBase(label: 'Ocean' | 'Satellite' | 'Hybrid') {
-    fireEvent.click(screen.getByRole('button', { name: /^Map base:/ }));
-    fireEvent.click(screen.getByRole('menuitemradio', { name: new RegExp(`^${label} `) }));
-}
-
-describe('OBS starts on satellite in either display mode', () => {
-    it.each([
-        [true, 'satellite'],
-        [false, 'satellite'],
-    ] as const)('daylight=%s begins on %s', (daylightMode, expected) => {
-        const { result } = renderHook(() => useMapBase(daylightMode));
-        expect(result.current.mapBase).toBe(expected);
-        expect(Object.values(mapBaseVisibility(result.current.mapBase)).filter(Boolean)).toHaveLength(1);
+describe('OBS opens on Relief (Shane 2026-10-04: the satellite stitching)', () => {
+    it('defaults to Relief once the relief tiles are configured', () => {
+        expect(defaultMapBase('https://relief.example.r2.dev/v1')).toBe('relief');
     });
 
-    it('stays on satellite when daylight changes, without a remount', () => {
-        const { result, rerender } = renderHook(({ daylightMode }) => useMapBase(daylightMode), {
-            initialProps: { daylightMode: false },
-        });
-        expect(result.current.mapBase).toBe('satellite');
-        rerender({ daylightMode: true });
-        expect(result.current.mapBase).toBe('satellite');
-        rerender({ daylightMode: false });
-        expect(result.current.mapBase).toBe('satellite');
+    // Review 2026-10-05: with no tile address (the R2 upload not done), a
+    // default of Relief is a flat blue sea where Satellite used to be. The
+    // build that ships before the upload keeps Satellite; Relief is a pick.
+    it('keeps Satellite as the default while no relief tiles are configured', () => {
+        expect(defaultMapBase('')).toBe('satellite');
     });
 
-    it.each(['hybrid', 'satellite', 'ocean'] as const)(
-        'retains a manual %s selection across ordinary rerenders',
-        (choice: MapBaseKind) => {
-            const { result, rerender } = renderHook(({ daylightMode }) => useMapBase(daylightMode), {
-                initialProps: { daylightMode: true },
-            });
-            act(() => result.current.setMapBase(choice));
-            rerender({ daylightMode: true });
-            rerender({ daylightMode: true });
-            expect(result.current.mapBase).toBe(choice);
+    it('takes the default from this build’s tile address, with nothing saved, in day and dark alike', () => {
+        expect(DEFAULT_MAP_BASE).toBe(defaultMapBase(RELIEF_TILE_BASE));
+        const { result } = renderHook(() => useMapBase(undefined));
+        expect(result.current.mapBase).toBe(DEFAULT_MAP_BASE);
+        expect(result.current.explicit).toBe(false);
+    });
+
+    it.each(['relief', 'reliefSat', 'ocean', 'satellite', 'hybrid'] as const)(
+        'opens on a saved %s, and counts it as the skipper’s choice',
+        (saved: MapBaseKind) => {
+            const { result } = renderHook(() => useMapBase(saved));
+            expect(result.current.mapBase).toBe(saved);
+            expect(result.current.explicit).toBe(true);
         },
     );
 
-    it('remembers day and dark choices independently for the current map session', () => {
-        const { result, rerender } = renderHook(({ daylightMode }) => useMapBase(daylightMode), {
-            initialProps: { daylightMode: true },
+    it.each(['maptiler', 'terrain', 42, null])(
+        'ignores an unknown saved value (%s) and falls back to the default',
+        (saved) => {
+            const { result } = renderHook(() => useMapBase(saved));
+            expect(result.current.mapBase).toBe(DEFAULT_MAP_BASE);
+            expect(result.current.explicit).toBe(false);
+        },
+    );
+
+    it('saves a pick to the account and shows it at once', () => {
+        const save = vi.fn();
+        const { result } = renderHook(() => useMapBase(undefined, save));
+        act(() => result.current.setMapBase('ocean'));
+        expect(save).toHaveBeenCalledWith('ocean');
+        expect(result.current.mapBase).toBe('ocean');
+        expect(result.current.explicit).toBe(true);
+    });
+
+    it('a pick made this session wins over a late account sync', () => {
+        const { result, rerender } = renderHook(({ saved }) => useMapBase(saved), {
+            initialProps: { saved: undefined as unknown },
         });
         act(() => result.current.setMapBase('satellite'));
-        rerender({ daylightMode: false });
+        rerender({ saved: 'hybrid' });
         expect(result.current.mapBase).toBe('satellite');
-        act(() => result.current.setMapBase('hybrid'));
-        rerender({ daylightMode: true });
-        expect(result.current.mapBase).toBe('satellite');
-        rerender({ daylightMode: false });
-        expect(result.current.mapBase).toBe('hybrid');
     });
 
-    it('does not persist a manual map selection into a new session', () => {
-        const getItem = vi.spyOn(Storage.prototype, 'getItem');
-        const setItem = vi.spyOn(Storage.prototype, 'setItem');
-        const first = renderHook(() => useMapBase(true));
-        act(() => first.result.current.setMapBase('hybrid'));
-        expect(first.result.current.mapBase).toBe('hybrid');
-        first.unmount();
-
-        const second = renderHook(() => useMapBase(true));
-        expect(second.result.current.mapBase).toBe('satellite');
-        expect(getItem).not.toHaveBeenCalled();
-        expect(setItem).not.toHaveBeenCalled();
-    });
-
-    it('does not share a manual override with another map instance', () => {
-        const obs = renderHook(() => useMapBase(true));
-        const anotherMap = renderHook(() => useMapBase(false));
-        act(() => obs.result.current.setMapBase('hybrid'));
-        expect(obs.result.current.mapBase).toBe('hybrid');
-        expect(anotherMap.result.current.mapBase).toBe('satellite');
-    });
-
-    it('keeps the actual selector usable and in sync with independent day/dark choices', () => {
-        const { rerender } = render(<Harness daylightMode />);
-        expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
-        selectBase('Satellite');
-        expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
-
-        rerender(<Harness daylightMode={false} />);
-        selectBase('Hybrid');
-        expect(screen.getByRole('button', { name: 'Map base: Hybrid' })).toBeInTheDocument();
-
-        rerender(<Harness daylightMode />);
-        expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
-        selectBase('Ocean');
-        rerender(<Harness daylightMode={false} />);
-        expect(screen.getByRole('button', { name: 'Map base: Hybrid' })).toBeInTheDocument();
+    it('keeps the actual selector usable and saving', () => {
+        const save = vi.fn();
+        render(<Harness saved="relief" save={save} />);
+        expect(screen.getByRole('button', { name: 'Map base: Relief' })).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /^Map base:/ }));
+        fireEvent.click(screen.getByRole('menuitemradio', { name: /^Relief \+ Sat / }));
+        expect(screen.getByRole('button', { name: 'Map base: Relief + Sat' })).toBeInTheDocument();
+        expect(save).toHaveBeenCalledWith('reliefSat');
     });
 });
 
@@ -126,32 +100,35 @@ function source(path: string) {
         .replace(/^\s*\/\/.*$/gm, '');
 }
 
-describe('OBS display-mode wiring', () => {
-    it('uses App’s resolved light mode, including auto, rather than the environment theme', () => {
-        const app = source('App.tsx');
-        const calls = [...app.matchAll(/<MapHub\b[\s\S]*?\/>/g)].map(([call]) => call);
-        expect(calls).toHaveLength(1);
-        expect(app).toMatch(/const isLight\s*=\s*effectiveMode\s*===\s*'light'/);
-        expect(calls[0]).toMatch(/daylightMode=\{isLight\}/);
-        // Auto already resolves through the app controller. The map must not
-        // invent a second clock/sunrise rule or treat literal 'auto' as dark.
-        const controller = source('hooks/useAppController.ts');
-        expect(controller).toContain("settings.displayMode === 'auto'");
-        expect(controller).toContain("effectiveMode = isNight ? 'dark' : 'light'");
-    });
+describe('OBS base wiring', () => {
+    const hub = source('components/map/MapHub.tsx');
 
-    it('connects the hook to MapHub and leaves other surfaces on the prior default', () => {
-        const hub = source('components/map/MapHub.tsx');
-        expect(source('components/map/mapConstants.ts')).toMatch(/daylightMode\?:\s*boolean/);
-        expect(hub).toMatch(/daylightMode\s*=\s*false/);
-        expect(hub).toMatch(/\{\s*mapBase,\s*setMapBase\s*\}\s*=\s*useMapBase\(daylightMode\)/);
+    it('reads and writes the per-account choice through settings', () => {
+        expect(source('types/settings.ts')).toMatch(/obsChartBase\?:\s*ObsChartBase/);
+        expect(hub).toMatch(/useMapBase\(settings\.obsChartBase, saveMapBase\)/);
+        expect(hub).toMatch(/updateSettings\(\{ obsChartBase \}\)/);
         const selector = hub.match(/<MapBaseSelector\b[\s\S]*?\/>/)?.[0];
         expect(selector).toContain('value={mapBase}');
         expect(selector).toContain('onChange={setMapBase}');
-        for (const path of ['components/RoutePlanner.tsx', 'components/onboarding/HomePortStep.tsx']) {
-            const calls = [...source(path).matchAll(/<MapHub\b[\s\S]*?\/>/g)].map(([call]) => call);
-            expect(calls.length).toBeGreaterThan(0);
-            for (const call of calls) expect(call).not.toContain('daylightMode');
-        }
+    });
+
+    it('takes night from App’s resolved mode for the night palette', () => {
+        const app = source('App.tsx');
+        const calls = [...app.matchAll(/<MapHub\b[\s\S]*?\/>/g)].map(([call]) => call);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatch(/nightMode=\{effectiveMode === 'night'\}/);
+        expect(source('components/map/mapConstants.ts')).toMatch(/nightMode\?:\s*boolean/);
+        expect(hub).toMatch(/nightMode\s*=\s*false/);
+    });
+
+    it('keeps the planning surface on Hybrid unless the skipper picked a base', () => {
+        expect(hub).toMatch(
+            /const shownBase(?::\s*MapBaseKind)?\s*=\s*planningSurface && !baseExplicit \? 'hybrid' : mapBase/,
+        );
+        expect(hub).toMatch(/mapBaseVisibility\(shownBase\)/);
+    });
+
+    it('keeps every base on the ENC imagery treatment (the glaze)', () => {
+        expect(hub).toMatch(/const imageryOn(?::\s*boolean)?\s*=\s*true;/);
     });
 });

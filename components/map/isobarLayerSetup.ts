@@ -1035,6 +1035,8 @@ export const NAV_LAYER_IDS = [
     'comfort-zone-layer',
     'comfort-zone-layer_r',
     'route-glow',
+    // The solid line's dark edge (2026-10-05, inshoreRouteLineLayers).
+    'route-casing',
     'route-line-layer',
     'route-harbour-dash',
     // An unverified line: bright red and white dashes on a dark edge

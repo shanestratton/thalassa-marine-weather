@@ -25,6 +25,7 @@ import { crumb } from '../../utils/flightRecorder';
 import { installPaneAwareAttribution } from './paneAwareAttribution';
 import { installScaleBarLabel } from './scaleBarLabel';
 import { registerChartMap } from './chartMapRegistry';
+import { addReliefBase, HIDDEN_BASE_GEOMETRY, LAND_STRUCTURE } from './reliefBase';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
 import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
@@ -614,6 +615,20 @@ export function useMapInit(opts: UseMapInitOptions) {
                     if (layer.type === 'symbol' && layer.id.match(/road|motorway|highway|shield|trunk/i)) {
                         map.setLayoutProperty(layer.id, 'visibility', 'none');
                     }
+                    // PLAIN LAND under the vector bases (2026-10-04). Roads, tunnels,
+                    // buildings and aeroways only ever showed through gaps in the
+                    // imagery; Relief and Ocean have no imagery to cover them, so
+                    // land is one plain colour as approved. Piers, breakwaters,
+                    // groynes and bridges STAY (review 2026-10-05): with ENC off
+                    // they are a marina's only geometry and a channel's air-draft
+                    // hazard. Painted the land slate, they read as structure over
+                    // water and vanish into plain land (reliefBase LAND_STRUCTURE).
+                    if (layer.type !== 'symbol' && HIDDEN_BASE_GEOMETRY.test(layer.id)) {
+                        map.setLayoutProperty(layer.id, 'visibility', 'none');
+                    }
+                    if ((layer.type === 'line' || layer.type === 'fill') && LAND_STRUCTURE.test(layer.id)) {
+                        map.setPaintProperty(layer.id, `${layer.type}-color`, '#333b45');
+                    }
                     // Hide lat/lon graticule and admin boundary lines to keep weather imagery unobstructed
                     if (
                         layer.type === 'line' &&
@@ -769,9 +784,12 @@ export function useMapInit(opts: UseMapInitOptions) {
                 );
             }
 
-            // The Ocean raster tint that used to sit here is gone
-            // (2026-10-04): its free key was licensed for non-commercial use
-            // only, which blocks the paid release.
+            // ── The seamless sea (Shane 2026-10-04: "the stitching") ──
+            // Relief, Relief + Sat and Ocean, all born hidden: MapHub's base pass
+            // owns visibility. After the satellite source, which Relief + Sat
+            // borrows for its land. Replaces the Ocean raster tint, whose free key
+            // was licensed for non-commercial use only. See reliefBase.ts.
+            addReliefBase(map);
 
             setMapReady(true);
 
@@ -792,7 +810,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 }
             }
 
-            // Bathymetry under the imagery is the ENC glaze's job.
+            // Bathymetry: the Relief and Ocean bases (reliefBase.ts).
 
             // ── OpenSeaMap overlay ──
             if (!map.getSource('openseamap-permanent')) {

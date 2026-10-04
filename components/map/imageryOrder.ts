@@ -17,7 +17,11 @@
  * intermittency Shane reported on 2026-08-23.
  */
 
-/** The opaque bases a cloud overlay must sit above to be seen at all. */
+/**
+ * The opaque bases a cloud overlay must sit above to be seen at all. The
+ * Relief / Ocean sea and the land imagery under it (reliefBase.ts) sit just
+ * above the style's water fill, far below these, so clearing these clears them.
+ */
 export const IMAGERY_LAYER_IDS = ['satellite-base-layer', 'hybrid-base-layer'] as const;
 
 /** Highest index among the opaque base-imagery layers, or -1 if none are up. */

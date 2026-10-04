@@ -37,7 +37,8 @@ import { PassageBanner } from './PassageBanner';
 import { inshoreRouteCaveats, isFinalInshoreRefusal, nearShallowSummary } from './inshoreRouteNotice';
 import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { ZoomLevelFab } from './ZoomLevelFab';
-import { MapBaseSelector, mapBaseVisibility } from './MapBaseSelector';
+import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseSelector';
+import { seaBaseLayers, setReliefPalette } from './reliefBase';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
 import { useObsStartupCamera } from './useObsStartupCamera';
@@ -282,7 +283,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     onLocationSelect,
     initialZoom = 5,
     mapStyle = 'mapbox://styles/mapbox/dark-v11',
-    daylightMode = false,
+    nightMode = false,
     minimalLabels = false,
     embedded = false,
     cleanPlanningMap = false,
@@ -1842,59 +1843,37 @@ export const MapHub: React.FC<MapHubProps> = ({
         mapReady,
         encVisible,
     );
-    // OBS starts on Satellite in both day and night. The menu can override
-    // each mode for this map session without
-    // persisting stale choices across boots. Other map surfaces retain Satellite
-    // unless their host explicitly opts into daylightMode.
-    // All three bases retain the existing ENC safety-layer treatment. The
+    // OBS opens on Relief (Shane 2026-10-04: "the stitching"), one choice for
+    // day and night alike, kept with the account (settings.obsChartBase). The
     // localStorage write below is only EncVectorLayer's synchronous mirror,
     // never the source of the selected background.
-    const { mapBase, setMapBase } = useMapBase(daylightMode);
-    const baseVisibility = mapBaseVisibility(mapBase);
-    const satelliteVisible = baseVisibility.satellite;
+    const saveMapBase = useCallback((obsChartBase: MapBaseKind) => updateSettings({ obsChartBase }), [updateSettings]);
+    const { mapBase, setMapBase, explicit: baseExplicit } = useMapBase(settings.obsChartBase, saveMapBase);
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
     const [declutter, setDeclutter] = useState(0);
-    // Hybrid base (Shane 2026-07-15): the PUBLIC voyage-page look —
-    // satellite-streets, imagery with roads + names. Session-only,
-    // mutually exclusive with satellite via MapBaseSelector, and
-    // it gets the FULL satellite ENC treatment (glaze, hidden land
-    // fills, bathy tint) via imageryOn below.
-    // The visibility projection keeps all three bases mutually exclusive.
-    // Plain satellite and bathymetric Ocean stay one tap away. Session-only.
-    const hybridVisibleRaw = baseVisibility.hybrid;
-    // OCEAN BASE (Shane 2026-07-19: "we used to have one that had a bit of
-    // bathymetry with it" → make it its own base). It was a raster tint whose
-    // free key was licensed for non-commercial use only; since 2026-10-04 it is
-    // the style's own sea, with no imagery over it.
-    //
-    // It counts as imagery below, which is the load-bearing part. imageryOn is
-    // what gives ENC its translucent treatment — DEPARE drops to the glaze and
-    // the opaque land fills stand down. Without that the 0.95-opaque DEPARE ramp
-    // would paint straight over the bathymetry and the base would be invisible,
-    // which is the whole reason for choosing it. Session-only, like the others.
-    const oceanBaseVisible = baseVisibility.ocean;
     // PER-SURFACE base (Shane 2026-07-17: "changing the layer on the chart page
-    // also changed the planning page — I've lost all my zoom 10 whites in the
-    // water"). The browsing chart and the plotting surface are the SAME map, so
-    // one base state served both, and the clean-dark chart default silently
-    // killed the whites on the plot surface: the white keel-clearance glaze
-    // ("bright white = water that clears YOUR keel") is part of the SATELLITE
-    // ENC treatment — syncDepareBaseTreatment paints the glaze only when satOn,
-    // and zeroes its opacity otherwise.
-    //
-    // DERIVED, not a state-setting effect: an effect could be raced or undone
-    // by the base-apply pass (which only re-paints the glaze when a visibility
-    // actually changed). Deriving makes "plotting ⇒ imagery on" structurally
-    // true — imageryOn can never be false while the tracer is up, so the glaze
-    // always paints. Plain satellite still wins if the skipper picked it (also
-    // imagery, so the glaze holds); the browsing chart keeps the clean dark.
-    // Plotting forces hybrid ONLY when no other imagery base is already chosen —
-    // ocean counts, or picking it would be silently overridden the moment the
-    // tracer opened.
-    const hybridVisible = planningSurface && !satelliteVisible && !oceanBaseVisible ? true : hybridVisibleRaw;
-    const imageryOn = satelliteVisible || hybridVisible || oceanBaseVisible;
+    // also changed the planning page"). The browsing chart and the plotting
+    // surface are the SAME map. Plotting keeps Hybrid, the layer Shane asked
+    // for there (2026-07-15), until the skipper has picked a base in the menu;
+    // a pick wins everywhere, or it would be silently overridden the moment
+    // the tracer opened. DERIVED, not a state-setting effect, so the base-apply
+    // pass can never race it.
+    const shownBase = planningSurface && !baseExplicit ? 'hybrid' : mapBase;
+    const baseVisibility = mapBaseVisibility(shownBase);
+    const satelliteVisible = baseVisibility.satellite;
+    const hybridVisible = baseVisibility.hybrid;
+    // EVERY base keeps the ENC imagery treatment, which is the load-bearing
+    // part: DEPARE drops to the translucent keel-clearance glaze (the "zoom 10
+    // whites", 2026-07-17) and the opaque land fills stand down. Without it the
+    // 0.95-opaque DEPARE ramp paints straight over the base, and the relief or
+    // imagery that was the reason for choosing it disappears.
+    const imageryOn: boolean = true;
+    // Relief is damped under the drawn ENC glaze so two depth colour codes don't
+    // fight (reliefBase setReliefPalette); a boolean, so loading cells don't
+    // re-run the base pass.
+    const encDrawn = encVisible && encCellCount > 0;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -1970,6 +1949,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                         refreshOrder();
                     }
                 }
+                // THE SEAMLESS SEA (2026-10-04): Relief, Relief + Sat and Ocean
+                // (reliefBase.ts) ride the same rules: conditional visibility, and
+                // the same heal if a race ever lifted one above the ENC stack.
+                for (const [id, on] of seaBaseLayers(shownBase)) {
+                    if (setVis(id, on ? 'visible' : 'none')) changed = true;
+                    if (encBottom && orderIds.indexOf(id) > orderIds.indexOf(encBottom)) {
+                        map.moveLayer(id, encBottom);
+                        changed = true;
+                        refreshOrder();
+                    }
+                }
+                // Night dims the sea under the app's red scrim; drawn ENC damps
+                // the relief tint. Guarded: writes only when the palette changes.
+                if (setReliefPalette(map, nightMode ? 'night' : encDrawn ? 'enc' : 'day')) changed = true;
 
                 // PLACE NAMES OVER THE IMAGERY (Shane 2026-07-22: "we just
                 // need more place names on the land, so we know where we
@@ -2176,10 +2169,12 @@ export const MapHub: React.FC<MapHubProps> = ({
             map.off('styledata', scheduleApply);
         };
     }, [
+        shownBase,
         satelliteVisible,
         hybridVisible,
-        oceanBaseVisible,
         imageryOn,
+        nightMode,
+        encDrawn,
         declutter,
         mapReady,
         encVisible,
@@ -3401,9 +3396,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </button>
                 )}
 
-                {/* Visual raster beneath the ENC stack. Satellite and Ocean
-                    used to be wired map layers with no remaining control;
-                    this restores an explicit, session-only way to reach them. */}
+                {/* The base beneath the ENC stack: Relief, Relief + Sat, Ocean,
+                    Satellite or Hybrid. The pick is kept with the account. */}
                 <MapBaseSelector
                     visible={!planningSurface && !embedded && !pickerMode && !isPinView}
                     value={mapBase}

@@ -1640,7 +1640,7 @@ const App: React.FC = () => {
                                     <MapHub
                                         mapboxToken={settings.mapboxToken}
                                         homePort={settings.defaultLocation}
-                                        daylightMode={isLight}
+                                        nightMode={effectiveMode === 'night'}
                                         pickerMode={mapPickerActive}
                                         pickerLabel="Tap the chart to choose your weather location"
                                         onLocationSelect={(lat: number, lon: number, name?: string) => {

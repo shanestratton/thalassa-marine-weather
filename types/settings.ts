@@ -25,6 +25,9 @@ import type { PolarData } from './navigation';
  */
 export type PreferredAngle = 'beating' | 'close_reach' | 'beam_reach' | 'broad_reach' | 'running';
 
+/** The Obs chart's base, chosen in the map-base menu at the top of the page. */
+export type ObsChartBase = 'relief' | 'reliefSat' | 'ocean' | 'satellite' | 'hybrid';
+
 /** User-defined safety thresholds for passage planning.
  *  The isochrone router treats zones exceeding these as obstacles.
  *  Undefined fields = no limit (disabled). */
@@ -212,6 +215,14 @@ export interface UserSettings {
      * furniture only: it routes nothing, and Auto does not follow it yet.
      */
     showChartLeads?: boolean;
+    /**
+     * The Obs chart's base, picked in the map-base menu at the top of the
+     * page and kept with the account (2026-10-04). Unset = Relief, the
+     * seamless seafloor base that replaced Satellite as the default (Shane:
+     * "the stitching"). The planning surface keeps Hybrid until a base is
+     * picked. components/map/useMapBase.ts reads it.
+     */
+    obsChartBase?: ObsChartBase;
     /**
      * Settings → Preferences → Routing: "Auto route (trial)" (2026-10-01).
      * Auto routing and Plan Your Day run Thalassa's own router only while

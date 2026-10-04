@@ -627,8 +627,8 @@ const ROUTE_CORE_COLOURS: readonly [string, string][] = [
 const ROUTE_CORE_DEFAULT = '#99f6e4';
 
 /**
- * The route line's three solid layers (pure; shared 2026-10-01): a wide
- * blurred glow, the line and a thin bright core, coloured by each piece's
+ * The route line's solid layers (pure; shared 2026-10-01): a wide blurred
+ * glow, a dark casing (2026-10-05), the line and a thin bright core, coloured by each piece's
  * `safety` (inshoreRouteFeatures). Owner decision 10 (2026-09-30): 'tide' —
  * shallow water some tide clears — is the ONE needs-tide amber, solid;
  * decision 9's 'survey' stretches are that amber in dots on a dark casing
@@ -636,8 +636,8 @@ const ROUTE_CORE_DEFAULT = '#99f6e4';
  * An 'unverified' piece is never drawn solid either, dashed flag or not
  * (2026-10-03): solid red is "checked and dangerous", and an unchecked line is
  * the red and white DASHES of unverifiedRouteDashLayers.
- * `idPrefix` 'route' gives the planner's own ids (route-glow, route-line-layer,
- * route-core); another map passes its own.
+ * `idPrefix` 'route' gives the planner's own ids (route-glow, route-casing,
+ * route-line-layer, route-core); another map passes its own.
  */
 export function inshoreRouteLineLayers(source: string, idPrefix = 'route'): RouteSolidLayerSpec[] {
     const filter = [
@@ -665,6 +665,18 @@ export function inshoreRouteLineLayers(source: string, idPrefix = 'route'): Rout
                 'line-blur': 10,
                 'line-opacity': ['match', ['get', 'safety'], 'harbour', 0.3, 0.6],
             },
+            filter: structuredClone(filter),
+        },
+        // A dark edge under the line (review 2026-10-05): on Relief's light
+        // shallows, with ENC off, the harbour and default blues were blue on
+        // blue (1.3-2.2:1) in exactly the water harbour legs cross. The same
+        // casing the survey and unverified dashes ride on.
+        {
+            id: `${idPrefix}-casing`,
+            type: 'line',
+            source,
+            layout: { ...layout },
+            paint: { 'line-color': SURVEY_DASH.casing, 'line-width': 6, 'line-opacity': 0.8 },
             filter: structuredClone(filter),
         },
         {
