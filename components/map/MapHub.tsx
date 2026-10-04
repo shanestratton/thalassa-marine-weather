@@ -2520,6 +2520,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         structuresUnknownCells: res.structuresUnknownCells,
                         pinOffWater: res.pinOffWater,
                         pinTail: res.pinTail,
+                        depthBend: res.depthBend,
                         tideCheck: res.tideCheck,
                         surveyRuns: res.surveyRuns,
                         surveyUncheckedCells: res.surveyUncheckedCells,

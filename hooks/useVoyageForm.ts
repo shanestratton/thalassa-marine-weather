@@ -848,6 +848,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                                 pinOffWater: inshoreRes.pinOffWater,
                                                 // A shallow pin whose tail is not direct (Shane, 2026-10-03).
                                                 pinTail: inshoreRes.pinTail,
+                                                depthBend: inshoreRes.depthBend,
                                                 tideCheck: inshoreRes.tideCheck,
                                                 surveyRuns: inshoreRes.surveyRuns,
                                                 surveyUncheckedCells: inshoreRes.surveyUncheckedCells,
