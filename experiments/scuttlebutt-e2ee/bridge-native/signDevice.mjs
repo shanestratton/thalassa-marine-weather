@@ -257,6 +257,19 @@ export function appleSignatureRequirement(team, identifier = null) {
         (identifier === null ? '' : ' and identifier "' + identifier + '"')
     );
 }
+export function certificateExtractionArguments(prefix, codePath) {
+    ensure(
+        typeof prefix === 'string' &&
+            typeof codePath === 'string' &&
+            isAbsolute(prefix) &&
+            isAbsolute(codePath) &&
+            !/[\0\r\n]/.test(prefix + codePath),
+        'certificate-extraction-paths',
+    );
+    // This codesign option has an optional argument: it must be joined with =,
+    // otherwise codesign treats the certificate prefix as another code path.
+    return ['--display', '--extract-certificates=' + prefix, codePath];
+}
 export function validateProfile(profile, certificate, selectedDevices, now) {
     ensure(Number.isFinite(now), 'clock');
     ensure(
@@ -278,8 +291,16 @@ export function validateProfile(profile, certificate, selectedDevices, now) {
         'profile-app-development',
     );
     const groups = entitlements['keychain-access-groups'];
+    const ownerGroups = [prefix + '.' + BUNDLE, prefix + '.*'];
+    // Apple's downloaded profile authorizes a superset, not the entitlements
+    // we sign. Its optional exact token group is NEVER copied into our app.
     ensure(
-        Array.isArray(groups) && groups.length === 1 && [prefix + '.' + BUNDLE, prefix + '.*'].includes(groups[0]),
+        Array.isArray(groups) &&
+            groups.length >= 1 &&
+            groups.length <= 2 &&
+            new Set(groups).size === groups.length &&
+            groups.filter((group) => ownerGroups.includes(group)).length === 1 &&
+            groups.every((group) => ownerGroups.includes(group) || group === 'com.apple.token'),
         'profile-keychain-scope',
     );
     ensure(
@@ -287,7 +308,11 @@ export function validateProfile(profile, certificate, selectedDevices, now) {
         'profile-not-enterprise',
     );
     ensure(
-        Array.isArray(profile.Platform) && profile.Platform.length === 1 && profile.Platform[0] === 'iOS',
+        Array.isArray(profile.Platform) &&
+            profile.Platform.every((platform) => ['iOS', 'xrOS', 'visionOS'].includes(platform)) &&
+            new Set(profile.Platform).size === profile.Platform.length &&
+            profile.Platform.includes('iOS') &&
+            ['iOS', 'iOS,visionOS,xrOS'].includes([...profile.Platform].sort().join(',')),
         'profile-platform',
     );
     ensure(
@@ -764,12 +789,7 @@ export function main(argv = process.argv.slice(2)) {
                 path,
             ]);
             const prefix = join(scratch, 'signed-certificate-' + index + '-');
-            quiet('signature-certificate-extract', '/usr/bin/codesign', [
-                '--display',
-                '--extract-certificates',
-                prefix,
-                path,
-            ]);
+            quiet('signature-certificate-extract', '/usr/bin/codesign', certificateExtractionArguments(prefix, path));
             for (const name of readdirSync(scratch).filter((name) => name.startsWith(basename(prefix)))) {
                 regular(join(scratch, name), 64 * 1024);
                 chmodSync(join(scratch, name), 0o600);
