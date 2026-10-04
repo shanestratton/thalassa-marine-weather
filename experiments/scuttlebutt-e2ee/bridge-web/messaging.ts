@@ -30,6 +30,16 @@ export interface ResearchMessageFacts {
     readonly claim: 'none' | 'pending' | 'verified' | 'expired' | 'historical';
     readonly policy: ResearchPolicy | null;
 }
+/** UI setup hint only, never a native or server authorization to encrypt/send. */
+export function researchSendSetupReady(value: ResearchMessageFacts | null): boolean {
+    return (
+        !!value &&
+        value.pairing === 'confirmed' &&
+        match(value.fingerprint, FINGERPRINT) &&
+        value.registration === 'acknowledged' &&
+        (value.role === 'established' || (value.role === 'initiator' && value.claim === 'verified'))
+    );
+}
 export interface ResearchThreadMessage {
     readonly clientMessageId: string;
     readonly direction: 'outgoing' | 'incoming';
@@ -426,16 +436,21 @@ export class ResearchMessagingController {
     }
     async readState(): Promise<void> {
         await this.action(async (ticket) => {
-            const value = facts(
-                await this.call(ticket, () => this.dependencies.native.messageState(ticketOptions(ticket))),
-                ticket,
-            );
+            const value = await this.readFactsForAction(ticket);
             this.commit(ticket, {
                 facts: value,
                 policy: value.policy,
                 notice: 'Native setup facts—not permission to send.',
             });
         });
+    }
+    private async readFactsForAction(ticket: Ticket): Promise<ResearchMessageFacts> {
+        const value = facts(
+            await this.call(ticket, () => this.dependencies.native.messageState(ticketOptions(ticket))),
+            ticket,
+        );
+        this.commit(ticket, { facts: value, policy: value.policy });
+        return value;
     }
     async ownPairingCard(): Promise<void> {
         await this.action(async (ticket) => {
@@ -601,6 +616,19 @@ export class ResearchMessagingController {
             await this.readThreadForAction(ticket);
             this.require(ticket);
             if (this.state.attempt) return; // Explicit local reconciliation, never a hidden retry.
+            // Read the current native role before reserving an attempt ID. A
+            // responder's definite setup refusal must not look like a lost
+            // durable preparation. Native still checks authority at preparation.
+            const setup = await this.readFactsForAction(ticket);
+            if (!researchSendSetupReady(setup)) {
+                this.commit(ticket, {
+                    notice:
+                        setup.role === 'responder'
+                            ? 'Responder: receive the other device’s first message before replying. Your draft is kept.'
+                            : 'Complete native pairing, registration and initiator claim before sending. Your draft is kept.',
+                });
+                return;
+            }
             if (!clearPolicy(await this.refresh(ticket))) throw unavailable();
             const clientMessageId = (this.dependencies.createMessageId ?? (() => globalThis.crypto.randomUUID()))();
             if (!match(clientMessageId, UUID)) throw unavailable();
@@ -686,6 +714,9 @@ export class ResearchMessagingController {
             ) as unknown as ResearchInboxReport;
             this.commit(ticket, { inboxReport: report });
             await this.readThreadForAction(ticket);
+            // Receiving the opening message can establish the responder. Keep
+            // the displayed role current without an implicit claim or send.
+            await this.readFactsForAction(ticket);
             this.require(ticket);
             this.commit(ticket, {
                 notice: this.state.attempt

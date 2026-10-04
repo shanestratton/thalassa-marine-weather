@@ -56,7 +56,7 @@ Do not infer physical restart or usable recovery from close/reopen fixtures. Nat
 block/revoke controls, device/prekey lifecycle, sync/retention and app cutover
 need separate implementation and assessment.
 
-The latest 4 October signing slice passed 811 focused tests, including 37 pure
+The earlier 4 October signing slice passed 811 focused tests, including 37 pure
 signing validator/command fixtures. The owner approved a separate development
 profile for exactly the selected endpoints. Strict local signatures and four
 minimal research-only entitlements passed on a fresh private app copy; all
@@ -69,6 +69,17 @@ installation is separate platform acceptance, not a cryptographic audit or a
 passed messaging test. Normal Thalassa's bundle/version/build metadata remained
 unchanged; its private files were not inspected. No D01–D17 case is passed by
 these operations.
+
+The subsequent send-setup UI slice passed 874 isolated tests, named lint and the
+strict pilot TypeScript check. New sends require fresh native setup facts before
+reserving an attempt; refusal preserves the draft, and responder receiving is
+independent of that UI hint. No native crypto/server implementation changed.
+A fresh web/native candidate was signed and updated over the existing research
+app on both endpoints, preserving normal Thalassa's compared metadata. Both new
+launch requests were refused while the devices were locked. Current native
+login, human pairing and physical exchange still need evidence. Read-only pilot
+checks confirmed unused human device slots and the existing deployed policy;
+there was no server deployment or data reset. See the checkpoint for receipts.
 
 The earlier restart-continuity rerun passed 795 focused tests across 12 suites, 282 native
 directory/facade assertions and 283 native bridge assertions, with all prior
