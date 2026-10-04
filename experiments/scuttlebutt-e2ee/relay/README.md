@@ -364,8 +364,9 @@ old generation; no account/device replacement or prekey replenishment exists. Ho
 policy SQL/gateway changes are deployed only to the pilot, with preservation and
 negative HTTP evidence, not a positive signed policy/native exchange. The human
 allowlist metadata and unused human device slots were checked read-only on
-4 October; recheck before enrollment. Signing/installing, actual Capacitor
-invocation and the iPhone–iPad exchange remain unrun. Do not rerun provisioning
+4 October; recheck before enrollment. The separate research app is now signed,
+installed and its process launched on both devices. Actual Capacitor invocation,
+human login and the iPhone–iPad exchange remain unverified. Do not rerun provisioning
 or delete immutable rows to bypass those blocks. See the checkpoint for exact
 fixture, browser, compile and physical-test evidence categories.
 
@@ -374,10 +375,19 @@ unsigned research app, a matching development identity and a profile for exactly
 the two selected devices. Only explicit `--sign` signs a new private copy, with
 the exact research bundle and minimal entitlements. Embedded frameworks/dylibs
 must be unsigned; cached signed inputs refuse safely. It does not provision,
-build, install, launch or call the server. Its 21 validator fixtures are not real
-CMS trust, code signing or device acceptance. A matching research profile is
-still missing and owner approval to create it is pending; do not reuse the normal
-app's identifier, profile or Keychain groups.
+build, install, launch or call the server. Its 37 validator/command fixtures are
+not real CMS trust, code signing or device acceptance. A matching owner-approved
+research profile now exists; its optional Apple token authorization and companion
+platform labels never become extra app entitlements. A corrected optional
+certificate-extraction flag passed actual local strict signing checks. Separate
+device commands installed and launched that verified artifact on both endpoints;
+see the checkpoint for retained failed attempts and receipts. CMS decoding and
+local selected-certificate trust are not independent CMS authority or fresh
+revocation proof. Never reuse the normal app's identifier, profile or Keychain
+groups. No verified device SDK/native login, enrollment or physical message
+exchange has passed. The owner reports an iPhone login problem; a Mac-only Auth
+diagnostic accepts that account's stored test credentials. The on-phone failure
+stage and iPad native verification still need evidence.
 
 ## Directory and reservation contract
 

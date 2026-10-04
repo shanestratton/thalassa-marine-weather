@@ -2,7 +2,7 @@
 
 Updated 4 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
-The earlier native Auth baseline is commit `39321d303ae9aecaa69ca3fccd1c40b14675686e` on `codex/scuttlebutt-e2ee-foundation`. Later directory, screen and native-facade slices add passing isolated research, not functioning E2EE in Thalassa. A separate research messaging Capacitor app now compiles unsigned with an explicit one-peer bridge; actual Capacitor invocation and physical-device execution remain unrun. An owner-approved segregated hosted pilot exists; no production schema or accounts were changed. The authoritative execution record is [the checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md), including its 3 and 4 October sections. Freeze the selected assessment commit separately; these documents do not approve it for release.
+The earlier native Auth baseline is commit `39321d303ae9aecaa69ca3fccd1c40b14675686e` on `codex/scuttlebutt-e2ee-foundation`. Later directory, screen and native-facade slices add passing isolated research, not functioning E2EE in Thalassa. A separate research messaging Capacitor app is now signed, installed and its process launched on the selected iPhone and iPad. UI/plugin initialization, login and physical message exchange remain unverified. An owner-approved segregated hosted pilot exists; no production schema or accounts were changed. The authoritative execution record is [the checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md), including its 3 and 4 October sections. Freeze the selected assessment commit separately; these documents do not approve it for release.
 
 ## User problem and intended pilot
 
@@ -56,7 +56,21 @@ Do not infer physical restart or usable recovery from close/reopen fixtures. Nat
 block/revoke controls, device/prekey lifecycle, sync/retention and app cutover
 need separate implementation and assessment.
 
-The latest rerun passed 795 focused tests across 12 suites, 282 native
+The latest 4 October signing slice passed 811 focused tests, including 37 pure
+signing validator/command fixtures. The owner approved a separate development
+profile for exactly the selected endpoints. Strict local signatures and four
+minimal research-only entitlements passed on a fresh private app copy; all
+unsigned inputs remained unchanged. Both devices accepted installation and
+process launch. The first certificate-extraction failure and initial launch
+argument failures are retained beside corrected receipts. CMS decoding and
+local/cached verification of the selected development certificate do not prove
+independent Apple CMS profile authority or fresh revocation status. Device
+installation is separate platform acceptance, not a cryptographic audit or a
+passed messaging test. Normal Thalassa's bundle/version/build metadata remained
+unchanged; its private files were not inspected. No D01–D17 case is passed by
+these operations.
+
+The earlier restart-continuity rerun passed 795 focused tests across 12 suites, 282 native
 directory/facade assertions and 283 native bridge assertions, with all prior
 native suites and nine simulator phases passing. New continuity cases close and
 reopen endpoints within one process using real provider/Keychain/sealed state
@@ -64,9 +78,9 @@ and synthetic Auth/relay responses; they preserve pending ciphertext and decrypt
 successor messages both ways. All 30 exact Swift sources compiled unsigned for
 physical iOS, and the separate 17-source Capacitor app compiled with matching
 shared hashes. These are not force-kill, power-loss, live hosted or physical
-exchange results. The offline research signing runner has 21 pure-validator
-cases, not actual signing/profile acceptance. No matching research profile or
-signed/installable artifact exists yet. Inspect the checkpoint's precise receipts
+exchange results. That checkpoint had 21 pure signing-validator cases and no
+matching profile or signed artifact; the later signing/installation slice above
+supersedes those blocks. Inspect the checkpoint's precise receipts
 and remaining Keychain/install, account/device and prekey recovery gaps.
 
 ## Review scope

@@ -72,6 +72,70 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 4 October research signing and device installation
+
+The owner approved creating a separate development profile and signed in to
+Apple Developer. Visible portal actions created the explicit research App ID
+`app.thalassa.research.scuttlebutt-auth` and a development profile for exactly
+the selected iPhone and iPad under team `D4TW8A23QZ`. No optional capabilities,
+new certificate, production identifier or shared app group was added.
+
+The downloaded profile includes Apple's companion platform labels and an
+optional `com.apple.token` provisioning authorization. The validator now accepts
+only the observed platform sets with unique atomic labels, and exactly one
+research authorization group with that optional token group. Final signed app
+entitlements remain exactly four keys and the sole private research Keychain
+group. These profile authorizations are not copied as extra app grants.
+
+Observed evidence:
+
+- **811 focused tests across 12 suites passed**, including 37 pure signing
+  validator/command fixtures. Named test lint, signing-runner syntax and diff
+  checks passed. This is not ordinary-app CI or independent security review.
+- Offline profile/identity inspection passed. The first signing attempt stopped
+  at certificate extraction after signing its private copy. A regression test
+  and correction join the optional `codesign --extract-certificates` prefix
+  with `=`; the failed receipt is retained in `thalassa-research-sign-GIRBxz`.
+  No refused artifact was installed.
+- The corrected run signed a fresh private copy of the existing unsigned
+  `thalassa-messaging-build-tqCOsi` artifact. Strict local Apple-anchor/team
+  checks passed for the app, both dylibs and both frameworks. Final app
+  entitlements are research-only; nested code has no entitlements. All 58 signed
+  file hashes match, while the original 54 unsigned files and 17 source hashes
+  remain unchanged. Receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-research-sign-lHvfVA/signing-receipt.json`.
+- Device installation succeeded on both physical endpoints. Filtered inventory
+  reads confirm **Scuttlebutt Research 0.1.0 build 1** on each. Normal Thalassa
+  remained **1.2.0 build 119** on both; only its bundle/version/build metadata
+  was compared, not its private data files. Installation receipts and inventory:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-research-device-gsz55u`.
+- Both research processes launched successfully. Earlier launch commands
+  refused an empty environment dictionary before launching; corrected commands
+  supplied one harmless research-only label. The original and corrected
+  receipts are retained. A successful process launch does not prove rendered
+  UI, native plugin initialization, login or messaging.
+
+CMS decoding plus the selected development certificate's local/cached trust
+check is not an independent verification of Apple CMS profile authority or a
+fresh online revocation check. Actual iOS/iPadOS installation is separate
+platform-acceptance evidence. Internal agent checks are not an external audit.
+
+The owner subsequently reported that the iPad was working but the iPhone would
+not log in. A bounded Mac-to-pilot password request for the designated iPhone
+test account returned HTTP 200, and `/auth/v1/user` returned HTTP 200 with the
+expected account ID. No tokens or passwords were recorded in the receipt:
+`thalassa-research-device-gsz55u/iphone-auth-backend-check.json`. This checks
+the stored test credentials and backend from the Mac, not the credentials
+actually entered on the phone, its network, SDK or native host. The exact
+iPhone screen/error and confirmation of the iPad's native verified status are
+pending; no device reset, logout or reenrollment was attempted.
+
+No verified device SDK/native login or enrollment, fingerprint comparison, positive native-to-hosted
+policy/message exchange, physical restart test or independent security review
+has passed. Every D01–D17 device case remains unrun. The owner was asked to
+check both Account access screens before registration. No production
+database, primary worktree/sync or `master` change occurred.
+
 ### 4 October research restart continuity and device preparation
 
 Cold launch now fences credentials without signing out the selected owner.
@@ -134,14 +198,16 @@ using a matching development profile for exactly the two selected devices and
 four minimal entitlements. It refuses signed embedded inputs, extra capabilities
 and primary-app identifiers. It cannot build, provision, install, launch or call
 the relay. Internal review corrected literal `codesign --test-requirement`
-syntax before execution. The actual signing runner is unrun: no matching
-research profile exists, and owner approval to create it is pending. Pure
+syntax before execution. At this earlier checkpoint the actual signing runner
+was unrun and research profile approval was pending; the later signing and
+installation evidence above supersedes that block. Pure
 validators and local unsigned checks are not iOS profile acceptance or fresh
 certificate-revocation evidence.
 
 Cached provider archives were hashed, not rebuilt or independently attested.
-No signing, installation, launch, human enrollment, positive native-to-hosted
-policy/message exchange, primary sync or independent security audit occurred.
+This earlier slice performed no signing, installation, launch, human enrollment,
+positive native-to-hosted policy/message exchange or primary sync, and no
+independent security audit occurred.
 Physical restart cases remain unrun. Do not reset immutable pilot rows,
 re-enroll or start a new generation to manufacture continuity. Missing files or
 partial Keychain/install state, logout recovery, device/prekey lifecycle and
