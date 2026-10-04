@@ -52,9 +52,11 @@ struct DmMessageAuthorityHooksForResearch {
 
 /// One native session owns at most ONE pending fence and ONE accepted scope.
 /// Successful initial selection and same-owner renewal use distinct Directory
-/// capabilities. Cold relaunch with selected state, or a mismatched account,
-/// requires explicit native signOut followed by a fresh verify fence. There is
-/// never an implicit open/rebind fallback based on SDK account labels.
+/// capabilities. Cold relaunch can continue only an exact sealed selected,
+/// ready, active owner through fresh same-account Auth; no credential/readiness
+/// is restored. A mismatched account refuses without deactivating that owner.
+/// Explicit signOut still fences its generation before fresh account selection;
+/// there is never an implicit open/rebind fallback based on SDK account labels.
 final class VodozemacSessionFacade {
     private struct Pending {
         let id: String

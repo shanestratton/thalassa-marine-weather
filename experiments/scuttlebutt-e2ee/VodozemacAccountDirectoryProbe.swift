@@ -308,6 +308,32 @@ private func dmAccountDirectoryIdentityMatches(_ lhs: DmPublicIdentity, _ rhs: D
         && lhs.signingKey == rhs.signingKey && lhs.curve == rhs.curve && lhs.prekey == rhs.prekey
 }
 
+// Compare native fixture state without its one deliberately rotated credential
+// field. Secret-bearing payloads stay inside this disposable native fixture;
+// only a fixed assertion label/count escapes, never these bytes.
+private func dmAccountDirectoryPayloadWithout(_ field: String, payload: Data) throws -> Data {
+    guard var state = try JSONSerialization.jsonObject(with: payload) as? [String: Any],
+          state.removeValue(forKey: field) != nil else {
+        throw DmAccountDirectoryProbeError.assertion("native continuity fixture comparison field")
+    }
+    return try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])
+}
+
+private func dmAccountDirectoryCard(_ facade: VodozemacSessionFacade, account: DmSessionAccount) throws -> DmPairingCard {
+    let snapshot = try facade.messageSnapshot(credentialBinding: account.credentialBinding)
+    guard case .pairingCard(let card) = try facade.executeMessageOperation(snapshot: snapshot, operation: .pairingCard) else {
+        throw DmAccountDirectoryProbeError.assertion("native continuity fixture pairing result")
+    }
+    return card
+}
+
+private func dmAccountDirectoryThread(_ facade: VodozemacSessionFacade, snapshot: DmNativeMessageSnapshot) throws -> DmNativeThread {
+    guard case .thread(let thread) = try facade.executeMessageOperation(snapshot: snapshot, operation: .thread) else {
+        throw DmAccountDirectoryProbeError.assertion("native continuity fixture thread result")
+    }
+    return thread
+}
+
 /// Disposable native runner entry point. Only the nonsecret assertion count
 /// and optional fixed research progress labels escape. A callback must return
 /// promptly and must not call back into the fixture's native stores or facade.
@@ -860,8 +886,8 @@ private func dmAccountDirectoryRun(progressForResearch: (@Sendable (String) -> V
             "cross-directory loser performs no extra Auth or duplicate native account provisioning")
     }
 
-    // A mismatched SDK bearer is NOT account-selection permission. Native A is
-    // closed; B is provisioned only after explicit signOut and a fresh fence.
+    // A mismatched SDK bearer is NOT account-selection permission. Native A's
+    // credentials suspend; B needs explicit signOut and a fresh selection.
     progressForResearch?("directory-facade-account-mismatch")
     do {
         let controlled = try fixture()
@@ -873,23 +899,36 @@ private func dmAccountDirectoryRun(progressForResearch: (@Sendable (String) -> V
             try await facade.authenticate(accessToken: initialToken, authFence: initialFence.authFence)
         }
         let accountA = try controlled.account(userId: alice); handles.append(accountA.store)
+        let mismatchCoordinator = try VodozemacDmCoordinator(store: accountA.store)
+        let initialLife = try mismatchCoordinator.lifecycleForResearch()
+        let initialIdentity = try mismatchCoordinator.publicIdentity(owner: initialLife.owner)
+        let initialContent = try dmAccountDirectoryPayloadWithout("credentialEpoch", payload: accountA.store.read().payload)
         let mismatchFence = try facade.fenceSession(mode: .verify)
         let mismatchToken = "fixture.session.mismatch-B"
         install(mismatchToken, user: bob)
+        let mismatchReservedAccount = try accountA.store.read(), mismatchReservedIndex = try controlled.index.read()
         try await checks.sessionAuthRefuses("B token cannot silently turn A renewal into native account selection") {
             try await facade.authenticate(accessToken: mismatchToken, authFence: mismatchFence.authFence)
         }
         try checks.require(try facade.currentAccount() == nil && DmAccountDirectoryProtocol.count(mismatchToken) == 1
             && (try controlled.rows()).count == 1 && (try controlled.state()["selectedUserId"] as? String) == alice
-            && !(try VodozemacDmCoordinator(store: accountA.store).lifecycleForResearch()).active,
-            "mismatch closes selected A without provisioning B, changing owner selection or publishing a mapping")
-        let mismatchedAccount = try accountA.store.read(), mismatchedIndex = try controlled.index.read()
-        try checks.sessionRefuses("inactive selected account refuses the next verify until explicit native signOut") {
-            _ = try facade.fenceSession(mode: .verify)
+            && (try VodozemacDmCoordinator(store: accountA.store).lifecycleForResearch()).active
+            && (try accountA.store.read()) == mismatchReservedAccount && (try controlled.index.read()) == mismatchReservedIndex,
+            "wrong selected-owner token suspends credentials without provisioning B or advancing the reserved native lifecycle")
+        let retryToken = "fixture.session.mismatch-retry-A"
+        install(retryToken)
+        let retryFence = try facade.fenceSession(mode: .verify)
+        let retried = try await checks.sessionAuthSucceeds("matching selected owner cannot retry after credential-only mismatch refusal") {
+            try await facade.authenticate(accessToken: retryToken, authFence: retryFence.authFence)
         }
-        try checks.require(try accountA.store.read() == mismatchedAccount && (try controlled.index.read()) == mismatchedIndex
-            && DmAccountDirectoryProtocol.count(mismatchToken) == 1 && facade.currentAccount() == nil,
-            "refused implicit mismatch recovery changes no sealed state or Auth request count")
+        try checks.require(try retried.accountId == alice && retried.deviceId == initial.deviceId
+            && retried.credentialBinding != initial.credentialBinding && facade.currentAccount() == retried
+            && DmAccountDirectoryProtocol.count(retryToken) == 1
+            && mismatchCoordinator.lifecycleForResearch().owner == initialLife.owner
+            && mismatchCoordinator.lifecycleForResearch().credentialEpoch != initialLife.credentialEpoch
+            && dmAccountDirectoryIdentityMatches(initialIdentity, mismatchCoordinator.publicIdentity(owner: initialLife.owner))
+            && dmAccountDirectoryPayloadWithout("credentialEpoch", payload: accountA.store.read().payload) == initialContent,
+            "matching-owner retry keeps exact native generation, peer state, device and keys while publishing fresh credentials")
         progressForResearch?("directory-facade-explicit-signout")
         let signOutFence = try facade.fenceSession(mode: .signOut)
         let signedOutIndex = try controlled.index.read(), signedOutAccount = try accountA.store.read()
@@ -937,30 +976,233 @@ private func dmAccountDirectoryRun(progressForResearch: (@Sendable (String) -> V
             try await original.authenticate(accessToken: token, authFence: fence.authFence)
         }
         let account = try controlled.account(userId: alice); handles.append(account.store)
+        let coordinator = try VodozemacDmCoordinator(store: account.store)
+        let beforeLife = try coordinator.lifecycleForResearch()
+        let ownCard = try dmAccountDirectoryCard(original, account: accepted)
+        let coldPeer = try fixture(), peerFacade = VodozemacSessionFacade(directory: coldPeer.directory)
+        let peerToken = "fixture.session.cold-peer"
+        install(peerToken, user: bob)
+        let peerFence = try peerFacade.fenceSession(mode: .verify)
+        let peerAccepted = try await checks.sessionAuthSucceeds("cold continuity fixture cannot establish peer account") {
+            try await peerFacade.authenticate(accessToken: peerToken, authFence: peerFence.authFence)
+        }
+        let peerAccount = try coldPeer.account(userId: bob); handles.append(peerAccount.store)
+        let peerCoordinator = try VodozemacDmCoordinator(store: peerAccount.store)
+        let peerLife = try peerCoordinator.lifecycleForResearch(), peerCard = try dmAccountDirectoryCard(peerFacade, account: peerAccepted)
+        // Explicit native fixture OOB confirmation, not server lookup-as-trust.
+        _ = try original.executeMessageOperation(snapshot: original.messageSnapshot(credentialBinding: accepted.credentialBinding),
+            operation: .confirmPeer(card: peerCard, confirmedFingerprint: peerCard.fingerprint()))
+        _ = try peerFacade.executeMessageOperation(snapshot: peerFacade.messageSnapshot(credentialBinding: peerAccepted.credentialBinding),
+            operation: .confirmPeer(card: ownCard, confirmedFingerprint: ownCard.fingerprint()))
+        let ownerInitiates = accepted.deviceId < peerAccepted.deviceId
+        let initiator = ownerInitiates ? coordinator : peerCoordinator
+        let responder = ownerInitiates ? peerCoordinator : coordinator
+        let initiatorOwner = ownerInitiates ? beforeLife.owner : peerLife.owner
+        let responderOwner = ownerInitiates ? peerLife.owner : beforeLife.owner
+        let opening = try initiator.prepare(clientMessageId: "cold-native-opening", text: "native cold opening fixture",
+            owner: initiatorOwner, peerGeneration: 1)
+        _ = try responder.receive(opening.serializedEnvelope, owner: responderOwner, peerGeneration: 1)
+        let reply = try responder.prepare(clientMessageId: "cold-native-reply", text: "native cold reply fixture",
+            owner: responderOwner, peerGeneration: 1)
+        _ = try initiator.receive(reply.serializedEnvelope, owner: initiatorOwner, peerGeneration: 1)
+        let oldSnapshot = try original.messageSnapshot(credentialBinding: accepted.credentialBinding, peerGeneration: 1)
+        let beforeThread = try dmAccountDirectoryThread(original, snapshot: oldSnapshot)
+        let beforePending = try coordinator.pending(owner: beforeLife.owner, peerGeneration: 1)
+        let beforePeer = try coordinator.peerForResearch(owner: beforeLife.owner, generation: 1)
+        try checks.require(beforeThread.messages.count == 2 && beforePending.count == 1
+            && beforeThread.messages.contains(where: { $0.direction == .incoming })
+            && beforeThread.messages.contains(where: { $0.direction == .outgoing }),
+            "real provider fixture contains both received history and exact pending outgoing ciphertext before reopen")
         let coldDirectory = try controlled.reopen(auth: auth); directories.append(coldDirectory)
         let cold = VodozemacSessionFacade(directory: coldDirectory)
         let beforeAccount = try account.store.read(), beforeIndex = try controlled.index.read()
-        let coldToken = "fixture.session.cold-refused"
-        install(coldToken)
-        try checks.sessionRefuses("cold selected directory cannot infer native renewal permission from persisted account selection") {
-            _ = try cold.fenceSession(mode: .verify)
+        let beforeContent = try dmAccountDirectoryPayloadWithout("credentialEpoch", payload: beforeAccount.payload)
+        let beforeSelection = try dmAccountDirectoryPayloadWithout("epoch", payload: beforeIndex.payload)
+        try checks.require(cold.currentAccount() == nil && original.currentAccount() == accepted,
+            "strict cold reopen alone restores no credential or account readiness")
+        try checks.sessionRefuses("persisted public binding cannot expose cold message/history authority before native verification") {
+            _ = try cold.messageSnapshot(credentialBinding: accepted.credentialBinding, peerGeneration: 1)
         }
-        try checks.require(try cold.currentAccount() == nil && original.currentAccount() == accepted
-            && DmAccountDirectoryProtocol.count(coldToken) == 0 && (try account.store.read()) == beforeAccount
-            && (try controlled.index.read()) == beforeIndex,
-            "cold verify refusal performs zero Auth and does not mutate another live handle's accepted native scope")
+        let wrongToken = "fixture.session.cold-wrong-owner"
+        install(wrongToken, user: bob)
+        let coldFence = try cold.fenceSession(mode: .verify)
+        let reservedLife = try coordinator.lifecycleForResearch()
+        let reservedAccount = try account.store.read(), reservedIndex = try controlled.index.read()
+        try checks.require(try reservedLife.active && reservedLife.owner == beforeLife.owner
+            && reservedLife.credentialEpoch != beforeLife.credentialEpoch
+            && dmAccountDirectoryPayloadWithout("credentialEpoch", payload: reservedAccount.payload) == beforeContent
+            && dmAccountDirectoryPayloadWithout("epoch", payload: reservedIndex.payload) == beforeSelection
+            && reservedIndex != beforeIndex && cold.currentAccount() == nil && original.currentAccount() == nil
+            && DmAccountDirectoryProtocol.count(wrongToken) == 0,
+            "cold reservation fences old handles before Auth while changing only directory and credential epochs")
+        try checks.require(original.currentMessageContext(snapshot: oldSnapshot) == nil,
+            "cold reservation invalidates the old exact native network snapshot")
+        try checks.sessionRefuses("old facade snapshot cannot expose thread history after cold reservation") {
+            _ = try original.executeMessageOperation(snapshot: oldSnapshot, operation: .thread)
+        }
+        try checks.sessionRefuses("cold reserved scope exposes no history credential before matching fresh Auth") {
+            _ = try cold.messageSnapshot(credentialBinding: accepted.credentialBinding, peerGeneration: 1)
+        }
+        try await checks.sessionAuthRefuses("fresh wrong user cannot select or deactivate the persisted cold owner") {
+            try await cold.authenticate(accessToken: wrongToken, authFence: coldFence.authFence)
+        }
+        try checks.require(try cold.currentAccount() == nil && DmAccountDirectoryProtocol.count(wrongToken) == 1
+            && account.store.read() == reservedAccount && controlled.index.read() == reservedIndex
+            && coordinator.lifecycleForResearch() == reservedLife,
+            "wrong cold owner refusal leaves exact reserved index/account bytes and active generation unchanged")
+        let coldToken = "fixture.session.cold-matching-owner"
+        install(coldToken)
+        let retryFence = try cold.fenceSession(mode: .verify)
+        let continued = try await checks.sessionAuthSucceeds("matching cold owner cannot continue its strict existing native binding") {
+            try await cold.authenticate(accessToken: coldToken, authFence: retryFence.authFence)
+        }
+        let continuedLife = try coordinator.lifecycleForResearch()
+        let continuedSnapshot = try cold.messageSnapshot(credentialBinding: continued.credentialBinding, peerGeneration: 1)
+        let continuedThread = try dmAccountDirectoryThread(cold, snapshot: continuedSnapshot)
+        try checks.require(try continued.accountId == accepted.accountId && continued.deviceId == accepted.deviceId
+            && continued.credentialBinding != accepted.credentialBinding && continuedLife.active
+            && continuedLife.owner == beforeLife.owner && continuedLife.credentialEpoch != reservedLife.credentialEpoch
+            && cold.currentAccount() == continued && DmAccountDirectoryProtocol.count(coldToken) == 1
+            && dmAccountDirectoryIdentityMatches(ownCard.identity, coordinator.publicIdentity(owner: continuedLife.owner)),
+            "fresh exact owner verification preserves device generation and all public identity keys with new native credential binding")
+        try checks.require(try continuedThread.ownerGeneration == beforeThread.ownerGeneration
+            && continuedThread.peerGeneration == beforeThread.peerGeneration && continuedThread.messages == beforeThread.messages
+            && coordinator.pending(owner: continuedLife.owner, peerGeneration: 1) == beforePending
+            && coordinator.peerForResearch(owner: continuedLife.owner, generation: 1) == beforePeer
+            && dmAccountDirectoryPayloadWithout("credentialEpoch", payload: account.store.read().payload) == beforeContent
+            && dmAccountDirectoryPayloadWithout("epoch", payload: controlled.index.read().payload) == beforeSelection,
+            "cold continuation preserves exact ratchet/account/peer state, inbound history and pending ciphertext instead of recreating or rebinding it")
+        try checks.sessionRefuses("old public binding cannot mint the successfully continued native lease") {
+            _ = try cold.messageSnapshot(credentialBinding: accepted.credentialBinding, peerGeneration: 1)
+        }
+        let continuedAccount = try account.store.read(), continuedIndex = try controlled.index.read()
+        let replayToken = "fixture.session.cold-old-fence"
+        install(replayToken)
+        try await checks.sessionAuthRefuses("used wrong-owner cold fence cannot cancel the matching-owner winner") {
+            try await cold.authenticate(accessToken: replayToken, authFence: coldFence.authFence)
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(replayToken) == 0 && cold.currentAccount() == continued
+            && account.store.read() == continuedAccount && controlled.index.read() == continuedIndex,
+            "obsolete cold auth handle performs zero HTTP and preserves exact continued native winner")
         _ = try cold.fenceSession(mode: .signOut)
-        try checks.require(try original.currentAccount() == nil && (try controlled.state()["selectedUserId"]) == nil,
-            "explicit cold native signOut durably fences the previous live account mapping")
-        let restartToken = "fixture.session.cold-explicit-B"
-        install(restartToken, user: bob)
+        let signedOutLife = try coordinator.lifecycleForResearch()
+        try checks.require(try cold.currentAccount() == nil && original.currentAccount() == nil
+            && cold.currentMessageContext(snapshot: continuedSnapshot) == nil && (try controlled.state()["selectedUserId"]) == nil
+            && !signedOutLife.active && signedOutLife.owner.generation > continuedLife.owner.generation,
+            "explicit logout still unselects and advances owner generation rather than becoming passive cold suspension")
+        let restartToken = "fixture.session.cold-explicit-A"
+        install(restartToken)
         let restartFence = try cold.fenceSession(mode: .verify)
-        let restarted = try await checks.sessionAuthSucceeds("cold explicit signOut then fresh verify cannot authenticate") {
+        let restarted = try await checks.sessionAuthSucceeds("explicit logout then fresh same-owner selection cannot authenticate") {
             try await cold.authenticate(accessToken: restartToken, authFence: restartFence.authFence)
         }
-        try checks.require(try restarted.accountId == bob && restarted.deviceId != accepted.deviceId && cold.currentAccount() == restarted
-            && DmAccountDirectoryProtocol.count(restartToken) == 2 && (try controlled.rows()).count == 2,
-            "cold native host can select B only after explicit durable signOut and both fresh Auth verifications")
+        let restartedLife = try coordinator.lifecycleForResearch()
+        let restartedSnapshot = try cold.messageSnapshot(credentialBinding: restarted.credentialBinding, peerGeneration: 1)
+        let restartedThread = try dmAccountDirectoryThread(cold, snapshot: restartedSnapshot)
+        try checks.require(try restarted.accountId == alice && restarted.deviceId == accepted.deviceId
+            && restartedLife.owner.generation > signedOutLife.owner.generation && cold.currentAccount() == restarted
+            && DmAccountDirectoryProtocol.count(restartToken) == 2 && (try controlled.rows()).count == 1
+            && restartedThread.messages.isEmpty && coordinator.history(owner: restartedLife.owner, peerGeneration: 1).isEmpty
+            && coordinator.pending(owner: restartedLife.owner, peerGeneration: 1).isEmpty,
+            "explicit same-owner relogin keeps immutable identity but never revives old-generation history or pending records")
+    }
+
+    // URLProtocol delays only HTTP delivery. No native authority lock spans this
+    // await; a durable explicit logout or newer verified owner wins meanwhile.
+    progressForResearch?("directory-facade-cold-late-auth")
+    for selectWinner in [false, true] {
+        let controlled = try fixture(), original = VodozemacSessionFacade(directory: controlled.directory)
+        let suffix = selectWinner ? "winner" : "logout"
+        let originalToken = "fixture.session.cold-race-original." + suffix
+        install(originalToken)
+        let originalFence = try original.fenceSession(mode: .verify)
+        _ = try await checks.sessionAuthSucceeds("cold race fixture cannot establish original selected owner") {
+            try await original.authenticate(accessToken: originalToken, authFence: originalFence.authFence)
+        }
+        let accountA = try controlled.account(userId: alice); handles.append(accountA.store)
+        let coldDirectory = try controlled.reopen(auth: auth); directories.append(coldDirectory)
+        let cold = VodozemacSessionFacade(directory: coldDirectory), gate = DmAccountDirectoryGate()
+        defer { gate.release() }
+        let lateToken = "fixture.session.cold-race-late." + suffix
+        var held = DmAccountDirectoryProtocol.Script(userId: alice); held.gate = gate
+        DmAccountDirectoryProtocol.install([held], bearer: lateToken)
+        let coldFence = try cold.fenceSession(mode: .verify)
+        let late = Task { try await cold.authenticate(accessToken: lateToken, authFence: coldFence.authFence) }
+        defer { late.cancel() }
+        try await dmAccountDirectoryAwaitRequest(lateToken)
+        try checks.sessionRefuses("held cold Auth grants no native message/history snapshot") {
+            _ = try cold.messageSnapshot(credentialBinding: UUID().uuidString.lowercased())
+        }
+        _ = try original.fenceSession(mode: .signOut)
+        var winner: DmSessionAccount?
+        var winnerStore: VodozemacSealedStore?
+        if selectWinner {
+            let winnerToken = "fixture.session.cold-race-B"
+            install(winnerToken, user: bob)
+            let winnerFence = try original.fenceSession(mode: .verify)
+            winner = try await checks.sessionAuthSucceeds("explicit newer cold-race account cannot become current") {
+                try await original.authenticate(accessToken: winnerToken, authFence: winnerFence.authFence)
+            }
+            let accountB = try controlled.account(userId: bob); handles.append(accountB.store); winnerStore = accountB.store
+        }
+        let afterAccount = try accountA.store.read(), afterIndex = try controlled.index.read()
+        let afterWinner = try winnerStore?.read()
+        gate.release()
+        try await checks.sessionAuthRefuses("late cold same-owner Auth cannot undo explicit logout or a newer account winner") {
+            try await late.value
+        }
+        try checks.require(try cold.currentAccount() == nil && original.currentAccount() == winner
+            && accountA.store.read() == afterAccount && controlled.index.read() == afterIndex
+            && winnerStore?.read() == afterWinner && DmAccountDirectoryProtocol.count(lateToken) == 1,
+            "late cold completion preserves exact durable logout or winner state without stale account compensation")
+    }
+
+    // A continuation accepts ONLY an existing selected/ready/active exact
+    // binding. These explicit faults cannot become replacement identities.
+    progressForResearch?("directory-facade-cold-invalid-binding")
+    for fault in ["inactive", "reserved", "blocked", "missing-key", "missing-database"] {
+        let controlled = try fixture()
+        _ = try await open(controlled, bearer: "fixture.session.cold-invalid-original." + fault, user: alice)
+        let account = try controlled.account(userId: alice); handles.append(account.store)
+        let beforeRows = try controlled.rows()
+        switch fault {
+        case "inactive":
+            _ = try VodozemacDmCoordinator(store: account.store).deactivateAuthScopeForResearch()
+        case "reserved", "blocked":
+            let before = try controlled.index.read()
+            guard var state = try JSONSerialization.jsonObject(with: before.payload) as? [String: Any],
+                  var rows = state["accounts"] as? [[String: Any]], rows.count == 1 else {
+                throw DmAccountDirectoryProbeError.assertion("cold invalid binding fixture")
+            }
+            rows[0]["status"] = fault; state["accounts"] = rows
+            _ = try controlled.index.commit(expectedRevision: before.revision,
+                payload: JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]))
+        case "missing-key": try VodozemacSealedStore.deleteResearchKey(storeID: account.id)
+        default:
+            controlled.directory.closeForResearch(); account.store.close()
+            let database = account.url.appendingPathComponent("snapshot.sqlite")
+            guard database.path.withCString({ Darwin.unlink($0) }) == 0 else {
+                throw DmAccountDirectoryProbeError.assertion("remove exact cold fixture account database")
+            }
+        }
+        let invalidIndex = try controlled.index.read()
+        let token = "fixture.session.cold-invalid-refused." + fault
+        install(token)
+        if fault == "reserved" || fault == "blocked" {
+            try checks.refuses("selected nonready binding refuses cold directory construction") {
+                _ = try controlled.reopen(auth: auth)
+            }
+        } else {
+            let reopened = try controlled.reopen(auth: auth); directories.append(reopened)
+            let cold = VodozemacSessionFacade(directory: reopened)
+            try checks.sessionRefuses("inactive or missing cold account refuses continuation before fresh Auth") {
+                _ = try cold.fenceSession(mode: .verify)
+            }
+        }
+        try checks.require(try DmAccountDirectoryProtocol.count(token) == 0 && controlled.index.read() == invalidIndex
+            && beforeRows.count == 1 && (try controlled.rows()).count == 1
+            && controlled.rows()[0]["storeId"] as? String == account.id.uuidString.lowercased(),
+            "invalid cold binding performs zero Auth and allocates no new namespace or replacement device")
     }
 
     // Inject only the facade clock: expiry is deterministic, zero-HTTP, and
