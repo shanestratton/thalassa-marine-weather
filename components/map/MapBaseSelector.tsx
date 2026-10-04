@@ -1,32 +1,36 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import type { ObsChartBase } from '../../types/settings';
 import { triggerHaptic } from '../../utils/system';
 
-export type MapBaseKind = 'hybrid' | 'satellite' | 'ocean';
+export type MapBaseKind = ObsChartBase;
 
-export function mapBaseVisibility(value: MapBaseKind): {
-    hybrid: boolean;
-    satellite: boolean;
-    ocean: boolean;
-} {
+/** Which layer groups a base lights. The imagery bases stay exclusive. */
+export function mapBaseVisibility(value: MapBaseKind) {
     return {
-        hybrid: value === 'hybrid',
-        satellite: value === 'satellite',
+        relief: value === 'relief' || value === 'reliefSat',
+        landImagery: value === 'reliefSat',
         ocean: value === 'ocean',
+        satellite: value === 'satellite',
+        hybrid: value === 'hybrid',
     };
 }
 
-/* The descriptions say what each base really shows. Satellite is not "clean":
-   MapHub lifts the base style's town names over the raw imagery on purpose,
-   so the difference from Hybrid is Hybrid's roads and points of interest,
-   not the names (UX scorecard run 9). */
-const MAP_BASE_OPTIONS: ReadonlyArray<{
+/* Short labels: the checked one rides in the top-centre pill between the zoom
+   readout and the mic. The descriptions say what each base really shows.
+   Satellite is not "clean": MapHub lifts the base style's town names over the
+   raw imagery on purpose, so the difference from Hybrid is Hybrid's roads and
+   points of interest, not the names (UX scorecard run 9). Relief leads
+   (Shane 2026-10-04: the satellite stitching); see reliefBase.ts. */
+export const MAP_BASE_OPTIONS: ReadonlyArray<{
     id: MapBaseKind;
     label: string;
     description: string;
 }> = [
-    { id: 'hybrid', label: 'Hybrid', description: 'Imagery with roads and names' },
+    { id: 'relief', label: 'Relief', description: 'Seafloor shape and depth' },
+    { id: 'reliefSat', label: 'Relief + Sat', description: 'Seafloor, with satellite land' },
+    { id: 'ocean', label: 'Ocean', description: 'Plain sea, depth offshore' },
     { id: 'satellite', label: 'Satellite', description: 'Imagery with town names' },
-    { id: 'ocean', label: 'Ocean', description: 'Bathymetry background' },
+    { id: 'hybrid', label: 'Hybrid', description: 'Imagery with roads and names' },
 ];
 
 export interface MapBaseSelectorProps {
@@ -203,9 +207,9 @@ export function MapBaseSelector({
                         2026-09-05: "move the enc button up into that drop down
                         box... put it at the bottom after ocean").
 
-                        A CHECKBOX, not a fourth radio. Hybrid/Satellite/Ocean
-                        are one exclusive choice of raster; ENC is a separate
-                        stack drawn ABOVE whichever of those is showing. Making
+                        A CHECKBOX, not another radio. The bases are one
+                        exclusive choice; ENC is a separate stack drawn
+                        ABOVE whichever of those is showing. Making
                         it a menuitemradio would tell a screen reader that
                         turning charts on turns the base map off.
 

@@ -347,7 +347,7 @@ describe('decision 9 beside decision 10 — survey stretches are amber DASHES', 
             expect(tide).toBeGreaterThan(1);
             return colours[tide + 1];
         };
-        expect(layers.map((l) => l.id)).toEqual(['route-glow', 'route-line-layer', 'route-core']);
+        expect(layers.map((l) => l.id)).toEqual(['route-glow', 'route-casing', 'route-line-layer', 'route-core']);
         expect(tideColour('route-glow')).toBe(NEEDS_TIDE_AMBER);
         expect(tideColour('route-line-layer')).toBe(NEEDS_TIDE_AMBER);
         expect(tideColour('route-core')).toBe('#ffe0b2');

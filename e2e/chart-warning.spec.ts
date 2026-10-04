@@ -5,10 +5,28 @@ test.use({
     // Service-worker fetches bypass page routes; never let a live tide
     // response race the deterministic no-data or populated-tide fixture.
     serviceWorkers: 'block',
+    // The fixture style below is background-only, with no `composite` source,
+    // so only an imagery base brings credits of its own: Relief and Ocean draw
+    // the style's own sea, which the real dark-v11 always credits. Pin Hybrid
+    // rather than ride the build's default (Relief, once its tiles are served;
+    // Satellite before).
     storageState: async ({ baseURL }, provide) => {
         await provide({
             ...ONBOARDED_STORAGE,
-            origins: ONBOARDED_STORAGE.origins.map((origin) => ({ ...origin, origin: new URL(baseURL!).origin })),
+            origins: ONBOARDED_STORAGE.origins.map((origin) => ({
+                ...origin,
+                origin: new URL(baseURL!).origin,
+                localStorage: origin.localStorage.map((entry) => {
+                    if (
+                        entry.name !== 'thalassa_settings_mirror::anonymous' &&
+                        entry.name !== 'CapacitorStorage.thalassa_settings::anonymous'
+                    )
+                        return entry;
+                    const saved = JSON.parse(entry.value);
+                    saved.settings.obsChartBase = 'hybrid';
+                    return { ...entry, value: JSON.stringify(saved) };
+                }),
+            })),
         });
     },
 });
@@ -827,16 +845,18 @@ for (const size of [
         await toggle.click();
         await expect(toggle).toHaveAttribute('aria-expanded', 'false');
         await expect(credits).not.toBeVisible();
-        // Native source-change handling must survive the custom compact mode.
+        // Native source-change handling must survive the custom compact mode:
+        // from the pinned Hybrid to Satellite is a real source change, and
+        // Hybrid's OpenStreetMap credit must go with it.
         await page.getByRole('button', { name: /^Map base:/ }).click();
-        await page.getByRole('menuitemradio', { name: /^Hybrid / }).click();
-        await expect(page.getByRole('button', { name: 'Map base: Hybrid', exact: true })).toBeVisible();
+        await page.getByRole('menuitemradio', { name: /^Satellite / }).click();
+        await expect(page.getByRole('button', { name: 'Map base: Satellite', exact: true })).toBeVisible();
         await expect(attribution).toHaveCount(1);
         await expect(attribution).toHaveClass(/mapboxgl-compact/);
         await toggle.click();
         await expect(credits).toBeVisible();
         await expect(credits).toContainText('Maxar');
-        await expect(credits).toContainText('OpenStreetMap');
+        await expect(credits).not.toContainText('OpenStreetMap');
         await expectFullHitTarget(toggle, 'Mapbox attribution toggle');
         await expectFullHitTarget(attribution, 'Opened Mapbox credits');
         await expectFullHitTarget(logo, 'Mapbox logo');

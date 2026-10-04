@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from '../components/map/MapBaseSelector';
+import {
+    MAP_BASE_OPTIONS,
+    MapBaseSelector,
+    mapBaseVisibility,
+    type MapBaseKind,
+} from '../components/map/MapBaseSelector';
 
 const triggerHaptic = vi.hoisted(() => vi.fn());
 vi.mock('../utils/system', async (importOriginal) => ({
@@ -9,8 +14,16 @@ vi.mock('../utils/system', async (importOriginal) => ({
     triggerHaptic,
 }));
 
-function Harness({ encCellCount = 9, onToggleEnc = vi.fn() }: { encCellCount?: number; onToggleEnc?: () => void }) {
-    const [base, setBase] = useState<MapBaseKind>('hybrid');
+function Harness({
+    encCellCount = 9,
+    onToggleEnc = vi.fn(),
+    initial = 'relief',
+}: {
+    encCellCount?: number;
+    onToggleEnc?: () => void;
+    initial?: MapBaseKind;
+}) {
+    const [base, setBase] = useState<MapBaseKind>(initial);
     const [enc, setEnc] = useState(true);
     return (
         <MapBaseSelector
@@ -30,36 +43,95 @@ function Harness({ encCellCount = 9, onToggleEnc = vi.fn() }: { encCellCount?: n
 beforeEach(() => triggerHaptic.mockClear());
 
 describe('MapBaseSelector', () => {
-    it('makes Hybrid, Satellite, and Ocean explicit reachable choices', () => {
+    it('offers Relief first, then Relief + Sat, Ocean, Satellite and Hybrid, then the ENC row', () => {
+        render(<Harness />);
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        const menu = screen.getByRole('menu', { name: 'Map base' });
+        const items = Array.from(menu.querySelectorAll('[role^="menuitem"]'));
+        expect(items.map((item) => item.querySelector('.font-black')?.textContent)).toEqual([
+            'Relief',
+            'Relief + Sat',
+            'Ocean',
+            'Satellite',
+            'Hybrid',
+            'ENC charts',
+        ]);
+        expect(items[0]).toHaveAttribute('aria-checked', 'true');
+        expect(items[5]).toHaveAttribute('role', 'menuitemcheckbox');
+    });
+
+    it('keeps the labels short enough for the top-centre pill and every description to one plain line', () => {
+        for (const option of MAP_BASE_OPTIONS) {
+            expect(option.label.length).toBeLessThanOrEqual(12);
+            expect(option.description.length).toBeLessThanOrEqual(34);
+            expect(option.description).not.toMatch(/bathymetr|raster|GEBCO|vector/i);
+        }
+    });
+
+    it('makes every base an explicit reachable choice', () => {
         render(<Harness />);
 
         // No beta wording on the chart at all (Shane 2026-08-06).
         expect(screen.queryByText(/beta/i)).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Map base: Hybrid' }).parentElement).toHaveClass('z-700');
-        fireEvent.click(screen.getByRole('button', { name: 'Map base: Hybrid' }));
-        expect(screen.getByRole('button', { name: 'Map base: Hybrid' }).parentElement).toHaveClass('z-9998');
-        // The "Visual background only — ENC safety layers stay above it."
-        // header is gone (Shane 2026-09-05). The ENC row below says the same
-        // thing by being switchable, which is more use than a caption.
+        expect(screen.getByRole('button', { name: 'Map base: Relief' }).parentElement).toHaveClass('z-700');
+        fireEvent.click(screen.getByRole('button', { name: 'Map base: Relief' }));
+        expect(screen.getByRole('button', { name: 'Map base: Relief' }).parentElement).toHaveClass('z-9998');
         expect(screen.getByRole('menu', { name: 'Map base' })).not.toHaveTextContent('Visual background only');
-        fireEvent.click(screen.getByRole('menuitemradio', { name: /Satellite Imagery with town names/ }));
-        expect(screen.getByRole('button', { name: 'Map base: Satellite' })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Map base: Satellite' }).parentElement).toHaveClass('z-700');
 
-        fireEvent.click(screen.getByRole('button', { name: 'Map base: Satellite' }));
-        fireEvent.click(screen.getByRole('menuitemradio', { name: /Ocean Bathymetry background/ }));
-        expect(screen.getByRole('button', { name: 'Map base: Ocean' })).toBeInTheDocument();
+        for (const option of MAP_BASE_OPTIONS) {
+            const trigger = screen.queryByRole('menu', { name: 'Map base' })
+                ? null
+                : screen.getByRole('button', { name: /^Map base:/ });
+            if (trigger) fireEvent.click(trigger);
+            fireEvent.click(screen.getByRole('menuitemradio', { name: `${option.label} ${option.description}` }));
+            expect(screen.getByRole('button', { name: `Map base: ${option.label}` })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: `Map base: ${option.label}` }).parentElement).toHaveClass(
+                'z-700',
+            );
+        }
         expect(triggerHaptic).toHaveBeenCalled();
     });
 
-    it('maps every choice to exactly one raster base', () => {
-        expect(mapBaseVisibility('hybrid')).toEqual({ hybrid: true, satellite: false, ocean: false });
-        expect(mapBaseVisibility('satellite')).toEqual({ hybrid: false, satellite: true, ocean: false });
-        expect(mapBaseVisibility('ocean')).toEqual({ hybrid: false, satellite: false, ocean: true });
+    it('maps every choice onto its layer groups, imagery bases exclusive', () => {
+        expect(mapBaseVisibility('relief')).toEqual({
+            relief: true,
+            landImagery: false,
+            ocean: false,
+            satellite: false,
+            hybrid: false,
+        });
+        expect(mapBaseVisibility('reliefSat')).toEqual({
+            relief: true,
+            landImagery: true,
+            ocean: false,
+            satellite: false,
+            hybrid: false,
+        });
+        expect(mapBaseVisibility('ocean')).toEqual({
+            relief: false,
+            landImagery: false,
+            ocean: true,
+            satellite: false,
+            hybrid: false,
+        });
+        expect(mapBaseVisibility('satellite')).toEqual({
+            relief: false,
+            landImagery: false,
+            ocean: false,
+            satellite: true,
+            hybrid: false,
+        });
+        expect(mapBaseVisibility('hybrid')).toEqual({
+            relief: false,
+            landImagery: false,
+            ocean: false,
+            satellite: false,
+            hybrid: true,
+        });
     });
 
     it('closes with Escape and restores focus to its trigger', () => {
-        render(<Harness />);
+        render(<Harness initial="hybrid" />);
         const trigger = screen.getByRole('button', { name: 'Map base: Hybrid' });
         fireEvent.click(trigger);
         fireEvent.keyDown(screen.getByRole('menuitemradio', { name: /Hybrid Imagery with roads and names/ }), {

@@ -143,13 +143,11 @@ describe('pane-aware native map attribution', () => {
     it('continues showing the credits of the currently used source in compact mode', () => {
         const map = chart(700, true);
         map.style._mergedSourceCaches.basemap.getSource = () => ({
-            attribution: '<a href="https://www.maptiler.com/copyright/">© MapTiler</a> | © OpenStreetMap contributors',
+            attribution: '<a href="https://www.gebco.net/">GEBCO 2026 Grid</a> | © OpenStreetMap contributors',
         });
         map.emit('sourcedata', { dataType: 'source', sourceDataType: 'metadata' });
         map.container.querySelector('button')!.click();
-        expect(map.container.querySelector('a[href="https://www.maptiler.com/copyright/"]')).toHaveTextContent(
-            'MapTiler',
-        );
+        expect(map.container.querySelector('a[href="https://www.gebco.net/"]')).toHaveTextContent('GEBCO');
         expect(map.container.querySelector('.mapboxgl-ctrl-attrib-inner')).toHaveTextContent(
             'OpenStreetMap contributors',
         );

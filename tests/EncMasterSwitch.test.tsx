@@ -17,8 +17,8 @@
  * still be offered when the charts are ALREADY OFF (or it is a one-way door),
  * and it must be reachable by keyboard like every other item in the menu.
  *
- * It is a CHECKBOX, not a fourth radio. Hybrid/Satellite/Ocean are one
- * exclusive choice of raster; ENC is a separate stack drawn above whichever of
+ * It is a CHECKBOX, not another radio. The bases (Relief, Relief + Sat, Ocean,
+ * Satellite, Hybrid since 2026-10-04) are one exclusive choice; ENC is a separate stack drawn above whichever of
  * those is showing. As a menuitemradio it would tell a screen reader that
  * turning charts on turns the base map off.
  */
@@ -71,13 +71,13 @@ describe('the ENC master switch', () => {
         expect(controls).not.toContain('onToggleEncVisible');
     });
 
-    it('sits at the bottom, after Ocean', () => {
+    it('sits at the bottom, after the last base', () => {
         render(<Harness />);
         openMenu();
         const menu = screen.getByRole('menu', { name: 'Map base' });
         const items = Array.from(menu.querySelectorAll('[role^="menuitem"]'));
-        expect(items).toHaveLength(4);
-        expect(items[items.length - 2]).toHaveTextContent('Ocean');
+        expect(items).toHaveLength(6);
+        expect(items[items.length - 2]).toHaveTextContent('Hybrid');
         expect(items[items.length - 1]).toHaveAttribute('role', 'menuitemcheckbox');
         expect(items[items.length - 1]).toHaveTextContent('ENC charts');
     });
@@ -110,25 +110,24 @@ describe('the ENC master switch', () => {
     it('is a checkbox, not a fourth base-map radio', () => {
         render(<Harness />);
         openMenu();
-        // Three rasters, one exclusive choice; ENC is not one of them.
-        expect(screen.getAllByRole('menuitemradio')).toHaveLength(3);
+        // Five bases, one exclusive choice; ENC is not one of them.
+        expect(screen.getAllByRole('menuitemradio')).toHaveLength(5);
         expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(1);
     });
 
     it('is reachable with the arrow keys, like every other item', () => {
         // The switch a skipper reaches for under memory pressure must not be
-        // the one item keyboard navigation skips. Down from Hybrid (index 0)
-        // three times lands on the ENC row.
+        // the one item keyboard navigation skips. The menu opens on the
+        // checked Hybrid (the last base); one step down lands on the ENC row.
         render(<Harness />);
         openMenu();
         const menu = screen.getByRole('menu', { name: 'Map base' });
-        fireEvent.keyDown(menu, { key: 'ArrowDown' });
-        fireEvent.keyDown(menu, { key: 'ArrowDown' });
+        expect(document.activeElement).toHaveTextContent('Hybrid');
         fireEvent.keyDown(menu, { key: 'ArrowDown' });
         expect(document.activeElement).toBe(screen.getByRole('menuitemcheckbox'));
-        // And it wraps back round to the first raster rather than sticking.
+        // And it wraps back round to the first base rather than sticking.
         fireEvent.keyDown(menu, { key: 'ArrowDown' });
-        expect(document.activeElement).toHaveTextContent('Hybrid');
+        expect(document.activeElement).toHaveTextContent('Relief');
     });
 
     it('is offered with no charts installed, so the no-charts notice is reachable', () => {

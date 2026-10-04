@@ -22,6 +22,8 @@ interface ImportMetaEnv {
     readonly VITE_CMEMS_SEAICE_ENABLED: string;
     readonly VITE_CMEMS_MLD_ENABLED: string;
     readonly VITE_MPA_ENABLED: string;
+    /** Seafloor relief tile base, e.g. https://<R2 host>/v1 (components/map/reliefBase.ts). Unset = the placeholder there. */
+    readonly VITE_RELIEF_TILE_BASE?: string;
     /** Base URL for /api/* proxies when running native (iOS / Android).
      *  Not used on web (relative /api/* resolves via Vite proxy or Vercel). */
     readonly VITE_NATIVE_API_BASE: string;
