@@ -655,11 +655,11 @@ export const RoutePlanner: React.FC<{
                 the pinned CTA; it still names the group for VoiceOver. */}
             <p
                 id={`${frontDoorId}-eyebrow`}
-                className="px-1 text-xs font-black uppercase tracking-widest text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:sr-only"
+                className="route-door-eyebrow px-1 text-xs font-black uppercase tracking-widest text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:sr-only"
             >
                 Or start from
             </p>
-            <div className="grid gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2">
+            <div className="route-door-grid grid gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2">
                 {(
                     [
                         {
@@ -688,7 +688,7 @@ export const RoutePlanner: React.FC<{
                         aria-label={b.title}
                         aria-describedby={`${frontDoorId}-${b.kind}-sub`}
                         onClick={() => void openRoutePicker(b.kind)}
-                        className={`flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] [@media(orientation:landscape)_and_(max-height:500px)]:py-2 ${b.accent}`}
+                        className={`route-door-card flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] [@media(orientation:landscape)_and_(max-height:500px)]:py-2 ${b.accent}`}
                     >
                         <span aria-hidden="true" className="shrink-0">
                             {b.icon}
@@ -700,13 +700,13 @@ export const RoutePlanner: React.FC<{
                                 form instead. */}
                             <span
                                 id={`${frontDoorId}-${b.kind}-sub`}
-                                className="block text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
+                                className="route-door-sub block text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
                             >
                                 {b.sub}
                             </span>
                             <span
                                 aria-hidden="true"
-                                className="hidden text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:block"
+                                className="route-door-short hidden text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:block"
                             >
                                 {b.short}
                             </span>
@@ -1170,9 +1170,15 @@ export const RoutePlanner: React.FC<{
                 Departure. In short landscape the CTA follows in flow, so the
                 reserve drops to a normal gap, and shrink-0 joins index.css's
                 landscape column rule for the page's direct children so the
-                cards line up with the form. */}
+                cards line up with the form.
+                In an iPad split pane the scroller hangs --split-page-overhang
+                below the pane's frame while the CTA pins to the frame itself
+                (styles/split-pane.css), so the reserve is that overhang rather
+                than the tab bar: otherwise the last card could never scroll
+                clear of the slide (Shane 2026-10-04: "the route planner front
+                page does not fit its screen when in split screen mode"). */}
             {frontDoorInBand && (
-                <div className="flex flex-1 shrink-0 flex-col px-4 pt-1 pb-[calc(4rem+env(safe-area-inset-bottom)+8px+6rem)] [@media(orientation:landscape)_and_(max-height:500px)]:pt-0 [@media(orientation:landscape)_and_(max-height:500px)]:pb-3">
+                <div className="flex flex-1 shrink-0 flex-col px-4 pt-1 pb-[calc(var(--split-page-overhang,calc(4rem+env(safe-area-inset-bottom)))+8px+6rem)] [@media(orientation:landscape)_and_(max-height:500px)]:pt-0 [@media(orientation:landscape)_and_(max-height:500px)]:pb-3">
                     <div className="mx-auto w-full max-w-xl">{frontDoorCards}</div>
                 </div>
             )}

@@ -1,12 +1,16 @@
 /**
- * The Vessel hub as a screen reader and a thumb meet it (UX scorecard run 7):
+ * The Vessel page's menu is ONE box (Shane 2026-10-04: "the vessel page needs
+ * to have one box around crew and float plan, boat binder, settings, nmea
+ * gateway, boat network, and music. can you also order them in a better order
+ * from most used to least"), and nothing on the page is folded away any more,
+ * because the whole page fits one screen ("i prefer that all of the menu
+ * itemed pages fit into one screen").
  *
- *  - no two controls share a name (the Music section toggle and the Music row
- *    were both "Music", so VoiceOver read "Music, button" twice);
- *  - the vessel card's title is a heading, and no heading sits inside a button
- *    (a heading inside a button is flattened into the button's name);
- *  - Settings is one tap from the hub. Since 2026-10-04 nothing on the hub is
- *    folded: the six menu rows are one box (tests/VesselHubMenuBox.test.tsx).
+ * Order, most used first: Crew & Float Plan (every passage, and its pending
+ * invite badge is the menu's most urgent state), Boat Binder (stores,
+ * maintenance, documents), NMEA Gateway (opened on most visits aboard, and its
+ * live Connected / Aboard / Away state is worth a glance), Music, Settings,
+ * then Boat Network, which is set up once.
  */
 import React from 'react';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
@@ -84,57 +88,68 @@ function renderHub() {
 
 afterEach(() => {
     cleanup();
-    vessel.name = 'Serene Summer';
+    localStorage.removeItem('thalassa_vessel_connections_open');
 });
 
-describe('Vessel hub accessible structure', () => {
-    it('gives every control its own name', () => {
+const ORDER = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'];
+
+describe('Vessel page menu box', () => {
+    it('holds the six rows in one box, most used first', () => {
         renderHub();
-        const names = screen.getAllByRole('button').map((button) => button.getAttribute('aria-label') ?? '');
-        const repeated = names.filter((name, index) => name && names.indexOf(name) !== index);
-        expect(repeated).toEqual([]);
-        expect(screen.getAllByRole('button', { name: 'Music' })).toHaveLength(1);
+        const boxes = screen.getAllByTestId('vessel-hub-menu');
+        expect(boxes).toHaveLength(1);
+        const names = within(boxes[0])
+            .getAllByRole('button')
+            .map((button) => button.getAttribute('aria-label'));
+        expect(names).toEqual(ORDER);
     });
 
-    it('makes the vessel card title a heading, and keeps headings out of buttons', () => {
+    it('folds nothing away: every row is reachable without expanding a group', () => {
+        // A skipper who left it open on an old build must not find it closed.
+        localStorage.setItem('thalassa_vessel_connections_open', '0');
         renderHub();
-        expect(screen.getByRole('heading', { level: 2, name: 'Serene Summer' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Connections & music' })).toBeNull();
+        expect(screen.queryByTestId('vessel-hub-connections-contents')).toBeNull();
         for (const button of screen.getAllByRole('button')) {
-            expect(within(button).queryAllByRole('heading')).toEqual([]);
+            expect(button).not.toHaveAttribute('aria-expanded');
         }
+        for (const name of ORDER) expect(screen.getByRole('button', { name })).toBeVisible();
     });
 
-    it('keeps headings out of the hero card button on a fresh install', () => {
-        // With no vessel name the hero shows its "Set up your vessel" button;
-        // its title is a span, not an h2 nested in the button.
-        vessel.name = '';
-        renderHub();
-        const setUp = screen.getByRole('button', { name: 'Set up your vessel' });
-        expect(within(setUp).queryAllByRole('heading')).toEqual([]);
-        for (const button of screen.getAllByRole('button')) {
-            expect(within(button).queryAllByRole('heading')).toEqual([]);
-        }
-    });
-
-    it('opens Settings in one tap, without expanding a group', () => {
+    it('keeps each row going where it went, with its subtitle', () => {
         const onNavigate = renderHub();
-        fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-        expect(onNavigate).toHaveBeenCalledWith('settings');
+        const routes: [string, string][] = [
+            ['Crew & Float Plan', 'crew'],
+            ['Music', 'music'],
+            ['Settings', 'settings'],
+            ['NMEA Gateway', 'nmea'],
+            ['Boat Network', 'avnav'],
+        ];
+        for (const [name, page] of routes) {
+            fireEvent.click(screen.getByRole('button', { name }));
+            expect(onNavigate).toHaveBeenLastCalledWith(page);
+        }
+        expect(screen.getByRole('button', { name: 'Crew & Float Plan' })).toHaveAccessibleDescription(
+            'Readiness checks & cast off',
+        );
+        expect(screen.getByRole('button', { name: 'Music' })).toHaveAccessibleDescription('Apple Music & speakers');
+        expect(screen.getByRole('button', { name: 'Boat Network' })).toHaveAccessibleDescription(
+            'Boat computer, charts & devices',
+        );
+        // The Binder is a screen of its own, opened in place.
+        fireEvent.click(screen.getByRole('button', { name: 'Boat Binder' }));
+        expect(screen.getByRole('heading', { level: 1, name: 'Boat Binder' })).toBeInTheDocument();
     });
 
-    it('gives the menu box a heading, so the rotor finds it between the cards', () => {
+    it('separates the rows with dividers, not gaps', () => {
         renderHub();
         const box = screen.getByTestId('vessel-hub-menu');
-        expect(within(box).getByRole('heading', { level: 2, name: 'Vessel menu' })).toBeInTheDocument();
-    });
-
-    it('tells the two connection rows apart', () => {
-        renderHub();
-        const gateway = screen.getByRole('button', { name: 'NMEA Gateway' });
-        const network = screen.getByRole('button', { name: 'Boat Network' });
-        expect(gateway).toHaveAccessibleDescription(/AIS/);
-        // "Boat computer", not the hobbyist "The Pi" (UX scorecard run 9).
-        expect(network).toHaveAccessibleDescription('Boat computer, charts & devices');
-        expect(network).not.toHaveAccessibleDescription(/instruments/i);
+        const rows = within(box).getAllByRole('button');
+        // Every row but the first follows a divider inside the same box.
+        for (const row of rows.slice(1)) {
+            expect(row.previousElementSibling?.tagName).toBe('DIV');
+            expect(row.previousElementSibling?.getAttribute('role')).toBeNull();
+            expect(row.parentElement).toBe(rows[0].parentElement);
+        }
     });
 });

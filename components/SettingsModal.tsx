@@ -452,9 +452,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     aria-describedby={descId}
                     key={item.id}
                     onClick={() => handleSelectTab(item.id)}
-                    className="w-full flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors text-left"
+                    className="settings-menu-row w-full flex items-center gap-3 px-4 py-3 border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors text-left"
                 >
-                    <div aria-hidden="true" className="shrink-0 rounded-lg p-2" style={MENU_ICON_TILE}>
+                    <div
+                        aria-hidden="true"
+                        className="settings-menu-icon shrink-0 rounded-lg p-2"
+                        style={MENU_ICON_TILE}
+                    >
                         {item.icon('w-5 h-5')}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -465,7 +469,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             {/* A long port or boat name ellipsises; the label never does. */}
                             {status && <p className="min-w-0 truncate text-xs font-semibold text-gray-300">{status}</p>}
                         </div>
-                        <p id={descId} className="text-gray-300 text-xs mt-0.5">
+                        <p id={descId} className="settings-menu-desc text-gray-300 text-xs mt-0.5">
                             {item.id === 'vessel' && isObserver
                                 ? 'Crew member — tap to configure vessel'
                                 : item.description}
@@ -684,7 +688,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         // sat sliced at the bar's edge. Its own box ends where the root's
                         // padding stops, at the bar, and .thalassa-scroll-fade fades the
                         // last 14px there instead of cutting a row in half.
-                        <div className="@3xl:hidden flex-1 min-h-0 flex flex-col">
+                        <div className="settings-menu-screen @3xl:hidden flex-1 min-h-0 flex flex-col">
                             {/* The shared page header, in every other nested page's
                             pattern (UX scorecard run 9): the parent is the
                             breadcrumb, and the grey subtitle says what the page
@@ -711,8 +715,13 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             desktop sidebar).
                             pb-20 clears the floating now-playing bar (56px,
                             parked 4px above the tab bar), as the tab scroller
-                            below does. */}
-                                <div className="px-4 pt-4 pb-20 space-y-3">
+                            below does. On a short screen or an iPad pane
+                            styles/menu-page-fit.css trades that run-off and the
+                            rows' padding for a menu that fits without scrolling
+                            (Shane 2026-10-04: "i prefer that all of the menu
+                            itemed pages fit into one screen"); the bar is a
+                            draggable pill, so it can be moved off a row. */}
+                                <div className="settings-menu-list px-4 pt-4 pb-20 space-y-3">
                                     {/* Search input — same component shape as desktop,
                                 slightly taller (h-11 for thumb-friendly tap). */}
                                     <div className="relative">

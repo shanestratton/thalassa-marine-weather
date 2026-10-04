@@ -1,60 +1,12 @@
 /**
- * Vessel Hub list primitives — the collapsible wrapper, the row divider, the
- * Boat Binder sub-heading and the hub list row itself.
+ * Vessel Hub list primitives — the row divider, the Boat Binder sub-heading
+ * and the hub list row itself. (The collapsible wrapper went with the folded
+ * "Connections & music" group, Shane 2026-10-04: every row is in one box.)
  */
-import React, { useCallback, useId } from 'react';
+import React, { useId } from 'react';
 import { ChevronRight } from './icons';
 import { SectionLabel } from './SectionHeader';
 import { daylightUiColor } from '../../utils/daylightUiColor';
-
-/** Animated collapsible content wrapper.
- *
- *  A collapsed panel is 0px tall but its rows used to stay in the tab order
- *  and the accessibility tree — a screen reader walked straight into "Music"
- *  and "NMEA Gateway" under a header that said Atmosphere / Settings were
- *  closed (UX referee, 2026-09-26). So the inner panel is `inert`, hidden
- *  from assistive tech, and `visibility: hidden` once the close animation has
- *  finished; opening shows it at once so the grow animation is visible. The
- *  outer element stays the one that animates — SectionHeader waits on its
- *  transition before scrolling the section into view — and carries the `id`
- *  its header's aria-controls names. */
-export const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode; id?: string }> = ({
-    open,
-    children,
-    id,
-}) => {
-    // React 18 has no `inert` prop; set the DOM property directly (same
-    // pattern as Dashboard's collapsed layers).
-    const setInert = useCallback(
-        (element: HTMLDivElement | null) => {
-            if (element) (element as HTMLDivElement & { inert: boolean }).inert = !open;
-        },
-        [open],
-    );
-    return (
-        <div
-            id={id}
-            style={{
-                display: 'grid',
-                gridTemplateRows: open ? '1fr' : '0fr',
-                transition: 'grid-template-rows 0.25s ease',
-            }}
-        >
-            <div
-                ref={setInert}
-                aria-hidden={open ? undefined : true}
-                style={{
-                    overflow: 'hidden',
-                    visibility: open ? 'visible' : 'hidden',
-                    // Hide only after the 0.25s close has run; show at once on open.
-                    transition: open ? 'visibility 0s' : 'visibility 0s linear 0.25s',
-                }}
-            >
-                {children}
-            </div>
-        </div>
-    );
-};
 
 /** Divider between list rows */
 export const ListDivider: React.FC = () => (
@@ -69,7 +21,7 @@ export const ListDivider: React.FC = () => (
  * scorecard run 7, C-section-heading-styles).
  */
 export const BinderSubLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <SectionLabel className="px-1 pt-3 pb-1.5">{children}</SectionLabel>
+    <SectionLabel className="vessel-binder-label px-1 pt-3 pb-1.5">{children}</SectionLabel>
 );
 
 /** Vessel hub list row.
@@ -80,6 +32,11 @@ export const BinderSubLabel: React.FC<{ children: React.ReactNode }> = ({ childr
  *  there is something live to say ("2 overdue"), says that in its colour. It
  *  wraps rather than truncates: the old right-aligned uppercase status was
  *  capped at half the row and cut "connect when aboard" to "CONNECT WH…".
+ *  The one exception is a short screen or an iPad pane, where the Vessel page
+ *  must fit without scrolling (Shane 2026-10-04): styles/menu-page-fit.css
+ *  holds the line to one row there, and the whole sentence is still the row's
+ *  description for VoiceOver (hub-row / hub-row-icon / hub-row-label /
+ *  hub-row-status are its hooks).
  *
  *  `value` is ONLY for a short live value ("2 crew") — never a description —
  *  so it may sit on the right without squeezing the title. It never wraps, so
@@ -110,13 +67,13 @@ export const OfficeRow: React.FC<{
             aria-label={label}
             aria-describedby={value ? `${id}-status ${id}-value` : `${id}-status`}
             onClick={onClick}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all active:scale-[0.98] ${
+            className={`hub-row w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all active:scale-[0.98] ${
                 disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/3'
             }`}
         >
             <div
                 aria-hidden="true"
-                className="shrink-0 p-1.5 rounded-lg"
+                className="hub-row-icon shrink-0 p-1.5 rounded-lg"
                 style={{ background: 'var(--day-ui-surface-soft, rgba(255,255,255,0.04))' }}
             >
                 {icon}
@@ -125,7 +82,7 @@ export const OfficeRow: React.FC<{
                 {/* The live value sits on the title line, where the Settings rows
                     put theirs, not centred on the row. */}
                 <span className="flex items-baseline justify-between gap-2">
-                    <span className="min-w-0 text-[13px] font-black leading-tight tracking-wide text-white">
+                    <span className="hub-row-label min-w-0 text-[13px] font-black leading-tight tracking-wide text-white">
                         {label}
                     </span>
                     {value && (
@@ -140,7 +97,7 @@ export const OfficeRow: React.FC<{
                 </span>
                 <span
                     id={`${id}-status`}
-                    className="mt-0.5 block text-xs font-semibold leading-snug"
+                    className="hub-row-status mt-0.5 block text-xs font-semibold leading-snug"
                     style={{ color: daylightUiColor(statusColor) }}
                 >
                     {status}

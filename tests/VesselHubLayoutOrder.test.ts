@@ -2,7 +2,12 @@
  * The Vessel tab's running order, as Shane specified it (2026-08-30):
  *
  *   the 4 pinned buttons, then Diary + Scuttlebutt, then the Skipper Device
- *   card, then Passage Planning, then Boat Binder, then the menu headers.
+ *   card, then the menu.
+ *
+ * and the menu as one box, most used first (Shane 2026-10-04: "one box around
+ * crew and float plan, boat binder, settings, nmea gateway, boat network, and
+ * music ... order them in a better order from most used to least"): Crew &
+ * Float Plan, Boat Binder, NMEA Gateway, Music, Settings, Boat Network.
  *
  * Pinned as a test because the order is a judgement about what a skipper
  * reaches for most, and nothing else in the file records it — a later edit
@@ -28,17 +33,6 @@ function at(marker: string): number {
     return first;
 }
 
-/**
- * First occurrence of a marker that legitimately repeats — the menu headers
- * are several, and demanding uniqueness of them would be wrong rather than
- * strict. Still asserted present.
- */
-function firstAt(marker: string): number {
-    const i = source.indexOf(marker);
-    expect(i, `layout anchor not found: ${marker}`).toBeGreaterThan(-1);
-    return i;
-}
-
 /** The hub's scroll port, distinct from the Boat Binder screen's. */
 const HUB_SCROLL = 'overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in';
 
@@ -50,20 +44,24 @@ describe('Vessel tab running order', () => {
         // Not bare '<SkipperDeviceControl' — that also matches
         // React.FC<SkipperDeviceControlProps> where the component is defined.
         const skipper = at('<SkipperDeviceControl\n');
-        // The row formerly labelled "Passage Planning" (glossary, UX scorecard run 6).
-        const passage = at('label="Crew & Float Plan"');
-        const binder = at('BOAT BINDER — imports / inventory / reference');
-        const firstHeader = firstAt('<SectionHeader');
+        const menu = at('data-testid="vessel-hub-menu"');
+        // Most used first. "Crew & Float Plan" was "Passage Planning" (glossary,
+        // UX scorecard run 6).
+        const rows = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'].map(
+            (label) => at(`label="${label}"`),
+        );
 
         // Diary and Scuttlebutt lead the scrolling area...
         expect(scrollArea).toBeLessThan(diary);
         expect(diary).toBeLessThan(scuttlebutt);
-        // ...ahead of the three cards that describe how the boat is set up...
+        // ...ahead of the card that says who speaks for the boat...
         expect(scuttlebutt).toBeLessThan(skipper);
-        expect(skipper).toBeLessThan(passage);
-        expect(passage).toBeLessThan(binder);
-        // ...and the collapsible menu headers come last.
-        expect(binder).toBeLessThan(firstHeader);
+        // ...and the menu box comes last, its rows in the decided order.
+        expect(skipper).toBeLessThan(menu);
+        expect(menu).toBeLessThan(rows[0]);
+        for (let i = 1; i < rows.length; i++) expect(rows[i - 1]).toBeLessThan(rows[i]);
+        // Nothing is folded behind a header any more.
+        expect(source.indexOf('<SectionHeader')).toBe(-1);
     });
 
     it('leaves the 4 watch tiles pinned above the scrolling area', () => {

@@ -8,13 +8,14 @@ import { MapPinIcon, StopIcon } from '../../components/Icons';
 import { triggerHaptic } from '../../utils/system';
 import type { LogPageAction } from '../../hooks/useLogPageState';
 import { PlusIcon } from './LogPageIcons';
+import { LOG_FOOTER_CLEARANCE } from './footerClearance';
 
 export const TrackingFooterControls: React.FC<{
     handleStopTracking: () => void;
     handleShareCurrentPosition: () => void;
     dispatch: (action: LogPageAction) => void;
 }> = ({ handleStopTracking, handleShareCurrentPosition, dispatch }) => (
-    <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+    <div className="shrink-0 px-4 pt-2" style={{ paddingBottom: LOG_FOOTER_CLEARANCE }}>
         <div className="flex gap-2">
             <button
                 aria-label="Stop tracking"

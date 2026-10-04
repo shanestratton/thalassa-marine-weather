@@ -47,9 +47,9 @@ describe('Vessel page scroll port', () => {
         expect(opening).toContain('pt-2');
         expect(opening).toContain("scrollPaddingTop: '0.5rem'");
         expect(opening).toContain('pb-4');
-        // The last group's mb-4 plus pb-4: the lower resting point is the
-        // true bottom, not a second one 16 pt short of it.
-        expect(opening).toContain("scrollPaddingBottom: '2rem'");
+        // The port's pb-4 (the menu box has no margin of its own): the lower
+        // resting point is the true bottom, not a second one short of it.
+        expect(opening).toContain("scrollPaddingBottom: '1rem'");
         expect(opening).toContain("overscrollBehaviorY: 'contain'");
         expect(opening).not.toContain('mandatory');
     });
@@ -70,56 +70,42 @@ describe('Vessel page scroll port', () => {
         expect(firstOpening).not.toContain('scrollSnapStop');
     });
 
-    it('provides a bottom resting position on the expandable Connections & music group', () => {
+    it('rests at the end of the menu box only when the page really scrolls', () => {
+        // The page fits one screen (Shane 2026-10-04), so normally there is
+        // nothing to snap to. A state that adds height (the fresh-install "Set
+        // up your vessel" card) can still make it scroll; then the box's end
+        // is a resting point, so a part-way scroll is not pulled back home.
         const port = lowerPortMarkup();
-        // "Connections & music" since UX scorecard run 7: Settings left this
-        // group for an always-visible row, and Music joined it from its own
-        // one-row accordion. The id stays 'setup'.
-        const groupHeader = port.indexOf('label="Connections & music"');
-        expect(groupHeader).toBeGreaterThan(0);
-        const groupStart = port.lastIndexOf('<div', groupHeader);
-        const opening = port.slice(groupStart, port.indexOf('>', groupStart) + 1);
-        // The end snap exists while the group is open, and closed only when
-        // the page has real room to scroll, so a collapsed pane a few points
-        // short never rests just below home.
-        expect(opening).toContain("scrollSnapAlign: expanded.has('setup') || portRoomy ? 'end' : 'none'");
+        const box = port.indexOf('data-testid="vessel-hub-menu"');
+        expect(box).toBeGreaterThan(0);
+        const opening = port.slice(port.lastIndexOf('<div', box), port.indexOf('>', box) + 1);
+        expect(opening).toContain("scrollSnapAlign: portRoomy ? 'end' : 'none'");
         expect(hub).toMatch(/const END_REST_MIN_SCROLL = 48;/);
-        expect(hub).toContain('port.scrollHeight - port.clientHeight >= END_REST_MIN_SCROLL');
-        // The existing bottom margin leaves reading room without extending
-        // the snap area. Adding another scroll margin would make a tiny
-        // collapsed overflow a second resting point just below home.
-        expect(opening).toContain('mb-4');
+        expect(hub).toContain('setPortRoomy(room >= END_REST_MIN_SCROLL)');
         expect(opening).not.toContain('scrollMarginBottom');
         expect(opening).not.toContain('scrollSnapStop');
-
-        const musicRow = port.indexOf('label="Music"', groupHeader);
-        expect(musicRow).toBeGreaterThan(groupHeader);
-        const groupContents = port.slice(groupHeader, musicRow);
-        expect(groupContents).toContain(
-            '<CollapsibleContent open={expanded.has(\'setup\')} id="vessel-hub-connections">',
-        );
-        expect(groupContents).toContain('controlsId="vessel-hub-connections"');
-        expect(groupContents).toContain('label="NMEA Gateway"');
-        expect(groupContents).toContain('label="Boat Network"');
-        // Put the target around the whole expandable group, not inside its
-        // clipped animated content, so it exists in the collapsed state too.
-        expect(groupContents).not.toContain('scrollSnapAlign');
-        // Only one collapsible group is left on the hub.
-        expect(port.match(/<SectionHeader/g)).toHaveLength(1);
+        // Nothing on the hub is folded any more.
+        expect(port).not.toContain('<SectionHeader');
+        expect(port).not.toContain('<CollapsibleContent');
     });
 
-    it('shows the Settings row without an expand, beside the Boat Binder', () => {
-        // Settings was reachable only by expanding the collapsed group at the
-        // foot of the hub, below the fold at 375x667 (UX scorecard run 7,
-        // N-vessel-hub-structure).
+    it('draws the "more below" fade only when there is more below', () => {
+        // On a page that fits, a bottom mask would only dim the box's edge.
+        expect(hub).toContain(
+            "const hubPortFade = portScrolled ? HUB_PORT_FADE_BOTH : portOverflows ? HUB_PORT_FADE_BOTTOM : '';",
+        );
+        expect(hub).toContain('setPortOverflows(room > 1)');
+    });
+
+    it('puts every menu row in the one box, Settings among them, none behind an expand', () => {
         const port = lowerPortMarkup();
-        const binder = port.indexOf('label="Boat Binder"');
-        const settings = port.indexOf('label="Settings"');
-        const group = port.indexOf('<SectionHeader');
-        expect(binder).toBeGreaterThan(0);
-        expect(settings).toBeGreaterThan(binder);
-        expect(group).toBeGreaterThan(settings);
-        expect(port.slice(binder, settings)).not.toContain('<CollapsibleContent');
+        const box = port.indexOf('data-testid="vessel-hub-menu"');
+        const order = ['Crew & Float Plan', 'Boat Binder', 'NMEA Gateway', 'Music', 'Settings', 'Boat Network'].map(
+            (label) => port.indexOf(`label="${label}"`),
+        );
+        expect(order[0]).toBeGreaterThan(box);
+        for (let i = 1; i < order.length; i++) expect(order[i]).toBeGreaterThan(order[i - 1]);
+        const settings = order[4];
         expect(port.slice(settings, port.indexOf('/>', settings))).toContain("onNavigate('settings')");
     });
 });

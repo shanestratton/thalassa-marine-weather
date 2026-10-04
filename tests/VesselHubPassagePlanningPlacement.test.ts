@@ -10,11 +10,12 @@ describe('VesselHub passage-planning placement', () => {
      * tiles now LEAD the scrolling area, ahead of Skipper Device and Passage
      * Planning. This test previously pinned the opposite order — Passage
      * Planning before the Diary tiles — so it is updated rather than deleted:
-     * the relationship it really guards is that Passage Planning sits directly
-     * below the publishing-authority card and appears exactly once.
+     * the relationship it really guards is that Passage Planning sits below
+     * the publishing-authority card and appears exactly once. Since 2026-10-04
+     * it is the first row of the one menu box.
      * The full running order is asserted in tests/VesselHubLayoutOrder.test.ts.
      */
-    it('keeps Passage Planning directly below Skipper Device, after the Diary tiles', () => {
+    it('keeps Passage Planning below Skipper Device, after the Diary tiles, in the menu box', () => {
         const diary = source.indexOf('aria-label="Open Diary"');
         const scuttlebutt = source.indexOf('aria-label="Open Scuttlebutt"', diary);
         const skipperDevice = source.indexOf('<SkipperDeviceControl\n');
@@ -24,6 +25,13 @@ describe('VesselHub passage-planning placement', () => {
         expect(scuttlebutt).toBeGreaterThan(diary);
         expect(skipperDevice).toBeGreaterThan(scuttlebutt);
         expect(passagePlanning).toBeGreaterThan(skipperDevice);
+        // Since 2026-10-04 it is the first row of the one menu box, ahead of
+        // the Boat Binder (Shane: "one box around crew and float plan, boat
+        // binder, settings, nmea gateway, boat network, and music").
+        const menu = source.indexOf('data-testid="vessel-hub-menu"');
+        expect(menu).toBeGreaterThan(skipperDevice);
+        expect(passagePlanning).toBeGreaterThan(menu);
+        expect(source.indexOf('label="Boat Binder"')).toBeGreaterThan(passagePlanning);
         expect(source).not.toContain('label="Sharing"');
         expect(source).not.toContain('id="sharing"');
         expect(source.match(/label="Crew & Float Plan"/g)).toHaveLength(1);
@@ -39,14 +47,16 @@ describe('VesselHub passage-planning placement', () => {
         // above, indexOf returned -1 and slice(start, -1) quietly ran to the
         // end of the file — the assertions still passed, on the whole
         // component. A test that cannot fail is worse than no test.
+        // The row ends at the next row in the menu box, the Boat Binder (most
+        // used first since 2026-10-04: Crew & Float Plan, Boat Binder, ...).
         const passagePlanning = source.indexOf('label="Crew & Float Plan"');
-        const binderRow = source.indexOf('BOAT BINDER — imports / inventory / reference');
-        const passageRow = source.slice(passagePlanning, binderRow);
+        const nextRow = source.indexOf('label="Boat Binder"');
+        const passageRow = source.slice(passagePlanning, nextRow);
         const binderStart = source.indexOf('if (binderOpen)');
         const hubScroll = source.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in');
         const binderBlock = source.slice(binderStart, hubScroll);
 
-        expect(binderRow).toBeGreaterThan(passagePlanning);
+        expect(nextRow).toBeGreaterThan(passagePlanning);
         expect(hubScroll).toBeGreaterThan(binderStart);
 
         expect(passageRow).toContain("onNavigate('crew')");

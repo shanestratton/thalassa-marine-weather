@@ -29,9 +29,7 @@ async function contained(element: Locator, port: Locator) {
 
 // Where a return gesture lets go: 24 pt short of home, the first row still
 // partly under the deck — but always nearer home than the page's lower resting
-// point, which is the true bottom. Since the run-8 spacing, 430x932 with
-// Connections & music open scrolls only ~33 pt, so a fixed 24 pt was a release
-// beside the bottom, not a return.
+// point, which is the true bottom.
 function returnTop(max: number) {
     return Math.max(0, Math.min(24, Math.floor(max / 2) - 1));
 }
@@ -39,9 +37,6 @@ function returnTop(max: number) {
 async function waitForSettledScroll(port: Locator) {
     let previousTop = Number.NaN;
     let stableReadings = 0;
-    // SectionHeader starts its native smooth scroll after expansion finishes.
-    // Completing the CSS expansion alone does not mean the port is at rest;
-    // require four stable readings of the actual scroll offset as well.
     await expect
         .poll(
             async () => {
@@ -55,16 +50,24 @@ async function waitForSettledScroll(port: Locator) {
         .toBeGreaterThanOrEqual(4);
 }
 
+// Since 2026-10-04 the whole page fits one screen (Shane: "i would like to
+// ensure that the vessel page all fits on one screen without needing to
+// scroll"), and nothing on it folds: the menu is one box. The port still
+// scrolls where a window is shorter than any phone the page is drawn for
+// (390x560) or at an SE's Display Zoom (320x568), so the snap contract stays:
+// the first row returns home, the last row can be reached whole, and the
+// pinned safety deck never moves. Fitting sizes are measured in
+// menu-pages-fit.spec.ts; here they must simply rest at home.
 for (const size of [
-    { width: 390, height: 650 },
+    { width: 390, height: 560 },
+    { width: 320, height: 568 },
     { width: 390, height: 844 },
     { width: 430, height: 932 },
-    { width: 430, height: 932, expansionDelay: 180 },
     { width: 768, height: 768 },
-    { width: 390, height: 844, mode: 'light' },
-    { width: 390, height: 844, mode: 'night' },
+    { width: 390, height: 560, mode: 'light' },
+    { width: 390, height: 560, mode: 'night' },
 ]) {
-    test(`Vessel first row returns fully at ${size.width}x${size.height} ${size.mode ?? 'dark'}${size.expansionDelay ? ' delayed expansion' : ''}`, async ({
+    test(`Vessel first row returns fully at ${size.width}x${size.height} ${size.mode ?? 'dark'}`, async ({
         page,
     }, testInfo) => {
         test.setTimeout(60_000);
@@ -90,9 +93,8 @@ for (const size of [
         const port = page.locator('.vessel-hub-surface > .overflow-y-auto').filter({ has: diary });
         const deck = page.getByRole('region', { name: 'Vessel status and safety controls' });
         await expect(port).toHaveCount(1);
-        await expect(
-            page.getByRole('button', { name: 'Connections & music', exact: true, expanded: false }),
-        ).toBeVisible();
+        // Nothing is folded any more.
+        await expect(page.getByRole('button', { name: 'Connections & music' })).toHaveCount(0);
         // Both snap targets have staggered entrance transforms. Measure only
         // after every direct child's entrance has settled, not just the first.
         await port.evaluate(async (el) => {
@@ -109,9 +111,18 @@ for (const size of [
             body: JSON.stringify(before),
             contentType: 'application/json',
         });
-        // A large phone may fit all collapsed cards. It should stay at home,
-        // while a shorter pane may genuinely need scrolling.
-        await port.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }));
+        const lastRow = page.getByRole('button', { name: 'Boat Network', exact: true });
+
+        if (before.max > 1) {
+            // A short window: the last row must be reachable whole.
+            await port.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }));
+            await waitForSettledScroll(port);
+            await expect.poll(async () => (await geometry(port)).top).toBeGreaterThan(0);
+            await expect.poll(() => contained(lastRow, port)).toBe(true);
+            expect(await deck.boundingBox()).toEqual(initialDeck);
+        } else {
+            await expect.poll(() => contained(lastRow, port)).toBe(true);
+        }
 
         // Model the end of a return gesture with the first row still partly
         // beneath the fixed deck. The resting position must be exactly home.
@@ -124,87 +135,6 @@ for (const size of [
             expect(rect!.y + rect!.height).toBeLessThanOrEqual(portRect!.y + portRect!.height + 1);
         }
         expect(await deck.boundingBox()).toEqual(initialDeck);
-
-        // A proximity target must not trap the user at the top when a lower
-        // section is expanded; its actual controls must remain reachable.
-        const expand = page.getByRole('button', { name: 'Connections & music', exact: true, expanded: false });
-        if (size.expansionDelay) {
-            // A late CSS transition start models a busy rendering frame. The
-            // section must reveal its final controls, not scroll to the height
-            // sampled by a wall-clock timer while expansion is still running.
-            await expand.evaluate((button, delay) => {
-                // The toggle sits inside the section's h2: the group is the
-                // heading's parent and the content is the heading's sibling.
-                const heading = button.closest('h2')!;
-                const group = heading.parentElement!;
-                const content = heading.nextElementSibling as HTMLElement;
-                content.style.transitionDelay = `${delay}ms`;
-                const trace: unknown[] = [];
-                const record = (event: string) => {
-                    const port = group.parentElement!;
-                    trace.push({
-                        event,
-                        at: performance.now(),
-                        group: group.getBoundingClientRect().toJSON(),
-                        port: port.getBoundingClientRect().toJSON(),
-                        scrollTop: port.scrollTop,
-                    });
-                    group.dataset.scrollTrace = JSON.stringify(trace);
-                };
-                for (const event of ['transitionrun', 'transitionstart', 'transitionend']) {
-                    content.addEventListener(event, () => record(event));
-                }
-                const scroll = group.scrollIntoView.bind(group);
-                group.scrollIntoView = (options) => {
-                    record('scrollIntoView');
-                    scroll(options);
-                };
-            }, size.expansionDelay);
-        }
-        await expand.click();
-        // The group's last row. Settings, which used to close this group, is an
-        // always-visible row since UX scorecard run 7; Music joined the group.
-        const lastRow = page.getByRole('button', { name: 'Music', exact: true });
-        // Let the real expansion and subsequent section scroll finish.
-        // Racing that scroll with our return gesture would test two competing
-        // programmatic scrolls rather than the user's settled page.
-        await page
-            .getByRole('button', { name: 'Connections & music', exact: true, expanded: true })
-            .evaluate(async (button) => {
-                const group = button.closest('h2')!.parentElement!;
-                void group.getBoundingClientRect();
-                await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
-            });
-        if (size.expansionDelay) {
-            await testInfo.attach('vessel-expansion-timeline', {
-                body: await page
-                    .getByRole('button', { name: 'Connections & music', exact: true, expanded: true })
-                    .evaluate((button) => button.closest('h2')!.parentElement!.dataset.scrollTrace ?? '[]'),
-                contentType: 'application/json',
-            });
-        }
-        await expect.poll(() => contained(lastRow, port)).toBe(true);
-        await waitForSettledScroll(port);
-        await expect.poll(async () => (await geometry(port)).max).toBeGreaterThan(before.max);
-        await port.evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: 'instant' }));
-        await expect.poll(async () => (await geometry(port)).top).toBeGreaterThan(0);
-        const bottomPort = await port.boundingBox();
-        await expect
-            .poll(async () => {
-                const rect = await lastRow.boundingBox();
-                return rect!.y + rect!.height;
-            })
-            .toBeLessThanOrEqual(bottomPort!.y + bottomPort!.height + 1);
-        const lastRowRect = await lastRow.boundingBox();
-        expect(lastRowRect!.y).toBeGreaterThanOrEqual(bottomPort!.y - 1);
-        expect(lastRowRect!.y + lastRowRect!.height).toBeLessThanOrEqual(bottomPort!.y + bottomPort!.height + 1);
-        expect(await deck.boundingBox()).toEqual(initialDeck);
-
-        const expandedMax = (await geometry(port)).max;
-        await port.evaluate((el, top) => el.scrollTo({ top, behavior: 'instant' }), returnTop(expandedMax));
-        await expect.poll(async () => Math.abs((await geometry(port)).top)).toBeLessThanOrEqual(1);
-        await expect(diary).toBeVisible();
-        await expect(chat).toBeVisible();
     });
 }
 
@@ -213,7 +143,8 @@ test.describe('native wheel input', () => {
     test.use({ isMobile: false, hasTouch: false });
 
     test('Vessel returns home after a wheel gesture without moving the safety deck', async ({ page }) => {
-        await page.setViewportSize({ width: 768, height: 650 });
+        // Short enough that the fitted page still scrolls.
+        await page.setViewportSize({ width: 768, height: 540 });
         await page.goto('/');
         await page
             .getByRole('navigation', { name: 'Main', exact: true })
