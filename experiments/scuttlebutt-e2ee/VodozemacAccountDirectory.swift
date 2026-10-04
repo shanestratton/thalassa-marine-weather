@@ -392,8 +392,7 @@ final class VodozemacAccountDirectory {
         do {
             try DmContentCodec.validateIdentifier(conversationId)
             guard parentDirectory.isFileURL else { throw DmAccountDirectoryError.unavailable }
-            let parent = parentDirectory.standardizedFileURL.resolvingSymlinksInPath()
-            try requireType(parent, .typeDirectory)
+            let parent = try physicalDirectory(parentDirectory)
             let containerID = UUID(), indexID = UUID()
             let directory = parent.appendingPathComponent(containerID.uuidString.lowercased(), isDirectory: true)
             guard directory.path.withCString({ Darwin.mkdir($0, 0o700) }) == 0 else {
@@ -430,7 +429,7 @@ final class VodozemacAccountDirectory {
                 throw DmAccountDirectoryError.unavailable
             }
             try requireType(directory, .typeDirectory)
-            let canonical = directory.standardizedFileURL.resolvingSymlinksInPath()
+            let canonical = try physicalDirectory(directory)
             let locator = canonical.appendingPathComponent(locatorName)
             try requireType(locator, .typeRegular)
             guard let size = try locator.resourceValues(forKeys: [.fileSizeKey]).fileSize, size == 37,
@@ -1034,6 +1033,25 @@ final class VodozemacAccountDirectory {
         guard data.count == 37 else { throw DmAccountDirectoryError.unavailable }
         return data
     }
+    /// Foundation may preserve/reintroduce iOS's /var alias. SQLite's
+    /// NOFOLLOW checks every path component, so use the kernel's physical path
+    /// for an existing native directory. Refuse a symlink leaf BEFORE resolving;
+    /// never canonicalize a missing store or drop SQLite's NOFOLLOW protection.
+    private static func physicalDirectory(_ directory: URL) throws -> URL {
+        guard directory.isFileURL else { throw DmAccountDirectoryError.unavailable }
+        try requireType(directory, .typeDirectory)
+        let path: String? = directory.path.withCString { source in
+            guard let resolved = Darwin.realpath(source, nil) else { return nil }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
+        guard let path else { throw DmAccountDirectoryError.unavailable }
+        let physical = URL(fileURLWithPath: path, isDirectory: true)
+        guard physical.path == path else { throw DmAccountDirectoryError.unavailable }
+        try requireType(physical, .typeDirectory)
+        return physical
+    }
+
     private static func protect(_ url: URL) throws {
         let directory = try url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
         try FileManager.default.setAttributes([.posixPermissions: directory ? 0o700 : 0o600], ofItemAtPath: url.path)
