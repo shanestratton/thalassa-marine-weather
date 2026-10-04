@@ -137,4 +137,17 @@ describe('Vessel hub accessible structure', () => {
         expect(network).toHaveAccessibleDescription('Boat computer, charts & devices');
         expect(network).not.toHaveAccessibleDescription(/instruments/i);
     });
+
+    it('says what the Diary and Scuttlebutt cards hold, and the unread count when there is one', () => {
+        renderHub();
+        expect(screen.getByRole('button', { name: 'Open Diary' })).toHaveAccessibleDescription('Notes & photos');
+        expect(screen.getByRole('button', { name: 'Open Scuttlebutt' })).toHaveAccessibleDescription('Sailor chat');
+        cleanup();
+        render(<VesselHub onNavigate={vi.fn()} settings={{}} onSave={vi.fn()} chatUnread={3} />);
+        const chat = screen.getByRole('button', { name: 'Open Scuttlebutt' });
+        // Shane 2026-10-04: the cards should invite a tap; unread DMs (the
+        // Vessel tab's badge) are said on the card, the count drawn beside.
+        expect(chat).toHaveAccessibleDescription('3 new messages');
+        expect(chat).toHaveTextContent('3');
+    });
 });

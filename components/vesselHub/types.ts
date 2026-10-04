@@ -11,6 +11,9 @@ export interface VesselHubProps {
     onNavigate: (page: string) => void;
     settings: Record<string, unknown>;
     onSave: (updates: Record<string, unknown>) => void;
+    /** Unread Scuttlebutt DMs (the Vessel tab's badge), said on the
+     *  Scuttlebutt card. */
+    chatUnread?: number;
 }
 
 export interface SkipperDeviceControlProps {

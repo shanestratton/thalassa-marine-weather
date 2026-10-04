@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
  * under the fixed deck.
  */
 const hub = readFileSync('components/VesselHub.tsx', 'utf8');
-const portClass = 'overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in';
+const portClass = 'overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-2 stagger-in';
 
 /** Inspect executable JSX, not the explanatory comments around the port. */
 function lowerPortMarkup(): string {
@@ -28,7 +28,7 @@ function lowerPortMarkup(): string {
 describe('Vessel page scroll port', () => {
     it('reserves the tab bar on the root only, and the port keeps its overscroll to itself', () => {
         const rootStart = hub.indexOf('className="vessel-hub-surface w-full h-full flex flex-col');
-        const portStart = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in');
+        const portStart = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-2 stagger-in');
         expect(rootStart).toBeGreaterThan(-1);
         expect(portStart).toBeGreaterThan(rootStart);
         const rootBlock = hub.slice(rootStart, rootStart + 600);
@@ -46,10 +46,12 @@ describe('Vessel page scroll port', () => {
         // scroll padding, snapping would lift the first row by eight pixels.
         expect(opening).toContain('pt-2');
         expect(opening).toContain("scrollPaddingTop: '0.5rem'");
-        expect(opening).toContain('pb-4');
-        // The port's pb-4 (the menu box has no margin of its own): the lower
-        // resting point is the true bottom, not a second one short of it.
-        expect(opening).toContain("scrollPaddingBottom: '1rem'");
+        expect(opening).toContain('pb-2');
+        // The port's pb-2 (the menu box has no margin of its own): the lower
+        // resting point is the true bottom, not a second one short of it. It
+        // was pb-4 until the page filled its screen (Shane 2026-10-04): with
+        // the root's 8 px, the box now ends 16 px off the tab bar.
+        expect(opening).toContain("scrollPaddingBottom: '0.5rem'");
         expect(opening).toContain("overscrollBehaviorY: 'contain'");
         expect(opening).not.toContain('mandatory');
     });

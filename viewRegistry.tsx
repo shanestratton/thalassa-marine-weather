@@ -296,6 +296,9 @@ export interface ViewContext {
     weatherGeneratedAt?: string;
     /** Place the current forecast is for — the Warnings page names it. */
     weatherLocationName?: string;
+    /** Unread Scuttlebutt DMs, the Vessel tab's badge; the Vessel page's
+     *  Scuttlebutt card says it too. */
+    chatUnread?: number;
 }
 
 /** Configuration for a single registered view. */
@@ -409,6 +412,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
             onNavigate: ctx.setPage,
             settings: ctx.settings,
             onSave: ctx.updateSettings,
+            chatUnread: ctx.chatUnread ?? 0,
         }),
     },
 

@@ -34,7 +34,7 @@ function at(marker: string): number {
 }
 
 /** The hub's scroll port, distinct from the Boat Binder screen's. */
-const HUB_SCROLL = 'overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in';
+const HUB_SCROLL = 'overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-2 stagger-in';
 
 describe('Vessel tab running order', () => {
     it('puts the read-most screens first and the config cards after', () => {

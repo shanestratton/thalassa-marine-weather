@@ -1524,6 +1524,7 @@ const App: React.FC = () => {
                                                                         weatherAlerts: weatherData?.alerts || [],
                                                                         weatherGeneratedAt: weatherData?.generatedAt,
                                                                         weatherLocationName: weatherData?.locationName,
+                                                                        chatUnread,
                                                                     };
                                                                     const viewProps =
                                                                         activeViewConfig.getProps?.(viewCtx) ?? {};

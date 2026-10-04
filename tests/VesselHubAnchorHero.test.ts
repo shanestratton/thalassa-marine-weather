@@ -123,8 +123,8 @@ describe('the Vessel hero card at anchor', () => {
         // 8px above the tab bar). Repeating it on the port gave a short page
         // ~100px of dead scroll that parked the Diary/Scuttlebutt tiles under
         // the fixed deck (Shane: "get stuck under the 4 cards"). The port keeps
-        // a small pb-4 so the last row never sits flush on its edge.
-        const at = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in');
+        // a small pb-2 so the last row never sits flush on its edge.
+        const at = hub.indexOf('overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-2 stagger-in');
         expect(at, 'the vessel scroll area must be findable').toBeGreaterThan(-1);
         const el = hub.slice(at, at + 900);
         expect(el).not.toContain('4rem + env(safe-area-inset-bottom)');

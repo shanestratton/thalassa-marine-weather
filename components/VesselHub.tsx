@@ -108,9 +108,9 @@ const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
 // red / amber / green are left to say state. It replaced a green Diary, a blue
 // Scuttlebutt, a teal device card, a violet Crew card, a cyan Binder and a
 // pink Music label on one screen. The Crew & Float Plan card's sky bezel went
-// when the menu became one box (Shane 2026-10-04).
+// when the menu became one box (Shane 2026-10-04); the Diary and Scuttlebutt
+// cards wear the same sky as a wash and an icon tile (vesselHub/JournalCard).
 const HUB_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
-const HUB_ACCENT_CHIP = 'rgba(125, 211, 252, 0.12)';
 
 // Scroll-port edge fades (UX scorecard run 6, Y-vessel-hub-fades): the bottom
 // always fades so a cut-off row reads as "more below", and the top fades once
@@ -119,7 +119,7 @@ const HUB_ACCENT_CHIP = 'rgba(125, 211, 252, 0.12)';
 // .thalassa-scroll-fade; kept as utilities because that class masks the bottom
 // edge only. The top fade is off at scrollTop 0 (pt-2 is narrower than the fade
 // and would dim the first row), and at the end of the scroll the bottom fade
-// lands in pb-4.
+// lands in pb-2.
 // The top fade runs 8px clear then 28px of ramp (UX scorecard run 7,
 // Y-hub-empty-tray-under-deck): at 14px the bottom edge of a card parked under
 // the deck, 2-11px into the port, stayed visible as an empty rounded tray.
@@ -132,6 +132,7 @@ const HUB_PORT_FADE_BOTTOM =
 const HUB_PORT_FADE_BOTH =
     '[-webkit-mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)]';
 import { BinderSubLabel, ListDivider, OfficeRow } from './vesselHub/listRows';
+import { JournalCard } from './vesselHub/JournalCard';
 import { MetricChipStrip } from './vesselHub/MetricChip';
 import { SwingArc } from './vesselHub/SwingArc';
 import { useTripRoute } from '../hooks/useTripRoute';
@@ -210,7 +211,7 @@ const ALERT_SAFETY_CONTROL_CARD = {
         'inset 0 1px 0 rgba(254, 202, 202, 0.20), 0 0 0 1px rgba(239, 68, 68, 0.14), 0 8px 22px rgba(239, 68, 68, 0.16)',
 } as React.CSSProperties;
 
-export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings }) => {
+export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, chatUnread = 0 }) => {
     // ── Vessel state ──
     const { settings: ctx, updateSettings } = useSettings();
     const authenticatedUserId = useAuthStore((state) => state.user?.id ?? null);
@@ -1283,28 +1284,35 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 in styles/menu-page-fit.css (a container query on this page's
                 own height, so a pane is measured, not guessed), which keeps
                 every row at least 44 pt. The port still scrolls if a state
-                adds height (the fresh-install "Set up your vessel" card). */}
+                adds height (the fresh-install "Set up your vessel" card).
+
+                FILL (Shane 2026-10-04: "make the whole thing take up the
+                enitre page"): the port is a flex column, and the Diary pair
+                and the menu box share whatever height is left, so the page
+                ends at the tab bar on a tall phone or pane instead of ~170 px
+                above it; a short screen leaves them at their 44 pt floor. */}
             <div
                 ref={portRef}
-                className={`flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in vessel-hub-port ${hubPortFade}`}
+                className={`flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-2 stagger-in vessel-hub-port ${hubPortFade}`}
                 // The ROOT already ends 8px above the tab bar, so this port's own
                 // bottom padding must not repeat that: with the tab-bar calc here
                 // too, a page with nothing expanded still had ~100px of dead
                 // scroll room, and a flick up parked the Diary and Scuttlebutt
                 // tiles under the fixed deck with nothing to snap them back
                 // (Shane 2026-09-09: "the diary and the scuttlebutt pages get
-                // stuck under the 4 cards above them"). pb-4 keeps the last row
-                // clear of the port's edge; overscroll stays inside the port.
+                // stuck under the 4 cards above them"). pb-2 keeps the last row
+                // clear of the port's edge, 16 px off the tab bar with the
+                // root's 8; overscroll stays inside the port.
                 style={{
                     overscrollBehaviorY: 'contain',
                     scrollSnapType: 'y proximity',
                     // Match pt-2 so the first row rests at scrollTop 0,
                     // not one padding-width under the operational deck.
                     scrollPaddingTop: '0.5rem',
-                    // The port's pb-4 (the menu box has no margin of its own),
+                    // The port's pb-2 (the menu box has no margin of its own),
                     // so the lower resting point is the true bottom of the
                     // page, not a second one short of it.
-                    scrollPaddingBottom: '1rem',
+                    scrollPaddingBottom: '0.5rem',
                 }}
                 onScroll={handlePortScroll}
             >
@@ -1318,74 +1326,51 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     {/* Screen-reader section heading for the two tiles, so they
                         do not read as part of the safety controls above. */}
                     <h2 className="sr-only">Journal and community</h2>
-                    {/* Title only (UX scorecard run 7, W-vessel-settings-copy):
-                        the "Journal" and "Community" subtitles restated the
-                        titles, and each wore its own hue (green, blue). The
-                        tiles now take the hub's one accent and a single line,
-                        near the height of the rows below, and the names are
-                        spans: a heading inside a button is flattened into the
-                        button's name (UX scorecard run 7). */}
-                    <div className="grid grid-cols-2 gap-3">
+                    {/* Title and a short subtitle (UX scorecard run 7,
+                        W-vessel-settings-copy: no subtitle that restates the
+                        title), one accent for both, names as spans: a heading
+                        inside a button is flattened into the button's name.
+                        Shane 2026-10-04 ("maybe make the didary and
+                        scuttlebutt look better, also make the whole thing take
+                        up the enitre page"): the pair is the page's richest
+                        card, and it grows with the screen, see JournalCard. */}
+                    <div className="vessel-hub-journal-pair grid h-full grid-cols-2 gap-3">
                         {/* Diary — personal journal (left tile) */}
-                        <button
+                        <JournalCard
                             aria-label="Open Diary"
+                            title="Diary"
+                            subtitle="Notes & photos"
+                            icon={<PenIcon color={HUB_ACCENT} />}
+                            accent={HUB_ACCENT}
                             onClick={() => {
                                 triggerHaptic('light');
                                 onNavigate('diary');
                             }}
-                            style={GLASS.card}
-                            className="vessel-hub-tile flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
-                        >
-                            <span
-                                aria-hidden="true"
-                                className="vessel-hub-tile-icon flex shrink-0 rounded-lg p-2.5"
-                                style={{ background: HUB_ACCENT_CHIP }}
-                            >
-                                <PenIcon color={HUB_ACCENT} />
-                            </span>
-                            <span className="min-w-0 text-[13px] font-black tracking-wide text-white">Diary</span>
-                        </button>
+                        />
 
-                        {/* Scuttlebutt — community channels + DMs
-                                (right tile). Moved here from the Wardroom
-                                section because it's a sharing surface
-                                more than a "lounge" feature — pairs
-                                naturally with Diary as the inward (Diary)
-                                + outward (Scuttlebutt) halves of the
-                                share-your-voyage story. */}
-                        <button
+                        {/* Scuttlebutt — community channels + DMs (right
+                            tile), the outward half of the share-your-voyage
+                            story beside the Diary's inward one. "Sailor chat"
+                            under the sailor's word (UX scorecard run 10,
+                            copy-nits-bundle): "Scuttlebutt" alone does not
+                            say it is chat. Unread DMs (the Vessel tab's
+                            badge) take that line and a count on the card. */}
+                        <JournalCard
                             aria-label="Open Scuttlebutt"
+                            title="Scuttlebutt"
+                            subtitle={
+                                chatUnread > 0
+                                    ? `${chatUnread} new message${chatUnread === 1 ? '' : 's'}`
+                                    : 'Sailor chat'
+                            }
+                            badge={chatUnread > 0 ? (chatUnread > 99 ? '99+' : String(chatUnread)) : undefined}
+                            icon={<ChatBubbleIcon color={HUB_ACCENT} />}
+                            accent={HUB_ACCENT}
                             onClick={() => {
                                 triggerHaptic('light');
                                 onNavigate('chat');
                             }}
-                            style={GLASS.card}
-                            className="vessel-hub-tile flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
-                        >
-                            <span
-                                aria-hidden="true"
-                                className="vessel-hub-tile-icon flex shrink-0 rounded-lg p-2.5"
-                                style={{ background: HUB_ACCENT_CHIP }}
-                            >
-                                <ChatBubbleIcon color={HUB_ACCENT} />
-                            </span>
-                            {/* A descriptor under the sailor's word (UX scorecard
-                                run 10, copy-nits-bundle): "Scuttlebutt" alone does
-                                not say it is chat. Diary needs none. Two tight
-                                lines fit the icon chip's height, so the tile does
-                                not grow. */}
-                            <span className="min-w-0">
-                                <span className="block text-[13px] font-black leading-tight tracking-wide text-white">
-                                    Scuttlebutt
-                                </span>
-                                <span
-                                    className="block text-xs font-semibold leading-snug"
-                                    style={{ color: daylightUiColor('#94a3b8') }}
-                                >
-                                    Sailor chat
-                                </span>
-                            </span>
-                        </button>
+                        />
                     </div>
                 </div>
 
