@@ -63,6 +63,7 @@
 
 import { engineLog, ENGINE_DEBUG, M_PER_DEG_LAT, UNKNOWN_OPEN, CAUTION, UNCHARTED_MAX_RUN_M } from './engine/constants';
 import type {
+    DepthBend,
     InshoreLayers,
     NavGrid,
     RouteRequest,
@@ -126,9 +127,11 @@ import { navLineLeads, parseLeadingLines } from './leadingLine';
 import { cardinalWrongSideMask } from './tier3/cardinalClamp';
 import {
     chartMarkPoints,
+    depthBendOf,
     lateralMarkGates,
     leadVertexMask,
     lineExposureReader,
+    memoExposure,
     LINE_STATE,
     pullTaut,
     threadGateCentres,
@@ -2066,6 +2069,7 @@ function routeInshoreOnceEnds(
     let finalOffshoreMask: boolean[] = [];
     // Monolith-path debug flags (set only on the fallback branch).
     let flFairlead: string | undefined;
+    let depthBend: DepthBend | null = null;
     let llLeadingLines: number | undefined;
     let laLeadingApproach: number | undefined;
     const threeTier = applyThreeTier(
@@ -2212,16 +2216,20 @@ function routeInshoreOnceEnds(
                 ...parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]),
                 ...parseLeadingLines((layers.RECTRC?.features ?? []) as Parameters<typeof parseLeadingLines>[0]),
             ].map((l) => l.pts.map((q): [number, number] => [q.lon, q.lat]));
-            const exposureOf = lineExposureReader({
-                layers,
-                grid,
-                draftM: req.draftM,
-                safetyM,
-                obstructionBufferM,
-                strictUncharted,
-                tideCeilings: req.tideCeilings,
-                surveyUncheckedCells: req.surveyUncheckedCells,
-            });
+            // Read once per line: the pulls, the gates and the depth bend
+            // weigh many of the same lines (no blockedIdx here).
+            const exposureOf = memoExposure(
+                lineExposureReader({
+                    layers,
+                    grid,
+                    draftM: req.draftM,
+                    safetyM,
+                    obstructionBufferM,
+                    strictUncharted,
+                    tideCeilings: req.tideCeilings,
+                    surveyUncheckedCells: req.surveyUncheckedCells,
+                }),
+            );
             const marks = chartMarkPoints(layers);
             const corridorM = Math.SQRT2 * resolutionM;
             /** The pull's view of the route as it stands: anchors, kinds. */
@@ -2288,6 +2296,18 @@ function routeInshoreOnceEnds(
                 }
             }
             if (removed > 0) debug.stringPulled = removed;
+            // A turn the pull kept because the straight line crosses more
+            // water charted under the keel's need, and nothing else: the
+            // route notes say why (Port of Airlie, 2026-10-04).
+            const bendBands = chartAreaIndexFor(layers).depth;
+            const bend = depthBendOf(finalPolyline, {
+                ...shape(),
+                exposureOf,
+                marks,
+                needM: req.draftM + safetyM,
+                depthAt: (lon, lat) => chartedDepthAt(bendBands, lon, lat),
+            });
+            if (bend) depthBend = { ...bend, needM: req.draftM + safetyM };
             mark('stringPull', tPull);
         }
         debug.threeTier = threeTier.provenance;
@@ -3291,6 +3311,14 @@ function routeInshoreOnceEnds(
             }
             return pinTail.origin || pinTail.destination ? { pinTail } : {};
         })(),
+        // Still the route's own turn: the tails below the pull never move an
+        // inner vertex, but a vertex they replaced takes the bend with it.
+        ...(depthBend &&
+        [depthBend.at, depthBend.via, depthBend.to].every((p) =>
+            finalPolyline.some((q) => q[0] === p[0] && q[1] === p[1]),
+        )
+            ? { depthBend }
+            : {}),
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,

@@ -47,6 +47,7 @@ import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import type {
     CautionNearShallow,
     ChartedShallowSpan,
+    DepthBend,
     NavGrid,
     PinOffWater,
     PinTail,
@@ -544,6 +545,9 @@ export interface InshoreRouteResult {
      *  whether its tail runs direct — or why not (engine RouteResult.pinTail;
      *  Shane, 2026-10-03). The route notes say why when it does not. */
     pinTail?: { origin?: PinTail; destination?: PinTail };
+    /** The route's turn off the straight line for deeper water (engine
+     *  RouteResult.depthBend; Port of Airlie, 2026-10-04): the route notes say why. */
+    depthBend?: DepthBend;
     /**
      * Owner decision 11 (2026-10-01): 'not-loaded' when the route crosses
      * water a tide must clear (a band charted no deeper than draft + UKC) in
@@ -2410,6 +2414,9 @@ async function tryInshoreRouteInner(
             : {}),
         ...((result as { pinTail?: InshoreRouteResult['pinTail'] }).pinTail
             ? { pinTail: (result as { pinTail?: InshoreRouteResult['pinTail'] }).pinTail }
+            : {}),
+        ...((result as { depthBend?: DepthBend }).depthBend
+            ? { depthBend: (result as { depthBend?: DepthBend }).depthBend }
             : {}),
         ...(structuresUnknownOn(result.polyline).length > 0
             ? { structuresUnknownCells: structuresUnknownOn(result.polyline) }

@@ -86,7 +86,7 @@
  * minification, a constant does not), and the local-plane distances go
  * through geometry's segmentDistanceM — the same arithmetic as before.
  */
-import type { InshoreLayers, NavGrid, SurveyUncheckedCell, TideCeiling } from './types';
+import type { DepthBend, InshoreLayers, NavGrid, SurveyUncheckedCell, TideCeiling } from './types';
 import {
     bboxBuckets,
     forEachCellOnSegment,
@@ -260,7 +260,7 @@ const bit = (k: number): number => 1 << k;
 
 /** The exposures that are the same water, only shallower (a caution cell a
  *  shallow band explains, water charted under the keel's need, off the
- *  fairway, a survey's grade). */
+ *  fairway, a survey's grade), and the states they set. */
 const DEPTH_ONLY_X =
     bit(X_CAUTION) |
     bit(X_SHALLOW_BAND) |
@@ -270,6 +270,7 @@ const DEPTH_ONLY_X =
     bit(X_SURVEY_MARGIN) |
     bit(X_SURVEY_UNGRADED) |
     bit(X_SURVEY_UNCHECKED);
+const DEPTH_ONLY_S = S_GRID_CAUTION | S_CHART_SHALLOW | S_NEAR_SHALLOW | S_SURVEY_AMBER;
 /** Water nothing proves: no chart depth, no evidence, relaxed land, the
  *  charts at odds, a caution cell nothing explains. */
 const UNPROVEN_X =
@@ -770,6 +771,126 @@ export function pullTaut(polyline: readonly [number, number][], opts: PullOption
         i = best;
     }
     return { polyline: out, fromSeg, kept, pulled: n - out.length };
+}
+
+/** A turn is said to be for depth when it keeps at least this much water
+ *  charted under the keel's need off the straight line… */
+export const DEPTH_BEND_MIN_M = 100;
+/** …looking this many segments on at most, and no further than this (m). */
+const DEPTH_BEND_SPAN = 4;
+const DEPTH_BEND_MAX_M = 5_000;
+/** The step the depths it names are read on (m): two depths for a note. */
+const DEPTH_BEND_STEP_M = 25;
+
+/**
+ * The route's biggest turn off the straight line for deeper water (Shane,
+ * 2026-10-04, Port of Airlie: "unsure why waypoints 5,6,7 would go that way
+ * and not straight ahead"): a run of segments whose chord would cross at
+ * least DEPTH_BEND_MIN_M more water charted under draft + UKC and nothing else
+ * the run does not (no land, hazard, uncharted or closed water, mark passed
+ * on the other side, nearer the shore) — so the bend is for depth alone, and
+ * the route notes can say so. Only from a segment over such water, within the
+ * pull's runs (`pullable`, `runKey`). Given the chart's depth at a point
+ * (`depthAt`) and the keel's need (`needM`), it also reads the depth the bend
+ * reaches first at or over the need past its shallow water (`deepM`), whether
+ * it reaches it sooner than the straight line reaches any (`sooner`), and the
+ * depth most of the water straight on is charted (`overM`). Null when there
+ * is none.
+ */
+export function depthBendOf(
+    polyline: readonly [number, number][],
+    opts: Pick<PullOptions, 'exposureOf' | 'marks' | 'pullable' | 'runKey'> & {
+        depthAt?: (lon: number, lat: number) => number | null;
+        needM?: number;
+    },
+): Omit<DepthBend, 'needM'> | null {
+    const n = polyline.length;
+    const seg: LineExposure[] = [];
+    const segAt = (s: number): LineExposure => (seg[s] ??= opts.exposureOf(polyline[s], polyline[s + 1]));
+    const marksIn =
+        opts.marks && opts.marks.length > 0 ? bboxBuckets(opts.marks, (m) => [m[0], m[1], m[0], m[1]]) : null;
+    let best: Omit<DepthBend, 'needM'> | null = null;
+    let bestRun: readonly LonLat[] = [];
+    for (let i = 0; i + 2 < n; i++) {
+        if (opts.pullable?.[i] === false || !(segAt(i).metres[X_CHART_SHALLOW] > 0)) continue;
+        const sum = new Float64Array(X_COUNT);
+        let state = 0;
+        for (let j = i + 1; j < n && j <= i + DEPTH_BEND_SPAN; j++) {
+            const s = j - 1;
+            if (s > i && (opts.pullable?.[s] === false || opts.runKey?.[s] !== opts.runKey?.[i])) break;
+            const e = segAt(s);
+            state |= e.state;
+            for (let k = 0; k < X_COUNT; k++) sum[k] += e.metres[k];
+            const [a, b] = [polyline[i], polyline[j]];
+            const chordM = haversineM(a[1], a[0], b[1], b[0]);
+            // Straight on can cross no more shallow water than it is long (a
+            // per cent of slack for the chart pieces' own arithmetic).
+            const canSave = chordM * 1.01 + PULL_STEP_M - sum[X_CHART_SHALLOW];
+            if (j === i + 1 || chordM > DEPTH_BEND_MAX_M || canSave < DEPTH_BEND_MIN_M) continue;
+            if (best && canSave <= best.straightM - best.routeM) continue;
+            const run = polyline.slice(i, j + 1);
+            if (marksIn?.(boxOf(run)).some((m) => pointInRing(m[0], m[1], run as [number, number][]))) continue;
+            const chord = opts.exposureOf(a, b);
+            if ((chord.state & ~state & ~DEPTH_ONLY_S) !== 0) continue;
+            let other = false;
+            for (let k = 0; k < X_COUNT; k++)
+                if ((DEPTH_ONLY_X & bit(k)) === 0 && chord.metres[k] > sum[k] + PULL_STEP_M) other = true;
+            const saved = chord.metres[X_CHART_SHALLOW] - sum[X_CHART_SHALLOW];
+            if (other || saved < DEPTH_BEND_MIN_M || (best && saved <= best.straightM - best.routeM)) continue;
+            // The way it heads: the first vertex past a stub at the turn.
+            const via = run.slice(1).find((p) => haversineM(a[1], a[0], p[1], p[0]) >= 50) ?? run[1];
+            best = {
+                at: [a[0], a[1]],
+                via: [via[0], via[1]],
+                to: [b[0], b[1]],
+                routeM: Math.round(sum[X_CHART_SHALLOW]),
+                straightM: Math.round(chord.metres[X_CHART_SHALLOW]),
+                extraM: Math.round(pathLengthM(run) - localM(a, b)),
+            };
+            bestRun = run;
+        }
+    }
+    const { depthAt, needM } = opts;
+    if (!best || !depthAt || needM === undefined) return best;
+    // Every DEPTH_BEND_STEP_M along a line: its charted depths, in order, each
+    // with its step's length and how far along the line it lies.
+    const depthsAlong = (line: readonly LonLat[], each: (d: number, m: number, along: number) => boolean | void) => {
+        let along = 0;
+        for (let k = 0; k + 1 < line.length; k++) {
+            const [p, q] = [line[k], line[k + 1]];
+            const steps = Math.max(1, Math.ceil(localM(p, q) / DEPTH_BEND_STEP_M));
+            const m = localM(p, q) / steps;
+            for (let t = 0; t < steps; t++, along += m) {
+                const f = (t + 0.5) / steps;
+                const d = depthAt(p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f);
+                if (d !== null && each(d, m, along)) return;
+            }
+        }
+    };
+    /** The first water at or over the need past the shallow along a line: its
+     *  depth and how far along; null where there is none. */
+    const firstDeep = (line: readonly LonLat[]): [number, number] | null => {
+        let out: [number, number] | null = null;
+        let shallow = false;
+        depthsAlong(line, (d, _m, along) => {
+            if (d < needM) shallow = true;
+            else if (shallow) return !!(out = [d, along]);
+        });
+        return out;
+    };
+    const deep = firstDeep(bestRun);
+    const straight = firstDeep([best.at, best.to]);
+    const under = new Map<number, number>();
+    depthsAlong([best.at, best.to], (d, m) => {
+        if (d < needM) under.set(d, (under.get(d) ?? 0) + m);
+    });
+    let overM: number | undefined;
+    for (const [d, m] of under) if (overM === undefined || m > under.get(overM)!) overM = d;
+    // "Sooner" only where it is: the bend's deep water comes before the
+    // straight line's (review, 2026-10-04).
+    return deep && overM !== undefined
+        ? { ...best, deepM: deep[0], overM, sooner: !straight || deep[1] < straight[1] }
+        : best;
 }
 
 /** Per vertex: on a charted lead (within LEAD_ANCHOR_M of one of `leads`). */

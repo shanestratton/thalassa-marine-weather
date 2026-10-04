@@ -7,11 +7,13 @@ import type { PassageNotice } from './usePassagePlanner';
 import {
     nearSpanBlocks,
     type ChartedShallowSpan,
+    type DepthBend,
     type PinOffWater,
     type PinTail,
     type SurveyRunInfo,
 } from '../../services/engine/types';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
+import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 
 export interface InshoreRouteNoticeInput {
     /** The router's per-segment safety classifications arrived intact. */
@@ -45,6 +47,9 @@ export interface InshoreRouteNoticeInput {
     /** The stretches that pass inside a shallow band's clearance
      *  (nearShallowSummary of InshoreRouteResult.chartedShallowSpans). */
     nearShallow?: NearShallowSummary;
+    /** The route's turn off the straight line for deeper water
+     *  (InshoreRouteResult.depthBend; Port of Airlie, 2026-10-04). */
+    depthBend?: DepthBend;
     ntmLockBanner: PassageNotice | null;
 }
 
@@ -169,6 +174,9 @@ function channelEdgeHeadlines(near: NearShallowSummary | undefined): boolean {
     const c = near?.channel;
     return !!c && c.requiredM - c.clearanceM >= CHANNEL_EDGE_HEADLINE_SHORT_M;
 }
+
+/** The eight ways a route can bend, in words. */
+const BEND_WAYS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 
 /** Metres in a skipper's words: "1.3 km", "450 m". */
 const distanceWords = (m: number): string =>
@@ -302,6 +310,26 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     if (near) out.push(near);
     const edge = channelEdgeCaveat(input.nearShallow);
     if (edge) out.push(edge);
+    // Why the route leaves the straight line (Shane, 2026-10-04: "unsure why
+    // waypoints 5,6,7 would go that way and not straight ahead"), in one plain
+    // line: where — the turn's position as Review lists a waypoint's (the
+    // waypoints shown are a sparse, editable index over the route's points,
+    // so a number could name the wrong one) — which way, for what water, what
+    // it costs and what it saves.
+    const bend = input.depthBend;
+    if (bend && [bend.routeM, bend.straightM, bend.extraM, bend.needM].every(Number.isFinite)) {
+        const [lon, lat] = bend.at;
+        const deg =
+            (Math.atan2((bend.via[0] - lon) * Math.cos((lat * Math.PI) / 180), bend.via[1] - lat) * 180) / Math.PI;
+        const turn = `At ${formatLatDegMin(lat)} ${formatLonDegMin(lon)} the route bends ${BEND_WAYS[Math.round((deg + 360) / 45) % 8]}`;
+        const [route, straight] = [distanceWords(bend.routeM), distanceWords(bend.straightM)];
+        const further = `${distanceWords(bend.extraM)} further, but ${route}`;
+        out.push(
+            bend.deepM !== undefined && bend.overM !== undefined
+                ? `${turn} to reach charted ${bend.deepM.toFixed(1)} m water${bend.sooner ? ' sooner' : ''}: ${further} over ${bend.overM.toFixed(1)} m water instead of ${straight} straight on.`
+                : `${turn} off the straight line to cross less water charted under the ${bend.needM.toFixed(1)} m you need: ${further} of it instead of ${straight} straight on.`,
+        );
+    }
     // Owner decision 11 (2026-10-01): where the route crosses water a tide
     // must clear and no tide was loaded for that place (offline, or a partial
     // load — fix-up, 2026-10-01), the router could not rule out water no tide

@@ -442,6 +442,8 @@ export async function calculateThalassaProposal(
         structuresUnknownCells: ok.structuresUnknownCells,
         pinOffWater: ok.pinOffWater,
         pinTail: ok.pinTail,
+        // Why the route leaves the straight line for deeper water (2026-10-04).
+        depthBend: ok.depthBend,
         tideCheck: ok.tideCheck,
         surveyRuns: ok.surveyRuns,
         surveyUncheckedCells: ok.surveyUncheckedCells,

@@ -767,6 +767,29 @@ export interface PinTail {
     why?: string;
 }
 
+/**
+ * Where the route turns off the straight line for deeper water
+ * (engine/stringPull depthBendOf; Port of Airlie, 2026-10-04): it leaves the
+ * line at `at`, heads for `via`, and rejoins it at `to` ([lon, lat], route
+ * vertices); metres over water charted under `needM` (draft + UKC) its way
+ * and straight on, and how much further its way is (`extraM`); the charted
+ * depth it reaches first at or over the need (`deepM`), whether it reaches it
+ * sooner than the straight line reaches any (`sooner`), and the depth most of
+ * the water straight on is charted (`overM`), where the chart says.
+ */
+export interface DepthBend {
+    at: [number, number];
+    via: [number, number];
+    to: [number, number];
+    routeM: number;
+    straightM: number;
+    extraM: number;
+    needM: number;
+    deepM?: number;
+    overM?: number;
+    sooner?: boolean;
+}
+
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
     /**
@@ -901,6 +924,8 @@ export interface RouteResult {
     pinOffWater?: { origin?: PinOffWater; destination?: PinOffWater };
     /** A pin in charted-shallow water and its tail (PinTail); absent when neither pin is. */
     pinTail?: { origin?: PinTail; destination?: PinTail };
+    /** The route's biggest turn off the straight line for deeper water (DepthBend). */
+    depthBend?: DepthBend;
     /**
      * The route's survey-quality stretches (owner decision 9, 2026-09-30;
      * SurveyRunInfo): amber for CATZOC D/U, a grade whose error eats the keel
