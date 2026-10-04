@@ -18,7 +18,7 @@
  */
 
 /** The opaque bases a cloud overlay must sit above to be seen at all. */
-export const IMAGERY_LAYER_IDS = ['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer'] as const;
+export const IMAGERY_LAYER_IDS = ['satellite-base-layer', 'hybrid-base-layer'] as const;
 
 /** Highest index among the opaque base-imagery layers, or -1 if none are up. */
 export function imageryTopIndex(layers: readonly { id: string }[]): number {

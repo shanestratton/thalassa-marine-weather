@@ -603,7 +603,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             if (style?.layers) {
                 for (const layer of style.layers) {
                     // minimalLabels: hide country/state/continent labels but KEEP city names
-                    // Works with both Mapbox (country-label) and MapTiler (Country labels) conventions
+                    // Works with both Mapbox (country-label) and OpenMapTiles (Country labels) conventions
                     if (
                         minimalLabels &&
                         layer.type === 'symbol' &&
@@ -633,7 +633,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                             map.setPaintProperty(layer.id, 'text-halo-color', 'rgba(0, 0, 0, 0.9)');
                             map.setPaintProperty(layer.id, 'text-halo-width', 2);
                         } catch {
-                            // Some MapTiler layers may not support text paint properties
+                            // Some OpenMapTiles-schema layers may not support text paint properties
                         }
                     }
 
@@ -769,38 +769,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                 );
             }
 
-            // ── MapTiler Ocean Bathymetry Overlay ──
-            // Adds high-res bathymetry contours from MapTiler Ocean tiles as a raster overlay.
-            // Uses raster XYZ endpoint (plain HTTPS) which works with mapbox-gl v2+.
-            if (!map.getSource('maptiler-ocean')) {
-                map.addSource('maptiler-ocean', {
-                    type: 'raster',
-                    tiles: ['https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e'],
-                    tileSize: 512,
-                    maxzoom: 16,
-                    attribution:
-                        '&copy; <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener noreferrer">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
-                });
-
-                // Find the first symbol layer to insert ocean tiles below labels
-                const firstSymbol = style?.layers?.find((l) => l.type === 'symbol')?.id;
-
-                map.addLayer(
-                    {
-                        id: 'maptiler-ocean-layer',
-                        type: 'raster',
-                        source: 'maptiler-ocean',
-                        paint: {
-                            'raster-opacity': 0.6,
-                            'raster-brightness-max': 0.7,
-                            'raster-contrast': 0.15,
-                            'raster-fade-duration': 0,
-                            'raster-resampling': 'nearest',
-                        },
-                    },
-                    firstSymbol, // Insert below labels so text stays readable
-                );
-            }
+            // The Ocean raster tint that used to sit here is gone
+            // (2026-10-04): its free key was licensed for non-commercial use
+            // only, which blocks the paid release.
 
             setMapReady(true);
 
@@ -821,7 +792,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 }
             }
 
-            // Bathymetry is now provided by the MapTiler Ocean base style.
+            // Bathymetry under the imagery is the ENC glaze's job.
 
             // ── OpenSeaMap overlay ──
             if (!map.getSource('openseamap-permanent')) {

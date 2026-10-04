@@ -3,7 +3,7 @@ import type mapboxgl from 'mapbox-gl';
 export type MapPoint = { lat: number; lon: number };
 
 /**
- * A Mapbox/MapTiler style layer we may need to reconcile with a raster base.
+ * A base-style layer (Mapbox or OpenMapTiles schema) we may need to reconcile with a raster base.
  * Kept deliberately small so the predicate is usable with `map.getStyle()`
  * layers without coupling this pure helper to Mapbox GL's large layer union.
  */
@@ -27,7 +27,7 @@ export function isBasemapHybridDuplicateLabelLayer(layer: MapStyleLayerIdentity)
     if (layer.type !== 'symbol') return false;
 
     // `composite` is Mapbox's standard base source and `openmaptiles` is the
-    // alternate MapTiler base source used by the app. Source-less symbols and
+    // OpenMapTiles-schema base source an alternate style would use. Source-less symbols and
     // every other source are intentionally rejected: the app can add those at
     // runtime, and hiding a route or waypoint label is worse than leaving an
     // unfamiliar basemap label alone.

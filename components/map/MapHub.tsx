@@ -1865,9 +1865,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Plain satellite and bathymetric Ocean stay one tap away. Session-only.
     const hybridVisibleRaw = baseVisibility.hybrid;
     // OCEAN BASE (Shane 2026-07-19: "we used to have one that had a bit of
-    // bathymetry with it" → make it its own base). The MapTiler Ocean raster has
-    // always existed, but only as a 0.45 tint ON TOP of satellite. As a BASE it
-    // becomes the water itself: a bathymetric chart rather than a photograph.
+    // bathymetry with it" → make it its own base). It was a raster tint whose
+    // free key was licensed for non-commercial use only; since 2026-10-04 it is
+    // the style's own sea, with no imagery over it.
     //
     // It counts as imagery below, which is the load-bearing part. imageryOn is
     // what gives ENC its translucent treatment — DEPARE drops to the glaze and
@@ -2092,49 +2092,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                     for (const id of ENC_SATELLITE_HIDE_LAYERS) {
                         if (setVis(id, 'none')) changed = true;
                     }
-                    // Bathymetry OVER the imagery (Shane 2026-07-09: "can we
-                    // have a bathymetry layer on top of the satellite") — the
-                    // MapTiler ocean raster used to be hidden with the fills;
-                    // now it stays on as a translucent depth tint so the water
-                    // carries its contours while the imagery shows through.
-                    if (setVis('maptiler-ocean-layer', 'visible')) changed = true;
-                    // …but as the BASE it is the water, not a tint over one, so
-                    // it has to drop UNDER the ENC stack. As an overlay it is
-                    // deliberately inserted just below the labels, which leaves
-                    // it ABOVE the depth bands and marks — fine when it is a
-                    // wash over a photo, wrong when the chart is drawn on it.
-                    if (oceanBaseVisible && map.getLayer('maptiler-ocean-layer')) {
-                        if (encBottom && orderIds.indexOf('maptiler-ocean-layer') > orderIds.indexOf(encBottom)) {
-                            map.moveLayer('maptiler-ocean-layer', encBottom);
-                            changed = true;
-                            refreshOrder();
-                        }
-                    }
+                    // The bathymetry tint that used to ride over the imagery here
+                    // (2026-07-09) is gone with its non-commercial key
+                    // (2026-10-04); depth under imagery is the ENC glaze's job.
                     // Only re-paint the DEPARE glaze when this pass actually
                     // changed layer state (a cell load hid a fresh fill, the
                     // z-order moved, or force). At steady state this is
                     // skipped, so no paint write → no styledata → loop dies.
-                    if (changed) {
-                        encSyncDepareBaseTreatment(map);
-                        if (map.getLayer('maptiler-ocean-layer')) {
-                            // 0.45 as a tint so the imagery beneath still reads;
-                            // near-opaque as the base, where there is nothing
-                            // underneath worth showing and the contours should be
-                            // as legible as a paper bathymetric chart.
-                            map.setPaintProperty(
-                                'maptiler-ocean-layer',
-                                'raster-opacity',
-                                oceanBaseVisible ? 0.95 : 0.45,
-                            );
-                            // The tint is dimmed to sit under imagery; as the base
-                            // it should render at its own contrast.
-                            map.setPaintProperty(
-                                'maptiler-ocean-layer',
-                                'raster-brightness-max',
-                                oceanBaseVisible ? 1 : 0.7,
-                            );
-                        }
-                    }
+                    if (changed) encSyncDepareBaseTreatment(map);
                 }
                 // Declutter runs LAST so it has the final word on its
                 // furniture after the visibility owners above have spoken —
@@ -2182,12 +2147,6 @@ export const MapHub: React.FC<MapHubProps> = ({
             // forcing 'visible' here used to override a user's ENC-off/clean
             // chart state.
             try {
-                if (map.getLayer('maptiler-ocean-layer')) {
-                    // THE PURGE (2026-07-11): the raster bathy tint is
-                    // satellite-mode furniture only. In chart mode the white
-                    // ramp IS the water; uncovered water stays honestly dark.
-                    map.setLayoutProperty('maptiler-ocean-layer', 'visibility', 'none');
-                }
                 encApplyLayerVisibility(map, encVisible);
                 encApplyChartDetailLayers(map, encChartDetail);
             } catch {

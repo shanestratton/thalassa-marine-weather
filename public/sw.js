@@ -444,7 +444,7 @@
 // separate saved voyage, so every passage appeared twice. Pairs collapse to the
 // direction that STARTS nearest the boat -- the way you are about to sail --
 // marked ⇄ so a folded return leg is visible rather than silently dropped.
-// v179: BATHYMETRY as its own chart base. The MapTiler Ocean raster has always
+// v179: BATHYMETRY as its own chart base. The Ocean raster tint has always
 // been there, but only as a 0.45 tint on top of satellite; as a base it becomes
 // the water itself -- depth contours as the chart, no photo. Counts as imagery
 // so ENC goes translucent over it (otherwise the 0.95-opaque DEPARE ramp would

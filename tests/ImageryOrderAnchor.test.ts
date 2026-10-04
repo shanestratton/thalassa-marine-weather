@@ -35,7 +35,7 @@ describe('imageryTopIndex', () => {
     });
 
     it('covers every opaque base the map can show', () => {
-        expect([...IMAGERY_LAYER_IDS]).toEqual(['satellite-base-layer', 'hybrid-base-layer', 'maptiler-ocean-layer']);
+        expect([...IMAGERY_LAYER_IDS]).toEqual(['satellite-base-layer', 'hybrid-base-layer']);
     });
 });
 

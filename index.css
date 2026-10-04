@@ -3714,8 +3714,8 @@ body,
 }
 
 /* ── Chart map credits must clear the bottom tab bar ───────────────
-   THIS IS A LICENCE CONDITION, not styling. Mapbox, OpenStreetMap, Maxar,
-   MapTiler and OpenSeaMap all require visible attribution.
+   THIS IS A LICENCE CONDITION, not styling. Mapbox, OpenStreetMap, Maxar
+   and OpenSeaMap all require visible attribution.
 
    useMapInit.ts correctly sets attributionControl: true, and every source
    carries its credit string — but mapbox-gl parks its controls at bottom:0,
@@ -3797,7 +3797,7 @@ body,
 }
 
 /* Opened compact credits sit on Mapbox's white card, and every plain-text
-   credit (Blitzortung.org, Anchorages, Moorings, MPA, MapTiler text) inherited
+   credit (Blitzortung.org, Anchorages, Moorings, MPA text) inherited
    the chart's white ink: white on white, unreadable — a licence credit shown
    but not legible (measured 2026-09-29: text rgb(255,255,255) on a white card;
    only Mapbox's own links, rgba(0,0,0,0.75), read). Give the CONTAINER Mapbox's
