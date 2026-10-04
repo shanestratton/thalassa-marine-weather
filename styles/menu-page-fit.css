@@ -1,0 +1,334 @@
+/*
+ * Menu pages fit one screen (Shane 2026-10-04): "i would like to ensure that
+ * the vessel page all fits on one screen without needing to scroll, as i
+ * prefer that all of the menu itemed pages fit into one screen".
+ *
+ * The Vessel page as drawn needs ~680 px between the app header and the tab
+ * bar. That fits a tall phone in a browser, but not an iPhone once the status
+ * bar and home indicator are taken (~615 px on a 6.1-inch Pro), an SE (~510)
+ * or an iPad split pane (~570-640). So the page is its own size container and
+ * tightens by the height it is actually given, measured, never guessed from
+ * the screen: a pane and a phone of the same height get the same page.
+ *
+ *   compact, under 720 px: 44 pt rows with one-line subtitles, shorter safety
+ *     tiles, a tighter skipper card and gaps (fits ~520-535 px);
+ *   tight, under 540 px (an SE): the tiles drop their icon chip to a glyph and
+ *     the gaps close up (fits ~500 px at the SE's 15 px root).
+ *
+ * Every tap target stays at least 44 px tall. Nothing is hidden: a subtitle cut
+ * to one line is still the row's whole description for VoiceOver. A state that
+ * adds height (the fresh-install "Set up your vessel" card) still scrolls.
+ */
+.vessel-hub-surface {
+    container: vessel-hub / size;
+}
+
+/* The menu box fades in; the cards above it still rise. The port's stagger-in
+   starts each card 8 px low, and Chromium kept that first frame's scrollable
+   overflow after the page had come to rest: at 320x627 the box ends 6 px above
+   the port's end, and the page scrolled 2 px of nothing. WebKit measured 0,
+   but the box is the last thing on the page, the only one whose rise can push
+   past the end, so it alone does not rise. */
+.vessel-hub-port.stagger-in > .vessel-hub-menu {
+    animation-name: vessel-hub-menu-in;
+}
+
+@keyframes vessel-hub-menu-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@container vessel-hub (max-height: 719.98px) {
+    .vessel-hub-deck {
+        padding-top: 0.5rem;
+    }
+    /* 2 x 6 py + 20 chip + 2 x 3 gap + 11 name + two 11 px state lines = 71,
+       and a px of slack. Two lines stay allowed: OVERBOARD wraps rather than
+       truncates (Shane 2026-09-05). */
+    [data-testid='vessel-safety-controls'] {
+        grid-auto-rows: 72px;
+    }
+    .vessel-safety-tile {
+        gap: 3px;
+        padding-top: 6px;
+        padding-bottom: 6px;
+    }
+    .vessel-safety-chip {
+        width: 20px;
+        height: 20px;
+    }
+    .vessel-hub-journal {
+        margin-bottom: 0.375rem;
+    }
+    .vessel-hub-tile {
+        min-height: 44px;
+        padding-top: 0.125rem;
+        padding-bottom: 0.125rem;
+    }
+    .vessel-hub-tile-icon {
+        padding: 0.375rem;
+    }
+    /* py-1 + the 1.25rem title row + the 1rem GPS row + a 44 px button. */
+    [data-testid='skipper-device-card'] {
+        height: calc(3.125rem + 46px);
+        margin-bottom: 0.375rem;
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+    }
+    .skipper-device-title {
+        margin-bottom: 0.125rem;
+    }
+    .skipper-device-gps {
+        margin-bottom: 0.25rem;
+    }
+    .skipper-device-action {
+        height: 44px;
+    }
+    .vessel-hub-menu .hub-row {
+        min-height: 44px;
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+    }
+    .vessel-hub-menu .hub-row-icon {
+        padding: 0.25rem;
+    }
+    .vessel-hub-menu .hub-row-status {
+        margin-top: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vessel-hub-port {
+        padding-bottom: 0.25rem;
+    }
+    /* The Boat Binder screen is the same page container: its nine rows take
+       the same 44 pt rhythm and its two sub-labels close up. */
+    .vessel-binder-header {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+    .vessel-binder-label {
+        padding-top: 0.5rem;
+        padding-bottom: 0.25rem;
+    }
+    .vessel-binder-port {
+        padding-bottom: 0.25rem;
+    }
+}
+
+/* Tight also takes a 320 pt phone under 720 px (a 6.1-inch iPhone at Display
+   Zoom, 320x693), whose app header wraps to three lines and leaves ~580. */
+@container vessel-hub (max-height: 539.98px) or ((max-width: 340px) and (max-height: 719.98px)) {
+    .vessel-hub-deck {
+        padding-top: 0.25rem;
+    }
+    /* 2 x 4 py + 16 glyph + 2 x 2 gap + 11 name + two 11 px state lines = 61,
+       and a px of slack. */
+    [data-testid='vessel-safety-controls'] {
+        grid-auto-rows: 62px;
+    }
+    .vessel-safety-tile {
+        gap: 2px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+    }
+    .vessel-safety-chip {
+        width: 16px;
+        height: 16px;
+        background: none !important;
+    }
+    .vessel-hub-port {
+        padding-top: 0.25rem;
+        scroll-padding-top: 0.25rem !important;
+    }
+    .vessel-hub-journal,
+    [data-testid='skipper-device-card'] {
+        margin-bottom: 0.25rem;
+    }
+    .vessel-binder-header {
+        padding-top: 0.125rem;
+        padding-bottom: 0.125rem;
+    }
+    .vessel-binder-label {
+        padding-top: 0.125rem;
+        padding-bottom: 0.125rem;
+    }
+}
+
+/* A 320 pt phone under 720 px needs ~10 px more than tight gives: the port's
+   own top and bottom padding go and the gaps under Diary and the skipper card
+   halve; on the Boat Binder the two sub-labels close to their own line. */
+@container vessel-hub (max-width: 340px) and (max-height: 719.98px) {
+    .vessel-hub-port {
+        padding-top: 0;
+        padding-bottom: 0;
+        scroll-padding-top: 0 !important;
+    }
+    .vessel-hub-journal,
+    [data-testid='skipper-device-card'] {
+        margin-bottom: 0.125rem;
+    }
+    .vessel-binder-label {
+        line-height: 1;
+    }
+    .vessel-binder-port {
+        padding-bottom: 0;
+    }
+}
+
+/* At 320 pt a row's title keeps one line beside a live value ("NMEA Gateway"
+   next to "Not connected" wrapped and grew the row 12 px); the title is still
+   the row's whole name for VoiceOver. */
+@container vessel-hub (max-width: 340px) {
+    .vessel-hub-menu .hub-row-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+/* Phone landscape (the app's own test: landscape and under 500 px tall, where
+   the tab bar gives way to the bottom-left nav toggle). One column cannot hold
+   the page in ~300 px, so it becomes two: the safety tiles, Diary and the
+   skipper card on the left, clear of the nav toggle; the menu box on the
+   right, running down to the home indicator. */
+@media (orientation: landscape) and (max-height: 499.98px) {
+    .vessel-hub-surface.vessel-hub-home {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        align-content: start;
+        column-gap: 0.75rem;
+        padding-right: max(1rem, env(safe-area-inset-right));
+        padding-bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;
+        padding-left: max(1rem, env(safe-area-inset-left));
+        overflow-y: auto;
+    }
+    .vessel-hub-home > .vessel-hub-deck {
+        grid-column: 1;
+        grid-row: 1;
+        padding-right: 0;
+        padding-left: 0;
+    }
+    .vessel-hub-home > .vessel-hub-port {
+        display: contents;
+    }
+    .vessel-hub-home .vessel-hub-journal {
+        grid-column: 1;
+        grid-row: 2;
+        margin-top: 0.25rem;
+    }
+    .vessel-hub-home [data-testid='skipper-device-card'] {
+        grid-column: 1;
+        grid-row: 3;
+    }
+    .vessel-hub-home .vessel-hub-menu {
+        grid-column: 2;
+        grid-row: 1 / -1;
+        align-self: start;
+        margin-top: 0.25rem;
+    }
+    /* Half a 667 pt SE at its 17 px root: the Diary pair and the skipper
+       button are ~150 and ~290 px wide here. Tighter tile insets keep
+       "Scuttlebutt" whole, and the sign-in line may take two lines inside its
+       44 px button instead of running off both ends. */
+    .vessel-hub-home .vessel-hub-tile {
+        gap: 0.5rem;
+        padding-right: 0.5rem;
+        padding-left: 0.5rem;
+    }
+    .vessel-hub-home .vessel-hub-tile-icon {
+        padding: 0.25rem;
+    }
+    .vessel-hub-home .skipper-device-action {
+        line-height: 1.15;
+        white-space: normal;
+    }
+}
+
+/* The Boat Binder in phone landscape: its two shelves side by side. Reference
+   (four rows) takes the left column, which must stay clear of the bottom-left
+   nav toggle; Inventory & Stores (five rows) takes the right, which can run
+   down to the home indicator. */
+@media (orientation: landscape) and (max-height: 499.98px) {
+    .vessel-hub-surface.vessel-hub-binder {
+        padding-right: max(0px, env(safe-area-inset-right));
+        padding-bottom: max(0.5rem, env(safe-area-inset-bottom)) !important;
+        padding-left: max(0px, env(safe-area-inset-left));
+    }
+    .vessel-hub-binder .vessel-binder-port {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        align-content: start;
+        column-gap: 0.75rem;
+    }
+    .vessel-hub-binder .vessel-binder-port > :nth-child(1),
+    .vessel-hub-binder .vessel-binder-port > :nth-child(2) {
+        grid-column: 2;
+    }
+    .vessel-hub-binder .vessel-binder-port > :nth-child(3),
+    .vessel-hub-binder .vessel-binder-port > :nth-child(4) {
+        grid-column: 1;
+    }
+    .vessel-hub-binder .vessel-binder-port > :nth-child(odd) {
+        grid-row: 1;
+    }
+    .vessel-hub-binder .vessel-binder-port > :nth-child(even) {
+        grid-row: 2;
+        align-self: start;
+    }
+}
+
+/* Settings' menu (the phone and split-pane list: Preferences, Vessel Profile,
+   Locations, Notifications, Account & Cloud, Public Voyage Page) is a menu
+   page too. Its screen is a size container like the Vessel page; under
+   760 px the 80 px run-off kept for the floating now-playing bar shrinks to
+   1rem, and under 700 px the rows take 44 pt with one-line descriptions, so
+   six rows, the search field and both section labels fit an SE or an iPad
+   pane. */
+.settings-menu-screen {
+    container: settings-menu / size;
+}
+
+/* The run-off goes first, and higher up: a 16 Pro Max's menu (~715-740 px)
+   holds the full rows but not the 80 px under them, and scrolled 26 px of
+   empty space. */
+@container settings-menu (max-height: 759.98px) {
+    .settings-menu-list {
+        padding-bottom: 1rem;
+    }
+}
+
+@container settings-menu (max-height: 699.98px) {
+    .settings-menu-list {
+        padding-top: 0.75rem;
+    }
+    .settings-menu-row {
+        min-height: 44px;
+        padding-top: 0.25rem;
+        padding-bottom: 0.25rem;
+    }
+    .settings-menu-icon {
+        padding: 0.375rem;
+    }
+    .settings-menu-desc {
+        margin-top: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+/* A 320 pt phone at Display Zoom (320x693): ~5 px short, so the list's own
+   top and bottom padding close up. */
+@container settings-menu (max-width: 340px) and (max-height: 699.98px) {
+    .settings-menu-list {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+}

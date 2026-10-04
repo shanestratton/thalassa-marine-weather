@@ -7,10 +7,14 @@
  *   ── the scrolling area starts here (Shane 2026-08-30) ──
  *   Diary + Scuttlebutt: the two read-most screens, so they lead
  *   Skipper device:      publishing authority · which GPS speaks for the boat
- *   Crew & Float Plan:   voyage prep (was "Passage Planning"), below Skipper device
- *   Boat Binder + Settings: one card — the Binder screen (stores, equipment,
- *                        repairs, documents, reference, GPX import) and Settings
- *   Connections & music: collapsed — NMEA Gateway · Boat Network · Music
+ *   The menu, ONE box (Shane 2026-10-04), most used first: Crew & Float Plan ·
+ *                        Boat Binder (its own screen: stores, equipment,
+ *                        repairs, documents, reference, GPX import) · NMEA
+ *                        Gateway · Music · Settings · Boat Network
+ *
+ * The whole page fits one screen, nothing folded (Shane 2026-10-04: "i prefer
+ * that all of the menu itemed pages fit into one screen"): short screens and
+ * split panes tighten it through styles/menu-page-fit.css.
  *
  * Recipe Library has moved to the Galley; keeping it in two places
  * confused users and the Galley is the natural home for it.
@@ -73,7 +77,7 @@ import type { SubscriptionTier } from '../types/settings';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 import { vesselCrewAboard } from '../services/units';
 
-import { CONTOUR_BG, GLASS, PASSAGE_PLANNING_GROUP } from './vesselHub/glass';
+import { CONTOUR_BG, GLASS } from './vesselHub/glass';
 import { formatCoord, formatDuration, formatTimeSince, pressureTrendIndicator } from './vesselHub/format';
 import {
     BinderIcon,
@@ -100,10 +104,11 @@ import {
 const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
 
 // The hub's one accent (UX scorecard run 7, C-vessel-seven-accents): card
-// icons, section labels and the Crew & Float Plan bezel share sky, the
-// Settings pages' heading colour, and red / amber / green are left to say
-// state. It replaced a green Diary, a blue Scuttlebutt, a teal device card, a
-// violet Crew card, a cyan Binder and a pink Music label on one screen.
+// icons and section labels share sky, the Settings pages' heading colour, and
+// red / amber / green are left to say state. It replaced a green Diary, a blue
+// Scuttlebutt, a teal device card, a violet Crew card, a cyan Binder and a
+// pink Music label on one screen. The Crew & Float Plan card's sky bezel went
+// when the menu became one box (Shane 2026-10-04).
 const HUB_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
 const HUB_ACCENT_CHIP = 'rgba(125, 211, 252, 0.12)';
 
@@ -126,9 +131,8 @@ const HUB_PORT_FADE_BOTTOM =
     '[-webkit-mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,#000_calc(100%_-_14px),transparent)]';
 const HUB_PORT_FADE_BOTH =
     '[-webkit-mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)] [mask-image:linear-gradient(to_bottom,transparent_14px,#000_32px,#000_calc(100%_-_14px),transparent)]';
-import { BinderSubLabel, CollapsibleContent, ListDivider, OfficeRow } from './vesselHub/listRows';
+import { BinderSubLabel, ListDivider, OfficeRow } from './vesselHub/listRows';
 import { MetricChipStrip } from './vesselHub/MetricChip';
-import { SectionHeader } from './vesselHub/SectionHeader';
 import { SwingArc } from './vesselHub/SwingArc';
 import { useTripRoute } from '../hooks/useTripRoute';
 import { type MetricChipData, type SkipperDeviceControlProps, type VesselHubProps } from './vesselHub/types';
@@ -183,9 +187,6 @@ const PlainShieldGlyph: React.FC<{ color: string }> = ({ color }) => (
  *  the 24 pt a return gesture can leave the first row under the deck, so the
  *  end never sits nearer that gesture than home does. */
 const END_REST_MIN_SCROLL = 48;
-
-/** Whether Connections & music was left open — a per-device view preference. */
-const CONNECTIONS_OPEN_KEY = 'thalassa_vessel_connections_open';
 
 // The tiles' descriptors (MOB's "Overboard", Radio's "Position") in true
 // slate-400, set inline: the app-wide caption rule lifts .text-slate-400 to
@@ -252,31 +253,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     });
     const shoreWatch = ShoreWatchAlarmService.getSnapshot();
     const [anchorRadius, setAnchorRadius] = useState(0);
-    // The daily operational tiles, the Diary/Scuttlebutt pair and the Boat
-    // Binder + Settings card are permanently visible. Only the low-priority
-    // Connections & music group remains collapsible; it starts closed.
-    // The broader IA groups are:
-    //   - Watch Status (always-visible daily ops grid)
-    //   - Diary + Scuttlebutt (always-visible navigation tiles)
-    //   - Boat Binder + Settings (always-visible rows; the Binder opens
-    //                   its own screen)
-    //   - Connections & music (collapsed, id 'setup': NMEA + Boat
-    //                   Network + Music. Music — "music on watch", non-
-    //                   essential, intentionally low-key, but reachable
-    //                   in 2 taps — had a one-row accordion of its own,
-    //                   the 'atmosphere' section, until UX scorecard
-    //                   run 7; Settings was this group's third row.)
-    //
-    // The group remembers how the skipper left it (UX scorecard run 8): a
-    // skipper aboard opened it on every visit to reach the NMEA Gateway. First
-    // visit, and any visit where storage is unavailable, it starts closed.
-    const [expanded, setExpanded] = useState<Set<string>>(() => {
-        try {
-            return localStorage.getItem(CONNECTIONS_OPEN_KEY) === '1' ? new Set(['setup']) : new Set();
-        } catch {
-            return new Set();
-        }
-    });
+    // Everything on the page is permanently visible (Shane 2026-10-04): the
+    // pinned safety tiles, the Diary/Scuttlebutt pair, the skipper card and
+    // the one menu box. The collapsed "Connections & music" group (NMEA
+    // Gateway, Boat Network, Music) and the per-device memory of whether it
+    // was left open went with it; those rows are in the box.
     // Boat Binder is a SCREEN, not a section — see the row that opens it below.
     const [binderOpen, setBinderOpen] = useState(() => {
         if (typeof window === 'undefined') return false;
@@ -440,43 +421,34 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const handlePortScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
         setPortScrolled(event.currentTarget.scrollTop > 1);
     }, []);
-    const hubPortFade = portScrolled ? HUB_PORT_FADE_BOTH : HUB_PORT_FADE_BOTTOM;
 
-    // Whether the port scrolls far enough for the page end to be a resting
-    // point of its own (see the Connections & music group). Since the run-8
-    // spacing, a 390x650 pane overflows by ~90 pt with the group closed; with
-    // home as the only snap target, scrolling part-way to the group's header
-    // pulled it straight back under the fold.
+    // Whether the port scrolls at all, and whether it scrolls far enough for
+    // the page end to be a resting point of its own (see the menu box). The
+    // page is sized to fit one screen (Shane 2026-10-04), so normally neither
+    // is true; a fresh install's "Set up your vessel" card or an anchor drag
+    // alarm can still push the box past a short screen. With home as the only
+    // snap target, a part-way scroll pulled straight back under the fold.
+    // The bottom "more below" fade is drawn only when there is more below: on
+    // a page that fits it would only dim the box's lower edge.
     const portRef = useRef<HTMLDivElement>(null);
     const [portRoomy, setPortRoomy] = useState(false);
+    const [portOverflows, setPortOverflows] = useState(false);
     useEffect(() => {
         const port = portRef.current;
         if (!port || typeof ResizeObserver === 'undefined') return;
-        const measure = () => setPortRoomy(port.scrollHeight - port.clientHeight >= END_REST_MIN_SCROLL);
+        const measure = () => {
+            const room = port.scrollHeight - port.clientHeight;
+            setPortRoomy(room >= END_REST_MIN_SCROLL);
+            setPortOverflows(room > 1);
+        };
         const observer = new ResizeObserver(measure);
         observer.observe(port);
         for (const child of Array.from(port.children)) observer.observe(child);
         measure();
         return () => observer.disconnect();
         // Boat Binder replaces the whole page, so the port remounts on return.
-    }, [expanded, binderOpen]);
-
-    const toggleSection = (id: string) => {
-        triggerHaptic('light');
-        setExpanded((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            if (id === 'setup') {
-                try {
-                    localStorage.setItem(CONNECTIONS_OPEN_KEY, next.has(id) ? '1' : '0');
-                } catch {
-                    /* private mode: the group still toggles for this visit */
-                }
-            }
-            return next;
-        });
-    };
+    }, [binderOpen]);
+    const hubPortFade = portScrolled ? HUB_PORT_FADE_BOTH : portOverflows ? HUB_PORT_FADE_BOTTOM : '';
 
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe((snapshot) => {
@@ -719,7 +691,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     if (binderOpen) {
         return (
             <div
-                className="vessel-hub-surface w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+                className="vessel-hub-surface w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar vessel-hub-binder"
                 style={{
                     paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
                     backgroundImage: CONTOUR_BG,
@@ -727,7 +699,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     backgroundColor: 'var(--vessel-surface-bg, transparent)',
                 }}
             >
-                <div className="flex shrink-0 items-center gap-3 px-4 pb-3 pt-4">
+                <div className="vessel-binder-header flex shrink-0 items-center gap-3 px-4 pb-3 pt-4">
                     <BackButton
                         onClick={() => {
                             triggerHaptic('light');
@@ -741,7 +713,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         Same classes, so it looks exactly as before. */}
                     <h1 className="text-xl font-extrabold uppercase tracking-wider text-white">Boat Binder</h1>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
+                <div className="vessel-binder-port flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pb-4">
                     {/* The Passage subgroup is gone (Shane 2026-09-02, binder
                         review, shelf #1): after Saved Routes was culled
                         (2026-08-04) it was a grand heading over one import
@@ -753,7 +725,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     {/* Icons in the hub's one accent, like the hub's own rows;
                         red stays for overdue and expiring (UX scorecard run 7). */}
                     <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
-                    <div style={GLASS.listContainer}>
+                    <div className="vessel-hub-menu" style={GLASS.listContainer}>
                         <OfficeRow
                             icon={<BoxIcon color={HUB_ACCENT} />}
                             label="Ship's Stores"
@@ -838,7 +810,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                     {/* — Reference subgroup — */}
                     <BinderSubLabel>Reference</BinderSubLabel>
-                    <div style={GLASS.listContainer}>
+                    <div className="vessel-hub-menu" style={GLASS.listContainer}>
                         {/* Galley moved here from Inventory & Stores (Shane
                             2026-09-04). It reads as recipes and meal planning —
                             reference material you consult — while its LINK to
@@ -914,7 +886,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     return (
         <div
-            className="vessel-hub-surface w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+            className="vessel-hub-surface w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar vessel-hub-home"
             style={{
                 paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
                 backgroundImage: CONTOUR_BG,
@@ -935,7 +907,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 this deck in normal flex layout also means its dynamic anchor
                 and voyage states never overlap the first scrollable card.
             */}
-            <section className="relative z-20 shrink-0 px-4 pt-4 pb-1" aria-label="Vessel status and safety controls">
+            <section
+                className="vessel-hub-deck relative z-20 shrink-0 px-4 pt-4 pb-1"
+                aria-label="Vessel status and safety controls"
+            >
                 {/* The deck's lower edge, once the port below has moved (UX
                     scorecard run 10, vessel-scroll-fade): a hairline and a short
                     shade, so a card scrolled up under the deck reads as going
@@ -1106,10 +1081,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('mob');
                                 }}
                                 style={ALERT_SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="vessel-safety-tile card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:brightness-110 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    className="vessel-safety-chip flex h-8 w-8 items-center justify-center rounded-lg"
                                     style={{ background: 'rgba(239, 68, 68, 0.18)' }}
                                 >
                                     <MobIcon color="var(--day-ui-danger, #ef4444)" />
@@ -1132,10 +1107,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('radio');
                                 }}
                                 style={SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="vessel-safety-tile card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 <div
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    className="vessel-safety-chip flex h-8 w-8 items-center justify-center rounded-lg"
                                     style={{ background: 'rgba(103, 232, 249, 0.12)' }}
                                 >
                                     <SignalIcon color="var(--day-ui-accent, #67E8F9)" />
@@ -1165,7 +1140,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         onNavigate('guardian');
                                     }}
                                     style={SAFETY_CONTROL_CARD}
-                                    className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                    className="vessel-safety-tile card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                                 >
                                     {/* Off wears the idle ink Anchor's Up wears (UX
                                         scorecard run 10, vessel-idle-ink-tabbar):
@@ -1174,7 +1149,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         glyph and full-ink word are Anchor's up
                                         state exactly; colour is kept for watching. */}
                                     <div
-                                        className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                        className="vessel-safety-chip flex h-8 w-8 items-center justify-center rounded-lg"
                                         style={{
                                             background: guardianArmed
                                                 ? 'rgba(245, 158, 11, 0.12)'
@@ -1219,7 +1194,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('compass');
                                 }}
                                 style={anchorStatus === 'alarm' ? ALERT_SAFETY_CONTROL_CARD : SAFETY_CONTROL_CARD}
-                                className="card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                className="vessel-safety-tile card-lift flex flex-col items-center justify-center gap-1.5 px-1 py-2.5 transition-all hover:bg-white/3 active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                             >
                                 {/* THE SAME GLYPH IN EVERY STATE. The live
                                     swing arc used to take this slot while the
@@ -1236,7 +1211,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     beside three icon tiles read as a tile that
                                     had not loaded (UX referee 2026-09-26). */}
                                 <div
-                                    className="flex h-8 w-8 items-center justify-center rounded-lg"
+                                    className="vessel-safety-chip flex h-8 w-8 items-center justify-center rounded-lg"
                                     style={{ background: `${anchorColor}1f` }}
                                 >
                                     <span
@@ -1298,21 +1273,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 above and AnchorWatchPage already use: the tab bar is 4rem plus
                 the home-indicator inset, and 8px of air on top of it.
 
-                FIT, not just scroll (Shane 2026-09-06): the outer surface
-                already ends above the tab bar, so at its natural position the
-                port CLIPS whatever falls below its bottom edge — which sat on
-                the Settings & Connect header, right where the tab bar begins,
-                and read as "blocked by the menu" with nothing hinting it
-                scrolls. The vertical rhythm here (pt-2, pb-1 on the deck,
-                mb-2 rows, mb-4 headers) is sized so the whole page fits an
-                844pt phone without scrolling; smaller phones still scroll.
-                8 pt between cards, not 12, and the device card and rows 4-8 pt
-                tighter (UX scorecard run 8): at 375x667 the Connections &
-                music header sat wholly under the fold, over a blank band, so
-                the page read as finished. It now shows in the bottom fade. */}
+                FIT, not just scroll (Shane 2026-09-06, and 2026-10-04: "i
+                would like to ensure that the vessel page all fits on one
+                screen without needing to scroll"): the outer surface already
+                ends above the tab bar, so at its natural position the port
+                CLIPS whatever falls below its bottom edge. The vertical rhythm
+                here (pt-2, pb-1 on the deck, mb-2 cards) fits a tall phone as
+                drawn; shorter screens and split panes take the tighter rhythm
+                in styles/menu-page-fit.css (a container query on this page's
+                own height, so a pane is measured, not guessed), which keeps
+                every row at least 44 pt. The port still scrolls if a state
+                adds height (the fresh-install "Set up your vessel" card). */}
             <div
                 ref={portRef}
-                className={`flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in ${hubPortFade}`}
+                className={`flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-2 pb-4 stagger-in vessel-hub-port ${hubPortFade}`}
                 // The ROOT already ends 8px above the tab bar, so this port's own
                 // bottom padding must not repeat that: with the tab-bar calc here
                 // too, a page with nothing expanded still had ~100px of dead
@@ -1327,21 +1301,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     // Match pt-2 so the first row rests at scrollTop 0,
                     // not one padding-width under the operational deck.
                     scrollPaddingTop: '0.5rem',
-                    // The last group's mb-4 plus the port's pb-4, so the lower
-                    // resting point is the true bottom of the page, not a
-                    // second one 16 pt short of it.
-                    scrollPaddingBottom: '2rem',
+                    // The port's pb-4 (the menu box has no margin of its own),
+                    // so the lower resting point is the true bottom of the
+                    // page, not a second one short of it.
+                    scrollPaddingBottom: '1rem',
                 }}
                 onScroll={handlePortScroll}
             >
                 {/* Diary + Scuttlebutt lead the scrolling area (Shane
                     2026-08-30). They are the two things opened most often and
                     the only ones here that are read rather than configured, so
-                    they come before the cards that answer "how is this boat set
-                    up" — Skipper Device, Passage Planning, Boat Binder — and
-                    before the menu headers below them. */}
+                    they come before the card that answers "who speaks for this
+                    boat" — Skipper Device — and the menu box below it. */}
                 {/* Diary + Scuttlebutt — permanently visible peer tiles. */}
-                <div className="relative mb-2" style={{ scrollSnapAlign: 'start' }}>
+                <div className="vessel-hub-journal relative mb-2" style={{ scrollSnapAlign: 'start' }}>
                     {/* Screen-reader section heading for the two tiles, so they
                         do not read as part of the safety controls above. */}
                     <h2 className="sr-only">Journal and community</h2>
@@ -1361,11 +1334,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('diary');
                             }}
                             style={GLASS.card}
-                            className="flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
+                            className="vessel-hub-tile flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
                             <span
                                 aria-hidden="true"
-                                className="flex shrink-0 rounded-lg p-2.5"
+                                className="vessel-hub-tile-icon flex shrink-0 rounded-lg p-2.5"
                                 style={{ background: HUB_ACCENT_CHIP }}
                             >
                                 <PenIcon color={HUB_ACCENT} />
@@ -1387,11 +1360,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('chat');
                             }}
                             style={GLASS.card}
-                            className="flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
+                            className="vessel-hub-tile flex items-center gap-3 px-4 py-2 text-left hover:bg-white/3 transition-all active:scale-[0.98] card-lift"
                         >
                             <span
                                 aria-hidden="true"
-                                className="flex shrink-0 rounded-lg p-2.5"
+                                className="vessel-hub-tile-icon flex shrink-0 rounded-lg p-2.5"
                                 style={{ background: HUB_ACCENT_CHIP }}
                             >
                                 <ChatBubbleIcon color={HUB_ACCENT} />
@@ -1438,18 +1411,46 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     vesselName={vesselNameSet ? vesselName : undefined}
                 />
 
-                {/* PASSAGE PLANNING — deliberately one tap from the Vessel
-                    home, directly below the publishing-authority card. It used
-                    to be inside Boat Binder, which made an operational voyage
-                    workflow look like stored paperwork. Import GPX remains in
-                    the Binder; planning the voyage belongs on the live hub. */}
-                <div className="mb-2" style={PASSAGE_PLANNING_GROUP}>
-                    {/* Named "Crew & Float Plan" from the app glossary (UX
-                        scorecard run 6, W-glossary): "Passage Planning / Plan
-                        your voyage" collided with the Plan tab's route planner. */}
-                    {/* Sky icon, grey subtitle, like every other hub row; amber
-                        stays for pending invites, a state (UX scorecard run 7,
-                        C-vessel-seven-accents). */}
+                {/* ═══════════════════════════════════════════ */}
+                {/* THE MENU — ONE BOX, most used first          */}
+                {/* ═══════════════════════════════════════════ */}
+                {/* Shane 2026-10-04: "the vessel page needs to have one box
+                    around crew and float plan, boat binder, settings, nmea
+                    gateway, boat network, and music. can you also order them
+                    in a better order from most used to least." So the six rows
+                    are one grouped card with dividers, and nothing is folded
+                    away: the Crew & Float Plan card (with its sky bezel), the
+                    Boat Binder + Settings card and the collapsed "Connections &
+                    music" group are gone. The page fits one screen without the
+                    fold ("i prefer that all of the menu itemed pages fit into
+                    one screen"): see styles/menu-page-fit.css, which tightens
+                    the page on short screens and panes.
+
+                    Order, most used to least: Crew & Float Plan (every
+                    passage, and its pending-invite badge is the most urgent
+                    state on the menu), Boat Binder (stores, maintenance and
+                    documents), NMEA Gateway (a skipper aboard opened the old
+                    fold for it on every visit, UX scorecard run 8, and its
+                    Connected / Aboard / Away state is worth a glance), Music
+                    (non-essential, UX scorecard run 7), Settings, then Boat
+                    Network, which is set up once.
+
+                    A lower resting point exists only when the port has real
+                    room to scroll (portRoomy) — a fresh install's "Set up your
+                    vessel" card can still push the box past a short screen, and
+                    with home as the only snap target a part-way scroll pulled
+                    straight back. When it fits, there is nothing to snap. */}
+                <div
+                    data-testid="vessel-hub-menu"
+                    className="vessel-hub-menu"
+                    style={{ ...GLASS.listContainer, scrollSnapAlign: portRoomy ? 'end' : 'none' }}
+                >
+                    <h2 className="sr-only">Vessel menu</h2>
+                    {/* CREW & FLOAT PLAN — the voyage workflow (readiness, crew,
+                        watches, float plan, Cast Off). Named from the app
+                        glossary (UX scorecard run 6): "Passage Planning"
+                        collided with the Plan tab's route planner. Amber stays
+                        for pending invites, a state. */}
                     <OfficeRow
                         icon={<CrewIcon color={HUB_ACCENT} />}
                         label="Crew & Float Plan"
@@ -1469,35 +1470,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         }}
                         badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
                     />
-                    {/* Saved Routes row removed (Shane 2026-08-04): the
-                        library is one tap away inside Passage Planning, so a
-                        second entry point here was noise. */}
-                </div>
-
-                {/* ═══════════════════════════════════════════ */}
-                {/* BOAT BINDER — imports / inventory / reference   */}
-                {/* (4-bucket IA, 2026-05-17). Sailor's mental    */}
-                {/* model: the physical binder every cruiser keeps */}
-                {/* with vessel docs, equipment registry, log,    */}
-                {/* polars, notices. ONE collapse reveals 9 rows  */}
-                {/* organised into 3 subgroups via small labels — */}
-                {/* no nested section chevrons.                   */}
-                {/* ═══════════════════════════════════════════ */}
-                {/* BOAT BINDER — its OWN SCREEN now (Shane 2026-07-19: "can boat
-                    binder be its own screen when you click on it. at the moment it
-                    scrolls up through the buttons at the top"). Expanding ~170 lines
-                    of rows inline pushed the page far past a screen, so opening it
-                    left the skipper mid-list with the pinned hero above and no sense
-                    of place. A row that opens a screen is the honest shape for a
-                    section this big. */}
-                {/* Settings shares the Binder's card and is always shown (UX
-                    scorecard run 7, N-vessel-hub-structure): it was reachable
-                    only by expanding "Settings & Connect" at the foot of the
-                    hub, below the fold at 375x667. Both are ordinary hub rows
-                    now, one anatomy with Crew & Float Plan above, and the
-                    divider (not a 12pt gap) is what lets the Settings row peek
-                    above the 375x667 fold. */}
-                <div className="mb-2" style={GLASS.listContainer}>
+                    <ListDivider />
+                    {/* BOAT BINDER — its OWN SCREEN (Shane 2026-07-19: "can boat
+                        binder be its own screen when you click on it"). The row
+                        opens it in place; stores, equipment, maintenance,
+                        documents and reference live there. */}
                     <OfficeRow
                         icon={<BinderIcon color={HUB_ACCENT} />}
                         label="Boat Binder"
@@ -1508,6 +1485,39 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             // The hub port remounts at the top on the way back.
                             setPortScrolled(false);
                             setBinderOpen(true);
+                        }}
+                    />
+                    <ListDivider />
+                    <OfficeRow
+                        icon={<PlugIcon color={HUB_ACCENT} />}
+                        label="NMEA Gateway"
+                        status={gatewayStatus}
+                        statusColor="#94a3b8"
+                        value={gatewayState}
+                        valueColor={gatewayStatusColor}
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('nmea');
+                        }}
+                    />
+                    {/* ENC Library is not on this menu (Shane 2026-08-07: "less
+                        is more"); the map's no-coverage affordance opens it. */}
+                    <ListDivider />
+                    {/* MUSIC — removed 2026-07-19, RESTORED 2026-08-08 at Shane's
+                        ask: the mic and the now-playing bar do not help when you
+                        want to go and choose something. */}
+                    <OfficeRow
+                        icon={
+                            <span className="flex" style={{ color: HUB_ACCENT }}>
+                                <SpeakerWaveIcon className={HUB_ICON} />
+                            </span>
+                        }
+                        label="Music"
+                        status="Apple Music & speakers"
+                        statusColor="#94a3b8"
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('music');
                         }}
                     />
                     <ListDivider />
@@ -1557,128 +1567,26 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             onNavigate('settings');
                         }}
                     />
-                </div>
-
-                {/* ═══════════════════════════════════════════ */}
-                {/* CONNECTIONS & MUSIC                          */}
-                {/* The old Connect rows (NMEA + Boat Network)   */}
-                {/* are configuration the punter visits rarely,  */}
-                {/* so they stay folded. Settings, once the third*/}
-                {/* row here, is shown above (UX scorecard run   */}
-                {/* 7), and Music joined from its own one-row    */}
-                {/* accordion: a header and a row both named     */}
-                {/* "Music" cost a tap for one destination and   */}
-                {/* read "Music, button" twice to VoiceOver. The */}
-                {/* id stays 'setup'.                            */}
-                {/* ═══════════════════════════════════════════ */}
-                {/* A lower resting point lets Safari reach these controls
-                    instead of pulling every scroll back to the first row.
-                    Always while the group is open; closed, only when the page
-                    has real room to scroll (portRoomy) — a pane a few points
-                    too short (768x768) made that end snap a second resting
-                    point just below home. */}
-                <div className="mb-4" style={{ scrollSnapAlign: expanded.has('setup') || portRoomy ? 'end' : 'none' }}>
-                    <SectionHeader
-                        label="Connections & music"
-                        id="setup"
-                        controlsId="vessel-hub-connections"
-                        expanded={expanded.has('setup')}
-                        onToggle={toggleSection}
+                    <ListDivider />
+                    <OfficeRow
+                        // A server, not the folded map the OBS tab uses:
+                        // this row is the boat computer (UX scorecard run 6).
+                        icon={
+                            <span className="flex" style={{ color: HUB_ACCENT }}>
+                                <ServerIcon className={HUB_ICON} />
+                            </span>
+                        }
+                        label="Boat Network"
+                        // Plain words, and not "instruments": the gateway row
+                        // is the instruments one (UX scorecard run 7). "Boat
+                        // computer", not "The Pi" (UX scorecard run 9).
+                        status="Boat computer, charts & devices"
+                        statusColor="#94a3b8"
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('avnav');
+                        }}
                     />
-                    {/* What the closed group holds (UX scorecard run 10,
-                        vessel-connections-names): the header alone hid NMEA
-                        gateway, Boat network and Music behind a name that
-                        names none of them. Closed only; open, the rows name
-                        themselves. Pulled up into the header's own padding and
-                        aligned with its label. A tap on it presses the header
-                        (the heading just above), so the group opens and scrolls
-                        into view exactly as from the header. The header's button
-                        stays the one control for assistive tech, so this line is
-                        read as text. */}
-                    {!expanded.has('setup') && (
-                        <p
-                            data-testid="vessel-hub-connections-contents"
-                            onClick={(event) =>
-                                event.currentTarget.previousElementSibling
-                                    ?.querySelector<HTMLButtonElement>('button[aria-expanded]')
-                                    ?.click()
-                            }
-                            className="-mt-2.5 cursor-pointer pb-1 pl-3.5 text-xs font-semibold leading-snug"
-                            style={{ color: daylightUiColor('#94a3b8') }}
-                        >
-                            NMEA gateway · Boat network · Music
-                        </p>
-                    )}
-                    <CollapsibleContent open={expanded.has('setup')} id="vessel-hub-connections">
-                        <div className="mt-2" style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<PlugIcon color={HUB_ACCENT} />}
-                                label="NMEA Gateway"
-                                status={gatewayStatus}
-                                statusColor="#94a3b8"
-                                value={gatewayState}
-                                valueColor={gatewayStatusColor}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('nmea');
-                                }}
-                            />
-                            {/* ENC Library removed from Connect (Shane 2026-08-07:
-                                "less is more"). The page and its route still
-                                exist — the map's no-coverage affordance in
-                                ChartDepthControls still opens it, which is where
-                                it is actually useful. This menu is for things a
-                                punter picks deliberately. */}
-                            <ListDivider />
-                            <OfficeRow
-                                // A server, not the folded map the OBS tab uses:
-                                // this row is the boat computer (UX scorecard run 6).
-                                icon={
-                                    <span className="flex" style={{ color: HUB_ACCENT }}>
-                                        <ServerIcon className={HUB_ICON} />
-                                    </span>
-                                }
-                                label="Boat Network"
-                                // Plain words (UX referee W-developer-speak), and
-                                // not "instruments": the gateway row above is the
-                                // instruments one, and two rows promising the same
-                                // thing left a skipper guessing (UX scorecard run 7).
-                                // "Boat computer", not "The Pi" (UX scorecard run 9):
-                                // a first-level menu should not assume the skipper
-                                // knows the box is a Raspberry Pi. The page itself
-                                // still says Pi.
-                                status="Boat computer, charts & devices"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('avnav');
-                                }}
-                            />
-                            <ListDivider />
-                            {/* ATMOSPHERE (Music) — removed 2026-07-19 ("it is not
-                                really part of the app and it can be accessed via
-                                the mic at the top anyway"), RESTORED 2026-08-08 at
-                                Shane's ask. The page and its route were never
-                                deleted, only this entry; the mic and the
-                                now-playing bar remained the only ways in, and
-                                neither helps if you want to go and choose
-                                something. */}
-                            <OfficeRow
-                                icon={
-                                    <span className="flex" style={{ color: HUB_ACCENT }}>
-                                        <SpeakerWaveIcon className={HUB_ICON} />
-                                    </span>
-                                }
-                                label="Music"
-                                status="Apple Music & speakers"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('music');
-                                }}
-                            />
-                        </div>
-                    </CollapsibleContent>
                 </div>
             </div>
         </div>
@@ -1865,7 +1773,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     skipper saw "Primary device" on an unclaimed card and did
                     not press (UX referee 2026-09-26). The status is now said
                     in words on the second line instead. */}
-                <div className="mb-1.5 flex h-5 items-center gap-2">
+                <div className="skipper-device-title mb-1.5 flex h-5 items-center gap-2">
                     {/* A hull, not the anchor text glyph: the anchor belongs to
                         the Anchor watch tile above (UX scorecard run 6). */}
                     <span aria-hidden="true" className="flex shrink-0 text-sky-300">
@@ -1901,7 +1809,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     "get rid of this device unless there is no pi") — the pill
                     below says it all. The row keeps its height so the card
                     never moves. */}
-                <div className="mb-2 flex h-4 items-center gap-2">
+                <div className="skipper-device-gps mb-2 flex h-4 items-center gap-2">
                     {piPrimary && <p className="sr-only">{statusDescription}</p>}
                     {!piPrimary && (
                         <span
@@ -1975,7 +1883,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                 {piPrimary ? (
                     <p
                         data-testid="skipper-device-pi-primary"
-                        className="flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-center text-[13px] font-bold leading-tight text-emerald-300"
+                        className="skipper-device-action flex h-11 w-full items-center justify-center overflow-hidden rounded-xl border border-emerald-400/25 bg-emerald-500/10 px-2 text-center text-[13px] font-bold leading-tight text-emerald-300"
                     >
                         The Pi is the Primary Device
                     </p>
@@ -1991,7 +1899,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                     <Button
                         variant="secondary"
                         onClick={handleAction}
-                        className="h-11 w-full whitespace-nowrap text-sm!"
+                        className="skipper-device-action h-11 w-full whitespace-nowrap text-sm!"
                         style={{
                             color: HUB_ACCENT,
                             borderColor: `color-mix(in srgb, ${HUB_ACCENT} 60%, transparent)`,
@@ -2005,7 +1913,7 @@ export const SkipperDeviceControl: React.FC<SkipperDeviceControlProps> = ({
                         type="button"
                         onClick={handleAction}
                         aria-label={actionLabel}
-                        className={`h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[13px] font-bold transition-colors active:brightness-110 ${
+                        className={`skipper-device-action h-11 w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-xl px-2 text-[13px] font-bold transition-colors active:brightness-110 ${
                             claimHeld ? 'bg-white/10 text-gray-300' : 'bg-sky-500/20 text-sky-300'
                         }`}
                     >

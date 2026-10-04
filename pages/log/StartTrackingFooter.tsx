@@ -8,6 +8,7 @@ import { SlideToAction } from '../../components/ui/SlideToAction';
 import { openDeviceSettings } from '../../hooks/useGpsHealth';
 import type { CastOffHandoff } from '../../services/castOffHandoff';
 import type { TrackingStartFailure } from './logPageTypes';
+import { LOG_FOOTER_CLEARANCE } from './footerClearance';
 
 export const StartTrackingFooter: React.FC<{
     trackingStartFailure: TrackingStartFailure | null;
@@ -21,7 +22,7 @@ export const StartTrackingFooter: React.FC<{
     // slate-200 in daylight (the .display-light remap of bg-slate-950).
     <div
         className="relative z-10 shrink-0 px-4 pt-2 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-8 before:bg-linear-to-b before:from-transparent before:to-slate-950 before:content-[''] [.display-light_&]:before:to-[rgb(226_232_240)]"
-        style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+        style={{ paddingBottom: LOG_FOOTER_CLEARANCE }}
     >
         {trackingStartFailure && (
             <div

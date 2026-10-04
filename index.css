@@ -5,6 +5,7 @@
 @import './styles/action-legibility.css';
 @import './styles/glass-legibility.css';
 @import './styles/split-pane.css';
+@import './styles/menu-page-fit.css';
 
 /*
   The default border color has changed to `currentcolor` in Tailwind CSS v4,

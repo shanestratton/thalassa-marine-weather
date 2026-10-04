@@ -2,7 +2,7 @@
 
 ## Skipper flow
 
-1. Open **Vessel → Connections & music → Boat Network → ENC Charts** on a device paired to the boat's Pi.
+1. Open **Vessel → Boat Network → ENC Charts** on a device paired to the boat's Pi.
 2. Choose **Add or update charts** and paste the delivery email or its download link. Up to four deliveries can be queued together.
 3. Check the package names and select **Add or update on Pi**. When an email includes a SHA-256 checksum, it is checked before conversion.
 4. Leave the boat's Pi powered, online and connected to its registered o-charts dongle. Keep the window open to submit each queued delivery in turn. If it closes, the Pi can still finish its current delivery; unsent deliveries must be submitted later.

@@ -335,8 +335,8 @@ const AvNavPageDevelopment: React.FC<AvNavPageProps> = ({ onBack }) => {
             {/* The hub row's words, short enough for one line at 375 pt;
                 "Ship's Office" named a section the hub calls Boat Binder,
                 and this page is not in it. It opens from the Vessel hub's
-                Connections & music group, so the trail (and the chevron's
-                name, "Back to Vessel") names the Vessel. */}
+                menu box, so the trail (and the chevron's name, "Back to
+                Vessel") names the Vessel. */}
             <PageHeader
                 title="Boat Network"
                 subtitle="The Pi & boat devices"

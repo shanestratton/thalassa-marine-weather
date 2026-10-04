@@ -15,6 +15,8 @@ export default defineConfig({
         'nmea-daylight.spec.ts',
         'wind-tide-layout.spec.ts',
         'vessel-scroll.spec.ts',
+        // Menu pages fit one screen; the split-pane Plan and Log front doors fit their pane.
+        'menu-pages-fit.spec.ts',
         'public-voyage-mobile.spec.ts',
         'diary-compose-layout.spec.ts',
         'scuttlebutt-layout.spec.ts',
