@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 4 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 5 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
 ## Shared-Mac workflow — owner's 1 October rules
 
@@ -71,6 +71,61 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 5 October iPhone launch crash corrected
+
+The owner clarified that the research app failed to open, rather than failing
+at login. Its iPhone crash at 06:44:56 AEST on iOS 27.0.1 trapped in UIKit's
+`UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption`. The crash's
+Debug dylib UUID matched the installed build 1 artifact. This establishes a
+startup defect in the research app; the earlier Mac password check could not
+diagnose it. A returned launch PID alone had not established a working app.
+[Apple's scene migration guidance](https://developer.apple.com/documentation/uikit/transitioning-to-the-uikit-scene-based-life-cycle)
+requires the scene lifecycle for latest-SDK applications running on iOS 27.
+
+Build 2 adds one explicit scene configuration and a scene delegate that owns
+and retains the Capacitor window. Only an application-window session may
+create the bridge; a noninteractive external-display session cannot create
+another Auth host. The existing plugin registration is retained. No Auth,
+provider, relay, Keychain or saved-identity code changed. The signing runner
+now checks the exact build number and single-scene manifest.
+
+Observed evidence:
+
+- **880 tests across 13 isolated suites passed.** Six new launch fixtures
+  check actual Ruby-generated iPhone/device and simulator project metadata,
+  delegate identity, window ownership and the application-role guard. These
+  generation/source contracts do not execute UIKit. The new test's strict
+  TypeScript check, named lint, formatting, Ruby syntax, signing-runner syntax
+  and diff checks passed. This is not full-app CI or an external security audit.
+- The final separate app compiled 17 Swift sources into 54 unsigned files;
+  signing produced 58 locally checked files with unchanged minimal research
+  entitlements. Build receipt:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-3IsPfH/build-receipt.json`.
+  Signed receipt: `thalassa-research-sign-GVByiE/signing-receipt.json` under
+  that temporary parent. The first successful compile preceded the external
+  scene guard and was not installed. Cached-provider provenance and offline
+  signing limitations described below remain unchanged.
+- Both physical devices accepted the update to **0.1.0 build 2** over their
+  existing research installation. Normal Thalassa remained **1.2.0 build 119**
+  on both; only its bundle/name/version/build metadata was compared. There
+  was no uninstall, credential reset, production write or primary sync. An
+  initial local status guard stopped before device operations; the corrected
+  guard uses the signer's actual `signed-and-locally-verified` status.
+- The iPhone launch was accepted and its same PID was still present at the
+  final process check. The iPad's automatic launch was initially refused;
+  after the owner opened it, its research process was present too. Both
+  filtered crash inventories showed no new research crash at that check.
+  **The owner confirmed the app was open on both devices.** Device receipt:
+  `thalassa-research-scene-update-KYYjeT/scene-update-receipt.json` under the
+  same temporary parent. The original crash and bounded summaries remain
+  private in `thalassa-research-launch-diagnosis-6B8g9w`.
+
+Opening both apps resolves the reported launch failure. Native verified
+account status, human fingerprint comparison, registration and the physical
+two-device encrypted exchange remain unverified. No D01–D17 case is claimed
+complete on the strength of launch alone. Research remains isolated from
+Thalassa's main app and `master`.
 
 ### 4 October send setup guard and research app update
 
