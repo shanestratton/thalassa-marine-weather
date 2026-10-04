@@ -72,6 +72,54 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October successful sign ins and clearer verification controls
+
+Read-only pilot Auth metadata showed successful password sign-ins for the human
+iPhone and iPad test accounts at 09:03:30 and 09:03:51 AEST. No Mac password
+login, credential reset or recovery email was performed for this check. The
+accounts use the separate, owner-only Research credentials, not the ordinary
+Thalassa passwords. The owner subsequently reported “verified by native auth”,
+followed eventually by “account access unavailable”. This is reported screen
+evidence, not an instrumented native authentication receipt or an encrypted
+exchange.
+
+The native verified lease lasts at most 60 seconds from its verification fence;
+the screen checks native account continuity every 15 seconds without silently
+renewing it. The reported transition matches that expiry behaviour, but a
+generic native refusal alone does not establish its exact cause. Previously the
+screen used the same vague wording for a first verification failure, explicit
+SDK credential rejection and loss of a previously verified account.
+
+The Research screen now distinguishes those cases with revision-guarded, fixed
+local labels. Only the SDK's own literal `invalid_credentials` code produces
+credential advice; raw error text, tokens and passwords are not exposed. A
+**Reverify account here** button beside pairing invokes only the existing
+explicit verification. It does not enroll, claim, send, retry or log out. Native
+lease duration, storage protections, cryptography and messaging authority checks
+are unchanged.
+
+**904 tests across 15 isolated suites passed**, including the executed HTML
+entrypoint with fixture Auth and messaging, plaintext/draft clearing and
+read-only periodic checks. Focused strict TypeScript, named lint, formatting
+and whitespace checks passed. These are fixture and source/build checks, not a
+physical encrypted exchange or an independent review. The new web receipt is
+`thalassa-messaging-web-kq2xht/web-receipt.json`; the unsigned native compile
+receipt is `thalassa-messaging-build-uttlHZ/build-receipt.json`, under the macOS
+temporary parent used by the receipts below.
+
+The updated Research artifact was locally signed, installed and launched on
+both devices. Each retained its directory/index locators and sealed database;
+no setup reset, key deletion or account replacement ran. Normal Thalassa's
+bundle/version/build metadata remained unchanged; its private files were not
+inspected. Signing receipt: `thalassa-research-sign-6F68QK/signing-receipt.json`;
+device receipt: `thalassa-normal-physical-hf5yqs/physical-receipt.json`, under
+that same temporary parent. Updated screen behaviour still needs the owner's
+confirmation; installation/launch is not a completed messaging test.
+
+Human registration, fingerprint comparison and D01 exchange remain unproved.
+Normal Thalassa, production Auth/database, `master` and the primary iOS project
+remain outside this change.
+
 ### 5 October disabled login controls and empty setup repair
 
 Both research apps loaded configuration but disabled login with “Account access
