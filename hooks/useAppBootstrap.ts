@@ -17,6 +17,7 @@ import {
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
+import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
@@ -263,6 +264,16 @@ export function useAppBootstrap() {
                 InstrumentSourcePolicy.boot();
             })
             .catch((err) => console.error('[Boot] instrument source boot failed:', err?.message || err));
+    }, []);
+
+    // ── Seabed mapping (opt-in, off by default) ─────────────────────
+    // The capture module is loaded only when this account switched it on;
+    // otherwise boot pays one localStorage read and nothing else.
+    useEffect(() => {
+        if (!seabedLocallyEnabled()) return;
+        import('../services/seabed/SeabedPhoneCapture')
+            .then(({ startSeabedPhoneCapture }) => startSeabedPhoneCapture())
+            .catch((err) => console.error('[Boot] seabed capture failed to start:', err?.message || err));
     }, []);
 
     // ── Did the web layer die under us last time? ──────────────────

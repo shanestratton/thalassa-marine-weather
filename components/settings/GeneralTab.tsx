@@ -13,6 +13,7 @@ import {
     type SettingsTabProps,
 } from './SettingsPrimitives';
 import { FleetSharingSection } from './FleetSharingSection';
+import { SeabedMappingSection } from './SeabedMappingSection';
 import { DisplayModeSection, OrientationSection, VisualPreferencesSection } from './AestheticsTab';
 import { ShipClockSection } from './ShipClockSection';
 import { SmartPolarsSetting } from './SmartPolarsSetting';
@@ -525,6 +526,12 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 (Shane 2026-09-09: "i want to move most toggles there"). */}
             <Section title="Share what you hear">
                 <FleetSharingSection />
+            </Section>
+
+            {/* Seabed mapping, phase 1 (Shane 2026-10-05): the owner's opt-in to
+                log the boat's own soundings, private until a later version asks. */}
+            <Section title="Help map the seabed">
+                <SeabedMappingSection />
             </Section>
 
             {/* Set once, so it sits with the rarely touched sections. */}

@@ -14,6 +14,7 @@ import { clearBoundAppleCredential } from './auth/appleCredentialState';
 import { deleteAudio, deletePhoto, isIdbAudio, isIdbPhoto } from './diaryPhotoStore';
 import { DATA_CACHE_KEY, deleteLargeData, HISTORY_CACHE_KEY, VOYAGE_CACHE_KEY } from './nativeStorage';
 import { PushNotificationService } from './PushNotificationService';
+import { purgeSeabedForUser } from './seabed/seabedSink';
 import { setUser as setSentryUser } from './sentry';
 import { supabase } from './supabase';
 import { initLocalDatabase, purgeLocalDatabaseForUser } from './vessel/LocalDatabase';
@@ -313,6 +314,8 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
             references,
         );
         await purgeNativePreferences(suffix, references);
+        // Seabed mapping queues soundings as files (Directory.Data/seabed/<uid>/).
+        await purgeSeabedForUser(userId);
         await purgeLegacyNativeValues(userId, references);
         await purgeScopedNativeWeatherCaches(deletionScope);
         const databaseReferences = await purgeLocalDatabaseForUser(userId);

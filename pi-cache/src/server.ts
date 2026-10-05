@@ -35,6 +35,7 @@ import { createEncRoutes } from './routes/enc.js';
 import { createOsmRoutes } from './routes/osm.js';
 import { createDiaryRelayRoutes } from './routes/diary.js';
 import { createTrackRoutes } from './routes/track.js';
+import { attachSeabed } from './seabed/attach.js';
 import { TrackStore } from './trackStore.js';
 import { TrackRecorderRunner } from './trackRunner.js';
 import { TELEMETRY_RELAY_PATH, TelemetryPublisher } from './telemetryPublisher.js';
@@ -774,6 +775,16 @@ if (APP_API_ENABLED) {
         app.use(prefix, requireAppApi);
     }
 }
+attachSeabed({
+    app,
+    cacheDir: CACHE_DIR,
+    signalkOrigin: SIGNALK_ORIGIN,
+    supabaseOrigin: SUPABASE_ORIGIN,
+    anonKey: () => SUPABASE_ANON_KEY,
+    outbox: diaryRelayOutbox,
+    appApiEnabled: APP_API_ENABLED,
+    requireAppApi,
+});
 // Raster chart download/delete stays admin-only: it fetches arbitrary chart
 // sets and removes files, and the app never calls it.
 if (UNSAFE_ADMIN_API_ENABLED) {

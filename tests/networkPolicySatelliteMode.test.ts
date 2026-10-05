@@ -76,7 +76,7 @@ describe('networkPolicy', () => {
     });
 
     it('every enforced kind names a real channel, so the UI list cannot drift', () => {
-        const valid = new Set(['grib', 'raster', 'ais-internet', 'offline-download', 'media-upload']);
+        const valid = new Set(['grib', 'raster', 'ais-internet', 'offline-download', 'media-upload', 'seabed-upload']);
         expect(SATELLITE_MODE_ENFORCED.length).toBeGreaterThan(0);
         for (const entry of SATELLITE_MODE_ENFORCED) {
             expect(valid.has(entry.kind), entry.kind).toBe(true);
@@ -101,6 +101,7 @@ describe('every heavy fetcher consults the policy (audit item 12)', () => {
         ['components/map/useAisStreamLayer.ts', "satelliteModeBlocks('ais-internet')", 2],
         ['services/MapOfflineService.ts', "satelliteModeBlocks('offline-download')", 1],
         ['services/DiaryService.ts', "satelliteModeBlocks('media-upload')", 2],
+        ['services/seabed/SeabedUploader.ts', "satelliteModeBlocks('seabed-upload')", 1],
     ];
     for (const [file, needle, count] of cases) {
         it(`${file} gates ${needle}`, () => {

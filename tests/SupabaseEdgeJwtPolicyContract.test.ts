@@ -76,6 +76,8 @@ const CREDENTIALLESS_ALLOWLIST = {
     'send-push': 'database trigger / retry sweep over pg_net with the service key; exact service-role POST checked',
     'telemetry-relay':
         'Pi relay authenticates with its own relay token (the diary-relay pairing, via _shared/pi-relay-auth); no user JWT by design',
+    'seabed-relay':
+        'Pi relay authenticates with its own relay token (via _shared/pi-relay-auth); the phone path verifies the user JWT inside with requireAuthenticatedQuota',
     'voyage-log': 'public shore-contact link with a scoped published-data response',
 } as const;
 
@@ -178,7 +180,9 @@ describe('Supabase Edge gateway JWT policy', () => {
         // moderate-chat-message (new 2026-09-05, same pg_net shape as send-push),
         // and telemetry-relay (new 2026-09-06, the Pi's relay-token pairing).
         // Guest diary comments (2026-09-20) are public but always moderated.
-        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(17);
+        // seabed-relay (2026-10-05) is telemetry-relay's shape: the Pi's relay
+        // token, or a user JWT checked inside the function.
+        expect(Object.keys(CREDENTIALLESS_ALLOWLIST)).toHaveLength(18);
     });
 
     it('every declared function has a comment explaining its policy', () => {
