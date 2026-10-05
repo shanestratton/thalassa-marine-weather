@@ -29,7 +29,7 @@ not the adoption candidate; its earlier probes below remain historical research.
 Keychain operations and ad-hoc simulator signing are confined to a disposable
 research app. An owner-approved isolated hosted relay now exists; no production
 relay migration, Thalassa app linking/signing changes or distribution occurred.
-Dependency/licence review, an iPhone–iPad exchange and an
+Dependency/licence review, completed physical-device acceptance and an
 independent security review still gate release. An off-by-default switch is not
 a substitute for those checks or a way around a bundled dependency's licence.
 
@@ -71,6 +71,50 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 5 October two way physical message exchange
+
+The owner reported that both Research apps display their own sent message and
+the other device's received message. The owner previously reported one native
+initiator role and one responder role after the explicit pairing steps. This is
+human-operated physical-device evidence, not a fixture result or an independent
+security review.
+
+The supplied iPhone screenshot shows one outgoing row marked relay accepted and
+one peer row marked received into native local history. The native scan reports
+stored 1, duplicates 0, historical 0, unresolved 0 and historical unresolved 0.
+The incoming row's time and read status remain unknown; the outgoing row does
+not claim remote delivery or reading. The other endpoint's display is confirmed
+by the owner's report, not by a second captured screen.
+
+Evidence for the disposable test conversation:
+
+- Outgoing message ID: `98a482ff-0ac1-4e8f-970b-8642e8154634`.
+  UTF-8 canary SHA-256: `eb5d45165379958d7dd515788f775ac2f939daf836fbfab16cffadac78ff7734`.
+- Incoming message ID: `b3b4da20-aafb-4d1d-8ee1-210f8b60f083`.
+  UTF-8 canary SHA-256: `69acce145d5d05b19c8c913cd09d02d83ade63e925335354e82c38f96f59d89b`.
+- Owner-supplied capture: `/Users/shanestratton/Downloads/Screenshot 2026-10-05 at 12.09.50 pm.PNG`.
+  File SHA-256: `4acd28152c3fa89ab3e6ce29011a7acd662bb148a87e5a889c75ff037a6b2134`.
+
+The installed candidate is `4005833a0e3ce208ca8f7d8394ced9876a89184b`, with
+compile, signing and preserved-store installation receipts recorded in the
+next section. No rebuild, reinstall, store inspection, server change or
+credential operation accompanied this evidence update. The installed static
+Research disclaimer predates the exchange; updating it belongs to a later
+artifact, not to restarting this test midway.
+
+This supplies partial D01 opening-message/reply evidence. D01 is not marked
+passed: successors, complete endpoint receipts, fingerprint comparison captures
+and correlated native/relay ciphertext evidence remain missing. D02 independent
+restart and pending-ciphertext continuity, D03 explicit logout, the remaining
+device matrix and the independent security review remain outstanding. The next
+manual check is an independent Research restart with fresh same-account login,
+the same device ID, restored history and a decryptable successor. It must not
+use Log out, re-register, claim again or replace either store as a shortcut.
+
+Normal Thalassa, production Auth/database, `master` and the primary iOS project
+remain unchanged. This milestone does not authorize a production merge or a
+security badge.
 
 ### 5 October public card retention and explicit pairing renewal
 
@@ -119,12 +163,12 @@ under the macOS temporary parent used by earlier entries:
 
 The updated iPhone screen visibly loaded with Login required and enabled sign-in
 controls. A fresh same-account login is required after the Research process
-restart; the owner has been asked to verify registration on both devices again.
-Card retention and pairing remain unconfirmed on the physical devices.
+restart. At installation, public-card retention and physical pairing were still
+unconfirmed; the later two-way exchange evidence is recorded above.
 
-The iPhone–iPad encrypted exchange, restart/logout checks and independent review
-remain outstanding. Normal Thalassa, production Auth/database, `master` and the
-primary iOS project remain outside this change.
+Restart/logout checks and independent review remain outstanding. Normal
+Thalassa, production Auth/database, `master` and the primary iOS project remain
+outside this change.
 
 ### 5 October successful sign ins and clearer verification controls
 

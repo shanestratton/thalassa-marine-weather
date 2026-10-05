@@ -1,10 +1,17 @@
 # Scuttlebutt private message E2EE device test plan
 
-Updated 4 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The separate research app is signed, installed and its process launched on both devices; no login or messaging case below has run. Every case remains **unrun and blocked by prerequisites**. The earlier baseline is `39321d303ae9aecaa69ca3fccd1c40b14675686e`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) records the later signing, installation and launch receipts separately from fixture/simulator evidence.
+Updated 5 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner now reports an opening message and reply displayed on both physical devices, with an iPhone screenshot showing an incoming row committed to native local history. **D01 has partial physical evidence, not a complete acceptance pass; D02–D17 remain unrun.** The current installed candidate is `4005833a0e3ce208ca8f7d8394ced9876a89184b`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) records its source, signing, installation and message evidence separately from fixture/simulator checks.
 
 Two independent physical endpoints can expose custody, lifecycle and transport failures that one simulator cannot. The iPad provides iPadOS coverage, not a substitute for testing every supported iPhone/OS combination. Read-only checks on 4 October found iOS 27.0.1 on the iPhone and iPadOS 26.5 on the iPad, both paired with Developer Mode enabled. This is device inventory, not supported-build eligibility or research-app execution evidence.
 
 ## Prerequisites and current blocks
+
+The table below preserves the 4 October prerequisite snapshot. On 5 October,
+actual sign-ins and registration preceded the owner-operated pairing and
+two-way exchange. The latest checkpoint supersedes the snapshot's unverified
+login, unused-slot and unrun-delivery statements; it does not remove the
+remaining lifecycle, fault-injection or instrumentation gaps. Do not enroll or
+replace the already registered human devices to repeat this setup.
 
 | Requirement                   | Current evidence or block                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -18,9 +25,9 @@ Two independent physical endpoints can expose custody, lifecycle and transport f
 
 Freeze and record the actual candidate commit and build hashes when these prerequisites are met. Do not label concurrent implementation as tested by carrying forward this baseline's counts. Keep one heavy build at a time under the checkpoint's shared-Mac rule; this document does not start any build, sync, install or server migration.
 
-The latest unsigned source artifact receipt is `thalassa-messaging-build-zQEmeZ/build-receipt.json`; its signed receipt is `thalassa-research-sign-c0rYyo/signing-receipt.json`. A separate owner-approved development profile exists. Local signature/entitlement checks passed and both devices accepted the updated research app. Earlier processes launched, but both latest launch requests were refused while the devices were locked. See the checkpoint for exact receipts. Installation or launch acceptance is not proof of native plugin or UI functionality. Preserve the normal Thalassa app, version 1.2.0 build 119 on both devices, and never use its bundle ID or shared Keychain groups for this test.
+The current source artifact receipt is `thalassa-messaging-build-ll6LRp/build-receipt.json`; its signed receipt is `thalassa-research-sign-LBaZBT/signing-receipt.json` and its device receipt is `thalassa-normal-physical-LpwU2W/physical-receipt.json`. A separate owner-approved development profile exists. Both devices accepted and launched this updated Research app without a reset. See the checkpoint for exact temporary receipt locations and preserved-store evidence. Installation or launch alone is not proof of native plugin or UI functionality. Preserve the normal Thalassa app, version 1.2.0 build 119 on both devices, and never use its bundle ID or shared Keychain groups for this test.
 
-Read-only pilot checks confirmed the participant allowlist metadata and unused human device slots on 4 October. Recheck before enrollment. Do not consume those slots until the signed research app passes initial install/login checks; immutable device/prekey rows cannot serve as a recovery mechanism.
+Read-only pilot checks confirmed the participant allowlist metadata and unused human device slots on 4 October. On 5 October, read-only slot counts and function logs supported registration for both participants. These devices are now registered; immutable device/prekey rows cannot serve as a recovery mechanism.
 
 ## Setup and run record
 
@@ -41,7 +48,7 @@ Do not store access/refresh tokens, private keys, pickles, real account password
 
 ## Physical test matrix
 
-All cases are currently unrun. Run normal exchange and retry/lifecycle cases before destructive test-namespace faults. Execute applicable cases in both endpoint roles and repeat affected cases after a fix using the new frozen artifact.
+D01 has partial opening-message/reply evidence from the owner and one captured endpoint; no full case is marked passed. D02–D17 remain unrun on physical devices. Run successors and retry/lifecycle cases before destructive test-namespace faults. Execute applicable cases in both endpoint roles and repeat affected cases after a fix using the new frozen artifact.
 
 Bounded same-owner restart continuation now passes native close/reopen fixtures, but D02 and the reopen portions of D07/D14 remain unrun on physical devices. Require fresh same-account login and policy, then prove the original pending ciphertext survives and retries unchanged. Observe explicit logout's quarantine separately. Neither re-enrollment nor a fresh generation may stand in for continuity or recovery evidence.
 
@@ -73,4 +80,4 @@ Attach receipts for both physical endpoints and each applicable case. A skipped 
 
 The owner can judge success by selecting a pending message ID from D07 and tracing its unchanged ciphertext hash through native reopen, relay commitment and single recipient display. That evidence is stronger than another agent agreeing that retry code looks correct.
 
-Signing, installation and process launch are recorded in the checkpoint, not as a passed D01–D17 device case. No live human enrollment, messaging integration acceptance or audit pass is claimed by this plan. Isolated hosted deployment is separate evidence too. Production release remains a separate authorized decision after the evidence and review gates are met.
+Signing, installation, process launch and partial human-operated exchange evidence are recorded in the checkpoint, not as a passed D01–D17 device case. No complete messaging integration acceptance or audit pass is claimed by this plan. Isolated hosted deployment is separate evidence too. Production release remains a separate authorized decision after the evidence and review gates are met.
