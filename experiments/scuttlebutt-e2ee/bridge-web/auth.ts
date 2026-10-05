@@ -192,6 +192,11 @@ export class ResearchAuthController {
         return this.unavailableReason;
     }
 
+    /** Presentation continuity only; this has no credential or message authority. */
+    getPublicPairingOwner(): Readonly<Pick<ResearchAccount, 'accountId' | 'deviceId'>> | null {
+        return this.owner;
+    }
+
     canSignIn(): boolean {
         return this.initialized && !!this.sdk && !this.disposed;
     }
@@ -258,6 +263,7 @@ export class ResearchAuthController {
     async signIn(email: string, password: string): Promise<void> {
         if (!this.initialized || !this.sdk || this.disposed) return;
         const ticket = this.begin('verifying');
+        if (!this.current(ticket)) return;
         this.intent = 'signed_in';
         if (!email.trim() || email.length > 320 || !password || password.length > 1024) {
             this.fail(ticket);
@@ -269,8 +275,38 @@ export class ResearchAuthController {
     async reverify(): Promise<void> {
         if (!this.initialized || !this.sdk || this.disposed) return;
         const ticket = this.begin('verifying');
+        if (!this.current(ticket)) return;
         this.intent = 'signed_in';
         await this.verify(ticket, () => this.sdk!.getSession(), this.owner);
+    }
+
+    /**
+     * An explicit pairing action may renew a previously verified native owner.
+     * Its result belongs only to this renewal, never to a later login. It does
+     * not enroll a device, preserve trust, extend a lease, or send a message.
+     */
+    async reverifyForPairing(): Promise<ResearchAccount | null> {
+        if (
+            !this.initialized ||
+            !this.sdk ||
+            this.disposed ||
+            !this.dependencies.supported() ||
+            !this.owner ||
+            (this.state.status !== 'authenticated' && this.state.status !== 'unavailable')
+        ) {
+            return null;
+        }
+        const expectedOwner = this.owner;
+        const ticket = this.begin('verifying');
+        if (!this.current(ticket)) return null;
+        this.intent = 'signed_in';
+        await this.verify(ticket, () => this.sdk!.getSession(), expectedOwner);
+        if (!this.current(ticket) || !this.dependencies.supported()) return null;
+        const renewed = this.state.status === 'authenticated' ? this.state.account : null;
+        if (!renewed || renewed.accountId !== expectedOwner.accountId || renewed.deviceId !== expectedOwner.deviceId) {
+            return null;
+        }
+        return renewed;
     }
 
     private async verify(
@@ -278,6 +314,7 @@ export class ResearchAuthController {
         acquire: () => Promise<SdkSessionResult>,
         expectedOwner: Pick<ResearchAccount, 'accountId' | 'deviceId'> | null,
     ): Promise<void> {
+        if (!this.current(ticket)) return;
         try {
             const fenced = await this.dependencies.native.fenceSession({ mode: 'verify' });
             if (!this.current(ticket)) return;
@@ -446,8 +483,9 @@ export class ResearchAuthController {
 
     private begin(status: ResearchAuthState['status']): number {
         this.revision += 1;
+        const ticket = this.revision;
         this.publish(status);
-        return this.revision;
+        return ticket;
     }
 
     private fail(ticket: number, reason: ResearchAuthUnavailableReason = 'verification_failed'): void {
