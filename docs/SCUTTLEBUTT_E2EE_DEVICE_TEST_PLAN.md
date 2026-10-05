@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE device test plan
 
-Updated 5 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions, on candidate `4005833a`. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The new installed candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) separates its source/signing/in-place update checks and owner-reported sign-ins from the earlier candidate's message observations.
+Updated 6 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions, on candidate `4005833a`. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The new installed candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) separates its source/signing/in-place update checks and owner-reported sign-ins from the earlier candidate's message observations.
 
 Two independent physical endpoints can expose custody, lifecycle and transport failures that one simulator cannot. The iPad provides iPadOS coverage, not a substitute for testing every supported iPhone/OS combination. Read-only checks on 4 October found iOS 27.0.1 on the iPhone and iPadOS 26.5 on the iPad, both paired with Developer Mode enabled. This is device inventory, not supported-build eligibility or research-app execution evidence.
 
@@ -102,12 +102,14 @@ four legacy-client encrypted HTTPS/local-SQL messages. The checkpoint and
 [regression manifest](../experiments/scuttlebutt-e2ee/review/regression-2026-10-05.json)
 separate synthetic Auth/scoped-relay fixtures, real provider/sealed storage and
 local SQL from physical observations. No phone or iPad was changed by that run.
-No physical case below is upgraded to passed. The highest-priority deterministic
-gap is parent-confirmed process termination immediately before/after the current
-sealed-store commit, followed by fresh-process reopen and exact ciphertext/state
-comparison. Existing thrown rollback faults and same-process bridge reopening
-do not supply that evidence; even a successful SIGKILL test would not prove
-power-loss or hardware-lock behavior.
+No physical case below is upgraded to passed. The 6 October simulator regression
+subsequently passed 18 direct-native cases at before-UPDATE, pre-COMMIT and
+post-COMMIT boundaries, with fresh-process exact ciphertext/state comparisons,
+provider controls and logout fencing. The runner correlated each parked process,
+sent SIGKILL and observed its original process identity disappear; it has no
+parent wait-status evidence. This closes the direct coordinator/store simulator
+gap, not physical D14, actual Auth/facade/Capacitor paths, power-loss or
+hardware-lock behavior. Exact receipts and remaining gates are in the checkpoint.
 
 D01 has owner-reported opening-message, reply and successor coverage, with one captured endpoint. D02 has owner-reported history restoration and a successful successor after each endpoint restarted independently. Offline catch-up/repeat-scan observations are recorded below, but no full case is passed; D03–D17 controlled procedures remain unrun. Run retry/lifecycle cases before destructive test-namespace faults. Execute applicable cases in both endpoint roles and repeat affected cases after a fix using the new frozen artifact.
 

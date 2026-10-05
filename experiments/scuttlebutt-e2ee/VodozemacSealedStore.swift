@@ -36,6 +36,14 @@ final class VodozemacSealedStore {
     private var database: OpaquePointer?
     private let lock = NSLock()
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    #if THALASSA_SEALED_CRASH_PROBE
+    enum ResearchCommitBoundary: String {
+        case beforeUpdate, afterUpdateBeforeCommit, afterCommit
+    }
+    // Immutable exact-handle callback, compiled into the disposable crash probe
+    // only. It must not throw, await or reenter the store. No JS/global control.
+    private let researchCrashCheckpoint: ((String) -> Void)?
+    #endif
 
     /// The directory must be a new UUID-named leaf below an existing parent.
     /// If a previous key exists, creation fails rather than replacing it.
@@ -102,7 +110,31 @@ final class VodozemacSealedStore {
         }
     }
 
-    private init(directory: URL, storeID: UUID, create: Bool) throws {
+    #if THALASSA_SEALED_CRASH_PROBE
+    static func reopenForCrashResearch(directory: URL, storeID: UUID,
+        boundary: ResearchCommitBoundary, callback: @escaping () -> Void) throws -> VodozemacSealedStore {
+        try validateDirectory(directory, storeID: storeID)
+        guard FileManager.default.fileExists(atPath: directory.appendingPathComponent("snapshot.sqlite").path) else {
+            throw VodozemacSealedStoreError.missingDatabase
+        }
+        _ = try loadMasterKey(storeID: storeID)
+        let store = try VodozemacSealedStore(directory: directory, storeID: storeID, create: false,
+            researchCrashCheckpoint: { if $0 == boundary.rawValue { callback() } })
+        do {
+            _ = try store.read()
+            return store
+        } catch {
+            store.close()
+            throw error
+        }
+    }
+    #endif
+
+    private init(directory: URL, storeID: UUID, create: Bool,
+                 researchCrashCheckpoint: ((String) -> Void)? = nil) throws {
+        #if THALASSA_SEALED_CRASH_PROBE
+        self.researchCrashCheckpoint = researchCrashCheckpoint
+        #endif
         self.directory = directory
         self.storeID = storeID
         self.databaseURL = directory.appendingPathComponent("snapshot.sqlite")
@@ -252,6 +284,9 @@ final class VodozemacSealedStore {
             // store/Directory/Auth. Keychain, encoding, encryption and SQLite
             // reservation cannot extend an already expired credential lease.
             try checkAuthority?()
+            #if THALASSA_SEALED_CRASH_PROBE
+            researchCrashCheckpoint?(ResearchCommitBoundary.beforeUpdate.rawValue)
+            #endif
             try done(query)
             guard sqlite3_changes(database) == 1 else { throw VodozemacSealedStoreError.staleRevision }
             try protectFiles()
@@ -263,7 +298,13 @@ final class VodozemacSealedStore {
             // If expiry/cancellation occurs after UPDATE/protectFiles, roll the
             // transaction back instead of releasing a durable late mutation.
             try checkAuthority?()
+            #if THALASSA_SEALED_CRASH_PROBE
+            researchCrashCheckpoint?(ResearchCommitBoundary.afterUpdateBeforeCommit.rawValue)
+            #endif
             try execute("COMMIT")
+            #if THALASSA_SEALED_CRASH_PROBE
+            researchCrashCheckpoint?(ResearchCommitBoundary.afterCommit.rawValue)
+            #endif
             return next
         } catch {
             let operationError = error
