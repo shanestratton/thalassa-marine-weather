@@ -16,6 +16,8 @@ import {
     readPublicBetaFeatureProfile,
     serializePublicBetaFeatureArtifact,
 } from './scripts/public-beta-feature-profile.mjs';
+import { MINIFIED_PUBLIC_SCRIPTS, minifyPublicScriptWhitespace } from './scripts/minify-public-scripts.mjs';
+import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
 
 // Define __dirname for ESM context
 const __filename = fileURLToPath(import.meta.url);
@@ -87,6 +89,91 @@ function releasePublicInputFence() {
             // a clean CI checkout, regardless of the cell's provenance.
             fs.rmSync(path.join(outDir, 'enc-samples'), { recursive: true, force: true });
             removeFinderMetadata(outDir);
+        },
+    };
+}
+
+/**
+ * public/sw.js and public/pcm-worklet.js are copied into dist verbatim, so the
+ * service worker's 44 KB of cache-bump history comments counted against the
+ * JavaScript budget. Rewrite only the dist copies without comments and
+ * whitespace; scripts/minify-public-scripts.mjs proves each one parses to the
+ * same program and fails the build otherwise. writeBundle runs only after a
+ * successful write, when Vite has already copied public/ into dist. A build
+ * that does not copy public/ at all has nothing here to rewrite.
+ */
+function releaseMinifyPublicScripts(): Plugin {
+    let outDir = path.resolve(__dirname, 'dist');
+    let copiesPublicDir = true;
+
+    return {
+        name: 'release-minify-public-scripts',
+        apply: 'build',
+        configResolved(config) {
+            outDir = path.resolve(config.root, config.build.outDir);
+            copiesPublicDir = Boolean(config.publicDir) && config.build.copyPublicDir !== false;
+        },
+        async writeBundle() {
+            for (const fileName of MINIFIED_PUBLIC_SCRIPTS) {
+                const target = path.join(outDir, fileName);
+                if (!fs.existsSync(target)) {
+                    if (!copiesPublicDir) continue;
+                    throw new Error(`${fileName} was not copied into ${outDir}`);
+                }
+                const source = fs.readFileSync(target, 'utf8');
+                fs.writeFileSync(target, await minifyPublicScriptWhitespace(source, fileName));
+            }
+        },
+    };
+}
+
+/**
+ * Pages parked behind a build-time flag (the Calypso console, the offline-area
+ * modal) must not come back as chunks nothing can load: the build fails if
+ * one does. See scripts/parked-lazy-pages.mjs. Flag files are read from this
+ * repo, not config.root, so a tool that moves the root reads the same flags.
+ */
+function releaseParkedPagesStayOut(): Plugin {
+    return {
+        name: 'release-parked-pages-stay-out',
+        apply: 'build',
+        generateBundle(_options, bundle) {
+            const offenders = parkedPagesInBundle(__dirname, bundle);
+            if (offenders.length > 0) this.error(offenders.join('\n'));
+        },
+    };
+}
+
+/**
+ * The import createLogger's error() uses to reach Sentry. Kept in one place:
+ * tests/WorkerSentryNoop.test.ts checks utils/createLogger.ts still says it.
+ */
+export const LOGGER_SENTRY_IMPORT = '../services/sentry';
+
+/**
+ * Worker builds only. The navGrid worker reaches createLogger through the
+ * router engine's `engineLog`, and createLogger.error() lazily imports
+ * services/sentry, so Vite bundled a second copy of the Sentry SDK, React's
+ * Sentry bindings and @capacitor/core (about 97 KB) into the worker build.
+ * The worker graph never calls a logger's error() (only warn()), and Sentry
+ * is never initialised inside a worker, so that import could not run. Here it
+ * resolves to no-op functions instead. The main build is untouched, and
+ * tests/WorkerSentryNoop.test.ts fails if any worker's import graph starts
+ * calling a logger's error().
+ */
+function workerSentryNoop(): Plugin {
+    const virtualId = '\0worker-sentry-noop';
+
+    return {
+        name: 'worker-sentry-noop',
+        enforce: 'pre',
+        resolveId(source, importer) {
+            if (source !== LOGGER_SENTRY_IMPORT || !importer) return null;
+            return importer.replaceAll('\\', '/').endsWith('/utils/createLogger.ts') ? virtualId : null;
+        },
+        load(id) {
+            if (id !== virtualId) return null;
+            return 'export const captureException = () => {};\nexport const addBreadcrumb = () => {};\n';
         },
     };
 }
@@ -367,6 +454,8 @@ export default defineConfig(({ mode }) => {
             },
             react(),
             mode === 'production' && releasePublicInputFence(),
+            mode === 'production' && releaseMinifyPublicScripts(),
+            mode === 'production' && releaseParkedPagesStayOut(),
             mode === 'production' &&
                 visualizer({
                     filename: 'bundle-stats.html',
@@ -437,6 +526,7 @@ export default defineConfig(({ mode }) => {
         // our workers are spawned with { type: 'module' }, so 'es' is correct.
         worker: {
             format: 'es',
+            plugins: () => [workerSentryNoop()],
         },
         build: {
             outDir: 'dist',
@@ -502,9 +592,14 @@ export default defineConfig(({ mode }) => {
             },
         },
         resolve: {
-            alias: {
-                '@': path.resolve(__dirname, './'),
-            },
+            alias: [
+                { find: '@', replacement: path.resolve(__dirname, './') },
+                // jsPDF's optional SVG rasteriser, reached only from
+                // addSvgAsImage, which Thalassa never calls. Without this the
+                // build emits a ~159 KB canvg + core-js chunk nothing loads.
+                // See utils/vendorStubs/canvgUnavailable.ts.
+                { find: /^canvg$/, replacement: path.resolve(__dirname, 'utils/vendorStubs/canvgUnavailable.ts') },
+            ],
         },
         test: {
             environment: 'jsdom',

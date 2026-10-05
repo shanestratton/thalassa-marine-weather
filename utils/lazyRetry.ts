@@ -24,6 +24,15 @@ import { crumb } from './flightRecorder';
 const GLOBAL_COOLDOWN_KEY = 'lazyRetry_lastReloadAt';
 const RELOAD_COOLDOWN_MS = 60_000;
 
+/*
+ * Calling lazyRetry has no side effects: React.lazy only wraps the factory,
+ * which runs on first render. The annotation below tells Rollup so, and lets
+ * it drop a lazyRetry() whose result the build has already discarded, such as
+ * a page a build-time feature flag has parked. Without it, each parked page
+ * still shipped as a chunk nothing could load (the Calypso console alone was
+ * 131 KB). tests/LazyRetryNoSideEffects.test.ts keeps the factory lazy.
+ */
+/* #__NO_SIDE_EFFECTS__ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function lazyRetry<T extends React.ComponentType<any>>(
     factory: () => Promise<{ default: T }>,

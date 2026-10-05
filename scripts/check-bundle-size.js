@@ -53,6 +53,7 @@ const BUDGETS = {
     // package.json and package-lock.json are unchanged: no new dependency.
     // 10.25 leaves ~51 KB (0.5%): small enough that an accidental lodger
     // still trips it.
+    // 2026-10-05: measured 10,286,520 B (9.81 MiB) after the dead-code trim freed 448,908 B; line unchanged.
     javascript: 10.25 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,
