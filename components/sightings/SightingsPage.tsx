@@ -198,7 +198,12 @@ export const SightingsPage: React.FC<SightingsPageProps> = ({ onBack, backLabel,
     const centre =
         weatherCentre ??
         (newestOwnPosition ? { lat: newestOwnPosition.latitude!, lon: newestOwnPosition.longitude! } : null);
-    const pub = usePublicSightings(centre, radius, tab === 'public' && !!session.userId && !isOffline);
+    const pub = usePublicSightings(
+        centre,
+        radius,
+        tab === 'public' && !!session.userId && !isOffline,
+        mine.deletedIds.size,
+    );
     // Where the public feed is centred, in words: the weather report's place
     // (it follows the punter, or a pinned spot), else your newest sighting.
     const centreLabel = weatherCentre ? (weatherPlace ?? 'the weather report’s spot') : 'your newest sighting';
@@ -407,11 +412,13 @@ export const SightingsPage: React.FC<SightingsPageProps> = ({ onBack, backLabel,
     const species = useBoatSpecies(
         session.userId ? (boat?.ownerId ?? null) : null,
         tab === 'mine' && mineView === 'life' && lifeScope === 'boat',
+        mine.deletedIds.size,
     );
     const boatLifeRows = useMemo(() => {
         if (!boat) return [];
         const byId = new Map<string, Pick<SightingItem, 'scientificName' | 'group' | 'eventDate' | 'vernacularName'>>();
         for (const r of species.rows) {
+            if (mine.deletedIds.has(r.id)) continue;
             byId.set(r.id, {
                 scientificName: r.scientific_name,
                 group: r.taxon_group,
@@ -422,7 +429,7 @@ export const SightingsPage: React.FC<SightingsPageProps> = ({ onBack, backLabel,
         for (const i of crewItems) byId.set(i.id, i);
         for (const i of myItems) if (i.vesselOwnerId === boat.ownerId) byId.set(i.id, i);
         return [...byId.values()];
-    }, [boat, species.rows, crewItems, myItems]);
+    }, [boat, species.rows, crewItems, myItems, mine.deletedIds]);
     const lifeRows = boat && lifeScope === 'boat' ? boatLifeRows : myItems;
     const lifeTitle = boat && lifeScope === 'boat' ? `${boat.name ?? 'The boat'}’s species` : 'My species';
     const lifeNote =

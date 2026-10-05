@@ -90,6 +90,7 @@ vi.mock('../../hooks/sightings/useSightingsSession', async (importOriginal) => (
 import { setAuthIdentityScope } from '../../services/authIdentityScope';
 import { logSighting, editSighting } from '../../services/sightings/sightingService';
 import {
+    deleteLocalSighting,
     listLocalSightings,
     memoryBackend,
     putLocalSighting,
@@ -374,6 +375,44 @@ describe('crew feed', () => {
         await waitFor(() => expect(screen.queryByRole('button', { name: /^Dolphin/ })).toBeNull());
         // Still on the phone as a deletion for the outbox to send.
         expect((await listLocalSightings(WREN)).map((r) => r.sync.op)).toEqual(['delete']);
+    });
+
+    it('keeps a deleted sighting gone after the outbox has told the server', async () => {
+        // Shane 2026-10-06: "i just added a dummy sighting and when i deleted it - it was
+        // still there, until i exited the sightings page and went back in". The drain
+        // sends the delete and forgets its tombstone within a second, but the crew feed
+        // still holds the server's copy (the boat-filtered live channel never carries
+        // the DELETE), so the row came back until the page refetched.
+        const record = await logOwn('dolphin');
+        await putLocalSighting({ ...record, sync: { ...record.sync, state: 'synced', op: null, serverKnown: true } });
+        feed.crew.rows = [
+            crewRow({
+                id: record.id,
+                observer_id: WREN,
+                observer_display: null,
+                taxon_group: 'dolphin',
+                scientific_name: null,
+                vernacular_name: null,
+            }),
+        ];
+        await renderPage();
+        fireEvent.click(await screen.findByRole('button', { name: /^Dolphin/ }));
+        const detail = await screen.findByRole('dialog', { name: 'Dolphin' });
+        fireEvent.click(within(detail).getByRole('button', { name: 'Delete' }));
+        await act(async () => {
+            fireEvent.click(within(detail).getByRole('button', { name: 'Delete' }));
+        });
+        await waitFor(() => expect(screen.queryByRole('button', { name: /^Dolphin/ })).toBeNull());
+        // The outbox sends it and drops the tombstone, as sightingSync does.
+        const [tombstone] = await listLocalSightings(WREN);
+        await act(async () => {
+            await deleteLocalSighting(tombstone);
+        });
+        await act(async () => {
+            await new Promise((r) => setTimeout(r, 50));
+        });
+        expect(await listLocalSightings(WREN)).toHaveLength(0);
+        expect(screen.queryByRole('button', { name: /^Dolphin/ })).toBeNull();
     });
 
     it('says sharing is not switched on yet when the server has no sightings', async () => {

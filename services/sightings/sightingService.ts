@@ -517,6 +517,20 @@ export async function removeSightingPhoto(id: string, slot: number): Promise<Loc
 }
 
 /**
+ * Sightings deleted on this phone since the app started. The outbox drops its
+ * tombstone as soon as the server has the delete, but a feed fetched earlier
+ * still holds the server's copy, and the boat-filtered live channel never
+ * carries a DELETE. The feeds hide these ids until the next app start, by
+ * which time every fetch is fresh (Shane 2026-10-06: a deleted sighting stayed
+ * until he left the page and came back).
+ */
+const deletedThisSession = new Set<string>();
+
+export function sightingsDeletedThisSession(): ReadonlySet<string> {
+    return deletedThisSession;
+}
+
+/**
  * Delete (also the sheet's Undo). Never sent: gone at once. Otherwise a
  * tombstone the outbox removes from the server, photos first.
  */
@@ -524,6 +538,7 @@ export async function deleteSighting(id: string): Promise<boolean> {
     const userId = getAuthIdentityScope().userId;
     const record = await getLocalSighting(id, userId);
     if (!record) return false;
+    deletedThisSession.add(id);
     if (!record.sync.serverKnown && !isSightingInFlight(id)) {
         await deleteLocalSighting(record);
         return true;
