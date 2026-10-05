@@ -24,7 +24,10 @@ jobs:
         # step green the two-browser E2E (~35 min) and the browser regressions
         # (~17 min) no longer fit 60 — run 36345173825 was cancelled mid-way
         # through the regressions after a clean E2E.
-        timeout-minutes: 90
+        # 120 since 2026-10-05: run 37248261911 ran every test 1.41x slower than
+        # the day before (unit tests too, so the runner, not the code) and was
+        # cancelled at 90 min with 374 of 450 browser regressions green.
+        timeout-minutes: 120
         env:
             NODE_OPTIONS: --max-old-space-size=4096
             VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
