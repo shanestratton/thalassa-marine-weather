@@ -14,8 +14,12 @@ into native history with unresolved 0. Retry success and once-only peer display
 are owner-reported; a repeat scan capture shows stored 0 and duplicates 6.
 Process termination/retry were not independently instrumented and no sender
 terminal acceptance or direct relay receipt was inspected. The mirrored iPad
-pending-restart test and five new native hash-equality probe assertions remain
-unrun. Cached-provider provenance, crash-boundary atomicity and the full physical
+check now has matching pending before/after and iPhone-received ID/hash captures,
+a sender relay-acceptance notice without its target row, and owner-confirmed
+once-only display. The owner resolved an initial message-identification concern
+by confirming target prefix `f96e0b8b`; the checkpoint retains that sequence.
+Five new native hash-equality probe assertions remain unrun.
+Cached-provider provenance, crash-boundary atomicity and the full physical
 matrix are not proved by these bounded observations. The checkpoint retains
 the initial screen-fixture failures, their correction, the corrected Mac launch-command
 failure and the exact build/signing/update receipts. No private data contents
