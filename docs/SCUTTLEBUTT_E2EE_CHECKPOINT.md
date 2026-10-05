@@ -72,6 +72,33 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October independent restart observations
+
+Following the manual iPhone-only Research restart instructions, the owner
+confirmed the previous messages returned after fresh same-account login and a
+local-history read. A new message from that restarted iPhone then appeared on
+the iPad. The owner next confirmed the mirrored iPad restart restored history
+and a new iPad message reached the iPhone. The instructed procedure explicitly
+excluded Log out, re-registration, another prekey claim or store replacement.
+
+These are owner-reported physical observations on installed candidate
+`4005833a0e3ce208ca8f7d8394ced9876a89184b`; no new screenshot, exact message IDs,
+before/after device-ID capture or instrumented native receipts were supplied.
+They add visual successor coverage in both directions to D01 and partial D02
+history-restoration/successor evidence for both endpoints. Neither full case is
+marked passed: exact pending-send continuity, ciphertext equality, durable
+owner/trust generations and proof that keys were not recreated remain unproved.
+Explicit logout and crash-at-commit behaviour are separate tests.
+
+The next bounded manual check is an offline recipient catching up, followed by
+a repeat receive scan. This must not be recorded as D07 offline-sender recovery:
+the UI fetches fresh policy before preparing a new send, so taking the sender
+offline first does not reliably produce durable pending ciphertext. Controlled
+post-prepare response loss needs a research-only fault hook and exact receipts.
+No build, installation, server mutation or production change accompanies this
+documentation update. Independent review and the remaining acceptance gates
+stay open.
+
 ### 5 October two way physical message exchange
 
 The owner reported that both Research apps display their own sent message and
@@ -103,14 +130,12 @@ credential operation accompanied this evidence update. The installed static
 Research disclaimer predates the exchange; updating it belongs to a later
 artifact, not to restarting this test midway.
 
-This supplies partial D01 opening-message/reply evidence. D01 is not marked
-passed: successors, complete endpoint receipts, fingerprint comparison captures
-and correlated native/relay ciphertext evidence remain missing. D02 independent
-restart and pending-ciphertext continuity, D03 explicit logout, the remaining
-device matrix and the independent security review remain outstanding. The next
-manual check is an independent Research restart with fresh same-account login,
-the same device ID, restored history and a decryptable successor. It must not
-use Log out, re-register, claim again or replace either store as a shortcut.
+This supplies partial D01 opening-message/reply evidence. Later owner-reported
+successors and independent restarts are recorded above. D01 is not marked
+passed: complete endpoint receipts, fingerprint comparison captures and
+correlated native/relay ciphertext evidence remain missing. Full D02
+pending-ciphertext continuity, D03 explicit logout, the remaining device matrix
+and the independent security review remain outstanding.
 
 Normal Thalassa, production Auth/database, `master` and the primary iOS project
 remain unchanged. This milestone does not authorize a production merge or a
