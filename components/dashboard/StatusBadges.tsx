@@ -6,6 +6,7 @@ import { useWeather } from '../../context/WeatherContext';
 import { triggerHaptic } from '../../utils/system';
 import { AlertTriangleIcon } from '../Icons';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import {
     resolveForecastModel,
     getForecastModelInfo,
@@ -97,7 +98,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         coordinates,
         isOffshore: isOffshoreProp,
     }) => {
-        const { refreshData, loading, backgroundUpdating, error, positionChoice } = useWeather();
+        const { refreshData, loading, backgroundUpdating, error, positionChoice, positionSource } = useWeather();
         // Widened on purpose: test harnesses mock useWeather() without these.
         const choice: WeatherPositionChoice | undefined = positionChoice;
         const isSyncing = loading || backgroundUpdating;
@@ -190,7 +191,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         const updateSettings = useSettingsStore((s) => s.updateSettings);
         const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
         const offshoreModel = resolveOffshoreModel(useSettingsStore((s) => s.settings.offshoreModel));
-        const vesselName = useSettingsStore((s) => s.settings.vessel?.name?.trim() || 'The boat');
+        const ownVesselName = useSettingsStore((s) => s.settings.vessel?.name?.trim() || 'The boat');
+        // The held boat is the one being followed: while crewing, hers (2026-10-05).
+        const crewingBoat = useCrewingBoat();
+        const vesselName = positionSource?.target === 'crew' && crewingBoat ? crewingBoat.label : ownVesselName;
         const modelInfo = offshore ? getOffshoreModelInfo(offshoreModel) : getForecastModelInfo(glassModel);
         const [showModelSheet, setShowModelSheet] = useState(false);
 

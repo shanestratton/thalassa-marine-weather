@@ -48,6 +48,15 @@ describe('the boat position chain', () => {
         );
         expect(boat).not.toContain('cloudFix(');
         expect(anchor).not.toContain('cloudFix');
+    });
+
+    it("the Ship's Log callers still read the cloud rung as they always have, with no boat named (2026-10-05)", () => {
+        // Only the weather names one boat's row (its own, or the one crewed on);
+        // the log's remote-boat path keeps CloudTelemetryService's own pick.
+        const resolver = readFileSync('services/shiplog/PositionResolver.ts', 'utf8');
+        const gps = readFileSync('services/shiplog/GpsSubscriptionManager.ts', 'utf8');
+        expect(resolver).toContain('(await piFix()) ?? (await cloudFix())');
+        expect(gps).toContain('(await piFix()) ?? (await cloudFix(now))');
         expect(describeRung({ latitude: 0, longitude: 0, timestamp: 0, rung: 'cloud' })).toBe('Boat GPS (via cloud)');
     });
 

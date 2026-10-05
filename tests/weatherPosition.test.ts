@@ -11,16 +11,21 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
+import { reloadSharedBindersFromStorage, selectCrewVessel } from '../services/vessel/sharedBinders';
 
 const chain = vi.hoisted(() => ({
     busFix: vi.fn<() => import('../services/boatPositionChain').BoatFix | null>(() => null),
     piFix: vi.fn<() => Promise<import('../services/boatPositionChain').BoatFix | null>>(async () => null),
-    cloudFix: vi.fn<() => Promise<import('../services/boatPositionChain').BoatFix | null>>(async () => null),
+    cloudFix: vi.fn<(now?: number, owner?: string) => Promise<import('../services/boatPositionChain').BoatFix | null>>(
+        async () => null,
+    ),
+    deviceRungOwner: vi.fn<(rung: 'bus' | 'pi') => string | null>(() => null),
 }));
 vi.mock('../services/boatPositionChain', () => ({
     busFix: chain.busFix,
     piFix: chain.piFix,
     cloudFix: chain.cloudFix,
+    deviceRungOwner: chain.deviceRungOwner,
     CLOUD_FIX_MAX_AGE_MS: 60_000,
 }));
 vi.mock('../utils/createLogger', () => ({
@@ -36,8 +41,10 @@ import {
     describeWeatherFix,
     formatFixAge,
     getHeldChoice,
+    getWeatherFollowCrewOwner,
     getWeatherFollowTarget,
     heldBoatFix,
+    WEATHER_FOLLOW_TARGET_EVENT,
     resolveWeatherPosition,
     setHeldChoice,
     setWeatherFollowTarget,
@@ -64,6 +71,7 @@ describe('where the weather is for', () => {
         chain.busFix.mockImplementation(() => null);
         chain.piFix.mockImplementation(async () => null);
         chain.cloudFix.mockImplementation(async () => null);
+        chain.deviceRungOwner.mockImplementation(() => null);
         __resetWeatherPositionForTests();
         // Most of this suite is about the BOAT's order — the skipper has picked
         // her row. The default is tested on its own below.
@@ -471,5 +479,259 @@ describe('where the weather is for', () => {
         setAuthIdentityScope('skipper-b');
         complete({ ...DAUGHTERS, timestamp: T0 });
         expect((await pending).fix).toBeNull();
+    });
+});
+
+/**
+ * Shane 2026-10-05: "when a punter is invited to another yacht, in the location
+ * box, instead of showing their yacht, can it instead show the yacht that they
+ * are now invited to" — and "if they have gps on their boat and on the invited
+ * boat, you would need to be able to check both gps postions". Fictional crew
+ * member 'crew-kim' crews on 'Wind Dancer' (skipper 'skipper-wd').
+ */
+describe('crew: the boat this account crews on has her own chain', () => {
+    const CREW = 'crew-kim';
+    const WIND_DANCER = 'skipper-wd';
+    const TERN = 'skipper-tern';
+    const snapshotKey = () => authScopedStorageKey('thalassa_shared_binders_v1');
+    const vessel = (ownerId: string, vesselName: string, lastAcceptedAt = '2026-10-01T00:00:00.000Z') => ({
+        ownerId,
+        vesselName,
+        role: 'deckhand',
+        lastAcceptedAt,
+    });
+    /** The shared binder snapshot as a sync would store it, then read back. */
+    const crewOn = (vessels: ReturnType<typeof vessel>[]) => {
+        localStorage.setItem(
+            snapshotKey(),
+            JSON.stringify({
+                version: 1,
+                userId: CREW,
+                confirmedAt: '2026-10-05T00:00:00.000Z',
+                skippers: [],
+                vessels,
+            }),
+        );
+        reloadSharedBindersFromStorage();
+    };
+    const offshore = (timestamp = T0) => ({
+        latitude: -19.1,
+        longitude: 147.6,
+        timestamp,
+        rung: 'cloud' as const,
+        source: 'pi-cloud',
+    });
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(T0);
+        localStorage.clear();
+        setAuthIdentityScope(CREW);
+        reloadSharedBindersFromStorage();
+        vi.clearAllMocks();
+        chain.busFix.mockImplementation(() => null);
+        chain.piFix.mockImplementation(async () => null);
+        chain.cloudFix.mockImplementation(async () => null);
+        chain.deviceRungOwner.mockImplementation(() => null);
+        __resetWeatherPositionForTests();
+        crewOn([vessel(WIND_DANCER, 'Wind Dancer')]);
+    });
+    afterEach(() => {
+        setAuthIdentityScope(null);
+        vi.useRealTimers();
+    });
+
+    it('persists the crew target with her skipper, and old stored values keep working', () => {
+        setWeatherFollowTarget('crew', { ownerId: WIND_DANCER, fallback: 'boat' });
+        expect(getWeatherFollowTarget()).toBe('crew');
+        expect(getWeatherFollowCrewOwner()).toBe(WIND_DANCER);
+        expect(localStorage.getItem(authScopedStorageKey('thalassa_weather_follow_target'))).toBe('crew');
+        expect(
+            JSON.parse(localStorage.getItem(authScopedStorageKey('thalassa_weather_follow_crew')) ?? 'null'),
+        ).toEqual({
+            ownerId: WIND_DANCER,
+            fallback: 'boat',
+        });
+        __resetWeatherPositionForTests();
+        expect(getWeatherFollowTarget()).toBe('crew');
+
+        localStorage.setItem(authScopedStorageKey('thalassa_weather_follow_target'), 'boat');
+        expect(getWeatherFollowTarget()).toBe('boat');
+        expect(getWeatherFollowCrewOwner()).toBeNull();
+        localStorage.setItem(authScopedStorageKey('thalassa_weather_follow_target'), 'phone');
+        expect(getWeatherFollowTarget()).toBe('phone');
+        // Leaving the crew boat clears her record.
+        setWeatherFollowTarget('crew', { ownerId: WIND_DANCER, fallback: 'phone' });
+        setWeatherFollowTarget('boat');
+        expect(localStorage.getItem(authScopedStorageKey('thalassa_weather_follow_crew'))).toBeNull();
+    });
+
+    it('the crewed boat reads her skipper’s cloud row; the own boat reads only her own', async () => {
+        chain.cloudFix.mockImplementation(async (_now, owner) => (owner === WIND_DANCER ? offshore() : null));
+        setWeatherFollowTarget('crew', { ownerId: WIND_DANCER, fallback: 'boat' });
+        const crewed = await resolveWeatherPosition(noPhone(), { now: T0 });
+        expect(crewed.fix).toMatchObject({ kind: 'cloud', lat: -19.1, lon: 147.6 });
+        expect(chain.cloudFix).toHaveBeenCalledWith(T0, WIND_DANCER);
+        expect(chain.cloudFix).not.toHaveBeenCalledWith(expect.anything(), 'self');
+
+        chain.cloudFix.mockClear();
+        setWeatherFollowTarget('boat');
+        const own = await resolveWeatherPosition(noPhone(), { now: T0 });
+        expect(chain.cloudFix).toHaveBeenCalledWith(T0, 'self');
+        expect(chain.cloudFix).not.toHaveBeenCalledWith(expect.anything(), WIND_DANCER);
+        // Her skipper's position never stands in for the own boat.
+        expect(own.fix).toBeNull();
+    });
+
+    it('the phone’s own receivers are the crewed boat’s only when the paired Pi is hers', async () => {
+        chain.busFix.mockImplementation(() => bus());
+        chain.piFix.mockImplementation(async () => pi());
+        // A gateway socket and a Pi that names nobody: shown for the own boat
+        // as always, never the crewed boat's — and, since either boat's could
+        // be on the other end, not kept as the own boat's last fix.
+        expect(await boatOrHeldFix(T0, WIND_DANCER)).toBeNull();
+        expect(chain.busFix).not.toHaveBeenCalled();
+        expect(chain.piFix).not.toHaveBeenCalled();
+        expect((await boatOrHeldFix(T0))?.kind).toBe('bus');
+        expect(heldBoatFix(T0 + 1)).toBeNull();
+
+        // Paired to Wind Dancer's Pi (its relay is her skipper's): hers, and
+        // no longer the own boat's, which has no last fix of her own yet.
+        chain.deviceRungOwner.mockImplementation(() => WIND_DANCER);
+        chain.busFix.mockImplementation(() => null);
+        const t1 = T0 + PI_POLL_MS;
+        chain.piFix.mockImplementation(async () => pi('ydwg-tcp.YD', t1));
+        expect((await boatOrHeldFix(t1, WIND_DANCER))?.kind).toBe('pi');
+        chain.piFix.mockClear();
+        expect(await boatOrHeldFix(t1 + 1_000)).toBeNull();
+        expect(chain.piFix).not.toHaveBeenCalled();
+
+        // Paired to the account's own Pi: the own boat's, as always.
+        chain.deviceRungOwner.mockImplementation(() => CREW);
+        const t2 = t1 + PI_POLL_MS;
+        chain.piFix.mockImplementation(async () => pi('ydwg-tcp.YD', t2));
+        expect((await boatOrHeldFix(t2))?.kind).toBe('pi');
+        chain.piFix.mockClear();
+        expect(await boatOrHeldFix(t2 + 1_000, WIND_DANCER)).toMatchObject({ kind: 'held', rung: 'pi', timestamp: t1 });
+        expect(chain.piFix).not.toHaveBeenCalled();
+    });
+
+    it('a last fix kept before 2026-10-05 stays the own boat’s, unless the account crews', () => {
+        // Kept under the one key there was. Back then an account that crewed
+        // could keep its skipper's position there (her cloud row, her Pi), so
+        // it is only trusted by an account that crews nowhere.
+        const legacy = { lat: -20.27, lon: 148.72, timestamp: T0 - 3600_000, rung: 'cloud', source: 'pi-cloud' };
+        const key = authScopedStorageKey('thalassa_weather_last_boat_fix');
+        localStorage.setItem(key, JSON.stringify(legacy));
+        crewOn([]);
+        expect(heldBoatFix(T0)).toMatchObject({ kind: 'held', lat: -20.27, timestamp: T0 - 3600_000 });
+
+        crewOn([vessel(WIND_DANCER, 'Wind Dancer')]);
+        expect(heldBoatFix(T0)).toBeNull();
+        // Dropped, so it cannot come back as hers when the crewing ends.
+        expect(localStorage.getItem(key)).toBeNull();
+        crewOn([]);
+        expect(heldBoatFix(T0)).toBeNull();
+    });
+
+    it('while crewing, a receiver that names no boat is shown but never kept as the own boat’s', async () => {
+        // Kestrel's own last fix, kept by this build.
+        rememberBoatFix(pi('ydwg-tcp.YD', T0 - 3600_000), T0);
+        // Aboard Wind Dancer, the phone's gateway socket (the same address as
+        // Kestrel's) names no boat: the own row shows it, as it always has…
+        const skippersBus = { latitude: -20.27, longitude: 148.72, timestamp: T0, rung: 'bus' as const };
+        chain.busFix.mockImplementation(() => ({ ...skippersBus, source: 'nmea-gateway' }));
+        expect(await boatOrHeldFix(T0)).toMatchObject({ kind: 'bus', lat: -20.27 });
+        // …but Kestrel's last fix is still Kestrel's.
+        expect(heldBoatFix(T0 + 1)).toMatchObject({ lat: -27.2, timestamp: T0 - 3600_000 });
+
+        // A Pi whose relay is not set up names no boat either.
+        chain.busFix.mockImplementation(() => null);
+        chain.piFix.mockImplementation(async () => ({ ...skippersBus, rung: 'pi' as const, source: 'ydwg-tcp.YD' }));
+        expect(await boatOrHeldFix(T0 + PI_POLL_MS)).toMatchObject({ kind: 'pi', lat: -20.27 });
+        expect(heldBoatFix(T0 + PI_POLL_MS + 1)).toMatchObject({ lat: -27.2 });
+
+        // Nobody's crew: the phone's receivers are the own boat's, kept as always.
+        crewOn([]);
+        chain.piFix.mockImplementation(async () => null);
+        chain.busFix.mockImplementation(() => bus(T0 + 2 * PI_POLL_MS));
+        await boatOrHeldFix(T0 + 2 * PI_POLL_MS);
+        expect(heldBoatFix(T0 + 2 * PI_POLL_MS + 1)).toMatchObject({ rung: 'bus', timestamp: T0 + 2 * PI_POLL_MS });
+    });
+
+    it('a read-only look (the ★ menu’s) keeps nothing and clears nothing', async () => {
+        rememberBoatFix(cloud(T0 - 3600_000), T0);
+        const own = heldBoatFix(T0)!;
+        setHeldChoice(own, 'boat');
+        chain.cloudFix.mockImplementation(async (_now, owner) => (owner === WIND_DANCER ? offshore() : cloud(T0)));
+        expect(await boatOrHeldFix(T0, WIND_DANCER, { readOnly: true })).toMatchObject({ kind: 'cloud', lat: -19.1 });
+        expect(heldBoatFix(T0 + 1, WIND_DANCER)).toBeNull();
+        expect(await boatOrHeldFix(T0, null, { readOnly: true })).toMatchObject({ kind: 'cloud', timestamp: T0 });
+        expect(heldBoatFix(T0 + 1)).toMatchObject({ lat: -27.2, timestamp: T0 - 3600_000 });
+        expect(getHeldChoice(own)).toBe('boat');
+    });
+
+    it('each boat keeps her own held fix', async () => {
+        rememberBoatFix(pi('ydwg-tcp.YD', T0 - 3600_000), T0);
+        expect(heldBoatFix(T0)).toMatchObject({ kind: 'held', lat: -27.2, timestamp: T0 - 3600_000 });
+        expect(heldBoatFix(T0, WIND_DANCER)).toBeNull();
+
+        chain.cloudFix.mockImplementation(async (_now, owner) => (owner === WIND_DANCER ? offshore() : null));
+        await boatOrHeldFix(T0, WIND_DANCER);
+        expect(heldBoatFix(T0 + 1, WIND_DANCER)).toMatchObject({ kind: 'held', lat: -19.1, rung: 'cloud' });
+        // Hers did not overwrite the own boat's.
+        expect(heldBoatFix(T0 + 1)).toMatchObject({ lat: -27.2, timestamp: T0 - 3600_000 });
+
+        // Quiet later: each falls back to her own last fix.
+        chain.cloudFix.mockImplementation(async () => null);
+        expect(await boatOrHeldFix(T0 + CLOUD_POLL_MS, WIND_DANCER)).toMatchObject({ kind: 'held', lat: -19.1 });
+        expect(await boatOrHeldFix(T0 + CLOUD_POLL_MS)).toMatchObject({ kind: 'held', lat: -27.2 });
+    });
+
+    it('follows a Switch boat, and tells the weather', () => {
+        crewOn([vessel(WIND_DANCER, 'Wind Dancer'), vessel(TERN, 'Tern', '2026-09-01T00:00:00.000Z')]);
+        setWeatherFollowTarget('crew', { ownerId: WIND_DANCER, fallback: 'boat' });
+        const keys: string[] = [];
+        const listen = (event: Event) => keys.push((event as CustomEvent<{ key: string }>).detail.key);
+        window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, listen);
+        try {
+            selectCrewVessel(TERN);
+            expect(getWeatherFollowTarget()).toBe('crew');
+            expect(getWeatherFollowCrewOwner()).toBe(TERN);
+            expect(keys).toEqual([`crew:${TERN}`]);
+        } finally {
+            window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, listen);
+        }
+    });
+
+    it('falls back when the crewing ends: her own boat when named, else the phone', () => {
+        setWeatherFollowTarget('crew', { ownerId: WIND_DANCER, fallback: 'boat' });
+        const targets: string[] = [];
+        const listen = (event: Event) => targets.push((event as CustomEvent<{ target: string }>).detail.target);
+        window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, listen);
+        try {
+            crewOn([]);
+            expect(getWeatherFollowTarget()).toBe('boat');
+            expect(targets).toEqual(['boat']);
+            // Kept: a later invitation does not drag the weather back unasked.
+            crewOn([vessel(TERN, 'Tern')]);
+            expect(getWeatherFollowTarget()).toBe('boat');
+        } finally {
+            window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, listen);
+        }
+
+        setWeatherFollowTarget('crew', { ownerId: TERN, fallback: 'phone' });
+        crewOn([]);
+        expect(getWeatherFollowTarget()).toBe('phone');
+    });
+
+    it('keeps following the stored boat while this device does not know the crewing yet', async () => {
+        setWeatherFollowTarget('crew', { ownerId: WIND_DANCER, fallback: 'boat' });
+        localStorage.removeItem(snapshotKey());
+        reloadSharedBindersFromStorage();
+        expect(getWeatherFollowTarget()).toBe('crew');
+        expect(getWeatherFollowCrewOwner()).toBe(WIND_DANCER);
+        await resolveWeatherPosition(noPhone(), { now: T0 });
+        expect(chain.cloudFix).toHaveBeenCalledWith(T0, WIND_DANCER);
     });
 });

@@ -116,11 +116,16 @@ export function ownshipFixLabel(fix: GpsFixState): string | null {
     return `Last fix ${ageAmount(fix.ageMs) ?? '0 s'}`;
 }
 
-/** Which receiver the weather is following: its fix kind first, else the skipper's pick. */
+/**
+ * Which receiver the weather is following: its fix kind first, else the
+ * skipper's pick. A boat this account crews on is 'crew' whatever answered:
+ * the box's boat card is this device's own boat, not hers.
+ */
 export function followedReceiver(
     kind: WeatherFixKind | null | undefined,
     target?: WeatherFollowTarget,
 ): WeatherFollowTarget | null {
+    if (target === 'crew') return 'crew';
     if (kind === 'phone') return 'phone';
     if (kind) return 'boat';
     return target ?? null;

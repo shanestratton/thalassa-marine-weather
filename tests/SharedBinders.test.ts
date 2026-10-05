@@ -426,8 +426,33 @@ describe('crew vessels (the boats a sailor is crewing on)', () => {
             'crew-1',
         );
         expect(vessels).toEqual([
-            { ownerId: 'skipper-1', role: 'co-skipper', lastAcceptedAt: '2026-10-02T00:00:00.000Z' },
+            {
+                ownerId: 'skipper-1',
+                role: 'co-skipper',
+                lastAcceptedAt: '2026-10-02T00:00:00.000Z',
+                instruments: false,
+            },
         ]);
+    });
+
+    it('knows per boat whether the skipper shares the Instrument Panel (2026-10-05)', async () => {
+        // Any accepted row with the share grants it, as the vessel_telemetry policy reads it.
+        const vessels = deriveCrewVessels(
+            [
+                membership('skipper-1', { permissions: { ...ALL_FLAGS_OFF, can_view_instruments: true } }),
+                membership('skipper-1', { permissions: ALL_FLAGS_OFF }),
+                membership('skipper-2', { permissions: ALL_FLAGS_OFF }),
+            ],
+            'crew-1',
+        );
+        expect(vessels.map((vessel) => [vessel.ownerId, vessel.instruments])).toEqual([
+            ['skipper-1', true],
+            ['skipper-2', false],
+        ]);
+        db.crewRows = [membership('skipper-1', { permissions: { ...ALL_FLAGS_OFF, can_view_instruments: true } })];
+        await refreshSharedBinders();
+        reloadSharedBindersFromStorage();
+        expect(getCrewingVessel()?.instruments).toBe(true);
     });
 
     it('a chat-only punter who shares no binder is still crewing on the boat', async () => {
@@ -450,6 +475,7 @@ describe('crew vessels (the boats a sailor is crewing on)', () => {
                 vesselName: 'Wandering Albatross',
                 role: 'punter',
                 lastAcceptedAt: '2026-10-01T21:43:51.000Z',
+                instruments: false,
             },
         ]);
         expect(getCrewingVessel()).toMatchObject({ ownerId: 'skipper-1', vesselName: 'Wandering Albatross' });

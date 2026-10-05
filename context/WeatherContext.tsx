@@ -47,6 +47,7 @@ import { fetchTidesForPosition } from '../services/weather/api/tides';
 import {
     resolveWeatherPosition,
     getWeatherFollowTarget,
+    getWeatherFollowKey,
     WEATHER_FOLLOW_TARGET_EVENT,
     weatherFixStatus,
     describeWeatherFix,
@@ -318,7 +319,8 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     const selectionResolvingRef = useRef(false);
     const followRefreshInFlightRef = useRef<symbol | null>(null);
     const followRefreshPromiseRef = useRef<Promise<void> | null>(null);
-    const followTargetRef = useRef(getWeatherFollowTarget());
+    // The followed receiver's key ('phone', 'boat', 'crew:<skipper>'), as the change event carries it.
+    const followTargetRef = useRef<string>(getWeatherFollowKey());
     const lastFollowFixRef = useRef<{ fix: WeatherFix; target: WeatherFollowTarget; epoch: number } | null>(null);
     // A forecast can adopt new coordinates without resolving their suburb.
     // Only an actual naming attempt advances this separate baseline.
@@ -713,10 +715,14 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
     // A receiver switch can keep the same "Current Location" setting, so an
     // effect keyed only by that setting cannot cancel its older promises.
     useEffect(() => {
-        const changed = () => {
+        const changed = (event: Event) => {
             const target = getWeatherFollowTarget();
-            if (!isCurrentScope() || target === followTargetRef.current) return;
-            followTargetRef.current = target;
+            // The event's key also changes when Switch boat moves a crew
+            // follow from one skipper's boat to another (2026-10-05).
+            const detail = (event as CustomEvent<{ key?: string; reason?: string } | null>).detail;
+            const key: string = detail?.key ?? target;
+            if (!isCurrentScope() || key === followTargetRef.current) return;
+            followTargetRef.current = key;
             lastFollowFixRef.current = null;
             selectionEpochRef.current += 1;
             selectionResolvingRef.current = false;
@@ -728,6 +734,10 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             tideRequestRef.current = null;
             orchestrator.cancelPendingLocation();
             if (locationModeRef.current === 'gps') {
+                // Switch boat works offline, and nobody picked a row: keep the
+                // forecast on screen for the follow tick to move once it can
+                // fetch, rather than blank The Glass with nothing to fetch it.
+                if (detail?.reason === 'binders' && useUIStore.getState().isOffline) return;
                 setWeatherData(null);
                 publishResolvingPosition(target);
             }
@@ -1562,7 +1572,9 @@ const ScopedWeatherProvider: React.FC<{ children: React.ReactNode; identityScope
             setHeldChoice(held, choice);
             // The same switch the saved-locations menu throws (2026-09-08): the
             // dialog is just the ℹ panel's door to it while a held fix shows.
-            setWeatherFollowTarget(choice);
+            // Holding a crewed boat keeps her: 'boat' here is the boat held,
+            // never a switch to the account's own (2026-10-05).
+            if (!(choice === 'boat' && getWeatherFollowTarget() === 'crew')) setWeatherFollowTarget(choice);
             log.info(`Boat quiet — the weather follows ${choice === 'boat' ? 'her last fix' : 'the phone'}`);
             followTickRef.current?.();
         },

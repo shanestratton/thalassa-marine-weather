@@ -17,8 +17,9 @@ import {
     type BinderSource,
 } from '../../services/vessel/sharedBinders';
 import { triggerHaptic } from '../../utils/system';
+import { SKIPPER_BOAT_FALLBACK } from './skipperBoatFallback';
 
-export const SKIPPER_BOAT_FALLBACK = "your skipper's boat";
+export { SKIPPER_BOAT_FALLBACK };
 
 /** "Shared from Test Boat — you're crew · view only". Never an email. */
 export function sharedBinderCopy(source: BinderSource): string | null {
