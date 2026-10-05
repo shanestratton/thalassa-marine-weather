@@ -70,6 +70,14 @@ describe('uiStore', () => {
             expect(useUIStore.getState().transitionDirection).toBe('push');
         });
 
+        // Scuttlebutt → Sightings and back are both Vessel children: a push
+        // in, and Back to Scuttlebutt is not a tab slide.
+        it('pushes from Scuttlebutt into Sightings', () => {
+            useUIStore.setState({ currentView: 'chat' });
+            useUIStore.getState().setPage('sightings');
+            expect(useUIStore.getState().transitionDirection).toBe('push');
+        });
+
         it('uses pop direction from vessel child back to tab', () => {
             useUIStore.setState({ currentView: 'equipment' });
             useUIStore.getState().setPage('vessel');
@@ -88,6 +96,8 @@ describe('uiStore', () => {
             // 'notices' retired as a route (binder review 2026-09-02) —
             // notices live on the OBS chart layer.
             'gpx-import',
+            // Sightings, entered from Scuttlebutt (2026-10-05).
+            'sightings',
         ])('treats %s as a Vessel child for return transitions', (child) => {
             useUIStore.setState({ currentView: child });
             useUIStore.getState().setPage('vessel');

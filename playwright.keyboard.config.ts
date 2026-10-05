@@ -35,6 +35,10 @@ export default defineConfig({
         'passage-recording-layout.spec.ts',
         // "Your draft is set at 2.40 m. Please confirm." (e2e/fixtures/draft-confirm.tsx).
         'draft-confirm-layout.spec.ts',
+        // Sightings: the page, quick log, species list and detail fit at 390,
+        // 320 and in the split pane, centred above the tab bar
+        // (e2e/fixtures/sightings.tsx).
+        'sightings-layout.spec.ts',
         // A fixture page (e2e/fixtures/navigation-marker-anchoring.html): it needs
         // the dev server, not the production preview the e2e suite runs on.
         'ownship-label-layout.spec.ts',

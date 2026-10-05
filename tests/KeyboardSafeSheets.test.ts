@@ -114,10 +114,40 @@ describe('keyboard-safe bottom sheets', () => {
         expect(read('components/ChatPage.tsx')).toContain("view === 'messages' && !showPinSheet && (");
     });
 
+    it('Sightings dialogs are centred, clear the tab bar and lift above the keyboard', () => {
+        // The species search and the notes field live in Sightings' one dialog
+        // shape. It is a CENTRED modal (the standing rule), portalled out of
+        // the page, that clears the tab bar and, with the keyboard up,
+        // centres in the band above it instead; its card scrolls inside, so
+        // a field can never sit under the keyboard. In a split pane the pane
+        // host already ends above the keyboard (split-pane.css).
+        const sheet = read('components/sightings/SightingsSheet.tsx');
+        expect(sheet).toContain('<OverlayPortal');
+        expect(sheet).toContain('items-center justify-center');
+        expect(sheet).toContain('pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)]');
+        expect(sheet).toContain('useKeyboardOffset(true)');
+        expect(sheet).toMatch(/paddingBottom: `\$\{keyboard \+ 12\}px`/);
+        expect(sheet).toContain('data-keyboard-focus-scope');
+        expect(sheet).toMatch(/max-h-full[^"]*overflow-hidden/);
+        expect(sheet).toMatch(/min-h-0 flex-1 overflow-y-auto/);
+        // Every Sightings dialog with a field goes through it.
+        for (const file of ['SpeciesPicker', 'SightingDetail', 'QuickLogSheet']) {
+            expect(read(`components/sightings/${file}.tsx`), file).toContain('<SightingsSheet');
+        }
+    });
+
     it('no bottom sheet scrolls internally without the utility', () => {
         // The sweep guard. Any element that both scrolls internally and caps
         // itself in vh is bottom-sheet-shaped and needs the class.
-        const files = ['components/chat/ChatAttachmentSheets.tsx', 'components/chat/ChatComposer.tsx'];
+        const files = [
+            'components/chat/ChatAttachmentSheets.tsx',
+            'components/chat/ChatComposer.tsx',
+            // Sightings (2026-10-05): the species search and the detail's notes.
+            'components/sightings/SightingsSheet.tsx',
+            'components/sightings/SpeciesPicker.tsx',
+            'components/sightings/SightingDetail.tsx',
+            'components/sightings/QuickLogSheet.tsx',
+        ];
         for (const file of files) {
             const src = read(file);
             for (const line of src.split('\n')) {

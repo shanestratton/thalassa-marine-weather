@@ -22,6 +22,7 @@ import { initialViewFromUrl } from '../services/deepLink';
 const TAB_PAGES = new Set(['dashboard', 'map', 'voyage', 'details', 'vessel']);
 const VESSEL_CHILDREN = new Set([
     'chat',
+    'sightings',
     'compass',
     'weatherWindow',
     'skipperReference',

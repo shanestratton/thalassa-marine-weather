@@ -130,4 +130,11 @@ export const FEATURE_VISIBILITY = {
      * Requires the migration to be deployed to the live project.
      */
     guardian: true,
+    /**
+     * Sightings (Shane 2026-10-05: "go with your picks, call it sightings"):
+     * the Scuttlebutt card and the Log page's Sighting pill. One line to turn
+     * both ways in off. The server enforces its own rules (migration
+     * 20261005150000); until that is pushed, logging still works on the phone.
+     */
+    sightings: true,
 } as const;

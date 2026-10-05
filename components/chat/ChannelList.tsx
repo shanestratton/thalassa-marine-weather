@@ -10,6 +10,7 @@ import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import { ChannelGlyph, getChannelName } from './channelIcons';
 import { ChatIcon, LockIcon, StarIcon, UsersIcon } from '../Icons';
 import { EmptyState } from '../ui/EmptyState';
+import { SightingsEntryCard } from '../sightings/SightingsEntryCard';
 
 // Channels hidden from the directory. 'Lonely Hearts' is a legacy alias, and
 // 'Chandlery'/'Marketplace' are retired features whose channels may still
@@ -381,6 +382,11 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                     </div>
                 </button>
             )}
+
+            {/* Sightings: whales, turtles, birds and fish (Shane 2026-10-05). Its
+                own page; the card only navigates, so this list never opens the
+                sightings store. */}
+            {FEATURE_VISIBILITY.sightings && <SightingsEntryCard />}
 
             <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</h2>
 

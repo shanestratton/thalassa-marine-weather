@@ -321,6 +321,9 @@ export async function deleteCurrentAccount(confirmation: string): Promise<Accoun
         const databaseReferences = await purgeLocalDatabaseForUser(userId);
         databaseReferences.forEach((reference) => references.add(reference));
         await purgeReferencedMedia(references);
+        // Sightings keep their own outbox and stripped photos (IndexedDB
+        // 'thalassa-sightings'); lazy so the deletion path stays light.
+        await (await import('./sightings/sightingStore')).purgeSightingsForUser(userId);
     } catch (cleanupError) {
         localCleanupComplete = false;
         log.error(

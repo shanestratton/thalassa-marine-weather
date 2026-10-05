@@ -1,0 +1,292 @@
+/*
+ * Sightings surfaces (components/sightings/*). The tier-1 language of the
+ * Vessel and Plan pages: glass cards, the hub's one sky accent, amber only for
+ * the legal "keep your distance" warning, an emerald call to action. Dark and
+ * night share these values (night adds App's red scrim on top); daylight
+ * swaps the tokens under .display-light, which App puts on <html>, so the
+ * portalled sheets follow too.
+ *
+ * Loaded with the lazy Sightings chunks only.
+ */
+.sg-surface,
+.sg-sheet,
+.sg-scope {
+    --sg-page-bg: transparent;
+    --sg-card-bg: linear-gradient(145deg, rgba(56, 189, 248, 0.08) 0%, rgba(20, 25, 35, 0.72) 60%);
+    --sg-card-border: rgba(125, 211, 252, 0.16);
+    --sg-card-shadow: inset 0 1px 0 rgba(186, 230, 253, 0.08);
+    --sg-sheet-bg: linear-gradient(170deg, rgba(15, 30, 45, 0.98) 0%, rgba(10, 16, 26, 0.98) 55%);
+    --sg-sheet-border: rgba(125, 211, 252, 0.2);
+    --sg-tile-bg: rgba(255, 255, 255, 0.04);
+    --sg-tile-border: rgba(255, 255, 255, 0.09);
+    --sg-chip-bg: linear-gradient(145deg, rgba(56, 189, 248, 0.3) 0%, rgba(14, 165, 233, 0.08) 100%);
+    --sg-chip-border: rgba(125, 211, 252, 0.3);
+    --sg-chip-fg: #7dd3fc;
+    --sg-on-bg: rgba(14, 165, 233, 0.2);
+    --sg-on-border: rgba(56, 189, 248, 0.55);
+    --sg-on-fg: #7dd3fc;
+    --sg-off-bg: rgba(255, 255, 255, 0.04);
+    --sg-off-border: rgba(255, 255, 255, 0.1);
+    --sg-off-fg: rgba(226, 232, 240, 0.82);
+    --sg-amber-bg: linear-gradient(160deg, rgba(245, 158, 11, 0.16) 0%, rgba(120, 53, 15, 0.14) 100%);
+    --sg-amber-border: rgba(245, 158, 11, 0.45);
+    --sg-amber-strong: #fbbf24;
+    --sg-amber-fg: #fde68a;
+    --sg-amber-hi: rgba(245, 158, 11, 0.2);
+    --sg-divider: rgba(255, 255, 255, 0.07);
+    --sg-input-bg: rgba(255, 255, 255, 0.05);
+    --sg-muted: #94a3b8;
+    --sg-sea: #0b2236;
+    --sg-land: #1e293b;
+}
+
+:root.display-light :is(.sg-surface, .sg-sheet, .sg-scope),
+.display-light :is(.sg-surface, .sg-sheet, .sg-scope) {
+    --sg-page-bg: #e2e8f0;
+    --sg-card-bg: linear-gradient(145deg, rgba(240, 249, 255, 0.98) 0%, rgba(255, 255, 255, 0.92) 68%);
+    --sg-card-border: rgba(3, 105, 161, 0.18);
+    --sg-card-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+    --sg-sheet-bg: #f8fafc;
+    --sg-sheet-border: rgba(3, 105, 161, 0.2);
+    --sg-tile-bg: #ffffff;
+    --sg-tile-border: rgba(15, 23, 42, 0.12);
+    --sg-chip-bg: linear-gradient(145deg, rgba(186, 230, 253, 0.95) 0%, rgba(240, 249, 255, 0.9) 100%);
+    --sg-chip-border: rgba(3, 105, 161, 0.22);
+    --sg-chip-fg: #0369a1;
+    --sg-on-bg: #0369a1;
+    --sg-on-border: #0369a1;
+    --sg-on-fg: #ffffff;
+    --sg-off-bg: #ffffff;
+    --sg-off-border: rgba(15, 23, 42, 0.16);
+    --sg-off-fg: #334155;
+    --sg-amber-bg: linear-gradient(160deg, #fffbeb 0%, #fef3c7 100%);
+    --sg-amber-border: rgba(180, 83, 9, 0.45);
+    --sg-amber-strong: #92400e;
+    --sg-amber-fg: #78350f;
+    --sg-amber-hi: rgba(245, 158, 11, 0.22);
+    --sg-divider: rgba(15, 23, 42, 0.09);
+    --sg-input-bg: #ffffff;
+    --sg-muted: #475569;
+    --sg-sea: #cfe8f7;
+    --sg-land: #e7e5e4;
+}
+
+.sg-surface {
+    background-color: var(--sg-page-bg);
+}
+
+.sg-card {
+    background: var(--sg-card-bg);
+    border: 1px solid var(--sg-card-border);
+    box-shadow: var(--sg-card-shadow);
+    border-radius: 16px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+.sg-sheet {
+    background: var(--sg-sheet-bg);
+    border: 1px solid var(--sg-sheet-border);
+    border-radius: 24px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+:root.display-light .sg-sheet {
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+}
+
+.sg-tile {
+    background: var(--sg-tile-bg);
+    border: 1px solid var(--sg-tile-border);
+    border-radius: 16px;
+}
+
+.sg-chip {
+    background: var(--sg-chip-bg);
+    border: 1px solid var(--sg-chip-border);
+    color: var(--sg-chip-fg);
+}
+
+/* Pills and segments: a selected one wears the accent, an idle one the tile. */
+.sg-toggle {
+    background: var(--sg-off-bg);
+    border: 1px solid var(--sg-off-border);
+    color: var(--sg-off-fg);
+}
+.sg-toggle[aria-pressed='true'],
+.sg-toggle[aria-checked='true'],
+.sg-toggle[aria-selected='true'],
+.sg-toggle[data-on='true'] {
+    background: var(--sg-on-bg);
+    border-color: var(--sg-on-border);
+    color: var(--sg-on-fg);
+}
+.sg-toggle:disabled,
+.sg-toggle[aria-disabled='true'] {
+    opacity: 0.45;
+}
+
+.sg-seg {
+    background: var(--sg-off-bg);
+    border: 1px solid var(--sg-off-border);
+    border-radius: 14px;
+}
+.sg-seg > .sg-toggle {
+    border-color: transparent;
+    background: transparent;
+}
+.sg-seg > .sg-toggle[aria-checked='true'],
+.sg-seg > .sg-toggle[aria-selected='true'],
+.sg-seg > .sg-toggle[aria-pressed='true'] {
+    background: var(--sg-on-bg);
+    border-color: var(--sg-on-border);
+    color: var(--sg-on-fg);
+}
+
+.sg-amber {
+    background: var(--sg-amber-bg);
+    border: 1px solid var(--sg-amber-border);
+    border-radius: 16px;
+    color: var(--sg-amber-fg);
+}
+.sg-amber-strong {
+    color: var(--sg-amber-strong);
+}
+.sg-amber-hi {
+    background: var(--sg-amber-hi);
+}
+
+.sg-input {
+    background: var(--sg-input-bg);
+    border: 1px solid var(--sg-chip-border);
+    color: inherit;
+}
+.sg-input:focus {
+    outline: none;
+    border-color: var(--sg-on-border);
+}
+
+.sg-divider > * + * {
+    border-top: 1px solid var(--sg-divider);
+}
+
+.sg-muted {
+    color: var(--sg-muted);
+}
+
+/* The group tiles of the quick log: tall enough for a thumb under way, short
+   enough that eight fit on an SE above the tab bar. */
+.sg-group-tile {
+    height: clamp(56px, 9.5dvh, 84px);
+}
+
+.sg-map {
+    background: var(--sg-sea);
+}
+.sg-map .leaflet-container {
+    background: var(--sg-sea);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sg-sheet,
+    .sg-card {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* ── Shared shapes (CSS, not class strings: these repeat across the sheet,
+   the page and the detail, and every copy of a class string is JavaScript) ── */
+.sg-eyebrow {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--sg-muted);
+}
+.sg-note {
+    font-size: 12.5px;
+    line-height: 1.375;
+    color: var(--sg-muted);
+}
+/* Pixel sums, not rem: the root font is fluid (4vw) and a target must stay 44. */
+.sg-pill {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 9999px;
+    font-size: 13.5px;
+    font-weight: 700;
+}
+.sg-seg-btn {
+    display: flex;
+    flex: 1 1 0%;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 8px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 800;
+}
+.sg-step {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 9999px;
+    font-size: 1.5rem;
+    font-weight: 800;
+}
+.sg-btn {
+    display: flex;
+    flex: 1 1 0%;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    border-radius: 1rem;
+    font-size: 14px;
+    font-weight: 800;
+}
+.sg-tag {
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+}
+.sg-link {
+    min-height: 44px;
+    font-weight: 700;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+/* The one emerald call to action. */
+.sg-cta {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 56px;
+    border-radius: 1rem;
+    /* emerald-700: white on emerald-600 measured 3.76:1 (axe), this is 5.5:1. */
+    background: #047857;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    box-shadow: 0 10px 22px rgba(6, 78, 59, 0.3);
+    transition: transform 120ms ease;
+}
+.sg-cta:active {
+    transform: scale(0.99);
+}

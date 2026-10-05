@@ -4,9 +4,11 @@
  * pages/LogPage.tsx. Rendered only while tracking WITH a known voyage id; the
  * caller keeps that guard.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
 import { OverlayPortal } from '../../components/ui/OverlayPortal';
+import { LogSightingPill } from '../../components/sightings/LogSightingPill';
+import { FEATURE_VISIBILITY } from '../../utils/featureVisibility';
 import type { RouteCoordinate } from '../../utils/routeCoordinates';
 import type { deriveLiveStats } from './logPageDerive';
 
@@ -44,6 +46,9 @@ export const LiveVoyageCard: React.FC<{
     liveMapTitleId,
 }) => {
     const { activeEntries, first, dist, durationHrs, durationMins, liveAvgSpeed, departedAt } = liveStats;
+    // The quick sighting sheet is up: both live maps unmount under it, for the
+    // same iOS reason as below (Leaflet paints above fixed overlays).
+    const [sightingOpen, setSightingOpen] = useState(false);
     return (
         <div className="flex-1 min-h-0 flex flex-col rounded-2xl bg-linear-to-br from-emerald-500/10 to-slate-900/80 border border-emerald-500/20 p-4 mx-4 mt-2 mb-2">
             <div className="flex items-center gap-2 mb-3 shrink-0">
@@ -125,7 +130,7 @@ export const LiveVoyageCard: React.FC<{
                                                 fixed overlays regardless of z-index, so a live map
                                                 redrawing underneath bled through as a second track. */}
             <div className="mt-3 flex-1 min-h-[100px] relative">
-                {!liveMapExpanded && !showTrackMap && (
+                {!liveMapExpanded && !showTrackMap && !sightingOpen && (
                     <LiveMiniMap
                         entries={activeEntries}
                         followedRouteCoords={followedRouteCoords}
@@ -134,6 +139,11 @@ export const LiveVoyageCard: React.FC<{
                         isLive={true}
                         onTap={openLiveMap}
                     />
+                )}
+                {/* Sightings' under-way way in (Shane 2026-10-05): bottom-left,
+                    clear of the expand button, next to the voyage it belongs to. */}
+                {!showTrackMap && FEATURE_VISIBILITY.sightings && (
+                    <LogSightingPill onOpenChange={setSightingOpen} className="absolute bottom-2 left-2 z-10" />
                 )}
                 {!showTrackMap && (
                     <button
@@ -172,15 +182,25 @@ export const LiveVoyageCard: React.FC<{
                     aria-modal="true"
                     aria-labelledby={liveMapTitleId}
                 >
-                    <LiveMiniMap
-                        entries={activeEntries}
-                        followedRouteCoords={followedRouteCoords}
-                        height="100%"
-                        isLive={true}
-                        freeZoom={true}
-                        onTap={closeLiveMap}
-                        className="rounded-none! border-0!"
-                    />
+                    {!sightingOpen && (
+                        <LiveMiniMap
+                            entries={activeEntries}
+                            followedRouteCoords={followedRouteCoords}
+                            height="100%"
+                            isLive={true}
+                            freeZoom={true}
+                            onTap={closeLiveMap}
+                            className="rounded-none! border-0!"
+                        />
+                    )}
+
+                    {FEATURE_VISIBILITY.sightings && (
+                        <LogSightingPill
+                            onOpenChange={setSightingOpen}
+                            className="absolute left-4 z-1001"
+                            style={{ bottom: 'max(16px, env(safe-area-inset-bottom))' }}
+                        />
+                    )}
 
                     {/* Top info bar — same stats as the card */}
                     <div

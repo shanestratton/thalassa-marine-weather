@@ -18,6 +18,7 @@ import {
 } from '../services/authIdentityScope';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
 import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
+import { sightingsOutboxFlagged } from '../services/sightings/outboxFlag';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 const subscribeIdentitySnapshot = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
@@ -275,6 +276,21 @@ export function useAppBootstrap() {
             .then(({ startSeabedPhoneCapture }) => startSeabedPhoneCapture())
             .catch((err) => console.error('[Boot] seabed capture failed to start:', err?.message || err));
     }, []);
+
+    // ── Sightings logged offline go out after a relaunch ─────────────
+    // The outbox lives in IndexedDB inside the lazy Sightings code; a WebView
+    // killed at sea would otherwise hold them until Sightings next opens.
+    // Boot pays one localStorage read unless something is waiting.
+    useEffect(() => {
+        if (!FEATURE_VISIBILITY.sightings || !authChecked || !activeUserId) return;
+        if (!sightingsOutboxFlagged(activeUserId)) return;
+        import('../services/sightings/sightingSync')
+            .then(({ ensureSightingSyncTriggers, scheduleSightingDrain }) => {
+                ensureSightingSyncTriggers();
+                scheduleSightingDrain(3_000);
+            })
+            .catch((err) => console.warn('[Boot] sightings outbox did not load:', err?.message || err));
+    }, [authChecked, activeUserId]);
 
     // ── Did the web layer die under us last time? ──────────────────
     // The planning screen "crashing back to the Glass page" has been
