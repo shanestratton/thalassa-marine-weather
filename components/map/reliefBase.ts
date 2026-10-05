@@ -28,18 +28,18 @@ import type mapboxgl from 'mapbox-gl';
 import type { ObsChartBase } from '../../types/settings';
 
 /**
- * PLACEHOLDER: the public R2 URL of the relief tiles, with its version
- * prefix (for example https://<bucket host>/v1). The tile pipeline
- * (tools/relief) fills this in once the bucket is live. Empty means not
- * configured: no relief source is added, and Relief draws the vector sea
- * alone. VITE_RELIEF_TILE_BASE overrides it for a build.
+ * The public R2 URL of the relief tiles, with its version prefix: bucket
+ * thalassa-relief's r2.dev address, uploaded 2026-10-05 by tools/relief.
+ * Empty would mean not configured: no relief source is added, and Relief
+ * draws the vector sea alone. VITE_RELIEF_TILE_BASE overrides it for a build.
+ * Before the public release: move to a custom domain (r2.dev is rate-limited).
  *
  * Tile layout under it (tools/relief/README.md; XYZ, 256 px):
  * relief-{global,au}/dem/{z}/{x}/{y}.webp is Terrarium with the exaggeration
  * baked in, and relief-{global,au}/idx/{z}/{x}/{y}.png is the depth index
  * (depthIndex below). A 404 is an all-land tile, or no GBR data in relief-au.
  */
-export const RELIEF_R2_URL_PLACEHOLDER = '';
+export const RELIEF_R2_URL_PLACEHOLDER = 'https://pub-1c99456d42db4077ae4c18b6dce83a23.r2.dev/v1';
 export const RELIEF_TILE_BASE = String(import.meta.env.VITE_RELIEF_TILE_BASE || RELIEF_R2_URL_PLACEHOLDER).replace(
     /\/+$/,
     '',
