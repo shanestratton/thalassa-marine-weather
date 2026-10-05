@@ -72,6 +72,50 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October prepared-only candidate installed on both devices
+
+After the owner said both devices were ready, candidate
+`0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` was signed as a new private copy,
+then updated in place over the existing Research app on the iPhone and iPad.
+Offline signing inspection, strict signature checks and source/resource hashes
+passed. The team/prefix `D4TW8A23QZ` and the sole Research Keychain group match
+the prior installed candidate's entitlements. No provider or storage migration
+was introduced; no uninstall, reset or re-enrollment was performed.
+
+Each device retained an identical 11-file Research metadata inventory across
+the installation, including root/index locators and the sealed database. This
+is preservation evidence for the file inventory, not a byte-level content
+inspection, Keychain equality proof or successful native history read. No
+private file contents were copied or inspected. Both new launch requests
+succeeded. Normal Thalassa's compared bundle/version/build metadata remains
+`com.thalassa.weather` / `1.2.0` / `119` on both; its data was not inspected.
+
+The first iPhone launch attempt was rejected by the Mac CLI because device
+options followed its positional bundle argument. The iPhone installation and
+unchanged inventory had already succeeded. Correcting option order launched
+that installed app without repeating the installation; the iPad update and
+launch then succeeded. This was a command-parser failure, not an observed app
+crash. Research app metadata remains `0.1.0` build `2`; identify this candidate
+by its source/artifact receipt, not that reused research build number alone.
+
+Receipts:
+
+- Source/app build:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-CWifTU/build-receipt.json`.
+- Signed private copy:
+  `/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-research-sign-hvqv4A/signing-receipt.json`.
+- Before/after device metadata and update:
+  `/private/tmp/thalassa-pending-update.6AL1Sp/update-receipt.json`.
+
+The owner subsequently reported signing into both updated apps. This is an
+owner report, not an instrumented Auth receipt or verification that the new
+prepare-only controls/history work. The prepared-but-unsent restart experiment
+remains unrun. Prior exchange/restart/offline observations below belong to
+candidate `4005833a`; they are not automatically transferred to this new build.
+Five newly added native hash-equality probe assertions remain unrun. No server
+deployment, agent login, production operation, primary build/sync or `master`
+change occurred. Independent review and the device acceptance gates remain open.
+
 ### 5 October prepared-only pending restart candidate
 
 The Research source now separates **Check policy & prepare only** from sending.
@@ -120,8 +164,9 @@ Native app receipt:
 Unsigned executable SHA-256:
 `4806e687265ca730c63f75406a111fdc7dc82f82b3865c0e0212e1f647cfcd48`.
 
-This candidate was not signed, installed or launched; installed human-device
-candidate `4005833a` and its stores remain untouched. The planned experiment in
+At this source-validation checkpoint the candidate had not been signed,
+installed or launched; the later owner-approved update is recorded above.
+The planned experiment in
 [the device plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md) is still unrun. Unsent
 pending continuity is separate from lost-response recovery, crash-boundary
 atomicity and power loss. No hosted deployment, account change, primary build
