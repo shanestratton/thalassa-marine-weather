@@ -1419,7 +1419,7 @@ fresh. Manual immediately opens the existing plotting chart, even when offline
 or while the trial entitlement check is pending. Auto is enabled only after
 the server grants trial access. Its chart opens lazily, after the choice.
 
-Trip legs, Saved routes and From a past voyage keep their existing direct-open
+Trip · Legs, Saved routes and Past voyages keep their existing direct-open
 flows. The slider has no retained selected leg, so Auto does not secretly
 consume a route intent or copy a previously opened route. It opens a separate,
 disposable workspace with blank endpoints and read-only location/vessel

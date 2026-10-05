@@ -1,0 +1,668 @@
+/*
+ * The Plan tab's front door (components/RoutePlanner.tsx). Shane 2026-10-05:
+ * "the only screen i dont really like, is the planning, it looks very messy.
+ * can you make it pop. cleaner. dont lose any information from it. it just
+ * needs to look as nice as all of the other tier 1 screens. all fitting on one
+ * page, organised, popping".
+ *
+ * One plot settings card (Departure, then the active vessel), then the ways in
+ * as tiles in the Vessel page's Diary and Scuttlebutt language, which take the
+ * height the page has left down to the CTA. The page ends at its floor (the
+ * tab bar's top, or the pane's edge) and is a size container, so it tightens by
+ * the height it is actually given, never guessed from the screen:
+ *
+ *   roomy, 560 px and up: the full header, the "Or start from" eyebrow, the
+ *     roomier card;
+ *   compact, under 560 px (an SE, a short iPad pane): a tighter header and
+ *     card, and the eyebrow kept for VoiceOver only.
+ *
+ * Each tile is a size container of its own and takes its form from its own
+ * size: one row under 88 px; compact from 88 (icon and title on one row, the
+ * full subline beneath); stacked from 132, or from 116 in a tile 210 px wide
+ * (icon on top, words at the foot); large from 150 tall and 160 wide. Nothing
+ * is dropped between the forms: the full subline is every tile's description,
+ * and a short one on screen is aria-hidden. Every tile stays at least 44 px
+ * tall.
+ *
+ * A tall iPad page (full screen, not split) caps the tiles at about their
+ * width and centres the group between the header and the CTA; phone
+ * landscape goes two columns (the end of this file).
+ *
+ * Embedded, or under a route summary, the same tiles sit in an ordinary grid
+ * at their one-row form.
+ */
+
+.route-planner-page.plan-front-door {
+    container: plan-page / size;
+    /* Its floor: the tab bar's top on a phone; in a split pane the scroller
+       hangs --split-page-overhang below the frame, so the frame's edge. */
+    height: calc(100% - var(--split-page-overhang, calc(4rem + env(safe-area-inset-bottom))));
+}
+
+/* The column keeps the CTA's band clear: the bar sits 8 px above the floor
+   and is at least 56 px tall, and the tiles end 8 px above it. Anything that
+   cannot fit scrolls here, never under the CTA. */
+.plan-front-door .route-planner-form {
+    padding-bottom: calc(8px + max(3.5rem, 56px) + 8px + var(--plan-kb, 0px));
+    transition: padding-bottom 200ms ease-out;
+}
+
+/* ── The plot settings card ── */
+.plan-launch {
+    flex-shrink: 0;
+    overflow: hidden;
+}
+.plan-depart {
+    padding: 12px 12px 10px;
+}
+.plan-depart-head {
+    margin-bottom: 8px;
+}
+.plan-launch-rule {
+    height: 1px;
+    margin: 0 12px;
+    background: var(--day-ui-border, rgba(255, 255, 255, 0.06));
+}
+.plan-launch-vessel {
+    min-height: 36px;
+}
+
+/* ── The ways in ── */
+.plan-eyebrow {
+    padding: 0 4px;
+    color: var(--day-ui-muted, #9ca3af);
+    font-size: 0.75rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    line-height: 18px;
+    text-transform: uppercase;
+}
+.plan-front-door .plan-eyebrow {
+    flex-shrink: 0;
+    margin: 14px 0 8px;
+}
+.plan-doors {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+/* Plan Your Day takes the whole row when there is no Trip tile beside it. */
+.plan-doors:not(:has(.plan-tile-trip)) .plan-tile-day {
+    grid-column: 1 / -1;
+}
+/* Fill: two rows share what the page has left; a note takes its own row
+   beneath them, so its height comes from the tiles, not the page. */
+.plan-doors-fill {
+    flex: 1 1 0;
+    /* Tiles no taller than about their width: 31rem on a phone, more in a wide
+       column (an iPad's 36rem one), so a tall iPad page fills further. */
+    max-height: max(31rem, 1.1 * min(100cqw - 2rem, 36rem));
+    grid-template-rows: repeat(2, minmax(44px, 1fr));
+    gap: 10px;
+}
+/* What the capped tiles leave (a 12.9-inch iPad in full screen) is shared
+   above the card and below the tiles, so the group sits centred between the
+   header and the CTA, not over a band of empty page. Auto margins take only
+   what the tiles' growth leaves, and never push anything off the top. */
+.plan-front-door .plan-launch {
+    margin-top: auto;
+}
+.plan-front-door .plan-doors-fill {
+    margin-bottom: auto;
+}
+.plan-doors-note {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 6px 12px;
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    border-radius: 0.75rem;
+    background: rgba(245, 158, 11, 0.1);
+    color: #fcd34d;
+    font-size: 12px;
+    line-height: 1.375;
+}
+.plan-doors-note-quiet {
+    padding: 0 4px;
+    border: 0;
+    background: none;
+    color: #67e8f9;
+    font-size: 13px;
+}
+.display-light .plan-doors-note {
+    border-color: rgba(180, 83, 9, 0.3);
+    background: #fffbeb;
+    color: #92400e;
+}
+.display-light .plan-doors-note-quiet {
+    border: 0;
+    background: none;
+    color: #155e75;
+}
+
+/* ── A tile (components/passage/PlanTile.tsx). Its base is the one-row form. ── */
+.plan-tile {
+    container: plan-tile / inline-size;
+    position: relative;
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 56px;
+    overflow: hidden;
+    cursor: pointer;
+}
+.plan-doors-fill > .plan-tile {
+    container-type: size;
+    min-height: 44px;
+}
+.plan-tile:focus-visible,
+.plan-tile-trip:has(.plan-tile-select:focus-visible) {
+    outline: 2px solid var(--day-ui-accent, #7dd3fc);
+    outline-offset: 2px;
+}
+.plan-tile-body {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 4px 14px;
+}
+.plan-tile-icon {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+}
+.plan-tile-icon svg {
+    width: 18px;
+    height: 18px;
+}
+.plan-tile-text {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+.plan-tile-title {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.025em;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.plan-tile-sub,
+.plan-tile-short {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.plan-tile-sub {
+    display: none;
+}
+/* The arrow belongs to the stacked tile and the large faint glyph to the
+   compact and stacked ones (the glyph paints first; the icon and the words
+   are positioned, so they sit over it); the Trip tile's chevron says "a list"
+   in every form. */
+.plan-tile-go {
+    display: none;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+.plan-tile-trip .plan-tile-go {
+    display: block;
+}
+.plan-tile-mark {
+    position: absolute;
+    right: -12px;
+    bottom: -16px;
+    display: none;
+    opacity: 0.09;
+    pointer-events: none;
+}
+.plan-tile-mark svg {
+    width: 76px;
+    height: 76px;
+}
+/* The Trip tile's own select, laid invisibly over the whole tile: a tap
+   anywhere opens it. 16 px, or iOS zooms the page to it. */
+.plan-tile-select {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    font-size: 16px;
+    cursor: pointer;
+    appearance: none;
+}
+
+/* Wide enough for the whole subline on one line (a 260 px tile still cut
+   most of them, '2 saved · pick one to conti…'). */
+@container plan-tile (min-width: 340px) {
+    .plan-tile-sub {
+        display: block;
+    }
+    .plan-tile-short {
+        display: none;
+    }
+}
+
+/* A one-row tile with height to spare gives its subline two lines rather
+   than cut it ('Reuse a logged voyage' at 320 pt): the short one, or the
+   full one once the tile is 260 px wide. */
+@container plan-tile (min-height: 64px) and (max-height: 87.98px) {
+    .plan-tile-short {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        white-space: normal;
+    }
+}
+@container plan-tile (min-height: 64px) and (max-height: 87.98px) and (min-width: 260px) {
+    .plan-tile-sub {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        white-space: normal;
+    }
+    .plan-tile-short {
+        display: none;
+    }
+}
+
+/* Compact stacked, 88 to 132 px tall: the icon tile and the title share the
+   top row and the full subline runs beneath both, two lines from 88 px and
+   three from 100 (9 px insets + 28 px row + 5 px + 3 x 16.2 px). The stacked
+   form's empty band between icon and title showed only '3 saved' here. No
+   arrow (as in the row form), so the title keeps its line; the Trip tile's
+   chevron stays at the row's end. */
+@container plan-tile (min-height: 88px) {
+    .plan-tile-body {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-rows: 28px auto;
+        align-content: start;
+        align-items: center;
+        gap: 5px 0;
+        padding: 9px 12px;
+    }
+    .plan-tile-text {
+        display: contents;
+    }
+    .plan-tile-icon {
+        grid-area: 1 / 1;
+        width: 28px;
+        height: 28px;
+        margin-right: 10px;
+        border-radius: 9px;
+    }
+    .plan-tile-icon svg {
+        width: 16px;
+        height: 16px;
+    }
+    .plan-tile-title {
+        position: relative;
+        grid-area: 1 / 2;
+        font-size: 14px;
+    }
+    .plan-tile-sub,
+    .plan-tile-short {
+        position: relative;
+        grid-area: 2 / 1 / 3 / -1;
+        align-self: start;
+    }
+    .plan-tile-sub {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        white-space: normal;
+    }
+    .plan-tile-short {
+        display: none;
+    }
+    .plan-tile-go {
+        grid-area: 1 / 3;
+        margin-left: 6px;
+    }
+    .plan-tile-mark {
+        display: flex;
+    }
+}
+@container plan-tile (min-height: 100px) {
+    .plan-tile-sub {
+        -webkit-line-clamp: 3;
+    }
+}
+
+/* Stacked, from 132 px (116 px in a tile 210 px wide): the icon tile on top,
+   the words at the foot, an arrow in the corner and the large faint glyph
+   behind; the full subline in up to three lines (12 px insets + 36 + 6 + 17
+   + 3 x 16.2 px). */
+@container plan-tile (min-height: 132px) or ((min-height: 116px) and (min-width: 210px)) {
+    .plan-tile-body {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 12px 14px;
+    }
+    .plan-tile-text {
+        display: flex;
+        flex: none;
+        width: 100%;
+    }
+    .plan-tile-icon {
+        width: 36px;
+        height: 36px;
+        margin-right: 0;
+        border-radius: 12px;
+    }
+    .plan-tile-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+    .plan-tile-title {
+        font-size: 15px;
+        line-height: 1.15;
+    }
+    .plan-tile-go {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        display: block;
+        margin-left: 0;
+    }
+}
+
+/* A wide tile's subline needs two lines (a 182 px measure), which is all a
+   116-131 px stacked tile holds. */
+@container plan-tile (min-height: 116px) and (max-height: 131.98px) and (min-width: 210px) {
+    .plan-tile-sub {
+        -webkit-line-clamp: 2;
+    }
+}
+
+@container plan-tile (min-height: 150px) and (min-width: 160px) {
+    .plan-tile-body {
+        gap: 8px;
+        padding: 14px 16px;
+    }
+    .plan-tile-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+    }
+    .plan-tile-icon svg {
+        width: 22px;
+        height: 22px;
+    }
+    .plan-tile-title {
+        font-size: 17px;
+    }
+    .plan-tile-sub {
+        font-size: 13px;
+    }
+    .plan-tile-go {
+        top: 14px;
+        right: 14px;
+        width: 18px;
+        height: 18px;
+    }
+    .plan-tile-mark svg {
+        width: 96px;
+        height: 96px;
+    }
+}
+
+/* Narrow (a 320 pt phone's half, an SE landscape's quarter): the glyph
+   without its chip, and tighter insets, so the title keeps its line. The
+   chip's surface is inline. */
+@container plan-tile (max-width: 159.98px) {
+    .plan-tile-body {
+        padding-right: 10px;
+        padding-left: 10px;
+        column-gap: 8px;
+    }
+    .plan-tile-icon {
+        width: auto;
+        height: auto;
+        border: 0 !important;
+        background: none !important;
+        box-shadow: none !important;
+    }
+    .plan-tile-title {
+        font-size: 12px;
+    }
+}
+@container plan-tile (max-width: 159.98px) and (min-height: 88px) {
+    .plan-tile-body {
+        column-gap: 0;
+    }
+    .plan-tile-icon {
+        margin-right: 8px;
+    }
+    .plan-tile-icon svg {
+        width: 18px;
+        height: 18px;
+    }
+    .plan-tile-title {
+        font-size: 12.5px;
+    }
+}
+@container plan-tile (max-width: 159.98px) and (min-height: 132px) {
+    .plan-tile-icon svg {
+        width: 20px;
+        height: 20px;
+    }
+    .plan-tile-title {
+        font-size: 14px;
+    }
+}
+
+/* Chromium draws its calendar button 24 px off the date; 2 px is enough. */
+.plan-depart-date::-webkit-calendar-picker-indicator {
+    margin-inline-start: 2px;
+}
+
+/* The hour and the minutes fill their pill: TimePicker24's row stretches to
+   it and over its 1 px border, so each select is the pill's full 44 px and a
+   tap anywhere on it but the ':' opens one. */
+.plan-depart-time > div {
+    align-self: stretch;
+    gap: 0;
+    margin: -1px;
+}
+.plan-depart-time select {
+    align-self: stretch;
+    min-width: 44px;
+    /* WebKit centres a select's value only by its last line. */
+    text-align-last: center;
+}
+
+/* A 320 pt phone: the controls row closes up so the date keeps its year
+   ('06/10/202' under the calendar button otherwise). */
+@container plan-page (max-width: 359.98px) {
+    .plan-depart-controls {
+        gap: 6px;
+    }
+    .plan-depart-time select {
+        min-width: 32px;
+        padding-right: 4px;
+        padding-left: 4px;
+    }
+    .plan-depart-now {
+        padding-right: 8px;
+        padding-left: 8px;
+    }
+}
+
+/* ── Compact: under 560 px of page (an SE, a short iPad pane) ── */
+@container plan-page (max-height: 559.98px) {
+    .plan-front-door [data-page-header] {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+    .plan-depart {
+        padding: 8px 10px 6px;
+    }
+    .plan-depart-head {
+        margin-bottom: 6px;
+    }
+    .plan-depart-date {
+        padding-right: 0.5rem;
+        padding-left: 0.5rem;
+    }
+    /* Still names the tiles' group for VoiceOver. */
+    .plan-front-door .plan-eyebrow {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+    }
+    .plan-front-door .plan-doors {
+        margin-top: 8px;
+        gap: 8px;
+    }
+}
+
+/* ── The CTA, in dark and night: a soft emerald glow and its full label ── */
+:root:not(.display-light) .route-planner-cta button[data-toast-dock] {
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.18);
+}
+:root:not(.display-light) .route-planner-cta button[data-toast-dock] > span {
+    color: #6ee7b7;
+}
+
+/*
+ * Phone landscape (the app's test: landscape and under 500 px tall) keeps its
+ * own mechanics (index.css): the page grows in the view's scroller and the CTA
+ * follows it, sticky. So the page is not a size container here and the tiles
+ * do not fill. Instead the page goes two columns, as the Vessel page does: the
+ * plot settings card on the left, the ways in two by two beside it in their
+ * one-row form (four across gave each ~130-138 px, which cut 'Plan Your
+ * Day'), so the whole front door sits above the CTA without a scroll.
+ */
+@media (orientation: landscape) and (max-height: 500px) {
+    .route-planner-page.plan-front-door {
+        container-type: normal;
+        height: auto;
+        min-height: 100%;
+    }
+    /* The header row keeps to the two columns' width (index.css: 36rem). */
+    .route-planner-page.plan-front-door > .shrink-0 {
+        max-width: 52rem;
+    }
+    /* The column grows into what the page has left, so the CTA rests at the
+       foot of the screen rather than under the cards. */
+    .plan-front-door .route-planner-form {
+        flex: 1 0 auto;
+        width: 100%;
+        max-width: 52rem;
+        margin-right: auto;
+        margin-left: auto;
+        padding-bottom: calc(0.75rem + var(--plan-kb, 0px));
+    }
+    /* The card is at least 318 px, which holds the date's year beside the
+       44 px hour and minutes once its controls close up as on a 320 pt phone
+       (below); the tiles take the rest. */
+    .plan-front-door .plan-column {
+        display: grid;
+        flex: none;
+        grid-template-columns: minmax(318px, 2fr) minmax(0, 3fr);
+        align-items: start;
+        gap: 0.5rem 0.75rem;
+        max-width: none;
+    }
+    .plan-front-door .plan-column > * {
+        grid-column: 1 / -1;
+    }
+    .plan-front-door .plan-launch {
+        grid-row: 1;
+        grid-column: 1;
+        margin-top: 0;
+    }
+    .plan-front-door .plan-depart {
+        padding: 10px 10px 8px;
+    }
+    .plan-front-door .plan-depart-head {
+        margin-bottom: 6px;
+    }
+    .plan-front-door .plan-depart-controls {
+        gap: 6px;
+    }
+    .plan-front-door .plan-depart-date {
+        padding-right: 0.5rem;
+        padding-left: 0.5rem;
+    }
+    .plan-front-door .plan-depart-now {
+        padding-right: 8px;
+        padding-left: 8px;
+    }
+    .plan-front-door .plan-launch + .plan-eyebrow {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+    }
+    /* The tiles take the card's height between them (a note adds its row). */
+    .plan-front-door .plan-doors {
+        grid-row: 1;
+        grid-column: 2;
+        align-self: stretch;
+        margin-top: 0;
+    }
+    .plan-front-door .plan-doors-fill {
+        flex: none;
+        max-height: none;
+        margin-bottom: 0;
+        grid-template-rows: repeat(2, minmax(48px, 1fr));
+        gap: 0.5rem;
+    }
+    .plan-doors-fill > .plan-tile {
+        container-type: inline-size;
+        min-height: 48px;
+    }
+    /* A notched phone's quarter (~150-180 px) wears the narrow tile: the
+       glyph without its chip, so 'Plan Your Day' keeps its line. */
+    @container plan-tile (max-width: 179.98px) {
+        .plan-tile-body {
+            padding-right: 10px;
+            padding-left: 10px;
+            column-gap: 8px;
+        }
+        .plan-tile-icon {
+            width: auto;
+            height: auto;
+            border: 0 !important;
+            background: none !important;
+            box-shadow: none !important;
+        }
+        .plan-tile-title {
+            font-size: 12px;
+        }
+    }
+}

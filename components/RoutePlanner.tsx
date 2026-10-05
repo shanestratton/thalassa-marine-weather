@@ -39,6 +39,8 @@ import { TripLegPicker } from './passage/TripLegPicker';
 import { PlanOnWebHint } from './passage/PlanOnWebHint';
 import { RoutingModeDialog } from './autorouting/RoutingModeDialog';
 import { DayPlannerEntry } from './dayPlanner/DayPlannerEntry';
+import { PLAN_ACCENT, PLAN_TILE_CLASS, PLAN_TILE_STYLE, PlanTileFace } from './passage/PlanTile';
+import { CONTOUR_BG, GLASS } from './vesselHub/glass';
 import { lazyRetry } from '../utils/lazyRetry';
 
 // PLAN-tab morph (Shane 2026-07-16): this page is now the TRACER's front door
@@ -75,6 +77,14 @@ import { loadSavedTraces } from '../services/routeTracer';
 
 /** The Past voyages picker lists at most this many voyages. */
 const PAST_VOYAGE_PICKER_MAX = 8;
+
+// The front door wears the Vessel page's surfaces: its contour background, and
+// the menu box's glass with its soft drop shadow for the plot settings card.
+const PLAN_PAGE_STYLE: React.CSSProperties = { backgroundImage: CONTOUR_BG, backgroundSize: '400px 400px' };
+const PLAN_LAUNCH_STYLE: React.CSSProperties = {
+    ...GLASS.card,
+    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 26px rgba(2, 6, 23, 0.18)',
+};
 
 // One dialog chrome for both Plan dialogs, matching Log actions: a blurred
 // scrim (the page behind read as clipped half-letters at 60 % alone), one
@@ -606,12 +616,12 @@ export const RoutePlanner: React.FC<{
         }
         prevVoyagePlanRef.current = voyagePlan;
     }, [voyagePlan, origin, destination, setPage]);
-    // The two front-door cards sit at the top of the free band under
-    // Departure, behind an "Or start from" eyebrow, so they read as part of
-    // the planner and the spare space pools above the CTA instead of splitting
-    // into two voids (UX scorecard run 6; run 5 had centred them). The page's
-    // flex-1 is inert (its scroller parent is a block), so min-h-full is what
-    // lets the empty map region below the form become that band.
+    // The front door (the Plan tab with no route summary showing) fills its
+    // screen: the plot settings card, then the ways in as tiles that take the
+    // height the page has left, down to the CTA (Shane 2026-10-05: "all
+    // fitting on one page, organised, popping"). The page ends at the tab
+    // bar, or at the pane's edge, and is a size container, so it tightens by
+    // the height it is actually given (styles/plan-page.css).
     const frontDoorInBand = !embedded && !LEGACY_PLANNER_FORM && !voyagePlan;
     const frontDoorId = useId();
     const savedRoutesSub =
@@ -624,9 +634,9 @@ export const RoutePlanner: React.FC<{
                 : // Nothing on this device; the account and older Log plans
                   // are only checked when the library opens.
                   'None saved on this device yet';
-    // One-line forms for short landscape, where the two cards sit side by
-    // side: the long lines wrapped to orphan words ("route", "yet") that fell
-    // into the CTA's fade (UX scorecard run 7). Same facts, fewer words.
+    // One-line forms for a short or narrow tile (and short landscape, where
+    // the long lines wrapped to orphan words, UX scorecard run 7). Same facts,
+    // fewer words; the full line stays the tile's description.
     const savedRoutesShort =
         confirmedSavedCount === 0
             ? 'None saved yet'
@@ -645,78 +655,142 @@ export const RoutePlanner: React.FC<{
                 : `${confirmedVoyageCount} ${confirmedVoyageCount === 1 ? 'voyage' : 'voyages'} to reuse`;
     const pastVoyagesShort =
         confirmedVoyageCount === null
-            ? 'Reuse a logged voyage'
+            ? // 'Reuse a logged voyage' cut to 'Reuse a logge…' in a 320 pt tile.
+              'Reuse a voyage'
             : confirmedVoyageCount === 0
               ? 'None logged yet'
               : `${confirmedVoyageCount} to reuse`;
+    const tiles = [
+        {
+            kind: 'saved' as const,
+            icon: <RouteIcon />,
+            title: 'Saved routes',
+            sub: savedRoutesSub,
+            short: savedRoutesShort,
+        },
+        {
+            kind: 'voyage' as const,
+            icon: <SailBoatIcon />,
+            // 'Past voyages', the dialog it opens and its sibling's form: 'From
+            // a past voyage' could not hold one line in a 320 pt tile.
+            title: 'Past voyages',
+            sub: pastVoyagesSub,
+            short: pastVoyagesShort,
+        },
+    ];
+    // The ways in, one tile language (Shane 2026-10-05: "make it pop.
+    // cleaner"): Trip · Legs when something is saved, Saved routes, Past
+    // voyages, then Plan Your Day, which spans the row when there is no Trip.
+    // On the front door the grid takes the height the page has left, so the
+    // tiles grow with the screen (styles/plan-page.css); embedded, or under a
+    // route summary, it is an ordinary grid of one-row tiles.
     const frontDoorCards = (
-        <div role="group" aria-labelledby={`${frontDoorId}-eyebrow`} className="space-y-2">
-            {/* Visually dropped in short landscape so both card titles clear
-                the pinned CTA; it still names the group for VoiceOver. */}
-            <p
-                id={`${frontDoorId}-eyebrow`}
-                className="route-door-eyebrow px-1 text-xs font-black uppercase tracking-widest text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:sr-only"
-            >
+        <>
+            {/* Names the group; drawn only where there is room for it. */}
+            <p id={`${frontDoorId}-eyebrow`} className="plan-eyebrow">
                 Or start from
             </p>
-            <div className="route-door-grid grid gap-2 [@media(orientation:landscape)_and_(max-height:500px)]:grid-cols-2">
-                {(
-                    [
-                        {
-                            kind: 'voyage' as const,
-                            icon: <SailBoatIcon className="h-6 w-6" />,
-                            title: 'From a past voyage',
-                            sub: pastVoyagesSub,
-                            short: pastVoyagesShort,
-                            accent: 'border-sky-500/25 from-sky-500/10 text-sky-300',
-                        },
-                        {
-                            kind: 'saved' as const,
-                            icon: <RouteIcon className="h-6 w-6" />,
-                            title: 'Saved routes',
-                            sub: savedRoutesSub,
-                            short: savedRoutesShort,
-                            accent: 'border-amber-500/25 from-amber-500/10 text-amber-300',
-                        },
-                    ] as const
-                ).map((b) => (
+            <div
+                role="group"
+                aria-labelledby={`${frontDoorId}-eyebrow`}
+                className={`plan-doors${frontDoorInBand ? ' plan-doors-fill' : ''}`}
+            >
+                {/* Trip · Legs — pick a trip, tap a leg to open it, or plot the
+                    NEXT leg (pin 1 locked at the previous leg's arrival). */}
+                <TripLegPicker onOpenChart={() => setPage('map')} />
+                {tiles.map((t) => (
                     // Named by the title alone with the subline as its
                     // description, so VoiceOver pauses between the two.
                     <button
-                        key={b.kind}
+                        key={t.kind}
                         type="button"
-                        aria-label={b.title}
-                        aria-describedby={`${frontDoorId}-${b.kind}-sub`}
-                        onClick={() => void openRoutePicker(b.kind)}
-                        className={`route-door-card flex w-full items-center gap-3 rounded-2xl border bg-linear-to-br to-slate-900/40 p-3 text-left transition-transform active:scale-[0.98] [@media(orientation:landscape)_and_(max-height:500px)]:py-2 ${b.accent}`}
+                        aria-label={t.title}
+                        aria-describedby={`${frontDoorId}-${t.kind}-sub`}
+                        onClick={() => void openRoutePicker(t.kind)}
+                        className={`${PLAN_TILE_CLASS} plan-tile-${t.kind}`}
+                        style={PLAN_TILE_STYLE}
                     >
-                        <span aria-hidden="true" className="shrink-0">
-                            {b.icon}
-                        </span>
-                        <span className="min-w-0">
-                            <span className="block text-sm font-black uppercase tracking-wide">{b.title}</span>
-                            {/* The full line stays the description in every
-                                orientation; short landscape shows its one-line
-                                form instead. */}
-                            <span
-                                id={`${frontDoorId}-${b.kind}-sub`}
-                                className="route-door-sub block text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:hidden"
-                            >
-                                {b.sub}
-                            </span>
-                            <span
-                                aria-hidden="true"
-                                className="route-door-short hidden text-xs font-medium leading-snug text-gray-400 [@media(orientation:landscape)_and_(max-height:500px)]:block"
-                            >
-                                {b.short}
-                            </span>
-                        </span>
-                        <span aria-hidden="true" className="ml-auto text-gray-500">
-                            ›
-                        </span>
+                        <PlanTileFace
+                            icon={t.icon}
+                            title={t.title}
+                            sub={t.sub}
+                            short={t.short}
+                            subId={`${frontDoorId}-${t.kind}-sub`}
+                        />
                     </button>
                 ))}
+                <DayPlannerEntry
+                    vessel={usingDefaultVessel ? null : vessel}
+                    mapboxToken={mapboxToken ?? ''}
+                    isPro={isPro === true}
+                    onUpgrade={onTriggerUpgrade}
+                    onOpenSaved={(id) => {
+                        requestTracerOpen({ kind: 'load-saved', id });
+                        setPage('map');
+                    }}
+                />
             </div>
+        </>
+    );
+    // What the plot will be worked against: when it leaves and on which boat.
+    // The vessel line used to sit over the CTA, where it read as part of the
+    // button; here it is a setting beside the departure (Shane 2026-10-05).
+    const plotSettings = (
+        <div className="plan-launch" style={PLAN_LAUNCH_STYLE}>
+            <DepartControl />
+            <div aria-hidden="true" className="plan-launch-rule" />
+            {/* `vessel` always resolves now (configured or DEFAULT_VESSEL), so
+                this is effectively always true; kept for resilience. On the
+                default, "Personalise" deep-links to Settings → Vessel for
+                personalised polars and ETAs without blocking the demo. */}
+            {vessel && (
+                <div className="plan-launch-vessel flex items-center gap-2.5 px-3">
+                    <span
+                        aria-hidden="true"
+                        className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg"
+                        style={{
+                            background: 'var(--vessel-row-chip-bg, rgba(125, 211, 252, 0.1))',
+                            boxShadow: 'inset 0 0 0 1px var(--vessel-row-chip-border, rgba(125, 211, 252, 0.14))',
+                            color: PLAN_ACCENT,
+                        }}
+                    >
+                        {vessel.type === 'power' ? (
+                            <PowerBoatIcon className="h-3.5 w-3.5" />
+                        ) : (
+                            <SailBoatIcon className="h-3.5 w-3.5" />
+                        )}
+                    </span>
+                    {/* Two lines rather than an ellipsis: the whole name stays
+                        on screen ('Default …' at 320 pt), in the row's 36 px. */}
+                    <span className="min-w-0 flex-1 line-clamp-2 break-words text-xs font-medium text-slate-400">
+                        Active vessel: <span className="text-[13px] font-bold text-white">{vessel.name}</span>
+                    </span>
+                    {usingDefaultVessel && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                // Deep-link to the Vessel Profile tab inside
+                                // Settings, same pattern as VesselHub's "Set up
+                                // your vessel" CTA. SettingsModal's activeTab
+                                // initialiser reads this key and clears it.
+                                try {
+                                    localStorage.setItem(
+                                        authScopedStorageKey('thalassa_settings_initial_tab'),
+                                        'vessel',
+                                    );
+                                } catch {
+                                    /* private-mode / quota — fall through */
+                                }
+                                setPage('settings');
+                            }}
+                            className="inline-flex min-h-[44px] shrink-0 items-center text-xs font-semibold text-sky-400 underline underline-offset-2 transition-colors hover:text-sky-300"
+                            aria-label="Personalise vessel profile in Settings"
+                        >
+                            Personalise →
+                        </button>
+                    )}
+                </div>
+            )}
         </div>
     );
     return (
@@ -724,10 +798,12 @@ export const RoutePlanner: React.FC<{
             className={
                 embedded
                     ? 'relative flex flex-col'
-                    : `route-planner-page relative flex-1 bg-slate-950 overflow-hidden flex flex-col${
-                          frontDoorInBand ? ' min-h-full' : ''
+                    : `route-planner-page relative bg-slate-950 overflow-hidden flex flex-col ${
+                          frontDoorInBand ? 'plan-front-door' : 'flex-1'
                       }`
             }
+            // The Vessel page's bathymetric contours, so the two read as one family.
+            style={frontDoorInBand ? PLAN_PAGE_STYLE : undefined}
         >
             {!embedded && (
                 <PageHeader
@@ -925,16 +1001,37 @@ export const RoutePlanner: React.FC<{
                 keyboard is up. That makes the form scrollable just
                 enough for the helper to lift the focused input above
                 the keyboard + accessory bar. When the keyboard closes
-                the padding goes back to its natural value. */}
+                the padding goes back to its natural value.
+                On the front door the form is the page's whole column instead:
+                it runs down to the CTA's band and scrolls only what cannot fit
+                (2026-10-05). */}
             <div
-                className="route-planner-form shrink-0 overflow-y-auto px-4"
-                style={{
-                    maxHeight: 'calc(var(--pane-height, 100dvh) * 0.6)',
-                    paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0.75rem',
-                    transition: 'padding-bottom 200ms ease-out',
-                }}
+                className={
+                    frontDoorInBand
+                        ? 'route-planner-form flex min-h-0 flex-1 flex-col overflow-y-auto px-4'
+                        : 'route-planner-form shrink-0 overflow-y-auto px-4'
+                }
+                style={
+                    frontDoorInBand
+                        ? // The column runs to the page's end and keeps the CTA's
+                          // band clear (styles/plan-page.css); the keyboard's
+                          // height joins that reserve while it is up.
+                          ({ '--plan-kb': `${keyboardHeight}px` } as React.CSSProperties)
+                        : {
+                              maxHeight: 'calc(var(--pane-height, 100dvh) * 0.6)',
+                              paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0.75rem',
+                              transition: 'padding-bottom 200ms ease-out',
+                          }
+                }
             >
-                <div className="max-w-xl mx-auto w-full space-y-2.5" onPointerDownCapture={handleFormPointerDown}>
+                <div
+                    className={
+                        frontDoorInBand
+                            ? 'plan-column mx-auto flex w-full max-w-xl flex-1 flex-col'
+                            : 'plan-column mx-auto w-full max-w-xl space-y-2.5'
+                    }
+                    onPointerDownCapture={handleFormPointerDown}
+                >
                     {/* Comfort thresholds — collapsible accordion at the top
                         of the form. Sets settings.comfortParams (canonical
                         store) which the isochrone router reads at compute
@@ -968,26 +1065,13 @@ export const RoutePlanner: React.FC<{
                         />
                     )}
 
-                    {/* ── Tracer front door (the PLAN-tab morph) ── */}
+                    {/* ── Tracer front door (the PLAN-tab morph) ──
+                        Departure stays at the top, where iOS's select wheel (a
+                        bottom drawer) never covers the hour and minutes. */}
                     {!LEGACY_PLANNER_FORM && (
                         <>
-                            <DayPlannerEntry
-                                vessel={usingDefaultVessel ? null : vessel}
-                                mapboxToken={mapboxToken ?? ''}
-                                isPro={isPro === true}
-                                onUpgrade={onTriggerUpgrade}
-                                onOpenSaved={(id) => {
-                                    requestTracerOpen({ kind: 'load-saved', id });
-                                    setPage('map');
-                                }}
-                            />
-                            {/* Trip · Legs — pick a trip, tap a leg to open it,
-                                or plot the NEXT leg (pin 1 locked at the
-                                previous leg's arrival). */}
-                            <TripLegPicker onOpenChart={() => setPage('map')} />
-                            <DepartControl />
-                            {/* In the band below when the map is empty. */}
-                            {!frontDoorInBand && frontDoorCards}
+                            {plotSettings}
+                            {frontDoorCards}
                         </>
                     )}
 
@@ -1157,29 +1241,6 @@ export const RoutePlanner: React.FC<{
                         <AlertTriangleIcon className="w-4 h-4 shrink-0" />
                         <p className="text-sm flex-1">{error}</p>
                     </div>
-                </div>
-            )}
-
-            {/* ═══ FRONT DOOR — the two cards, at the top of the free band ═══
-                Its own element, not the map region: short landscape collapses
-                .route-planner-map to 0 (index.css) and puts the CTA in flow.
-                The bottom padding stops the band above the FIXED portrait CTA
-                (its tab-bar clearance + ~vessel line + tap button), so a short
-                phone can still scroll the cards clear of it. With the form's
-                0.75rem bottom padding, pt-1 sets the group 16 px under
-                Departure. In short landscape the CTA follows in flow, so the
-                reserve drops to a normal gap, and shrink-0 joins index.css's
-                landscape column rule for the page's direct children so the
-                cards line up with the form.
-                In an iPad split pane the scroller hangs --split-page-overhang
-                below the pane's frame while the CTA pins to the frame itself
-                (styles/split-pane.css), so the reserve is that overhang rather
-                than the tab bar: otherwise the last card could never scroll
-                clear of the slide (Shane 2026-10-04: "the route planner front
-                page does not fit its screen when in split screen mode"). */}
-            {frontDoorInBand && (
-                <div className="flex flex-1 shrink-0 flex-col px-4 pt-1 pb-[calc(var(--split-page-overhang,calc(4rem+env(safe-area-inset-bottom)))+8px+6rem)] [@media(orientation:landscape)_and_(max-height:500px)]:pt-0 [@media(orientation:landscape)_and_(max-height:500px)]:pb-3">
-                    <div className="mx-auto w-full max-w-xl">{frontDoorCards}</div>
                 </div>
             )}
 
@@ -1354,52 +1415,6 @@ export const RoutePlanner: React.FC<{
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <div className="max-w-xl mx-auto w-full pointer-events-auto">
-                        {/* Active vessel indicator. `vessel` always
-                            resolves now (configured or DEFAULT_VESSEL)
-                            so the condition is effectively always
-                            true — kept for resilience against future
-                            null cases. When on DEFAULT, surface a
-                            tiny "Personalise" hint that deep-links to
-                            Settings → Vessel so the user can refine
-                            for personalised polars/ETAs without
-                            blocking the demo. */}
-                        {vessel && (
-                            <div className="flex items-center justify-center gap-2 mb-2">
-                                {vessel.type === 'power' ? (
-                                    <PowerBoatIcon className="w-3.5 h-3.5 text-slate-500" />
-                                ) : (
-                                    <SailBoatIcon className="w-3.5 h-3.5 text-slate-500" />
-                                )}
-                                {/* The page's caption style — it was the only
-                                    monospace text on the page (UX audit run 5). */}
-                                <span className="text-xs font-medium text-slate-400">Active vessel: {vessel.name}</span>
-                                {usingDefaultVessel && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            // Deep-link to the Vessel Profile tab inside
-                                            // Settings, same pattern as VesselHub's
-                                            // "Set up your vessel" CTA. SettingsModal's
-                                            // activeTab initialiser reads this key and
-                                            // clears it on mount.
-                                            try {
-                                                localStorage.setItem(
-                                                    authScopedStorageKey('thalassa_settings_initial_tab'),
-                                                    'vessel',
-                                                );
-                                            } catch {
-                                                /* private-mode / quota — fall through */
-                                            }
-                                            setPage('settings');
-                                        }}
-                                        className="inline-flex min-h-[44px] items-center text-xs font-semibold text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
-                                        aria-label="Personalise vessel profile in Settings"
-                                    >
-                                        Personalise →
-                                    </button>
-                                )}
-                            </div>
-                        )}
                         {!isPro ? (
                             <button
                                 aria-label="Unlock route planning feature"

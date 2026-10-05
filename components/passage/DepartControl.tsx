@@ -1,6 +1,7 @@
 /**
- * DepartControl — the PLAN page's departure date/time card (Shane 2026-07-16
- * "morph the planner into the tracer front door… keep the departure").
+ * DepartControl — the PLAN page's departure date/time row (Shane 2026-07-16
+ * "morph the planner into the tracer front door… keep the departure"), the top
+ * half of the page's plot settings card since 2026-10-05.
  *
  * Same semantics as the tracer card's inline Depart row: empty = leave now;
  * date/time edits apply immediately. The persistent Now action clears a
@@ -13,6 +14,7 @@
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { ClockIcon } from '../Icons';
+import { daylightUiColor } from '../../utils/daylightUiColor';
 import { TimePicker24, localDateStr } from './TimePicker24';
 import {
     authScopedStorageKey,
@@ -93,15 +95,15 @@ export const DepartControl: React.FC = () => {
     return (
         // A named group, so VoiceOver hears "Departure" before the date, time
         // and Now controls rather than a flat run of text (UX scorecard run 7).
-        <div
-            role="group"
-            aria-labelledby={titleId}
-            className="rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(14,165,233,0.08)]"
-        >
-            <div className="mb-2 flex items-center justify-between [@media(orientation:landscape)_and_(max-height:500px)]:mb-1.5">
+        // No card of its own: it is the top half of the Plan page's plot
+        // settings card, which draws the glass (Shane 2026-10-05: "make it
+        // pop. cleaner"); the card's tier sets the padding (styles/plan-page.css).
+        <div role="group" aria-labelledby={titleId} className="plan-depart">
+            <div className="plan-depart-head flex h-5 items-center justify-between">
                 <span
                     id={titleId}
-                    className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest text-sky-300"
+                    className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest"
+                    style={{ color: daylightUiColor('#7dd3fc') }}
                 >
                     <ClockIcon className="h-3.5 w-3.5 shrink-0" />
                     Departure
@@ -112,12 +114,12 @@ export const DepartControl: React.FC = () => {
                     </span>
                 )}
             </div>
-            {/* One row in every orientation: date, time, then a compact Now.
-                It used to be a full-width emerald bar under the row in
-                portrait, a third green element repeating the LEAVING NOW chip
-                and the Start plotting CTA (UX scorecard run 7). Below ~340 pt
-                the time and Now wrap under the date as a pair. */}
-            <div className="flex flex-wrap items-center gap-2">
+            {/* One row at every width, 320 pt included: the date takes what is
+                left, the hour and minutes share one bordered pill, then a
+                compact Now. The date used to clip ('05/10/202') beside two
+                bordered selects, and below ~340 pt the time and Now wrapped
+                under it into a 142 px card. */}
+            <div className="plan-depart-controls flex items-center gap-2">
                 <input
                     type="date"
                     value={dateStr || todayStr}
@@ -133,11 +135,14 @@ export const DepartControl: React.FC = () => {
                         if (Number.isFinite(t)) setDeparture(t);
                     }}
                     aria-label="Departure date"
-                    className="h-11 min-w-[6.5rem] flex-1 basis-0 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
+                    className="plan-depart-date h-11 min-w-0 flex-1 basis-0 rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium tabular-nums text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
                 />
-                <div className="flex shrink-0 items-center gap-2">
-                    {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
-                    clipped in the card) — wheels on iOS, dropdowns on desktop. */}
+                {/* 24-hour time (Shane 2026-07-17: the web time input's AM/PM
+                    clipped in the card) — wheels on iOS, dropdowns on desktop.
+                    The pill draws the border; the selects inside are bare and
+                    fill it, border included, so a tap anywhere on the pill but
+                    the ':' lands on the hour or the minutes (plan-page.css). */}
+                <div className="plan-depart-time flex h-11 shrink-0 items-center rounded-xl border border-white/10 bg-slate-900/60 focus-within:border-sky-500/50">
                     <TimePicker24
                         value={timeStr ? { h: Number(timeStr.slice(0, 2)), m: Number(timeStr.slice(3, 5)) } : null}
                         dateStr={dateStr}
@@ -148,30 +153,30 @@ export const DepartControl: React.FC = () => {
                             const t = new Date(`${date}T${p(h)}:${p(m)}`).getTime();
                             if (Number.isFinite(t)) setDeparture(t);
                         }}
-                        selectClassName="h-11 min-w-0 rounded-xl border border-white/10 bg-slate-900/60 px-2 text-[13px] font-medium text-white scheme-dark focus:border-sky-500/50 focus:outline-hidden"
+                        selectClassName="min-w-0 appearance-none border-0 bg-transparent px-2 text-center text-[13px] font-medium tabular-nums text-white scheme-dark focus:outline-hidden"
                     />
-                    {/* Now stays ENABLED even when already leaving now (Shane
+                </div>
+                {/* Now stays ENABLED even when already leaving now (Shane
                     2026-09-09, cee90a53: it replaced OK, so it must still
                     dismiss an open native picker; the e2e spec pins this).
                     Pressed, it is a quiet neutral outline: the LEAVING NOW
                     chip already says so in emerald (UX scorecard run 7). */}
-                    <button
-                        type="button"
-                        aria-pressed={leavingNow}
-                        onClick={() => {
-                            triggerHaptic('light');
-                            (document.activeElement as HTMLElement | null)?.blur?.();
-                            setDeparture(null);
-                        }}
-                        className={`h-11 min-w-[3.5rem] shrink-0 rounded-xl px-3 text-xs font-black uppercase tracking-widest active:scale-95 ${
-                            leavingNow
-                                ? 'border border-white/20 bg-transparent text-slate-300'
-                                : 'border border-white/10 bg-white/10 text-slate-200'
-                        }`}
-                    >
-                        Now
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    aria-pressed={leavingNow}
+                    onClick={() => {
+                        triggerHaptic('light');
+                        (document.activeElement as HTMLElement | null)?.blur?.();
+                        setDeparture(null);
+                    }}
+                    className={`plan-depart-now h-11 min-w-[3.25rem] shrink-0 rounded-xl px-2.5 text-xs font-black uppercase tracking-widest active:scale-95 ${
+                        leavingNow
+                            ? 'border border-white/20 bg-transparent text-slate-300'
+                            : 'border border-white/10 bg-white/10 text-slate-200'
+                    }`}
+                >
+                    Now
+                </button>
             </div>
         </div>
     );

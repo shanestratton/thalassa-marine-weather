@@ -16,7 +16,7 @@ test('planner parks the comfort card without hiding departure or route controls'
     await expect(planner.getByRole('button', { name: /Comfort/i })).toHaveCount(0);
     await expect(planner.getByLabel('Departure date', { exact: true })).toBeVisible();
     await expect(planner.getByLabel('Departure date', { exact: true })).toBeEnabled();
-    await expect(planner.getByRole('button', { name: /From a past voyage/i })).toBeVisible();
+    await expect(planner.getByRole('button', { name: /Past voyages/i })).toBeVisible();
     await expect(planner.getByRole('button', { name: /Saved routes/i })).toBeVisible();
 
     await planner.getByRole('button', { name: 'Route Planner actions', exact: true }).click();

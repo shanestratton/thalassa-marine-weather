@@ -17,6 +17,8 @@ export default defineConfig({
         'vessel-scroll.spec.ts',
         // Menu pages fit one screen; the split-pane Plan and Log front doors fit their pane.
         'menu-pages-fit.spec.ts',
+        // The Plan tab's front door fits, fills its screen and keeps every item.
+        'plan-page-fit.spec.ts',
         'public-voyage-mobile.spec.ts',
         'diary-compose-layout.spec.ts',
         'scuttlebutt-layout.spec.ts',

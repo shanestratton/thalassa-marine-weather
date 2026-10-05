@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 const css = readFileSync('styles/menu-page-fit.css', 'utf8');
 const splitCss = readFileSync('styles/split-pane.css', 'utf8');
 const indexCss = readFileSync('index.css', 'utf8');
+const planCss = readFileSync('styles/plan-page.css', 'utf8');
 
 /** The body of the one block that opens with `prelude`. */
 function block(prelude: string, source = css): string {
@@ -171,10 +172,13 @@ describe('Settings menu fits one screen', () => {
 describe('Split panes', () => {
     it("pins the Route Planner's slide the iPhone's 8 pt above the pane's edge", () => {
         expect(value(splitCss, "[data-split-pane='page'] .route-planner-cta", 'padding-bottom')).toBe('8px !important');
-        const planner = readFileSync('components/RoutePlanner.tsx', 'utf8');
-        expect(planner).toContain(
-            'pb-[calc(var(--split-page-overhang,calc(4rem+env(safe-area-inset-bottom)))+8px+6rem)]',
+        // The front door ends at the pane's edge, not the overhang below it, so
+        // its tiles stop above the slide there too (styles/plan-page.css).
+        expect(value(planCss, '.route-planner-page.plan-front-door', 'height')).toContain(
+            'var(--split-page-overhang, calc(4rem + env(safe-area-inset-bottom)))',
         );
+        // The short-pane card rules went with the cards (2026-10-05).
+        expect(splitCss).not.toContain('route-door');
     });
 
     it("sets the Log's slide and Stop row 8 pt above the pane's edge, and the tab bar's on a phone", () => {
@@ -187,5 +191,63 @@ describe('Split panes', () => {
             expect(footer).toContain('style={{ paddingBottom: LOG_FOOTER_CLEARANCE }}');
             expect(footer).not.toContain('4rem + env(safe-area-inset-bottom) + 8px');
         }
+    });
+});
+
+describe('Plan page fits and fills its screen', () => {
+    // Shane 2026-10-05: "all fitting on one page, organised, popping". The
+    // geometry is measured in browser-tests/plan-page-fit.spec.ts.
+    const PLAN_COMPACT = '@container plan-page (max-height: 559.98px)';
+
+    it('measures the page it is given, which ends at the tab bar or the pane edge', () => {
+        expect(indexCss).toContain("@import './styles/plan-page.css';");
+        expect(value(planCss, '.route-planner-page.plan-front-door', 'container')).toBe('plan-page / size');
+        expect(value(planCss, '.route-planner-page.plan-front-door', 'height')).toBe(
+            'calc(100% - var(--split-page-overhang, calc(4rem + env(safe-area-inset-bottom))))',
+        );
+        // The column keeps the CTA's band (8 + the bar + 8) clear, and the
+        // keyboard's height while it is up.
+        expect(value(planCss, '.plan-front-door .route-planner-form', 'padding-bottom')).toBe(
+            'calc(8px + max(3.5rem, 56px) + 8px + var(--plan-kb, 0px))',
+        );
+        expect(planCss).toContain(PLAN_COMPACT);
+        const planner = readFileSync('components/RoutePlanner.tsx', 'utf8');
+        expect(planner).toContain("frontDoorInBand ? 'plan-front-door' : 'flex-1'");
+        expect(planner).toContain("'--plan-kb': `${keyboardHeight}px`");
+    });
+
+    it('keeps every tile a 44 pt target, and a note takes height from the tiles, not the page', () => {
+        expect(value(planCss, '.plan-doors-fill', 'grid-template-rows')).toBe('repeat(2, minmax(44px, 1fr))');
+        expect(value(planCss, '.plan-doors-fill > .plan-tile', 'container-type')).toBe('size');
+        expect(value(planCss, '.plan-doors-fill > .plan-tile', 'min-height')).toBe('44px');
+        expect(value(planCss, '.plan-doors-note', 'grid-column')).toBe('1 / -1');
+        // Embedded, or under a route summary, a tile is an ordinary 56 px row.
+        expect(value(planCss, '.plan-tile', 'min-height')).toBe('56px');
+    });
+
+    it('keeps the eyebrow naming the tiles for VoiceOver when it is not drawn', () => {
+        const compact = block(PLAN_COMPACT, planCss);
+        expect(value(compact, '.plan-front-door .plan-eyebrow', 'clip-path')).toBe('inset(50%)');
+        expect(compact).not.toContain('display: none');
+    });
+
+    it('makes the hour and the minutes fill their 44 px pill, border included', () => {
+        expect(value(planCss, '.plan-depart-time > div', 'align-self')).toBe('stretch');
+        expect(value(planCss, '.plan-depart-time > div', 'margin')).toBe('-1px');
+        expect(value(planCss, '.plan-depart-time select', 'align-self')).toBe('stretch');
+        expect(value(planCss, '.plan-depart-time select', 'min-width')).toBe('44px');
+        const control = readFileSync('components/passage/DepartControl.tsx', 'utf8');
+        expect(control).toContain('plan-depart-time flex h-11');
+        expect(control).not.toMatch(/selectClassName="[^"]*h-full/);
+    });
+
+    it('goes two columns in phone landscape, the card beside the tiles, on its own mechanics', () => {
+        const landscape = block('@media (orientation: landscape) and (max-height: 500px)', planCss);
+        expect(value(landscape, '.route-planner-page.plan-front-door', 'container-type')).toBe('normal');
+        expect(value(landscape, '.route-planner-page.plan-front-door', 'height')).toBe('auto');
+        expect(value(landscape, '.plan-doors-fill', 'flex')).toBe('none');
+        expect(value(landscape, '.plan-front-door .plan-column', 'display')).toBe('grid');
+        expect(value(landscape, '.plan-front-door .plan-launch', 'grid-column')).toBe('1');
+        expect(value(landscape, '.plan-front-door .plan-doors', 'grid-column')).toBe('2');
     });
 });

@@ -27,6 +27,8 @@ import {
 import { requestTracerOpen } from '../../services/deepLink';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { FlagIcon } from '../Icons';
+import { PLAN_TILE_CLASS, PLAN_TILE_STYLE, PlanTileFace } from './PlanTile';
 import {
     getAuthIdentityScope,
     subscribeAuthIdentityScope,
@@ -108,6 +110,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
         return () => window.removeEventListener('thalassa:saved-routes-changed', onSavedRoutesChanged);
     }, []);
 
+    const countId = React.useId();
     const selected = trips.find((t) => t.key === selectedKey) ?? null;
     const lastLeg = selected ? selected.legs[selected.legs.length - 1] : null;
     const seed = lastLeg ? nextLegSeed(lastLeg) : null;
@@ -115,17 +118,27 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
     if (trips.length === 0) return null; // nothing saved yet — no empty furniture
 
     return (
-        <div className="rounded-2xl border border-amber-500/20 bg-linear-to-br from-amber-500/10 to-slate-900/40 p-3 shadow-[0_0_20px_rgba(245,158,11,0.08)]">
-            <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">🧩 Trip · Legs</span>
-                {/* Was "N legs" for the SELECTED trip, which is now dead furniture:
-                    a selection exists only while the modal is open, so the badge
-                    could only ever render behind it. The count of what is saved is
-                    true whenever the card is on screen. */}
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-300">
-                    {trips.length} saved
-                </span>
-            </div>
+        // The first of the Plan page's ways in (Shane 2026-10-05: "make it
+        // pop. cleaner"): a tile like its three neighbours, with the native
+        // <select> laid invisibly over the whole of it, so a tap anywhere on
+        // the tile opens the wheel (iOS) or the list (desktop). The face is
+        // hidden from VoiceOver; the select carries the name and, as its
+        // description, the count of what is saved.
+        <div className={`${PLAN_TILE_CLASS} plan-tile-trip`} style={PLAN_TILE_STYLE}>
+            <PlanTileFace
+                icon={<FlagIcon />}
+                title="Trip · Legs"
+                // Was a "N SAVED" chip beside an amber 🧩 eyebrow. The count of
+                // what is saved is true whenever the tile is on screen (a
+                // selection exists only while the legs modal is open).
+                sub={`${trips.length} saved · pick one to continue`}
+                short={`${trips.length} saved`}
+                subId={countId}
+                go="pick"
+                hidden
+            />
+            {/* Its name starts with the tile's visible title (WCAG 2.5.3,
+                Label in Name), so Voice Control's "Tap Trip Legs" finds it. */}
             <select
                 value={selectedKey}
                 onFocus={refresh}
@@ -134,8 +147,9 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                     setSelectedKey(e.target.value);
                     setLegsOpen(e.target.value !== '');
                 }}
-                aria-label="Pick a trip or route to continue"
-                className="h-11 w-full rounded-xl border border-white/10 bg-slate-900/60 px-3 text-[13px] font-medium text-white scheme-dark focus:border-amber-500/50 focus:outline-hidden"
+                aria-label="Trip · Legs: pick a trip or route to continue"
+                aria-describedby={countId}
+                className="plan-tile-select scheme-dark"
             >
                 <option value="">New Trip or Route</option>
                 {trips.map((t) => (

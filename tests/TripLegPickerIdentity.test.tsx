@@ -52,7 +52,7 @@ describe('TripLegPicker identity fence', () => {
         const onOpenChart = vi.fn();
         render(<TripLegPicker onOpenChart={onOpenChart} />);
 
-        fireEvent.change(screen.getByRole('combobox', { name: 'Pick a trip or route to continue' }), {
+        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
             target: { value: 'account-a-route' },
         });
         fireEvent.click(screen.getByRole('button', { name: /ACCOUNT-A private route/ }));
@@ -63,7 +63,7 @@ describe('TripLegPicker identity fence', () => {
 
     it('closes A UI and replaces its private route snapshot synchronously for B', () => {
         render(<TripLegPicker onOpenChart={vi.fn()} />);
-        fireEvent.change(screen.getByRole('combobox', { name: 'Pick a trip or route to continue' }), {
+        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
             target: { value: 'account-a-route' },
         });
         expect(screen.getByRole('dialog', { name: /ACCOUNT-A private route/ })).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe('TripLegPicker identity fence', () => {
 
         expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(screen.queryByText(/ACCOUNT-A private route/)).not.toBeInTheDocument();
-        const picker = screen.getByRole('combobox', { name: 'Pick a trip or route to continue' });
+        const picker = screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' });
         expect(picker).toHaveTextContent('ACCOUNT-B private route');
 
         fireEvent.change(picker, { target: { value: 'account-b-route' } });

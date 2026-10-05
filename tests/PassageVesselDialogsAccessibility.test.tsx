@@ -147,7 +147,7 @@ afterEach(() => {
 describe('passage and vessel dialog accessibility', () => {
     it('contains the trip-leg picker and restores focus to its select after Escape', () => {
         render(<TripLegPicker onOpenChart={vi.fn()} />);
-        const picker = screen.getByRole('combobox', { name: 'Pick a trip or route to continue' });
+        const picker = screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' });
         picker.focus();
         fireEvent.change(picker, { target: { value: 'trip-1' } });
 

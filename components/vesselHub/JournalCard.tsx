@@ -28,7 +28,7 @@ export const JOURNAL_CARD: React.CSSProperties = {
         'var(--vessel-journal-card-shadow, inset 0 1px 0 rgba(186, 230, 253, 0.12), 0 8px 22px rgba(14, 165, 233, 0.08))',
 };
 
-const JOURNAL_CHIP: React.CSSProperties = {
+export const JOURNAL_CHIP: React.CSSProperties = {
     background:
         'var(--vessel-journal-chip-bg, linear-gradient(145deg, rgba(56, 189, 248, 0.32) 0%, rgba(14, 165, 233, 0.10) 100%))',
     border: '1px solid var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.30))',
