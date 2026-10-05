@@ -1,9 +1,11 @@
-import React, { Suspense, useCallback, useState, useSyncExternalStore } from 'react';
+import React, { Suspense, useCallback, useId, useState, useSyncExternalStore } from 'react';
 import type { VesselProfile } from '../../types/vessel';
 import { lazyRetry } from '../../utils/lazyRetry';
 import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
 import { runWithConfirmedDraft } from '../../stores/draftConfirmStore';
 import { isAutorouteTrialOn, PLAN_YOUR_DAY_TRIAL_OFF, useAutorouteTrialOn } from '../../services/autorouteTrialSwitch';
+import { SunIcon } from '../Icons';
+import { PLAN_TILE_CLASS, PLAN_TILE_STYLE, PlanTileFace } from '../passage/PlanTile';
 import './DayPlanner.css';
 
 const DayPlannerSheet = lazyRetry(() => import('./DayPlannerSheet'));
@@ -50,11 +52,19 @@ export function DayPlannerEntry({
         [onOpenSaved],
     );
     const scope = useSyncExternalStore(subscribeAuthIdentityScope, getAuthIdentityScope);
+    const subId = useId();
     return (
         <>
+            {/* The last of the Plan page's ways in (Shane 2026-10-05: "make
+                it pop. cleaner"): one tile language for all four, the sun as
+                the drawn icon rather than an emoji. Named by its title, the
+                full line its description. */}
             <button
                 type="button"
-                className="day-plan-entry"
+                className={`${PLAN_TILE_CLASS} plan-tile-day`}
+                style={PLAN_TILE_STYLE}
+                aria-label="Plan Your Day"
+                aria-describedby={subId}
                 aria-haspopup="dialog"
                 aria-expanded={open}
                 // Every plan is worked out against the draft: it opens once the
@@ -68,26 +78,25 @@ export function DayPlannerEntry({
                     else runWithConfirmedDraft('day-plan', () => setOpen(isAutorouteTrialOn()));
                 }}
             >
-                <span className="day-plan-entry-icon" aria-hidden="true">
-                    ☀
-                </span>
-                <span className="day-plan-entry-copy">
-                    <strong>Plan Your Day</strong>
-                    <span>Find a stop. Make a day of it.</span>
-                </span>
-                <span className="day-plan-entry-arrow" aria-hidden="true">
-                    ↗
-                </span>
+                <PlanTileFace
+                    icon={<SunIcon />}
+                    title="Plan Your Day"
+                    sub="Find a stop. Make a day of it."
+                    short="Find a stop"
+                    subId={subId}
+                />
             </button>
+            {/* Notes take a full-width row of the Plan page's tile grid, under
+                the tiles: they take their height from the tiles, not the page. */}
             {askedWhileOff && isPro && !trialOn && (
-                <p role="status" className="day-plan-notice">
+                <p role="status" className="plan-doors-note">
                     {PLAN_YOUR_DAY_TRIAL_OFF}
                 </p>
             )}
             {open && isPro && trialOn && (
                 <Suspense
                     fallback={
-                        <p role="status" className="text-sm text-cyan-300">
+                        <p role="status" className="plan-doors-note plan-doors-note-quiet text-sm text-cyan-300">
                             Opening day planner…
                         </p>
                     }

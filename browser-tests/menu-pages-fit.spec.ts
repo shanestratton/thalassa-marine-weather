@@ -310,7 +310,9 @@ test.describe('split-pane front doors', () => {
         test(`Route Planner front door fits its pane at ${size.name}`, async ({ page, baseURL }) => {
             await open(page, baseURL, { ...size, view: 'voyage', split: true, trip: true });
             await expect(page.locator('.route-planner-cta > div')).toBeVisible({ timeout: 25_000 });
-            await expect(page.getByRole('combobox', { name: 'Pick a trip or route to continue' })).toBeVisible();
+            await expect(
+                page.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }),
+            ).toBeVisible();
             await settle(page);
             const pane = (await page.locator('[data-split-pane="page"]').boundingBox())!;
             const paneBottom = pane.y + pane.height - 1; // inside the frame's border
@@ -318,16 +320,11 @@ test.describe('split-pane front doors', () => {
             // The iPhone's 8 pt above the tab bar becomes 8 pt above the pane's edge.
             expect(paneBottom - (cta.y + cta.height)).toBeGreaterThanOrEqual(6);
             expect(paneBottom - (cta.y + cta.height)).toBeLessThanOrEqual(10);
-            // Every front-door card is whole above the CTA, scrolled to its end
-            // if a short pane needs it: never parked beneath the slide.
-            await page.evaluate(() => {
-                let scroller = document.querySelector('.route-planner-page')?.parentElement ?? null;
-                while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
-                    scroller = scroller.parentElement;
-                }
-                scroller?.scrollTo({ top: scroller.scrollHeight });
-            });
-            for (const name of ['From a past voyage', 'Saved routes']) {
+            // Every way in is whole above the CTA, the page's column scrolled
+            // to its end if a short pane needs it: never parked beneath the
+            // slide (browser-tests/plan-page-fit.spec.ts measures the fill).
+            await page.locator('.route-planner-form').evaluate((form) => form.scrollTo({ top: form.scrollHeight }));
+            for (const name of ['Saved routes', 'Past voyages', 'Plan Your Day']) {
                 const box = (await page.getByRole('button', { name, exact: true }).boundingBox())!;
                 expect(box.y, `${name} starts inside the pane`).toBeGreaterThanOrEqual(pane.y);
                 expect(box.y + box.height, `${name} clears the CTA`).toBeLessThanOrEqual(cta.y + 0.5);

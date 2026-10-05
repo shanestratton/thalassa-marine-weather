@@ -274,7 +274,7 @@ for (const size of sizes.filter((candidate) => !candidate.pane)) {
         const controls = [
             entry,
             plotting,
-            page.getByRole('button', { name: 'From a past voyage', exact: true }),
+            page.getByRole('button', { name: 'Past voyages', exact: true }),
             page.getByRole('button', { name: 'Saved routes', exact: true }),
             page.getByRole('button', { name: 'Route Planner actions', exact: true }),
             page.getByRole('button', { name: 'Now', exact: true }),

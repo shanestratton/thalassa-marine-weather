@@ -154,6 +154,8 @@ vi.mock('../components/Icons', () => ({
     AlertTriangleIcon: () => <span>⚠</span>,
     DownloadIcon: () => <span>⬇</span>,
     RouteIcon: () => <span>↝</span>,
+    FlagIcon: () => <span>⚑</span>,
+    SunIcon: () => <span>☀</span>,
 }));
 
 import { RoutePlanner } from '../components/RoutePlanner';
@@ -231,7 +233,7 @@ describe('RoutePlanner', () => {
 
         expect(screen.getByRole('group', { name: 'Or start from' })).toBeInTheDocument();
         const saved = screen.getByRole('button', { name: 'Saved routes' });
-        const voyages = screen.getByRole('button', { name: 'From a past voyage' });
+        const voyages = screen.getByRole('button', { name: 'Past voyages' });
         expect(saved).toHaveAccessibleDescription('None saved on this device yet');
         expect(voyages).toHaveAccessibleDescription('Turn a logged voyage into a route');
 
@@ -327,13 +329,20 @@ describe('RoutePlanner', () => {
                 expect(screen.queryByText('Comfort', { exact: true })).not.toBeInTheDocument();
                 expect(screen.queryByLabelText('Max acceptable wind speed')).not.toBeInTheDocument();
 
-                const tripPicker = screen.getByRole('combobox', { name: 'Pick a trip or route to continue' });
+                const tripPicker = screen.getByRole('combobox', {
+                    name: 'Trip · Legs: pick a trip or route to continue',
+                });
                 // The hidden card's wrapper must disappear too: an empty
-                // sibling still earns space-y margin. Plan Your Day now leads
-                // the form, with the Trip directly after it and no empty gap.
+                // sibling still earns space-y margin. The plot settings card
+                // (Departure, then the vessel) leads the form, with the ways in
+                // after it and no empty gap; the Trip tile comes first of those.
                 const firstFormCard = container.querySelector('.route-planner-form > div')?.firstElementChild;
-                expect(firstFormCard).toBe(screen.getByRole('button', { name: /Plan Your Day/ }));
-                expect(firstFormCard?.nextElementSibling).toContainElement(tripPicker);
+                // (The mocked ClockIcon draws text, hence the pattern.)
+                expect(firstFormCard).toContainElement(screen.getByRole('group', { name: /Departure$/ }));
+                const doors = screen.getByRole('group', { name: 'Or start from' });
+                expect(firstFormCard?.nextElementSibling?.nextElementSibling).toBe(doors);
+                expect(doors.firstElementChild).toContainElement(tripPicker);
+                expect(doors.lastElementChild).toBe(screen.getByRole('button', { name: 'Plan Your Day' }));
                 fireEvent.change(tripPicker, { target: { value: 'comfort-hidden-trip' } });
                 fireEvent.click(screen.getByRole('button', { name: /Newport - Musgrave/ }));
                 expect(plannerMocks.requestTracerOpen).toHaveBeenLastCalledWith(
@@ -350,7 +359,7 @@ describe('RoutePlanner', () => {
                 expect(screen.getByLabelText('Departure hour (24-hour)')).toHaveValue('13');
                 expect(screen.getByLabelText('Departure minutes')).toHaveValue('35');
 
-                expect(screen.getByRole('button', { name: /From a past voyage/ })).toBeEnabled();
+                expect(screen.getByRole('button', { name: /Past voyages/ })).toBeEnabled();
                 fireEvent.click(screen.getByRole('button', { name: /Saved routes/i }));
                 expect(await screen.findByRole('dialog', { name: /Saved routes/i })).toBeInTheDocument();
                 fireEvent.click(screen.getByRole('button', { name: 'Close' }));
@@ -402,7 +411,7 @@ describe('RoutePlanner', () => {
                 expect(screen.getByLabelText('Departure date')).toHaveValue(date);
                 expect(sessionStorage.getItem(departureKey)).toBe(savedDeparture);
                 expect(screen.getByRole('button', { name: /Saved routes/i })).toBeEnabled();
-                expect(screen.getByRole('button', { name: /From a past voyage/i })).toBeEnabled();
+                expect(screen.getByRole('button', { name: /Past voyages/i })).toBeEnabled();
             }
             expect(plannerMocks.requestTracerOpen).not.toHaveBeenCalled();
             expect(plannerMocks.setPage).not.toHaveBeenCalled();
@@ -440,7 +449,7 @@ describe('RoutePlanner', () => {
             },
         ];
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
-        fireEvent.change(screen.getByRole('combobox', { name: 'Pick a trip or route to continue' }), {
+        fireEvent.change(screen.getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue' }), {
             target: { value: 'leg-one' },
         });
         fireEvent.click(screen.getByRole('button', { name: /Plot the 2nd leg from Musgrave/i }));
@@ -463,7 +472,7 @@ describe('RoutePlanner', () => {
         };
         plannerMocks.fetchSeaVoyageChoices.mockResolvedValue([choice]);
         render(<RoutePlanner onTriggerUpgrade={vi.fn()} />);
-        fireEvent.click(screen.getByRole('button', { name: /From a past voyage/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Past voyages/i }));
         const voyageButton = await screen.findByRole('button', { name: /Mackay Harbour → Whitsundays/i });
         expect(voyageButton).toHaveTextContent('9 Sept · 18 NM sailed');
         fireEvent.click(voyageButton);

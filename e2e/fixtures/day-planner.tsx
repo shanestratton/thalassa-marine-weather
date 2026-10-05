@@ -87,18 +87,23 @@ Object.assign(piCache, { getBaseUrl: () => null });
 Object.assign(CloudTelemetryService, { readOnce: async () => null });
 if (supabase) {
     supabase.auth.stopAutoRefresh();
+    const session = signedOut
+        ? null
+        : {
+              user: { id: 'day-planner-synthetic-fixture' },
+              access_token: 'fixture-only-not-a-token',
+          };
     Object.assign(supabase.auth, {
-        getSession: async () => ({
-            data: {
-                session: signedOut
-                    ? null
-                    : {
-                          user: { id: 'day-planner-synthetic-fixture' },
-                          access_token: 'fixture-only-not-a-token',
-                      },
-            },
-            error: null,
-        }),
+        getSession: async () => ({ data: { session }, error: null }),
+        // The auth store also hears supabase's own INITIAL_SESSION, which
+        // announced this browser's empty storage (signed out) at a moment of
+        // its own: on the Plan front door it could land after the vessel and
+        // the Auto route switch were seeded below, reset the scope and drop
+        // both. Announce the same synthetic session instead.
+        onAuthStateChange: (callback: (event: string, current: typeof session) => void) => {
+            queueMicrotask(() => callback('INITIAL_SESSION', session));
+            return { data: { subscription: { id: 'fixture', callback, unsubscribe: () => undefined } } };
+        },
     });
     Object.assign(supabase.functions, {
         invoke: async (_name: string, options: { body?: { action?: string } }) => {
