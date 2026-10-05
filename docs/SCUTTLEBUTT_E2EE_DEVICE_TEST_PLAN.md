@@ -96,6 +96,19 @@ crash-boundary atomicity, power loss or the complete D02/D07/D14 procedures.
 
 ## Physical test matrix
 
+The 5 October automated regression passed all five saved-envelope hash checks
+within 288 native bridge assertions, plus nine simulator process phases and
+four legacy-client encrypted HTTPS/local-SQL messages. The checkpoint and
+[regression manifest](../experiments/scuttlebutt-e2ee/review/regression-2026-10-05.json)
+separate synthetic Auth/scoped-relay fixtures, real provider/sealed storage and
+local SQL from physical observations. No phone or iPad was changed by that run.
+No physical case below is upgraded to passed. The highest-priority deterministic
+gap is parent-confirmed process termination immediately before/after the current
+sealed-store commit, followed by fresh-process reopen and exact ciphertext/state
+comparison. Existing thrown rollback faults and same-process bridge reopening
+do not supply that evidence; even a successful SIGKILL test would not prove
+power-loss or hardware-lock behavior.
+
 D01 has owner-reported opening-message, reply and successor coverage, with one captured endpoint. D02 has owner-reported history restoration and a successful successor after each endpoint restarted independently. Offline catch-up/repeat-scan observations are recorded below, but no full case is passed; D03–D17 controlled procedures remain unrun. Run retry/lifecycle cases before destructive test-namespace faults. Execute applicable cases in both endpoint roles and repeat affected cases after a fix using the new frozen artifact.
 
 Bounded same-owner restart continuation passes native close/reopen fixtures. The later prepare-only experiment above adds captured pending continuity and matching peer receipt in both directions; the earlier D02 history/successor observations alone did not exercise a pending send. Controlled D07 response loss and full D14 generation/ciphertext receipts remain unrun. Require fresh same-account login and policy, then compare the original pending ciphertext before exact-ID retry. Observe explicit logout's quarantine separately. Neither re-enrollment nor a fresh generation may stand in for continuity or recovery evidence.
