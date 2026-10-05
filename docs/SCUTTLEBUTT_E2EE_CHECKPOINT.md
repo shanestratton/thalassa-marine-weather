@@ -72,6 +72,53 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October pending continuity and matching iPad receipt
+
+On installed candidate `0cde17c2`, the owner's iPhone captures before and after
+the instructed process restart show the same pending message ID, local creation
+time and full saved-envelope hash. The procedure required a fresh same-account
+login and explicit setup/history reads, without Log out or replacement setup.
+The post-instructions capture still shows native pending with no acceptance
+confirmed; its expired/unknown policy label is not a durable send permission.
+
+- Message ID: `b37ff5d0-dc1b-475f-81ee-7ae0aab79dc5`.
+- Saved-envelope SHA-256:
+  `66779d9efb521ad34eb18c04b0d3ecbbf469d11f56d490162db51ad42dd5bf0a`.
+- Before capture and file hash are recorded in the baseline below.
+- After restart instructions:
+  `/Users/shanestratton/Downloads/Screenshot 2026-10-05 at 2.10.21 pm.png`,
+  file SHA-256 `26b5fa309d32e0d88a1ae026155814f6b029bb326db268b660586a55caba0444`.
+- iPad peer receipt:
+  `/Users/shanestratton/Downloads/Screenshot 2026-10-05 at 2.32.42 pm.png`,
+  file SHA-256 `c3e3b02f99696347ebd2849f32a88c5c6a181580a17ffb5d2fd0b476fcf1ccdf`.
+
+After the exact-ID retry instructions, the owner reported the result was
+present and identical, then confirmed one displayed copy on the iPad. The
+iPad receipt capture shows the exact target ID and full matching hash, labelled
+**received into native local history**, with read status/time unknown and zero
+unresolved rows. One target row is visible; uniqueness across the whole scrolled
+history remains owner-confirmed, not proved by that partial capture. The earlier
+2:27:44 pm iPad capture shows a repeat scan with **stored 0, duplicates 6** and
+historical unresolved 0. Those six are already-stored relay rows recognised
+again, not six new displayed copies. Its target card and two other scan counts
+are cropped. Capture file SHA-256:
+`1149b410163b901061529fad1d5e0b844a71db77ad80937498bc2f169ab3f101`.
+
+An internal visual comparison matched the complete ID/hash at both endpoints.
+Process termination and retry were not independently instrumented; no sender
+terminal acceptance capture, direct relay receipt, store contents or Keychain
+comparison was inspected. This is bounded manual pending-continuity, peer
+receipt and rescan evidence, not complete D02/D07/D14 acceptance or an audit.
+The mirrored iPad pending-restart test and five new native probe assertions
+remain unrun. Private observation receipt:
+`/private/tmp/thalassa-pending-restart.ePwNlh/observations.json`.
+
+A read-only source inspection found no deterministic keyboard suppression.
+The draft is intentionally disabled while unavailable, busy or pending; the
+reported missing keyboard before paste remains undiagnosed. No app/device/server
+change, reset, build/sync or production operation accompanied these observations.
+The pasted message content is not reproduced in this record.
+
 ### 5 October pending message baseline captured before restart
 
 After the in-place update to candidate `0cde17c2`, the owner reported that
@@ -99,11 +146,13 @@ ID, hash and timestamp; it is not an independent security review.
 The owner pasted text because the keyboard would not appear; that plaintext
 is not reproduced in this record. This is a reported Research input UX defect,
 not a diagnosed cause. No app change is being made while the attempt is pending.
-No restart, retry, acceptance or peer receipt for this ID is recorded yet. The
-next bounded step is an iPhone-only process restart, fresh same-account login
-and explicit setup/history reads, without Log out, re-registration, peer claim
+At this baseline checkpoint, no restart, retry, acceptance or peer receipt for
+this ID had been recorded. The next bounded step was an iPhone-only process
+restart, fresh same-account login and explicit setup/history reads, without
+Log out, re-registration, peer claim
 or replacement preparation. Compare the exact ID, timestamp and hash before
-retrying. The complete pending-restart experiment and device gates remain open.
+retrying. The later observations above supersede this baseline; the full device
+gates remain open.
 
 ### 5 October prepared-only candidate installed on both devices
 
@@ -142,8 +191,10 @@ Receipts:
 
 The owner subsequently reported signing into both updated apps. This is an
 owner report, not an instrumented Auth receipt or verification that the new
-prepare-only controls/history work. The prepared-but-unsent restart experiment
-remains unrun. Prior exchange/restart/offline observations below belong to
+prepare-only controls/history work. At this update checkpoint the
+prepared-but-unsent restart experiment was unrun; its later observations are
+recorded above.
+Prior exchange/restart/offline observations below belong to
 candidate `4005833a`; they are not automatically transferred to this new build.
 Five newly added native hash-equality probe assertions remain unrun. No server
 deployment, agent login, production operation, primary build/sync or `master`
@@ -200,7 +251,8 @@ Unsigned executable SHA-256:
 At this source-validation checkpoint the candidate had not been signed,
 installed or launched; the later owner-approved update is recorded above.
 The planned experiment in
-[the device plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md) is still unrun. Unsent
+[the device plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md) was unrun at that checkpoint;
+later bounded physical observations are recorded above. Unsent
 pending continuity is separate from lost-response recovery, crash-boundary
 atomicity and power loss. No hosted deployment, account change, primary build
 or sync, `master` change or production operation accompanied this slice.
