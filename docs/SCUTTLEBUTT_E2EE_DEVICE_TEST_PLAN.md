@@ -50,12 +50,18 @@ Do not store access/refresh tokens, private keys, pickles, real account password
 
 Installed Research candidate `0cde17c2` adds an explicit **Check policy & prepare
 only** control and a saved-envelope SHA-256 diagnostic. Its local validation,
-signing and in-place update are recorded in the checkpoint, but this experiment
-has only a pre-restart baseline so far. The owner reports restored history on
-both devices; an iPhone capture shows native pending ID `b37ff5d0-dc1b-475f-81ee-7ae0aab79dc5`
-and its full saved-envelope hash, recorded in the checkpoint. Restart, exact-ID
-retry and peer receipt for that message are unrun. Do not infer their execution
-from installation, source, fixtures or the pending display.
+signing and in-place update are recorded in the checkpoint. The owner reports
+restored history on both devices. iPhone captures before and after the instructed
+restart show pending ID `b37ff5d0-dc1b-475f-81ee-7ae0aab79dc5`, unchanged local
+time and the same full saved-envelope hash. A subsequent iPad capture shows that
+exact ID/hash received into native history, with unresolved 0. The owner reports
+the exact-ID retry result was identical and the peer displays one copy. A repeat
+scan capture shows stored 0 and duplicates 6; its target card is cropped, so it
+does not independently establish target uniqueness. The checkpoint records the
+correlated captures, hashes and private observation receipt. Process termination
+and retry were not independently instrumented; sender terminal acceptance and
+direct relay receipts were not captured. This supplies bounded manual evidence,
+not a full acceptance case. The mirrored iPad test remains unrun.
 
 1. With fresh same-account verification, current setup and no existing pending
    attempt, prepare one disposable canary while online. This refreshes policy
@@ -82,7 +88,7 @@ crash-boundary atomicity, power loss or the complete D02/D07/D14 procedures.
 
 D01 has owner-reported opening-message, reply and successor coverage, with one captured endpoint. D02 has owner-reported history restoration and a successful successor after each endpoint restarted independently. Offline catch-up/repeat-scan observations are recorded below, but no full case is passed; D03–D17 controlled procedures remain unrun. Run retry/lifecycle cases before destructive test-namespace faults. Execute applicable cases in both endpoint roles and repeat affected cases after a fix using the new frozen artifact.
 
-Bounded same-owner restart continuation passes native close/reopen fixtures. The physical D02 observations above do not yet exercise a durable pending send; the reopen portions of D07/D14 remain unrun. Require fresh same-account login and policy, then prove the original pending ciphertext survives and retries unchanged. Observe explicit logout's quarantine separately. Neither re-enrollment nor a fresh generation may stand in for continuity or recovery evidence.
+Bounded same-owner restart continuation passes native close/reopen fixtures. The later prepare-only experiment above adds captured pending continuity and matching peer receipt for the iPhone direction; the earlier D02 history/successor observations alone did not exercise a pending send. The mirrored iPad pending case, controlled D07 response loss and full D14 generation/ciphertext receipts remain unrun. Require fresh same-account login and policy, then compare the original pending ciphertext before exact-ID retry. Observe explicit logout's quarantine separately. Neither re-enrollment nor a fresh generation may stand in for continuity or recovery evidence.
 
 The owner reports offline-recipient catch-up followed by repeat scans displaying
 one copy in both directions. This is not a full D07 or D08 run. Taking the sender offline before
