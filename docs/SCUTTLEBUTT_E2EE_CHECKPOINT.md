@@ -72,6 +72,76 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October prepared-only pending restart candidate
+
+The Research source now separates **Check policy & prepare only** from sending.
+It performs the existing native history/setup/policy checks and commits one
+native pending record, without calling the message-upload operation. Its
+success notice requires exactly one committed outgoing pending row matching
+the original ID and text. Missing, changed, terminal or extra pending rows
+retain the uncertain original attempt rather than admitting a replacement.
+Auth/binding/lifecycle fences remain in place; this action does not renew Auth
+automatically. The ordinary prepare-and-send path uses the same preparation.
+
+Native committed-thread projection now exposes a lowercase SHA-256 of the exact
+saved serialized-envelope UTF-8 bytes for every row. It does not hash plaintext,
+private keys, pickles or the renewed signed HTTP wrapper, and it is explicitly
+an equality diagnostic, not peer trust, send authority, delivery or reading.
+No provider, ratchet, key policy or storage schema changed. The new mandatory
+DTO field requires the web and native source changes in one Research artifact;
+do not deploy the new web bundle over the old native app alone.
+
+Validation of this candidate:
+
+- **1,069 tests across 15 isolated suites passed**, with focused strict
+  TypeScript, named lint and formatting. Fixtures cover no-upload preparation,
+  wrong/missing/extra pending rows, original-binding races, and reconstruction
+  of the controller followed by explicit history read and exact-ID retry under
+  renewed credentials. These use native adapters as fixtures, not physical
+  processes or live cryptographic transport.
+- The first run failed seven screen-test assertions: six counted the setup
+  verification baseline as message-action renewal, and one compared wrapped
+  disclaimer whitespace literally. Only those fixture assertions were
+  corrected. A later check correctly paused when four competing heavy processes
+  occupied the shared Mac; no jobs were killed. The subsequent final run passed.
+- Isolated web build and unsigned physical-iOS compile/link passed. The app
+  receipt records 17 Swift source hashes and matching bundled web inputs. It
+  uses the existing cached provider/frameworks; no fresh Rust build or independent
+  verification of cached-artifact provenance is claimed.
+- Five new real-provider native probe assertions compare saved-envelope hashes
+  before/after close/reopen and across acceptance/receipt. They are test source
+  only in this slice: the probe was not compiled or run by the app-build check.
+  Internal development review found no material gap; it is not an audit.
+
+Private validation receipt:
+`/private/tmp/thalassa-pending-evidence.whu6XR/receipt.json`.
+Native app receipt:
+`/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-CWifTU/build-receipt.json`.
+Unsigned executable SHA-256:
+`4806e687265ca730c63f75406a111fdc7dc82f82b3865c0e0212e1f647cfcd48`.
+
+This candidate was not signed, installed or launched; installed human-device
+candidate `4005833a` and its stores remain untouched. The planned experiment in
+[the device plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md) is still unrun. Unsent
+pending continuity is separate from lost-response recovery, crash-boundary
+atomicity and power loss. No hosted deployment, account change, primary build
+or sync, `master` change or production operation accompanied this slice.
+Independent review and the full device acceptance gates remain open.
+
+### 5 October offline recipient observations
+
+The owner confirmed that an iPad taken offline received a new iPhone message
+after reconnecting and that a second explicit receive scan left that message
+displayed once. The owner then reported the opposite direction also worked.
+These are owner-reported observations on installed candidate `4005833a`, not
+new instrumented receipts or captures of the native scan counters.
+
+This adds bounded offline catch-up and repeat-scan evidence. It does not prove
+D07 pending-sender recovery, response loss after relay commitment, D08 controlled
+reordering/duplication, exact saved-envelope equality or a full acceptance pass.
+No network controls, accounts, stores or server data were changed by the agent
+to obtain these observations.
+
 ### 5 October independent restart observations
 
 Following the manual iPhone-only Research restart instructions, the owner
@@ -90,8 +160,8 @@ marked passed: exact pending-send continuity, ciphertext equality, durable
 owner/trust generations and proof that keys were not recreated remain unproved.
 Explicit logout and crash-at-commit behaviour are separate tests.
 
-The next bounded manual check is an offline recipient catching up, followed by
-a repeat receive scan. This must not be recorded as D07 offline-sender recovery:
+The later offline-recipient observations are recorded above. They must not be
+recorded as D07 offline-sender recovery:
 the UI fetches fresh policy before preparing a new send, so taking the sender
 offline first does not reliably produce durable pending ciphertext. Controlled
 post-prepare response loss needs a research-only fault hook and exact receipts.

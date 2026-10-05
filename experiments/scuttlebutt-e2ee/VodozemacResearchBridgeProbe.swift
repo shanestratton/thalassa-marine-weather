@@ -4,6 +4,7 @@
 // Restart fixtures close/reopen real sealed state in the SAME test process.
 // Reuses narrowly prefixed disposable enrollment fixture/cleanup helpers only.
 import Foundation
+import CryptoKit
 
 enum DmResearchBridgeProbeError: Error { case assertion(String) }
 
@@ -61,6 +62,13 @@ private func dmResearchBridgeRecord(_ actor: DmScopedEnrollmentActor, id: String
         if try DmEnvelope.decode(record.serializedEnvelope).clientMessageId == id { return record }
     }
     throw DmResearchBridgeProbeError.assertion("bridge fixture exact pending id")
+}
+private func dmResearchBridgeThreadRow(_ value: [String: Any], id: String, direction: String) throws -> [String: Any] {
+    guard let rows = value["messages"] as? [[String: Any]],
+          let row = rows.first(where: { $0["clientMessageId"] as? String == id && $0["direction"] as? String == direction }) else {
+        throw DmResearchBridgeProbeError.assertion("bridge fixture exact committed thread row")
+    }
+    return row
 }
 private func dmResearchBridgeReceipt(_ record: DmOutboxRecord, rejected: Bool = false) throws -> Data {
     guard var fields = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any] else {
@@ -371,11 +379,14 @@ func runDmResearchBridgeProbe(progressForResearch: ((String) -> Void)? = nil) as
         guard let rows = view["messages"] as? [[String: Any]], let incoming = rows.first else {
             throw DmResearchBridgeProbeError.assertion("bridge committed plaintext thread positive control")
         }
-        try checks.require(Set(incoming.keys) == ["clientMessageId", "direction", "text", "delivery", "reason", "localCreatedAtMillis"],
-            "thread projects exact public plaintext row, not encrypted native record")
+        try checks.require(Set(incoming.keys) == ["clientMessageId", "direction", "text", "delivery", "reason", "localCreatedAtMillis", "envelopeSha256"],
+            "thread projects exact public row and envelope fingerprint without raw encrypted native record")
         try checks.require(incoming["text"] as? String == "real provider bridge opening" && incoming["direction"] as? String == "incoming"
             && incoming["delivery"] as? String == "received" && incoming["reason"] is NSNull && incoming["localCreatedAtMillis"] is NSNull,
             "received thread text is provider-authenticated with no invented read or sender timestamp")
+        let openingSha256 = SHA256.hash(data: Data(opening.serializedEnvelope.utf8)).map { String(format: "%02x", $0) }.joined()
+        try checks.require(incoming["envelopeSha256"] as? String == openingSha256,
+            "received bridge fingerprint hashes exact saved envelope UTF-8 bytes")
         try checks.require(view["outgoingCapacity"] as? Int == 16 && view["incomingCapacity"] as? Int == 16,
             "research thread exposes bounded native capacities honestly")
 
@@ -405,6 +416,11 @@ func runDmResearchBridgeProbe(progressForResearch: ((String) -> Void)? = nil) as
         _ = try ra.prepareText(credentialBinding: responder.account.credentialBinding, clientMessageId: restartID,
             text: "exact pending restart fixture").publish()
         let restartRecord = try dmResearchBridgeRecord(responder, id: restartID), beforeLoss = try responder.store.read()
+        let restartSha256 = SHA256.hash(data: Data(restartRecord.serializedEnvelope.utf8)).map { String(format: "%02x", $0) }.joined()
+        let pendingView = try ra.thread(credentialBinding: responder.account.credentialBinding).publish()
+        let pendingRow = try dmResearchBridgeThreadRow(pendingView, id: restartID, direction: "outgoing")
+        try checks.require(pendingRow["delivery"] as? String == "pending" && pendingRow["envelopeSha256"] as? String == restartSha256,
+            "pending bridge fingerprint derives from committed envelope before restart")
         DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/dispatch", result: try dmResearchBridgeReceipt(restartRecord), loseAfterBody: true)])
         try await checks.refusesAsync("synthetic accepted body followed by response loss stays unresolved, never fabricated refusal") {
             _ = try await ra.sendPending(credentialBinding: responder.account.credentialBinding, clientMessageId: restartID).publish()
@@ -423,6 +439,10 @@ func runDmResearchBridgeProbe(progressForResearch: ((String) -> Void)? = nil) as
         ra = try dmResearchBridgeAdapter(responder)
         try checks.require(try dmResearchBridgeRecord(responder, id: restartID) == restartRecord,
             "cold exact-ID retry uses byte-identical original ciphertext and immutable record")
+        let restoredView = try ra.thread(credentialBinding: responder.account.credentialBinding).publish()
+        let restoredRow = try dmResearchBridgeThreadRow(restoredView, id: restartID, direction: "outgoing")
+        try checks.require(restoredRow["delivery"] as? String == "pending" && restoredRow["envelopeSha256"] as? String == restartSha256,
+            "cold pending bridge fingerprint matches exact pre-restart envelope")
         try await checks.refusesAsync("cold pending send cannot silently acquire a new policy permit") {
             _ = try await ra.sendPending(credentialBinding: responder.account.credentialBinding, clientMessageId: restartID).publish()
         }
@@ -439,9 +459,17 @@ func runDmResearchBridgeProbe(progressForResearch: ((String) -> Void)? = nil) as
         try checks.require(lostFrame.action == "send" && retryFrame.action == "send" && retryFrame.payload == lostFrame.payload
             && retryFrame.requestId != lostFrame.requestId,
             "continued exact ciphertext retry signs a fresh native outer nonce, not new encrypted content")
+        let acceptedView = try ra.thread(credentialBinding: responder.account.credentialBinding).publish()
+        let acceptedRow = try dmResearchBridgeThreadRow(acceptedView, id: restartID, direction: "outgoing")
+        try checks.require(acceptedRow["delivery"] as? String == "serverAccepted" && acceptedRow["envelopeSha256"] as? String == restartSha256,
+            "terminal acceptance retains original committed envelope fingerprint")
         DmScopedEnrollmentProtocol.setScripts([.init(path: "/v1/dispatch", result: try dmResearchBridgeInbox(restartRecord, serverId: 2))])
         let continuedInbox = try await ia.syncInbox(credentialBinding: initiator.account.credentialBinding).publish()
         try checks.require(continuedInbox["stored"] as? Int == 1, "reopened initiator decrypts responder's exact pending successor")
+        let receivedView = try ia.thread(credentialBinding: initiator.account.credentialBinding).publish()
+        let receivedRow = try dmResearchBridgeThreadRow(receivedView, id: restartID, direction: "incoming")
+        try checks.require(receivedRow["delivery"] as? String == "received" && receivedRow["envelopeSha256"] as? String == restartSha256,
+            "received bridge fingerprint matches original pending and accepted envelope")
         let successorID = "10000000-0000-4000-8000-000000000004"
         _ = try ia.prepareText(credentialBinding: initiator.account.credentialBinding, clientMessageId: successorID,
             text: "post-restart bidirectional successor").publish()

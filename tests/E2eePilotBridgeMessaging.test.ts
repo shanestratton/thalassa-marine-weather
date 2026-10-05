@@ -23,6 +23,7 @@ const RENEWED = '22222222-2222-4222-8222-222222222222';
 const ID = '33333333-3333-4333-8333-333333333333';
 const OTHER_ID = '44444444-4444-4444-8444-444444444444';
 const FINGERPRINT = 'a'.repeat(64);
+const ENVELOPE_SHA256 = 'a'.repeat(64); // Synthetic public hash, not a native ciphertext receipt.
 const PUBLIC_CARD = '{"public":"fixture-only-not-a-native-card"}';
 const CLEAR = { ownerRevoked: false, peerRevoked: false, blockedByMe: false, blockedByPeer: false };
 const controllers: ResearchMessagingController[] = [];
@@ -60,6 +61,7 @@ function outgoing(
         delivery,
         reason: delivery === 'rejected' ? 'blocked' : null,
         localCreatedAtMillis: 1_700_000_000_000,
+        envelopeSha256: ENVELOPE_SHA256,
     };
 }
 function deferred() {
@@ -354,6 +356,7 @@ describe('fresh native setup before new preparation — injected fixtures only',
             delivery: 'received',
             reason: null,
             localCreatedAtMillis: null,
+            envelopeSha256: ENVELOPE_SHA256,
         };
         f.native.messageState.mockImplementation(async (options) => {
             if (established) expect(f.native.messageThread.mock.calls.length).toBeGreaterThan(0);
@@ -470,6 +473,427 @@ describe('fresh native setup before new preparation — injected fixtures only',
     );
 });
 
+describe('explicit prepare-only pending send — injected fixtures, not physical continuity evidence', () => {
+    it('prepares one exact durable pending row and public envelope hash without uploading', async () => {
+        const f = fixture(true, true);
+        const draft = 'manual pending-send fixture';
+        f.controller.setDraft(draft);
+        await f.controller.prepareOnly();
+        expect(f.native.messageThread).toHaveBeenCalledTimes(2);
+        expect(f.native.messageThread.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageState.mock.invocationCallOrder[0],
+        );
+        expect(f.native.messageState.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageRefreshPolicy.mock.invocationCallOrder[0],
+        );
+        expect(f.native.messageRefreshPolicy.mock.invocationCallOrder[0]).toBeLessThan(
+            f.createMessageId.mock.invocationCallOrder[0],
+        );
+        expect(f.native.messagePrepareText.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageThread.mock.invocationCallOrder[1],
+        );
+        expect(f.native.messagePrepareText).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: BINDING,
+            clientMessageId: ID,
+            text: draft,
+        });
+        expect(f.createMessageId).toHaveBeenCalledTimes(1);
+        expect(f.controller.getState()).toMatchObject({
+            busy: false,
+            draft: '',
+            attempt: { clientMessageId: ID, text: draft },
+            thread: { messages: [{ ...outgoing(), text: draft }] },
+        });
+        expect(f.controller.getState().notice).toBe(MESSAGING_NOTICES.prepared);
+        expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        expect(f.native.messageSyncInbox).not.toHaveBeenCalled();
+        f.controller.setDraft('replacement');
+        await f.controller.prepareOnly();
+        await f.controller.sendText();
+        expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        expect(f.createMessageId).toHaveBeenCalledTimes(1);
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        expect(f.controller.getState().attempt).toEqual({ clientMessageId: ID, text: draft });
+    });
+
+    it('uploads the prepared ID only through a later explicit retry without new preparation', async () => {
+        const f = fixture();
+        f.controller.setDraft('same committed pending text');
+        await f.controller.prepareOnly();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        await f.controller.retryPending();
+        expect(f.native.messageSendPending).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: BINDING,
+            clientMessageId: ID,
+        });
+        expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        expect(f.createMessageId).toHaveBeenCalledTimes(1);
+        expect(f.controller.getState()).toMatchObject({ attempt: null, notice: MESSAGING_NOTICES.accepted });
+    });
+
+    it('a fresh controller explicitly restores and retries the retained pending row under fresh same-owner Auth', async () => {
+        // Controller construction over retained injected rows only. This is
+        // not process, native sealed-store or physical restart evidence.
+        const f = fixture(true, true);
+        const draft = 'same pending row after controller reconstruction';
+        f.controller.setDraft(draft);
+        await f.controller.prepareOnly();
+        const original = { ...outgoing(), text: draft };
+        expect(f.threadResponse().messages).toEqual([original]);
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        f.controller.dispose();
+        f.publish(authenticated(RENEWED)); // Same account/device; a new expected credential binding.
+        for (const method of Object.values(f.native)) method.mockClear();
+        const replacementId = vi.fn(() => OTHER_ID);
+        const resumed = new ResearchMessagingController({
+            auth: f.auth,
+            native: f.native,
+            supported: () => true,
+            createMessageId: replacementId,
+        });
+        controllers.push(resumed);
+        for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+        expect(replacementId).not.toHaveBeenCalled();
+        expect(resumed.getState()).toMatchObject({
+            available: true,
+            busy: false,
+            thread: null,
+            attempt: null,
+            facts: null,
+            policy: null,
+            inboxReport: null,
+            draft: '',
+            notice: MESSAGING_NOTICES.idle,
+        });
+        expect(researchSendSetupReady(resumed.getState().facts)).toBe(false);
+
+        await resumed.readThread();
+        expect(f.native.messageThread).toHaveBeenCalledExactlyOnceWith({ credentialBinding: RENEWED });
+        expect(resumed.getState()).toMatchObject({
+            thread: { credentialBinding: RENEWED, messages: [original] },
+            attempt: { clientMessageId: ID, text: draft },
+            facts: null,
+            policy: null,
+            notice: MESSAGING_NOTICES.uncertain,
+        });
+        expect(resumed.getState().thread?.messages[0]).toEqual(original);
+        expect(f.native.messageState).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+
+        await resumed.retryPending();
+        expect(f.native.messageRefreshPolicy).toHaveBeenCalledExactlyOnceWith({ credentialBinding: RENEWED });
+        expect(f.native.messageSendPending).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: RENEWED,
+            clientMessageId: ID,
+        });
+        expect(f.native.messageRefreshPolicy.mock.invocationCallOrder[0]).toBeLessThan(
+            f.native.messageSendPending.mock.invocationCallOrder[0],
+        );
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(replacementId).not.toHaveBeenCalled();
+        expect(f.createMessageId).toHaveBeenCalledTimes(1); // Only the original controller prepared.
+        expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        for (const method of Object.values(f.native))
+            for (const [options] of method.mock.calls) expect(options.credentialBinding).toBe(RENEWED);
+        expect(resumed.getState()).toMatchObject({
+            attempt: null,
+            facts: null,
+            notice: MESSAGING_NOTICES.accepted,
+            thread: { messages: [{ ...original, delivery: 'serverAccepted' }] },
+        });
+    });
+
+    it.each(unreadySetups)('keeps the draft with no attempt or upload for $name', async ({ patch }) => {
+        const f = fixture();
+        f.native.messageState.mockResolvedValueOnce({ ...facts(), ...patch });
+        f.controller.setDraft('not yet admitted for preparation');
+        await f.controller.prepareOnly();
+        expect(f.controller.getState()).toMatchObject({
+            busy: false,
+            draft: 'not yet admitted for preparation',
+            attempt: null,
+        });
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+
+    it.each(['ownerRevoked', 'peerRevoked', 'blockedByMe', 'blockedByPeer'] as const)(
+        'refuses fresh %s policy before preparing',
+        async (flag) => {
+            const f = fixture();
+            f.native.messageRefreshPolicy.mockResolvedValueOnce({
+                status: 'policy',
+                credentialBinding: BINDING,
+                policy: { ...CLEAR, [flag]: true },
+            });
+            f.controller.setDraft('draft retained on policy refusal');
+            await f.controller.prepareOnly();
+            expect(f.controller.getState()).toMatchObject({
+                attempt: null,
+                draft: 'draft retained on policy refusal',
+                notice: MESSAGING_NOTICES.unavailable,
+            });
+            expect(f.createMessageId).not.toHaveBeenCalled();
+            expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+            expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        },
+    );
+
+    it('discovers existing native pending before setup and blocks replacement preparation or upload', async () => {
+        const f = fixture();
+        f.setRows([{ ...outgoing(), text: 'previous durable attempt' }]);
+        f.controller.setDraft('replacement must not be prepared');
+        await f.controller.prepareOnly();
+        expect(f.controller.getState()).toMatchObject({
+            attempt: { clientMessageId: ID, text: 'previous durable attempt' },
+            draft: '',
+            notice: MESSAGING_NOTICES.uncertain,
+        });
+        expect(f.native.messageThread).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+        expect(f.native.messageState).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+
+    it('does not prepare when fresh setup is unavailable, even if earlier setup was ready', async () => {
+        const f = fixture();
+        await f.controller.readState();
+        f.native.messageState.mockResolvedValueOnce({ status: 'unavailable', reason: 'unavailable' });
+        f.controller.setDraft('preserved until fresh setup is available');
+        await f.controller.prepareOnly();
+        expect(f.controller.getState()).toMatchObject({
+            attempt: null,
+            draft: 'preserved until fresh setup is available',
+            notice: MESSAGING_NOTICES.unavailable,
+        });
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+
+    it.each(['hidden', 'logout', 'dispose'] as const)(
+        'does no preparation when an admission observer immediately triggers %s',
+        async (event) => {
+            const f = fixture();
+            let fenced = false;
+            const notices: string[] = [];
+            f.controller.setDraft('cancel before native dispatch');
+            f.controller.subscribe((state) => {
+                notices.push(state.notice);
+                if (!state.busy || fenced) return;
+                fenced = true;
+                if (event === 'hidden') f.controller.setVisible(false);
+                else if (event === 'dispose') f.controller.dispose();
+                else f.publish({ status: 'signed_out', account: null });
+            });
+            await f.controller.prepareOnly();
+            expect(fenced).toBe(true);
+            expect(f.createMessageId).not.toHaveBeenCalled();
+            for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+            expect(f.controller.getState()).toMatchObject({ thread: null, attempt: null, draft: '' });
+            expect(notices).not.toContain(MESSAGING_NOTICES.prepared);
+        },
+    );
+
+    it.each([
+        { name: 'different ID', echo: { status: 'prepared', credentialBinding: BINDING, clientMessageId: OTHER_ID } },
+        { name: 'wrong binding', echo: { status: 'prepared', credentialBinding: RENEWED, clientMessageId: ID } },
+        { name: 'wrong status', echo: { status: 'send_result', credentialBinding: BINDING, clientMessageId: ID } },
+        {
+            name: 'widened DTO',
+            echo: { status: 'prepared', credentialBinding: BINDING, clientMessageId: ID, accepted: true },
+        },
+        { name: 'missing ID', echo: { status: 'prepared', credentialBinding: BINDING } },
+        { name: 'nonobject', echo: null },
+    ])('pins the original uncertain attempt after a $name preparation echo', async ({ echo }) => {
+        const f = fixture();
+        f.native.messagePrepareText.mockImplementationOnce(async (options) => {
+            f.setRows([{ ...outgoing(), text: options.text }]);
+            return echo;
+        });
+        f.controller.setDraft('exact admitted text');
+        await f.controller.prepareOnly();
+        expect(f.controller.getState()).toMatchObject({
+            busy: false,
+            attempt: { clientMessageId: ID, text: 'exact admitted text' },
+            draft: '',
+            thread: null,
+            notice: MESSAGING_NOTICES.uncertain,
+        });
+        await f.controller.prepareOnly();
+        await f.controller.sendText();
+        expect(f.createMessageId).toHaveBeenCalledTimes(1);
+        expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+
+    it('pins an uncertain native preparation failure and reconciles its exact durable ID later', async () => {
+        const f = fixture();
+        f.native.messagePrepareText.mockImplementationOnce(async (options) => {
+            f.setRows([{ ...outgoing(), text: options.text }]);
+            throw new Error('fixture preparation echo lost after durability');
+        });
+        f.controller.setDraft('durable despite the lost echo');
+        await f.controller.prepareOnly();
+        expect(f.controller.getState()).toMatchObject({
+            attempt: { clientMessageId: ID, text: 'durable despite the lost echo' },
+            notice: MESSAGING_NOTICES.uncertain,
+        });
+        await f.controller.prepareOnly();
+        expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        await f.controller.retryPending();
+        expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        expect(f.native.messageSendPending).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: BINDING,
+            clientMessageId: ID,
+        });
+    });
+
+    it.each([
+        { name: 'missing row', rows: [] },
+        { name: 'different ID', rows: [{ ...outgoing(), clientMessageId: OTHER_ID, text: 'exact admitted text' }] },
+        { name: 'different text', rows: [{ ...outgoing(), text: 'different native text' }] },
+        { name: 'absent plaintext', rows: [{ ...outgoing(), text: null }] },
+        { name: 'already accepted', rows: [{ ...outgoing('serverAccepted'), text: 'exact admitted text' }] },
+        { name: 'already rejected', rows: [{ ...outgoing('rejected'), text: 'exact admitted text' }] },
+        {
+            name: 'two total outgoing pending rows',
+            rows: [
+                { ...outgoing(), text: 'exact admitted text' },
+                { ...outgoing('pending', OTHER_ID), text: 'unexpected second pending message' },
+            ],
+        },
+        {
+            name: 'incoming row',
+            rows: [
+                {
+                    ...outgoing(),
+                    direction: 'incoming',
+                    delivery: 'received',
+                    localCreatedAtMillis: null,
+                    text: 'exact admitted text',
+                },
+            ],
+        },
+        {
+            name: 'invalid envelope hash',
+            rows: [{ ...outgoing(), text: 'exact admitted text', envelopeSha256: 'bad' }],
+        },
+    ])('refuses $name after preparation without clearing the original uncertain attempt', async ({ rows }) => {
+        const f = fixture();
+        f.native.messageThread
+            .mockResolvedValueOnce(f.threadResponse())
+            .mockResolvedValueOnce({ ...f.threadResponse(), messages: rows });
+        f.controller.setDraft('exact admitted text');
+        await f.controller.prepareOnly();
+        expect(f.controller.getState()).toMatchObject({
+            busy: false,
+            attempt: { clientMessageId: ID, text: 'exact admitted text' },
+            draft: '',
+            thread: null,
+            notice: MESSAGING_NOTICES.uncertain,
+        });
+        await f.controller.prepareOnly();
+        await f.controller.sendText();
+        expect(f.createMessageId).toHaveBeenCalledTimes(1);
+        expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+    });
+
+    it.each(['hidden', 'logout', 'dispose'] as const)(
+        'keeps the admission barrier and discards a delayed preparation echo after %s',
+        async (event) => {
+            const f = fixture();
+            const gate = deferred();
+            const notices: string[] = [];
+            f.controller.subscribe((state) => notices.push(state.notice));
+            f.native.messagePrepareText.mockImplementationOnce(async (options) => {
+                await gate.promise;
+                f.setRows([{ ...outgoing(), text: options.text }]);
+                return { status: 'prepared', credentialBinding: BINDING, clientMessageId: ID };
+            });
+            f.controller.setDraft('original pending fixture');
+            const action = f.controller.prepareOnly();
+            await settle();
+            expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+            if (event === 'hidden') {
+                f.controller.setVisible(false);
+                f.controller.setVisible(true);
+            } else if (event === 'dispose') f.controller.dispose();
+            else {
+                f.publish({ status: 'signed_out', account: null });
+                f.publish(authenticated(RENEWED));
+            }
+            const callsAtFence = Object.values(f.native).map((method) => method.mock.calls.length);
+            f.controller.setDraft('replacement');
+            await f.controller.prepareOnly();
+            await f.controller.sendText();
+            expect(Object.values(f.native).map((method) => method.mock.calls.length)).toEqual(callsAtFence);
+            gate.resolve(undefined);
+            await action;
+            expect(Object.values(f.native).map((method) => method.mock.calls.length)).toEqual(callsAtFence);
+            expect(f.controller.getState()).toMatchObject({ thread: null, attempt: null });
+            expect(f.controller.getState().notice).not.toBe(MESSAGING_NOTICES.accepted);
+            expect(f.controller.getState().notice).not.toBe(MESSAGING_NOTICES.prepared);
+            expect(notices).not.toContain(MESSAGING_NOTICES.prepared);
+            expect(f.native.messageSendPending).not.toHaveBeenCalled();
+            if (event !== 'dispose') {
+                f.controller.setDraft('replacement after old echo');
+                await f.controller.prepareOnly();
+                expect(f.controller.getState().attempt).toEqual({
+                    clientMessageId: ID,
+                    text: 'original pending fixture',
+                });
+            }
+            expect(f.createMessageId).toHaveBeenCalledTimes(1);
+            expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it.each(['hide-show', 'reverify', 'logout'] as const)(
+        'does not publish prepare-only success after a committed-thread observer triggers %s',
+        async (event) => {
+            const f = fixture();
+            let fenced = false;
+            const notices: string[] = [];
+            f.controller.subscribe((state) => {
+                notices.push(state.notice);
+                if (!state.busy || state.thread?.messages[0]?.delivery !== 'pending' || fenced) return;
+                fenced = true;
+                if (event === 'hide-show') {
+                    f.controller.setVisible(false);
+                    f.controller.setVisible(true);
+                } else {
+                    f.publish({ status: event === 'logout' ? 'signed_out' : 'verifying', account: null });
+                    f.publish(authenticated(RENEWED));
+                }
+            });
+            f.controller.setDraft('original pending fixture');
+            await f.controller.prepareOnly();
+            expect(fenced).toBe(true);
+            expect(f.controller.getState()).toMatchObject({ busy: false, thread: null, attempt: null, draft: '' });
+            expect(notices).not.toContain(MESSAGING_NOTICES.accepted);
+            expect(notices).not.toContain(MESSAGING_NOTICES.prepared);
+            expect(f.controller.getState().notice).not.toBe(MESSAGING_NOTICES.prepared);
+            expect(f.native.messageSendPending).not.toHaveBeenCalled();
+            f.controller.setDraft('replacement after observer fence');
+            await f.controller.prepareOnly();
+            expect(f.controller.getState().attempt).toEqual({ clientMessageId: ID, text: 'original pending fixture' });
+            expect(f.createMessageId).toHaveBeenCalledTimes(1);
+            expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
+        },
+    );
+});
+
 describe('isolated research messaging controller — injected fixtures only', () => {
     it('does no initialization, auth-change, visibility or disposal networking', () => {
         const f = fixture();
@@ -486,12 +910,17 @@ describe('isolated research messaging controller — injected fixtures only', ()
         await f.controller.readState();
         await f.controller.registerDevice();
         await f.controller.receive();
+        f.controller.setDraft('unavailable runtime');
+        await f.controller.prepareOnly();
         expect(f.controller.getState().available).toBe(false);
         for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
         const signedOut = fixture();
         signedOut.publish({ status: 'signed_out', account: null });
         await signedOut.controller.ownPairingCard();
+        signedOut.controller.setDraft('signed-out input');
+        await signedOut.controller.prepareOnly();
         expect(signedOut.native.messagePairingCard).not.toHaveBeenCalled();
+        expect(signedOut.native.messagePrepareText).not.toHaveBeenCalled();
     });
     it.each(['fixture-binding', 'AAAAAAAA-1111-4111-8111-111111111111', `${BINDING}\n`, ''])(
         'refuses noncanonical native credential binding %j',
@@ -595,6 +1024,7 @@ describe('isolated research messaging controller — injected fixtures only', ()
             delivery: 'received',
             reason: null,
             localCreatedAtMillis: null,
+            envelopeSha256: ENVELOPE_SHA256,
         };
         f.setRows([incoming]);
         await f.controller.receive();
@@ -616,6 +1046,7 @@ describe('isolated research messaging controller — injected fixtures only', ()
                 delivery: 'received',
                 reason: null,
                 localCreatedAtMillis: null,
+                envelopeSha256: 'b'.repeat(64),
             },
         ]);
         await f.controller.readThread();
@@ -624,6 +1055,10 @@ describe('isolated research messaging controller — injected fixtures only', ()
         expect(list.querySelector('.message-text')?.textContent).toBe('<img src=x onerror=alert(1)>');
         expect(list.textContent).toContain('Relay accepted · not delivered or read');
         expect(list.textContent).toContain('Time unknown');
+        expect(Array.from(list.querySelectorAll('.message-envelope-hash'), (row) => row.textContent)).toEqual([
+            expect.stringContaining(ENVELOPE_SHA256),
+            expect.stringContaining('b'.repeat(64)),
+        ]);
         f.publish({ status: 'verifying', account: null });
         expect(list.childElementCount).toBe(0);
     });
@@ -1280,13 +1715,14 @@ describe('public pairing continuity and explicit renewal — injected Auth/plugi
         });
     });
 
-    it.each(['send', 'confirm', 'claim', 'receive', 'policy', 'thread', 'retry'] as const)(
+    it.each(['send', 'prepare-only', 'confirm', 'claim', 'receive', 'policy', 'thread', 'retry'] as const)(
         '%s never renews automatically from an expired account or retained public fields',
         async (operation) => {
             const f = await populatedFixture();
             f.publish({ status: 'unavailable', account: null });
             for (const method of Object.values(f.native)) method.mockClear();
             if (operation === 'send') await f.controller.sendText();
+            else if (operation === 'prepare-only') await f.controller.prepareOnly();
             else if (operation === 'confirm') await f.controller.confirmPeer();
             else if (operation === 'claim') await f.controller.claimPeer();
             else if (operation === 'receive') await f.controller.receive();
@@ -1304,12 +1740,14 @@ describe('public pairing continuity and explicit renewal — injected Auth/plugi
         },
     );
 
-    it.each(['send', 'claim', 'receive', 'policy', 'thread', 'retry'] as const)(
+    it.each(['send', 'prepare-only', 'claim', 'receive', 'policy', 'thread', 'retry'] as const)(
         'available %s still uses its original binding without a pairing renewal',
         async (operation) => {
             const f = fixture(true, true);
-            if (operation === 'send' || operation === 'retry') f.controller.setDraft('explicit private message');
+            if (operation === 'send' || operation === 'prepare-only' || operation === 'retry')
+                f.controller.setDraft('explicit private message');
             if (operation === 'send') await f.controller.sendText();
+            else if (operation === 'prepare-only') await f.controller.prepareOnly();
             else if (operation === 'claim') await f.controller.claimPeer();
             else if (operation === 'receive') await f.controller.receive();
             else if (operation === 'policy') await f.controller.refreshPolicy();
@@ -1475,6 +1913,66 @@ const phases: Phase[] = [
         response: () => ({ status: 'prepared', credentialBinding: BINDING, clientMessageId: ID }),
     },
     {
+        name: 'prepare-only preflight',
+        method: 'messageThread',
+        start: (f) => {
+            f.controller.setDraft('text');
+            return f.controller.prepareOnly();
+        },
+        response: () => ({
+            status: 'thread',
+            credentialBinding: BINDING,
+            messages: [],
+            outgoingCapacity: 16,
+            incomingCapacity: 16,
+            unresolvedCount: 0,
+        }),
+    },
+    {
+        name: 'prepare-only setup',
+        method: 'messageState',
+        start: (f) => {
+            f.controller.setDraft('text');
+            return f.controller.prepareOnly();
+        },
+        response: () => facts(),
+    },
+    {
+        name: 'prepare-only policy',
+        method: 'messageRefreshPolicy',
+        start: (f) => {
+            f.controller.setDraft('text');
+            return f.controller.prepareOnly();
+        },
+        response: () => ({ status: 'policy', credentialBinding: BINDING, policy: { ...CLEAR } }),
+    },
+    {
+        name: 'prepare-only prepare',
+        method: 'messagePrepareText',
+        start: (f) => {
+            f.controller.setDraft('text');
+            return f.controller.prepareOnly();
+        },
+        response: () => ({ status: 'prepared', credentialBinding: BINDING, clientMessageId: ID }),
+    },
+    {
+        name: 'prepare-only durable thread',
+        method: 'messageThread',
+        secondThread: true,
+        start: (f) => {
+            f.controller.setDraft('text');
+            return f.controller.prepareOnly();
+        },
+        response: () => ({
+            status: 'thread',
+            credentialBinding: BINDING,
+            messages: [{ ...outgoing(), text: 'text' }],
+            outgoingCapacity: 16,
+            incomingCapacity: 16,
+            unresolvedCount: 0,
+        }),
+    },
+    {
         name: 'send receipt',
         method: 'messageSendPending',
         start: (f) => {
@@ -1586,6 +2084,8 @@ describe('strict native echoes and original UI-ticket races — injected fixture
         await phase.setup?.(f);
         const gate = deferred();
         const initialCalls = f.native[phase.method].mock.calls.length;
+        const notices: string[] = [];
+        f.controller.subscribe((state) => notices.push(state.notice));
         if (phase.secondThread) f.native.messageThread.mockResolvedValueOnce(f.threadResponse());
         f.native[phase.method].mockImplementationOnce(() => gate.promise);
         const action = phase.start(f);
@@ -1610,6 +2110,8 @@ describe('strict native echoes and original UI-ticket races — injected fixture
             attempt: null,
             inboxReport: null,
         });
+        expect(notices).not.toContain(MESSAGING_NOTICES.prepared);
+        expect(f.controller.getState().notice).not.toBe(MESSAGING_NOTICES.prepared);
     });
     it.each(phases)('refuses $name success with wrong credential binding', async (phase) => {
         const f = fixture();
@@ -1620,14 +2122,24 @@ describe('strict native echoes and original UI-ticket races — injected fixture
         expect(f.controller.getState().busy).toBe(false);
         if (phase.name !== 'post-send thread') expect(f.controller.getState().notice).toMatch(/Unavailable|unresolved/);
         expect(f.controller.getState().thread).toBeNull();
-        if (phase.name === 'send policy' || phase.name === 'send preflight' || phase.name === 'send setup')
+        if (
+            [
+                'send policy',
+                'send preflight',
+                'send setup',
+                'prepare-only policy',
+                'prepare-only preflight',
+                'prepare-only setup',
+            ].includes(phase.name)
+        )
             expect(f.native.messagePrepareText).not.toHaveBeenCalled();
-        if (phase.name === 'send setup') {
+        if (phase.name === 'send setup' || phase.name === 'prepare-only setup') {
             expect(f.createMessageId).not.toHaveBeenCalled();
             expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
             expect(f.controller.getState()).toMatchObject({ draft: 'text', attempt: null, facts: null });
         }
-        if (phase.name === 'prepare') expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        if (phase.name === 'prepare' || phase.name.startsWith('prepare-only'))
+            expect(f.native.messageSendPending).not.toHaveBeenCalled();
         if (phase.name === 'receive policy') expect(f.native.messageSyncInbox).not.toHaveBeenCalled();
     });
     it.each(phases)('refuses $name extra-field DTO instead of trusting a widened bridge', async (phase) => {
@@ -1665,6 +2177,42 @@ describe('strict native echoes and original UI-ticket races — injected fixture
 });
 
 describe('malformed bounded DTOs — injected fixtures', () => {
+    it.each([
+        { name: 'missing', value: undefined, omit: true },
+        { name: 'undefined', value: undefined, omit: false },
+        { name: 'null', value: null, omit: false },
+        { name: 'number', value: 123, omit: false },
+        { name: 'array', value: [ENVELOPE_SHA256], omit: false },
+        { name: 'uppercase', value: ENVELOPE_SHA256.toUpperCase(), omit: false },
+        { name: 'short', value: 'a'.repeat(63), omit: false },
+        { name: 'long', value: 'a'.repeat(65), omit: false },
+        { name: 'nonhex', value: 'g'.repeat(64), omit: false },
+        { name: 'trailing newline', value: `${ENVELOPE_SHA256}\n`, omit: false },
+        { name: 'markup', value: '<img src=x onerror=alert(1)>', omit: false },
+    ])(
+        'rejects a $name envelope hash for the entire thread before publishing valid preceding content',
+        async ({ value, omit }) => {
+            const f = fixture();
+            const incoming = {
+                ...outgoing(),
+                clientMessageId: OTHER_ID,
+                direction: 'incoming',
+                delivery: 'received',
+                localCreatedAtMillis: null,
+                envelopeSha256: value,
+            };
+            const invalidRow = omit
+                ? Object.fromEntries(Object.entries(incoming).filter(([key]) => key !== 'envelopeSha256'))
+                : incoming;
+            f.native.messageThread.mockResolvedValueOnce({
+                ...f.threadResponse(),
+                messages: [outgoing('serverAccepted'), invalidRow],
+            });
+            await f.controller.readThread();
+            expect(f.controller.getState()).toMatchObject({ thread: null, notice: MESSAGING_NOTICES.unavailable });
+        },
+    );
+
     it.each([1, 'false', null, undefined])('rejects coerced policy boolean %j before crypto/inbox', async (bad) => {
         const f = fixture();
         f.native.messageRefreshPolicy.mockResolvedValue({
@@ -1771,6 +2319,16 @@ describe('malformed bounded DTOs — injected fixtures', () => {
         await f.controller.sendText();
         expect(f.createMessageId).not.toHaveBeenCalled();
         expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+    });
+    it('prepare-only refuses blank or oversized text without IDs, native preparation or upload', async () => {
+        const f = fixture();
+        f.controller.setDraft(' \n\t');
+        await f.controller.prepareOnly();
+        f.controller.setDraft('é'.repeat(8193));
+        await f.controller.prepareOnly();
+        expect(f.createMessageId).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
     });
     it('valid terminal rejection is not relabelled as receipt uncertainty when local history is unavailable', async () => {
         const f = fixture();

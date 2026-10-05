@@ -117,6 +117,7 @@ const actionIds = [
     'read-thread',
     'receive',
     'retry-pending',
+    'prepare-only',
     'send-message',
 ] as const;
 const buttons = Object.fromEntries(actionIds.map((id) => [id, element<HTMLButtonElement>(id)])) as Record<
@@ -162,8 +163,9 @@ messaging.subscribe((state) => {
     buttons['confirm-peer'].disabled =
         disabled || !!state.attempt || !state.inspectedPeer || !state.comparedOnOtherDevice;
     buttons['claim-peer'].disabled = disabled || state.facts?.role !== 'initiator';
-    buttons['send-message'].disabled =
-        disabled || !!state.attempt || !state.draft.trim() || !researchSendSetupReady(state.facts);
+    const sendDisabled = disabled || !!state.attempt || !state.draft.trim() || !researchSendSetupReady(state.facts);
+    buttons['send-message'].disabled = sendDisabled;
+    buttons['prepare-only'].disabled = sendDisabled;
     buttons['retry-pending'].disabled = disabled || !state.attempt;
     element('pending-attempt').textContent = state.attempt
         ? `Unresolved attempt ${state.attempt.clientMessageId}. New sends are disabled. Retry reconciles native history and reuses only this durable ID; it never prepares replacement ciphertext.`
@@ -198,6 +200,7 @@ buttons['refresh-policy'].addEventListener('click', () => void messaging.refresh
 buttons['read-thread'].addEventListener('click', () => void messaging.readThread());
 buttons.receive.addEventListener('click', () => void messaging.receive());
 buttons['retry-pending'].addEventListener('click', () => void messaging.retryPending());
+buttons['prepare-only'].addEventListener('click', () => void messaging.prepareOnly());
 messageForm.addEventListener('submit', (event) => {
     event.preventDefault();
     void messaging.sendText();

@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE device test plan
 
-Updated 5 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner now reports an opening message, reply and post-restart successors displayed on both physical devices, with an iPhone screenshot showing an incoming row committed to native local history. **D01 and D02 have partial physical evidence, not complete acceptance passes; D03–D17 remain unrun.** The current installed candidate is `4005833a0e3ce208ca8f7d8394ced9876a89184b`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) records its source, signing, installation and message evidence separately from fixture/simulator checks.
+Updated 5 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The current installed candidate is `4005833a0e3ce208ca8f7d8394ced9876a89184b`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) records its source, signing, installation and message evidence separately from fixture/simulator checks.
 
 Two independent physical endpoints can expose custody, lifecycle and transport failures that one simulator cannot. The iPad provides iPadOS coverage, not a substitute for testing every supported iPhone/OS combination. Read-only checks on 4 October found iOS 27.0.1 on the iPhone and iPadOS 26.5 on the iPad, both paired with Developer Mode enabled. This is device inventory, not supported-build eligibility or research-app execution evidence.
 
@@ -46,14 +46,42 @@ Each case receipt needs:
 
 Do not store access/refresh tokens, private keys, pickles, real account passwords, device secrets or existing message content in repository receipts. Screenshots should use only the disposable test conversation. A manual visual check alone cannot prove ratchet or transaction behavior.
 
+## Prepared but unsent restart experiment
+
+The next Research source change adds an explicit **Check policy & prepare only**
+control and a saved-envelope SHA-256 diagnostic. It is not in installed
+candidate `4005833a`. Freeze, validate and identify the new artifact before
+running this experiment; do not infer execution from the source or fixtures.
+
+1. With fresh same-account verification, current setup and no existing pending
+   attempt, prepare one disposable canary while online. This refreshes policy
+   and commits native preparation but does not call message-send upload.
+2. Capture its pending message ID, local timestamp and full envelope hash.
+   Preparation consumes a bounded outbox slot; the experiment must settle it.
+3. Restart only that Research process, without Log out or replacement setup.
+   Sign into the same account and read committed local history.
+4. Require the same pending ID, timestamp and envelope hash. Do not prepare a
+   replacement if any field is missing, uncertain or changed.
+5. Use **Retry same pending ID**. Require relay acceptance on that ID with the
+   original hash, then explicitly receive it at the peer and compare its hash.
+6. Repeat receive, require one displayed copy, then test a small successor if
+   native capacity permits. Keep all captures confined to the test conversation.
+
+The hash is computed from exact saved serialized-envelope UTF-8 bytes, not
+plaintext, keys, pickles or the changing signed HTTP wrapper. It is equality
+diagnostics under the native implementation's integrity assumptions, not peer
+authentication, send permission or delivery evidence by itself. This experiment
+checks an unsent committed pending record, not response loss after relay commit,
+crash-boundary atomicity, power loss or the complete D02/D07/D14 procedures.
+
 ## Physical test matrix
 
-D01 has owner-reported opening-message, reply and successor coverage, with one captured endpoint. D02 has owner-reported history restoration and a successful successor after each endpoint restarted independently. No full case is marked passed; D03–D17 remain unrun on physical devices. Run retry/lifecycle cases before destructive test-namespace faults. Execute applicable cases in both endpoint roles and repeat affected cases after a fix using the new frozen artifact.
+D01 has owner-reported opening-message, reply and successor coverage, with one captured endpoint. D02 has owner-reported history restoration and a successful successor after each endpoint restarted independently. Offline catch-up/repeat-scan observations are recorded below, but no full case is passed; D03–D17 controlled procedures remain unrun. Run retry/lifecycle cases before destructive test-namespace faults. Execute applicable cases in both endpoint roles and repeat affected cases after a fix using the new frozen artifact.
 
 Bounded same-owner restart continuation passes native close/reopen fixtures. The physical D02 observations above do not yet exercise a durable pending send; the reopen portions of D07/D14 remain unrun. Require fresh same-account login and policy, then prove the original pending ciphertext survives and retries unchanged. Observe explicit logout's quarantine separately. Neither re-enrollment nor a fresh generation may stand in for continuity or recovery evidence.
 
-An offline-recipient catch-up followed by a repeat scan is the next bounded
-manual check, not a full D07 or D08 run. Taking the sender offline before
+The owner reports offline-recipient catch-up followed by repeat scans displaying
+one copy in both directions. This is not a full D07 or D08 run. Taking the sender offline before
 pressing Send cannot reliably prepare a pending row: fresh policy is fetched
 first. Do not substitute a network-toggle race for controlled post-prepare
 response loss. A repeat scan may count older incoming rows as duplicates;
