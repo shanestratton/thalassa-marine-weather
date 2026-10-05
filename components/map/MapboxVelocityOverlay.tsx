@@ -63,6 +63,30 @@ interface MapboxVelocityOverlayProps {
  * out now; the stroke does not have to.
  */
 const PARTICLE_LINE_WIDTH = 1;
+
+/**
+ * How much of each trail survives a frame. leaflet-velocity's `opacity` is
+ * the fade: every frame it keeps this fraction of what is already drawn
+ * ('destination-in'), and draws new segments at 0.9 x this alpha. 0.97 is the
+ * library default; 0.98 keeps a trail about 1.5x as long at 30 fps (half-life
+ * 34 frames, was 23). Shane 2026-10-06: "make the wind sperm a bit longer and
+ * a bit darker. but no extras".
+ */
+const PARTICLE_FADE = 0.98;
+
+/**
+ * A thin dark edge on every streak, drawn by the browser over the whole
+ * overlay. Without it the wind vanished on the Relief seas (Shane 2026-10-06:
+ * "i cannot see it at all on the relief + sat layer"): the 5-15 kt blues
+ * (#1583ec, #00a6cc) sit almost exactly on Relief's shallow-to-30 m blues
+ * (#52a6cc..#246698), contrast about 1.0-1.5. Darker streak colours only move
+ * the problem to deeper water and the satellite sea; a dark edge reads on
+ * light water and the colour itself on dark water, and the colours still match
+ * the legend. The overlay stays above every base layer (z-index 400). Two
+ * passes, a crisp 1 px rim and a softer 1.5 px one, picked from a side-by-side
+ * over Relief 2-60 m and satellite (one 1 px rim was still faint at 30-60 m).
+ */
+const PARTICLE_HALO = 'drop-shadow(0 0 1px rgba(0, 0, 0, 1)) drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.7))';
 // Direction is essential even in the broad synoptic view, so Wind begins at
 // z3 rather than falling back to a speed-only heatmap. The startup guard below
 // protects the third-party renderer from the old delayed-start zoom race.
@@ -130,6 +154,7 @@ function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number, 
         maxVelocity: WIND_MAX_MS,
         velocityScale,
         particleAge: 60,
+        opacity: PARTICLE_FADE,
         particleMultiplier,
         // 30, was 15: a 66 ms particle step is visible judder on a 60 Hz
         // panel — half of Shane's "shaky" (2026-08-21). 33 ms reads as
@@ -368,8 +393,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
             // Create overlay div on top of Mapbox
             const div = document.createElement('div');
-            div.style.cssText =
-                'position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;';
+            div.style.cssText = `position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;filter:${PARTICLE_HALO};`;
             container.appendChild(div);
             overlayRef.current = div;
 
