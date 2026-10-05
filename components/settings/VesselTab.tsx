@@ -21,6 +21,7 @@ import { saveIdentity } from '../../services/VesselIdentityService';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 import { vesselCrewAboard, vesselCruisingSpeedKts, vesselMaxWaveHeightFt } from '../../services/units';
 import { FLOAT_PLAN_ROLES } from '../../services/floatPlanCrew';
+import { useShareMyFloatPlanDetailsOnEdit } from '../../hooks/useShareMyFloatPlanDetailsOnEdit';
 import type { VesselCrewPerson } from '../../types/vessel';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { AlertTriangleIcon, AnchorIcon, EyeIcon, CheckIcon, PlusSquareIcon, RefreshIcon, TrashIcon } from '../Icons';
@@ -830,6 +831,10 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
         }, 1200);
         return () => clearTimeout(t);
     }, [fleetAvailable, vesselName, vesselType, vesselModel]);
+
+    // Crew: your own name, mobile and age (the Skipper row and Skipper mobile
+    // here) go on your skipper's float plan (Shane 2026-10-04), after an edit.
+    useShareMyFloatPlanDetailsOnEdit(vessel);
 
     const crewAboard = vesselCrewAboard(vessel);
     /** One row per person aboard, padded to the crew count (rank defaults: Skipper first, Crew after). */

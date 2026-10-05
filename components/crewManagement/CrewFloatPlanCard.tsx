@@ -11,9 +11,14 @@
  * the allow-listed fields it names below: never the EPIRB hex, shore
  * contacts, phones, ages or medical, which go "only in the float plan, to one
  * chosen person" (types/vessel.ts).
+ *
+ * The one exception is the reader's own row (2026-10-04): their own name,
+ * phone and age from their Settings, which their app shares with the skipper
+ * for this plan. Everyone else is a name and a role; the count is everyone.
  */
 import React from 'react';
-import { crewRoleLabel, type CrewVesselView } from '../../services/crew/crewVesselView';
+import { crewVesselAboard, crewVesselPeople, type CrewVesselView } from '../../services/crew/crewVesselView';
+import type { FloatPlanSelfDetails } from '../../services/crew/floatPlanPeople';
 
 export interface CrewFloatPlanPassage {
     departure_port?: string | null;
@@ -26,6 +31,10 @@ interface CrewFloatPlanCardProps {
     boatName: string;
     view: CrewVesselView | null;
     passage: CrewFloatPlanPassage | null;
+    /** The reader's own details from their Settings → Vessel Profile. */
+    self?: FloatPlanSelfDetails | null;
+    /** True once the server has taken them; false while waiting, after a failure, or before the 20261004120000 push. */
+    sharing?: boolean;
 }
 
 function when(iso: string | null | undefined): string | null {
@@ -55,16 +64,21 @@ const Row: React.FC<{ label: string; value: string | null | undefined }> = ({ la
         </div>
     ) : null;
 
-export const CrewFloatPlanCard: React.FC<CrewFloatPlanCardProps> = ({ boatName, view, passage }) => {
+export const CrewFloatPlanCard: React.FC<CrewFloatPlanCardProps> = ({
+    boatName,
+    view,
+    passage,
+    self = null,
+    sharing = true,
+}) => {
     const vessel = view?.vessel ?? null;
     const skipperName = view?.manifest.find((entry) => entry.isSkipper)?.name || 'The skipper';
-    // FloatPlanSheet's precedence: the skipper's vessel-profile roster, else the app crew.
-    const people =
-        view && view.roster.length > 0
-            ? view.roster.map((person) => ({ name: person.name, role: person.rank }))
-            : (view?.manifest ?? [])
-                  .filter((entry) => entry.name)
-                  .map((entry) => ({ name: entry.name, role: crewRoleLabel(entry.role) }));
+    // The skipper's profile roster first, then the app crew not on it, you included (FloatPlanSheet's merge).
+    const people = crewVesselPeople(view, self);
+    const gaps = [!self?.name && 'name', !self?.phone && 'mobile', !self?.age && 'age'].filter((gap): gap is string =>
+        Boolean(gap),
+    );
+    const missing = gaps.length > 1 ? `${gaps.slice(0, -1).join(', ')} and ${gaps[gaps.length - 1]}` : gaps[0];
     const route =
         passage && (passage.departure_port || passage.destination_port)
             ? `${passage.departure_port || '—'} → ${passage.destination_port || '—'}`
@@ -99,11 +113,23 @@ export const CrewFloatPlanCard: React.FC<CrewFloatPlanCardProps> = ({ boatName, 
 
             {people.length > 0 && (
                 <div className="mt-4">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">People aboard</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 mb-1.5">
+                        People aboard: {crewVesselAboard(view, self)}
+                    </p>
                     <ul aria-label="People aboard" className="space-y-1">
                         {people.map((person, index) => (
                             <li key={`${person.name}-${index}`} className="flex items-baseline justify-between gap-3">
-                                <span className="text-[13px] text-white">{person.name}</span>
+                                <span className="text-[13px] text-white">
+                                    {person.name || 'Name not set'}
+                                    {person.isSelf && ' (you)'}
+                                    {person.isSelf && (person.phone || person.age) && (
+                                        <span className="block text-[11px] text-gray-400">
+                                            {[person.phone, person.age && `age ${person.age}`]
+                                                .filter(Boolean)
+                                                .join(' · ')}
+                                        </span>
+                                    )}
+                                </span>
                                 <span className="text-[11px] text-gray-400">{person.role}</span>
                             </li>
                         ))}
@@ -129,6 +155,13 @@ export const CrewFloatPlanCard: React.FC<CrewFloatPlanCardProps> = ({ boatName, 
             <p className="mt-4 text-[12px] leading-relaxed text-sky-200/80">
                 {skipperName} sends {boatName}'s float plan at Cast Off — ask them who holds it.
             </p>
+            {self && sharing && (
+                <p className="mt-2 text-[12px] leading-relaxed text-sky-200/80">
+                    {`Your name, mobile and age from Settings → Vessel Profile go on ${boatName}'s float plan. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.`}
+                    {missing &&
+                        ` Add your ${missing} there: on your own profile you're the Skipper, so your name and age go in the Skipper row under Crew, and your mobile in Skipper mobile.`}
+                </p>
+            )}
         </section>
     );
 };

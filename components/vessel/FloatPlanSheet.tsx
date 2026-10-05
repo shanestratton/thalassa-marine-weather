@@ -35,9 +35,11 @@ import { vesselCrewAboard } from '../../services/units';
 import {
     FLOAT_PLAN_ROLES,
     loadFloatPlanCrew,
+    mergeProfileWithCrew,
     rosterSeedsFromVesselProfile,
     type FloatPlanRosterSeed,
 } from '../../services/floatPlanCrew';
+import { aboardCount } from '../../services/crew/floatPlanPeople';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 const log = createLogger('FloatPlanSheet');
@@ -57,7 +59,7 @@ export interface FloatPlanPreset {
      * the crew-list prefill — the names the skipper already settled on are not
      * overwritten by whoever happens to be on the crew list today.
      */
-    personsRoster?: Array<{ name: string; role?: string; age?: number; medical?: string }>;
+    personsRoster?: Array<{ name: string; role?: string; age?: number; phone?: string; medical?: string }>;
 }
 
 /**
@@ -72,13 +74,23 @@ interface RosterRow {
     name: string;
     role: string;
     age: string;
+    /** A crew member's own phone from their Settings, or typed here (2026-10-04). */
+    phone: string;
     medical: string;
     source?: RosterRowSource;
     crewUserId?: string | null;
 }
 
 function rosterRowFromSeed(seed: FloatPlanRosterSeed): RosterRow {
-    return { name: seed.name, role: seed.role, age: '', medical: '', source: seed.source, crewUserId: seed.crewUserId };
+    return {
+        name: seed.name,
+        role: seed.role,
+        age: seed.shared?.age ? String(seed.shared.age) : '',
+        phone: seed.shared?.phone ?? '',
+        medical: '',
+        source: seed.source,
+        crewUserId: seed.crewUserId,
+    };
 }
 
 function isCrewSeededRow(row: RosterRow): boolean {
@@ -278,6 +290,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 name: person.name,
                 role: person.role ?? '',
                 age: Number.isFinite(person.age) ? String(person.age) : '',
+                phone: person.phone ?? '',
                 medical: person.medical ?? '',
                 source: 'manual' as const,
             })) ?? [],
@@ -288,6 +301,13 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     const [rosterFromCrew, setRosterFromCrew] = useState(false);
     /** The roster came from the vessel profile's own people (Shane 2026-09-09) — the skipper's list, not the invites. */
     const [rosterFromProfile, setRosterFromProfile] = useState(false);
+    /** Accepted crew the merge added beyond the profile's own people (2026-10-05), said aloud so an over-count is never silent. */
+    const [addedFromCrew, setAddedFromCrew] = useState<string[]>([]);
+    // People the profile's "Crew aboard" counts but nobody names, worked out
+    // once when the roster seeds (2026-10-05). Each person the skipper then
+    // adds by hand or from an invite chip fills one; removing a named person
+    // never brings one back, so the count follows his edits both ways.
+    const [unnamedAboard, setUnnamedAboard] = useState(0);
     // Once the skipper has touched the People-aboard stepper the crew count
     // must not overwrite their number, however late the load lands.
     const personsTouchedRef = useRef(false);
@@ -382,6 +402,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     name: person.name,
                     role: person.role || undefined,
                     age: person.age.trim() ? Number(person.age) : undefined,
+                    phone: person.phone.trim() || undefined,
                     medical: person.medical || undefined,
                 })),
             provisionsDays: provisionsDays > 0 ? provisionsDays : undefined,
@@ -425,20 +446,44 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         // only offers its pending invitees as chips.
         const profileSeeds = rosterSeedsFromVesselProfile(vessel);
         const seededFromProfile = profileSeeds.length > 0;
+        const unnamedBeyond = (listed: number) => Math.max(0, aboardCount(listed, vessel?.crewCount) - listed);
+        const profileRows: RosterRow[] = profileSeeds.map((seed) => ({
+            ...rosterRowFromSeed(seed),
+            age: seed.age === null ? '' : String(seed.age),
+        }));
         if (seededFromProfile) {
-            setPersonsRoster(
-                profileSeeds.map((seed) => ({
-                    ...rosterRowFromSeed(seed),
-                    age: seed.age === null ? '' : String(seed.age),
-                })),
-            );
+            setPersonsRoster(profileRows);
+            // Now, not after the render: the crew merge below compares against it.
+            personsRosterRef.current = profileRows;
             setRosterFromProfile(true);
-            if (!personsTouchedRef.current) setPersonsOnBoard(profileSeeds.length);
+            setUnnamedAboard(unnamedBeyond(profileRows.length));
+            if (!personsTouchedRef.current) setPersonsOnBoard(aboardCount(profileRows.length, vessel?.crewCount));
         }
         void (async () => {
             const result = await loadFloatPlanCrew(voyage?.id ?? null);
             if (cancelled || !result || !isAuthIdentityScopeCurrent(scope)) return;
             if (seededFromProfile) {
+                // Accepted crew join the skipper's own list, each person once,
+                // an invitee with their own name, phone and age (Shane
+                // 2026-10-04). Not once the skipper has started editing it.
+                if (personsRosterRef.current === profileRows) {
+                    const merged = mergeProfileWithCrew(profileSeeds, result.aboard);
+                    setPersonsRoster(
+                        merged.map((person) => ({
+                            name: person.name,
+                            role: person.role,
+                            age: person.age ? String(person.age) : '',
+                            phone: person.phone ?? '',
+                            medical: '',
+                            source: 'profile',
+                            crewUserId: person.crewUserId,
+                        })),
+                    );
+                    setAddedFromCrew(
+                        merged.filter((person) => person.added && person.name).map((person) => person.name),
+                    );
+                    setUnnamedAboard(unnamedBeyond(merged.length));
+                }
                 setInvitedCrew(result.invited);
                 return;
             }
@@ -449,7 +494,10 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 setRosterFromCrew(named.length > 0);
                 // An unnamed skipper placeholder alone says nothing about souls
                 // aboard, so the vessel-profile count stands in that case.
-                if (!personsTouchedRef.current && named.length > 0) setPersonsOnBoard(result.aboard.length);
+                if (named.length > 0) setUnnamedAboard(unnamedBeyond(result.aboard.length));
+                if (!personsTouchedRef.current && named.length > 0) {
+                    setPersonsOnBoard(aboardCount(result.aboard.length, vessel?.crewCount));
+                }
             }
             setInvitedCrew(result.invited);
         })();
@@ -465,11 +513,16 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     // add or delete raised the "roster lists N names but persons on board is
     // M" warning until the stepper was corrected by hand. A typed-only roster
     // never drives the count — the vessel-profile souls rule (2026-08-26)
-    // stands there.
+    // stands there. Plus anyone the profile's "Crew aboard" counts but nobody
+    // names (2026-10-04): an unnamed person is still aboard, until the skipper
+    // adds someone in their place (2026-10-05).
     useEffect(() => {
         if (!(rosterFromCrew || rosterFromProfile) || personsTouchedRef.current) return;
-        if (personsRoster.length > 0) setPersonsOnBoard(Math.min(99, personsRoster.length));
-    }, [rosterFromCrew, rosterFromProfile, personsRoster]);
+        const addedByHand = personsRoster.filter((row) => row.source === 'manual' || row.source === 'invite').length;
+        const unnamed = Math.max(0, unnamedAboard - addedByHand);
+        if (personsRoster.length > 0) setPersonsOnBoard(Math.min(99, personsRoster.length + unnamed));
+    }, [rosterFromCrew, rosterFromProfile, personsRoster, unnamedAboard]);
+    const addedStillListed = addedFromCrew.filter((name) => personsRoster.some((row) => row.name === name));
 
     /**
      * Re-read the crew list on request. Replaces only the rows that came from
@@ -484,16 +537,24 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         if (!result || !isAuthIdentityScopeCurrent(scope)) return;
         const previous = personsRosterRef.current;
         // Names and roles come back fresh from the crew list — that is what a
-        // refresh is for. Age and medical never live on the crew list: they are
-        // the skipper's own typing against this person, and a refresh that
-        // wiped "62, on warfarin" would lose the one line a coordinator most
-        // needs. Carried over by crew user id (2026-09-08).
+        // refresh is for. Medical never lives on the crew list: it is the
+        // skipper's own typing against this person, and a refresh that wiped
+        // "on warfarin" would lose the one line a coordinator most needs.
+        // Carried over by crew user id (2026-09-08), as are an age and phone
+        // the person has not shared themselves (2026-10-04).
         const seeded = result.aboard.map((seed) => {
             const row = rosterRowFromSeed(seed);
             const existing = seed.crewUserId
                 ? previous.find((candidate) => candidate.crewUserId === seed.crewUserId)
                 : undefined;
-            return existing ? { ...row, age: existing.age, medical: existing.medical } : row;
+            return existing
+                ? {
+                      ...row,
+                      age: row.age || existing.age,
+                      phone: row.phone || existing.phone,
+                      medical: existing.medical,
+                  }
+                : row;
         });
         const aboardIds = new Set(seeded.map((row) => row.crewUserId).filter(Boolean));
         const kept = previous.filter(
@@ -852,10 +913,17 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                     <div className="mb-2 flex items-center justify-between gap-3">
                         <p className="text-[11px] leading-relaxed text-violet-200/70">
                             {rosterFromProfile
-                                ? 'From your vessel profile — edit, add or remove as you like.'
+                                ? addedFromCrew.length > 0
+                                    ? 'From your vessel profile and crew list — edit, add or remove as you like.'
+                                    : 'From your vessel profile — edit, add or remove as you like.'
                                 : rosterFromCrew
                                   ? 'From your crew list — edit, add or remove as you like.'
                                   : ''}
+                            {rosterFromProfile && addedStillListed.length > 0 && (
+                                <span className="block">
+                                    {`Added from your crew: ${addedStillListed.join(', ')} — remove anyone not aboard.`}
+                                </span>
+                            )}
                         </p>
                         {signedIn && !rosterFromProfile && (
                             <button
@@ -966,6 +1034,21 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                     className="min-h-11 w-20 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-violet-400"
                                 />
                             </div>
+                            {/* A crew member's own mobile arrives filled in (2026-10-04). */}
+                            <input
+                                type="tel"
+                                aria-label={`Person ${index + 1} phone`}
+                                value={person.phone}
+                                onChange={(event) =>
+                                    setPersonsRoster((rows) =>
+                                        rows.map((row, i) =>
+                                            i === index ? { ...row, phone: event.target.value } : row,
+                                        ),
+                                    )
+                                }
+                                placeholder="Mobile (optional)"
+                                className="ml-8 min-h-11 w-[calc(100%-2rem)] rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white outline-hidden placeholder:text-slate-500 focus:border-violet-400"
+                            />
                             <input
                                 type="text"
                                 aria-label={`Person ${index + 1} medical notes`}
@@ -987,7 +1070,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         onClick={() =>
                             setPersonsRoster((rows) => [
                                 ...rows,
-                                { name: '', role: '', age: '', medical: '', source: 'manual' },
+                                { name: '', role: '', age: '', phone: '', medical: '', source: 'manual' },
                             ])
                         }
                         className="min-h-11 w-full rounded-xl border border-dashed border-violet-500/30 text-sm font-semibold text-violet-200 hover:bg-violet-500/10"

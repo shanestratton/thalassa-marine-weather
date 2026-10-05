@@ -58,6 +58,7 @@ vi.mock('../services/vessel/sharedBinders', () => ({
 import {
     crewRoleLabel,
     crewVesselAboard,
+    crewVesselPeople,
     crewVesselName,
     getCachedCrewVesselView,
     loadCrewVesselView,
@@ -557,5 +558,33 @@ describe('crew labels', () => {
                 source: 'rpc',
             }),
         ).toBe(3);
+    });
+
+    it("counts an invitee who is not on the skipper's own list, and a person on both lists once", () => {
+        const view = {
+            ownerId: 'skipper-1',
+            vessel: { name: 'Wandering Albatross', crewCount: 2 },
+            vesselUnits: null,
+            roster: [
+                { name: 'Ana Reyes', rank: 'Skipper' },
+                { name: 'Lena Park', rank: 'Navigator' },
+            ],
+            manifest: [
+                { isSkipper: true, isSelf: false, role: 'skipper', name: 'Capt Ana Reyes' },
+                { isSkipper: false, isSelf: true, role: 'deckhand', name: 'Tom O' },
+                { isSkipper: false, isSelf: false, role: 'navigator', name: 'Lena "Lee" Park' },
+            ],
+            fetchedAt: '2026-10-04T00:00:00.000Z',
+            source: 'rpc' as const,
+        };
+        // The skipper's two named people plus the invitee, who is not on his list.
+        expect(crewVesselPeople(view).map((person) => person.name)).toEqual(['Ana Reyes', 'Lena Park', 'Tom O']);
+        expect(crewVesselAboard(view)).toBe(3);
+        // Your own name from Settings matches you on the skipper's list: still three.
+        const listed = { ...view, roster: [...view.roster, { name: 'Tom Okafor', rank: 'Crew' }] };
+        expect(crewVesselAboard(listed, { name: 'Tom Okafor', phone: null, age: null })).toBe(3);
+        // Without it, the app's "Tom O" is not provably his "Tom Okafor": both
+        // count, rather than a float plan one short.
+        expect(crewVesselAboard(listed)).toBe(4);
     });
 });

@@ -80,6 +80,8 @@ const MARTA: FloatPlanRosterSeed = {
 };
 const LEE: FloatPlanRosterSeed = { name: 'Lee Chen', role: 'Navigator', source: 'crew', crewUserId: 'u-lee' };
 const TOM: FloatPlanRosterSeed = { name: 'Tom', role: 'Guest', source: 'invite', crewUserId: 'u-tom' };
+/** A fictional skipper for the 2026-10-05 tests (the repository is public). */
+const ANA: FloatPlanRosterSeed = { name: 'Ana Reyes', role: 'Skipper', source: 'skipper', crewUserId: 'owner-1' };
 
 const load = vi.mocked(loadFloatPlanCrew);
 
@@ -175,26 +177,140 @@ describe('FloatPlanSheet crew prefill', () => {
         expect(peopleAboard()).toBe('5');
     });
 
-    it('the vessel profile’s own people come first — names, ranks and ages, with the count to match', async () => {
+    it('the vessel profile’s own people come first — names, ranks and ages — then accepted crew, each once', async () => {
         // Shane 2026-09-09: the rows under "Crew Aboard" "auto xfer across to the float plan".
         mocks.vessel.crewCount = 2;
         mocks.vessel.crewRoster = [
-            { name: 'Shane Stratton', age: 58, rank: 'Skipper' },
+            { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
             { name: 'Aunt Beryl', age: 71, rank: 'Guest' },
             { name: 'Left behind', rank: 'Crew' }, // beyond the crew count — not aboard
         ];
         load.mockResolvedValue({ aboard: [SKIPPER, MARTA, LEE], invited: [TOM] });
         render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
         await waitFor(() => expect(screen.getByTestId('float-plan-invite-chip')).toBeInTheDocument());
-        expect(nameInputs().map((input) => input.value)).toEqual(['Shane Stratton', 'Aunt Beryl']);
+        // Shane 2026-10-04: the POB "needs to include the invitee as well as the
+        // others on board". The skipper is his own Skipper row, not a second person.
+        await waitFor(() =>
+            expect(nameInputs().map((input) => input.value)).toEqual([
+                'Ana Reyes',
+                'Aunt Beryl',
+                'Marta "M" Kowalski',
+                'Lee Chen',
+            ]),
+        );
         expect((screen.getByLabelText('Person 1 role') as HTMLSelectElement).value).toBe('Skipper');
         expect((screen.getByLabelText('Person 2 role') as HTMLSelectElement).value).toBe('Guest');
         expect((screen.getByLabelText('Person 2 age') as HTMLInputElement).value).toBe('71');
-        expect(peopleAboard()).toBe('2');
-        expect(screen.getByText('From your vessel profile — edit, add or remove as you like.')).toBeInTheDocument();
-        // The crew list is not layered on top of the skipper's own list; only its invitees are offered.
-        expect(nameInputs().map((input) => input.value)).not.toContain('Lee Chen');
+        expect((screen.getByLabelText('Person 3 role') as HTMLSelectElement).value).toBe('First mate');
+        expect(peopleAboard()).toBe('4');
+        expect(screen.queryByText(/The roster lists/)).not.toBeInTheDocument();
+        // Who joined from the crew list is said, so an over-count is never silent.
+        expect(
+            screen.getByText('From your vessel profile and crew list — edit, add or remove as you like.'),
+        ).toBeInTheDocument();
+        expect(
+            screen.getByText('Added from your crew: Marta "M" Kowalski, Lee Chen — remove anyone not aboard.'),
+        ).toBeInTheDocument();
         expect(screen.queryByTestId('float-plan-roster-refresh')).toBeNull();
+
+        // Lee is not coming this time: the line and the count follow.
+        fireEvent.click(screen.getByRole('button', { name: 'Remove person 4' }));
+        expect(peopleAboard()).toBe('3');
+        expect(
+            screen.getByText('Added from your crew: Marta "M" Kowalski — remove anyone not aboard.'),
+        ).toBeInTheDocument();
+    });
+
+    it('says nothing about the crew list when it adds nobody', async () => {
+        mocks.vessel.crewCount = 2;
+        mocks.vessel.crewRoster = [
+            { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
+            { name: 'Ben Cole', age: 44, rank: 'Crew' },
+        ];
+        load.mockResolvedValue({ aboard: [ANA], invited: [] });
+        render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+        await waitFor(() => expect(load).toHaveBeenCalled());
+        await waitFor(() =>
+            expect(screen.getByText('From your vessel profile — edit, add or remove as you like.')).toBeInTheDocument(),
+        );
+        expect(screen.queryByText(/Added from your crew/)).toBeNull();
+    });
+
+    it("a named person removed from the profile's list drops the count, Crew aboard number or not", async () => {
+        // Three aboard, all named; one is not coming this time.
+        mocks.vessel.crewCount = 3;
+        mocks.vessel.crewRoster = [
+            { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
+            { name: 'Ben Cole', age: 44, rank: 'Crew' },
+            { name: 'Cara Diaz', age: 39, rank: 'Crew' },
+        ];
+        load.mockResolvedValue({ aboard: [ANA], invited: [] });
+        render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+        await waitFor(() => expect(load).toHaveBeenCalled());
+        await waitFor(() => expect(nameInputs()).toHaveLength(3));
+        expect(peopleAboard()).toBe('3');
+        fireEvent.click(screen.getByRole('button', { name: 'Remove person 3' }));
+        expect(peopleAboard()).toBe('2');
+        expect(screen.queryByText(/The roster lists/)).toBeNull();
+    });
+
+    it('an unnamed person the profile counts stays counted until someone is added in their place', async () => {
+        mocks.vessel.crewCount = 3;
+        mocks.vessel.crewRoster = [
+            { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
+            { name: 'Ben Cole', age: 44, rank: 'Crew' },
+            { name: '' },
+        ];
+        load.mockResolvedValue({ aboard: [ANA], invited: [] });
+        render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+        await waitFor(() => expect(load).toHaveBeenCalled());
+        await waitFor(() => expect(nameInputs()).toHaveLength(2));
+        expect(peopleAboard()).toBe('3');
+        // Ben is not coming: two aboard, Ana and the unnamed person.
+        fireEvent.click(screen.getByRole('button', { name: 'Remove person 2' }));
+        expect(peopleAboard()).toBe('2');
+        // The skipper names the unnamed person: still two.
+        fireEvent.click(screen.getByRole('button', { name: '+ Add person' }));
+        expect(peopleAboard()).toBe('2');
+        // Anyone added after that is one more.
+        fireEvent.click(screen.getByRole('button', { name: '+ Add person' }));
+        expect(peopleAboard()).toBe('3');
+    });
+
+    it('puts an invitee on with their own name, phone and age, once, and counts them', async () => {
+        mocks.vessel.crewCount = 2;
+        mocks.vessel.crewRoster = [
+            { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
+            { name: 'Marta', age: 30, rank: 'First mate' },
+        ];
+        const shared: FloatPlanRosterSeed = {
+            name: 'Marta Kowalski',
+            role: 'First mate',
+            source: 'crew',
+            crewUserId: 'u-m',
+            shared: { name: 'Marta Kowalski', phone: '0491 570 157', age: 29, appName: 'Marta "M" Kowalski' },
+        };
+        load.mockResolvedValue({ aboard: [SKIPPER, shared, LEE], invited: [] });
+        render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+        await waitFor(() => expect(nameInputs()).toHaveLength(3));
+        expect(nameInputs().map((input) => input.value)).toEqual(['Ana Reyes', 'Marta Kowalski', 'Lee Chen']);
+        expect((screen.getByLabelText('Person 2 phone') as HTMLInputElement).value).toBe('0491 570 157');
+        expect((screen.getByLabelText('Person 2 age') as HTMLInputElement).value).toBe('29');
+        expect((screen.getByLabelText('Person 3 phone') as HTMLInputElement).value).toBe('');
+        expect(peopleAboard()).toBe('3');
+        // The plan itself carries the phone beside the name.
+        expect(document.body.textContent).toContain('Marta Kowalski — First mate, 29, mobile 0491 570 157');
+    });
+
+    it("never counts fewer than the profile's own Crew aboard number", async () => {
+        mocks.vessel.crewCount = 4;
+        mocks.vessel.crewRoster = [{ name: 'Ana Reyes', age: 51, rank: 'Skipper' }, { name: '' }, { name: '' }];
+        load.mockResolvedValue({ aboard: [SKIPPER, LEE], invited: [] });
+        render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+        await waitFor(() => expect(nameInputs()).toHaveLength(2));
+        // Two named, two more the profile says are aboard: four, and a nudge to name them.
+        expect(peopleAboard()).toBe('4');
+        expect(screen.getByText('The roster lists 2 names but persons on board is 4.')).toBeInTheDocument();
     });
 
     it('offers a pending invitee as a chip that adds a row and disappears', async () => {
