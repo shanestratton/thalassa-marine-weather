@@ -32,7 +32,13 @@ vi.mock('../components/crewManagement/activeOwnedBoat', () => ({
     activeOwnedBoatId: boatMocks.activeOwnedBoatId,
 }));
 
-import { crewRoleToFloatPlanRole, loadFloatPlanCrew, renderCrewDisplayName } from '../services/floatPlanCrew';
+import {
+    crewRoleToFloatPlanRole,
+    loadFloatPlanCrew,
+    mergeProfileWithCrew,
+    renderCrewDisplayName,
+    rosterSeedsFromVesselProfile,
+} from '../services/floatPlanCrew';
 
 const OWNER = 'owner-1';
 
@@ -71,15 +77,18 @@ function signedInAs(userId: string, metadata: Record<string, string> = {}) {
 function tables(config: {
     crew: { data: unknown; error: { message: string } | null };
     members: { data: unknown; error: { message: string } | null };
+    details?: { data: unknown; error: { message: string; code?: string } | null };
 }) {
     const crew = queryBuilder(config.crew);
     const members = queryBuilder(config.members);
+    const details = queryBuilder(config.details ?? { data: [], error: null });
     supabaseMocks.from.mockImplementation((table: string) => {
         if (table === 'vessel_crew') return crew;
         if (table === 'boat_members') return members;
+        if (table === 'crew_float_plan_details') return details;
         throw new Error(`unexpected table ${table}`);
     });
-    return { crew, members };
+    return { crew, members, details };
 }
 
 describe('renderCrewDisplayName', () => {
@@ -294,5 +303,112 @@ describe('loadFloatPlanCrew', () => {
 
         supabaseMocks.getUser.mockRejectedValue(new Error('offline'));
         expect(await loadFloatPlanCrew()).toBeNull();
+    });
+
+    describe("an invitee's own name, phone and age (Shane 2026-10-04)", () => {
+        const crewRows = {
+            data: [
+                crewRow({ crew_user_id: 'u-tom', crew_email: 'tom.o@example.com', role: 'deckhand' }),
+                crewRow({ crew_user_id: 'u-lee', crew_email: 'lee@example.com', role: 'navigator' }),
+                crewRow({ crew_user_id: 'u-pending', crew_email: 'p@example.com', status: 'pending' }),
+            ],
+            error: null,
+        };
+        // A fictional skipper: the repository is public.
+        beforeEach(() => {
+            signedInAs(OWNER, { first_name: 'Ana', last_name: 'Reyes' });
+        });
+
+        it('reads what accepted crew shared, for accepted crew only, and their own name wins', async () => {
+            const { details } = tables({
+                crew: crewRows,
+                members: { data: [], error: null },
+                details: {
+                    data: [{ user_id: 'u-tom', full_name: 'Thomas Okafor', phone: '0491 570 156', age: 34 }],
+                    error: null,
+                },
+            });
+
+            const result = await loadFloatPlanCrew();
+
+            expect(details.select).toHaveBeenCalledWith('user_id, full_name, phone, age');
+            expect(details.in).toHaveBeenCalledWith('user_id', ['u-tom', 'u-lee']);
+            expect(result!.aboard[1]).toEqual({
+                name: 'Thomas Okafor',
+                role: 'Deckhand',
+                source: 'crew',
+                crewUserId: 'u-tom',
+                shared: { name: 'Thomas Okafor', phone: '0491 570 156', age: 34, appName: 'Tom O' },
+            });
+            // Nothing shared: the app's name, and no phone or age.
+            expect(result!.aboard[2]).toEqual({ name: 'Lee', role: 'Navigator', source: 'crew', crewUserId: 'u-lee' });
+        });
+
+        it.each(['PGRST205', '42P01', 'PGRST202', '42883'])(
+            'is quiet before the migration is pushed (%s): no warning, the names stand',
+            async (code) => {
+                const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+                tables({
+                    crew: crewRows,
+                    members: { data: [], error: null },
+                    details: { data: null, error: { message: 'not there yet', code } },
+                });
+                const result = await loadFloatPlanCrew();
+                expect(result!.aboard.map((seed) => seed.name)).toEqual(['Ana Reyes', 'Tom O', 'Lee']);
+                expect(warn).not.toHaveBeenCalled();
+                warn.mockRestore();
+            },
+        );
+
+        it('says why when the details read fails for any other reason', async () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            tables({
+                crew: crewRows,
+                members: { data: [], error: null },
+                details: { data: null, error: { message: 'permission denied', code: '42501' } },
+            });
+            const result = await loadFloatPlanCrew();
+            expect(result!.aboard.map((seed) => seed.name)).toEqual(['Ana Reyes', 'Tom O', 'Lee']);
+            expect(warn).toHaveBeenCalledWith(
+                '[floatPlanCrew]',
+                'float plan crew: shared details read failed',
+                'permission denied',
+            );
+            warn.mockRestore();
+        });
+
+        it('skips the read when nobody has accepted', async () => {
+            const { details } = tables({ crew: { data: [], error: null }, members: { data: [], error: null } });
+            await loadFloatPlanCrew();
+            expect(details.select).not.toHaveBeenCalled();
+        });
+
+        it("merges accepted crew into the skipper's own list once, with their details", () => {
+            const profile = rosterSeedsFromVesselProfile({
+                crewCount: 3,
+                crewRoster: [
+                    { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
+                    { name: 'Tom', age: 33, rank: 'Crew' },
+                    { name: 'Aunt Beryl', age: 71, rank: 'Guest' },
+                ],
+            });
+            const merged = mergeProfileWithCrew(profile, [
+                { name: 'Capt. Ana Reyes', role: 'Skipper', source: 'skipper', crewUserId: OWNER },
+                {
+                    name: 'Thomas Okafor',
+                    role: 'Deckhand',
+                    source: 'crew',
+                    crewUserId: 'u-tom',
+                    shared: { name: 'Thomas Okafor', phone: '0491 570 156', age: 34, appName: 'Tom O' },
+                },
+                { name: 'Lee', role: 'Navigator', source: 'crew', crewUserId: 'u-lee' },
+            ]);
+            expect(merged.map((person) => [person.name, person.role, person.age, person.phone])).toEqual([
+                ['Ana Reyes', 'Skipper', 51, null],
+                ['Thomas Okafor', 'Crew', 34, '0491 570 156'],
+                ['Aunt Beryl', 'Guest', 71, null],
+                ['Lee', 'Navigator', null, null],
+            ]);
+        });
     });
 });

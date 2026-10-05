@@ -29,6 +29,7 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentity
 import type { CrewInviteStatus, CrewRole } from './CrewService';
 import { activeOwnedBoatId } from '../components/crewManagement/activeOwnedBoat';
 import { createLogger } from '../utils/createLogger';
+import { floatPlanSelfDetails, isNotPushedYet, mergeAboard, type FloatPlanSelfDetails } from './crew/floatPlanPeople';
 
 const log = createLogger('floatPlanCrew');
 
@@ -55,6 +56,12 @@ export type FloatPlanRosterSeed = {
     role: string;
     source: 'skipper' | 'crew' | 'invite' | 'profile';
     crewUserId?: string | null;
+    /**
+     * An accepted crew member's own name, phone and age from THEIR Settings,
+     * shared for this float plan (crew_float_plan_details, 2026-10-04).
+     * `name` is already theirs; `appName` is what the app calls them.
+     */
+    shared?: FloatPlanSelfDetails & { appName: string };
 };
 
 export interface FloatPlanCrew {
@@ -272,15 +279,47 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
                 nickname: typeof meta.nickname === 'string' ? meta.nickname : null,
             });
 
-        const toSeed = (row: VesselCrewRow, source: 'crew' | 'invite'): FloatPlanRosterSeed => ({
-            name: renderCrewDisplayName(
+        // Accepted crew's own name, phone and age (Shane 2026-10-04: "the
+        // invitee needs to use the name and phone number and age from the
+        // vessel profile in settings"). RLS shows a skipper only his accepted
+        // crew's rows. Optional: before the 20261004120000 push, or on any
+        // error, the names above still stand.
+        const shared = new Map<string, FloatPlanSelfDetails>();
+        const acceptedIds = accepted.map((row) => row.crew_user_id).filter((id): id is string => Boolean(id));
+        if (acceptedIds.length > 0) {
+            const { data, error } = await supabase
+                .from('crew_float_plan_details')
+                .select('user_id, full_name, phone, age')
+                .in('user_id', acceptedIds);
+            if (!isAuthIdentityScopeCurrent(scope)) return null;
+            // Before the push the table is missing: quiet, one read per open.
+            if (error && !isNotPushedYet(error)) {
+                log.warn('float plan crew: shared details read failed', error.message);
+            }
+            for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+                if (typeof row?.user_id !== 'string') continue;
+                const own = floatPlanSelfDetails({
+                    contactPhone: row.phone as string,
+                    crewRoster: [{ name: row.full_name as string, age: row.age as number }],
+                });
+                if (own.name || own.phone || own.age) shared.set(row.user_id, own);
+            }
+        }
+
+        const toSeed = (row: VesselCrewRow, source: 'crew' | 'invite'): FloatPlanRosterSeed => {
+            const appName = renderCrewDisplayName(
                 row.crew_user_id ? names.get(row.crew_user_id) : undefined,
                 row.crew_email ?? undefined,
-            ),
-            role: crewRoleToFloatPlanRole(row.role),
-            source,
-            crewUserId: row.crew_user_id ?? null,
-        });
+            );
+            const own = source === 'crew' && row.crew_user_id ? shared.get(row.crew_user_id) : undefined;
+            return {
+                name: own?.name || appName,
+                role: crewRoleToFloatPlanRole(row.role),
+                source,
+                crewUserId: row.crew_user_id ?? null,
+                ...(own ? { shared: { ...own, appName } } : {}),
+            };
+        };
 
         return {
             aboard: [
@@ -321,4 +360,27 @@ export function rosterSeedsFromVesselProfile(
         const age = typeof row.age === 'number' && Number.isFinite(row.age) && row.age > 0 ? Math.round(row.age) : null;
         return [{ name, role: rank || (index === 0 ? 'Skipper' : 'Crew'), source: 'profile' as const, age }];
     });
+}
+
+/**
+ * The vessel profile's people, then the accepted crew not already among them
+ * (Shane 2026-10-04: the POB "needs to include the invitee as well as the
+ * others on board"), each once, an invitee with their own name, phone and age.
+ */
+export function mergeProfileWithCrew(
+    profile: ReturnType<typeof rosterSeedsFromVesselProfile>,
+    aboard: FloatPlanRosterSeed[],
+) {
+    return mergeAboard(
+        profile,
+        aboard.map((seed) => ({
+            appName: seed.shared?.appName ?? seed.name,
+            ownName: seed.shared?.name,
+            role: seed.role,
+            isSkipper: seed.source === 'skipper',
+            crewUserId: seed.crewUserId,
+            age: seed.shared?.age,
+            phone: seed.shared?.phone,
+        })),
+    );
 }

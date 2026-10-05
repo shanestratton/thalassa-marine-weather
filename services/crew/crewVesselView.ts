@@ -32,6 +32,7 @@ import {
     type AuthIdentityScope,
 } from '../authIdentityScope';
 import { listCrewVessels } from '../vessel/sharedBinders';
+import { aboardCount, mergeAboard, type AboardPerson, type FloatPlanSelfDetails } from './floatPlanPeople';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CrewVesselView');
@@ -157,12 +158,35 @@ export function crewVesselName(
     return view?.vessel?.name?.trim() || snapshotName?.trim() || null;
 }
 
-/** Souls aboard: the larger of the skipper's profile count and the app crew. Null without a view. */
-export function crewVesselAboard(view: CrewVesselView | null | undefined): number | null {
-    if (!view) return null;
-    const profileCount = view.vessel?.crewCount;
-    const counted = typeof profileCount === 'number' && Number.isFinite(profileCount) ? Math.round(profileCount) : 0;
-    return Math.max(counted, view.manifest.length, 1);
+/**
+ * Who is aboard the skipper's boat, each person once (2026-10-04): his
+ * profile roster's names and ranks, then the app crew not already on it. The
+ * caller's own row carries their own name, phone and age from their Settings
+ * (`self`); everyone else is a name and a role.
+ */
+export function crewVesselPeople(
+    view: CrewVesselView | null | undefined,
+    self?: FloatPlanSelfDetails | null,
+): AboardPerson[] {
+    if (!view) return [];
+    return mergeAboard(
+        view.roster.map((person) => ({ name: person.name, role: person.rank })),
+        view.manifest.map((entry) => ({
+            appName: entry.name,
+            role: crewRoleLabel(entry.role),
+            isSkipper: entry.isSkipper,
+            isSelf: entry.isSelf,
+            ...(entry.isSelf && self ? { ownName: self.name, phone: self.phone, age: self.age } : {}),
+        })),
+    );
+}
+
+/** Souls aboard: everyone on crewVesselPeople, never fewer than the skipper's profile count. Null without a view. */
+export function crewVesselAboard(
+    view: CrewVesselView | null | undefined,
+    self?: FloatPlanSelfDetails | null,
+): number | null {
+    return view ? aboardCount(crewVesselPeople(view, self).length, view.vessel?.crewCount) : null;
 }
 
 // ── Parsing (defence in depth: the allow-list again, client side) ──

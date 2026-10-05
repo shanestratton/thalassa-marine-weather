@@ -52,6 +52,8 @@ export interface FloatPlanInput {
         /** Skipper, First mate, Cook, Deckhand… */
         role?: string;
         age?: number;
+        /** Their own mobile — an invitee's arrives from their Settings (2026-10-04). */
+        phone?: string;
         /** Anything a coordinator would want known — "diabetic", "non-swimmer". */
         medical?: string;
         /** Legacy free text, kept so older saved plans still render. */
@@ -297,7 +299,8 @@ export function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
     const rosterLines = (input.personsRoster ?? [])
         .map((person) => {
             const age = Number.isFinite(person.age) && (person.age ?? 0) > 0 ? `${person.age}` : '';
-            const detail = [oneLine(person.role), age, oneLine(person.medical), oneLine(person.note)]
+            const phone = oneLine(person.phone) ? `mobile ${oneLine(person.phone)}` : '';
+            const detail = [oneLine(person.role), age, phone, oneLine(person.medical), oneLine(person.note)]
                 .filter(Boolean)
                 .join(', ');
             return { name: oneLine(person.name), detail };

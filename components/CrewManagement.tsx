@@ -125,6 +125,8 @@ import { SKIPPER_BOAT_FALLBACK } from './vessel/SharedBinderLine';
 import { CrewingVesselPanel, crewBoatName } from './crewManagement/CrewingVesselPanel';
 import { CrewFloatPlanCard } from './crewManagement/CrewFloatPlanCard';
 import { type VesselProfileOverride } from './passage/VesselProfileSummary';
+import { floatPlanSelfDetails } from '../services/crew/floatPlanPeople';
+import { shareMyFloatPlanDetails } from '../services/crew/crewFloatPlanDetails';
 
 /** Re-exported here so every existing importer of this module is unchanged. */
 export type { VoyageRow } from './crewManagement/types';
@@ -1861,6 +1863,23 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (lastCrewOwnerRef.current && lastCrewOwnerRef.current !== crewingOwnerId) setShowOwnBoat(false);
         lastCrewOwnerRef.current = crewingOwnerId;
     }, [crewingOwnerId]);
+    // Your own name, phone and age from Settings go on the skipper's float
+    // plan (Shane 2026-10-04), shared while his boat is the one shown. Only
+    // what this device has, never a clear (a clear is an edit in Settings).
+    // The card says so only once the server has them, never before it
+    // answers or after a failure.
+    const myFloatPlan = useMemo(() => floatPlanSelfDetails(settings.vessel), [settings.vessel]);
+    const [floatPlanSharing, setFloatPlanSharing] = useState(false);
+    useEffect(() => {
+        if (!crewingView) return undefined;
+        let active = true;
+        void shareMyFloatPlanDetails(myFloatPlan).then((result) => {
+            if (active) setFloatPlanSharing(['shared', 'cleared', 'unchanged', 'empty'].includes(result));
+        });
+        return () => {
+            active = false;
+        };
+    }, [crewingView, crewingOwnerId, myFloatPlan]);
     // "You're crew on <boat>" once an Accept has reached the snapshot.
     useEffect(() => {
         const owner = acceptedOwnerRef.current;
@@ -1902,7 +1921,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             ? ''
             : selectedPassageId;
     const pageVoyages = crewingView ? crewPassages : draftVoyages;
-    const crewAboard = crewVesselAboard(crewView);
+    const crewAboard = crewVesselAboard(crewView, myFloatPlan);
     // The skipper's boat for the readiness cards on their passage. Memoised:
     // Weather Windows keys its analysis on this boat. `fullProfile` is false
     // until the RPC's brief is here (the degraded read has no cruising speed,
@@ -2342,6 +2361,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             boatName={crewBoat}
                             view={crewView}
                             passage={pageSelectedPassageId ? (selectedVoyage ?? null) : null}
+                            self={myFloatPlan}
+                            sharing={floatPlanSharing}
                         />
                         <p className="mt-2 text-center text-[11px] leading-relaxed text-gray-500">
                             {`You're crewing on ${crewBoat}, so ${ownBoatName ? `${ownBoatName}'s` : 'your own'} crew and plans are hidden here. `}

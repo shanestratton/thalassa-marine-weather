@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => ({
     getDraftVoyages: vi.fn(),
     getCachedDraftVoyages: vi.fn(),
     loadCrewVesselView: vi.fn(),
+    shareFloatPlanDetails: vi.fn(),
     vessel: { name: 'Kestrel', type: 'sail', crewCount: 2, cruisingSpeed: 6 } as Record<string, unknown>,
 }));
 
@@ -88,6 +89,10 @@ vi.mock('../services/CrewService', () => ({
 vi.mock('../services/crew/crewVesselView', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/crew/crewVesselView')>()),
     loadCrewVesselView: mocks.loadCrewVesselView,
+}));
+
+vi.mock('../services/crew/crewFloatPlanDetails', () => ({
+    shareMyFloatPlanDetails: mocks.shareFloatPlanDetails,
 }));
 
 vi.mock('../services/PassagePlanService', () => {
@@ -365,6 +370,7 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         } satisfies AuthorizedSharedVoyagesResult);
         mocks.getPassageStatus.mockResolvedValue(noAccess);
         mocks.leaveVessel.mockResolvedValue(true);
+        mocks.shareFloatPlanDetails.mockResolvedValue('skipped');
         mocks.loadCrewVesselView.mockImplementation(
             async (): Promise<CrewVesselViewResult> => ({ status: 'fresh', view: VIEW }),
         );
@@ -409,6 +415,68 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
             screen.getByText(/You're crewing on Wandering Albatross, so Kestrel's crew and plans are hidden here\./),
         ).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Show Kestrel' })).toBeInTheDocument();
+    });
+
+    it("shares your own name, phone and age from Settings with the skipper's float plan, and says so", async () => {
+        // Shane 2026-10-04: "the invitee needs to use the name and phone number
+        // and age from the vessel profile in settings for the float plan".
+        mocks.vessel = {
+            ...mocks.vessel,
+            contactPhone: '0491 570 156',
+            crewRoster: [{ name: 'Thomas Okafor', age: 34, rank: 'Skipper' }],
+        };
+        mocks.shareFloatPlanDetails.mockResolvedValue('shared');
+        renderPage();
+
+        const card = await screen.findByTestId('crew-float-plan-card');
+        await waitFor(() =>
+            expect(mocks.shareFloatPlanDetails).toHaveBeenCalledWith({
+                name: 'Thomas Okafor',
+                phone: '0491 570 156',
+                age: 34,
+            }),
+        );
+        expect(within(card).getByText('Thomas Okafor (you)')).toBeInTheDocument();
+        expect(within(card).getByText('0491 570 156 · age 34')).toBeInTheDocument();
+        expect(within(card).getByText('People aboard: 4')).toBeInTheDocument();
+        expect(
+            await within(card).findByText(
+                "Your name, mobile and age from Settings → Vessel Profile go on Wandering Albatross's float plan. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.",
+            ),
+        ).toBeInTheDocument();
+        // Nobody else's phone or age is anywhere on the page.
+        expect(screen.queryAllByText(/· age /)).toHaveLength(1);
+    });
+
+    it('says nothing about sharing before the server can take your details', async () => {
+        mocks.shareFloatPlanDetails.mockResolvedValue('unavailable');
+        renderPage();
+        const card = await screen.findByTestId('crew-float-plan-card');
+        await waitFor(() => expect(mocks.shareFloatPlanDetails).toHaveBeenCalled());
+        await waitFor(() => expect(within(card).queryByText(/skippers you crew for see them/)).toBeNull());
+    });
+
+    it('says nothing about sharing until the server has answered, and nothing after a failed share', async () => {
+        mocks.vessel = {
+            ...mocks.vessel,
+            contactPhone: '0491 570 156',
+            crewRoster: [{ name: 'Thomas Okafor', age: 34, rank: 'Skipper' }],
+        };
+        let answer: (result: string) => void = () => undefined;
+        mocks.shareFloatPlanDetails.mockReturnValue(
+            new Promise<string>((resolve) => {
+                answer = resolve;
+            }),
+        );
+        renderPage();
+        const card = await screen.findByTestId('crew-float-plan-card');
+        await waitFor(() => expect(mocks.shareFloatPlanDetails).toHaveBeenCalled());
+        // Still waiting: no claim yet.
+        expect(within(card).queryByText(/skippers you crew for see them/)).toBeNull();
+        await act(async () => answer('failed'));
+        expect(within(card).queryByText(/skippers you crew for see them/)).toBeNull();
+        // Your own details still show on your own row.
+        expect(within(card).getByText('0491 570 156 · age 34')).toBeInTheDocument();
     });
 
     it("lists only that skipper's planning or active passages, labelled From <boat>", async () => {

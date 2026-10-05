@@ -59,10 +59,10 @@ describe('CrewFloatPlanCard', () => {
         expect(card.textContent).not.toMatch(/Send|Copy|PDF|Share/);
     });
 
-    it("lists the skipper's profile roster first, else the app crew (the sheet's precedence)", () => {
+    it("lists the skipper's profile roster first, then the app crew not on it — you included", () => {
         const { rerender } = render(<CrewFloatPlanCard boatName="Wandering Albatross" view={VIEW} passage={null} />);
         let people = within(screen.getByRole('list', { name: 'People aboard' })).getAllByRole('listitem');
-        expect(people.map((item) => item.textContent)).toEqual(['Capt Ana ReyesSkipper', 'Tom OkaforDeckhand']);
+        expect(people.map((item) => item.textContent)).toEqual(['Capt Ana ReyesSkipper', 'Tom Okafor (you)Deckhand']);
 
         rerender(
             <CrewFloatPlanCard
@@ -78,7 +78,13 @@ describe('CrewFloatPlanCard', () => {
             />,
         );
         people = within(screen.getByRole('list', { name: 'People aboard' })).getAllByRole('listitem');
-        expect(people.map((item) => item.textContent)).toEqual(['Ana ReyesSkipper', 'Sam ExampleGuest']);
+        // Shane 2026-10-04: the POB "needs to include the invitee as well as the others on board".
+        expect(people.map((item) => item.textContent)).toEqual([
+            'Ana ReyesSkipper',
+            'Sam ExampleGuest',
+            'Tom Okafor (you)Deckhand',
+        ]);
+        expect(screen.getByText('People aboard: 3')).toBeInTheDocument();
     });
 
     it('shows the selected shared passage', () => {
@@ -116,5 +122,93 @@ describe('CrewFloatPlanCard', () => {
         expect(
             screen.getByText("The skipper sends Wandering Albatross's float plan at Cast Off — ask them who holds it."),
         ).toBeInTheDocument();
+    });
+
+    describe('your own details (Shane 2026-10-04)', () => {
+        const SELF = { name: 'Thomas Okafor', phone: '0491 570 156', age: 34 };
+        const WITH_ROSTER: CrewVesselView = {
+            ...VIEW,
+            vessel: { ...VIEW.vessel, crewCount: 2 },
+            roster: [
+                { name: 'Ana Reyes', rank: 'Skipper' },
+                { name: 'Sam Example', rank: 'Guest' },
+            ],
+            manifest: [...VIEW.manifest, { isSkipper: false, isSelf: false, role: 'navigator', name: 'Lena Park' }],
+        };
+
+        it('shows your own name, phone and age; everyone else is a name and a role; the count is everyone', () => {
+            render(<CrewFloatPlanCard boatName="Wandering Albatross" view={WITH_ROSTER} passage={null} self={SELF} />);
+            const list = screen.getByRole('list', { name: 'People aboard' });
+            expect(
+                within(list)
+                    .getAllByRole('listitem')
+                    .map((item) => item.textContent),
+            ).toEqual([
+                'Ana ReyesSkipper',
+                'Sam ExampleGuest',
+                'Thomas Okafor (you)0491 570 156 · age 34Deckhand',
+                'Lena ParkNavigator',
+            ]);
+            // Four people, though the skipper's profile still says two.
+            expect(screen.getByText('People aboard: 4')).toBeInTheDocument();
+        });
+
+        it('says where your details go and who sees them', () => {
+            render(<CrewFloatPlanCard boatName="Wandering Albatross" view={WITH_ROSTER} passage={null} self={SELF} />);
+            // Not "only your skipper": the plan goes to whoever they send it to, and
+            // the one shared row is read by every skipper you crew for.
+            expect(
+                screen.getByText(
+                    "Your name, mobile and age from Settings → Vessel Profile go on Wandering Albatross's float plan. In the app only the skippers you crew for see them; the float plan itself goes to whoever they send it to.",
+                ),
+            ).toBeInTheDocument();
+        });
+
+        it('asks for what is missing from Settings', () => {
+            render(
+                <CrewFloatPlanCard
+                    boatName="Wandering Albatross"
+                    view={WITH_ROSTER}
+                    passage={null}
+                    self={{ name: null, phone: null, age: null }}
+                />,
+            );
+            // Names the fields as Settings labels them: on your own profile you are the Skipper.
+            expect(
+                screen.getByText(
+                    /Add your name, mobile and age there: on your own profile you're the Skipper, so your name and age go in the Skipper row under Crew, and your mobile in Skipper mobile\./,
+                ),
+            ).toBeInTheDocument();
+            // No name of your own: the app's name for you stands.
+            expect(screen.getByText('Tom Okafor (you)')).toBeInTheDocument();
+        });
+
+        it('asks only for what is missing', () => {
+            render(
+                <CrewFloatPlanCard
+                    boatName="Wandering Albatross"
+                    view={WITH_ROSTER}
+                    passage={null}
+                    self={{ ...SELF, age: null }}
+                    sharing
+                />,
+            );
+            expect(screen.getByText(/Add your age there:/)).toBeInTheDocument();
+        });
+
+        it('says nothing about sharing while the server cannot take them yet', () => {
+            render(
+                <CrewFloatPlanCard
+                    boatName="Wandering Albatross"
+                    view={WITH_ROSTER}
+                    passage={null}
+                    self={SELF}
+                    sharing={false}
+                />,
+            );
+            expect(screen.queryByText(/skippers you crew for see them/)).toBeNull();
+            // Your own row still shows your own details: they are yours.
+            expect(screen.getByText('0491 570 156 · age 34')).toBeInTheDocument();
+        });
     });
 });

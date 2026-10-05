@@ -142,6 +142,7 @@ import { usePendingCrewInvites } from './vesselHub/usePendingCrewInvites';
 import { useCrewingVessel } from '../hooks/useCrewingVessel';
 import { useCrewVesselView } from '../hooks/useCrewVesselView';
 import { crewVesselAboard, crewVesselName } from '../services/crew/crewVesselView';
+import { floatPlanSelfDetails } from '../services/crew/floatPlanPeople';
 import { SKIPPER_BOAT_FALLBACK } from './vessel/SharedBinderLine';
 import { useTripLogActive } from './vesselHub/useTripLogActive';
 
@@ -560,7 +561,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         setPassageCrewCount(0);
         void loadPassageCrew();
     }, [loadPassageCrew]);
-    const passageCrewCountShown = crewingOwnerId ? (crewVesselAboard(crewingBoatView) ?? 0) : passageCrewCount;
+    const passageCrewCountShown = crewingOwnerId
+        ? (crewVesselAboard(crewingBoatView, floatPlanSelfDetails(ctx.vessel)) ?? 0)
+        : passageCrewCount;
     const crewingBoatName = crewingOwnerId
         ? crewVesselName(crewingVessel?.vesselName, crewingBoatView) || SKIPPER_BOAT_FALLBACK
         : null;
