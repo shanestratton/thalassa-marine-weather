@@ -8,6 +8,14 @@ import {
 } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
 
+/**
+ * The Obs chart's zoom on the vessel: where it opens and where the find-boat
+ * button flies (Shane 2026-10-06: "default to the vessel zoomed in at zoom 14
+ * in the centre"; the find-boat button since 2026-10-05). Other charts keep
+ * the z10 boot.
+ */
+export const OBS_VESSEL_ZOOM = 14;
+
 /** Centre OBS once on a real fix; weather/home selections never own this camera. */
 export function useObsStartupCamera(
     mapRef: MutableRefObject<mapboxgl.Map | null>,
@@ -51,7 +59,7 @@ export function useObsStartupCamera(
             if (disposed || finished.current || !enabledRef.current || mapRef.current !== map || !position) return;
             finished.current = true;
             dispose();
-            map.jumpTo({ center: [position.lon, position.lat], zoom: 10 });
+            map.jumpTo({ center: [position.lon, position.lat], zoom: OBS_VESSEL_ZOOM });
         };
         const centreCached = () => centre(getCachedOwnshipPosition());
 

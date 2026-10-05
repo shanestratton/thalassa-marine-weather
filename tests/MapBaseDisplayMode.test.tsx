@@ -28,7 +28,7 @@ function Harness({ saved, save }: { saved?: unknown; save?: (value: MapBaseKind)
 
 describe('OBS opens on Relief (Shane 2026-10-04: the satellite stitching)', () => {
     it('defaults to Relief once the relief tiles are configured', () => {
-        expect(defaultMapBase('https://relief.example.r2.dev/v1')).toBe('relief');
+        expect(defaultMapBase('https://relief.example.r2.dev/v1')).toBe('reliefSat');
     });
 
     // Review 2026-10-05: with no tile address (the R2 upload not done), a

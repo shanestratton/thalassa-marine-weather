@@ -28,6 +28,7 @@ import { registerChartMap } from './chartMapRegistry';
 import { addReliefBase, HIDDEN_BASE_GEOMETRY, LAND_STRUCTURE } from './reliefBase';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
+import { OBS_VESSEL_ZOOM } from './useObsStartupCamera';
 import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
@@ -350,7 +351,14 @@ export function useMapInit(opts: UseMapInitOptions) {
         // no-selection fallback keeps the whole-Aus+NZ fit — z10 on a fallback
         // centre would open on an arbitrary inland paddock.
         const GOLDEN_BOOT_ZOOM = 10;
-        const startZoom = embedded ? initialZoom : preferredCenter ? GOLDEN_BOOT_ZOOM : ausNzFitZoom;
+        // Obs on its own boat opens closer (Shane 2026-10-06: zoom 14 on the vessel).
+        const startZoom = embedded
+            ? initialZoom
+            : preferredCenter
+              ? ownshipStartup
+                  ? OBS_VESSEL_ZOOM
+                  : GOLDEN_BOOT_ZOOM
+              : ausNzFitZoom;
 
         // The 2026-08-09 flight trails show map:create TWICE per session, with
         // the death following the second — and a full Mapbox teardown/rebuild

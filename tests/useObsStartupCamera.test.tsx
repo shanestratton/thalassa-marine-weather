@@ -143,7 +143,7 @@ describe('OBS startup camera', () => {
         nmeaFix();
         dependencies.location = { lat: -27.5, lon: 153.1, source: 'gps', timestamp: NOW };
         const { map, rerender, props } = mountStartup();
-        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 10 });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
         dependencies.location = { ...WEATHER, source: 'favorite', timestamp: NOW };
         act(() => dependencies.locationListeners.forEach((listener) => listener()));
         rerender({ ...props });
@@ -167,7 +167,7 @@ describe('OBS startup camera', () => {
             act(() => dependencies.locationListeners.forEach((listener) => listener()));
             expect(map.jumpTo).not.toHaveBeenCalled();
             await act(async () => resolve(phoneFix()));
-            expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [153.1, -27.5], zoom: 10 });
+            expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [153.1, -27.5], zoom: 14 });
         },
     );
 
@@ -176,7 +176,7 @@ describe('OBS startup camera', () => {
         await act(async () => {});
         dependencies.location = { ...VESSEL, source: 'gps', timestamp: NOW };
         act(() => dependencies.locationListeners.forEach((listener) => listener()));
-        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 10 });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
     });
 
     it('uses NMEA that arrives while a phone lookup is pending', async () => {
@@ -186,7 +186,7 @@ describe('OBS startup camera', () => {
         // Even before the NMEA notification is delivered, resolution rechecks
         // the arbiter and cannot centre on the pending phone result.
         await act(async () => resolve(phoneFix()));
-        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 10 });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
     });
 
     it('centres immediately when NMEA publishes and ignores a later phone response', async () => {
@@ -195,7 +195,7 @@ describe('OBS startup camera', () => {
         nmeaFix();
         act(() => dependencies.nmeaListeners.forEach((listener) => listener()));
         await act(async () => resolve(phoneFix()));
-        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 10 });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
     });
 
     it.each([{ timestamp: NOW - 30_001 }, { timestamp: NOW + 5_001 }, { latitude: 91 }, { longitude: Number.NaN }])(
@@ -236,7 +236,7 @@ describe('OBS startup camera', () => {
         act(() => map.emit('movestart', {}));
         expect(map.jumpTo).not.toHaveBeenCalled();
         rerender({ ...props, ready: true });
-        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 10 });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
     });
 
     it('cancels when leaving OBS and does not resume after returning', async () => {
@@ -256,7 +256,7 @@ describe('OBS startup camera', () => {
         expect(map.on).not.toHaveBeenCalled();
         expect(dependencies.gps).not.toHaveBeenCalled();
         rerender({ ...props, enabled: true });
-        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 10 });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
     });
 
     it.each(['unmount', 'replace'] as const)('ignores a pending response after map %s', async (change) => {
@@ -310,7 +310,7 @@ describe('Mapbox initial camera policy', () => {
     it('constructs OBS at the cached vessel and never rebuilds for weather hydration', () => {
         nmeaFix();
         const { rerender } = mountMap(true);
-        expect(maps.instances[0].options).toMatchObject({ center: [VESSEL.lon, VESSEL.lat], zoom: 10 });
+        expect(maps.instances[0].options).toMatchObject({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
         rerender({ initialCenter: { lat: -41, lon: 174 } });
         expect(maps.instances).toHaveLength(1);
         expect(maps.instances[0].remove).not.toHaveBeenCalled();
