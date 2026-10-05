@@ -51,8 +51,11 @@ Do not store access/refresh tokens, private keys, pickles, real account password
 Installed Research candidate `0cde17c2` adds an explicit **Check policy & prepare
 only** control and a saved-envelope SHA-256 diagnostic. Its local validation,
 signing and in-place update are recorded in the checkpoint, but this experiment
-is still unrun. Verify restored setup/history and the new controls first; do
-not infer execution from installation, source or fixtures.
+has only a pre-restart baseline so far. The owner reports restored history on
+both devices; an iPhone capture shows native pending ID `b37ff5d0-dc1b-475f-81ee-7ae0aab79dc5`
+and its full saved-envelope hash, recorded in the checkpoint. Restart, exact-ID
+retry and peer receipt for that message are unrun. Do not infer their execution
+from installation, source, fixtures or the pending display.
 
 1. With fresh same-account verification, current setup and no existing pending
    attempt, prepare one disposable canary while online. This refreshes policy
