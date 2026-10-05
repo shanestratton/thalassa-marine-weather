@@ -72,6 +72,56 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October isolated native regression and recorded source hashes
+
+At clean repository commit `9bf49af462c09f9b607f536c3b1451540b60364b`, the
+current Research code candidate `0cde17c2` passed a fresh native regression.
+All nine disposable-simulator phases completed: TLS refusal, prepare, opening,
+retry, reply, successor, verify, recovery and cleanup. The runner waited for the
+shared-Mac build slot before compiling. All 30 Swift input hashes and four
+cached-native input hashes still matched after execution.
+
+The current native bridge passed **288 assertions**, including all five new
+saved-envelope hash checks: received opening, pending preparation, same-process
+close/reopen, terminal acceptance and recipient receipt. Other native fixture
+groups passed 266 Auth, 282 directory/facade, 40 enrollment-intent, 65 authority,
+105 pairing/history, 81 scoped-relay, 188 scoped-enrollment and 709 readiness
+assertions. These use real provider/Keychain/sealed SQLite and synthetic Auth
+and scoped-relay replies; bridge close/reopen is within one process.
+
+Separately, the legacy native client's ordinary HTTPS/local PGlite exchange
+committed four encrypted messages and four terminal decisions across separate
+simulator processes. Response loss after SQL commitment, a wrong receipt,
+malformed inbox, retained poison and duplicate scans all passed. No stale-context
+request or unexpected server failure was recorded. This is not the current
+scoped adapter exchanging against a live hosted account, nor independent
+PostgreSQL connection-concurrency evidence. Both logical endpoints share one
+simulator. The chosen-canary inspection covers selected serialized SQL fixture
+data only.
+
+The full Research TypeScript configuration passed **1,069 tests in 15 suites**.
+The separate app screen/SDK pilot configuration passed **190 tests in seven
+suites**, and the focused strict TypeScript check passed. These configurations
+overlap; do not add their totals. The Research suite combines local deterministic
+tests and injected boundary fixtures; the app screen/SDK tests use mocks. Neither
+suite executes on a device.
+
+Native receipt:
+`/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-wlbTYj/exchange-run.json`,
+SHA-256 `c5903e25335df51c46fbbaccf9c014c465c04e023035024800c79198bdd18be8`.
+Private check logs are in `/private/tmp/thalassa-native-regression.i3OgMP/`.
+The committed [regression manifest](../experiments/scuttlebutt-e2ee/review/regression-2026-10-05.json)
+retains source/input hashes, receipt/log hashes, counts, categories and limits,
+without tokens, keys, pickles or message contents.
+
+The owned disposable simulator and its temporary certificate were removed.
+No human device, hosted service, primary build/sync or production operation
+was performed. Cached provider binaries were reused, not freshly rebuilt or
+independently attested. Controlled process death around the current sealed-store
+commit boundary remains the next deterministic gap: thrown rollback faults do
+not prove SIGKILL recovery. Physical D14, hardware lock/power loss, recovery and
+the independent security review remain open; this batch is not release approval.
+
 ### 5 October mirrored iPad pending continuity and iPhone receipt
 
 On installed candidate `0cde17c2`, iPad captures before and after the instructed
@@ -99,7 +149,8 @@ Internal visual comparison verified the displayed ID/hash equality. No process
 termination/retry instrumentation, direct SQL receipt, key comparison or store
 inspection was added. This completes the bounded manual check in both directions,
 not full D02/D07/D14 acceptance, crash/power-loss evidence or an independent audit.
-Five new native probe assertions remain unrun. No app changes, build, reset,
+At this observation checkpoint, five new native probe assertions were unrun;
+the subsequent isolated regression above executes them. No app changes, build, reset,
 deployment, primary sync or production operation accompanied this record.
 
 ### 5 October pending continuity and matching iPad receipt
@@ -140,7 +191,8 @@ terminal acceptance capture, direct relay receipt, store contents or Keychain
 comparison was inspected. This is bounded manual pending-continuity, peer
 receipt and rescan evidence, not complete D02/D07/D14 acceptance or an audit.
 At this checkpoint the mirrored iPad test was unrun; its later bounded manual
-observations are recorded above. Five new native probe assertions remain unrun.
+observations are recorded above. At this observation checkpoint, five new native
+probe assertions were unrun; the subsequent isolated regression executes them.
 Private observation receipt:
 `/private/tmp/thalassa-pending-restart.ePwNlh/observations.json`.
 

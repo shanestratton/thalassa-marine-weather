@@ -18,7 +18,18 @@ check now has matching pending before/after and iPhone-received ID/hash captures
 a sender relay-acceptance notice without its target row, and owner-confirmed
 once-only display. The owner resolved an initial message-identification concern
 by confirming target prefix `f96e0b8b`; the checkpoint retains that sequence.
-Five new native hash-equality probe assertions remain unrun.
+The subsequent isolated native regression passed all five new hash-equality
+probe assertions within 288 native bridge assertions, plus all prior native
+fixture groups and nine simulator phases. The full Research suite passed 1,069
+tests in 15 suites again; the separate overlapping app pilot suite passed 190
+tests in seven suites and focused TypeScript passed. The committed
+[regression manifest](../experiments/scuttlebutt-e2ee/review/regression-2026-10-05.json)
+records clean source commit `9bf49af4`, exact source/cache/receipt hashes and
+evidence categories. Scoped bridge replies are synthetic and bridge reopen is
+within one process; the separate four-message HTTPS/local-SQL exchange exercises
+the legacy native client across processes. Neither is a controlled crash-boundary
+test or a new physical/hosted exchange. The disposable simulator and its CA were
+removed; no human devices or hosted services changed.
 Cached-provider provenance, crash-boundary atomicity and the full physical
 matrix are not proved by these bounded observations. The checkpoint retains
 the initial screen-fixture failures, their correction, the corrected Mac launch-command
@@ -143,6 +154,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Research adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift), [plugin](../experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift), [web controller and literal renderer](../experiments/scuttlebutt-e2ee/bridge-web/messaging.ts), native bridge fixtures and `tests/E2eePilotBridgeMessaging.test.ts`. These are separate from the shipping private-message port; include both native and JavaScript publication fences in the assessment.
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.
+- [5 October regression manifest](../experiments/scuttlebutt-e2ee/review/regression-2026-10-05.json), with exact source and cached-input hashes and separately labelled fixture, local HTTPS/SQL and mocked-screen results. It contains no credentials or private message content. Local temporary receipts are references, not a portable complete audit packet; reproduce or preserve them in the assessor's restricted environment.
 
 Retain machine-readable run receipts, sanitized assertion summaries and reproducible failure instructions. Record each evidence item's exact source/build hash and fixture/live/device category. The simulator cleanup and recorded hashes establish only the stated run; they do not independently attest binary provenance. Never replace a failed attempt with a later pass without retaining its outcome and understood limits.
 
