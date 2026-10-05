@@ -72,6 +72,10 @@ const AnchorWatchPage = lazyRetry(
     'AnchorWatchPage',
 );
 const ChatPage = lazyRetry(() => import('./components/ChatPage').then((m) => ({ default: m.ChatPage })), 'ChatPage');
+const SightingsPage = lazyRetry(
+    () => import('./components/sightings/SightingsPage').then((m) => ({ default: m.SightingsPage })),
+    'SightingsPage',
+);
 const LiveBosunConsolePage = lazyRetry(
     () => import('./components/voice/BosunConsole').then((m) => ({ default: m.BosunConsole })),
     'BosunConsole',
@@ -97,6 +101,7 @@ const VIEW_NAMES: Record<string, string> = {
     // Scuttlebutt is a page Calypso or Music can be opened over; without it
     // their Back read a bare 'Go back' with no crumb (UX scorecard run 10).
     chat: 'Scuttlebutt',
+    sightings: 'Sightings',
     voice: 'Calypso',
     music: 'Apple Music',
     compass: 'Anchor Watch',
@@ -378,6 +383,17 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         boundaryName: 'Chat',
         group: 'vessel',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+    },
+    // Sightings (Shane 2026-10-05: "call it sightings"): entered from
+    // Scuttlebutt's card, so Back returns to Scuttlebutt and says so.
+    sightings: {
+        component: SightingsPage,
+        boundaryName: 'Sightings',
+        group: 'vessel',
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('chat'),
+            ...backTo('chat', 'Sightings'),
+        }),
     },
     voice: {
         component: BosunConsolePage,

@@ -84,6 +84,7 @@ import type { RemotePassage } from '../services/shiplog/remotePassage';
 import { RemotePassageCard } from './log/RemotePassageCard';
 import { isAuthIdentityScopeCurrent } from '../services/authIdentityScope';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import { LogSightingEntry } from '../components/sightings/LogSightingEntry';
 import { tracedRouteDirectUseBlockReason, tracedRouteFollowGeometry } from '../services/traceDirectUseGate';
 import { useFollowRoutePickerIdentity } from '../hooks/useFollowRoutePickerIdentity';
 
@@ -1372,6 +1373,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         return () => window.removeEventListener('thalassa:voyage-plan-link-changed', onLinkChanged);
     }, []);
     const [showMenu, setShowMenu] = useState(false);
+    // Sightings' quick log is up from the list: the voyage cards' mini maps
+    // unmount under it (iOS paints Leaflet above fixed overlays).
+    const [sightingSheetOpen, setSightingSheetOpen] = useState(false);
     const [showArchived, setShowArchived] = useState(() => showArchivedMemo);
     /** The shared history line's Retry is running (see historyUnreachable). */
     const [historyRetryPending, setHistoryRetryPending] = useState(false);
@@ -2167,6 +2171,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         <>
                             {/* ── NOT TRACKING: Scrollable voyage list ── */}
                             <LogHistoryScroll>
+                                {/* Sightings when not recording (Shane 2026-10-05): crew and a
+                                    skipper who hasn't cast off in the app log from here. */}
+                                {FEATURE_VISIBILITY.sightings && (
+                                    <LogSightingEntry onOpenChange={setSightingSheetOpen} />
+                                )}
                                 {/* Stats scroll with history so expanding them cannot
                                     squeeze the archive off a short phone screen. */}
                                 <VoyageStatsRollup
@@ -2238,7 +2247,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         renderVoyage={(summary, first) => (
                                             <VoyageCard
                                                 showSwipeHint={first}
-                                                suppressMiniMap={showTrackMap || liveMapExpanded}
+                                                suppressMiniMap={showTrackMap || liveMapExpanded || sightingSheetOpen}
                                                 recordBadge={
                                                     records.voyageCount >= 2
                                                         ? records.longestPassageVoyageId === summary.voyageId
