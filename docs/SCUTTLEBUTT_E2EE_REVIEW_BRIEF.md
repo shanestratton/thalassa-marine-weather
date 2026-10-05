@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 5 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
+Updated 6 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -30,8 +30,20 @@ within one process; the separate four-message HTTPS/local-SQL exchange exercises
 the legacy native client across processes. Neither is a controlled crash-boundary
 test or a new physical/hosted exchange. The disposable simulator and its CA were
 removed; no human devices or hosted services changed.
-Cached-provider provenance, crash-boundary atomicity and the full physical
-matrix are not proved by these bounded observations. The checkpoint retains
+The 6 October direct-native crash regression subsequently passed 18 cases and
+731 assertions at before-UPDATE, after-UPDATE/pre-COMMIT and post-COMMIT boundaries
+for prepare, opening/session receive, accepted/rejected decisions and logout.
+Exact parked-process SIGKILL dispatch and disappearance were correlated; parent
+wait status, interruption inside COMMIT and physical-device behavior are outside
+that evidence. Recovery checked complete snapshots, exact ciphertext, real
+provider account/prekey controls, successors and logout fencing. The same native
+subset typechecked without the test flag, and Research tests/typecheck passed
+again. All fixtures and the disposable simulator were removed. See the
+[crash manifest](../experiments/scuttlebutt-e2ee/review/crash-regression-2026-10-06.json)
+for the exact source/artifact hashes and initial prebuild refusal. These direct
+coordinator fixtures do not establish actual Auth/facade/Capacitor cutover or
+server-authenticated receipts. Cached-provider provenance, the full physical
+matrix, recovery policy and independent review remain release gates. The checkpoint retains
 the initial screen-fixture failures, their correction, the corrected Mac launch-command
 failure and the exact build/signing/update receipts. No private data contents
 were inspected, no reset or re-enrollment occurred, and no primary build/sync,
@@ -155,6 +167,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.
 - [5 October regression manifest](../experiments/scuttlebutt-e2ee/review/regression-2026-10-05.json), with exact source and cached-input hashes and separately labelled fixture, local HTTPS/SQL and mocked-screen results. It contains no credentials or private message content. Local temporary receipts are references, not a portable complete audit packet; reproduce or preserve them in the assessor's restricted environment.
+- [6 October crash regression manifest](../experiments/scuttlebutt-e2ee/review/crash-regression-2026-10-06.json) and [local runner](../experiments/scuttlebutt-e2ee/sealedCrashProof.mjs), covering 18 direct-provider/store process-death cases with the test-only callback and sealed baseline ledger. Keys, pickles, plaintext baselines and original envelopes never enter its public receipts.
 
 Retain machine-readable run receipts, sanitized assertion summaries and reproducible failure instructions. Record each evidence item's exact source/build hash and fixture/live/device category. The simulator cleanup and recorded hashes establish only the stated run; they do not independently attest binary provenance. Never replace a failed attempt with a later pass without retaining its outcome and understood limits.
 
