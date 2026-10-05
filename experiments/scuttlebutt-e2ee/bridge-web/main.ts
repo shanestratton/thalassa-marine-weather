@@ -77,11 +77,11 @@ auth.subscribe((state) => {
     reverifyPairing.disabled = reverify.disabled;
     element('pairing-auth-status').textContent =
         state.status === 'authenticated'
-            ? 'Account verified. Research checks are short-lived; reverify here if the setup controls lock.'
+            ? 'Account verified. Research checks are short-lived; public cards stay through renewal, but trust must be inspected and compared again.'
             : state.status === 'verifying'
               ? 'Checking your native account. Setup stays locked until verification completes.'
               : state.status === 'unavailable' && reason === 'verification_lost'
-                ? 'Account check needs renewing. Reverify here to unlock setup; do not log out.'
+                ? 'Account check needs renewing. Setup actions can renew the same account; do not log out. Inspect and compare again before confirming.'
                 : 'Sign in and verify above to unlock setup. Reverify here if your sign-in is still held.';
     signOut.disabled = !auth.canSignOut() || state.status === 'unsupported';
 });
@@ -127,9 +127,15 @@ const copyCard = element<HTMLButtonElement>('copy-card');
 
 messaging.subscribe((state) => {
     const disabled = !state.available || state.busy;
+    const pairingDisabled = !state.pairingAvailable || state.busy;
+    const publicCardsDisabled = !state.publicCardsAvailable || state.busy;
     for (const button of Object.values(buttons)) button.disabled = disabled;
+    for (const id of ['read-state', 'register-device', 'own-card-button', 'inspect-peer'] as const)
+        buttons[id].disabled = pairingDisabled;
     element('message-status').textContent = state.notice;
     element('message-status').setAttribute('aria-busy', String(state.busy));
+    element('pairing-action-status').textContent = state.notice;
+    element('pairing-action-status').setAttribute('aria-busy', String(state.busy));
     element('pairing-facts').textContent = state.facts
         ? `Pairing: ${state.facts.pairing} · Role: ${state.facts.role}\nRegistration: ${state.facts.registration} · Claim: ${state.facts.claim}`
         : 'Setup facts unknown. Tap Read setup facts; no setup runs automatically.';
@@ -150,9 +156,9 @@ messaging.subscribe((state) => {
     compared.checked = state.comparedOnOtherDevice;
     compared.disabled = disabled || !state.inspectedPeer || !!state.attempt;
     draft.disabled = disabled || !!state.attempt;
-    peerInput.disabled = disabled || !!state.attempt;
-    copyCard.disabled = disabled || !state.ownCard;
-    buttons['inspect-peer'].disabled = disabled || !!state.attempt || !state.peerCardInput.trim();
+    peerInput.disabled = publicCardsDisabled || !!state.attempt;
+    copyCard.disabled = publicCardsDisabled || !state.ownCard;
+    buttons['inspect-peer'].disabled = pairingDisabled || !!state.attempt || !state.peerCardInput.trim();
     buttons['confirm-peer'].disabled =
         disabled || !!state.attempt || !state.inspectedPeer || !state.comparedOnOtherDevice;
     buttons['claim-peer'].disabled = disabled || state.facts?.role !== 'initiator';
@@ -198,15 +204,15 @@ messageForm.addEventListener('submit', (event) => {
 });
 copyCard.addEventListener('click', async () => {
     // Capture public data only, not a state object retaining message plaintext.
-    const { available, busy, ownCard: publicCard, revision } = messaging.getState();
-    if (!available || busy || !publicCard) return;
+    const { publicCardsAvailable, busy, ownCard: publicCard, revision } = messaging.getState();
+    if (!publicCardsAvailable || busy || !publicCard) return;
     try {
         await navigator.clipboard.writeText(publicCard.card);
-        if (messaging.getState().revision === revision && messaging.getState().available)
+        if (messaging.getState().revision === revision && messaging.getState().publicCardsAvailable)
             element('copy-status').textContent =
                 'Public card copied. Your operating system manages clipboard retention.';
     } catch {
-        if (messaging.getState().revision === revision && messaging.getState().available)
+        if (messaging.getState().revision === revision && messaging.getState().publicCardsAvailable)
             element('copy-status').textContent =
                 'Copy unavailable. Select the public card and use the system copy action.';
     }

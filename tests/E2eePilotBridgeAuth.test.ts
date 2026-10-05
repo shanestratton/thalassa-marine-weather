@@ -684,6 +684,281 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         expect(h.sdk.getSession).not.toHaveBeenCalled();
     });
 
+    it('exposes only frozen public owner continuity across expiry and clears it on explicit logout', async () => {
+        const h = fixture();
+        expect(h.controller.getPublicPairingOwner()).toBeNull();
+        await h.controller.initialize();
+        expect(h.controller.getPublicPairingOwner()).toBeNull();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        const owner = h.controller.getPublicPairingOwner();
+        expect(owner).toEqual({ accountId: ACCOUNT_A, deviceId: DEVICE });
+        expect(Object.isFrozen(owner)).toBe(true);
+        expect(Object.keys(owner!).sort()).toEqual(['accountId', 'deviceId']);
+        h.expireNative();
+        await h.controller.checkCurrentAccount();
+        expect(h.controller.getState().account).toBeNull();
+        expect(h.controller.getPublicPairingOwner()).toBe(owner);
+        const gate = deferred<NativeFenceResult>();
+        h.native.fenceSession.mockReturnValueOnce(gate.promise);
+        const logout = h.controller.signOut();
+        expect(h.controller.getPublicPairingOwner()).toBeNull();
+        gate.resolve({ status: 'fenced', authFence: 'fixture-logout' });
+        await logout;
+        await h.controller.signIn('b@example.test', 'fixture-password');
+        expect(h.controller.getPublicPairingOwner()).toEqual({ accountId: ACCOUNT_B, deviceId: DEVICE });
+        h.controller.dispose();
+        expect(h.controller.getPublicPairingOwner()).toBeNull();
+    });
+
+    it('returns the exact newly verified native account for an explicit same-owner pairing renewal', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.expireNative();
+        await h.controller.checkCurrentAccount();
+        h.setSdkSession(TOKEN_A_RENEWED);
+        const owner = h.controller.getPublicPairingOwner();
+        const expected = { ...account(), credentialBinding: 'fixture-credential-2' };
+        expect(await h.controller.reverifyForPairing()).toEqual(expected);
+        expect(h.controller.getState().account).toEqual(expected);
+        expect(h.controller.getPublicPairingOwner()).toEqual(owner);
+        expect(h.sdk.getSession).toHaveBeenCalledTimes(1);
+        expect(h.sdk.signInWithPassword).toHaveBeenCalledTimes(1);
+        expect(h.sdk.signOut).not.toHaveBeenCalled();
+        expect(h.native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual([
+            'verify',
+            'verify',
+            'verify',
+        ]);
+        expect(Object.isFrozen(h.controller.getState().account)).toBe(true);
+    });
+
+    it('does not use pairing renewal to initialize or select a cold account', async () => {
+        const h = fixture();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.native.configuration).not.toHaveBeenCalled();
+        expect(h.native.fenceSession).not.toHaveBeenCalled();
+        await h.controller.initialize();
+        h.setSdkSession(TOKEN_A);
+        h.native.fenceSession.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+        expect(h.sdk.getSession).not.toHaveBeenCalled();
+        expect(h.native.fenceSession).not.toHaveBeenCalled();
+        expect(h.native.authenticate).not.toHaveBeenCalled();
+    });
+
+    it('refuses pairing renewal after explicit logout, disposal or runtime support loss', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.supported.mockReturnValue(false);
+        h.native.fenceSession.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.sdk.getSession).not.toHaveBeenCalled();
+        expect(h.native.fenceSession).not.toHaveBeenCalled();
+        h.supported.mockReturnValue(true);
+        await h.controller.signOut();
+        h.setSdkSession(TOKEN_A);
+        h.native.fenceSession.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.sdk.getSession).not.toHaveBeenCalled();
+        expect(h.native.fenceSession).not.toHaveBeenCalled();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.controller.dispose();
+        h.native.fenceSession.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.sdk.getSession).not.toHaveBeenCalled();
+        expect(h.native.fenceSession).not.toHaveBeenCalled();
+    });
+
+    it('does not renew signed-out state even when native owner continuity remains', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.setSdkSession(null);
+        await h.controller.reverify();
+        expect(h.controller.getState().status).toBe('signed_out');
+        expect(h.controller.getPublicPairingOwner()).toEqual({ accountId: ACCOUNT_A, deviceId: DEVICE });
+        h.setSdkSession(TOKEN_A);
+        h.sdk.getSession.mockClear();
+        h.native.fenceSession.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.sdk.getSession).not.toHaveBeenCalled();
+        expect(h.native.fenceSession).not.toHaveBeenCalled();
+    });
+
+    it('returns no pairing account for a failed native renewal without discarding public owner continuity', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.native.authenticate.mockRejectedValueOnce(new Error('fixture-private-diagnostic'));
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.getUnavailableReason()).toBe('verification_failed');
+        expect(h.controller.getPublicPairingOwner()).toEqual({ accountId: ACCOUNT_A, deviceId: DEVICE });
+        expect(h.sdk.signOut).not.toHaveBeenCalled();
+        expect(JSON.stringify(h.controller.getState())).not.toContain('fixture-private-diagnostic');
+    });
+
+    it('requires fresh password login rather than using an absent SDK session for pairing renewal', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.setSdkSession(null);
+        h.native.authenticate.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+        expect(h.controller.getPublicPairingOwner()).toEqual({ accountId: ACCOUNT_A, deviceId: DEVICE });
+        expect(h.native.authenticate).not.toHaveBeenCalled();
+        expect(h.sdk.signOut).not.toHaveBeenCalled();
+        expect(h.native.fenceSession.mock.calls.every(([options]) => options.mode === 'verify')).toBe(true);
+    });
+
+    it.each([
+        { ...account(), accountId: ACCOUNT_B },
+        { ...account(), deviceId: '44444444-4444-4444-8444-444444444444' },
+    ])('refuses a pairing renewal which changes native owner or device %#', async (replacement) => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.native.authenticate.mockResolvedValueOnce(authenticated(replacement));
+        h.native.currentAccount.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+        expect(h.controller.getPublicPairingOwner()).toEqual({ accountId: ACCOUNT_A, deviceId: DEVICE });
+        expect(h.native.currentAccount).not.toHaveBeenCalled();
+    });
+
+    it('returns no pairing account when its native credential binding does not remain current', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        h.native.currentAccount.mockResolvedValueOnce(
+            authenticated({ ...account(), credentialBinding: 'fixture-other-binding' }),
+        );
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        expect(h.controller.getState()).toEqual({ status: 'unavailable', account: null });
+    });
+
+    it('admits only one pairing renewal while its verification is pending', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        const gate = deferred<NativeFenceResult>();
+        const fence = h.native.fenceSession.getMockImplementation()!;
+        h.native.fenceSession.mockImplementationOnce(async (options) => {
+            await gate.promise;
+            return fence(options);
+        });
+        const first = h.controller.reverifyForPairing();
+        expect(h.controller.getState().status).toBe('verifying');
+        expect(h.controller.getPublicPairingOwner()).toEqual({ accountId: ACCOUNT_A, deviceId: DEVICE });
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        gate.resolve({ status: 'fenced', authFence: 'fixture-release' });
+        expect(await first).toEqual(account());
+        expect(h.sdk.getSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('never returns a later concurrent login binding from an older pairing renewal', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        const pending = deferred<NativeAccountResult>();
+        h.native.authenticate.mockReturnValueOnce(pending.promise);
+        const renewal = h.controller.reverifyForPairing();
+        await settle();
+        h.sdk.signInWithPassword.mockResolvedValueOnce(session(TOKEN_A_RENEWED));
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        expect(h.controller.getState().account?.credentialBinding).toBe('fixture-credential-2');
+        pending.resolve(authenticated());
+        expect(await renewal).toBeNull();
+        expect(h.controller.getState().account?.credentialBinding).toBe('fixture-credential-2');
+    });
+
+    it('cancels a pending pairing renewal after logout even when another owner subsequently logs in', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        const pending = deferred<NativeAccountResult>();
+        h.native.authenticate.mockReturnValueOnce(pending.promise);
+        const renewal = h.controller.reverifyForPairing();
+        await settle();
+        await h.controller.signOut();
+        await h.controller.signIn('b@example.test', 'fixture-password');
+        pending.resolve(authenticated());
+        expect(await renewal).toBeNull();
+        expect(h.controller.getState().account?.accountId).toBe(ACCOUNT_B);
+        expect(h.controller.getPublicPairingOwner()).toEqual({ accountId: ACCOUNT_B, deviceId: DEVICE });
+    });
+
+    it('keeps a pairing renewal ticket distinct from a reentrant logout observer', async () => {
+        const h = fixture();
+        await h.controller.initialize();
+        await h.controller.signIn('a@example.test', 'fixture-password');
+        let armed = true;
+        let logout: Promise<void> | undefined;
+        const unsubscribe = h.controller.subscribe((state) => {
+            if (armed && state.status === 'verifying') {
+                armed = false;
+                logout = h.controller.signOut();
+            }
+        });
+        h.native.fenceSession.mockClear();
+        expect(await h.controller.reverifyForPairing()).toBeNull();
+        await logout;
+        expect(h.sdk.getSession).not.toHaveBeenCalled();
+        expect(h.native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['sign_out']);
+        expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+        expect(h.controller.getPublicPairingOwner()).toBeNull();
+        unsubscribe();
+    });
+
+    it.each(['sign-in', 'reverify'] as const)(
+        'does not issue a stale native fence when a %s observer synchronously logs out',
+        async (operation) => {
+            const h = fixture();
+            await h.controller.initialize();
+            await h.controller.signIn('a@example.test', 'fixture-password');
+            let armed = true;
+            let logout: Promise<void> | undefined;
+            const unsubscribe = h.controller.subscribe((state) => {
+                if (armed && state.status === 'verifying') {
+                    armed = false;
+                    logout = h.controller.signOut();
+                }
+            });
+            h.native.fenceSession.mockClear();
+            h.sdk.signInWithPassword.mockClear();
+            if (operation === 'sign-in') await h.controller.signIn('a@example.test', 'fixture-password');
+            else await h.controller.reverify();
+            await logout;
+            expect(h.sdk.signInWithPassword).not.toHaveBeenCalled();
+            expect(h.sdk.getSession).not.toHaveBeenCalled();
+            expect(h.native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['sign_out']);
+            expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
+            expect(h.controller.getPublicPairingOwner()).toBeNull();
+            unsubscribe();
+        },
+    );
+
+    it.each(['dispose', 'runtime-support-loss'] as const)(
+        'returns no pending pairing result after %s',
+        async (change) => {
+            const h = fixture();
+            await h.controller.initialize();
+            await h.controller.signIn('a@example.test', 'fixture-password');
+            const pending = deferred<NativeAccountResult>();
+            h.native.authenticate.mockReturnValueOnce(pending.promise);
+            const renewal = h.controller.reverifyForPairing();
+            await settle();
+            if (change === 'dispose') h.controller.dispose();
+            else h.supported.mockReturnValue(false);
+            pending.resolve(authenticated());
+            expect(await renewal).toBeNull();
+        },
+    );
+
     it('labels a failed check only after previously authenticated authority as verification lost', async () => {
         const h = fixture();
         await h.controller.initialize();

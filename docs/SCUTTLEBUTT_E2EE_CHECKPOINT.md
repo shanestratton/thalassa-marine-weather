@@ -72,6 +72,60 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October public card retention and explicit pairing renewal
+
+The owner reported registration acknowledged, claim none and an unpaired role.
+Read-only checks of the isolated pilot found one device slot for each of the two
+approved participant accounts; the function logs contained two successful
+registration responses. This establishes pilot registration, not peer trust or
+encrypted delivery. A direct iPhone screen observation subsequently showed
+verification unavailable. Device Hub exposed the screen but its attempted tap
+did not change it; the iPad OS does not support this screen-sharing facility.
+
+The web controller previously cleared both public cards when native verification
+expired or the app was hidden. It now retains only the exported public card and
+raw pasted peer-card text for the same native-known account/device. It clears
+inspection, comparison consent, setup/policy facts, drafts, attempts and displayed
+history. Logout, an account/device change, unsupported runtime or disposal also
+clears the public cards. Nothing is persisted to browser storage or inferred as
+message authority from these retained fields.
+
+Read, Register, Export and Inspect each explicitly renew that same account,
+then dispatch their one selected native action using the exact returned current
+binding. One admission barrier spans renewal; logout, account/device changes,
+hide/show, disposal and reentrant observer cancellation prevent dispatch.
+Confirm still needs fresh inspection and a manual full-fingerprint comparison.
+Confirm, claim, Send, Receive and retries do not silently renew. Native lease
+duration, key storage, cryptography and server policy are unchanged. Fixed action
+results now appear beside the pairing controls as well as in the message panel.
+
+**979 tests across 15 isolated suites passed**, with focused strict TypeScript,
+named lint, formatting and whitespace checks. Fixtures exercise public-only
+retention, exact renewal results, manual comparison and cancellation races;
+they are not a physical exchange or an independent security review. The isolated
+web build also passed. Validation and source hashes are in
+`/private/tmp/thalassa-pairing-renewal.kYRQsb/receipt.json`.
+
+The new artifact compiled and was locally signed, installed and launched on both
+devices. All 17 native source hashes match the preceding artifact. Both retained
+their directory/index locators and sealed database; no reset, uninstall, key
+deletion or account replacement ran. Normal Thalassa's bundle/version/build
+metadata remained unchanged and its private files were not inspected. Receipts,
+under the macOS temporary parent used by earlier entries:
+
+- Compile: `thalassa-messaging-build-ll6LRp/build-receipt.json`.
+- Signing: `thalassa-research-sign-LBaZBT/signing-receipt.json`.
+- Device installation: `thalassa-normal-physical-LpwU2W/physical-receipt.json`.
+
+The updated iPhone screen visibly loaded with Login required and enabled sign-in
+controls. A fresh same-account login is required after the Research process
+restart; the owner has been asked to verify registration on both devices again.
+Card retention and pairing remain unconfirmed on the physical devices.
+
+The iPhone–iPad encrypted exchange, restart/logout checks and independent review
+remain outstanding. Normal Thalassa, production Auth/database, `master` and the
+primary iOS project remain outside this change.
+
 ### 5 October successful sign ins and clearer verification controls
 
 Read-only pilot Auth metadata showed successful password sign-ins for the human
