@@ -278,6 +278,9 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 // PinViewHandoff + readCurrentPinView moved to ./usePinViewMode (imported above).
 
 // ── Component ──────────────────────────────────────────────────
+/** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
+const LOCATE_BOAT_ZOOM = 14;
+
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
     onLocationSelect,
@@ -5120,7 +5123,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 if (own && own.source === 'nmea') {
                                     const map = mapRef.current;
                                     if (map) {
-                                        map.flyTo({ center: [own.lon, own.lat], zoom: 12, duration: 1200 });
+                                        map.flyTo({
+                                            center: [own.lon, own.lat],
+                                            zoom: LOCATE_BOAT_ZOOM,
+                                            duration: 1200,
+                                        });
                                     }
                                     if (pickerMode) onLocationSelect?.(own.lat, own.lon);
                                     return;
@@ -5132,7 +5139,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     const { latitude, longitude } = pos;
                                     const map = mapRef.current;
                                     if (map) {
-                                        map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
+                                        map.flyTo({
+                                            center: [longitude, latitude],
+                                            zoom: LOCATE_BOAT_ZOOM,
+                                            duration: 1200,
+                                        });
                                     }
                                     LocationStore.setFromGPS(latitude, longitude);
                                     if (pickerMode) {
