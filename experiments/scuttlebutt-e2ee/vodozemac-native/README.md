@@ -225,6 +225,44 @@ saved sends, replies, history, exact retries, dedup and terminal receipts. The
 runner records the executed coordinator assertion count. Consult the checkpoint
 for actual executed results; this contract alone is not a passing test.
 
+## Local sealed store process death proof
+
+From the isolated checkout, run the new local-only simulator proof with an
+existing cached native provider and bindings:
+
+```sh
+node experiments/scuttlebutt-e2ee/sealedCrashProof.mjs /absolute/path/native-cache
+```
+
+If the cache's original completed run receipts are absent, an explicit completed
+native HTTPS-exchange receipt is accepted only when its nine phases, cleanup,
+pins and every exact cached artifact hash match:
+
+```sh
+node experiments/scuttlebutt-e2ee/sealedCrashProof.mjs /absolute/path/native-cache \
+  --native-exchange-receipt /absolute/path/exchange-run.json
+```
+
+The runner waits for the shared build slot, freezes verified copies and creates
+one new simulator using an already installed iOS 26.5 runtime. It never downloads,
+uses hosted accounts/relays, trusts a certificate or touches physical devices.
+Only the special build defines `THALASSA_SEALED_CRASH_PROBE`; its immutable
+exact-store callbacks park before UPDATE, after UPDATE before COMMIT and after
+successful COMMIT. Preparation, opening/session receive, accepted/rejected
+decisions and logout each run at all three boundaries, for 18 fresh cases.
+Baselines and original envelopes stay in a separate native sealed ledger.
+
+The runner checks each parked app's exact launch, nonce, simulator, bundle,
+executable hash, UID, start identity and arguments before SIGKILL. Fresh processes
+verify complete rollback or committed state, exact retry/dedup, usable provider
+accounts and successors; cleanup removes only owned fixture namespaces and the
+new simulator. Its receipt records signal dispatch and correlated-process
+disappearance, not parent wait status or proven numeric PID reuse. Direct native
+fixtures do not establish Auth/facade/remote receipt behavior, phone lock, power
+loss, an interruption inside COMMIT, backup rollback or independent review.
+See the [checkpoint](../../../docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md) for executed
+results and preserved failures.
+
 ## Dependency licence inventory
 
 Offline Cargo metadata for the pinned lock resolves 102 packages for the runtime

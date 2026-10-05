@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 5 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 6 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
 
 ## Shared-Mac workflow — owner's 1 October rules
 
@@ -32,6 +32,36 @@ relay migration, Thalassa app linking/signing changes or distribution occurred.
 Dependency/licence review, completed physical-device acceptance and an
 independent security review still gate release. An off-by-default switch is not
 a substitute for those checks or a way around a bundled dependency's licence.
+
+## Unattended development while the owner is away
+
+On 6 October, Shane authorized continued E2EE implementation without routine
+questions while away for a week. The heartbeat
+`advance-scuttlebutt-e2ee-while-shane-is-away` resumes this chat every four hours
+through 13 October 2026, Australia/Brisbane. It uses only this isolated worktree
+and branch, with named-file commits and verified coherent pushes. Unchanged
+state does not justify repeating the same tests or status messages.
+
+The order is controlled real-provider crash recovery, an explicit isolated-test
+private-message integration, fail-closed cutover, device/prekey lifecycle and
+recovery policy, then integration evidence and the review packet. Conservative
+implementation choices should be recorded. If a step needs human devices or
+expired account access, continue unrelated unblocked work and retain the gate.
+Before the ordinary private-message port, fetch and rebase this isolated branch
+onto current master, preserving Claude's newer app fixes. Do not merge or push
+master as part of that branch update.
+
+This permission does not authorize master merges/pushes, primary build/sync,
+production deployments, yacht or Shore Watch changes, human Research resets,
+paid resources, reviewer outreach or external source sharing. Internal checks
+cannot replace the independent assessment or justify a release-readiness claim.
+Technical work and the external review remain separate milestones. Work stops
+when Shane returns/asks to stop, the schedule expires, or only steps requiring
+new authority remain. The one-heavy-job shared-Mac rules above still apply.
+
+Local scheduled work requires the computer powered on and the desktop app
+running; it cannot continue from this checkout while the host is unavailable.
+[OpenAI scheduled-task documentation](https://learn.chatgpt.com/docs/automations?surface=app).
 
 ## What exists today
 
@@ -71,6 +101,63 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 6 October controlled native process death at sealed store boundaries
+
+The new local-only `sealedCrashProof.mjs` runner passed **18 cases and 731
+assertions** using real provider, Keychain and sealed SQLite. Six direct
+coordinator operations—prepare, opening receive, established-session receive,
+accepted receipt, rejected receipt and local logout—were tested before UPDATE,
+after UPDATE immediately before COMMIT, and immediately after successful COMMIT
+before the result returns. Each case uses fresh stores and separate seed, fault,
+verify and cleanup processes. Assertion totals are 81 seed, 72 parked-boundary,
+470 recovery verification and 108 cleanup; they are not message-delivery counts.
+
+At each exact parked boundary, the runner matched the newly created simulator,
+bundle, installed executable hash, launch PID, nonce, complete arguments, UID
+and process start identity before sending SIGKILL. It then observed that
+correlated process disappear. A changed `ps` identity can satisfy that observation;
+it does not prove actual numeric PID reuse or that every numeric PID was absent.
+Simulator applications are not its direct children: no parent `waitpid` signal
+status is claimed. This tests three precise boundaries, not an interruption
+inside SQLite COMMIT or arbitrary instructions.
+
+Precommit recovery matched the complete sealed baseline payload and revision.
+Postcommit recovery retained the new revision and exact pending ciphertext,
+dedup/history or terminal decision as appropriate. Real provider signing verified
+both restored accounts, and the opening-receive cases verified consumed-prekey
+refusal without relying solely on inbox dedup. Fifteen non-logout cases also
+decrypted a reply and opposite-direction successor. Logout cases retained the
+original message state while fencing the old owner and credential epoch. Receipt
+decisions and owner contexts are native fixtures; these are not remote receipt
+authentication, actual Auth/facade/Capacitor or physical D14 results.
+
+The callback/factory/invocations are compiled only with
+`THALASSA_SEALED_CRASH_PROBE` in the disposable app. The same frozen ten Swift
+inputs passed a separate simulator-target **typecheck without that flag**. This
+is a native subset typecheck, not a normal Thalassa app build or physical-iOS
+execution. The Research suite passed **1,069 tests in 15 suites** again and the
+focused strict TypeScript check passed. Nine original/frozen Swift hashes still
+match, and the runner verifies its cached input copies. Cached native provider
+binaries were reused, not freshly rebuilt or independently attested.
+
+Native receipt:
+`/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-sealed-crash-F5SRsI/sealed-crash-run.json`,
+SHA-256 `0e9e55db8fbff16d860c5ed37b59cdf2bfda2a1fc391492d955e1df89c64a586`.
+The [crash regression manifest](../experiments/scuttlebutt-e2ee/review/crash-regression-2026-10-06.json)
+retains case summaries, source/artifact/receipt/log hashes and the earlier
+prebuild refusal. Original cache run receipts were absent; the corrected
+invocation used an explicit completed 5 October HTTPS-exchange receipt, checking
+all nine completed phases, pins and every exact cached artifact hash. Expected
+hashes are retained across the shared-build-slot wait and enforced during copies.
+No receipt was invented or cache evidence silently bypassed.
+
+All 18 fixture namespaces, the owned simulator and the exact build slot were
+cleaned up. No human device, hosted database, network operation, primary sync
+or production change occurred. Physical lock/background, power loss, backup
+rollback, actual account lifecycle, independent PostgreSQL concurrency and
+external security review remain separate gates. Next is updating the branch
+against master and implementing the isolated-test private-message integration.
 
 ### 5 October isolated native regression and recorded source hashes
 
@@ -118,8 +205,10 @@ The owned disposable simulator and its temporary certificate were removed.
 No human device, hosted service, primary build/sync or production operation
 was performed. Cached provider binaries were reused, not freshly rebuilt or
 independently attested. Controlled process death around the current sealed-store
-commit boundary remains the next deterministic gap: thrown rollback faults do
-not prove SIGKILL recovery. Physical D14, hardware lock/power loss, recovery and
+commit boundary was the next deterministic gap at this checkpoint: thrown
+rollback faults do not prove process-death recovery. The 6 October simulator
+cases above supersede that gap only for the direct native paths. Physical D14,
+hardware lock/power loss, recovery and
 the independent security review remain open; this batch is not release approval.
 
 ### 5 October mirrored iPad pending continuity and iPhone receipt

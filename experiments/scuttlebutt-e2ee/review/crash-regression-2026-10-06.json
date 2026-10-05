@@ -1,0 +1,283 @@
+{
+    "schemaVersion": 1,
+    "recordedAtUTC": "2026-10-05T22:46:44.567Z",
+    "branch": "codex/scuttlebutt-e2ee-foundation",
+    "baseCommit": "9579f942",
+    "dirtyTreeAtExecution": true,
+    "status": "passed",
+    "shippingApproved": false,
+    "provider": "vodozemac 0.11.0 unchanged Olm v1",
+    "scope": "Direct native coordinator and sealed-store mutation paths in a disposable simulator",
+    "caseCount": 18,
+    "assertions": 731,
+    "phaseAssertionTotals": {
+        "seed": 81,
+        "fault": 72,
+        "verify": 470,
+        "cleanup": 108
+    },
+    "cases": [
+        {
+            "operation": "prepare",
+            "boundary": "beforeUpdate",
+            "status": "passed",
+            "assertions": 36,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "prepare",
+            "boundary": "afterUpdateBeforeCommit",
+            "status": "passed",
+            "assertions": 36,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "prepare",
+            "boundary": "afterCommit",
+            "status": "passed",
+            "assertions": 36,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "receiveOpening",
+            "boundary": "beforeUpdate",
+            "status": "passed",
+            "assertions": 47,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "receiveOpening",
+            "boundary": "afterUpdateBeforeCommit",
+            "status": "passed",
+            "assertions": 47,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "receiveOpening",
+            "boundary": "afterCommit",
+            "status": "passed",
+            "assertions": 44,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "receiveSession",
+            "boundary": "beforeUpdate",
+            "status": "passed",
+            "assertions": 44,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "receiveSession",
+            "boundary": "afterUpdateBeforeCommit",
+            "status": "passed",
+            "assertions": 44,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "receiveSession",
+            "boundary": "afterCommit",
+            "status": "passed",
+            "assertions": 41,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "accepted",
+            "boundary": "beforeUpdate",
+            "status": "passed",
+            "assertions": 41,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "accepted",
+            "boundary": "afterUpdateBeforeCommit",
+            "status": "passed",
+            "assertions": 41,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "accepted",
+            "boundary": "afterCommit",
+            "status": "passed",
+            "assertions": 39,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "rejected",
+            "boundary": "beforeUpdate",
+            "status": "passed",
+            "assertions": 41,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "rejected",
+            "boundary": "afterUpdateBeforeCommit",
+            "status": "passed",
+            "assertions": 41,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "rejected",
+            "boundary": "afterCommit",
+            "status": "passed",
+            "assertions": 39,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "logout",
+            "boundary": "beforeUpdate",
+            "status": "passed",
+            "assertions": 39,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "logout",
+            "boundary": "afterUpdateBeforeCommit",
+            "status": "passed",
+            "assertions": 39,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        },
+        {
+            "operation": "logout",
+            "boundary": "afterCommit",
+            "status": "passed",
+            "assertions": 36,
+            "sigkillDispatched": true,
+            "processStartIdentityCorrelated": true,
+            "ownedProcessDisappearanceObserved": true,
+            "signalObservation": "sent-sigkill-and-observed-correlated-process-gone-no-waitpid-status"
+        }
+    ],
+    "nativeReceipt": {
+        "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-sealed-crash-F5SRsI/sealed-crash-run.json",
+        "sha256": "0e9e55db8fbff16d860c5ed37b59cdf2bfda2a1fc391492d955e1df89c64a586"
+    },
+    "sourceHashes": {
+        "VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+        "VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "VodozemacDmCoordinator.swift": "d451170c5f9854630c81de9a6f74042bc043d95cefdc157a1cec79adafffa300",
+        "VodozemacMessageOperations.swift": "c507a825ff4888d9f229e46120503d7311e33ad85d3972c40787f560b6736370",
+        "VodozemacRelayCodec.swift": "2b087eaaeb30774fb9d82bbd12351eb901c1a43cd45101a5e4225a44ae35d84a",
+        "VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "VodozemacRelayResult.swift": "024e54da36c91df795ce0ea6371f73182546146acbfe4a9946fe3e4debbff773",
+        "VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "VodozemacSealedCrashProbe.swift": "043daf7c41a14cda395df35bc92602f10e4489469fdb7f4bc18ad1b9f7b5dbc2"
+    },
+    "cachedBindingHashes": {
+        "thalassa_vodozemac_native.swift": "f26c6256b43c383209f9d8da64afe2c87ea84cd647a312a9be322d4f403fa62e",
+        "thalassa_vodozemac_nativeFFI.h": "e135cfea1701a0e760f6741edd7c848f8197907cdbf2683a2a923742be31fb11",
+        "thalassa_vodozemac_nativeFFI.modulemap": "c7d5f877e8d06da086653661f8052ab5fec7d136061edcad1bfcd504ea295f41"
+    },
+    "providerSha256": "ce81b9cf0723a108c42f8eb2bd03f001aa4800739000aac525dd7e03461d8c0f",
+    "providerManifestSha256": "8cef57a4b945989302db94361bb03df46157e9c305862232dd9d59379ed610d9",
+    "providerLockfileSha256": "5788c45d3bd629c4640f88c5b533484c89d39029674a02bce0301597e6fe50f7",
+    "priorReceiptKind": "hash-matched-completed-native-https-exchange",
+    "priorReceiptSha256": "c5903e25335df51c46fbbaccf9c014c465c04e023035024800c79198bdd18be8",
+    "runnerSha256RecordedAfterExecution": "0d87a8ff2b211d0b878dfb3fae1506e410009eb6a0867a1b3824811929903fde",
+    "executableSha256": "589c0644cf8eaafd33a2aa82df0d8f0968c001e1923cf5b89f8547ae11e22717",
+    "normalMode": {
+        "status": "passed",
+        "crashProbeFlag": false,
+        "typecheckOnly": true,
+        "inputCount": 10,
+        "platform": "arm64-apple-ios17.0-simulator",
+        "receiptPath": "/private/tmp/thalassa-crash-validation.836Q1X/no-hook-typecheck.json",
+        "receiptSha256": "07064c1ef6acf1634ff30309fa421ea431e19dbeb0d7ff93e1f6f90a36b301aa"
+    },
+    "researchRegression": {
+        "testsPassed": 1069,
+        "testFilesPassed": 15,
+        "focusedTypeScriptPassed": true,
+        "kind": "Local deterministic TypeScript tests and injected boundary fixtures"
+    },
+    "cleanup": {
+        "disposableSimulatorRemoved": true,
+        "buildSlotReleased": true,
+        "fixtureCaseNamespacesRemoved": 18,
+        "humanDeviceChanges": false,
+        "hostedOperations": false,
+        "networkOperations": false
+    },
+    "priorAttempt": {
+        "status": "refused-before-build",
+        "stage": "pinned-cached-inputs",
+        "reason": "Original cache run receipts absent; no scratch, simulator or compiler started"
+    },
+    "logHashes": [
+        {
+            "path": "/private/tmp/thalassa-crash-validation.836Q1X/crash-run.log",
+            "sha256": "9c45f6ad6cef559917fc8419b0fe3104e2cfc6f20ce52dac35381af8f9ee9670"
+        },
+        {
+            "path": "/private/tmp/thalassa-crash-validation.836Q1X/crash-run-2.log",
+            "sha256": "e5f8e78b8dfbf203a3dc58532235957133a4b5a466c25923b155339adc63d350"
+        },
+        {
+            "path": "/private/tmp/thalassa-crash-validation.836Q1X/no-hook-typecheck.log",
+            "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        },
+        {
+            "path": "/private/tmp/thalassa-crash-validation.836Q1X/regression.log",
+            "sha256": "3aab00b4377e83d2ac1b7dcb9c381843b465df66bd069f5fca9a9253c4561fac"
+        }
+    ],
+    "limits": [
+        "SIGKILL was dispatched to the correlated parked process and its disappearance observed; no parent waitpid signal status",
+        "Three precise persistence boundaries only; not death inside SQLite COMMIT or arbitrary instruction boundaries",
+        "Direct coordinator paths, not actual Auth/facade/Capacitor or remote receipt authentication",
+        "No phone, iPad, power-loss, lock, backup-restore or whole-database rollback test",
+        "Cached native provider reused, not a fresh Rust rebuild or independent provenance attestation",
+        "Not hosted PostgreSQL concurrency or production cutover evidence",
+        "Not an independent security review or public release approval"
+    ]
+}
