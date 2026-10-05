@@ -72,6 +72,39 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October pending message baseline captured before restart
+
+After the in-place update to candidate `0cde17c2`, the owner reported that
+previous messages remained visible on both devices after reading setup facts
+and local history. The owner then provided an iPhone capture of the prepared
+outgoing row. Its native projection shows **pending, no acceptance confirmed**:
+
+- Message ID: `b37ff5d0-dc1b-475f-81ee-7ae0aab79dc5`.
+- Saved-envelope SHA-256:
+  `66779d9efb521ad34eb18c04b0d3ecbbf469d11f56d490162db51ad42dd5bf0a`.
+- Displayed device-local creation time: 5 October 2026, 1:58:48 pm. This is not
+  authenticated sender/server time.
+- Owner capture:
+  `/Users/shanestratton/Downloads/Screenshot 2026-10-05 at 2.02.01 pm.png`.
+- Capture file SHA-256:
+  `e8be322b5e1d2d998906c286d6ba050be1d3b2f30558bb6a10469ba14a50f31e`.
+
+The earlier 1:59:05 pm capture showed only an older accepted message and the
+current unresolved-attempt ID; its visible older hash was not used as this
+baseline. The later capture exposes the matching new pending row and full
+wrapped hash. These are visual/native-projection observations, not direct
+store or relay inspection. An internal visual transcription check matched the
+ID, hash and timestamp; it is not an independent security review.
+
+The owner pasted text because the keyboard would not appear; that plaintext
+is not reproduced in this record. This is a reported Research input UX defect,
+not a diagnosed cause. No app change is being made while the attempt is pending.
+No restart, retry, acceptance or peer receipt for this ID is recorded yet. The
+next bounded step is an iPhone-only process restart, fresh same-account login
+and explicit setup/history reads, without Log out, re-registration, peer claim
+or replacement preparation. Compare the exact ID, timestamp and hash before
+retrying. The complete pending-restart experiment and device gates remain open.
+
 ### 5 October prepared-only candidate installed on both devices
 
 After the owner said both devices were ready, candidate
