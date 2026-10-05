@@ -77,4 +77,75 @@ describe('vessel location display labels', () => {
             }).title,
         ).toBe('Lady Musgrave');
     });
+    it('names the boat being crewed on when the weather follows her (2026-10-05)', () => {
+        // App passes the crewed boat's name as vesselName while the target is 'crew'.
+        for (const status of [undefined, 'live', 'last-known'] as const) {
+            expect(
+                weatherLocationTitle({
+                    locationName: 'Current Location',
+                    fallback: 'Current Location',
+                    target: 'crew',
+                    status,
+                    vesselName: 'Wind Dancer',
+                }).title,
+            ).toBe('Wind Dancer');
+        }
+        expect(
+            weatherLocationTitle({
+                fallback: 'Current Location',
+                target: 'crew',
+                status: 'resolving',
+                vesselName: 'Wind Dancer',
+            }),
+        ).toEqual({ title: 'Wind Dancer', resolvingLabel: 'Finding Wind Dancer’s location…' });
+        expect(
+            weatherLocationTitle({
+                fallback: 'Current Location',
+                target: 'crew',
+                status: 'unavailable',
+                vesselName: 'Wind Dancer',
+            }).title,
+        ).toBe('Boat GPS unavailable');
+        expect(
+            weatherLocationTitle({
+                locationName: 'Magnetic Island',
+                fallback: 'Current Location',
+                target: 'crew',
+                status: 'live',
+                vesselName: 'Wind Dancer',
+            }).title,
+        ).toBe('Magnetic Island');
+    });
+    it('a crewed boat with no name known is titled for her skipper, and found plainly', () => {
+        // Not "Finding Your skipper's boat’s location…".
+        expect(
+            weatherLocationTitle({
+                fallback: 'Current Location',
+                target: 'crew',
+                status: 'resolving',
+                vesselName: null,
+                unnamedVesselLabel: "Your skipper's boat",
+            }),
+        ).toEqual({ title: "Your skipper's boat", resolvingLabel: 'Finding vessel location…' });
+        expect(
+            weatherLocationTitle({
+                locationName: 'Current Location',
+                fallback: 'Current Location',
+                target: 'crew',
+                status: 'live',
+                vesselName: '',
+                unnamedVesselLabel: "Your skipper's boat",
+            }).title,
+        ).toBe("Your skipper's boat");
+        // A known name always wins.
+        expect(
+            weatherLocationTitle({
+                fallback: 'Current Location',
+                target: 'crew',
+                status: 'resolving',
+                vesselName: 'Wind Dancer',
+                unnamedVesselLabel: "Your skipper's boat",
+            }).title,
+        ).toBe('Wind Dancer');
+    });
 });

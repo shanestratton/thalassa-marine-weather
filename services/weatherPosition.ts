@@ -22,13 +22,38 @@
  * boat-or-phone dialog survives only as a way to switch from the ℹ panel
  * while a held fix is on screen, and its answer sets the same follow target.
  *
+ * 2026-10-05, crew: "when a punter is invited to another yacht, in the location
+ * box, instead of showing their yacht, can it instead show the yacht that they
+ * are now invited to" — and "if they have gps on their boat and on the invited
+ * boat, you would need to be able to check both gps postions". So a third
+ * target, the CREWED boat (the 'Switch boat' selection): her own chain, never
+ * the account's own boat's. Her cloud row is read by her skipper's id; the
+ * phone's own receivers count for her only when the paired Pi is known to be
+ * hers (deviceRungOwner). Each boat keeps her own held fix. When the crewing
+ * ends the weather goes back to the account's own boat when it has one, else
+ * the phone.
+ *
  * The phone is never read here. Whether a phone fix is acceptable is the
  * caller's decision (the same doctrine as boatFix()), so the caller passes a
  * function for it — which also keeps this module clear of every location
  * permission surface.
  */
-import { busFix, cloudFix, piFix, CLOUD_FIX_MAX_AGE_MS, type BoatFix, type BoatFixRung } from './boatPositionChain';
+import {
+    busFix,
+    cloudFix,
+    deviceRungOwner,
+    piFix,
+    CLOUD_FIX_MAX_AGE_MS,
+    type BoatFix,
+    type BoatFixRung,
+} from './boatPositionChain';
 import { authScopedStorageKey, getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
+import {
+    getCrewingVessel,
+    getSharedBindersState,
+    listCrewVessels,
+    subscribeSharedBinders,
+} from './vessel/sharedBinders';
 import { NMEA_USABLE_MAX_AGE_MS } from './nmea/nmeaCadence';
 import { haversineNM } from '../utils/gpsFollow';
 import { createLogger } from '../utils/createLogger';
@@ -37,8 +62,8 @@ const log = createLogger('WeatherPosition');
 
 export type WeatherFixKind = 'bus' | 'pi' | 'cloud' | 'held' | 'phone';
 export type HeldChoice = 'boat' | 'phone';
-/** What 'Current Location' follows: the punter's phone (default) or the boat. */
-export type WeatherFollowTarget = 'phone' | 'boat';
+/** What 'Current Location' follows: the punter's phone (default), their own boat, or the boat they crew on. */
+export type WeatherFollowTarget = 'phone' | 'boat' | 'crew';
 
 export interface WeatherFix {
     lat: number;
@@ -90,8 +115,19 @@ export const REMEMBER_MIN_MOVE_NM = 0.02;
 const LAST_BOAT_FIX_KEY = 'thalassa_weather_last_boat_fix';
 const HELD_CHOICE_KEY = 'thalassa_weather_held_choice';
 const FOLLOW_TARGET_KEY = 'thalassa_weather_follow_target';
-/** Fired on this window when the follow target changes; detail: { target }. */
+/** Beside FOLLOW_TARGET_KEY = 'crew': whose boat, and where the weather goes when the crewing ends. */
+const FOLLOW_CREW_KEY = 'thalassa_weather_follow_crew';
+/**
+ * Fired on this window when the followed receiver changes; detail: { target,
+ * key } (see getWeatherFollowKey), plus reason 'binders' when no pick did it.
+ */
 export const WEATHER_FOLLOW_TARGET_EVENT = 'thalassa:weather-follow-target-changed';
+
+/** The crewed boat followed: her skipper's id, and the target to fall back to. */
+export interface CrewFollow {
+    ownerId: string;
+    fallback: 'boat' | 'phone';
+}
 
 interface StoredBoatFix {
     lat: number;
@@ -99,6 +135,8 @@ interface StoredBoatFix {
     timestamp: number;
     rung: BoatFixRung;
     source?: string | null;
+    /** Whose fix: 'own', or the skipper's id for a crewed boat. Absent on fixes kept before 2026-10-05. */
+    boat?: string;
 }
 
 /** Bound to the fix it answered for: a newer boat fix makes the question fresh. */
@@ -110,28 +148,34 @@ interface StoredChoice {
 let piLastAskedAt = Number.NEGATIVE_INFINITY;
 /** The cloud row is asked at most this often; the boat does not move far in half a minute. */
 export const CLOUD_POLL_MS = 30_000;
-let cloudInFlight: Promise<BoatFix | null> | null = null;
-let cloudLastAnswer: BoatFix | null = null;
-let cloudLastAskedAt = Number.NEGATIVE_INFINITY;
+/** Each boat's cloud row on its own throttle, keyed '' for the own boat and the skipper's id for a crewed one. */
+interface CloudLane {
+    inFlight: Promise<BoatFix | null> | null;
+    answer: BoatFix | null;
+    askedAt: number;
+}
+const cloudLanes = new Map<string, CloudLane>();
 let piLastAnswer: BoatFix | null = null;
 let piInFlight: Promise<BoatFix | null> | null = null;
-let lastRememberedAt = Number.NEGATIVE_INFINITY;
-let lastRemembered: { lat: number; lon: number } | null = null;
+/** The remember throttle, per boat (same keys as cloudLanes). */
+const remembered = new Map<string, { at: number; lat: number; lon: number }>();
 let cacheScope = getAuthIdentityScope();
 let sessionFollowTarget: WeatherFollowTarget | null = null;
+let sessionCrewFollow: CrewFollow | null = null;
 let sessionTargetNeedsPersistence = false;
+/** The followed receiver last seen on this account (getWeatherFollowKey), for announcing a Switch boat. */
+let followSeen: { scope: string; key: string } | null = null;
 
 function resetCaches(): void {
-    cloudInFlight = null;
-    cloudLastAnswer = null;
-    cloudLastAskedAt = Number.NEGATIVE_INFINITY;
+    cloudLanes.clear();
     piLastAskedAt = Number.NEGATIVE_INFINITY;
     piLastAnswer = null;
     piInFlight = null;
-    lastRememberedAt = Number.NEGATIVE_INFINITY;
-    lastRemembered = null;
+    remembered.clear();
     sessionFollowTarget = null;
+    sessionCrewFollow = null;
     sessionTargetNeedsPersistence = false;
+    followSeen = null;
 }
 
 /** Persisted keys alone cannot isolate the in-flight and throttled answers. */
@@ -207,32 +251,56 @@ function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
     };
 }
 
-/** Keep the boat's latest fix for the day she goes quiet. Throttled: a moving boat rewrites, a still one does not. */
-export function rememberBoatFix(fix: BoatFix, now = Date.now()): void {
+/**
+ * Where a boat's last fix is kept. The own boat keeps the key it always had
+ * (already per account), so a fix held before 2026-10-05 stays hers; a crewed
+ * boat's is keyed by her skipper's id.
+ */
+function heldFixKey(crewOwnerId: string | null): string {
+    return authScopedStorageKey(crewOwnerId ? `${LAST_BOAT_FIX_KEY}:crew:${crewOwnerId}` : LAST_BOAT_FIX_KEY);
+}
+
+/**
+ * Keep the boat's latest fix for the day she goes quiet. Throttled: a moving boat rewrites, a still one does not.
+ * `crewOwnerId` names a crewed boat; null is the account's own.
+ */
+export function rememberBoatFix(fix: BoatFix, now = Date.now(), crewOwnerId: string | null = null): void {
     ensureCacheScope();
     if (!isBoatReceiver(fix) || !validCoordinates(fix.latitude, fix.longitude) || !validTimestamp(fix.timestamp, now))
         return;
-    const previous = heldBoatFix(now);
+    const previous = heldBoatFix(now, crewOwnerId);
     if (previous && fix.timestamp < previous.timestamp) return;
-    const moved =
-        !lastRemembered ||
-        haversineNM(lastRemembered.lat, lastRemembered.lon, fix.latitude, fix.longitude) >= REMEMBER_MIN_MOVE_NM;
-    if (!moved && now - lastRememberedAt < REMEMBER_MIN_INTERVAL_MS) return;
+    const last = remembered.get(crewOwnerId ?? '');
+    const moved = !last || haversineNM(last.lat, last.lon, fix.latitude, fix.longitude) >= REMEMBER_MIN_MOVE_NM;
+    if (!moved && now - last.at < REMEMBER_MIN_INTERVAL_MS) return;
     const stored: StoredBoatFix = {
         lat: fix.latitude,
         lon: fix.longitude,
         timestamp: fix.timestamp,
         rung: fix.rung,
         source: fix.source ?? null,
+        boat: crewOwnerId ?? 'own',
     };
-    writeJson(authScopedStorageKey(LAST_BOAT_FIX_KEY), stored);
-    lastRemembered = { lat: fix.latitude, lon: fix.longitude };
-    lastRememberedAt = now;
+    writeJson(heldFixKey(crewOwnerId), stored);
+    remembered.set(crewOwnerId ?? '', { at: now, lat: fix.latitude, lon: fix.longitude });
 }
 
-/** The boat's last remembered fix for this account on this device, or null. */
-export function heldBoatFix(now = Date.now()): WeatherFix | null {
-    const stored = readJson<StoredBoatFix>(authScopedStorageKey(LAST_BOAT_FIX_KEY));
+/** The boat's last remembered fix for this account on this device, or null (`crewOwnerId`: a crewed boat). */
+export function heldBoatFix(now = Date.now(), crewOwnerId: string | null = null): WeatherFix | null {
+    const key = heldFixKey(crewOwnerId);
+    const stored = readJson<StoredBoatFix>(key);
+    // Before 2026-10-05 an account that crewed could keep its skipper's
+    // position here (her cloud row, her Pi), so an unmarked fix is only the
+    // own boat's for an account that crews nowhere. Dropped, not just skipped,
+    // so it cannot pass as hers once the crewing ends.
+    if (stored && !crewOwnerId && stored.boat === undefined && listCrewVessels().length > 0) {
+        try {
+            storage()?.removeItem(key);
+        } catch {
+            /* unreadable storage keeps nothing anyway */
+        }
+        return null;
+    }
     if (
         !stored ||
         !isBoatReceiver(stored) ||
@@ -292,68 +360,91 @@ async function throttledPiFix(now: number): Promise<BoatFix | null> {
     return request;
 }
 
-async function throttledCloudFix(now: number): Promise<BoatFix | null> {
+async function throttledCloudFix(now: number, crewOwnerId: string | null): Promise<BoatFix | null> {
     ensureCacheScope();
     const scope = getAuthIdentityScope();
-    if (cloudInFlight) return cloudInFlight;
-    if (now - cloudLastAskedAt < CLOUD_POLL_MS) return cloudLastAnswer;
-    cloudLastAskedAt = now;
+    const key = crewOwnerId ?? '';
+    const lane = cloudLanes.get(key) ?? { inFlight: null, answer: null, askedAt: Number.NEGATIVE_INFINITY };
+    cloudLanes.set(key, lane);
+    if (lane.inFlight) return lane.inFlight;
+    if (now - lane.askedAt < CLOUD_POLL_MS) return lane.answer;
+    lane.askedAt = now;
     const request = Promise.resolve()
-        .then(() => cloudFix(now))
+        // The own boat reads strictly her own row: crewing elsewhere must never
+        // lend her a skipper's position. A crewed boat reads her skipper's.
+        .then(() => cloudFix(now, crewOwnerId ?? 'self'))
         .then((fix) => {
             if (!isAuthIdentityScopeCurrent(scope)) return null;
-            cloudLastAnswer = fix;
+            lane.answer = fix;
             return fix;
         })
         .catch(() => {
-            if (isAuthIdentityScopeCurrent(scope)) cloudLastAnswer = null;
+            if (isAuthIdentityScopeCurrent(scope)) lane.answer = null;
             return null;
         })
         .finally(() => {
-            if (cloudInFlight === request) cloudInFlight = null;
+            if (lane.inFlight === request) lane.inFlight = null;
         });
-    cloudInFlight = request;
+    lane.inFlight = request;
     return request;
 }
 
 /**
+ * Whether the phone's own receivers (the bus, the paired Pi) are this boat's.
+ * A crewed boat takes them only when they are known to be hers. The own boat
+ * takes them as she always has, unless they are known to be a boat this
+ * account crews on.
+ */
+function devicesAreHers(rung: 'bus' | 'pi', crewOwnerId: string | null): boolean {
+    const owner = deviceRungOwner(rung);
+    if (crewOwnerId) return owner === crewOwnerId;
+    return !owner || !listCrewVessels().some((vessel) => vessel.ownerId === owner);
+}
+
+/**
  * The boat's receivers, then her cloud row, then the held fix. Never the phone.
+ * `crewOwnerId` names a boat this account crews on; null is the account's own.
  *
  * A live boat answer also ends any standing boat-or-phone choice: she is
- * reporting again, so the weather goes back to her.
+ * reporting again, so the weather goes back to her. `readOnly` (the ★ menu's
+ * look at a boat not being followed) keeps no fix and ends no choice.
  */
-export async function boatOrHeldFix(now = Date.now()): Promise<WeatherFix | null> {
+export async function boatOrHeldFix(
+    now = Date.now(),
+    crewOwnerId: string | null = null,
+    options: { readOnly?: boolean } = {},
+): Promise<WeatherFix | null> {
     ensureCacheScope();
     const scope = getAuthIdentityScope();
     const startedAt = Date.now();
     // A request can spend seconds on the network: re-age its answer on arrival.
     const currentTime = () => now + Math.max(0, Date.now() - startedAt);
-    const bus = busFix();
-    if (usableBoatFix(bus, currentTime())) {
-        rememberBoatFix(bus, now);
-        clearHeldChoice();
-        return toWeatherFix(bus, 'bus');
-    }
-    const pi = await throttledPiFix(now);
+    // While the account crews anywhere, a receiver that names no boat may be
+    // the skipper's: shown for the own boat as always, never kept as hers.
+    const unnamed = (rung: 'bus' | 'pi') => !crewOwnerId && !deviceRungOwner(rung) && listCrewVessels().length > 0;
+    const keep = (fix: BoatFix, at: number, device?: 'bus' | 'pi') => {
+        if (options.readOnly || (device && unnamed(device))) return;
+        rememberBoatFix(fix, at, crewOwnerId);
+    };
+    const live = (fix: BoatFix, at: number, kind: 'bus' | 'pi' | 'cloud') => {
+        keep(fix, at, kind === 'cloud' ? undefined : kind);
+        if (!options.readOnly) clearHeldChoice();
+        return toWeatherFix(fix, kind);
+    };
+    const bus = devicesAreHers('bus', crewOwnerId) ? busFix() : null;
+    if (usableBoatFix(bus, currentTime())) return live(bus, now, 'bus');
+    const pi = devicesAreHers('pi', crewOwnerId) ? await throttledPiFix(now) : null;
     if (!isAuthIdentityScopeCurrent(scope)) return null;
-    if (usableBoatFix(pi, currentTime())) {
-        rememberBoatFix(pi, currentTime());
-        clearHeldChoice();
-        return toWeatherFix(pi, 'pi');
-    }
-    const cloud = await throttledCloudFix(currentTime());
+    if (usableBoatFix(pi, currentTime())) return live(pi, currentTime(), 'pi');
+    const cloud = await throttledCloudFix(currentTime(), crewOwnerId);
     if (!isAuthIdentityScopeCurrent(scope)) return null;
-    if (usableBoatFix(cloud, currentTime())) {
-        rememberBoatFix(cloud, currentTime());
-        clearHeldChoice();
-        return toWeatherFix(cloud, 'cloud');
-    }
+    if (usableBoatFix(cloud, currentTime())) return live(cloud, currentTime(), 'cloud');
     // A genuine older receiver fix can still be useful, explicitly as history.
     // Never replace a newer held fix with a late response from an older lane.
-    for (const fix of [bus, pi, cloud]) {
-        if (fix) rememberBoatFix(fix, currentTime());
-    }
-    return heldBoatFix(currentTime());
+    if (bus) keep(bus, currentTime(), 'bus');
+    if (pi) keep(pi, currentTime(), 'pi');
+    if (cloud) keep(cloud, currentTime());
+    return heldBoatFix(currentTime(), crewOwnerId);
 }
 
 async function phoneFix(provider: PhoneFixProvider, now: number): Promise<WeatherFix | null> {
@@ -374,29 +465,36 @@ async function phoneFix(provider: PhoneFixProvider, now: number): Promise<Weathe
     }
 }
 
-/** The follow target for this account on this device. The phone until the skipper picks the boat. */
-export function getWeatherFollowTarget(): WeatherFollowTarget {
-    ensureCacheScope();
+function storedFollowTarget(): WeatherFollowTarget {
     try {
         const store = storage();
         // An explicit choice still stands when storage cannot persist or read it.
         if (!store || sessionTargetNeedsPersistence) return sessionFollowTarget ?? 'phone';
         const saved = store.getItem(authScopedStorageKey(FOLLOW_TARGET_KEY));
-        sessionFollowTarget = saved === 'boat' ? 'boat' : 'phone';
+        sessionFollowTarget = saved === 'boat' || saved === 'crew' ? saved : 'phone';
         return sessionFollowTarget;
     } catch {
         return sessionFollowTarget ?? 'phone';
     }
 }
 
-export function setWeatherFollowTarget(target: WeatherFollowTarget): void {
-    ensureCacheScope();
+function storedCrewFollow(): CrewFollow | null {
+    if (sessionTargetNeedsPersistence) return sessionCrewFollow;
+    const stored = readJson<Partial<CrewFollow>>(authScopedStorageKey(FOLLOW_CREW_KEY));
+    if (!stored || typeof stored.ownerId !== 'string' || !stored.ownerId) return sessionCrewFollow;
+    return { ownerId: stored.ownerId, fallback: stored.fallback === 'boat' ? 'boat' : 'phone' };
+}
+
+function storeFollowTarget(target: WeatherFollowTarget, crew: CrewFollow | null): void {
     sessionFollowTarget = target;
+    sessionCrewFollow = crew;
     sessionTargetNeedsPersistence = true;
     try {
         const store = storage();
         if (store) {
             store.setItem(authScopedStorageKey(FOLLOW_TARGET_KEY), target);
+            if (crew) store.setItem(authScopedStorageKey(FOLLOW_CREW_KEY), JSON.stringify(crew));
+            else store.removeItem(authScopedStorageKey(FOLLOW_CREW_KEY));
             // Ordinary reads can reflect changes made by another tab. Keep the
             // session copy as well, in case reading storage fails later.
             sessionTargetNeedsPersistence = false;
@@ -404,13 +502,99 @@ export function setWeatherFollowTarget(target: WeatherFollowTarget): void {
     } catch {
         /* The explicit in-session choice is already captured above. */
     }
-    log.info(`Weather follows the ${target}`);
+}
+
+/** The shared binder snapshot has answered for this account, so "not crew" is known, not merely unloaded. */
+function crewingKnown(): boolean {
+    const userId = getAuthIdentityScope().userId;
+    return Boolean(userId && getSharedBindersState().snapshot?.userId === userId);
+}
+
+interface FollowNow {
+    target: WeatherFollowTarget;
+    /** The skipper's id while the target is a crewed boat. */
+    crewOwnerId: string | null;
+}
+
+const followKey = (follow: FollowNow): string =>
+    follow.target === 'crew' ? `crew:${follow.crewOwnerId}` : follow.target;
+
+/**
+ * What the weather follows right now. 'crew' follows the boat the account is
+ * crewing on (Switch boat moves it), the stored boat while the crewing is not
+ * yet known here, and once the crewing is known to have ended, the stored
+ * fallback, which is then kept.
+ */
+function currentFollow(): FollowNow {
+    ensureCacheScope();
+    const stored = storedFollowTarget();
+    let follow: FollowNow = { target: stored, crewOwnerId: null };
+    if (stored === 'crew') {
+        const crew = storedCrewFollow();
+        const crewing = getCrewingVessel();
+        if (crewing) follow = { target: 'crew', crewOwnerId: crewing.ownerId };
+        else if (!crewingKnown() && crew) follow = { target: 'crew', crewOwnerId: crew.ownerId };
+        else {
+            follow = { target: crew?.fallback ?? 'phone', crewOwnerId: null };
+            if (crewingKnown()) {
+                storeFollowTarget(follow.target, null);
+                log.info(`Crewing ended: the weather follows the ${follow.target}`);
+            }
+        }
+    }
+    const scope = getAuthIdentityScope().key;
+    if (followSeen?.scope !== scope) followSeen = { scope, key: followKey(follow) };
+    return follow;
+}
+
+/** The follow target for this account on this device. The phone until the skipper picks a boat. */
+export function getWeatherFollowTarget(): WeatherFollowTarget {
+    return currentFollow().target;
+}
+
+/** The skipper's id of the crewed boat the weather follows, or null when it follows something else. */
+export function getWeatherFollowCrewOwner(): string | null {
+    return currentFollow().crewOwnerId;
+}
+
+/** 'phone', 'boat' or 'crew:<skipper id>': changes whenever the followed receiver does, Switch boat included. */
+export function getWeatherFollowKey(): string {
+    return followKey(currentFollow());
+}
+
+/** `reason` 'binders': Switch boat or the crewing ending moved it, not a pick. */
+function announceFollowTarget(reason?: 'binders'): void {
+    const follow = currentFollow();
+    const key = followKey(follow);
+    followSeen = { scope: getAuthIdentityScope().key, key };
     try {
-        window.dispatchEvent(new CustomEvent(WEATHER_FOLLOW_TARGET_EVENT, { detail: { target } }));
+        window.dispatchEvent(
+            new CustomEvent(WEATHER_FOLLOW_TARGET_EVENT, { detail: { target: follow.target, key, reason } }),
+        );
     } catch {
         /* non-DOM host */
     }
 }
+
+/** `crew` names the crewed boat for 'crew' (without it the stored one stands; with none, nothing changes). */
+export function setWeatherFollowTarget(target: WeatherFollowTarget, crew?: CrewFollow): void {
+    ensureCacheScope();
+    const crewFollow = target === 'crew' ? (crew ?? storedCrewFollow()) : null;
+    if (target === 'crew' && !crewFollow?.ownerId) return;
+    storeFollowTarget(target, crewFollow);
+    log.info(`Weather follows the ${target}`);
+    announceFollowTarget();
+}
+
+// Switch boat, or the end of the crewing, changes what 'crew' follows without
+// anyone picking a row: tell the weather, as a pick would.
+subscribeSharedBinders(() => {
+    const scope = getAuthIdentityScope().key;
+    const previous = followSeen;
+    const key = getWeatherFollowKey();
+    if (!previous || previous.scope !== scope || previous.key === key) return;
+    announceFollowTarget('binders');
+});
 
 /**
  * Where the weather should be for. Never asks (`ask` is always false since
@@ -422,7 +606,7 @@ export function setWeatherFollowTarget(target: WeatherFollowTarget): void {
  */
 export async function resolveWeatherPosition(
     phone: PhoneFixProvider,
-    options: { now?: number; mayAsk?: boolean; target?: WeatherFollowTarget } = {},
+    options: { now?: number; mayAsk?: boolean; target?: WeatherFollowTarget; crewOwnerId?: string | null } = {},
 ): Promise<WeatherPositionResolution> {
     const now = options.now ?? Date.now();
     const target = options.target ?? getWeatherFollowTarget();
@@ -432,9 +616,12 @@ export async function resolveWeatherPosition(
         return { fix, held: null, phone: fix, ask: false };
     }
 
-    // The skipper picked the boat: her receivers, her cloud row, then her held
-    // last fix with its age. A phone fix is never a substitute for the vessel.
-    const boat = await boatOrHeldFix(now);
+    // The skipper picked a boat: her receivers, her cloud row, then her held
+    // last fix with its age. A phone fix is never a substitute for the vessel,
+    // and one boat is never a substitute for the other.
+    const crewOwnerId = target === 'crew' ? (options.crewOwnerId ?? getWeatherFollowCrewOwner()) : null;
+    if (target === 'crew' && !crewOwnerId) return { fix: null, held: null, phone: null, ask: false };
+    const boat = await boatOrHeldFix(now, crewOwnerId);
     return { fix: boat, held: boat?.kind === 'held' ? boat : null, phone: null, ask: false };
 }
 

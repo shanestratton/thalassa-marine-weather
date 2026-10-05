@@ -21,6 +21,7 @@
  * previously went straight to the phone.
  */
 import { NmeaGpsProvider } from './NmeaGpsProvider';
+import { NmeaStore } from './NmeaStore';
 import { piCache } from './PiCacheService';
 import { createLogger } from '../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
@@ -93,6 +94,20 @@ export async function piFix(timeoutMs = 4_000): Promise<BoatFix | null> {
     }
 }
 
+/**
+ * Whose boat the phone's own receivers are reading, when that can be told.
+ * Shane 2026-10-05, on crew: "if they have gps on their boat and on the
+ * invited boat, you would need to be able to check both gps postions". The
+ * paired Pi's diary relay is bound to one account, its skipper's, so the Pi
+ * (and the bus it relays over the boat LAN) is that skipper's boat. A gateway
+ * socket names no boat: null, as does a Pi whose relay is not set up.
+ */
+export function deviceRungOwner(rung: 'bus' | 'pi'): string | null {
+    if (rung === 'bus' && NmeaStore.getState().connectionStatus !== 'remote') return null;
+    const { diaryRelayConfigured, diaryRelayOwnerId } = piCache.getStatus();
+    return diaryRelayConfigured && diaryRelayOwnerId ? diaryRelayOwnerId : null;
+}
+
 /** The Pi's cloud row is the boat's position for this long; after that it is where she WAS. */
 export const CLOUD_FIX_MAX_AGE_MS = 60_000;
 
@@ -104,13 +119,17 @@ export const CLOUD_FIX_MAX_AGE_MS = 60_000;
  * forecast for where the boat is, read from the kitchen table, is exactly
  * what Shane asked for (2026-09-07: the Glass read PHONE at Newport while the
  * Pi was publishing from the hardstand).
+ *
+ * `owner` reads one boat's row: 'self' strictly the account's own, or a
+ * skipper's id for the boat this account crews on. Without it, the row
+ * CloudTelemetryService.readOnce() has always picked (the Ship's Log callers).
  */
-export async function cloudFix(now = Date.now()): Promise<BoatFix | null> {
+export async function cloudFix(now = Date.now(), owner?: 'self' | string): Promise<BoatFix | null> {
     const scope = getAuthIdentityScope();
     const startedAt = Date.now();
     try {
         const { CloudTelemetryService } = await import('./CloudTelemetryService');
-        const t = await CloudTelemetryService.readOnce();
+        const t = await CloudTelemetryService.readOnce(owner);
         if (!isAuthIdentityScopeCurrent(scope) || !t || t.source !== 'pi') return null;
         if (
             t.snapshot.lat === null ||

@@ -65,9 +65,11 @@ export function resolveGpsSourceState(input: {
     forecastUpdatedAt?: number | null;
     now?: number;
 }): GpsSourceState {
-    const { weatherKind, storeStatus, remoteVia, target, status, timestamp } = input;
+    const { weatherKind, storeStatus, remoteVia, status, timestamp } = input;
+    // A crewed boat is a boat to the glyph and its words (2026-10-05).
+    const target = input.target === 'crew' ? 'boat' : input.target;
     const now = input.now ?? Date.now();
-    const fix = input.fixes ? followedFix(input.fixes, weatherKind, target) : null;
+    const fix = input.fixes ? followedFix(input.fixes, weatherKind, input.target) : null;
     // The followed receiver's age from the box's one fix state; the bare
     // glyph (no box) falls back to the weather's own copy of the fix. One age
     // wording either way: the one the cards use.

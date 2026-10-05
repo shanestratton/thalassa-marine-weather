@@ -100,6 +100,39 @@ describe('resolveGpsSourceState', () => {
         expect(state.label).not.toMatch(/unavailable|live|last fix/);
     });
 
+    // A boat this account crews on (2026-10-05) is a boat to the glyph and its
+    // words, but this device's own boat card is never folded into her.
+    it('a crewed boat reads as the boat, and never borrows this device’s boat card', () => {
+        const finding = resolveGpsSourceState({
+            weatherKind: null,
+            target: 'crew',
+            status: 'resolving',
+            storeStatus: 'disconnected',
+            remoteVia: null,
+        });
+        expect(finding).toMatchObject({ glyph: 'boat', label: 'Position: finding the boat’s GPS location' });
+        const now = Date.now();
+        const held = resolveGpsSourceState({
+            weatherKind: 'cloud',
+            target: 'crew',
+            status: 'live',
+            timestamp: now - 10_000,
+            storeStatus: 'disconnected',
+            remoteVia: null,
+            // This device's own boat card is long quiet; her cloud fix is not.
+            fixes: {
+                phone: { kind: 'none', at: null, ageMs: null },
+                boat: { kind: 'last', at: now - 3_600_000, ageMs: 3_600_000 },
+            },
+            now,
+        });
+        expect(held).toMatchObject({
+            glyph: 'boat',
+            tone: 'cloud',
+            label: 'Position: the boat’s GPS, through the cloud',
+        });
+    });
+
     it('an older phone fix is explicitly last-known and carries its age', () => {
         expect(
             resolveGpsSourceState({
@@ -280,9 +313,13 @@ describe('retained-weather location bar wiring', () => {
 
     it('uses a neutral selected-receiver label during lookup without a premature no-data error', () => {
         expect(title).toContain("const resolvingLocation = positionSource?.status === 'resolving'");
-        expect(title).toMatch(/target:\s*positionSource\?\.target \?\?/);
+        expect(title).toMatch(/followTarget =\s*positionSource\?\.target \?\?/);
         expect(title).toContain("settings.defaultLocation === 'Current Location' ? getWeatherFollowTarget() : null");
-        expect(title).toContain('vesselName: settings.vessel?.name');
+        expect(title).toContain('target: followTarget,');
+        // The boat being followed names the box: the crewed one, else the own (2026-10-05).
+        expect(title).toContain("vesselName: followTarget === 'crew' ? crewingBoat?.name : settings.vessel?.name");
+        // An unnamed crewed boat is titled for her skipper, never 'Finding Your skipper's boat’s location…'.
+        expect(title).toContain("unnamedVesselLabel: followTarget === 'crew' ? crewingBoat?.label : null");
         const pending = app.slice(
             app.indexOf(') : resolvingLocation ? ('),
             app.indexOf(') : !weatherData && !loading && !settings.defaultLocation'),

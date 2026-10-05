@@ -132,15 +132,20 @@ class CloudTelemetryServiceClass {
     /**
      * One read of the row, without feeding the store — for a caller that
      * wants the boat's position once (the weather chain), not a lane.
+     *
+     * `owner` names the boat (2026-10-05, crew following two boats): 'self'
+     * is strictly this account's own row, a user id is that skipper's row
+     * (RLS shows it only while the Instrument Panel is shared). Without it,
+     * pickRow as always: the own row, else the freshest crewed boat.
      */
-    async readOnce(): Promise<CloudTelemetry | null> {
+    async readOnce(owner?: 'self' | string): Promise<CloudTelemetry | null> {
         if (!supabase) return null;
         const scope = getAuthIdentityScope();
         const userId = await getCurrentUserId(scope);
         if (!isAuthIdentityScopeCurrent(scope) || !userId) return null;
-        const { data, error } = await supabase
-            .from('vessel_telemetry')
-            .select('*')
+        const ownerId = owner === 'self' ? userId : owner;
+        const rows = supabase.from('vessel_telemetry').select('*');
+        const { data, error } = await (ownerId ? rows.eq('owner_id', ownerId) : rows)
             .order('reported_at', { ascending: false })
             .limit(5);
         if (!isAuthIdentityScopeCurrent(scope)) return null;
@@ -148,7 +153,8 @@ class CloudTelemetryServiceClass {
             log.warn('vessel_telemetry read failed:', error.message);
             return null;
         }
-        const row = pickRow((data ?? []) as TelemetryRow[], userId);
+        const list = (data ?? []) as TelemetryRow[];
+        const row = ownerId ? (list.find((r) => r.owner_id === ownerId) ?? null) : pickRow(list, userId);
         return row ? rowToTelemetry(row) : null;
     }
 

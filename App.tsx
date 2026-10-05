@@ -46,6 +46,7 @@ import { Button } from './components/ui/Button';
 import { GLASS_TOP_CARD_GAP_PX, getGlassTopLayout } from './components/dashboard/glassLayout';
 import { FEATURE_VISIBILITY } from './utils/featureVisibility';
 import { useViewportHeight } from './hooks/useViewportHeight';
+import { useCrewingBoat } from './hooks/useCrewingBoat';
 import { getWeatherFollowTarget } from './services/weatherPosition';
 import { weatherLocationTitle } from './utils/weatherLocationTitle';
 
@@ -118,6 +119,8 @@ const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData, positionSource } = useWeather();
     const { settings, updateSettings, loading: settingsLoading } = useSettings();
+    // The boat this account crews on, named from the cache (no network wait).
+    const crewingBoat = useCrewingBoat();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
     const isVesselView = VESSEL_VIEWS.has(currentView);
 
@@ -597,14 +600,16 @@ const App: React.FC = () => {
         positionSource?.status === 'unavailable' && positionSource.retainedWeather && weatherData,
     );
     const resolvingLocation = positionSource?.status === 'resolving';
+    const followTarget =
+        positionSource?.target ?? (settings.defaultLocation === 'Current Location' ? getWeatherFollowTarget() : null);
     const { title: rawTitle, resolvingLabel: resolvingLocationLabel } = weatherLocationTitle({
         locationName: weatherData?.locationName,
         fallback: query || settings.defaultLocation || 'Select Location',
-        target:
-            positionSource?.target ??
-            (settings.defaultLocation === 'Current Location' ? getWeatherFollowTarget() : null),
+        target: followTarget,
         status: positionSource?.status,
-        vesselName: settings.vessel?.name,
+        // The boat being followed: the one they crew on, else their own (2026-10-05).
+        vesselName: followTarget === 'crew' ? crewingBoat?.name : settings.vessel?.name,
+        unnamedVesselLabel: followTarget === 'crew' ? crewingBoat?.label : null,
         retainedWeather: retainedLocationWeather,
     });
     let displayTitle = rawTitle;
@@ -631,7 +636,7 @@ const App: React.FC = () => {
     }
 
     const positionRetryLabel = retainedLocationWeather
-        ? `${positionSource?.target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable. Showing forecast for last location: ${displayTitle}. Retrying automatically; tap to retry now. ${positionSource?.target === 'boat' ? 'Check the boat’s GPS connection' : 'Check location access'} if this continues.`
+        ? `${followTarget === 'phone' ? 'Phone' : 'Boat'} GPS unavailable. Showing forecast for last location: ${displayTitle}. Retrying automatically; tap to retry now. ${followTarget === 'phone' ? 'Check location access' : 'Check the boat’s GPS connection'} if this continues.`
         : undefined;
     // 'Last location · ' cost the name its tail: 'Gladstone Central, QLD, AU'
     // was cut at 'QL' with no ellipsis, and inputs are held at 16 px (iOS focus

@@ -9,7 +9,9 @@ const world = vi.hoisted(() => ({
         unknown
     >,
     initial: null as unknown,
-    target: 'phone' as 'phone' | 'boat',
+    target: 'phone' as 'phone' | 'boat' | 'crew',
+    /** getWeatherFollowKey(): 'crew:<skipper>' while a crewed boat is followed. */
+    key: null as string | null,
     gps: vi.fn(),
     requestGps: vi.fn(),
     boat: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock('../services/nativeStorage', () => ({
 vi.mock('../services/weatherPosition', () => ({
     WEATHER_FOLLOW_TARGET_EVENT: 'test:target-change',
     getWeatherFollowTarget: () => world.target,
+    getWeatherFollowKey: () => world.key ?? world.target,
     setWeatherFollowTarget: (target: 'phone' | 'boat') => {
         world.target = target;
         window.dispatchEvent(new Event('test:target-change'));
@@ -54,8 +57,8 @@ vi.mock('../services/weatherPosition', () => ({
         `${target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable`,
     weatherFixStatus: (fix: { kind: string }) => (fix.kind === 'held' ? 'last-known' : 'live'),
     resolveWeatherPosition: async (phone: () => Promise<unknown>, { target }: { target: string }) => {
-        const value = target === 'boat' ? await world.boat() : await phone();
-        const fix = value ? { ...(value as object), kind: target === 'boat' ? 'pi' : 'phone' } : null;
+        const value = target === 'phone' ? await phone() : await world.boat();
+        const fix = value ? { ...(value as object), kind: target === 'phone' ? 'phone' : 'pi' } : null;
         return { fix, held: null, phone: target === 'phone' ? fix : null, ask: false };
     },
 }));
@@ -154,6 +157,7 @@ beforeEach(() => {
     world.settings = { defaultLocation: 'Initial port', forecastModel: 'gfs', satelliteMode: false };
     world.initial = report('Initial port');
     world.target = 'phone';
+    world.key = null;
     world.gps.mockResolvedValue(null);
     world.requestGps.mockResolvedValue(null);
     world.boat.mockResolvedValue(null);
@@ -1019,5 +1023,42 @@ describe('weather receiver selection boundaries', () => {
             await vi.advanceTimersByTimeAsync(10_000);
         });
         expect(world.tides).toHaveBeenCalledTimes(1);
+    });
+
+    // Crew (2026-10-05): the follow key names the crewed boat, 'crew:<skipper>'.
+    const announce = (detail: { target: string; key: string; reason?: string }) =>
+        act(async () => {
+            window.dispatchEvent(new CustomEvent('test:target-change', { detail }));
+        });
+
+    it('the crewed boat announced again, unchanged, does not reset the Glass', async () => {
+        world.target = 'crew';
+        world.key = 'crew:skipper-wd';
+        mount();
+        await announce({ target: 'crew', key: 'crew:skipper-wd' });
+        expect(world.cancel).not.toHaveBeenCalled();
+        await announce({ target: 'crew', key: 'crew:skipper-tern' });
+        expect(world.cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('Switch boat while offline keeps the forecast on screen, since nothing could fetch a new one', async () => {
+        world.target = 'crew';
+        world.key = 'crew:skipper-wd';
+        world.boat.mockResolvedValue({ lat: -20.27, lon: 148.72, timestamp: Date.now() });
+        mount();
+        await act(async () => {
+            await current.selectLocation('Current Location');
+        });
+        const shown = current.weatherData;
+        expect(shown?.coordinates).toEqual({ lat: -20.27, lon: 148.72 });
+        const fetches = world.fetch.mock.calls.length;
+
+        useUIStore.setState({ isOffline: true });
+        world.key = 'crew:skipper-tern';
+        await announce({ target: 'crew', key: 'crew:skipper-tern', reason: 'binders' });
+        expect(current.weatherData).toBe(shown);
+        expect(world.fetch).toHaveBeenCalledTimes(fetches);
+        // The old boat's pending work is still fenced off.
+        expect(world.cancel).toHaveBeenCalled();
     });
 });

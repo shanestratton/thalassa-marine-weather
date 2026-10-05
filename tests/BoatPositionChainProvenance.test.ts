@@ -2,18 +2,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudTelemetry } from '../services/CloudTelemetryService';
 
 const world = vi.hoisted(() => ({
-    readOnce: vi.fn<() => Promise<CloudTelemetry | null>>(),
+    readOnce: vi.fn<(owner?: string) => Promise<CloudTelemetry | null>>(),
     pinnedPiRequest: vi.fn(),
+    piStatus: { reachable: true } as { reachable: boolean; diaryRelayConfigured?: boolean; diaryRelayOwnerId?: string },
+    link: 'disconnected' as string,
 }));
 vi.mock('../services/CloudTelemetryService', () => ({ CloudTelemetryService: { readOnce: world.readOnce } }));
 vi.mock('../services/NmeaGpsProvider', () => ({ NmeaGpsProvider: { getPosition: () => null } }));
+vi.mock('../services/NmeaStore', () => ({ NmeaStore: { getState: () => ({ connectionStatus: world.link }) } }));
 vi.mock('../services/PiCacheService', () => ({
-    piCache: { getBaseUrl: () => 'http://100.1.2.3:3000', getStatus: () => ({ reachable: true }) },
+    piCache: { getBaseUrl: () => 'http://100.1.2.3:3000', getStatus: () => world.piStatus },
 }));
 vi.mock('../services/PiPairingService', () => ({ pinnedPiRequest: world.pinnedPiRequest }));
 vi.mock('../utils/createLogger', () => ({ createLogger: () => ({ info: vi.fn() }) }));
 
-import { cloudFix, piFix } from '../services/boatPositionChain';
+import { cloudFix, deviceRungOwner, piFix } from '../services/boatPositionChain';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 const NOW = Date.UTC(2026, 8, 10, 0, 0, 0);
@@ -58,6 +61,8 @@ describe('boat receiver provenance at the wire boundary', () => {
         setAuthIdentityScope('skipper');
         world.readOnce.mockReset();
         world.pinnedPiRequest.mockReset();
+        world.piStatus = { reachable: true };
+        world.link = 'disconnected';
     });
     afterEach(() => {
         setAuthIdentityScope(null);
@@ -133,5 +138,32 @@ describe('boat receiver provenance at the wire boundary', () => {
             }),
         });
         expect(await piFix()).toMatchObject({ timestamp: NOW, rung: 'pi', source: 'ublox-gps.GP' });
+    });
+
+    // Crew with GPS on their own boat and on the boat they are invited to
+    // (Shane 2026-10-05). Fictional ids.
+    it('reads one boat’s cloud row when named, and the Ship’s Log callers’ row when not', async () => {
+        world.readOnce.mockResolvedValue(telemetry({ reportedAt: NOW - 5_000 }));
+        await cloudFix(NOW, 'skipper-wd');
+        expect(world.readOnce).toHaveBeenLastCalledWith('skipper-wd');
+        await cloudFix(NOW, 'self');
+        expect(world.readOnce).toHaveBeenLastCalledWith('self');
+        await cloudFix(NOW);
+        expect(world.readOnce).toHaveBeenLastCalledWith(undefined);
+    });
+
+    it('names the paired Pi’s boat by its relay owner; a gateway socket names nobody', () => {
+        expect(deviceRungOwner('pi')).toBeNull();
+        world.piStatus = { reachable: true, diaryRelayConfigured: true, diaryRelayOwnerId: 'skipper-wd' };
+        expect(deviceRungOwner('pi')).toBe('skipper-wd');
+        // The bus over the boat LAN is the Pi's relay of her bus.
+        world.link = 'remote';
+        expect(deviceRungOwner('bus')).toBe('skipper-wd');
+        // A socket straight to a gateway says nothing about whose boat it is.
+        world.link = 'connected';
+        expect(deviceRungOwner('bus')).toBeNull();
+        // A relay that is not set up names nobody.
+        world.piStatus = { reachable: true, diaryRelayConfigured: false, diaryRelayOwnerId: 'skipper-wd' };
+        expect(deviceRungOwner('pi')).toBeNull();
     });
 });

@@ -5,6 +5,9 @@
  * Locations flyout (Shane, 2026-06-16): tap the star → a portaled
  * popover listing, top to bottom,
  *   ⌂ Home port    — the user's designated home, pinned first;
+ *   ⛵ the boat     — the user's own, named after her (2026-09-08); while
+ *                     crewing, the boat they crew on first, then their own
+ *                     (2026-10-05), each row showing her own GPS state;
  *   ✛ Current Location — jump back to live GPS-follow;
  *   📍 saved spots — each tappable, with set-as-home + remove;
  *   ★ Save this spot as “…” — footer that saves the current location.
@@ -44,7 +47,14 @@ import {
 } from '../utils/savedLocations';
 import { triggerHaptic } from '../utils/system';
 import { useMenuNavigation } from '../hooks/useMenuNavigation';
-import { getWeatherFollowTarget, setWeatherFollowTarget, type WeatherFollowTarget } from '../services/weatherPosition';
+import { useCrewingBoat } from '../hooks/useCrewingBoat';
+import {
+    boatOrHeldFix,
+    getWeatherFollowTarget,
+    setWeatherFollowTarget,
+    type WeatherFix,
+    type WeatherFollowTarget,
+} from '../services/weatherPosition';
 
 /** The boat, drawn as the ℹ panel's GPS glyph draws her. */
 const BoatIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -78,6 +88,12 @@ const SAME_PLACE_KM = 1;
 /** 'Gladstone, QLD' → 'gladstone': the place name before any region. */
 const baseName = (name: string) => name.split(',')[0].trim().toLowerCase();
 
+/** A boat row's no-live-fix line: seen in amber, and spoken as part of the row's name. */
+interface BoatRowNote {
+    seen: string;
+    spoken: string;
+}
+
 export const LocationStarMenu: React.FC = () => {
     const portalTarget = usePanePortalTarget();
     const { settings, updateSettings } = useSettings();
@@ -109,6 +125,11 @@ export const LocationStarMenu: React.FC = () => {
         setFollowTargetState(getWeatherFollowTarget());
     }, [open]);
     const vesselName = settings.vessel?.name?.trim() || 'Vessel location';
+    // Crewing (Shane 2026-10-05): the boat they crew on gets her own row,
+    // first, and their own boat stays below it when she has a name ("maybe it
+    // could show both"), or while she is the one followed.
+    const crewing = useCrewingBoat();
+    const crewOwnerId = crewing?.ownerId ?? null;
     // The ticked receiver has no fix and the Glass shows the forecast it
     // kept for her last location (App's 'Last · …' title). The tick still
     // marks the pick, but it no longer implies a live follow (UX scorecard
@@ -123,6 +144,8 @@ export const LocationStarMenu: React.FC = () => {
     );
     const phoneTicked = inGpsMode && followTarget === 'phone';
     const boatTicked = inGpsMode && followTarget === 'boat';
+    const crewTicked = inGpsMode && followTarget === 'crew' && crewing !== null;
+    const showOwnBoat = !crewing || Boolean(settings.vessel?.name?.trim()) || boatTicked;
     const lastLocationFor = showingLastLocation ? (positionSource?.target ?? followTarget) : null;
     // Spoken as part of the row's name, set as a label: an sr-only span in the
     // row is absolutely positioned, so it read as a separate block and the
@@ -134,6 +157,58 @@ export const LocationStarMenu: React.FC = () => {
             No live fix · last position
         </span>
     );
+    // While crewing, each boat row says how her GPS stands, so both can be
+    // checked from here ("if they have gps on their boat and on the invited
+    // boat, you would need to be able to check both"). The followed row reads
+    // the weather's own answer; the other is asked once when the menu opens
+    // (throttled per boat, never on The Glass's first paint).
+    const [probes, setProbes] = useState<Record<string, WeatherFix | null>>({});
+    useEffect(() => {
+        if (!open || !crewOwnerId) return undefined;
+        setProbes({});
+        let live = true;
+        const boats = [...(crewTicked ? [] : [crewOwnerId]), ...(showOwnBoat && !boatTicked ? [null] : [])];
+        for (const owner of boats) {
+            const settle = (fix: WeatherFix | null) => {
+                if (live) setProbes((previous) => ({ ...previous, [owner ?? '']: fix }));
+            };
+            // A look, not a follow: it keeps no fix (the boat on the end of
+            // an unnamed receiver may not be this one) and ends no choice.
+            boatOrHeldFix(Date.now(), owner, { readOnly: true }).then(settle, () => settle(null));
+        }
+        return () => {
+            live = false;
+        };
+    }, [open, crewOwnerId, crewTicked, showOwnBoat, boatTicked]);
+    const boatNote = (owner: string | null, ticked: boolean, name: string): BoatRowNote | null => {
+        const target: WeatherFollowTarget = owner ? 'crew' : 'boat';
+        const held = 'No live fix · last position';
+        if (!crewing) {
+            // As it always was when nobody crews anywhere.
+            return ticked && lastLocationFor === 'boat' ? { seen: held, spoken: lastLocationSpoken } : null;
+        }
+        let state: 'held' | 'retained' | 'none' | null = null;
+        if (ticked) {
+            const followed = positionSource?.target === target ? positionSource : null;
+            if (lastLocationFor === target) state = 'retained';
+            else if (followed?.status === 'unavailable') state = 'none';
+            else if (followed?.kind === 'held') state = 'held';
+        } else {
+            const probe = probes[owner ?? ''];
+            if (probe !== undefined) state = probe === null ? 'none' : probe.kind === 'held' ? 'held' : null;
+        }
+        if (!state) return null;
+        // Crew read her position only through her skipper's share.
+        if (owner && crewing.instruments === false) {
+            const ask = 'Ask your skipper to share the Instrument Panel';
+            return { seen: ask, spoken: `, no live fix, ${ask.charAt(0).toLowerCase()}${ask.slice(1)}` };
+        }
+        if (state === 'retained') return { seen: held, spoken: lastLocationSpoken };
+        if (state === 'held') return { seen: held, spoken: ', no live fix, last position' };
+        const none = `No position from ${name} yet`;
+        return { seen: none, spoken: `, ${none.charAt(0).toLowerCase()}${none.slice(1)}` };
+    };
+
     const currentName = weatherData?.locationName ?? '';
     const isRealCurrent = currentName.length > 0 && currentName !== 'Current Location';
     // The saved entry for the place on screen. Matched by position (within
@@ -233,11 +308,21 @@ export const LocationStarMenu: React.FC = () => {
         requestAnimationFrame(() => buttonRef.current?.focus({ preventScroll: true }));
     };
 
-    /** The vessel's row: the weather goes to her and stays with her. */
-    const goToBoat = () => {
+    /** A boat's row: the weather goes to her and stays with her. */
+    const goToBoat = (target: 'boat' | 'crew' = 'boat') => {
         triggerHaptic('light');
-        setWeatherFollowTarget('boat');
-        setFollowTargetState('boat');
+        if (target === 'crew') {
+            if (!crewing) return;
+            // When the crewing ends the weather goes back to her own boat if
+            // she has one, else the phone.
+            setWeatherFollowTarget('crew', {
+                ownerId: crewing.ownerId,
+                fallback: settings.vessel?.name?.trim() ? 'boat' : 'phone',
+            });
+        } else {
+            setWeatherFollowTarget('boat');
+        }
+        setFollowTargetState(target);
         closeAndRestore();
         // Register intent before any GPS await. The context owns resolution,
         // unavailable-state UI and cancellation by a subsequent selection.
@@ -299,6 +384,43 @@ export const LocationStarMenu: React.FC = () => {
         'flex min-h-[44px] items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-white/5 active:bg-white/10';
     // Star reads "active" when there's a home port or the current spot is saved.
     const starActive = !!homePort || currentSaved;
+
+    const boatRow = (row: {
+        testId: string;
+        name: string;
+        badge: string;
+        ticked: boolean;
+        note: BoatRowNote | null;
+        onPick: () => void;
+    }) => (
+        <button
+            type="button"
+            role="menuitem"
+            onClick={row.onPick}
+            data-testid={row.testId}
+            // The tick, for a screen reader too (UX scorecard run 8).
+            aria-current={row.ticked ? 'location' : undefined}
+            aria-label={row.note ? `${row.name} ${row.badge}${row.note.spoken}` : undefined}
+            className={`${rowBase} w-full`}
+        >
+            <BoatIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="flex-1 min-w-0">
+                <span className="block font-semibold text-emerald-100 line-clamp-2 wrap-break-word">{row.name}</span>
+                {/* Seen, not read twice: the name already speaks it. */}
+                {row.note && (
+                    <span aria-hidden="true" className="block text-xs leading-4 font-medium text-amber-400">
+                        {row.note.seen}
+                    </span>
+                )}
+            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70 whitespace-nowrap">
+                {row.badge}
+            </span>
+            {row.ticked && (
+                <CheckIcon className={`w-4 h-4 shrink-0 ${row.note ? 'text-amber-400' : 'text-emerald-400'}`} />
+            )}
+        </button>
+    );
 
     return (
         <>
@@ -377,42 +499,29 @@ export const LocationStarMenu: React.FC = () => {
                                     </button>
                                 )}
 
-                                {/* The boat — a special saved location named after her
-                                (2026-09-08). Moves the weather to her position — her
-                                receivers, the Pi, her cloud row, or her last fix — and
-                                keeps it there until Current Location is picked again. */}
-                                {vesselName && (
-                                    <button
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={goToBoat}
-                                        data-testid="location-star-vessel"
-                                        // The tick, for a screen reader too (UX scorecard run 8).
-                                        aria-current={boatTicked ? 'location' : undefined}
-                                        aria-label={
-                                            boatTicked && lastLocationFor === 'boat'
-                                                ? `${vesselName} Boat${lastLocationSpoken}`
-                                                : undefined
-                                        }
-                                        className={`${rowBase} w-full`}
-                                    >
-                                        <BoatIcon className="w-4 h-4 text-emerald-400 shrink-0" />
-                                        <span className="flex-1 min-w-0">
-                                            <span className="block font-semibold text-emerald-100 line-clamp-2 wrap-break-word">
-                                                {vesselName}
-                                            </span>
-                                            {boatTicked && lastLocationFor === 'boat' && lastLocationCaption}
-                                        </span>
-                                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70">
-                                            Boat
-                                        </span>
-                                        {boatTicked && (
-                                            <CheckIcon
-                                                className={`w-4 h-4 shrink-0 ${lastLocationFor === 'boat' ? 'text-amber-400' : 'text-emerald-400'}`}
-                                            />
-                                        )}
-                                    </button>
-                                )}
+                                {/* The boats — special saved locations named after them
+                                (2026-09-08; the crewed boat first, 2026-10-05). Each moves
+                                the weather to her own position — her receivers, the Pi,
+                                her cloud row, or her last fix — and keeps it there until
+                                another row is picked. */}
+                                {crewing &&
+                                    boatRow({
+                                        testId: 'location-star-crew',
+                                        name: crewing.label,
+                                        badge: 'Crewing',
+                                        ticked: crewTicked,
+                                        note: boatNote(crewing.ownerId, crewTicked, crewing.inSentence),
+                                        onPick: () => goToBoat('crew'),
+                                    })}
+                                {showOwnBoat &&
+                                    boatRow({
+                                        testId: 'location-star-vessel',
+                                        name: vesselName,
+                                        badge: crewing ? 'Your boat' : 'Boat',
+                                        ticked: boatTicked,
+                                        note: boatNote(null, boatTicked, vesselName),
+                                        onPick: () => goToBoat('boat'),
+                                    })}
                                 {/* Current Location — back to live GPS-follow of the phone */}
                                 <button
                                     type="button"

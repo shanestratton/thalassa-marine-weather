@@ -125,6 +125,12 @@ export interface CrewVessel {
     role: CrewRole | string | null;
     /** As SharedBinderSkipper.lastAcceptedAt: when the newest membership began. */
     lastAcceptedAt: string;
+    /**
+     * The skipper shares the Instrument Panel (permissions.can_view_instruments,
+     * which the vessel_telemetry read policy checks). Absent in a snapshot
+     * stored before 2026-10-05: not known.
+     */
+    instruments?: boolean;
 }
 
 export interface SharedBinderSnapshot {
@@ -347,13 +353,15 @@ export function deriveCrewVessels(
         if (selfId && typeof row.crew_user_id === 'string' && row.crew_user_id !== selfId) continue;
         const role = typeof row.role === 'string' && row.role.trim() ? row.role.trim() : null;
         const time = rowTime(row);
+        const instruments = flag(row.permissions, 'can_view_instruments');
         const entry = byOwner.get(ownerId);
         if (!entry) {
-            byOwner.set(ownerId, { ownerId, role, lastAcceptedAt: time });
+            byOwner.set(ownerId, { ownerId, role, lastAcceptedAt: time, instruments });
             continue;
         }
         if (seniority(role) > seniority(entry.role)) entry.role = role;
         if (time > entry.lastAcceptedAt) entry.lastAcceptedAt = time;
+        entry.instruments ||= instruments;
     }
     return [...byOwner.values()];
 }
@@ -375,7 +383,9 @@ function snapshotVessels(snapshot: SharedBinderSnapshot): CrewVessel[] {
 function vesselsSignature(snapshot: SharedBinderSnapshot | null): string {
     if (!snapshot) return '';
     return snapshotVessels(snapshot)
-        .map((vessel) => `${vessel.ownerId}:${vessel.role ?? ''}:${vessel.vesselName ?? ''}`)
+        .map(
+            (vessel) => `${vessel.ownerId}:${vessel.role ?? ''}:${vessel.vesselName ?? ''}:${vessel.instruments ?? ''}`,
+        )
         .sort()
         .join('|');
 }
@@ -390,6 +400,7 @@ function parseVessels(value: unknown): CrewVessel[] | undefined {
             vesselName: typeof vessel.vesselName === 'string' && vessel.vesselName ? vessel.vesselName : null,
             role: typeof vessel.role === 'string' && vessel.role ? vessel.role : null,
             lastAcceptedAt: typeof vessel.lastAcceptedAt === 'string' ? vessel.lastAcceptedAt : '',
+            ...(typeof vessel.instruments === 'boolean' ? { instruments: vessel.instruments } : {}),
         });
     }
     return vessels;

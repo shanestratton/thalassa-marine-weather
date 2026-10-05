@@ -48,6 +48,7 @@ vi.mock('../services/GpsService', () => ({
 vi.mock('../services/weatherPosition', () => ({
     WEATHER_FOLLOW_TARGET_EVENT: 'test:weather-target',
     getWeatherFollowTarget: () => world.target,
+    getWeatherFollowKey: () => world.target,
     setHeldChoice: vi.fn(),
     describeWeatherFix: () => 'GPS unavailable',
     weatherFixStatus: () => 'live',

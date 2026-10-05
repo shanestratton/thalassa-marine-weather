@@ -578,7 +578,7 @@ export class WeatherOrchestrator {
                         log.warn('GPS returned null');
                         addBreadcrumb({ category: 'weather', message: 'GPS returned null', level: 'warning' });
                         this.cb.setError(
-                            `${target === 'boat' ? 'Boat' : 'Phone'} GPS unavailable. Choose a saved location or try again.`,
+                            `${target === 'phone' ? 'Phone' : 'Boat'} GPS unavailable. Choose a saved location or try again.`,
                         );
                         this.cb.setLoading(false);
                     }
@@ -663,7 +663,7 @@ export class WeatherOrchestrator {
                     resolvedCoords = { lat: pos.latitude, lon: pos.longitude };
                 } else {
                     throw new Error(
-                        `${getWeatherFollowTarget() === 'boat' ? 'Boat' : 'Phone'} GPS unavailable. Choose a saved location or try again.`,
+                        `${getWeatherFollowTarget() === 'phone' ? 'Phone' : 'Boat'} GPS unavailable. Choose a saved location or try again.`,
                     );
                 }
             } else
