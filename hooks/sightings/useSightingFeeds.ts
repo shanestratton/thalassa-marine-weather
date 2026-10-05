@@ -9,7 +9,11 @@
  *     by the server.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { adoptSignedOutSightings, signedOutSightingCount } from '../../services/sightings/sightingService';
+import {
+    adoptSignedOutSightings,
+    signedOutSightingCount,
+    sightingsDeletedThisSession,
+} from '../../services/sightings/sightingService';
 import { listLocalSightings, subscribeSightingRecords } from '../../services/sightings/sightingStore';
 import {
     boxAround,
@@ -27,7 +31,7 @@ import type { LocalSighting, PublicSighting, ServerSightingRow } from '../../ser
 
 export interface MySightingsState {
     records: LocalSighting[];
-    /** Deleted here, the server not told yet: hidden from the crew feed too. */
+    /** Deleted here (waiting to send, or sent this session): hidden from the crew feed and life list too. */
     deletedIds: ReadonlySet<string>;
     loaded: boolean;
     /** Logged on this phone while signed out, offered for adoption once signed in. */
@@ -49,7 +53,12 @@ export function useMySightings(userId: string | null): MySightingsState {
         void Promise.all([listLocalSightings(userId), userId ? signedOutSightingCount() : Promise.resolve(0)]).then(
             ([all, anonymous]) => {
                 setRecords(all.filter((r) => r.sync.op !== 'delete'));
-                setDeletedIds(new Set(all.filter((r) => r.sync.op === 'delete').map((r) => r.id)));
+                setDeletedIds(
+                    new Set([
+                        ...all.filter((r) => r.sync.op === 'delete').map((r) => r.id),
+                        ...sightingsDeletedThisSession(),
+                    ]),
+                );
                 setSignedOutCount(anonymous);
                 setLoaded(true);
                 setServerUnavailable(sightingsServerUnavailable());
@@ -159,7 +168,7 @@ export interface BoatSpeciesState {
 }
 
 /** The boat's named sightings, all time, for its life list; fetched only while the life list shows. */
-export function useBoatSpecies(ownerId: string | null, enabled: boolean): BoatSpeciesState {
+export function useBoatSpecies(ownerId: string | null, enabled: boolean, refreshKey = 0): BoatSpeciesState {
     const [state, setState] = useState<BoatSpeciesState>({ rows: [], complete: false });
     useEffect(() => {
         setState({ rows: [], complete: false });
@@ -171,7 +180,7 @@ export function useBoatSpecies(ownerId: string | null, enabled: boolean): BoatSp
         return () => {
             live = false;
         };
-    }, [ownerId, enabled]);
+    }, [ownerId, enabled, refreshKey]);
     return state;
 }
 
@@ -186,6 +195,8 @@ export function usePublicSightings(
     centre: { lat: number; lon: number } | null,
     radiusKm: number,
     enabled: boolean,
+    /** Bumped when a sighting is deleted here: the public grid rows carry no ids to drop, so fetch again. */
+    refreshKey = 0,
 ): PublicFeedState {
     const [state, setState] = useState<PublicFeedState>({
         rows: [],
@@ -211,7 +222,7 @@ export function usePublicSightings(
         return () => {
             live = false;
         };
-    }, [lat, lon, radiusKm, enabled]);
+    }, [lat, lon, radiusKm, enabled, refreshKey]);
     return state;
 }
 
