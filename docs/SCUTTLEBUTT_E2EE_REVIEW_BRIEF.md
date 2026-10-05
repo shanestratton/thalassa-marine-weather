@@ -2,18 +2,19 @@
 
 Updated 5 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
-The installed isolated Research candidate is `4005833a0e3ce208ca8f7d8394ced9876a89184b` on `codex/scuttlebutt-e2ee-foundation`. Its latest local validation passed 979 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and an isolated web/native build. Those are fixture/build results, not physical acceptance or an audit. The owner reports opening/reply messages on both physical endpoints, history restoration after each independent restart, successors delivered both ways and offline-recipient catch-up with a single displayed copy after repeat scans in both directions. One iPhone capture shows an accepted outgoing row and an incoming row committed to native history.
+The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report, not completed new-candidate message tests or an audit.
 
-These observations provide partial D01/D02 and bounded catch-up/rescan evidence, not complete correlated native/relay ciphertext receipts, exact pending-send continuity, durable generation/key equality or a full device matrix. A later prepare-only/envelope-hash Research source change is a new candidate, not the installed artifact or completed physical evidence. Independent PostgreSQL, lifecycle/recovery, dependency and external review gates remain open. Normal Thalassa and production remain unchanged; neither candidate is approved for release. The authoritative execution record is [the checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md). Freeze the assessment commit separately and review any subsequent diff.
+On the preceding candidate `4005833a0e3ce208ca8f7d8394ced9876a89184b`, whose local checks passed 979 tests, the owner reported opening/reply messages, history restoration after each independent restart, successors delivered both ways and offline catch-up with a single displayed copy after repeat scans in both directions. One iPhone capture shows an accepted outgoing row and an incoming row committed to native history. That supplies partial D01/D02 and bounded catch-up/rescan evidence, not complete correlated native/relay ciphertext receipts, exact pending-send continuity, durable generation/key equality or a full device matrix. Those observations cannot be transferred automatically to the newly installed candidate. Independent PostgreSQL, lifecycle/recovery, dependency and external review gates remain open. Neither candidate is approved for release; the authoritative execution record is [the checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md). Freeze the assessment commit separately and review any subsequent diff.
 
-The later candidate passed 1,069 tests across 15 isolated suites, focused strict
-TypeScript, named lint, formatting and separate web/unsigned physical-iOS
-builds. It adds explicit prepare-without-upload and exact saved-envelope hash
-projection, with no provider or persistence migration. It was not signed,
-installed or executed. Five new native hash-equality probe assertions remain
+The new candidate adds explicit prepare-without-upload and exact saved-envelope
+hash projection, with no provider or persistence migration. Its prepared-but-unsent
+physical restart experiment and five new native hash-equality probe assertions remain
 unrun; cached-provider provenance and physical pending-restart evidence are not
 proved by these fixture/build results. The checkpoint retains the initial
-screen-fixture failures, their correction and the exact build receipts.
+screen-fixture failures, their correction, the corrected Mac launch-command
+failure and the exact build/signing/update receipts. No private data contents
+were inspected, no reset or re-enrollment occurred, and no primary build/sync,
+production or server changes accompanied the update.
 
 ## User problem and intended pilot
 

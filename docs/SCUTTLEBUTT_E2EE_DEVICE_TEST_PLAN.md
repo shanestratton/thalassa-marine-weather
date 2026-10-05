@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE device test plan
 
-Updated 5 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The current installed candidate is `4005833a0e3ce208ca8f7d8394ced9876a89184b`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) records its source, signing, installation and message evidence separately from fixture/simulator checks.
+Updated 5 October 2026 for execution with the owner's iPhone 15 Pro Max and iPad 9th generation, using different test-project accounts. This plan defines evidence for an isolated native pilot. The owner reports an opening message, reply and post-restart successors on both devices, plus offline-recipient catch-up and repeat scans with one displayed copy in both directions, on candidate `4005833a`. An iPhone screenshot captures a committed incoming row. **D01 and D02 have partial physical evidence; no full acceptance case is passed, and the remaining controlled procedures are unrun.** The new installed candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c`; the [checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md) separates its source/signing/in-place update checks and owner-reported sign-ins from the earlier candidate's message observations.
 
 Two independent physical endpoints can expose custody, lifecycle and transport failures that one simulator cannot. The iPad provides iPadOS coverage, not a substitute for testing every supported iPhone/OS combination. Read-only checks on 4 October found iOS 27.0.1 on the iPhone and iPadOS 26.5 on the iPad, both paired with Developer Mode enabled. This is device inventory, not supported-build eligibility or research-app execution evidence.
 
@@ -25,7 +25,7 @@ replace the already registered human devices to repeat this setup.
 
 Freeze and record the actual candidate commit and build hashes when these prerequisites are met. Do not label concurrent implementation as tested by carrying forward this baseline's counts. Keep one heavy build at a time under the checkpoint's shared-Mac rule; this document does not start any build, sync, install or server migration.
 
-The current source artifact receipt is `thalassa-messaging-build-ll6LRp/build-receipt.json`; its signed receipt is `thalassa-research-sign-LBaZBT/signing-receipt.json` and its device receipt is `thalassa-normal-physical-LpwU2W/physical-receipt.json`. A separate owner-approved development profile exists. Both devices accepted and launched this updated Research app without a reset. See the checkpoint for exact temporary receipt locations and preserved-store evidence. Installation or launch alone is not proof of native plugin or UI functionality. Preserve the normal Thalassa app, version 1.2.0 build 119 on both devices, and never use its bundle ID or shared Keychain groups for this test.
+The current source artifact receipt is `thalassa-messaging-build-CWifTU/build-receipt.json`; its signed receipt is `thalassa-research-sign-hvqv4A/signing-receipt.json` and its device receipt is `/private/tmp/thalassa-pending-update.6AL1Sp/update-receipt.json`. Both devices accepted and launched the owner-approved in-place Research update, retaining their identical 11-file metadata inventories with unchanged Research entitlements and no reset. The owner then reported signing into both. These facts do not prove restored message content, native Keychain equality or the new controls' functionality. See the checkpoint for exact paths and the corrected Mac launch-command failure. Normal Thalassa remains version 1.2.0 build 119 on both; never use its bundle ID or shared Keychain groups for this test.
 
 Read-only pilot checks confirmed the participant allowlist metadata and unused human device slots on 4 October. On 5 October, read-only slot counts and function logs supported registration for both participants. These devices are now registered; immutable device/prekey rows cannot serve as a recovery mechanism.
 
@@ -48,10 +48,11 @@ Do not store access/refresh tokens, private keys, pickles, real account password
 
 ## Prepared but unsent restart experiment
 
-The next Research source change adds an explicit **Check policy & prepare only**
-control and a saved-envelope SHA-256 diagnostic. It is not in installed
-candidate `4005833a`. Freeze, validate and identify the new artifact before
-running this experiment; do not infer execution from the source or fixtures.
+Installed Research candidate `0cde17c2` adds an explicit **Check policy & prepare
+only** control and a saved-envelope SHA-256 diagnostic. Its local validation,
+signing and in-place update are recorded in the checkpoint, but this experiment
+is still unrun. Verify restored setup/history and the new controls first; do
+not infer execution from installation, source or fixtures.
 
 1. With fresh same-account verification, current setup and no existing pending
    attempt, prepare one disposable canary while online. This refreshes policy
