@@ -677,16 +677,22 @@ final class VodozemacDmCoordinator {
             let delivery: DmNativeThreadDelivery
             switch item.status { case .pending: delivery = .pending; case .accepted: delivery = .serverAccepted; case .rejected: delivery = .rejected }
             return DmNativeThreadMessage(clientMessageId: item.messageId, direction: .outgoing,
-                text: item.text, delivery: delivery, reason: item.reason, localCreatedAtMillis: item.localCreatedAtMillis)
+                text: item.text, delivery: delivery, reason: item.reason, localCreatedAtMillis: item.localCreatedAtMillis,
+                envelopeSha256: envelopeSha256(item.record.serializedEnvelope))
         }
         let incoming = state.inbox.filter { $0.ownerGeneration == state.owner.generation && $0.peerGeneration == peerGeneration }.map { item in
             DmNativeThreadMessage(clientMessageId: item.clientMessageId, direction: .incoming,
-                text: item.text, delivery: .received, reason: nil, localCreatedAtMillis: nil)
+                text: item.text, delivery: .received, reason: nil, localCreatedAtMillis: nil,
+                envelopeSha256: envelopeSha256(item.serializedEnvelope))
         }
         return DmNativeThread(ownerGeneration: state.owner.generation, peerGeneration: peerGeneration,
             messages: outgoing + incoming,
             unresolvedCount: state.unresolved.filter { $0.ownerGeneration == state.owner.generation && $0.peerGeneration == peerGeneration }.count,
             outgoingCapacity: capacity, incomingCapacity: capacity)
+    }
+
+    private static func envelopeSha256(_ serializedEnvelope: String) -> String {
+        SHA256.hash(data: Data(serializedEnvelope.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     // Research-native lifecycle authority, not proof of a real Auth sign-in.

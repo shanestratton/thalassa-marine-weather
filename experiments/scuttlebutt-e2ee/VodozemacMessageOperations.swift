@@ -153,6 +153,9 @@ struct DmNativeThreadMessage: Equatable {
     // Device-local creation/observation only; NOT authenticated sender time.
     // Older native fixtures have no timestamp. Never invent one on read/retry.
     let localCreatedAtMillis: Int64?
+    // Research equality diagnostic for the exact saved envelope UTF-8 bytes.
+    // Never hashes plaintext, keys, pickles or the changing signed HTTP wrapper.
+    let envelopeSha256: String
 }
 struct DmNativeThread {
     let ownerGeneration: Int64

@@ -1,8 +1,19 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 4 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
+Updated 5 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
-The earlier native Auth baseline is commit `39321d303ae9aecaa69ca3fccd1c40b14675686e` on `codex/scuttlebutt-e2ee-foundation`. Later directory, screen and native-facade slices add passing isolated research, not functioning E2EE in Thalassa. A separate research messaging Capacitor app is now signed, installed and its process launched on the selected iPhone and iPad. UI/plugin initialization, login and physical message exchange remain unverified. An owner-approved segregated hosted pilot exists; no production schema or accounts were changed. The authoritative execution record is [the checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md), including its 3 and 4 October sections. Freeze the selected assessment commit separately; these documents do not approve it for release.
+The installed isolated Research candidate is `4005833a0e3ce208ca8f7d8394ced9876a89184b` on `codex/scuttlebutt-e2ee-foundation`. Its latest local validation passed 979 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and an isolated web/native build. Those are fixture/build results, not physical acceptance or an audit. The owner reports opening/reply messages on both physical endpoints, history restoration after each independent restart, successors delivered both ways and offline-recipient catch-up with a single displayed copy after repeat scans in both directions. One iPhone capture shows an accepted outgoing row and an incoming row committed to native history.
+
+These observations provide partial D01/D02 and bounded catch-up/rescan evidence, not complete correlated native/relay ciphertext receipts, exact pending-send continuity, durable generation/key equality or a full device matrix. A later prepare-only/envelope-hash Research source change is a new candidate, not the installed artifact or completed physical evidence. Independent PostgreSQL, lifecycle/recovery, dependency and external review gates remain open. Normal Thalassa and production remain unchanged; neither candidate is approved for release. The authoritative execution record is [the checkpoint](SCUTTLEBUTT_E2EE_CHECKPOINT.md). Freeze the assessment commit separately and review any subsequent diff.
+
+The later candidate passed 1,069 tests across 15 isolated suites, focused strict
+TypeScript, named lint, formatting and separate web/unsigned physical-iOS
+builds. It adds explicit prepare-without-upload and exact saved-envelope hash
+projection, with no provider or persistence migration. It was not signed,
+installed or executed. Five new native hash-equality probe assertions remain
+unrun; cached-provider provenance and physical pending-restart evidence are not
+proved by these fixture/build results. The checkpoint retains the initial
+screen-fixture failures, their correction and the exact build receipts.
 
 ## User problem and intended pilot
 
@@ -20,7 +31,7 @@ The 3 October frozen native rerun passed four actual encrypted messages across n
 
 Separately, the isolated Supabase host passed real Auth, signed device registration, reciprocal prekey claims, exact retries and bidirectional relay/inbox checks with disposable actors. Privilege readbacks confirmed the restricted edge login, signed-RPC-only gateway, closed table access and enabled RLS. Those payloads were synthetic one-byte ciphertext, not Olm messages or human-device registrations. Sequential hosted transactions do not prove adversarial concurrency, availability or native-to-hosted encrypted exchange. The two-connection pilot budget is deliberately bounded, not a production capacity policy.
 
-The separate account-authentication plugin, real SDK wiring and generated Capacitor project compile and link unsigned for physical iOS. Screen/SDK fixtures passed 151 tests, including 40 auth-only cases; they were not rerun for the later native-only changes. No plugin login or messaging was executed on a physical device. The host pairs a device-only Keychain locator with protected directory files and refuses partial state; both locator and files absent is treated as first installation, not proven detection of every reinstall/restore. No shipping app plugin, hardware enrollment, production migration, physical iPhone/iPad exchange or independent security audit has passed. Internal agent review is development evidence, not an independent external audit.
+At that earlier checkpoint, the separate account-authentication plugin, real SDK wiring and generated Capacitor project compiled and linked unsigned for physical iOS. Screen/SDK fixtures passed 151 tests, including 40 auth-only cases; they were not rerun for the later native-only changes. No plugin login or messaging had then executed on a physical device. The host pairs a device-only Keychain locator with protected directory files and refuses partial state; both locator and files absent is treated as first installation, not proven detection of every reinstall/restore. The current physical observations are summarized above; no shipping private-message port, full device-matrix pass, production migration or independent security audit is claimed. Internal agent review is development evidence, not an independent external audit.
 
 The later native-only slice passed 65 messaging-authority and 103 pairing/history assertions using fixture Auth, real provider/Keychain/sealed storage and synthetic trusted terminal decisions. Closed synchronous commands hold native account authority through store mutation/commit; canonical fingerprints pin all public keys, including the signing key. New outgoing text/time is sealed with the ratchet and ciphertext, with exact retries and current-generation history. The nine-phase legacy research exchange also passed; it does not exercise the new facade for networking. At that earlier checkpoint, messaging commands remained unwired to Capacitor/hosted relay. Grouped thread order, absent incoming times, bounded historical capacity and cold-launch generation quarantine still need a usable history policy, scoped enrollment/claim integration, plugin wiring and physical evidence. See the checkpoint for receipts and failed attempts.
 
@@ -47,9 +58,10 @@ the first failed source-tripwire fixture and its corrected rerun.
 
 This integration is isolated, not a shipping private-message port. The later
 4 October hosted policy update and Edge revision 26 passed preservation checks
-and four negative HTTP canaries; no positive signed policy or native-to-hosted
-exchange was executed. Actual Capacitor calls, physical exchange and external
-review remain unrun. A later bounded continuation permits only an exact sealed,
+and four negative HTTP canaries; at that checkpoint no positive signed policy or
+native-to-hosted exchange had executed. Later owner-operated Capacitor exchange
+and restart observations are summarized above; external review remains unrun.
+A later bounded continuation permits only an exact sealed,
 selected and active owner after fresh same-account Auth. It restores neither
 bearers nor policy; explicit logout still quarantines the old generation.
 Do not infer physical restart or usable recovery from close/reopen fixtures. Native
@@ -76,8 +88,8 @@ reserving an attempt; refusal preserves the draft, and responder receiving is
 independent of that UI hint. No native crypto/server implementation changed.
 A fresh web/native candidate was signed and updated over the existing research
 app on both endpoints, preserving normal Thalassa's compared metadata. Both new
-launch requests were refused while the devices were locked. Current native
-login, human pairing and physical exchange still need evidence. Read-only pilot
+launch requests were refused while the devices were locked. At that checkpoint,
+native login, human pairing and physical exchange still needed evidence. Read-only pilot
 checks confirmed unused human device slots and the existing deployed policy;
 there was no server deployment or data reset. See the checkpoint for receipts.
 

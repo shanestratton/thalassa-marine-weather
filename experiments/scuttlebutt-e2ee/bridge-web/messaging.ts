@@ -10,6 +10,7 @@ export const MESSAGING_NOTICES = Object.freeze({
     uncertain: 'The attempt is unresolved. Do not create a replacement; reconcile or retry the same native message ID.',
     accepted: 'Relay accepted—not delivered or read.',
     rejected: 'Native terminal rejection. This message was not accepted.',
+    prepared: 'Committed locally; no message upload attempted. Reopen, read local history, then retry this pending ID.',
     waiting:
         'A previous native action is still settling. No new message action will start; account logout remains available.',
 });
@@ -47,6 +48,8 @@ export interface ResearchThreadMessage {
     readonly delivery: 'pending' | 'serverAccepted' | 'rejected' | 'received';
     readonly reason: string | null;
     readonly localCreatedAtMillis: number | null;
+    /** Equality diagnostic for exact saved envelope bytes, never a trust or authority token. */
+    readonly envelopeSha256: string;
 }
 export interface ResearchThread {
     readonly status: 'thread';
@@ -131,6 +134,7 @@ export interface ResearchMessagingState {
 type Ticket = { readonly revision: number; readonly credentialBinding: string };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FINGERPRINT = /^[0-9a-f]{64}$/;
+const ENVELOPE_SHA256 = /^[0-9a-f]{64}$/;
 const REASONS = ['blocked', 'device-revoked', 'record-conflict'];
 const unavailable = () => new Error('Unavailable');
 function object(value: unknown): value is Record<string, unknown> {
@@ -228,8 +232,17 @@ function thread(value: unknown, ticket: Ticket): ResearchThread {
         incoming = 0;
     const messages = result.messages.map((row): ResearchThreadMessage => {
         if (
-            !exact(row, ['clientMessageId', 'direction', 'text', 'delivery', 'reason', 'localCreatedAtMillis']) ||
+            !exact(row, [
+                'clientMessageId',
+                'direction',
+                'text',
+                'delivery',
+                'reason',
+                'localCreatedAtMillis',
+                'envelopeSha256',
+            ]) ||
             !match(row.clientMessageId, UUID) ||
+            !match(row.envelopeSha256, ENVELOPE_SHA256) ||
             !choice(row.direction, ['outgoing', 'incoming']) ||
             !choice(row.delivery, ['pending', 'serverAccepted', 'rejected', 'received']) ||
             !(row.text === null || text(row.text, MESSAGING_LIMITS.textBytes)) ||
@@ -259,6 +272,7 @@ function thread(value: unknown, ticket: Ticket): ResearchThread {
             delivery: row.delivery,
             reason: row.reason,
             localCreatedAtMillis: row.localCreatedAtMillis,
+            envelopeSha256: row.envelopeSha256,
         });
     });
     if (outgoing > 16 || incoming > 16) throw unavailable();
@@ -718,43 +732,67 @@ export class ResearchMessagingController {
         if (this.state.attempt || !this.state.draft.trim()) return;
         const draft = this.state.draft;
         await this.action(async (ticket) => {
-            await this.readThreadForAction(ticket);
-            this.require(ticket);
-            if (this.state.attempt) return; // Explicit local reconciliation, never a hidden retry.
-            // Read the current native role before reserving an attempt ID. A
-            // responder's definite setup refusal must not look like a lost
-            // durable preparation. Native still checks authority at preparation.
-            const setup = await this.readFactsForAction(ticket);
-            if (!researchSendSetupReady(setup)) {
-                this.commit(ticket, {
-                    notice:
-                        setup.role === 'responder'
-                            ? 'Responder: receive the other device’s first message before replying. Your draft is kept.'
-                            : 'Complete native pairing, registration and initiator claim before sending. Your draft is kept.',
-                });
-                return;
-            }
-            if (!clearPolicy(await this.refresh(ticket))) throw unavailable();
-            const clientMessageId = (this.dependencies.createMessageId ?? (() => globalThis.crypto.randomUUID()))();
-            if (!match(clientMessageId, UUID)) throw unavailable();
-            this.require(ticket);
-            // Persisted preparation may succeed even if its echo is lost. Never prepare another ID to replace it.
-            this.commit(ticket, { attempt: Object.freeze({ clientMessageId, text: draft }), draft: '' });
-            const prepared = bound(
-                await this.call(ticket, () =>
-                    this.dependencies.native.messagePrepareText({
-                        ...ticketOptions(ticket),
-                        clientMessageId,
-                        text: draft,
-                    }),
-                ),
-                ticket,
-                'prepared',
-                ['clientMessageId'],
-            );
-            if (prepared.clientMessageId !== clientMessageId) throw unavailable();
-            await this.sendExisting(ticket, clientMessageId);
+            const clientMessageId = await this.prepareDraft(ticket, draft);
+            if (clientMessageId !== null) await this.sendExisting(ticket, clientMessageId);
         });
+    }
+    /** Explicit research experiment: commit a pending record, without sending it. */
+    async prepareOnly(): Promise<void> {
+        if (this.state.attempt || !this.state.draft.trim()) return;
+        const draft = this.state.draft;
+        await this.action(async (ticket) => {
+            const clientMessageId = await this.prepareDraft(ticket, draft);
+            if (clientMessageId === null) return;
+            // Validate before reconciliation: an unexpected terminal/missing row
+            // must not clear this ID and authorize replacement preparation.
+            const value = thread(
+                await this.call(ticket, () => this.dependencies.native.messageThread(ticketOptions(ticket))),
+                ticket,
+            );
+            const pending = value.messages.filter((row) => row.direction === 'outgoing' && row.delivery === 'pending');
+            if (pending.length !== 1 || pending[0].clientMessageId !== clientMessageId || pending[0].text !== draft)
+                throw unavailable();
+            this.commit(ticket, { thread: value });
+            this.require(ticket);
+            this.commit(ticket, { notice: MESSAGING_NOTICES.prepared });
+        });
+    }
+    private async prepareDraft(ticket: Ticket, draft: string): Promise<string | null> {
+        await this.readThreadForAction(ticket);
+        this.require(ticket);
+        if (this.state.attempt) return null; // Explicit reconciliation, never a hidden retry.
+        // Read native role before reserving an ID. A responder's definite setup
+        // refusal must not look like a lost durable preparation.
+        const setup = await this.readFactsForAction(ticket);
+        if (!researchSendSetupReady(setup)) {
+            this.commit(ticket, {
+                notice:
+                    setup.role === 'responder'
+                        ? 'Responder: receive the other device’s first message before replying. Your draft is kept.'
+                        : 'Complete native pairing, registration and initiator claim before sending. Your draft is kept.',
+            });
+            return null;
+        }
+        if (!clearPolicy(await this.refresh(ticket))) throw unavailable();
+        const clientMessageId = (this.dependencies.createMessageId ?? (() => globalThis.crypto.randomUUID()))();
+        if (!match(clientMessageId, UUID)) throw unavailable();
+        this.require(ticket);
+        // The commit may succeed even if its echo is lost. Never replace the ID.
+        this.commit(ticket, { attempt: Object.freeze({ clientMessageId, text: draft }), draft: '' });
+        const prepared = bound(
+            await this.call(ticket, () =>
+                this.dependencies.native.messagePrepareText({
+                    ...ticketOptions(ticket),
+                    clientMessageId,
+                    text: draft,
+                }),
+            ),
+            ticket,
+            'prepared',
+            ['clientMessageId'],
+        );
+        if (prepared.clientMessageId !== clientMessageId) throw unavailable();
+        return clientMessageId;
     }
     private async sendExisting(ticket: Ticket, clientMessageId: string): Promise<void> {
         const value = bound(
@@ -879,7 +917,10 @@ export function renderResearchMessages(container: HTMLElement, messages: readonl
         const id = document.createElement('p');
         id.className = 'message-id';
         id.textContent = message.clientMessageId;
-        row.append(heading, content, meta, id);
+        const envelope = document.createElement('p');
+        envelope.className = 'message-id message-envelope-hash';
+        envelope.textContent = `Saved envelope SHA-256: ${message.envelopeSha256} · Equality diagnostic only; not peer trust, send permission, delivery or read confirmation.`;
+        row.append(heading, content, meta, id, envelope);
         return row;
     });
     container.replaceChildren(...rows);

@@ -144,13 +144,16 @@ final class ResearchMessagingAdapter {
         let messages: [[String: Any]] = try thread.messages.map { message in
             try DmContentCodec.validateIdentifier(message.clientMessageId)
             guard message.text.map({ $0.utf8.count <= DmContentCodec.maxTextBytes }) ?? true,
-                  message.localCreatedAtMillis.map({ (0...DmRelayCodec.maxSafeInteger).contains($0) }) ?? true else {
+                  message.localCreatedAtMillis.map({ (0...DmRelayCodec.maxSafeInteger).contains($0) }) ?? true,
+                  message.envelopeSha256.utf8.count == 64,
+                  message.envelopeSha256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
                 throw unavailable
             }
             return ["clientMessageId": message.clientMessageId, "direction": message.direction.rawValue,
                 "text": message.text.map { $0 as Any } ?? NSNull(), "delivery": message.delivery.rawValue,
                 "reason": message.reason.map { $0.rawValue as Any } ?? NSNull(),
-                "localCreatedAtMillis": message.localCreatedAtMillis.map { $0 as Any } ?? NSNull()]
+                "localCreatedAtMillis": message.localCreatedAtMillis.map { $0 as Any } ?? NSNull(),
+                "envelopeSha256": message.envelopeSha256]
         }
         return try result(snapshot: captured.snapshot, binding: credentialBinding, status: "thread", fields: [
             "messages": messages, "unresolvedCount": thread.unresolvedCount,
