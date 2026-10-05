@@ -72,6 +72,36 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 5 October mirrored iPad pending continuity and iPhone receipt
+
+On installed candidate `0cde17c2`, iPad captures before and after the instructed
+restart show pending ID `f96e0b8b-5ada-4fb0-b93c-43a23ac3325d`, local creation
+time 5 October 2026 at 2:47:01 pm, and the unchanged displayed saved-envelope SHA-256
+`48a64a9ac00010bb2929e1559b16196aed961760f332f8e2e377ad513fd75595`.
+The later iPhone capture shows that exact ID/hash received into native history,
+with read status/time unknown. The iPad's intervening capture shows a relay
+acceptance notice and retry appearing disabled, but its target row is outside
+the viewport; it is not an independently correlated terminal receipt.
+
+The iPhone receive scan reports stored 2, duplicates 4, historical 0, unresolved
+0 and historical unresolved 0. These batch counts do not establish two target
+copies or whole-history uniqueness. One target row is visible. The owner reports no duplicate after the
+repeat check; no second scan-counter capture was supplied. After initially
+questioning whether this was an earlier message, the owner explicitly confirmed
+the intended message text and ID prefix `f96e0b8b`. The private receipt retains
+that correction and resolution rather than silently discarding either.
+
+Captures are `Screenshot 2026-10-05 at 2.47.13 pm.png`, `2.51.59 pm.png`,
+`2.55.36 pm.png` and `2.56.37 pm.png` in the owner's Downloads directory.
+Their full paths, file SHA-256 values and displayed fields are recorded in
+`/private/tmp/thalassa-ipad-pending-restart.3QxjnQ/observations.json`.
+Internal visual comparison verified the displayed ID/hash equality. No process
+termination/retry instrumentation, direct SQL receipt, key comparison or store
+inspection was added. This completes the bounded manual check in both directions,
+not full D02/D07/D14 acceptance, crash/power-loss evidence or an independent audit.
+Five new native probe assertions remain unrun. No app changes, build, reset,
+deployment, primary sync or production operation accompanied this record.
+
 ### 5 October pending continuity and matching iPad receipt
 
 On installed candidate `0cde17c2`, the owner's iPhone captures before and after
@@ -109,8 +139,9 @@ Process termination and retry were not independently instrumented; no sender
 terminal acceptance capture, direct relay receipt, store contents or Keychain
 comparison was inspected. This is bounded manual pending-continuity, peer
 receipt and rescan evidence, not complete D02/D07/D14 acceptance or an audit.
-The mirrored iPad pending-restart test and five new native probe assertions
-remain unrun. Private observation receipt:
+At this checkpoint the mirrored iPad test was unrun; its later bounded manual
+observations are recorded above. Five new native probe assertions remain unrun.
+Private observation receipt:
 `/private/tmp/thalassa-pending-restart.ePwNlh/observations.json`.
 
 A read-only source inspection found no deterministic keyboard suppression.
