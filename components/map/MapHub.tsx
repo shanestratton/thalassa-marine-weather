@@ -41,7 +41,7 @@ import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseS
 import { seaBaseLayers, setReliefPalette } from './reliefBase';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
-import { useObsStartupCamera } from './useObsStartupCamera';
+import { OBS_VESSEL_ZOOM, useObsStartupCamera } from './useObsStartupCamera';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
@@ -279,7 +279,7 @@ import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './ma
 
 // ── Component ──────────────────────────────────────────────────
 /** Find-boat FAB zoom (Shane 2026-10-05: "change the zoom in the obs page to 14 when the punter clicks on the find boat fab"). */
-const LOCATE_BOAT_ZOOM = 14;
+const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,

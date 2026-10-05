@@ -4,11 +4,13 @@ import { RELIEF_TILE_BASE } from './reliefBase';
 
 /**
  * Relief replaced Satellite as the default on 2026-10-04 (Shane: "the
- * stitching"), once its tiles are served. With no tile address (the R2 upload
+ * stitching"), once its tiles are served; Relief + Sat (the relief sea with
+ * satellite land) has been the default since 2026-10-06 (Shane: "it looks
+ * fucken awesome"). A saved pick still wins. With no tile address (the R2 upload
  * not done yet) Relief is a flat blue sea, so a build made before then keeps
  * Satellite as its default (review 2026-10-05); Relief stays a pick.
  */
-export const defaultMapBase = (tileBase: string): MapBaseKind => (tileBase ? 'relief' : 'satellite');
+export const defaultMapBase = (tileBase: string): MapBaseKind => (tileBase ? 'reliefSat' : 'satellite');
 export const DEFAULT_MAP_BASE = defaultMapBase(RELIEF_TILE_BASE);
 const KINDS: readonly unknown[] = ['relief', 'reliefSat', 'ocean', 'satellite', 'hybrid'];
 
