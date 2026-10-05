@@ -1,0 +1,214 @@
+{
+    "schemaVersion": 1,
+    "recordedAtUTC": "2026-10-05T09:10:55.098Z",
+    "branch": "codex/scuttlebutt-e2ee-foundation",
+    "repositoryCommit": "9bf49af462c09f9b607f536c3b1451540b60364b",
+    "codeCandidate": "0cde17c21c68e0bba9dff6fe07eef41b5dfad00c",
+    "dirtyTreeAtExecution": false,
+    "status": "passed",
+    "shippingApproved": false,
+    "protocol": "olm-v1",
+    "provider": "vodozemac 0.11.0 unchanged",
+    "evidence": [
+        {
+            "kind": "simulator real provider with synthetic Auth and scoped relay replies",
+            "assertionCounts": {
+                "nativeAuthFixtureAssertions": 266,
+                "nativeAccountDirectoryFixtureAssertions": 282,
+                "nativeEnrollmentIntentFixtureAssertions": 40,
+                "nativeMessageAuthorityFixtureAssertions": 65,
+                "nativePairingHistoryFixtureAssertions": 105,
+                "nativeScopedRelayFixtureAssertions": 81,
+                "nativeScopedEnrollmentFixtureAssertions": 188,
+                "nativeReadinessFixtureAssertions": 709,
+                "nativeBridgeFixtureAssertions": 288
+            },
+            "newSavedEnvelopeHashAssertions": 5,
+            "bridgeCloseReopen": "same process",
+            "hardwareExecution": false
+        },
+        {
+            "kind": "legacy native client ordinary HTTPS with local PGlite SQL",
+            "completedPhases": [
+                {
+                    "phase": "tls-refuse",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "prepare",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "opening",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "retry",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "reply",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "successor",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "verify",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "recovery",
+                    "stage": "complete"
+                },
+                {
+                    "phase": "cleanup",
+                    "stage": "complete"
+                }
+            ],
+            "verification": {
+                "devices": 2,
+                "decisions": 4,
+                "messages": 4,
+                "requests": 20,
+                "httpRequests": 23,
+                "authRequests": 23,
+                "rpcCalls": 44,
+                "tlsRefusals": 1,
+                "registrations": 2,
+                "dispatches": 21,
+                "lostResponses": 1,
+                "wrongReceipts": 1,
+                "malformedLists": 1,
+                "poisonLists": 8,
+                "staleContextRequests": 0,
+                "databaseReopens": 1,
+                "unexpectedFailures": 0
+            },
+            "finalCounters": {
+                "httpRequests": 23,
+                "authRequests": 23,
+                "rpcCalls": 44,
+                "tlsRefusals": 1,
+                "registrations": 2,
+                "dispatches": 21,
+                "lostResponses": 1,
+                "wrongReceipts": 1,
+                "malformedLists": 1,
+                "poisonLists": 8,
+                "staleContextRequests": 0,
+                "databaseReopens": 2,
+                "unexpectedFailures": 0
+            },
+            "plaintextCanaryInspection": "Only chosen canaries in selected serialized SQL fixture data",
+            "sharedSimulatorForBothLogicalClients": true
+        },
+        {
+            "kind": "local TypeScript Research tests and injected fixtures",
+            "testFilesPassed": 15,
+            "testsPassed": 1069,
+            "command": "node experiments/scuttlebutt-e2ee/pilot/checks.mjs relay_tests"
+        },
+        {
+            "kind": "mocked app screen and SDK pilot fixtures",
+            "testFilesPassed": 7,
+            "testsPassed": 190,
+            "command": "node experiments/scuttlebutt-e2ee/pilot/checks.mjs tests types",
+            "focusedTypeScriptPassed": true,
+            "overlapsResearchSuite": true
+        }
+    ],
+    "cleanup": {
+        "disposableSimulatorRemoved": true,
+        "temporaryCertificateRemovedWithSimulator": true,
+        "humanDeviceChanges": false,
+        "hostedDatabaseChanges": false,
+        "primaryBuildSync": false
+    },
+    "nativeReceipt": {
+        "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-wlbTYj/exchange-run.json",
+        "sha256": "c5903e25335df51c46fbbaccf9c014c465c04e023035024800c79198bdd18be8"
+    },
+    "checkLogs": [
+        {
+            "path": "/private/tmp/thalassa-native-regression.i3OgMP/pilot-checks.log",
+            "sha256": "b2197560b2d908ac76bff0b143f0fad8ef1d8157e408f3e058cfad203da87a51"
+        },
+        {
+            "path": "/private/tmp/thalassa-native-regression.i3OgMP/research-checks.log",
+            "sha256": "dc67209cec8d6b0a102afaa1a08f98fab5302a459465eb661390dbc4d6ee4650"
+        }
+    ],
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "5261342759cd14defe9bdaebac751e8a4aedcc3689c097f806ac582bd53d7c8e",
+        "experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "d451170c5f9854630c81de9a6f74042bc043d95cefdc157a1cec79adafffa300",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "c507a825ff4888d9f229e46120503d7311e33ad85d3972c40787f560b6736370",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinatorProbe.swift": "aab199712b27347388b2db71616c002688642b5de16407962cbd1e642706dccf",
+        "experiments/scuttlebutt-e2ee/VodozemacEnrollmentIntentProbe.swift": "ddd8e2bec1fd22371a1c1ccc1c8d5d1c98850f64a5e8b757558a6ef784408920",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "2b087eaaeb30774fb9d82bbd12351eb901c1a43cd45101a5e4225a44ae35d84a",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthProbe.swift": "e3b1d86811f2fdedaed397b3011acea4c14b824235c18c3fac46173a6678cbd7",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+        "experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectoryProbe.swift": "f5eeae2803e56f4a51ff50c19dab2b4a7e566c5bfde31622763ad9c8636464cd",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageAuthorityProbe.swift": "521b59afc7ba4e11eb287e32bb83f3af6dd81578938a836649ad1b0da85e1e6b",
+        "experiments/scuttlebutt-e2ee/VodozemacPairingHistoryProbe.swift": "79a9a695e1fe94e581b24e4d40aeee9c258fe3060115e4188f9386284905a5f6",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayProbe.swift": "ea16106150d1497e7ba9aefa9a4d030a970a7abe9001b46a75dcc5496e97f52a",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedEnrollmentProbe.swift": "4776003cd0a89aba4abfdda7d4678a14718705bc952f84fffb45a81832581681",
+        "experiments/scuttlebutt-e2ee/VodozemacReadinessProbe.swift": "2a978a0cc1f557354e92a0a09ebedb81ae049a5d4b3cdcadd7236633076b7588",
+        "experiments/scuttlebutt-e2ee/VodozemacResearchBridgeProbe.swift": "87d656aa4fc6826276edc36a38f55eb7d466ef76e6a1182198755cf22cdf3abe",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "024e54da36c91df795ce0ea6371f73182546146acbfe4a9946fe3e4debbff773",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResultProbe.swift": "0675a941c9b681f34f1db2bbcb6b54d61a3a96185a84c3e26fde34e807dea81b",
+        "experiments/scuttlebutt-e2ee/VodozemacLifecycleProbe.swift": "a3d6447bc36c04553b2d53e20b29fa27ca8d0c1d0252893de77741296fa27d1d",
+        "experiments/scuttlebutt-e2ee/VodozemacUnresolvedProbe.swift": "03a470db22b047124a1288368685140173d3cfad4edc09f828e2ef848cee04a1",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayClient.swift": "0d31e6979b68b11b071920b1686c28a8a87af933d7e7c2e37a9b9f8bd353e68c",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "a3f65f4ba515f0208307f168e2cb232c0f169dfffdaf7d8429805d2e494a95b7",
+        "experiments/scuttlebutt-e2ee/VodozemacExchangeProbe.swift": "ea50c39efef06b67905fe60cc1927ec41e458a07a3ccc2299d90554519c3d2ee",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "c37940615b0cca96aeaa2c8e8eba26dcc3ef08ee26d9c5e75884db7377219389",
+        "experiments/scuttlebutt-e2ee/relay/nativeExchangeProof.mjs": "80d62c780e270709e272e3e9746d9c6e8a737d69b095163bf0fab4bdf5797b29",
+        "experiments/scuttlebutt-e2ee/relay/nativeExchangeServer.mjs": "ee8455668a5eeb953564ccf453ee44488e73885e95d9bd08d4625f1476e0974c",
+        "experiments/scuttlebutt-e2ee/relay/relay.sql": "96112dc474c8df60c36a5b8a2aded33b6c5b8e81d7a36b94b52ba8311d074a9f",
+        "experiments/scuttlebutt-e2ee/relay/signedGateway.ts": "d2c37e30b248abdf67663f7a17552a227c4e990b7d4a5a97f79fc243ffe892a9",
+        "experiments/scuttlebutt-e2ee/relay/supabaseAuth.ts": "4d5e3378e8ad7b0c63b5565cc36a1cfb8338a27d3d353db32429c56523c17b1b",
+        "experiments/scuttlebutt-e2ee/relay/httpGateway.ts": "2a51131e6be97638d11580011eae89b4a994e251d4a53a4da7ee9dd8389de722",
+        "services/chat/e2ee/directMessageEnvelope.ts": "0261897560058dd36830e0b5a1bfd7d40aeded64aa638ed2e8a2bc528a164fdf",
+        "experiments/scuttlebutt-e2ee/pilot/checks.mjs": "9c5f29a589c86a0038f506b0c29dd604289c11631c4cb851784e6717143d07ce",
+        "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs": "846ce55a7650561bc40717a7c970bc31778c6540d825713904d4b8f50e81ea21",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs": "df2b99d839116ba27b8bc69c2615465b19a398dbfc95117a0d3a76cd9b3cf0b4"
+    },
+    "cachedNativeInputs": [
+        {
+            "path": "/private/tmp/thalassa-vodo-native.AQR0PF/target/aarch64-apple-ios-sim/debug/libthalassa_vodozemac_native.a",
+            "sha256": "ce81b9cf0723a108c42f8eb2bd03f001aa4800739000aac525dd7e03461d8c0f"
+        },
+        {
+            "path": "/private/tmp/thalassa-vodo-native.AQR0PF/bindings/thalassa_vodozemac_native.swift",
+            "sha256": "f26c6256b43c383209f9d8da64afe2c87ea84cd647a312a9be322d4f403fa62e"
+        },
+        {
+            "path": "/private/tmp/thalassa-vodo-native.AQR0PF/bindings/thalassa_vodozemac_nativeFFI.h",
+            "sha256": "e135cfea1701a0e760f6741edd7c848f8197907cdbf2683a2a923742be31fb11"
+        },
+        {
+            "path": "/private/tmp/thalassa-vodo-native.AQR0PF/bindings/thalassa_vodozemac_nativeFFI.modulemap",
+            "sha256": "c7d5f877e8d06da086653661f8052ab5fec7d136061edcad1bfcd504ea295f41"
+        }
+    ],
+    "providerManifestSha256": "8cef57a4b945989302db94361bb03df46157e9c305862232dd9d59379ed610d9",
+    "providerLockSha256": "5788c45d3bd629c4640f88c5b533484c89d39029674a02bce0301597e6fe50f7",
+    "limits": [
+        "Not an independent security review or release approval",
+        "No current-provider SIGKILL at a persistence commit boundary",
+        "No physical lock, power-loss, restore or reinstall test",
+        "Synthetic scoped Auth/relay fixture replies are not a new hosted exchange",
+        "Local PGlite is not independent PostgreSQL connection concurrency",
+        "Cached native artifacts were reused; no fresh Rust build or independent binary provenance attestation",
+        "No shipping private-message cutover or recovery/rotation policy completed",
+        "Fixture suite totals overlap and must not be summed"
+    ]
+}
