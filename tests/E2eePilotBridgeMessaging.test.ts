@@ -13,9 +13,10 @@ import {
     renderResearchMessages,
     type ResearchMessageFacts,
     type ResearchMessagingNativePlugin,
+    type ResearchMessagingAuth,
     type ResearchThreadMessage,
 } from '../experiments/scuttlebutt-e2ee/bridge-web/messaging';
-import type { ResearchAuthState } from '../experiments/scuttlebutt-e2ee/bridge-web/auth';
+import type { ResearchAccount, ResearchAuthState } from '../experiments/scuttlebutt-e2ee/bridge-web/auth';
 
 const BINDING = '11111111-1111-4111-8111-111111111111';
 const RENEWED = '22222222-2222-4222-8222-222222222222';
@@ -73,10 +74,24 @@ function deferred() {
 async function settle() {
     for (let index = 0; index < 35; index += 1) await Promise.resolve();
 }
-function fixture(supported = true) {
+function fixture(supported = true, pairingContinuity = false) {
     let authState = authenticated();
+    let publicOwner: Pick<ResearchAccount, 'accountId' | 'deviceId'> | null = authState.account;
     const listeners = new Set<(state: ResearchAuthState) => void>();
-    const auth = {
+    const publish = (value: ResearchAuthState) => {
+        authState = value;
+        if (value.status === 'authenticated') publicOwner = value.account;
+        else if (value.status === 'signed_out' || value.status === 'unsupported') publicOwner = null;
+        for (const listener of listeners) listener(value);
+    };
+    const getPublicPairingOwner = vi.fn(() => publicOwner);
+    const reverifyForPairing = vi.fn<() => Promise<ResearchAccount | null>>(async () => {
+        publish({ status: 'verifying', account: null });
+        const renewed = authenticated(RENEWED);
+        publish(renewed);
+        return renewed.account;
+    });
+    const auth: ResearchMessagingAuth = {
         getState: () => authState,
         subscribe(listener: (state: ResearchAuthState) => void) {
             listeners.add(listener);
@@ -86,6 +101,10 @@ function fixture(supported = true) {
             };
         },
     };
+    if (pairingContinuity) {
+        auth.getPublicPairingOwner = getPublicPairingOwner;
+        auth.reverifyForPairing = reverifyForPairing;
+    }
     let rows: ResearchThreadMessage[] = [];
     const threadResponse = (binding = BINDING) => ({
         status: 'thread',
@@ -163,17 +182,20 @@ function fixture(supported = true) {
     controllers.push(controller);
     return {
         controller,
+        auth,
         native,
         createMessageId,
         threadResponse,
         listeners,
+        getPublicPairingOwner,
+        reverifyForPairing,
+        setPublicOwner(value: Pick<ResearchAccount, 'accountId' | 'deviceId'> | null) {
+            publicOwner = value;
+        },
         setRows(value: ResearchThreadMessage[]) {
             rows = value;
         },
-        publish(value: ResearchAuthState) {
-            authState = value;
-            for (const listener of listeners) listener(value);
-        },
+        publish,
     };
 }
 afterEach(() => {
@@ -699,7 +721,7 @@ describe('isolated research messaging controller — injected fixtures only', ()
         expect(f.native.messagePrepareText).toHaveBeenCalledTimes(1);
         expect(f.threadResponse().messages).toEqual([]); // No durable row exists yet.
         f.controller.setVisible(false);
-        expect(f.controller.getState()).toMatchObject({ draft: '', attempt: null, thread: null, busy: false });
+        expect(f.controller.getState()).toMatchObject({ draft: '', attempt: null, thread: null, busy: true });
         f.controller.setVisible(true);
         expect(f.controller.getState().busy).toBe(true);
         f.controller.setDraft('replacement');
@@ -812,7 +834,7 @@ describe('isolated research messaging controller — injected fixtures only', ()
         expect(f.controller.getState()).toMatchObject({ available: false, attempt: null, thread: null });
     });
     it.each(['hidden', 'verifying', 'logout', 'account-switch', 'dispose'] as const)(
-        '%s immediately clears plaintext/draft/cards/comparison/tickets',
+        '%s immediately clears private data and trust; only same-owner hide retains public fields',
         async (event) => {
             const f = fixture();
             f.setRows([outgoing('serverAccepted')]);
@@ -834,8 +856,8 @@ describe('isolated research messaging controller — injected fixtures only', ()
                 busy: false,
                 thread: null,
                 draft: '',
-                ownCard: null,
-                peerCardInput: '',
+                ownCard: event === 'hidden' ? { card: PUBLIC_CARD, fingerprint: FINGERPRINT } : null,
+                peerCardInput: event === 'hidden' ? 'peer' : '',
                 inspectedPeer: null,
                 comparedOnOtherDevice: false,
                 attempt: null,
@@ -844,6 +866,491 @@ describe('isolated research messaging controller — injected fixtures only', ()
             });
         },
     );
+});
+
+describe('public pairing continuity and explicit renewal — injected Auth/plugin fixtures only', () => {
+    async function populatedFixture() {
+        // Populate a previously verified view before exposing the new Auth
+        // presentation/renewal methods. No synthetic renewal keeps private
+        // state alive: each tested lifecycle fence must clear it immediately.
+        const f = fixture();
+        f.setRows([outgoing('serverAccepted')]);
+        await f.controller.receive();
+        await f.controller.refreshPolicy();
+        await f.controller.ownPairingCard();
+        f.controller.setPeerCardInput('raw peer card; no identity is inferred');
+        await f.controller.inspectPeerCard();
+        f.controller.setComparedOnOtherDevice(true);
+        f.controller.setDraft('private draft must not survive');
+        f.setRows([outgoing()]);
+        await f.controller.readThread();
+        expect(f.controller.getState()).toMatchObject({
+            facts: facts(),
+            policy: CLEAR,
+            ownCard: { card: PUBLIC_CARD, fingerprint: FINGERPRINT },
+            inspectedPeer: { card: PUBLIC_CARD, fingerprint: FINGERPRINT },
+            comparedOnOtherDevice: true,
+            // Durable pending reconciliation already clears its old draft.
+            draft: '',
+            attempt: { clientMessageId: ID },
+            inboxReport: { stored: 0 },
+        });
+        f.auth.getPublicPairingOwner = f.getPublicPairingOwner;
+        f.auth.reverifyForPairing = f.reverifyForPairing;
+        return f;
+    }
+
+    it.each(['expired', 'verifying', 'renewed', 'hidden'] as const)(
+        'retains only same-owner public export and raw peer text when %s',
+        async (event) => {
+            const f = await populatedFixture();
+            if (event === 'hidden') f.controller.setVisible(false);
+            else if (event === 'renewed') f.publish(authenticated(RENEWED));
+            else f.publish({ status: event === 'expired' ? 'unavailable' : 'verifying', account: null });
+            expect(f.controller.getState()).toMatchObject({
+                ownCard: { card: PUBLIC_CARD, fingerprint: FINGERPRINT },
+                peerCardInput: 'raw peer card; no identity is inferred',
+                facts: null,
+                policy: null,
+                draft: '',
+                thread: null,
+                attempt: null,
+                inboxReport: null,
+                inspectedPeer: null,
+                comparedOnOtherDevice: false,
+                busy: false,
+                available: event === 'renewed',
+                pairingAvailable: event === 'expired' || event === 'renewed',
+                publicCardsAvailable: event === 'expired' || event === 'renewed',
+            });
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        },
+    );
+
+    it('retains public fields across expiry, reverify and clipboard-style hide/show, never restoring comparison', async () => {
+        const f = await populatedFixture();
+        f.publish({ status: 'unavailable', account: null });
+        f.controller.setVisible(false);
+        f.controller.setVisible(true);
+        f.publish({ status: 'verifying', account: null });
+        f.publish(authenticated(RENEWED));
+        expect(f.controller.getState()).toMatchObject({
+            available: true,
+            pairingAvailable: true,
+            publicCardsAvailable: true,
+            ownCard: { card: PUBLIC_CARD, fingerprint: FINGERPRINT },
+            peerCardInput: 'raw peer card; no identity is inferred',
+            inspectedPeer: null,
+            comparedOnOtherDevice: false,
+            draft: '',
+            thread: null,
+            attempt: null,
+        });
+        await f.controller.confirmPeer();
+        expect(f.native.messageConfirmPeer).not.toHaveBeenCalled();
+        expect(f.reverifyForPairing).not.toHaveBeenCalled();
+    });
+
+    it('clears a nonempty private draft immediately on same-owner expiry while retaining raw public input', () => {
+        const f = fixture(true, true);
+        f.controller.setPeerCardInput('public peer input');
+        f.controller.setDraft('private draft');
+        expect(f.controller.getState().draft).toBe('private draft');
+        f.publish({ status: 'unavailable', account: null });
+        expect(f.controller.getState()).toMatchObject({ draft: '', peerCardInput: 'public peer input' });
+        expect(f.reverifyForPairing).not.toHaveBeenCalled();
+    });
+
+    it.each(['logout', 'account-switch', 'device-switch', 'unsupported', 'dispose'] as const)(
+        'drops public fields as well as private/trust state on %s',
+        async (event) => {
+            const f = await populatedFixture();
+            if (event === 'dispose') f.controller.dispose();
+            else if (event === 'logout' || event === 'unsupported')
+                f.publish({ status: event === 'logout' ? 'signed_out' : 'unsupported', account: null });
+            else
+                f.publish({
+                    ...authenticated(RENEWED),
+                    account: {
+                        ...authenticated(RENEWED).account!,
+                        [event === 'account-switch' ? 'accountId' : 'deviceId']: OTHER_ID,
+                    },
+                });
+            expect(f.controller.getState()).toMatchObject({
+                ownCard: null,
+                peerCardInput: '',
+                inspectedPeer: null,
+                comparedOnOtherDevice: false,
+                facts: null,
+                policy: null,
+                draft: '',
+                thread: null,
+                attempt: null,
+                inboxReport: null,
+            });
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        },
+    );
+
+    it('does not retain expired public fields without a native-known presentation owner', async () => {
+        const f = fixture();
+        await f.controller.ownPairingCard();
+        f.controller.setPeerCardInput('public peer');
+        f.auth.reverifyForPairing = f.reverifyForPairing;
+        f.publish({ status: 'unavailable', account: null });
+        expect(f.controller.getState()).toMatchObject({
+            ownCard: null,
+            peerCardInput: '',
+            available: false,
+            publicCardsAvailable: false,
+            pairingAvailable: false,
+        });
+        await f.controller.registerDevice();
+        expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        expect(f.native.messageRegisterDevice).not.toHaveBeenCalled();
+    });
+
+    it('keeps public and setup permissions closed outside the supported native runtime despite owner metadata', async () => {
+        const f = fixture(false, true);
+        f.publish({ status: 'unavailable', account: null });
+        f.controller.setPeerCardInput('public input outside native runtime');
+        await f.controller.registerDevice();
+        expect(f.controller.getState()).toMatchObject({
+            available: false,
+            pairingAvailable: false,
+            publicCardsAvailable: false,
+            peerCardInput: '',
+        });
+        expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+    });
+
+    it.each([null, { accountId: 'not-a-uuid', deviceId: OTHER_ID }])(
+        'refuses missing or malformed native-known owner metadata %j',
+        async (owner) => {
+            const f = fixture(true, true);
+            f.setPublicOwner(owner);
+            f.publish({ status: 'unavailable', account: null });
+            f.controller.setPeerCardInput('public input');
+            await f.controller.readState();
+            expect(f.controller.getState()).toMatchObject({
+                pairingAvailable: false,
+                publicCardsAvailable: false,
+                peerCardInput: '',
+            });
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+            for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+        },
+    );
+
+    const setupActions = [
+        { name: 'Read', method: 'messageState', run: (f: ReturnType<typeof fixture>) => f.controller.readState() },
+        {
+            name: 'Register',
+            method: 'messageRegisterDevice',
+            run: (f: ReturnType<typeof fixture>) => f.controller.registerDevice(),
+        },
+        {
+            name: 'Export',
+            method: 'messagePairingCard',
+            run: (f: ReturnType<typeof fixture>) => f.controller.ownPairingCard(),
+        },
+        {
+            name: 'Inspect',
+            method: 'messageInspectPeerCard',
+            run: (f: ReturnType<typeof fixture>) => f.controller.inspectPeerCard(),
+        },
+    ] as const;
+
+    it.each(setupActions)('renews only the explicit $name action before one bound native dispatch', async (action) => {
+        const f = fixture(true, true);
+        f.controller.setPeerCardInput('detached raw public input');
+        f.publish({ status: 'unavailable', account: null });
+        expect(f.controller.getState()).toMatchObject({ available: false, pairingAvailable: true });
+        await action.run(f);
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1);
+        expect(f.native[action.method]).toHaveBeenCalledExactlyOnceWith(
+            action.name === 'Inspect'
+                ? { credentialBinding: RENEWED, card: 'detached raw public input' }
+                : { credentialBinding: RENEWED },
+        );
+        for (const [method, mock] of Object.entries(f.native))
+            if (method !== action.method) expect(mock).not.toHaveBeenCalled();
+        expect(f.controller.getState()).toMatchObject({ available: true, busy: false });
+    });
+
+    it.each(setupActions)('fresh-renews $name even before the UI notices native lease expiry', async (action) => {
+        const f = fixture(true, true);
+        f.controller.setPeerCardInput('raw public input');
+        expect(f.controller.getState().available).toBe(true);
+        await action.run(f);
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1);
+        expect(f.native[action.method]).toHaveBeenCalledTimes(1);
+        expect(f.native[action.method].mock.calls[0][0].credentialBinding).toBe(RENEWED);
+    });
+
+    it.each(['null', 'throw'] as const)('does no native setup after renewal returns %s', async (failure) => {
+        const f = fixture(true, true);
+        f.publish({ status: 'unavailable', account: null });
+        f.reverifyForPairing.mockImplementationOnce(async () => {
+            f.publish({ status: 'verifying', account: null });
+            f.publish({ status: 'unavailable', account: null });
+            if (failure === 'throw') throw new Error('private fixture renewal failure');
+            return null;
+        });
+        await f.controller.registerDevice();
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1);
+        expect(f.controller.getState()).toMatchObject({ busy: false, facts: null, available: false });
+        for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+    });
+
+    it('holds one action barrier through renewal, blocks edits and dispatches the bounded detached card once', async () => {
+        const f = fixture(true, true);
+        const gate = deferred();
+        const raw = 'é'.repeat(2048); // Exactly 4096 UTF-8 bytes, not a parsed identity.
+        f.controller.setPeerCardInput(raw);
+        f.controller.setPeerCardInput(`${raw}x`);
+        expect(f.controller.getState().peerCardInput).toBe(raw);
+        f.publish({ status: 'unavailable', account: null });
+        f.reverifyForPairing.mockImplementationOnce(async () => {
+            f.publish({ status: 'verifying', account: null });
+            await gate.promise;
+            const renewed = authenticated(RENEWED);
+            f.publish(renewed);
+            return renewed.account;
+        });
+        const action = f.controller.inspectPeerCard();
+        await settle();
+        expect(f.controller.getState()).toMatchObject({ busy: true, available: false });
+        f.controller.setPeerCardInput('replacement while renewing');
+        f.controller.setComparedOnOtherDevice(true);
+        await f.controller.inspectPeerCard();
+        await f.controller.registerDevice();
+        await f.controller.readState();
+        await f.controller.ownPairingCard();
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1);
+        expect(f.controller.getState()).toMatchObject({ peerCardInput: raw, comparedOnOtherDevice: false });
+        for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+        gate.resolve(undefined);
+        await action;
+        expect(f.native.messageInspectPeerCard).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: RENEWED,
+            card: raw,
+        });
+        expect(f.controller.getState()).toMatchObject({
+            busy: false,
+            peerCardInput: raw,
+            comparedOnOtherDevice: false,
+        });
+        expect(f.native.messageRegisterDevice).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'hide',
+        'hide-show',
+        'logout',
+        'account-switch',
+        'device-switch',
+        'concurrent-binding',
+        'dispose',
+    ] as const)('cancels delayed setup after %s; no action is adopted by later Auth', async (event) => {
+        const f = fixture(true, true);
+        const gate = deferred();
+        f.controller.setPeerCardInput('original public input');
+        f.publish({ status: 'unavailable', account: null });
+        f.reverifyForPairing.mockImplementationOnce(async () => {
+            f.publish({ status: 'verifying', account: null });
+            await gate.promise;
+            return authenticated(RENEWED).account;
+        });
+        const action = f.controller.inspectPeerCard();
+        await settle();
+        if (event === 'hide' || event === 'hide-show') {
+            f.controller.setVisible(false);
+            if (event === 'hide-show') f.controller.setVisible(true);
+            f.publish(authenticated(RENEWED));
+        } else if (event === 'dispose') {
+            f.controller.dispose();
+            f.publish(authenticated(RENEWED));
+        } else if (event === 'logout') f.publish({ status: 'signed_out', account: null });
+        else if (event === 'concurrent-binding') f.publish(authenticated(OTHER_ID));
+        else
+            f.publish({
+                ...authenticated(RENEWED),
+                account: {
+                    ...authenticated(RENEWED).account!,
+                    [event === 'account-switch' ? 'accountId' : 'deviceId']: OTHER_ID,
+                },
+            });
+        gate.resolve(undefined);
+        await action;
+        for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+        expect(f.controller.getState()).toMatchObject({
+            inspectedPeer: null,
+            comparedOnOtherDevice: false,
+            facts: null,
+            draft: '',
+            thread: null,
+            attempt: null,
+        });
+        if (event !== 'dispose') expect(f.controller.getState().busy).toBe(false);
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a renewed account DTO whose binding does not equal the current native Auth binding', async () => {
+        const f = fixture(true, true);
+        f.publish({ status: 'unavailable', account: null });
+        f.reverifyForPairing.mockImplementationOnce(async () => {
+            f.publish(authenticated(RENEWED));
+            return authenticated(BINDING).account;
+        });
+        await f.controller.registerDevice();
+        expect(f.controller.getState()).toMatchObject({ busy: false, facts: null });
+        for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+    });
+
+    it('rejects logout then same-owner login even when the delayed renewal matches the current account and binding', async () => {
+        const f = fixture(true, true);
+        const gate = deferred();
+        f.controller.setPeerCardInput('old public input');
+        f.publish({ status: 'unavailable', account: null });
+        f.reverifyForPairing.mockImplementationOnce(async () => {
+            f.publish({ status: 'verifying', account: null });
+            await gate.promise;
+            return authenticated(RENEWED).account;
+        });
+        const action = f.controller.registerDevice();
+        await settle();
+        f.publish({ status: 'signed_out', account: null });
+        f.publish(authenticated(RENEWED));
+        gate.resolve(undefined);
+        await action;
+        expect(f.controller.getState()).toMatchObject({
+            available: true,
+            busy: false,
+            peerCardInput: '',
+            facts: null,
+        });
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1);
+        for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+    });
+
+    it.each(['hide', 'dispose', 'logout'] as const)(
+        'does not start renewal when a busy-state observer synchronously triggers %s',
+        async (event) => {
+            const f = fixture(true, true);
+            let fenced = false;
+            f.controller.subscribe((state) => {
+                if (!state.busy || fenced) return;
+                fenced = true;
+                if (event === 'hide') f.controller.setVisible(false);
+                else if (event === 'dispose') f.controller.dispose();
+                else f.publish({ status: 'signed_out', account: null });
+            });
+            await f.controller.readState();
+            expect(fenced).toBe(true);
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+            for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+        },
+    );
+
+    it('does not confirm under observer-renewed Auth even when the renewed binding is unchanged', async () => {
+        const f = fixture(true, true);
+        f.controller.setPeerCardInput('public peer input');
+        await f.controller.inspectPeerCard();
+        f.controller.setComparedOnOtherDevice(true);
+        const revision = f.controller.getState().revision;
+        let fenced = false;
+        f.controller.subscribe((state) => {
+            if (fenced || state.revision <= revision || state.inspectedPeer !== null) return;
+            fenced = true;
+            f.publish(authenticated(RENEWED));
+        });
+        await f.controller.confirmPeer();
+        expect(fenced).toBe(true);
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1); // Explicit Inspect only.
+        expect(f.native.messageConfirmPeer).not.toHaveBeenCalled();
+        expect(f.controller.getState()).toMatchObject({
+            available: true,
+            ownCard: null,
+            peerCardInput: '',
+            inspectedPeer: null,
+            comparedOnOtherDevice: false,
+            facts: null,
+        });
+    });
+
+    it.each(['send', 'confirm', 'claim', 'receive', 'policy', 'thread', 'retry'] as const)(
+        '%s never renews automatically from an expired account or retained public fields',
+        async (operation) => {
+            const f = await populatedFixture();
+            f.publish({ status: 'unavailable', account: null });
+            for (const method of Object.values(f.native)) method.mockClear();
+            if (operation === 'send') await f.controller.sendText();
+            else if (operation === 'confirm') await f.controller.confirmPeer();
+            else if (operation === 'claim') await f.controller.claimPeer();
+            else if (operation === 'receive') await f.controller.receive();
+            else if (operation === 'policy') await f.controller.refreshPolicy();
+            else if (operation === 'thread') await f.controller.readThread();
+            else await f.controller.retryPending();
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+            for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+            expect(f.controller.getState()).toMatchObject({
+                ownCard: { card: PUBLIC_CARD, fingerprint: FINGERPRINT },
+                peerCardInput: 'raw peer card; no identity is inferred',
+                inspectedPeer: null,
+                comparedOnOtherDevice: false,
+            });
+        },
+    );
+
+    it.each(['send', 'claim', 'receive', 'policy', 'thread', 'retry'] as const)(
+        'available %s still uses its original binding without a pairing renewal',
+        async (operation) => {
+            const f = fixture(true, true);
+            if (operation === 'send' || operation === 'retry') f.controller.setDraft('explicit private message');
+            if (operation === 'send') await f.controller.sendText();
+            else if (operation === 'claim') await f.controller.claimPeer();
+            else if (operation === 'receive') await f.controller.receive();
+            else if (operation === 'policy') await f.controller.refreshPolicy();
+            else if (operation === 'thread') await f.controller.readThread();
+            else {
+                f.native.messageSendPending.mockRejectedValueOnce(new Error('fixture receipt uncertainty'));
+                await f.controller.sendText();
+                await f.controller.retryPending();
+            }
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+            for (const method of Object.values(f.native))
+                for (const [options] of method.mock.calls) expect(options.credentialBinding).toBe(BINDING);
+            expect(Object.values(f.native).some((method) => method.mock.calls.length > 0)).toBe(true);
+        },
+    );
+
+    it('retained card inspection after renewal still requires a fresh human comparison before confirmation', async () => {
+        const f = await populatedFixture();
+        f.publish({ status: 'unavailable', account: null });
+        f.native.messageConfirmPeer.mockClear();
+        await f.controller.inspectPeerCard();
+        expect(f.controller.getState()).toMatchObject({
+            inspectedPeer: { card: PUBLIC_CARD, fingerprint: FINGERPRINT },
+            comparedOnOtherDevice: false,
+        });
+        await f.controller.confirmPeer();
+        expect(f.native.messageConfirmPeer).not.toHaveBeenCalled();
+        f.controller.setComparedOnOtherDevice(true);
+        await f.controller.confirmPeer();
+        expect(f.native.messageConfirmPeer).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: RENEWED,
+            card: PUBLIC_CARD,
+            confirmedFingerprint: FINGERPRINT,
+        });
+        expect(f.reverifyForPairing).toHaveBeenCalledTimes(1);
+        expect(f.controller.getState()).toMatchObject({
+            ownCard: null,
+            peerCardInput: '',
+            comparedOnOtherDevice: false,
+        });
+    });
 });
 
 type Fixture = ReturnType<typeof fixture>;

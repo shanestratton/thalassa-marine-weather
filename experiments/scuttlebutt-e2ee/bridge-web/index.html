@@ -125,10 +125,17 @@
                         Sign in above to unlock setup.
                     </p>
                     <button id="reverify-pairing" class="wide" type="button" disabled>Reverify account here</button>
+                    <p class="footnote">
+                        Renewal keeps public cards only. Inspect again and compare the full fingerprint on the other
+                        device before confirming.
+                    </p>
                     <div class="actions">
                         <button id="read-state" type="button" disabled>Read setup facts</button
                         ><button id="register-device" type="button" disabled>Register device</button>
                     </div>
+                    <p id="pairing-action-status" class="message-status" role="status" aria-live="polite">
+                        Sign in to use the native research controls.
+                    </p>
                     <p id="pairing-facts" class="facts">Setup facts unknown.</p>
                     <button id="own-card-button" class="wide" type="button" disabled>
                         Export my public pairing card
@@ -216,8 +223,8 @@
                     <p id="pending-attempt" class="pending-notice" role="status"></p>
                     <p class="footnote">
                         Only committed native rows are rendered. Incoming times may be unknown. Hiding this app clears
-                        displayed plaintext, drafts and pairing cards; the operating system manages any copied public
-                        card.
+                        displayed plaintext, drafts and trust confirmations. Only public cards stay for the same
+                        account; the operating system manages any copied public card.
                     </p>
                 </section>
             </div>

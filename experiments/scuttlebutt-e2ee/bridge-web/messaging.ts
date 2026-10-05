@@ -1,6 +1,6 @@
 /** Isolated research UI only; this is not the shipping PrivateMessageNativePort. */
 import { Capacitor } from '@capacitor/core';
-import { RESEARCH_PLUGIN_NAME, researchNativePlugin, type ResearchAuthState } from './auth';
+import { RESEARCH_PLUGIN_NAME, researchNativePlugin, type ResearchAccount, type ResearchAuthState } from './auth';
 
 export const MESSAGING_LIMITS = Object.freeze({ cardBytes: 4096, textBytes: 16384, capacity: 16 });
 export const MESSAGING_NOTICES = Object.freeze({
@@ -100,6 +100,9 @@ export interface ResearchMessagingNativePlugin {
 export interface ResearchMessagingAuth {
     getState(): ResearchAuthState;
     subscribe(listener: (state: ResearchAuthState) => void): () => void;
+    // Presentation continuity only. Public cards never stand in for authority.
+    getPublicPairingOwner?(): Pick<ResearchAccount, 'accountId' | 'deviceId'> | null;
+    reverifyForPairing?(): Promise<ResearchAccount | null>;
 }
 export interface ResearchMessagingDependencies {
     readonly auth: ResearchMessagingAuth;
@@ -110,6 +113,8 @@ export interface ResearchMessagingDependencies {
 export interface ResearchMessagingState {
     readonly revision: number;
     readonly available: boolean;
+    readonly pairingAvailable: boolean;
+    readonly publicCardsAvailable: boolean;
     readonly busy: boolean;
     readonly notice: string;
     readonly facts: ResearchMessageFacts | null;
@@ -284,6 +289,9 @@ export function createResearchMessagingController(auth: ResearchMessagingAuth): 
 /** One admitted user operation, no background networking and no retry queue. */
 export class ResearchMessagingController {
     private revision = 0;
+    private visibilityRevision = 0;
+    private ownerRevision = 0;
+    private publicOwnerKey: string | null = null;
     private visible = true;
     private disposed = false;
     // A scheduling barrier, never an authority ticket or plaintext store. Keep
@@ -325,19 +333,67 @@ export class ResearchMessagingController {
             return false;
         }
     }
-    private reset(): void {
+    private ownerKey(): string | null {
+        try {
+            const auth = this.dependencies.auth.getState();
+            if (
+                this.disposed ||
+                !this.dependencies.supported() ||
+                auth.status === 'signed_out' ||
+                auth.status === 'unsupported'
+            )
+                return null;
+            const owner = this.dependencies.auth.getPublicPairingOwner
+                ? this.dependencies.auth.getPublicPairingOwner()
+                : auth.account;
+            if (!owner || !match(owner.accountId, UUID) || !match(owner.deviceId, UUID)) return null;
+            return `${owner.accountId}:${owner.deviceId}`;
+        } catch {
+            return null;
+        }
+    }
+    private publicCardsAvailable(): boolean {
+        try {
+            return (
+                !this.disposed &&
+                this.visible &&
+                this.dependencies.supported() &&
+                this.ownerKey() !== null &&
+                this.dependencies.auth.getState().status !== 'verifying'
+            );
+        } catch {
+            return false;
+        }
+    }
+    private pairingAvailable(): boolean {
+        return (
+            this.available() ||
+            (this.publicCardsAvailable() &&
+                this.dependencies.auth.getState().status === 'unavailable' &&
+                typeof this.dependencies.auth.reverifyForPairing === 'function')
+        );
+    }
+    private reset(retainPublic = true): void {
         this.revision += 1;
+        const ownerKey = this.ownerKey();
+        if (ownerKey !== this.publicOwnerKey) this.ownerRevision += 1;
+        const keepCards = retainPublic && ownerKey !== null && ownerKey === this.publicOwnerKey;
+        const ownCard = keepCards ? (this.state?.ownCard ?? null) : null;
+        const peerCardInput = keepCards ? (this.state?.peerCardInput ?? '') : '';
+        this.publicOwnerKey = ownerKey;
         const available = this.available();
-        const busy = available && this.activeAction !== null;
+        const busy = this.activeAction !== null;
         this.state = Object.freeze({
             revision: this.revision,
             available,
+            pairingAvailable: this.pairingAvailable(),
+            publicCardsAvailable: this.publicCardsAvailable(),
             busy,
             notice: busy ? MESSAGING_NOTICES.waiting : available ? MESSAGING_NOTICES.idle : MESSAGING_NOTICES.inactive,
             facts: null,
             policy: null,
-            ownCard: null,
-            peerCardInput: '',
+            ownCard,
+            peerCardInput,
             inspectedPeer: null,
             comparedOnOtherDevice: false,
             draft: '',
@@ -363,6 +419,7 @@ export class ResearchMessagingController {
     setVisible(visible: boolean): void {
         if (this.disposed || this.visible === visible) return;
         this.visible = visible;
+        this.visibilityRevision += 1;
         this.reset();
     }
     setDraft(draft: string): void {
@@ -371,8 +428,8 @@ export class ResearchMessagingController {
     }
     setPeerCardInput(peerCardInput: string): void {
         if (
-            this.available() &&
-            !this.state.busy &&
+            this.publicCardsAvailable() &&
+            this.activeAction === null &&
             !this.state.attempt &&
             text(peerCardInput, MESSAGING_LIMITS.cardBytes)
         )
@@ -402,17 +459,55 @@ export class ResearchMessagingController {
         this.require(ticket);
         return result;
     }
-    private async action(operation: (ticket: Ticket) => Promise<void>): Promise<void> {
-        if (!this.available() || this.state.busy || this.activeAction !== null) return;
-        const credentialBinding = this.dependencies.auth.getState().account!.credentialBinding;
-        const ticket = Object.freeze({ revision: this.revision, credentialBinding });
+    private async action(operation: (ticket: Ticket) => Promise<void>, renewPairing = false): Promise<void> {
+        if (!(renewPairing ? this.pairingAvailable() : this.available()) || this.activeAction !== null) return;
+        const visibilityRevision = this.visibilityRevision;
+        const ownerRevision = this.ownerRevision;
+        const ownerKey = this.ownerKey();
         const admission = Symbol();
         this.activeAction = admission;
         this.update({ busy: true, notice: 'Native research action in progress…' });
+        let ticket: Ticket | null = null;
         try {
+            if (
+                this.disposed ||
+                !this.visible ||
+                this.visibilityRevision !== visibilityRevision ||
+                this.ownerRevision !== ownerRevision ||
+                this.ownerKey() !== ownerKey
+            )
+                return;
+            if (renewPairing && this.dependencies.auth.reverifyForPairing) {
+                // Start a fresh check for this explicit setup action, even if
+                // the UI's last poll has not noticed native lease expiry yet.
+                // No timer, retry, trust confirmation or message send renews.
+                const renewed = await this.dependencies.auth.reverifyForPairing!();
+                const current = this.dependencies.auth.getState().account;
+                if (
+                    !renewed ||
+                    !current ||
+                    !this.available() ||
+                    ownerKey === null ||
+                    this.ownerKey() !== ownerKey ||
+                    this.ownerRevision !== ownerRevision ||
+                    this.visibilityRevision !== visibilityRevision ||
+                    renewed.accountId !== current.accountId ||
+                    renewed.deviceId !== current.deviceId ||
+                    renewed.credentialBinding !== current.credentialBinding
+                )
+                    return;
+            }
+            if (
+                this.visibilityRevision !== visibilityRevision ||
+                this.ownerRevision !== ownerRevision ||
+                this.ownerKey() !== ownerKey
+            )
+                return;
+            const credentialBinding = this.dependencies.auth.getState().account!.credentialBinding;
+            ticket = Object.freeze({ revision: this.revision, credentialBinding });
             await operation(ticket);
         } catch {
-            if (this.current(ticket))
+            if (ticket && this.current(ticket))
                 this.update({
                     policy: null,
                     facts: null,
@@ -428,7 +523,9 @@ export class ResearchMessagingController {
                         busy: false,
                         notice:
                             this.state.notice === MESSAGING_NOTICES.waiting
-                                ? MESSAGING_NOTICES.idle
+                                ? this.available()
+                                    ? MESSAGING_NOTICES.idle
+                                    : MESSAGING_NOTICES.inactive
                                 : this.state.notice,
                     });
             }
@@ -442,7 +539,7 @@ export class ResearchMessagingController {
                 policy: value.policy,
                 notice: 'Native setup facts—not permission to send.',
             });
-        });
+        }, true);
     }
     private async readFactsForAction(ticket: Ticket): Promise<ResearchMessageFacts> {
         const value = facts(
@@ -463,7 +560,7 @@ export class ResearchMessagingController {
                 ownCard: value,
                 notice: 'Public pairing card. Compare fingerprints on the other device.',
             });
-        });
+        }, true);
     }
     async inspectPeerCard(): Promise<void> {
         if (this.state.attempt || !this.state.peerCardInput.trim()) return;
@@ -481,7 +578,7 @@ export class ResearchMessagingController {
                 inspectedPeer: value,
                 notice: 'Inspection is not trust. Compare this fingerprint on the other device before confirming.',
             });
-        });
+        }, true);
     }
     async confirmPeer(): Promise<void> {
         if (
@@ -493,8 +590,16 @@ export class ResearchMessagingController {
         )
             return;
         const inspected = this.state.inspectedPeer;
-        // A trust flow starts a new UI generation; no prior plaintext/card/ticket survives it.
-        this.reset();
+        const confirmedRevision = this.revision;
+        const confirmedBinding = this.dependencies.auth.getState().account?.credentialBinding;
+        // Trust confirmation starts a new UI generation and explicitly drops
+        // public fields too. Its detached, inspected input is dispatched once.
+        this.reset(false);
+        if (
+            this.revision !== confirmedRevision + 1 ||
+            this.dependencies.auth.getState().account?.credentialBinding !== confirmedBinding
+        )
+            return;
         await this.action(async (ticket) => {
             const value = facts(
                 await this.call(ticket, () =>
@@ -524,7 +629,7 @@ export class ResearchMessagingController {
                 policy: value.policy,
                 notice: 'Native registration facts updated. This is not a messaging permission.',
             });
-        });
+        }, true);
     }
     async claimPeer(): Promise<void> {
         await this.action(async (ticket) => {

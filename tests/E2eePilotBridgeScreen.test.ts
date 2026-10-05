@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { URL as NodeURL } from 'node:url';
-import type { ResearchAuthState } from '../experiments/scuttlebutt-e2ee/bridge-web/auth';
+import type { ResearchAccount, ResearchAuthState } from '../experiments/scuttlebutt-e2ee/bridge-web/auth';
 import type {
     ResearchMessagingController,
     ResearchMessagingNativePlugin,
@@ -14,17 +14,24 @@ type Reason = 'verification_failed' | 'verification_lost' | 'credentials_rejecte
 class FixtureAuth {
     private state: ResearchAuthState = { status: 'signed_out', account: null };
     private reason: Reason = null;
+    private publicPairingOwner: Pick<ResearchAccount, 'accountId' | 'deviceId'> | null = null;
     private listeners = new Set<(state: ResearchAuthState) => void>();
     initialize = vi.fn(async () => undefined);
     reverify = vi.fn(async () => undefined);
+    reverifyForPairing = vi.fn<() => Promise<ResearchAccount | null>>(async () =>
+        this.state.status === 'authenticated' ? this.state.account : null,
+    );
     signIn = vi.fn(async () => undefined);
-    signOut = vi.fn(async () => undefined);
+    signOut = vi.fn<() => Promise<void>>(async () => undefined);
     checkCurrentAccount = vi.fn(async () => undefined);
     getState() {
         return this.state;
     }
     getUnavailableReason() {
         return this.reason;
+    }
+    getPublicPairingOwner() {
+        return this.publicPairingOwner ? { ...this.publicPairingOwner } : null;
     }
     canSignIn() {
         return true;
@@ -40,9 +47,16 @@ class FixtureAuth {
     publish(state: ResearchAuthState, reason: Reason = null) {
         this.state = state;
         this.reason = reason;
+        if (state.status === 'signed_out' || state.status === 'unsupported') this.publicPairingOwner = null;
+        else if (state.status === 'authenticated' && state.account)
+            this.publicPairingOwner = {
+                accountId: state.account.accountId,
+                deviceId: state.account.deviceId,
+            };
         for (const listener of this.listeners) listener(state);
     }
     dispose() {
+        this.publicPairingOwner = null;
         this.listeners.clear();
     }
 }
@@ -85,6 +99,50 @@ const methods: (keyof ResearchMessagingNativePlugin)[] = [
     'messageSendPending',
     'messageSyncInbox',
 ];
+const BINDING = '11111111-1111-4111-8111-111111111111';
+const RENEWED_BINDING = '22222222-2222-4222-8222-222222222222';
+const OWN_CARD = '{"public":"screen-own-fixture-not-a-native-card"}';
+const PEER_CARD = '{"public":"screen-peer-fixture-not-a-native-card"}';
+const OWN_FINGERPRINT = 'a'.repeat(64);
+const PEER_FINGERPRINT = 'b'.repeat(64);
+const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+function account(credentialBinding = BINDING): ResearchAccount {
+    return {
+        accountId: '55555555-5555-4555-8555-555555555555',
+        deviceId: '66666666-6666-4666-8666-666666666666',
+        credentialBinding,
+        serverVerified: true,
+    };
+}
+function nativeFacts(credentialBinding = BINDING) {
+    return {
+        status: 'state',
+        credentialBinding,
+        pairing: 'unpaired',
+        role: 'unpaired',
+        fingerprint: null,
+        registration: 'acknowledged',
+        claim: 'none',
+        policy: null,
+    };
+}
+function mockPublicCards() {
+    vi.mocked(fixture.native.messagePairingCard).mockImplementation(async ({ credentialBinding }) => ({
+        status: 'pairing_card',
+        credentialBinding,
+        card: OWN_CARD,
+        fingerprint: OWN_FINGERPRINT,
+    }));
+    vi.mocked(fixture.native.messageInspectPeerCard).mockImplementation(async ({ credentialBinding, card }) => ({
+        status: 'peer_card',
+        credentialBinding,
+        card,
+        fingerprint: PEER_FINGERPRINT,
+    }));
+}
+async function settle() {
+    for (let index = 0; index < 35; index += 1) await Promise.resolve();
+}
 async function boot() {
     vi.resetModules();
     vi.useFakeTimers();
@@ -111,6 +169,8 @@ afterEach(() => {
     fixture.auth?.dispose();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    if (clipboardDescriptor) Object.defineProperty(navigator, 'clipboard', clipboardDescriptor);
+    else Reflect.deleteProperty(navigator, 'clipboard');
 });
 
 describe('research pairing verification controls — executed DOM with fixture authority', () => {
@@ -214,5 +274,147 @@ describe('research pairing verification controls — executed DOM with fixture a
         expect(document.getElementById('auth-status')?.textContent).toBe('Research sign-in rejected');
         expect(document.getElementById('auth-detail')?.textContent).toContain('separate from normal Thalassa');
         expect(button('register-device').disabled).toBe(true);
+    });
+    it('keeps same-owner public cards usable on expiry but clears current trust, drafts and message display', async () => {
+        const f = await boot();
+        f.auth.publish({ status: 'authenticated', account: account() });
+        mockPublicCards();
+        await f.controller.ownPairingCard();
+        f.controller.setPeerCardInput(PEER_CARD);
+        await f.controller.inspectPeerCard();
+        const checkbox = document.getElementById('compared-peer') as HTMLInputElement;
+        checkbox.checked = true;
+        checkbox.dispatchEvent(new Event('change'));
+        expect(button('confirm-peer').disabled).toBe(false);
+        f.controller.setDraft('private draft fixture');
+        vi.mocked(f.native.messageThread).mockResolvedValue({
+            status: 'thread',
+            credentialBinding: BINDING,
+            messages: [
+                {
+                    clientMessageId: '33333333-3333-4333-8333-333333333333',
+                    direction: 'incoming',
+                    delivery: 'received',
+                    text: 'private displayed fixture',
+                    reason: null,
+                    localCreatedAtMillis: null,
+                },
+            ],
+            unresolvedCount: 0,
+            outgoingCapacity: 16,
+            incomingCapacity: 16,
+        });
+        await f.controller.readThread();
+        f.auth.publish({ status: 'unavailable', account: null }, 'verification_lost');
+        expect((document.getElementById('own-card') as HTMLTextAreaElement).value).toBe(OWN_CARD);
+        expect((document.getElementById('peer-card') as HTMLTextAreaElement).value).toBe(PEER_CARD);
+        expect((document.getElementById('peer-card') as HTMLTextAreaElement).disabled).toBe(false);
+        expect(button('copy-card').disabled).toBe(false);
+        expect(button('inspect-peer').disabled).toBe(false);
+        expect(button('register-device').disabled).toBe(false);
+        expect(checkbox.checked).toBe(false);
+        expect(checkbox.disabled).toBe(true);
+        expect(button('confirm-peer').disabled).toBe(true);
+        expect(document.getElementById('peer-fingerprint')?.textContent).toBe('Inspect a public peer card first');
+        expect((document.getElementById('message-draft') as HTMLTextAreaElement).value).toBe('');
+        expect(document.body.textContent).not.toContain('private displayed fixture');
+        for (const id of ['send-message', 'receive', 'claim-peer', 'refresh-policy', 'read-thread'])
+            expect(button(id).disabled).toBe(true);
+        const writeText = vi.fn(async () => undefined);
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+        button('copy-card').click();
+        await settle();
+        expect(writeText).toHaveBeenCalledExactlyOnceWith(OWN_CARD);
+        expect(document.getElementById('copy-status')?.textContent).toContain('Public card copied');
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        expect(f.native.messageSyncInbox).not.toHaveBeenCalled();
+    });
+    it('renews one explicit setup action, then requires a fresh manual full-fingerprint comparison for Confirm', async () => {
+        const f = await boot();
+        f.auth.publish({ status: 'authenticated', account: account() });
+        mockPublicCards();
+        await f.controller.ownPairingCard();
+        f.controller.setPeerCardInput(PEER_CARD);
+        await f.controller.inspectPeerCard();
+        f.controller.setComparedOnOtherDevice(true);
+        f.auth.publish({ status: 'unavailable', account: null }, 'verification_lost');
+        f.auth.reverifyForPairing.mockClear();
+        f.auth.reverifyForPairing.mockImplementationOnce(async () => {
+            f.auth.publish({ status: 'verifying', account: null });
+            const renewed = account(RENEWED_BINDING);
+            f.auth.publish({ status: 'authenticated', account: renewed });
+            return renewed;
+        });
+        button('inspect-peer').click();
+        await settle();
+        expect(f.auth.reverifyForPairing).toHaveBeenCalledTimes(1);
+        expect(f.native.messageInspectPeerCard).toHaveBeenLastCalledWith({
+            credentialBinding: RENEWED_BINDING,
+            card: PEER_CARD,
+        });
+        expect((document.getElementById('own-card') as HTMLTextAreaElement).value).toBe(OWN_CARD);
+        expect((document.getElementById('peer-card') as HTMLTextAreaElement).value).toBe(PEER_CARD);
+        expect(document.getElementById('peer-fingerprint')?.textContent).toBe(PEER_FINGERPRINT);
+        const checkbox = document.getElementById('compared-peer') as HTMLInputElement;
+        expect(checkbox.disabled).toBe(false);
+        expect(checkbox.checked).toBe(false);
+        expect(button('confirm-peer').disabled).toBe(true);
+        expect(f.native.messageConfirmPeer).not.toHaveBeenCalled();
+        expect(f.native.messageClaimPeer).not.toHaveBeenCalled();
+        expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+        expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        expect(f.native.messageSyncInbox).not.toHaveBeenCalled();
+        vi.mocked(f.native.messageConfirmPeer).mockImplementation(async ({ credentialBinding }) => ({
+            ...nativeFacts(credentialBinding),
+            pairing: 'confirmed',
+            role: 'responder',
+            fingerprint: PEER_FINGERPRINT,
+        }));
+        checkbox.checked = true;
+        checkbox.dispatchEvent(new Event('change'));
+        expect(button('confirm-peer').disabled).toBe(false);
+        button('confirm-peer').click();
+        await settle();
+        expect(f.native.messageConfirmPeer).toHaveBeenCalledExactlyOnceWith({
+            credentialBinding: RENEWED_BINDING,
+            card: PEER_CARD,
+            confirmedFingerprint: PEER_FINGERPRINT,
+        });
+        expect(f.auth.reverifyForPairing).toHaveBeenCalledTimes(1);
+    });
+    it('shows setup failures beside the pairing controls without exposing raw native errors', async () => {
+        const f = await boot();
+        f.auth.publish({ status: 'authenticated', account: account() });
+        vi.mocked(f.native.messageRegisterDevice).mockRejectedValue(new Error('raw-native-error-canary'));
+        button('register-device').click();
+        await settle();
+        expect(document.getElementById('pairing-action-status')?.textContent).toBe(
+            document.getElementById('message-status')?.textContent,
+        );
+        expect(document.getElementById('pairing-action-status')?.textContent).toContain('Unavailable');
+        expect(document.getElementById('pairing-action-status')?.getAttribute('aria-busy')).toBe('false');
+        expect(document.body.textContent).not.toContain('raw-native-error-canary');
+        expect(f.native.messageRegisterDevice).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+    });
+    it('clears retained public cards and locks setup on explicit logout', async () => {
+        const f = await boot();
+        f.auth.publish({ status: 'authenticated', account: account() });
+        mockPublicCards();
+        await f.controller.ownPairingCard();
+        f.controller.setPeerCardInput(PEER_CARD);
+        f.auth.publish({ status: 'unavailable', account: null }, 'verification_lost');
+        f.auth.signOut.mockImplementation(async () => f.auth.publish({ status: 'signed_out', account: null }));
+        button('sign-out').click();
+        await settle();
+        expect(f.auth.signOut).toHaveBeenCalledTimes(1);
+        expect((document.getElementById('own-card') as HTMLTextAreaElement).value).toBe('');
+        expect((document.getElementById('peer-card') as HTMLTextAreaElement).value).toBe('');
+        expect(button('copy-card').disabled).toBe(true);
+        expect(button('inspect-peer').disabled).toBe(true);
+        expect(button('register-device').disabled).toBe(true);
+        expect(button('confirm-peer').disabled).toBe(true);
+        expect((document.getElementById('compared-peer') as HTMLInputElement).checked).toBe(false);
+        expect(f.native.messageConfirmPeer).not.toHaveBeenCalled();
     });
 });
