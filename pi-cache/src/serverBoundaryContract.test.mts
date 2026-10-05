@@ -94,6 +94,22 @@ test('app routes are gated separately from admin, and never left ungated', () =>
     assert.doesNotMatch(source, /app\.use\(prefix, requireUnsafeAdmin\)/);
 });
 
+test('the seabed routes are mounted behind the same app gate', () => {
+    // Seabed mapping (2026-10-05) mounts /api/seabed from its own attach call so
+    // the staged Pi install stays one import and one call. The invariant is the
+    // same as for the prefixes above: the app gate, never ungated, never admin.
+    const attachSource = readFileSync(new URL('./seabed/attach.ts', import.meta.url), 'utf8');
+    assert.match(source, /attachSeabed\(\{[\s\S]*?appApiEnabled: APP_API_ENABLED,[\s\S]*?requireAppApi,[\s\S]*?\}\);/);
+    assert.match(attachSource, /if \(options\.appApiEnabled\) \{\s*app\.use\(\s*'\/api\/seabed',/);
+    assert.match(attachSource, /\} else \{\s*app\.use\('\/api\/seabed', requireAppApi\);/);
+    assert.doesNotMatch(attachSource, /requireUnsafeAdmin/);
+    assert.equal(
+        (attachSource.match(/app\.use\(/g) ?? []).length,
+        3,
+        'mounted here, gated here, 503 when it cannot start',
+    );
+});
+
 test('the app gate is a real gate — it can still refuse', () => {
     // Defaulting ON is a deliberate choice (see publicBetaBoundary), but a
     // gate that cannot say no is not a boundary. THALASSA_PI_APP_API=0 must

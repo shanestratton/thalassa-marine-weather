@@ -15,6 +15,7 @@ import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
 import { offer as offerToFleetShare, reportLink as reportFleetShareLink } from './AisShareService';
 import { NmeaRateTracker } from './NmeaRateTracker';
+import { getSeabedSink } from './seabed/seabedSink';
 import { getNmeaDeviceLabel } from './NmeaDeviceProfiles';
 import {
     classifyNmeaRejection,
@@ -1307,6 +1308,10 @@ class NmeaListenerServiceClass {
         // per-sentence cadence (1 Hz steady vs bursty, etc.) rather than
         // the smoothed/averaged view.
         if (type) NmeaRateTracker.record(type);
+        // Seabed mapping (opt-in): one null check per sentence unless this
+        // phone is the boat's sounding logger (services/seabed/seabedSink).
+        const seabed = getSeabedSink();
+        if (seabed && type) seabed(type, parts, Date.now());
 
         switch (type) {
             case 'MWV':

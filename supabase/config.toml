@@ -62,6 +62,13 @@ verify_jwt = false
 # design, so the gateway must not demand one.
 verify_jwt = false
 
+[functions.seabed-relay]
+# Seabed soundings (phase 1, private). The Pi authenticates with the SAME
+# per-pairing relay token as telemetry-relay and holds no user JWT, so the
+# gateway must not demand one; a phone's user JWT is verified inside the
+# function (requireAuthenticatedQuota), and every boat is re-proved owned.
+verify_jwt = false
+
 [functions.diary-relay]
 # The gateway must NOT demand a JWT here: the Pi relay authenticates with the
 # per-pairing relay token (X-Thalassa-Pi-Relay-*) and holds no user JWT by

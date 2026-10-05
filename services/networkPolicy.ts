@@ -23,7 +23,7 @@
 import { useSettingsStore } from '../stores/settingsStore';
 
 /** The discretionary network channels Satellite Mode governs. */
-export type NetworkKind = 'grib' | 'raster' | 'ais-internet' | 'offline-download' | 'media-upload';
+export type NetworkKind = 'grib' | 'raster' | 'ais-internet' | 'offline-download' | 'media-upload' | 'seabed-upload';
 
 /**
  * True when Satellite Mode is on. Reads the live setting so a toggle takes
@@ -83,4 +83,6 @@ export const SATELLITE_MODE_ENFORCED: ReadonlyArray<{ kind: NetworkKind; label: 
     // of video). They stay in the on-device queue and go when the link is
     // normal again; the diary TEXT still syncs — it is a few KB.
     { kind: 'media-upload', label: 'Diary photo & video uploads wait on the phone until normal network' },
+    // Seabed soundings (~70 KB an hour under way) are not urgent: they wait.
+    { kind: 'seabed-upload', label: 'Seabed soundings wait on the phone until normal network' },
 ];
