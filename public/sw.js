@@ -667,9 +667,10 @@ self.addEventListener('fetch', (event) => {
         isHostOrSubdomain(url.hostname, 'openstreetmap.org') ||
         isHostOrSubdomain(url.hostname, 'openseamap.org') ||
         isHostOrSubdomain(url.hostname, 'mapbox.com') ||
-        // The Relief base's seafloor tiles (2026-10-04): Cloudflare R2, immutable
-        // under a versioned prefix, so cache-first is exactly right.
-        isHostOrSubdomain(url.hostname, 'r2.dev')
+        // The Relief base's seafloor tiles (2026-10-04): Cloudflare R2 on
+        // tiles.thalassatiles.com, immutable under a versioned prefix, so
+        // cache-first is exactly right.
+        isHostOrSubdomain(url.hostname, 'thalassatiles.com')
     ) {
         event.respondWith(
             Promise.all([caches.open(RUNTIME_TILE_CACHE), caches.open(OFFLINE_TILE_CACHE)]).then(
