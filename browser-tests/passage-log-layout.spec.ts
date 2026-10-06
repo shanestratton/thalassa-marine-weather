@@ -15,6 +15,10 @@ test('passage archive shows the exact count and confirmation fits a 390px phone'
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/e2e/fixtures/passage-log.html');
     const archive = page.getByRole('button', { name: 'Archive passage', exact: true });
+    // Since 74111711 the Voyage stats and Archived voyages cards sit fixed above
+    // the voyage list, so on a 390x844 phone the passage's Archive action can be
+    // below the list's fold: reachable by scrolling the list, which is the point.
+    await archive.scrollIntoViewIfNeeded();
     await expect(archive).toBeInViewport();
     expect((await archive.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: info.outputPath('passage-archive-action.png') });
