@@ -24,7 +24,7 @@ private struct ExchangeArguments {
     static func read() throws -> ExchangeArguments {
         let args = CommandLine.arguments
         guard args.count == 7, args[1] == "--exchange",
-              ["tls-refuse", "prepare", "private-messages", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
+              ["tls-refuse", "prepare", "private-messages", "account-mode", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
               let run = UUID(uuidString: args[3]), let alice = UUID(uuidString: args[4]), let bob = UUID(uuidString: args[5]),
               alice != bob else { throw ExchangeFailure.configuration }
         return ExchangeArguments(phase: args[2], run: run, alice: alice, bob: bob, origin: args[6])
@@ -48,7 +48,8 @@ private struct ExchangeArguments {
             "scopedEnrollmentFixtureAssertions": scopedEnrollmentFixtureAssertions,
             "readinessFixtureAssertions": readinessFixtureAssertions,
             "bridgeFixtureAssertions": bridgeFixtureAssertions,
-            "privateMessageFixtureAssertions": privateMessageFixtureAssertions]
+            "privateMessageFixtureAssertions": phase == "account-mode" ? 0 : privateMessageFixtureAssertions,
+            "accountModeFixtureAssertions": phase == "account-mode" ? privateMessageFixtureAssertions : 0]
         let path = documents.appendingPathComponent("exchange-status-" + run.uuidString.lowercased() + ".json")
         try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: path, options: [.atomic])
     }
@@ -111,6 +112,13 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
     var readinessFixtureAssertions = 0
     var bridgeFixtureAssertions = 0
     var privateMessageFixtureAssertions = 0
+    if args.phase == "account-mode" {
+        let count = try await runDmAccountModeProbe(progressForResearch: { label in
+            try? args.status("running", stage: "account-mode-" + label)
+        })
+        print("PASS isolated native account mode fixture assertions: \(count)")
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0, count)
+    }
     if args.phase == "private-messages" {
         privateMessageFixtureAssertions = try await runDmResearchPrivateMessageProbe(progressForResearch: { label in
             try? args.status("running", stage: "private-message-" + label)
@@ -430,6 +438,7 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
                 else if case DmScopedEnrollmentProbeError.assertion(let label) = error { stage = "scoped-enrollment-check-" + label }
                 else if case DmReadinessProbeError.assertion(let label) = error { stage = "readiness-check-" + label }
                 else if case DmResearchBridgeProbeError.assertion(let label) = error { stage = "bridge-check-" + label }
+                else if case DmAccountModeProbeError.assertion(let label) = error { stage = "account-mode-check-" + label }
                 else if error is DmCoordinatorError { stage = "native-state-or-result-refused" }
                 else if error is DmRelayTransportError { stage = "network-unresolved" }
                 else if error is VodozemacSealedStoreError { stage = "sealed-store-refused" }

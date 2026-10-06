@@ -30,6 +30,10 @@ import { createNativeExchangeServer } from './nativeExchangeServer.mjs';
 assert.equal(process.platform, 'darwin');
 assert.equal(process.arch, 'arm64');
 const [cacheArg, archiveArg, ...options] = process.argv.slice(2);
+// Focused native Auth/relay URLProtocol + private-message regression only:
+// no localhost server, SQL, custom CA or actual HTTPS exchange in this mode.
+const accountModeOnly = options.at(-1) === '--account-mode-only';
+if (accountModeOnly) options.pop();
 assert(
     cacheArg &&
         archiveArg &&
@@ -175,7 +179,10 @@ const receipt = {
     fixtureAuth: true,
     cachedArtifactProvenanceIndependentlyVerified: false,
     physicalPhoneExecution: false,
-    tlsPolicy: 'ordinary-urlsession-disposable-simulator-root',
+    tlsPolicy: accountModeOnly
+        ? 'synthetic-urlprotocol-no-ca-or-server'
+        : 'ordinary-urlsession-disposable-simulator-root',
+    accountModeOnly,
 };
 const saveReceipt = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
 saveReceipt();
@@ -217,6 +224,7 @@ try {
             'VodozemacScopedEnrollmentProbe.swift',
             'VodozemacReadinessProbe.swift',
             'VodozemacResearchBridgeProbe.swift',
+            'VodozemacAccountModeProbe.swift',
             'VodozemacRelayPolicy.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
@@ -350,8 +358,8 @@ try {
         });
     });
     run(['simctl', 'install', simulator, app], { timeout: 180_000, quiet: true });
-    relay = await createNativeExchangeServer({ archivePath, scratch });
-    receipt.origin = relay.origin;
+    if (!accountModeOnly) relay = await createNativeExchangeServer({ archivePath, scratch });
+    receipt.origin = relay?.origin ?? 'https://account-mode-fixture.invalid';
     saveReceipt();
     const container = run(['simctl', 'get_app_container', simulator, bundle, 'data'], { quiet: true });
     assert(isAbsolute(container));
@@ -374,7 +382,7 @@ try {
                 runID,
                 aliceID,
                 bobID,
-                relay.origin,
+                receipt.origin,
             ],
             { timeout: 180_000, quiet: true },
         );
@@ -389,7 +397,9 @@ try {
         // lease, HTTP timeout or held-lock fixture deadline.
         // Shared-Mac regression-batch budget only. Native verified leases,
         // policy permits, HTTP deadlines and held-gate bounds are unchanged.
-        const deadline = Date.now() + (phase === 'prepare' ? 600_000 : phase === 'private-messages' ? 180_000 : 60_000);
+        const deadline =
+            Date.now() +
+            (phase === 'prepare' ? 600_000 : ['private-messages', 'account-mode'].includes(phase) ? 180_000 : 60_000);
         let status;
         while (Date.now() < deadline) {
             if (existsSync(statusPath)) {
@@ -474,6 +484,12 @@ try {
             );
             receipt.nativePrivateMessageFixtureAssertions = status.privateMessageFixtureAssertions;
         }
+        if (phase === 'account-mode') {
+            assert(
+                Number.isSafeInteger(status.accountModeFixtureAssertions) && status.accountModeFixtureAssertions > 0,
+            );
+            receipt.nativeAccountModeFixtureAssertions = status.accountModeFixtureAssertions;
+        }
         receipt.completedPhases.push({
             phase,
             pid,
@@ -484,51 +500,60 @@ try {
         });
         receipt.observation = 'app-reported-pass';
         saveReceipt();
-        console.log(`PASS real native HTTPS exchange phase: ${phase}`);
+        console.log(
+            `PASS native ${accountModeOnly ? 'synthetic Auth/relay fixture' : 'HTTPS exchange'} phase: ${phase}`,
+        );
     };
-    await launch('tls-refuse');
-    const beforeTrust = relay.counters();
-    assert(beforeTrust.tlsRefusals > 0, 'Native negative check must actually attempt and reject a TLS handshake');
-    assert.equal(beforeTrust.httpRequests, 0, 'Untrusted TLS must not reach the HTTP/Auth gateway');
-    assert.equal(beforeTrust.authRequests, 0);
-    receipt.phase = 'disposable-simulator-trust';
-    saveReceipt();
-    ownDevice();
-    run(['simctl', 'keychain', simulator, 'add-root-cert', relay.certPath], { quiet: true });
-    receipt.rootAddedOnlyToNewSimulator = true;
-    saveReceipt();
-    for (const phase of [
-        'prepare',
-        'private-messages',
-        'opening',
-        'retry',
-        'reply',
-        'successor',
-        'verify',
-        'recovery',
-        'cleanup',
-    ]) {
-        await launch(phase);
-        if (phase === 'opening') {
-            await relay.verify({ expectedDecisions: 1, expectedFaults: { lostResponses: 1 } });
-            await relay.reopen();
+    if (accountModeOnly) {
+        await launch('account-mode');
+        await launch('private-messages');
+        receipt.status = 'passed';
+        receipt.observation = 'native-account-mode-and-private-message-fixtures-passed';
+    } else {
+        await launch('tls-refuse');
+        const beforeTrust = relay.counters();
+        assert(beforeTrust.tlsRefusals > 0, 'Native negative check must actually attempt and reject a TLS handshake');
+        assert.equal(beforeTrust.httpRequests, 0, 'Untrusted TLS must not reach the HTTP/Auth gateway');
+        assert.equal(beforeTrust.authRequests, 0);
+        receipt.phase = 'disposable-simulator-trust';
+        saveReceipt();
+        ownDevice();
+        run(['simctl', 'keychain', simulator, 'add-root-cert', relay.certPath], { quiet: true });
+        receipt.rootAddedOnlyToNewSimulator = true;
+        saveReceipt();
+        for (const phase of [
+            'prepare',
+            'private-messages',
+            'opening',
+            'retry',
+            'reply',
+            'successor',
+            'verify',
+            'recovery',
+            'cleanup',
+        ]) {
+            await launch(phase);
+            if (phase === 'opening') {
+                await relay.verify({ expectedDecisions: 1, expectedFaults: { lostResponses: 1 } });
+                await relay.reopen();
+            }
         }
+        receipt.serverVerification = await relay.verify({
+            expectedDecisions: 4,
+            expectedMessages: 4,
+            expectedClientIds: ['exchange-opening', 'exchange-reply', 'exchange-successor', 'exchange-recovery'],
+            forbiddenPlaintexts: [
+                'Native HTTPS research opening',
+                'Native HTTPS research reply',
+                'Native HTTPS research successor',
+                'Native HTTPS research recovery',
+            ],
+            expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 8 },
+        });
+        await relay.reopen();
+        receipt.status = 'passed';
+        receipt.observation = 'native-encrypted-https-sql-proof-passed';
     }
-    receipt.serverVerification = await relay.verify({
-        expectedDecisions: 4,
-        expectedMessages: 4,
-        expectedClientIds: ['exchange-opening', 'exchange-reply', 'exchange-successor', 'exchange-recovery'],
-        forbiddenPlaintexts: [
-            'Native HTTPS research opening',
-            'Native HTTPS research reply',
-            'Native HTTPS research successor',
-            'Native HTTPS research recovery',
-        ],
-        expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 8 },
-    });
-    await relay.reopen();
-    receipt.status = 'passed';
-    receipt.observation = 'native-encrypted-https-sql-proof-passed';
 } catch (error) {
     failure = error;
     receipt.status = 'failed';
@@ -565,5 +590,9 @@ try {
 }
 console.log(`Research artifacts retained: ${scratch}`);
 if (failure) throw failure;
-console.log('PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.');
-console.log('Disposable simulator and its test CA removed. NOT two phones, live Auth or independent security review.');
+console.log(
+    accountModeOnly
+        ? 'PASS native account mode and private-message synthetic fixtures; no SQL/network/CA proof.'
+        : 'PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.',
+);
+console.log('Disposable simulator removed. NOT two phones, live Auth or independent security review.');

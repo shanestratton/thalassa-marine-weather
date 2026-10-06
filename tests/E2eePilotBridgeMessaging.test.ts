@@ -50,6 +50,9 @@ function facts(binding = BINDING): ResearchMessageFacts {
         policy: null,
     };
 }
+function accountMode(mode: 'legacy-permitted' | 'protected-required', binding = BINDING) {
+    return { status: 'account_mode' as const, credentialBinding: binding, mode };
+}
 function outgoing(
     delivery: ResearchThreadMessage['delivery'] = 'pending',
     clientMessageId = ID,
@@ -119,6 +122,12 @@ function fixture(supported = true, pairingContinuity = false) {
     const native = {
         messageState: vi.fn<ResearchMessagingNativePlugin['messageState']>(async (options) =>
             facts(options.credentialBinding),
+        ),
+        messageRequireProtected: vi.fn<ResearchMessagingNativePlugin['messageRequireProtected']>(async (options) =>
+            accountMode('protected-required', options.credentialBinding),
+        ),
+        messageAccountMode: vi.fn<ResearchMessagingNativePlugin['messageAccountMode']>(async (options) =>
+            accountMode('legacy-permitted', options.credentialBinding),
         ),
         messagePairingCard: vi.fn<ResearchMessagingNativePlugin['messagePairingCard']>(async (options) => ({
             status: 'pairing_card',
@@ -203,6 +212,431 @@ function fixture(supported = true, pairingContinuity = false) {
 afterEach(() => {
     for (const controller of controllers.splice(0)) controller.dispose();
     vi.restoreAllMocks();
+});
+
+const accountModeActions = [
+    {
+        name: 'require protected',
+        method: 'messageRequireProtected',
+        run: (f: ReturnType<typeof fixture>) => f.controller.requireProtected(),
+        expectedMode: 'protected-required',
+    },
+    {
+        name: 'refresh account mode',
+        method: 'messageAccountMode',
+        run: (f: ReturnType<typeof fixture>) => f.controller.refreshAccountMode(),
+        expectedMode: 'legacy-permitted',
+    },
+] as const;
+
+describe('explicit durable account mode — injected owner-only Auth/plugin fixtures', () => {
+    it.each(accountModeActions)(
+        'dispatches $name with only the original credential binding and no peer setup',
+        async (action) => {
+            const f = fixture(true, true);
+            expect(f.controller.getState().accountMode).toBeNull();
+            await action.run(f);
+            expect(f.native[action.method]).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+            for (const [method, mock] of Object.entries(f.native))
+                if (method !== action.method) expect(mock).not.toHaveBeenCalled();
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+            expect(f.createMessageId).not.toHaveBeenCalled();
+            expect(f.controller.getState()).toMatchObject({
+                available: true,
+                busy: false,
+                accountMode: action.expectedMode,
+                facts: null,
+                policy: null,
+                thread: null,
+                attempt: null,
+                inboxReport: null,
+            });
+            expect(f.controller.getState()).not.toHaveProperty('canSend');
+            expect(f.controller.getState()).not.toHaveProperty('encrypted');
+        },
+    );
+
+    it.each(['legacy-permitted', 'protected-required'] as const)(
+        'publishes the exact %s read result without selecting protection',
+        async (mode) => {
+            const f = fixture();
+            f.native.messageAccountMode.mockResolvedValueOnce(accountMode(mode));
+            await f.controller.refreshAccountMode();
+            expect(f.controller.getState().accountMode).toBe(mode);
+            expect(f.native.messageAccountMode).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+            expect(f.native.messageRequireProtected).not.toHaveBeenCalled();
+            expect(f.native.messageRefreshPolicy).not.toHaveBeenCalled();
+            expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+            expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        },
+    );
+
+    it('refuses a legacy-permitted mutation result without querying or claiming a successful cutover', async () => {
+        const f = fixture();
+        f.native.messageRequireProtected.mockResolvedValueOnce(accountMode('legacy-permitted'));
+        await f.controller.requireProtected();
+        expect(f.controller.getState()).toMatchObject({
+            accountMode: null,
+            busy: false,
+            notice: MESSAGING_NOTICES.unavailable,
+        });
+        expect(f.native.messageRequireProtected).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+        expect(f.native.messageAccountMode).not.toHaveBeenCalled();
+    });
+
+    it('does not select or read account mode during explicit setup, history, preparation, send or receive actions', async () => {
+        const f = fixture(true, true);
+        await f.controller.readState();
+        await f.controller.ownPairingCard();
+        f.controller.setPeerCardInput('fixture public peer card');
+        await f.controller.inspectPeerCard();
+        f.controller.setComparedOnOtherDevice(true);
+        await f.controller.confirmPeer();
+        await f.controller.registerDevice();
+        await f.controller.claimPeer();
+        await f.controller.refreshPolicy();
+        await f.controller.readThread();
+        f.controller.setDraft('explicit send without mode selection');
+        await f.controller.sendText();
+        f.createMessageId.mockReturnValueOnce(OTHER_ID);
+        f.controller.setDraft('explicit preparation without mode selection');
+        await f.controller.prepareOnly();
+        await f.controller.retryPending();
+        await f.controller.receive();
+        expect(f.native.messagePrepareText).toHaveBeenCalledTimes(2);
+        expect(f.native.messageSendPending).toHaveBeenCalledTimes(2);
+        expect(f.native.messageSyncInbox).toHaveBeenCalledTimes(1);
+        expect(f.reverifyForPairing).toHaveBeenCalled();
+        expect(f.native.messageRequireProtected).not.toHaveBeenCalled();
+        expect(f.native.messageAccountMode).not.toHaveBeenCalled();
+        expect(f.controller.getState().accountMode).toBeNull();
+    });
+
+    it.each(accountModeActions)(
+        'keeps $name closed for unsupported, hidden, expired and signed-out owners',
+        async (action) => {
+            const unsupported = fixture(false, true);
+            await action.run(unsupported);
+            const f = fixture(true, true);
+            f.controller.setVisible(false);
+            await action.run(f);
+            f.controller.setVisible(true);
+            f.publish({ status: 'unavailable', account: null });
+            await action.run(f);
+            f.publish({ status: 'signed_out', account: null });
+            await action.run(f);
+            for (const current of [unsupported, f]) {
+                expect(current.controller.getState().accountMode).toBeNull();
+                expect(current.reverifyForPairing).not.toHaveBeenCalled();
+                for (const method of Object.values(current.native)) expect(method).not.toHaveBeenCalled();
+            }
+        },
+    );
+
+    it.each(accountModeActions)(
+        'clears a previous displayed mode before $name and leaves unavailable results unknown',
+        async (action) => {
+            const f = fixture();
+            f.native.messageAccountMode.mockResolvedValueOnce(accountMode('protected-required'));
+            await f.controller.refreshAccountMode();
+            expect(f.controller.getState().accountMode).toBe('protected-required');
+            for (const method of Object.values(f.native)) method.mockClear();
+            const gate = deferred();
+            f.native[action.method].mockImplementationOnce(() => gate.promise);
+            const pending = action.run(f);
+            expect(f.controller.getState()).toMatchObject({ accountMode: null, busy: true });
+            expect(f.native[action.method]).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+            gate.resolve({ status: 'unavailable', reason: 'unavailable' });
+            await pending;
+            expect(f.controller.getState()).toMatchObject({
+                accountMode: null,
+                busy: false,
+                notice: MESSAGING_NOTICES.unavailable,
+            });
+            for (const [method, mock] of Object.entries(f.native))
+                if (method !== action.method) expect(mock).not.toHaveBeenCalled();
+        },
+    );
+
+    const invalidResponses = [
+        { name: 'null result', value: null },
+        { name: 'array result', value: [accountMode('protected-required')] },
+        { name: 'string result', value: 'protected-required' },
+        { name: 'missing status', value: { credentialBinding: BINDING, mode: 'protected-required' } },
+        { name: 'wrong status', value: { ...accountMode('protected-required'), status: 'state' } },
+        { name: 'missing binding', value: { status: 'account_mode', mode: 'protected-required' } },
+        { name: 'wrong binding', value: accountMode('protected-required', RENEWED) },
+        { name: 'noncanonical binding', value: accountMode('protected-required', `${BINDING}\n`) },
+        { name: 'missing mode', value: { status: 'account_mode', credentialBinding: BINDING } },
+        { name: 'null mode', value: { ...accountMode('protected-required'), mode: null } },
+        { name: 'boolean mode', value: { ...accountMode('protected-required'), mode: true } },
+        { name: 'old legacy label', value: { ...accountMode('protected-required'), mode: 'legacy' } },
+        { name: 'encryption label', value: { ...accountMode('protected-required'), mode: 'encrypted' } },
+        {
+            name: 'trailing mode newline',
+            value: { ...accountMode('protected-required'), mode: 'protected-required\n' },
+        },
+        { name: 'extra owner field', value: { ...accountMode('protected-required'), ownerUserId: OTHER_ID } },
+        { name: 'extra authority flag', value: { ...accountMode('protected-required'), canSend: true } },
+        { name: 'extra private data', value: { ...accountMode('protected-required'), bearer: 'private-mode-canary' } },
+    ];
+    it.each(accountModeActions.flatMap((action) => invalidResponses.map((response) => ({ action, ...response }))))(
+        'refuses $name for $action.name and publishes no stale mode or private error data',
+        async ({ action, value }) => {
+            const f = fixture();
+            await f.controller.refreshAccountMode();
+            f.native[action.method].mockResolvedValueOnce(value);
+            await action.run(f);
+            expect(f.controller.getState()).toMatchObject({
+                accountMode: null,
+                busy: false,
+                notice: MESSAGING_NOTICES.unavailable,
+            });
+            expect(JSON.stringify(f.controller.getState())).not.toContain('private-mode-canary');
+            expect(f.native.messagePrepareText).not.toHaveBeenCalled();
+            expect(f.native.messageSendPending).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(
+        accountModeActions.flatMap((action) =>
+            [
+                'symbol field',
+                'hidden extra',
+                'hidden mode',
+                'mode accessor',
+                'null prototype',
+                'inherited fields',
+                'hostile proxy',
+            ].map((representation) => ({ action, representation })),
+        ),
+    )(
+        'refuses $representation for $action.name without invoking accessors or publishing private diagnostics',
+        async ({ action, representation }) => {
+            const f = fixture();
+            const getter = vi.fn(() => 'protected-required');
+            let value: unknown = accountMode('protected-required');
+            if (representation === 'symbol field')
+                Object.defineProperty(value, Symbol('private-mode-canary'), { value: 'private-mode-canary' });
+            else if (representation === 'hidden extra')
+                Object.defineProperty(value, 'privateModeCanary', { value: 'private-mode-canary' });
+            else if (representation === 'hidden mode')
+                Object.defineProperty(value, 'mode', { value: 'protected-required', enumerable: false });
+            else if (representation === 'mode accessor')
+                Object.defineProperty(value, 'mode', { get: getter, enumerable: true });
+            else if (representation === 'null prototype')
+                value = Object.assign(
+                    Object.create(null) as Record<string, unknown>,
+                    accountMode('protected-required'),
+                );
+            else if (representation === 'inherited fields') value = Object.create(accountMode('protected-required'));
+            else
+                value = new Proxy(accountMode('protected-required'), {
+                    ownKeys() {
+                        throw new Error('private-mode-canary');
+                    },
+                });
+            f.native[action.method].mockResolvedValueOnce(value);
+            await action.run(f);
+            expect(getter).not.toHaveBeenCalled();
+            expect(f.controller.getState()).toMatchObject({
+                accountMode: null,
+                busy: false,
+                notice: MESSAGING_NOTICES.unavailable,
+            });
+            expect(JSON.stringify(f.controller.getState())).not.toContain('private-mode-canary');
+        },
+    );
+
+    it.each(accountModeActions)(
+        'clears the old mode after a current $name native failure without exposing its error',
+        async (action) => {
+            const f = fixture();
+            await f.controller.refreshAccountMode();
+            f.native[action.method].mockRejectedValueOnce(new Error('private-mode-error-canary'));
+            await action.run(f);
+            expect(f.controller.getState()).toMatchObject({
+                accountMode: null,
+                busy: false,
+                notice: MESSAGING_NOTICES.unavailable,
+            });
+            expect(JSON.stringify(f.controller.getState())).not.toContain('private-mode-error-canary');
+        },
+    );
+
+    it.each(
+        accountModeActions.flatMap((action) =>
+            ['initial busy', 'mode reset'].flatMap((publication) =>
+                ['renewed', 'hide-show', 'logout-login'].map((event) => ({ action, publication, event })),
+            ),
+        ),
+    )(
+        'does not dispatch $action.name when its $publication observer triggers $event',
+        async ({ action, publication, event }) => {
+            const f = fixture(true, true);
+            await f.controller.requireProtected();
+            for (const method of Object.values(f.native)) method.mockClear();
+            let fenced = false;
+            f.controller.subscribe((state) => {
+                if (!state.busy || fenced || (publication === 'mode reset' && state.accountMode !== null)) return;
+                fenced = true;
+                if (event === 'hide-show') {
+                    f.controller.setVisible(false);
+                    f.controller.setVisible(true);
+                } else {
+                    f.publish({ status: event === 'renewed' ? 'verifying' : 'signed_out', account: null });
+                    f.publish(authenticated(RENEWED));
+                }
+            });
+            await action.run(f);
+            expect(fenced).toBe(true);
+            expect(f.controller.getState()).toMatchObject({ accountMode: null, busy: false, available: true });
+            for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['hidden', 'verifying', 'renewed', 'logout', 'account-switch', 'device-switch', 'dispose'] as const)(
+        'clears the displayed account mode immediately on %s',
+        async (event) => {
+            const f = fixture(true, true);
+            await f.controller.requireProtected();
+            expect(f.controller.getState().accountMode).toBe('protected-required');
+            for (const method of Object.values(f.native)) method.mockClear();
+            if (event === 'hidden') f.controller.setVisible(false);
+            else if (event === 'dispose') f.controller.dispose();
+            else if (event === 'renewed') f.publish(authenticated(RENEWED));
+            else if (event === 'account-switch' || event === 'device-switch')
+                f.publish({
+                    ...authenticated(RENEWED),
+                    account: {
+                        ...authenticated(RENEWED).account!,
+                        [event === 'account-switch' ? 'accountId' : 'deviceId']: OTHER_ID,
+                    },
+                });
+            else f.publish({ status: event === 'logout' ? 'signed_out' : 'verifying', account: null });
+            expect(f.controller.getState().accountMode).toBeNull();
+            for (const method of Object.values(f.native)) expect(method).not.toHaveBeenCalled();
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(
+        accountModeActions.flatMap((action) =>
+            ['hide-show', 'renewed', 'logout-login', 'unavailable', 'account-switch', 'device-switch', 'dispose'].map(
+                (event) => ({ action, event }),
+            ),
+        ),
+    )('keeps the $action.name barrier and discards its held completion after $event', async ({ action, event }) => {
+        const f = fixture(true, true);
+        const gate = deferred();
+        const displayedModes: ('legacy-permitted' | 'protected-required' | null)[] = [];
+        f.controller.subscribe((state) => displayedModes.push(state.accountMode));
+        f.native[action.method].mockImplementationOnce(() => gate.promise);
+        const pending = action.run(f);
+        expect(f.native[action.method]).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+        if (event === 'hide-show') {
+            f.controller.setVisible(false);
+            f.controller.setVisible(true);
+        } else if (event === 'dispose') f.controller.dispose();
+        else if (event === 'unavailable') f.publish({ status: 'unavailable', account: null });
+        else if (event === 'renewed' || event === 'logout-login') {
+            f.publish({ status: event === 'renewed' ? 'verifying' : 'signed_out', account: null });
+            f.publish(authenticated(RENEWED));
+        } else
+            f.publish({
+                ...authenticated(RENEWED),
+                account: {
+                    ...authenticated(RENEWED).account!,
+                    [event === 'account-switch' ? 'accountId' : 'deviceId']: OTHER_ID,
+                },
+            });
+        expect(f.controller.getState()).toMatchObject({ accountMode: null, busy: true });
+        const callsAtFence = Object.values(f.native).map((method) => method.mock.calls.length);
+        const publicationFence = displayedModes.length;
+        await f.controller.requireProtected();
+        await f.controller.refreshAccountMode();
+        await f.controller.readState();
+        await f.controller.receive();
+        expect(Object.values(f.native).map((method) => method.mock.calls.length)).toEqual(callsAtFence);
+        gate.resolve(accountMode('protected-required'));
+        await pending;
+        expect(Object.values(f.native).map((method) => method.mock.calls.length)).toEqual(callsAtFence);
+        expect(f.controller.getState().accountMode).toBeNull();
+        expect(displayedModes.slice(publicationFence).every((mode) => mode === null)).toBe(true);
+        if (event !== 'dispose') expect(f.controller.getState().busy).toBe(false);
+        expect(f.reverifyForPairing).not.toHaveBeenCalled();
+    });
+
+    it.each(accountModeActions)(
+        'releases a rejected old $name action without adopting its failure after Auth renewal',
+        async (action) => {
+            const f = fixture(true, true);
+            const gate = deferred();
+            f.native[action.method].mockImplementationOnce(() => gate.promise);
+            const pending = action.run(f);
+            f.publish({ status: 'verifying', account: null });
+            f.publish(authenticated(RENEWED));
+            await f.controller.refreshAccountMode();
+            expect(f.controller.getState()).toMatchObject({ accountMode: null, busy: true });
+            gate.reject(new Error('private-mode-error-canary'));
+            await pending;
+            expect(f.controller.getState()).toMatchObject({
+                accountMode: null,
+                busy: false,
+                notice: MESSAGING_NOTICES.idle,
+            });
+            expect(JSON.stringify(f.controller.getState())).not.toContain('private-mode-error-canary');
+            await f.controller.refreshAccountMode();
+            expect(f.native.messageAccountMode).toHaveBeenLastCalledWith({ credentialBinding: RENEWED });
+            expect(f.controller.getState().accountMode).toBe('legacy-permitted');
+            expect(f.reverifyForPairing).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(accountModeActions)(
+        'allows only the admitted $name action and does not queue other clicks',
+        async (action) => {
+            const f = fixture();
+            const gate = deferred();
+            f.controller.setDraft('no preparation while account mode is pending');
+            f.native[action.method].mockImplementationOnce(() => gate.promise);
+            const pending = action.run(f);
+            await f.controller.requireProtected();
+            await f.controller.refreshAccountMode();
+            await f.controller.readState();
+            await f.controller.registerDevice();
+            await f.controller.claimPeer();
+            await f.controller.refreshPolicy();
+            await f.controller.readThread();
+            await f.controller.sendText();
+            await f.controller.prepareOnly();
+            await f.controller.receive();
+            expect(f.native[action.method]).toHaveBeenCalledExactlyOnceWith({ credentialBinding: BINDING });
+            for (const [method, mock] of Object.entries(f.native))
+                if (method !== action.method) expect(mock).not.toHaveBeenCalled();
+            expect(f.createMessageId).not.toHaveBeenCalled();
+            gate.resolve(accountMode(action.expectedMode));
+            await pending;
+            expect(f.controller.getState()).toMatchObject({ busy: false, accountMode: action.expectedMode });
+            for (const [method, mock] of Object.entries(f.native))
+                if (method !== action.method) expect(mock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('does not admit either account-mode action while another native action is held', async () => {
+        const f = fixture();
+        const gate = deferred();
+        f.native.messageRegisterDevice.mockImplementationOnce(() => gate.promise);
+        const pending = f.controller.registerDevice();
+        await f.controller.requireProtected();
+        await f.controller.refreshAccountMode();
+        expect(f.native.messageRequireProtected).not.toHaveBeenCalled();
+        expect(f.native.messageAccountMode).not.toHaveBeenCalled();
+        gate.resolve(facts());
+        await pending;
+        expect(f.controller.getState()).toMatchObject({ busy: false, accountMode: null });
+    });
 });
 
 const unreadySetups: { name: string; patch: Partial<ResearchMessageFacts> }[] = [

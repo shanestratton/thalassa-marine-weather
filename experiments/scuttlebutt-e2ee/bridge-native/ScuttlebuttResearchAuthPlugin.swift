@@ -19,6 +19,8 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "messageRegisterDevice", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageClaimPeer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageRefreshPolicy", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "messageRequireProtected", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "messageAccountMode", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageThread", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messagePrepareText", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageSendPending", returnType: CAPPluginReturnPromise),
@@ -163,6 +165,12 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     @objc public func messageRefreshPolicy(_ call: CAPPluginCall) {
         messageAsync(call, names: []) { try await $0.refreshPolicy(credentialBinding: $1) }
+    }
+    @objc public func messageRequireProtected(_ call: CAPPluginCall) {
+        messageAsync(call, names: []) { try await $0.requireProtected(credentialBinding: $1) }
+    }
+    @objc public func messageAccountMode(_ call: CAPPluginCall) {
+        messageAsync(call, names: []) { try await $0.refreshAccountMode(credentialBinding: $1) }
     }
     @objc public func messageThread(_ call: CAPPluginCall) {
         message(call, names: []) { try $0.thread(credentialBinding: $1) }

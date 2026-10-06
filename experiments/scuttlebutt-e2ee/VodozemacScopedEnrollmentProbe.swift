@@ -69,13 +69,17 @@ struct DmScopedEnrollmentScript {
     let policyFault: DmScopedEnrollmentPolicyFault?
     let echoSendAccepted: Bool?
     let sendSigningKey: String?
+    let accountMode: String?
+    let accountModeFault: String?
     init(path: String, result: Data = Data(), loseAfterBody: Bool = false, gate: DmScopedEnrollmentGate? = nil,
          policyState: DmNativeRelayPolicyState? = nil, policyFault: DmScopedEnrollmentPolicyFault? = nil,
-         echoSendAccepted: Bool? = nil, sendSigningKey: String? = nil) {
+         echoSendAccepted: Bool? = nil, sendSigningKey: String? = nil,
+         accountMode: String? = nil, accountModeFault: String? = nil) {
         self.path = path; self.result = result; self.loseAfterBody = loseAfterBody; self.gate = gate
         self.policyState = policyState
         self.policyFault = policyFault
         self.echoSendAccepted = echoSendAccepted; self.sendSigningKey = sendSigningKey
+        self.accountMode = accountMode; self.accountModeFault = accountModeFault
     }
 }
 struct DmScopedEnrollmentCapture {
@@ -147,7 +151,31 @@ final class DmScopedEnrollmentProtocol: URLProtocol, @unchecked Sendable {
             if let gate = script.gate, !gate.hold() { fail(); return }
             do {
                 let result: Data
-                if let policy = script.policyState {
+                if let mode = script.accountMode {
+                    let frame = try JSONDecoder().decode(DmScopedEnrollmentFrame.self, from: capturedBody)
+                    guard ["require-protected", "account-mode"].contains(frame.action), frame.payload == "[]" else {
+                        fail(); return
+                    }
+                    var fields: [String: Any] = ["requestId": frame.requestId, "ownerUserId": user,
+                        "ownerDeviceId": frame.deviceId, "mode": mode]
+                    switch script.accountModeFault {
+                    case "wrong-request": fields["requestId"] = "wrong-request"
+                    case "wrong-owner": fields["ownerUserId"] = "wrong-owner"
+                    case "wrong-device": fields["ownerDeviceId"] = "wrong-device"
+                    case "missing": fields.removeValue(forKey: "mode")
+                    case "extra": fields["preview"] = "SYNTHETIC-PRIVATE-CANARY"
+                    case "numeric": fields["mode"] = 1
+                    default: break
+                    }
+                    let encoded = try dmScopedEnrollmentJSON(fields)
+                    if script.accountModeFault == "duplicate" || script.accountModeFault == "escaped-duplicate" {
+                        let key = script.accountModeFault == "duplicate" ? "mode" : "\\u006dode"
+                        var duplicate = Data(("{\"" + key + "\":" + (try DmRelayCodec.quote(mode)) + ",").utf8)
+                        duplicate.append(contentsOf: encoded.dropFirst()); result = duplicate
+                    } else if script.accountModeFault == "oversized" {
+                        result = Data(repeating: 32, count: 2049) + encoded
+                    } else { result = encoded }
+                } else if let policy = script.policyState {
                     let frame = try JSONDecoder().decode(DmScopedEnrollmentFrame.self, from: capturedBody)
                     guard frame.action == "policy",
                           let target = try JSONSerialization.jsonObject(with: Data(frame.payload.utf8)) as? [String], target.count == 3 else {
