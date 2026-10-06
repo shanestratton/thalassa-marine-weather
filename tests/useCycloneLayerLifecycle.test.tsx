@@ -124,6 +124,20 @@ describe('cyclone catalogue lifecycle', () => {
     });
     afterEach(() => vi.restoreAllMocks());
 
+    it('opens Storms about what is on screen, with no flight to the phone, when no storm is live', async () => {
+        // Obs opens where the location box points (Hawaii, say). Switching
+        // Storms on flew to the phone's GPS first (Shane 2026-10-06), and with
+        // no storm to lock on, the chart stayed there.
+        mocks.fetch.mockResolvedValueOnce([]);
+        const h = makeMap();
+        const closest = vi.fn();
+        const hook = renderHook(() => useCycloneLayer({ current: h.map as never }, true, true, -27.5, 153.1, closest));
+        await waitFor(() => expect(closest).toHaveBeenCalledWith(null));
+        expect(h.map.easeTo).toHaveBeenCalledExactlyOnceWith({ zoom: 2, duration: 800 });
+        expect(h.map.flyTo).not.toHaveBeenCalled();
+        hook.unmount();
+    });
+
     it('removes departed storm tracks without removing surviving or unrelated layers', async () => {
         const first = storm('FIRST'),
             second = storm('SECOND');

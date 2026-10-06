@@ -207,7 +207,8 @@ describe('Passage HUD in the OBS layer FAB', () => {
         expect(hub).toContain('usePassageHudLayerActivation({');
         expect(hub).toContain('isFollowing: isFollowingRoute');
         expect(hub).toContain('routeCoords: followedRouteCoords');
-        expect(hub).toContain('if (planningSurface || passageHudOnChart) return;');
+        // The layer framing snap stands down while the HUD owns the camera.
+        expect(hub).toContain('useLayerFrameSnap(mapRef, weather.userLayers, planningSurface || passageHudOnChart)');
         const preferences = readFileSync('components/settings/GeneralTab.tsx', 'utf8');
         expect(preferences).not.toContain('PassageStripSection');
         expect(preferences).not.toContain('setPassageHudEnabled');

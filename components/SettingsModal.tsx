@@ -493,7 +493,9 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 } catch (e) {
                     log.warn(' fallback to WP coords:', e);
                 }
-                onSave({ defaultLocation: resolvedName });
+                // Name and coordinates as a pair, so the pin is where you
+                // stood, not the last fix saved for another name.
+                onSave({ defaultLocation: resolvedName, defaultLocationCoords: { lat: latitude, lon: longitude } });
                 return true;
             });
 

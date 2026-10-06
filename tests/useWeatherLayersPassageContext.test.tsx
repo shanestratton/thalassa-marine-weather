@@ -29,7 +29,7 @@ describe('passage weather context', () => {
     it('warns that separate Squall rain/cloud imagery does not follow the forecast clock', () => {
         const rendered = renderHook(
             ({ squallVisible, planMode }) =>
-                useWeatherLayers(mapRef, false, false, LOCATION, planMode, LOCATION, {
+                useWeatherLayers(mapRef, false, false, LOCATION, planMode, {
                     hudEnabled: true,
                     squallVisible,
                 }),

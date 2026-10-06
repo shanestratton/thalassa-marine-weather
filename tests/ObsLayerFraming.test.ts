@@ -87,6 +87,7 @@ describe('multi-layer framing', () => {
 describe('the Sky section stacks', () => {
     const menu = readFileSync('components/map/RadialHelmMenu.tsx', 'utf8');
     const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+    const snap = readFileSync('components/map/mapHub/useLayerFrameSnap.ts', 'utf8');
     const layers = readFileSync('components/map/useWeatherLayers.ts', 'utf8');
     const sky = menu.slice(menu.indexOf("id: 'atmosphere'"), menu.indexOf('// ── Routes / charts'));
 
@@ -106,16 +107,17 @@ describe('the Sky section stacks', () => {
         expect(Number(cap)).toBeGreaterThanOrEqual(5);
     });
 
-    it('centres the framing snap on the location box, not on a stale pan', () => {
-        const effect = hub.slice(hub.indexOf('const prevSnapLayersRef'), hub.indexOf('const helmToggleLayer'));
-        expect(effect).toContain('frameZoomForSelection');
-        expect(effect).toContain('weatherCoordsRef.current');
-        // Read through a ref on purpose: the effect depends only on the layer
-        // set, so a captured location would go stale the moment the box moved.
-        // Prose mentions are fine; what must not appear is a direct READ of
-        // the captured value.
-        const code = effect.replace(/\/\/[^\n]*/g, '');
-        expect(code).not.toContain('weatherCoords.lat');
-        expect(code).not.toContain('weatherCoords.lon');
+    it('frames the zoom about the water on screen, never flying to the location box', () => {
+        // Reversed 2026-10-06 (Shane: "when you go to select a layer like wind
+        // for example, it flys you to the new location that you have in your
+        // glass page"). The snap centred on the box (2026-08-24) while Obs
+        // opened on the vessel. Obs now opens where the box points, so the
+        // snap keeps the zoom frame and drops the centre.
+        expect(hub).toContain('useLayerFrameSnap(mapRef, weather.userLayers, planningSurface || passageHudOnChart)');
+        expect(hub).not.toContain('weatherCoordsRef');
+        const code = snap.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+        expect(code).toContain('frameZoomForSelection');
+        expect(code).toContain('m.easeTo({ zoom, duration: 600 })');
+        expect(code).not.toContain('center');
     });
 });

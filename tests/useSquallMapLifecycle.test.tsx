@@ -79,7 +79,7 @@ describe('useSquallMap request lifecycle', () => {
         const { map } = makeMap();
         const ref = { current: map as never };
         const hook = renderHook(
-            ({ preserveViewport }) => useSquallMap(ref, true, true, -27, 153, undefined, undefined, preserveViewport),
+            ({ preserveViewport }) => useSquallMap(ref, true, true, undefined, undefined, preserveViewport),
             { initialProps: { preserveViewport: true } },
         );
         await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
@@ -96,17 +96,30 @@ describe('useSquallMap request lifecycle', () => {
         const { map } = makeMap();
         const ref = { current: map as never };
         const hook = renderHook(
-            ({ preserveViewport }) => useSquallMap(ref, true, true, -27, 153, undefined, undefined, preserveViewport),
+            ({ preserveViewport }) => useSquallMap(ref, true, true, undefined, undefined, preserveViewport),
             { initialProps: { preserveViewport: false } },
         );
-        expect(map.flyTo).toHaveBeenCalledOnce();
+        expect(map.easeTo).toHaveBeenCalledOnce();
         expect(map.getMinZoom()).toBe(3);
         expect(map.getMaxZoom()).toBe(8);
         hook.rerender({ preserveViewport: true });
         expect(map.getMinZoom()).toBe(0);
         expect(map.getMaxZoom()).toBe(22);
         expect(map.off).toHaveBeenCalledWith('zoomend', expect.anything());
-        expect(map.flyTo).toHaveBeenCalledOnce();
+        expect(map.easeTo).toHaveBeenCalledOnce();
+        hook.unmount();
+    });
+
+    it('opens the squall view about what is on screen, never flying the chart to a position', () => {
+        // Obs opens where the location box points (Hawaii, say); switching
+        // Squall on zoomed out about the phone's GPS instead (Shane
+        // 2026-10-06: "if i look at any layers, it should show me the
+        // details of that location").
+        const { map } = makeMap();
+        const ref = { current: map as never };
+        const hook = renderHook(() => useSquallMap(ref, true, true));
+        expect(map.flyTo).not.toHaveBeenCalled();
+        expect(map.easeTo).toHaveBeenCalledExactlyOnceWith({ zoom: 3, duration: 800 });
         hook.unmount();
     });
 

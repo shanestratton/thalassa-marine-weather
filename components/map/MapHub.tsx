@@ -41,7 +41,7 @@ import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseS
 import { seaBaseLayers, setReliefPalette } from './reliefBase';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
-import { OBS_VESSEL_ZOOM, useObsStartupCamera } from './useObsStartupCamera';
+import { OBS_VESSEL_ZOOM, obsStartTarget, useObsStartupCamera } from './useObsStartupCamera';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
@@ -51,8 +51,6 @@ import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import {
     type MapHubProps,
     type WeatherLayer,
-    frameZoomForSelection,
-    LAYER_FRAME_ZOOM,
     shouldShowPlanChartKey,
     shouldSuppressChartOverlays,
 } from './mapConstants';
@@ -274,6 +272,7 @@ import { useMarkHaloPulse } from './mapHub/useMarkHaloPulse';
 import { useOpenSeaMapRasterHide } from './mapHub/useOpenSeaMapRasterHide';
 import { useTracerChartFloors } from './mapHub/useTracerChartFloors';
 import { useWindLightningBootExclusion } from './mapHub/useWindLightningBootExclusion';
+import { useLayerFrameSnap } from './mapHub/useLayerFrameSnap';
 import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './mapHub/tracerMapGestures';
 // PinViewHandoff + readCurrentPinView moved to ./usePinViewMode (imported above).
 
@@ -2605,6 +2604,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
 
     // ── Cyclone Tracking Layer ──
+    // The punter's position picks the closest storm; the open frame holds
+    // the centre (2026-10-06).
     useCycloneLayer(
         mapRef,
         mapReady,
@@ -2621,16 +2622,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
 
     // ── Rain Squall Map (GMGSI IR with BD Enhancement Curve) ──
-    useSquallMap(
-        mapRef,
-        mapReady,
-        browseSquallVisible,
-        location.lat,
-        location.lon,
-        allCyclones,
-        handleSelectStorm,
-        passageHudOnChart,
-    );
+    // Opens about what is on screen, never on the phone's GPS (2026-10-06).
+    useSquallMap(mapRef, mapReady, browseSquallVisible, allCyclones, handleSelectStorm, passageHudOnChart);
 
     // ── Cyclone zoom center-lock — components/map/mapHub/useCycloneCenterLock.ts ──
     useCycloneCenterLock(mapRef, mapReady, browseCycloneVisible, closestStorm);
@@ -2678,6 +2671,20 @@ export const MapHub: React.FC<MapHubProps> = ({
         showWeatherInspect,
     };
 
+    // Where Obs opens: the location box (Shane 2026-10-06). A chosen place
+    // opens there at z10; following a receiver opens on the vessel at z14.
+    const boxPlace = settings.defaultLocationCoords;
+    const obsStart = useMemo(
+        () =>
+            obsStartTarget({
+                defaultLocation: settings.defaultLocation,
+                defaultLocationCoords: boxPlace,
+                weatherCoords,
+            }),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [settings.defaultLocation, boxPlace?.lat, boxPlace?.lon, weatherCoords?.lat, weatherCoords?.lon],
+    );
+
     // ── Map Init ──
     const { dropPin } = useMapInit({
         containerRef,
@@ -2693,6 +2700,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         location,
         initialCenter: weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : undefined,
         ownshipStartup,
+        obsStart,
         onLocationSelect,
         pickerMode,
         encVisible,
@@ -2720,9 +2728,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
     useLocationDot(mapRef, locationDotRef, mapReady && !planningSurface && !effectiveVesselTrackingVisible);
 
-    // Centre once on the receiver, never on the weather/home selection.
-    // Passive late GPS is allowed until the skipper takes over the camera.
-    useObsStartupCamera(mapRef, mapReady, ownshipStartup && currentView === 'map');
+    // Centre where the location box points: a chosen place, else the vessel
+    // on a real fix (never a weather/home coordinate standing in for her).
+    // Once per box; passive late GPS is allowed until the skipper takes over.
+    useObsStartupCamera(mapRef, mapReady, ownshipStartup && currentView === 'map', obsStart);
 
     // Silent Pi-backed tile pre-cache around the boat —
     // components/map/usePiTileAutoCache.ts.
@@ -2743,7 +2752,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         embedded,
         location,
         planningSurface,
-        weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null,
         { hudEnabled: passageHudOnChart, squallVisible: browseSquallVisible },
         true, // Do not restore weather/MPA overlays into a fresh OBS.
     );
@@ -2760,12 +2768,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSquallVisible,
         setAisVisible,
     });
-    // Read by the layer-framing effect below, which deliberately depends only
-    // on the layer set — so it must not close over a location from whenever it
-    // last re-ran. A ref keeps the centre current without making a location
-    // change re-trigger a framing snap.
-    const weatherCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
-    weatherCoordsRef.current = weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : null;
     weatherRef.current = weather;
 
     // Clear Follow Route when passage mode activates —
@@ -2933,80 +2935,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         [setLightningVisible],
     );
 
-    /**
-     * Ease to the layer's own framing zoom on its OFF -> ON edge.
-     *
-     * This lived inside the tap handlers and behaved backwards: turning wind
-     * off could trigger its framing zoom while turning it on did nothing. Two
-     * reasons, and the effect fixes both:
-     *
-     *  1. helmSelectInGroup had NO on/off test — the radial menu drives these
-     *     through selectInGroup, and selecting the already-active layer turns
-     *     it OFF, so every tap zoomed, including the one that killed the layer.
-     *  2. helmToggleLayer's test read activeLayers BEFORE its own toggle had
-     *     been applied, and the ease then raced the grid fetch that activation
-     *     kicks off.
-     *
-     * Reacting to the STATE TRANSITION instead of the tap removes both
-     * questions: by the time this runs the set is authoritative, and comparing
-     * against the previous value means it can only fire when wind actually
-     * came on. 'velocity' is the legacy alias for the same overlay, so both
-     * keys count — missing it would make the edge undetectable when the layer
-     * is stored under the older name.
-     *
-     * Fires ONLY on that edge, which is what keeps an unconditional easeTo
-     * tolerable: it cannot fight you while you are working, because merely
-     * panning or zooming with wind already on never re-triggers it.
-     */
-    const prevSnapLayersRef = useRef<Set<string>>(new Set());
-    useEffect(() => {
-        const framed = Object.keys(LAYER_FRAME_ZOOM) as WeatherLayer[];
-        const on = new Set(framed.filter((k) => weather.userLayers.has(k)));
-        const prev = prevSnapLayersRef.current;
-        prevSnapLayersRef.current = on;
-        // Passage owns its route framing; its bundled Wind/Rain activation
-        // must not snap back to the weather-location box afterwards.
-        if (planningSurface || passageHudOnChart) return;
-        // Fire only for a layer that NEWLY appears. Comparing sets (rather
-        // than a single boolean) also catches a SWITCH between two framed
-        // layers — e.g. rain to wind via selectInGroup is a fresh framing
-        // decision, not a continuation, and selectInGroup makes that one tap.
-        const newlyOn = [...on].find((k) => !prev.has(k)) as WeatherLayer | undefined;
-        if (!newlyOn) return;
-        // The pressure-pair exception is gone (2026-08-24). It existed because
-        // a forming stack had no frame of its own, so the camera fell to
-        // whichever layer was tapped last — and pressure's z2 synoptic frame
-        // would throw away the harbour view a skipper was reading. Now any
-        // stack of two or more resolves to ONE shared frame
-        // (MULTI_LAYER_FRAME_ZOOM), so there is no violent answer left to
-        // guard against: adding isobars to wind holds the same z7 the wind
-        // frame already put you in.
-        const zoom = frameZoomForSelection(weather.userLayers, newlyOn);
-        if (zoom === undefined) return;
-        const m = mapRef.current;
-        if (!m) return;
-        try {
-            // A SNAP, not a floor. Switching one of these on is a deliberate
-            // change of task, so it gets the known frame every time rather
-            // than one that depends on where you happened to be.
-            //
-            // CENTRE ON THE LOCATION BOX, not on wherever the map drifted to
-            // (Shane 2026-08-24: "always ensure that the centre of the map is
-            // the location set in the location box"). weatherCoords is the
-            // selected weather location — the same value the Glass page's
-            // location box writes and the boot centre already prefers — so
-            // framing a layer now returns you to the water you chose rather
-            // than zooming in on a pan you made ten minutes ago. Falls back to
-            // a zoom-only ease when no location is resolved yet, which is the
-            // old behaviour.
-            const centre = weatherCoordsRef.current;
-            m.easeTo(centre ? { center: [centre.lon, centre.lat], zoom, duration: 600 } : { zoom, duration: 600 });
-        } catch {
-            /* map mid-teardown */
-        }
-        // LAYER_FRAME_ZOOM is a module constant now (mapConstants) — shared
-        // with useWeatherLayers' minZoom floor, and not a valid dependency.
-    }, [weather.userLayers, planningSurface, passageHudOnChart]);
+    // Layer framing on the OFF -> ON edge: zoom only, never the centre
+    // (components/map/mapHub/useLayerFrameSnap.ts; Shane 2026-10-06).
+    useLayerFrameSnap(mapRef, weather.userLayers, planningSurface || passageHudOnChart);
 
     /* useWeatherLayers returns a fresh object literal on every call, so keying
        these on `weather` re-minted both callbacks on EVERY MapHub render and
