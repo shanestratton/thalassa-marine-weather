@@ -18,6 +18,9 @@
  * scrubber is at now and the location box follows her (Shane 2026-10-06:
  * the phone's Current Location or a chosen place never borrows the boat's
  * gear), else the selected model at the screen centre for the scrubbed hour.
+ * The instruments are hers from whichever lane carries them: the store (the
+ * bus, or the Pi over the LAN), else her own cloud row through the boat chain,
+ * which is the only lane Obs reads ashore (Shane 2026-10-07).
  * The two cross-fade, with hysteresis, and the leaflet engine
  * is torn down rather than left animating underneath.
  *
@@ -33,7 +36,7 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
 import { WEATHER_FOLLOW_TARGET_EVENT } from '../../services/weatherPosition';
-import { boatInstrumentsFollowed } from './obsBoatInstruments';
+import { boatInstrumentsFollowed, followedBoatCloudWind, lookUpFollowedBoatWind } from './obsBoatInstruments';
 import { WIND_MAX_MS, WIND_PARTICLE_COLORS } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 import { CloseInWindLayer } from './CloseInWindLayer';
@@ -71,6 +74,13 @@ interface MapboxVelocityOverlayProps {
      * (obsBoatInstruments). A chosen place, or false: the model, always.
      */
     boatInstruments?: boolean;
+    /**
+     * Obs is on screen, so the followed boat's cloud row may be read for her
+     * wind (on the boat chain's shared 30 s throttle). MapHub, and this
+     * overlay with it, stays mounted behind other views: it must not read
+     * the cloud for a chart nobody is looking at.
+     */
+    boatLookUp?: boolean;
 }
 
 // Speed-graded wind particle scale — blue → cyan → green → orange → red →
@@ -306,7 +316,8 @@ const LEAFLET_FADE_IN_DELAY_MS = 600;
  * on the sample clock, but the store only notifies on a sample or a watchdog
  * tick, and the watchdog is not running without a Pi pairing or a saved
  * gateway: a feed that stopped would otherwise hold its last value until the
- * next pan.
+ * next pan. Her cloud row is asked for on the same tick while Obs is showing;
+ * the boat chain throttles the actual read to one per 30 s.
  */
 const BOAT_RECHECK_MS = 2000;
 
@@ -350,6 +361,22 @@ function boatPosition(): { lat: number; lon: number } | null {
     return fix ? { lat: fix.lat, lon: fix.lon } : null;
 }
 
+/**
+ * Her live wind from the store: the gateway socket or the Pi over the boat
+ * LAN, and only when the store's instruments are hers. Never the store's
+ * cloud lane: the store stamps a cloud reading with the time this phone
+ * received it, so a wind the Pi could not date (Signal K's cached value from
+ * an instrument that is off) would read live while a screen holds the lane,
+ * and the pill would flip between it and the model as that screen opened and
+ * closed. Her cloud row is read through the boat chain instead, with the Pi's
+ * own sample time (followedBoatCloudWind).
+ */
+function storeBoatWind(): ReturnType<typeof pickBoatTrueWind> {
+    const state = NmeaStore.getState();
+    if (state.remote?.via === 'cloud' || !boatInstrumentsFollowed()) return null;
+    return pickBoatTrueWind(state);
+}
+
 function onScreen(map: mapboxgl.Map, lat: number, lon: number): boolean {
     try {
         const container = map.getContainer();
@@ -370,6 +397,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windGrid,
     windNowIdx,
     boatInstruments = false,
+    boatLookUp = false,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -484,9 +512,14 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const vector = sampleWindGridAt(windGridPropRef.current, windHourRef.current, centre.lat, centre.lng);
         // Shane 2026-10-06: the vessel's wind gear when the box is her and
         // there is a reading; the phone's Current Location or a place, the model.
-        const boat =
-            boatInstrumentsRef.current && boatInstrumentsFollowed() ? pickBoatTrueWind(NmeaStore.getState()) : null;
-        const position = boat ? boatPosition() : null;
+        // Her live store wind first (the bus, or the Pi over the LAN); else, as
+        // ashore on Obs where nothing feeds the store (Shane 2026-10-07), her
+        // own cloud row through the boat chain, placed where that row puts her,
+        // and that even while a screen holds the store's cloud lane.
+        const storeBoat = boatInstrumentsRef.current ? storeBoatWind() : null;
+        const cloud = !storeBoat && boatInstrumentsRef.current ? followedBoatCloudWind() : null;
+        const boat = storeBoat ?? cloud?.wind ?? null;
+        const position = storeBoat ? boatPosition() : cloud ? { lat: cloud.lat, lon: cloud.lon } : null;
         const wind = resolveCloseInWind({
             boat,
             boatInView: !!position && onScreen(mapboxMap, position.lat, position.lon),
@@ -554,6 +587,36 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     useEffect(() => {
         if (closeInWanted) refreshCloseInRef.current();
     }, [closeInWanted, windHour, windGrid, windNowIdx, boatInstruments]);
+
+    // Ashore the followed boat's wind is her cloud row (Shane 2026-10-07):
+    // ask for it at once and on every re-check, while close-in is showing on
+    // Obs and the box follows a receiver; the chain reads at most once per
+    // 30 s and nothing while the box follows the phone. Each answer re-reads
+    // the wind, so a reading past its 60 s gate hands back to the model.
+    useEffect(() => {
+        if (!closeInWanted || !boatInstruments || !boatLookUp) return;
+        let live = true;
+        const ask = () => {
+            // Her own wind is already in the store (aboard: the bus, or the Pi
+            // over the LAN), and it wins: no cloud read for a row that cannot show.
+            if (storeBoatWind()) {
+                refreshCloseInRef.current();
+                return;
+            }
+            void lookUpFollowedBoatWind().then(() => {
+                if (live) refreshCloseInRef.current();
+            });
+        };
+        ask();
+        const recheck = setInterval(ask, BOAT_RECHECK_MS);
+        // A new follow target (Switch boat included) is a different boat's row.
+        window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, ask);
+        return () => {
+            live = false;
+            clearInterval(recheck);
+            window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, ask);
+        };
+    }, [closeInWanted, boatInstruments, boatLookUp]);
 
     // The selected WindStore grid is the sole particle source. This effect
     // covers grid/hour updates after Leaflet setup, including the first frame.

@@ -51,6 +51,17 @@ export interface BoatFix {
     /** The boat's qualified true heading and its own sample time, when the lane carries them. */
     headingTrueDeg?: number | null;
     headingTrueAt?: number | null;
+    /**
+     * The boat's TRUE wind, when the lane carries it (the cloud row does):
+     * knots, degrees true, the angle signed (negative to port). Never apparent
+     * wind. `windSampleAt` is the Pi's own TWS sample time (extra.wind_tws_at_ms),
+     * which the Pi sends only for a sample under 20 s old; without it the wind
+     * may be Signal K's cached value and is not the boat's wind now.
+     */
+    twsKts?: number | null;
+    twdDeg?: number | null;
+    twaDeg?: number | null;
+    windSampleAt?: number | null;
 }
 
 /** Rung a: the bus, straight off the gateway. */
@@ -128,7 +139,8 @@ export const CLOUD_FIX_MAX_AGE_MS = 60_000;
  * Anchor Watch must never take it. Weather and explicit remote-boat log paths may — a
  * forecast for where the boat is, read from the kitchen table, is exactly
  * what Shane asked for (2026-09-07: the Glass read PHONE at Newport while the
- * Pi was publishing from the hardstand).
+ * Pi was publishing from the hardstand). Obs's close-in wind reads her true
+ * wind off the same row ashore (2026-10-07); a reading, never a steer.
  *
  * `owner` reads one boat's row: 'self' strictly the account's own, or a
  * skipper's id for the boat this account crews on. Without it, the row
@@ -165,6 +177,10 @@ export async function cloudFix(now = Date.now(), owner?: 'self' | string): Promi
             positionAt: t.snapshot.positionSampleAt ?? null,
             headingTrueDeg: t.snapshot.headingTrueDeg ?? null,
             headingTrueAt: t.snapshot.headingTrueAt ?? null,
+            twsKts: t.snapshot.twsKts,
+            twdDeg: t.snapshot.twdDeg,
+            twaDeg: t.snapshot.twaDeg,
+            windSampleAt: t.snapshot.windSampleAt ?? null,
         };
     } catch {
         return null;

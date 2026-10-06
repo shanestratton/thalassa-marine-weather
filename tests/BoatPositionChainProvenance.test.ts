@@ -80,6 +80,20 @@ describe('boat receiver provenance at the wire boundary', () => {
         });
     });
 
+    // Shane 2026-10-07: ashore, Obs's close-in wind should be the boat's own
+    // when the row carries it. The row's true wind and the Pi's own sample
+    // time ride along with the position; nothing is invented when absent.
+    it('carries her true wind and its sample time from the row, and leaves them unknown when absent', async () => {
+        const row = telemetry({ reportedAt: NOW - 5_000 });
+        world.readOnce.mockResolvedValue({
+            ...row,
+            snapshot: { ...row.snapshot, twsKts: 14, twdDeg: 200, twaDeg: -40, windSampleAt: NOW - 3_000 },
+        });
+        expect(await cloudFix(NOW)).toMatchObject({ twsKts: 14, twdDeg: 200, twaDeg: -40, windSampleAt: NOW - 3_000 });
+        world.readOnce.mockResolvedValue(row);
+        expect(await cloudFix(NOW)).toMatchObject({ twsKts: null, twdDeg: null, twaDeg: null, windSampleAt: null });
+    });
+
     it('rejects a phone-uploaded cloud row even when it is fresh and has valid coordinates', async () => {
         world.readOnce.mockResolvedValue(telemetry({ source: 'device' }));
         expect(await cloudFix(NOW)).toBeNull();

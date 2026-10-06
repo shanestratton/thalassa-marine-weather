@@ -86,6 +86,16 @@ export interface WeatherFix {
     positionAt?: number;
     headingTrueDeg?: number;
     headingTrueAt?: number;
+    /**
+     * Her TRUE wind, when the lane carries it (the cloud row does), for Obs's
+     * close-in wind ashore: knots, degrees true, the angle signed. Each only
+     * when in range; `windSampleAt` is the Pi's own TWS sample time, and a
+     * wind without it is not dated (components/map/closeInWind pickCloudTrueWind).
+     */
+    twsKts?: number;
+    twdDeg?: number;
+    twaDeg?: number;
+    windSampleAt?: number;
 }
 
 /** What the caller's phone provider returns. */
@@ -276,6 +286,11 @@ function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
         out.headingTrueDeg = fix.headingTrueDeg;
         out.headingTrueAt = fix.headingTrueAt;
     }
+    // The wind as the lane said it, each value only in range; a missing one stays unknown.
+    if (finite(fix.twsKts) && fix.twsKts >= 0 && fix.twsKts <= 150) out.twsKts = fix.twsKts;
+    if (finite(fix.twdDeg) && fix.twdDeg >= 0 && fix.twdDeg < 360) out.twdDeg = fix.twdDeg;
+    if (finite(fix.twaDeg) && fix.twaDeg >= -180 && fix.twaDeg <= 180) out.twaDeg = fix.twaDeg;
+    if (finite(fix.windSampleAt) && fix.windSampleAt > 0) out.windSampleAt = fix.windSampleAt;
     return out;
 }
 
@@ -512,6 +527,37 @@ export function boatCloudRowNow(now = Date.now(), crewOwnerId: string | null = n
 /** Read the boat's cloud row once, on the chain's own 30 s throttle; keeps no fix and ends no choice. */
 export async function lookUpBoatCloudRow(now = Date.now(), crewOwnerId: string | null = null): Promise<void> {
     await throttledCloudFix(now, crewOwnerId);
+}
+
+/** The boat the location box follows: null for the phone, else the crewed boat's skipper (null = the own boat). */
+function followedBoat(): { crewOwnerId: string | null } | null {
+    const follow = currentFollow();
+    if (follow.target === 'phone' || (follow.target === 'crew' && !follow.crewOwnerId)) return null;
+    return { crewOwnerId: follow.crewOwnerId };
+}
+
+/**
+ * The followed boat's cloud row as this device last read it, asking no one;
+ * null while the box follows the phone, or when her row is not usable now
+ * (older than CLOUD_FIX_MAX_AGE_MS). Her own row for the own boat, her
+ * skipper's for the boat crewed on: never another boat's. For Obs's close-in
+ * wind ashore (Shane 2026-10-07: "when you use your vessel as your location,
+ * the wind in obs at zoom 14 no longer uses the vessels wind data, even if it
+ * knows it"), where nothing feeds the instrument store.
+ */
+export function followedBoatCloudRowNow(now = Date.now()): WeatherFix | null {
+    const boat = followedBoat();
+    return boat ? boatCloudRowNow(now, boat.crewOwnerId) : null;
+}
+
+/**
+ * Read the followed boat's cloud row once, on the chain's shared 30 s throttle
+ * (the camera and the marker read the same lane, so together they cost one
+ * read per 30 s). Keeps no fix and ends no choice. Following the phone: nothing.
+ */
+export async function lookUpFollowedBoatCloudRow(now = Date.now()): Promise<void> {
+    const boat = followedBoat();
+    if (boat) await lookUpBoatCloudRow(now, boat.crewOwnerId);
 }
 
 /** The instrument feed, as NmeaStore describes it. */

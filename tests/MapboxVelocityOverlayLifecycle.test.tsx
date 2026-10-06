@@ -1,4 +1,5 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     guardVelocityLayerStartup,
@@ -155,8 +156,19 @@ vi.mock('../services/NmeaStore', () => ({ NmeaStore: nmea.NmeaStore }));
 
 // Whether the location box follows the boat whose instruments the store holds
 // (obsBoatInstruments, Shane 2026-10-06). The boat cases below follow her.
-const instruments = vi.hoisted(() => ({ followed: true }));
-vi.mock('../components/map/obsBoatInstruments', () => ({ boatInstrumentsFollowed: () => instruments.followed }));
+// Ashore the store is empty on Obs, and the followed boat's wind comes from her
+// cloud row through the boat chain (followedBoatCloudWind), looked up on the
+// chain's own throttle (lookUpFollowedBoatWind) only while Obs is on screen.
+const instruments = vi.hoisted(() => ({
+    followed: true,
+    cloud: null as null | { wind: { kt: number; fromDeg: number | null; stale: boolean }; lat: number; lon: number },
+    lookUp: vi.fn(async () => {}),
+}));
+vi.mock('../components/map/obsBoatInstruments', () => ({
+    boatInstrumentsFollowed: () => instruments.followed,
+    followedBoatCloudWind: () => instruments.cloud,
+    lookUpFollowedBoatWind: instruments.lookUp,
+}));
 vi.mock('../services/weatherPosition', () => ({
     WEATHER_FOLLOW_TARGET_EVENT: 'thalassa:weather-follow-target-changed',
 }));
@@ -1071,5 +1083,211 @@ describe('MapboxVelocityOverlay close-in: the camera decides, not the cached lat
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+/**
+ * Shane 2026-10-07, on build 121 at home, the boat in a marina far up the
+ * coast with her Pi publishing: "when you use your vessel as your location,
+ * the wind in obs at zoom 14 no longer uses the vessels wind data, even if it
+ * knows it". Ashore nothing feeds the instrument store on Obs, so the close-in
+ * wind takes the followed boat's own row from the boat chain the camera and
+ * the marker already read. Fictional values.
+ */
+describe('MapboxVelocityOverlay close-in: the followed boat’s wind ashore', () => {
+    const cloudWind = (kt = 14, fromDeg: number | null = 200) => ({
+        wind: { kt, fromDeg, stale: false },
+        lat: AIRLIE.lat,
+        lon: AIRLIE.lng,
+    });
+
+    afterEach(() => {
+        nmea.reset();
+        instruments.followed = true;
+        instruments.cloud = null;
+        instruments.lookUp.mockReset();
+        instruments.lookUp.mockImplementation(async () => {});
+        vi.restoreAllMocks();
+    });
+
+    function renderAshore(props: Partial<ComponentProps<typeof MapboxVelocityOverlay>> = {}) {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        const all = {
+            mapboxMap: mapbox.map as never,
+            visible: true,
+            windGrid: airlieGrid(8, 135, 20),
+            windHour: 0,
+            windNowIdx: 0,
+            boatInstruments: true,
+            boatLookUp: true,
+            ...props,
+        };
+        const view = render(<MapboxVelocityOverlay {...all} />);
+        return { mapbox, view, all };
+    }
+
+    it('an empty store and her cloud row: the boat’s instruments, at her row’s position', () => {
+        // The store is disconnected (nothing feeds it on Obs ashore); the gate on it says no.
+        instruments.followed = false;
+        instruments.cloud = cloudWind();
+        const { view } = renderAshore();
+        expect(getCloseInWindReadout()).toEqual({ kt: 14, fromDeg: 200, source: 'boat', stale: false });
+        view.unmount();
+    });
+
+    it('her live store wind beats her cloud row (the LAN or the bus is the fresher lane)', () => {
+        nmea.live({ tws: 9, twd: 170, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        instruments.cloud = cloudWind();
+        const { view } = renderAshore();
+        expect(getCloseInWindReadout()).toMatchObject({ kt: 9, fromDeg: 170, source: 'boat' });
+        view.unmount();
+    });
+
+    it('her wind off the store’s cloud lane is never taken: her dated row speaks, else the model', () => {
+        // A screen holds the cloud lane; the store stamps that reading with the
+        // time the phone received it, so only the chain's dated row may speak.
+        nmea.state.remote = { via: 'cloud' };
+        nmea.state.connectionStatus = 'remote';
+        nmea.live({ tws: 12, twd: 300, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const a = renderAshore();
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
+        // Her row is asked for, since the store's wind does not count.
+        expect(instruments.lookUp).toHaveBeenCalled();
+        a.view.unmount();
+        instruments.cloud = cloudWind();
+        const b = renderAshore();
+        expect(getCloseInWindReadout()).toEqual({ kt: 14, fromDeg: 200, source: 'boat', stale: false });
+        b.view.unmount();
+    });
+
+    it('a store wind that is not hers is ignored, and her row still speaks', () => {
+        // e.g. crewing: the store holds the own boat's row while the box follows the crewed boat.
+        instruments.followed = false;
+        nmea.live({ tws: 9, twd: 170, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        instruments.cloud = cloudWind(22, 90);
+        const { view } = renderAshore();
+        expect(getCloseInWindReadout()).toMatchObject({ kt: 22, fromDeg: 90, source: 'boat' });
+        view.unmount();
+    });
+
+    it('her row off screen does not speak for the water on screen', () => {
+        instruments.cloud = { ...cloudWind(), lon: 150 };
+        const { mapbox, view } = renderAshore();
+        mapbox.map.project.mockImplementation(([lng]: [number, number]) =>
+            lng === 150 ? { x: 2000, y: 80 } : { x: 100, y: 80 },
+        );
+        act(() => mapbox.emit('moveend'));
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
+        view.unmount();
+    });
+
+    it('scrubbed off now: the model for that hour, never her row', () => {
+        instruments.cloud = cloudWind();
+        const { view, all } = renderAshore();
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
+        view.rerender(<MapboxVelocityOverlay {...all} windHour={1} />);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(20, 3);
+        view.unmount();
+    });
+
+    it('the box on a place (boatInstruments false): the model, and her row is never asked for', async () => {
+        instruments.cloud = cloudWind();
+        const { view } = renderAshore({ boatInstruments: false });
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+        expect(instruments.lookUp).not.toHaveBeenCalled();
+        view.unmount();
+    });
+
+    it('looks her row up at once and every re-check while Obs is showing; never while it is hidden', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+        try {
+            const { view, all } = renderAshore({ boatLookUp: false });
+            act(() => vi.advanceTimersByTime(10_000));
+            expect(instruments.lookUp).not.toHaveBeenCalled();
+            view.rerender(<MapboxVelocityOverlay {...all} boatLookUp />);
+            expect(instruments.lookUp).toHaveBeenCalledTimes(1);
+            act(() => vi.advanceTimersByTime(4_000));
+            expect(instruments.lookUp).toHaveBeenCalledTimes(3);
+            // Another view over the chart (MapHub stays mounted): the lookups stop.
+            view.rerender(<MapboxVelocityOverlay {...all} boatLookUp={false} />);
+            act(() => vi.advanceTimersByTime(10_000));
+            expect(instruments.lookUp).toHaveBeenCalledTimes(3);
+            // Wind off, or zoomed out of close-in: nothing either.
+            view.rerender(<MapboxVelocityOverlay {...all} boatLookUp visible={false} />);
+            const before = instruments.lookUp.mock.calls.length;
+            act(() => vi.advanceTimersByTime(10_000));
+            expect(instruments.lookUp).toHaveBeenCalledTimes(before);
+            view.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('aboard, with her own wind live in the store, her cloud row is not read at all', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+        try {
+            nmea.live({ tws: 9, twd: 170, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+            const { view } = renderAshore();
+            expect(getCloseInWindReadout()).toMatchObject({ kt: 9, source: 'boat' });
+            act(() => {
+                vi.advanceTimersByTime(1_900);
+                nmea.live({ tws: 9, twd: 170 });
+                vi.advanceTimersByTime(100);
+            });
+            expect(instruments.lookUp).not.toHaveBeenCalled();
+            // The store goes quiet (dead): the re-check asks for her row again.
+            act(() => vi.advanceTimersByTime(16_000));
+            expect(instruments.lookUp).toHaveBeenCalled();
+            view.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('picks up her row when a lookup lands, and goes back to the model when it ages out', async () => {
+        let land!: () => void;
+        instruments.lookUp.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    land = resolve;
+                }),
+        );
+        const { view } = renderAshore();
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        instruments.cloud = cloudWind();
+        await act(async () => {
+            land();
+            await Promise.resolve();
+        });
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat', kt: 14 });
+        // Her row past its gate: the chain answers nothing, and the next re-check hands back.
+        instruments.cloud = null;
+        await waitFor(() => expect(getCloseInWindReadout()).toMatchObject({ source: 'model' }), { timeout: 3_000 });
+        view.unmount();
+    });
+
+    it('a lookup that lands after the close-in field has gone changes nothing', async () => {
+        let land!: () => void;
+        instruments.lookUp.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    land = resolve;
+                }),
+        );
+        const { view } = renderAshore();
+        view.unmount();
+        instruments.cloud = cloudWind();
+        await act(async () => {
+            land();
+            await Promise.resolve();
+        });
+        expect(getCloseInWindReadout()).toBeNull();
     });
 });

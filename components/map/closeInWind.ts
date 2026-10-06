@@ -267,6 +267,76 @@ export function pickBoatTrueWind(state: BoatWindMetrics, now: number = Date.now(
 }
 
 /**
+ * Her cloud row's wind is the boat's for this long after the Pi sampled it:
+ * the cloud lane's own gate (CloudTelemetryService feeds no row older than
+ * 60 s, the store keeps a cloud wind sample for 60 s, and the boat chain's
+ * cloudFix and the own-ship marker hold the row live for 60 s).
+ */
+export const CLOUD_WIND_MAX_AGE_MS = 60_000;
+
+/** The wind fields of her cloud row as the boat chain carries it (services/weatherPosition WeatherFix). */
+export interface CloudWindRow {
+    twsKts?: number;
+    twdDeg?: number;
+    /** Signed, negative to port. */
+    twaDeg?: number;
+    /** The Pi's own TWS sample time (extra.wind_tws_at_ms). */
+    windSampleAt?: number;
+    headingTrueDeg?: number;
+    headingTrueAt?: number;
+}
+
+const isNum = (value: number | undefined): value is number => typeof value === 'number' && Number.isFinite(value);
+
+/** Sampled within the cloud lane's gate of `now`, and not from the future. */
+function cloudSampleFresh(at: number | undefined, now: number): boolean {
+    if (!isNum(at) || at <= 0) return false;
+    const age = now - at;
+    return age >= -1000 && age <= CLOUD_WIND_MAX_AGE_MS;
+}
+
+/**
+ * The boat's own TRUE wind from her cloud row, for Obs ashore where nothing
+ * feeds the instrument store (Shane 2026-10-07: "when you use your vessel as
+ * your location, the wind in obs at zoom 14 no longer uses the vessels wind
+ * data, even if it knows it"). The same reading as pickBoatTrueWind: TWS with
+ * TWD, else a fresh true heading plus the signed TWA; never apparent wind or
+ * the legacy heading. Only while the Pi dated the TWS sample (it sends
+ * wind_tws_at_ms only for a sample under 20 s old) and that sample is inside
+ * CLOUD_WIND_MAX_AGE_MS: an undated wind may be Signal K's cached value from
+ * an instrument that is off. Within the gate it is live (stale: false), as
+ * the Instrument Panel's Remote reading is.
+ *
+ * Only the TWS sample is dated. The row's TWD has no sample time of its own,
+ * so it rides on the TWS date and is NOT age-gated by itself: on Serene Summer
+ * TWD comes from the gateway's MDA, which needs heading, while TWS comes from
+ * VWT, so a heading dropout can leave a frozen TWD beside a fresh TWS. The
+ * store lane reads it the same way. The fix wants the Pi to send the TWD
+ * sample time (extra.wind_twd_at_ms) and a Pi redeploy; until then only the
+ * TWS, and the heading used with the TWA, are age-gated here.
+ */
+export function pickCloudTrueWind(row: CloudWindRow | null | undefined, now: number = Date.now()): BoatWind | null {
+    if (!row || !cloudSampleFresh(row.windSampleAt, now)) return null;
+    const kt = row.twsKts;
+    if (!isNum(kt) || kt < 0 || kt > 150) return null;
+    let fromDeg: number | null = null;
+    if (isNum(row.twdDeg) && row.twdDeg >= 0 && row.twdDeg < 360) {
+        fromDeg = row.twdDeg;
+    } else if (
+        isNum(row.headingTrueDeg) &&
+        row.headingTrueDeg >= 0 &&
+        row.headingTrueDeg < 360 &&
+        cloudSampleFresh(row.headingTrueAt, now) &&
+        isNum(row.twaDeg) &&
+        Math.abs(row.twaDeg) <= 180
+    ) {
+        fromDeg = row.headingTrueDeg + row.twaDeg;
+    }
+    if (fromDeg === null && kt >= CLOSE_IN_CALM_KT) return null;
+    return { kt, fromDeg: fromDeg === null ? null : ((fromDeg % 360) + 360) % 360, stale: false };
+}
+
+/**
  * One source, never a blend: the boat's instruments when they are usable, the
  * boat is on screen and the scrubber is at now; otherwise the selected model
  * at the screen centre for the scrubbed hour.

@@ -14,7 +14,9 @@ import {
     getCloseInWindReadout,
     isWindScrubAtNow,
     nextCloseInMode,
+    CLOUD_WIND_MAX_AGE_MS,
     pickBoatTrueWind,
+    pickCloudTrueWind,
     resolveCloseInWind,
     sampleWindGridAt,
     setCloseInWindReadout,
@@ -388,5 +390,71 @@ describe('close-in readout', () => {
         expect(getCloseInWindReadout()).toBeNull();
         expect(calls).toBe(3);
         unsubscribe();
+    });
+});
+
+/**
+ * Her cloud row, read ashore (Shane 2026-10-07: "when you use your vessel as
+ * your location, the wind in obs at zoom 14 no longer uses the vessels wind
+ * data, even if it knows it"). The row is the Pi's own snapshot; its wind is
+ * the boat's only while the Pi proved a fresh TWS sample (extra.wind_tws_at_ms,
+ * which it sends only for a sample under 20 s old) and that sample is inside
+ * the cloud lane's 60 s gate. Fictional values.
+ */
+describe('close-in boat wind from her cloud row', () => {
+    const row = (patch: Record<string, number | undefined> = {}) => ({
+        twsKts: 14,
+        twdDeg: 200,
+        twaDeg: -40,
+        windSampleAt: NOW - 2_000,
+        headingTrueDeg: 240,
+        headingTrueAt: NOW - 2_000,
+        ...patch,
+    });
+
+    it('reads TWS with TWD, else a fresh true heading plus the signed TWA', () => {
+        expect(pickCloudTrueWind(row(), NOW)).toEqual({ kt: 14, fromDeg: 200, stale: false });
+        expect(pickCloudTrueWind(row({ twdDeg: undefined }), NOW)).toEqual({ kt: 14, fromDeg: 200, stale: false });
+        expect(pickCloudTrueWind(row({ twdDeg: undefined, headingTrueDeg: 350, twaDeg: 30 }), NOW)).toEqual({
+            kt: 14,
+            fromDeg: 20,
+            stale: false,
+        });
+        // A heading older than the gate is not hers now: no direction, no wind above calm.
+        expect(pickCloudTrueWind(row({ twdDeg: undefined, headingTrueAt: NOW - 61_000 }), NOW)).toBeNull();
+        expect(pickCloudTrueWind(row({ twdDeg: undefined, headingTrueDeg: undefined }), NOW)).toBeNull();
+    });
+
+    it('never passes a wind the Pi did not date: no sample time is Signal K’s cached value', () => {
+        expect(pickCloudTrueWind(row({ windSampleAt: undefined }), NOW)).toBeNull();
+        expect(pickCloudTrueWind(row({ windSampleAt: 0 }), NOW)).toBeNull();
+    });
+
+    it('holds the cloud lane’s 60 s gate on the sample clock, and refuses a sample from the future', () => {
+        expect(CLOUD_WIND_MAX_AGE_MS).toBe(60_000);
+        expect(pickCloudTrueWind(row({ windSampleAt: NOW - 60_000 }), NOW)).toMatchObject({ kt: 14 });
+        expect(pickCloudTrueWind(row({ windSampleAt: NOW - 60_001 }), NOW)).toBeNull();
+        expect(pickCloudTrueWind(row({ windSampleAt: NOW + 5_000 }), NOW)).toBeNull();
+    });
+
+    it('a calm boat with no direction reads Calm', () => {
+        expect(pickCloudTrueWind(row({ twsKts: 0.6, twdDeg: undefined, headingTrueDeg: undefined }), NOW)).toEqual({
+            kt: 0.6,
+            fromDeg: null,
+            stale: false,
+        });
+    });
+
+    it('refuses values out of range rather than painting them', () => {
+        expect(pickCloudTrueWind(row({ twsKts: -1 }), NOW)).toBeNull();
+        expect(pickCloudTrueWind(row({ twsKts: 151 }), NOW)).toBeNull();
+        expect(pickCloudTrueWind(row({ twsKts: Number.NaN }), NOW)).toBeNull();
+        expect(pickCloudTrueWind(row({ twsKts: undefined }), NOW)).toBeNull();
+        // A bad TWD falls through to heading + TWA; a bad TWA as well leaves no direction.
+        expect(pickCloudTrueWind(row({ twdDeg: 400, headingTrueDeg: 350, twaDeg: 30 }), NOW)).toMatchObject({
+            fromDeg: 20,
+        });
+        expect(pickCloudTrueWind(row({ twdDeg: 400, twaDeg: 190 }), NOW)).toBeNull();
+        expect(pickCloudTrueWind(null, NOW)).toBeNull();
     });
 });
