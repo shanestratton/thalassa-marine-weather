@@ -290,16 +290,6 @@ export function useWeatherLayers(
      * need our layer to show through").
      */
     planMode = false,
-    /**
-     * THE LOCATION BOX (Shane 2026-08-24: "always ensure that the centre of
-     * the map is the location set in the location box"). Distinct from
-     * `location` above, which is the GPS/pin store — this is the weather
-     * location the punter actually chose, and it is what a framing flight
-     * should return them to rather than wherever the chart last drifted.
-     * Optional: absent, framing keeps the current centre, which is the old
-     * behaviour.
-     */
-    frameCenter?: { lat: number; lon: number } | null,
     /** Passage instruments own the camera; Squall is a separate, current-only overlay. */
     passageContext?: { hudEnabled: boolean; squallVisible: boolean },
     /** OBS opens clean, even if a previous tab session stored overlays. */
@@ -1948,11 +1938,13 @@ export function useWeatherLayers(
     // wind layer and resolves its zoom through frameZoomForSelection so a
     // stack gets the stack frame.
     //
-    // It used to hold the current centre deliberately ("never yank the skipper
-    // to a different place, only to the right scale"). That reversed on
-    // 2026-08-24: it now returns to the LOCATION BOX, because holding the
-    // centre meant framing a layer zoomed you in on wherever you had panned to
-    // rather than on the water you actually selected.
+    // It holds the current centre: the right scale, never a different place.
+    // 2026-08-24 made it return to the LOCATION BOX instead, and that is the
+    // flight Shane hit on 2026-10-06 ("when you go to select a layer like wind
+    // for example, it flys you to the new location that you have in your glass
+    // page"): Obs had opened on the vessel, so pressing wind crossed to the
+    // Glass location. Obs now OPENS where the box points
+    // (useObsStartupCamera), so holding the centre frames that place anyway.
     //
     // Not on mount: the boot path frames z9 via MapHub's jumpTo, and a second
     // flyTo on top of it would fight the landing. The ref starts as the
@@ -1964,11 +1956,6 @@ export function useWeatherLayers(
     // punter-centred fine grid covers the viewport — so framing local is what
     // makes the first paint come from memory instead of a wide fetch.
     const prevWindOnRef = useRef<boolean | null>(null);
-    // The effect below depends only on the layer transition, so it must read
-    // the centre through a ref — a captured one goes stale the moment the
-    // location box moves without the layer set changing.
-    const frameCenterRef = useRef<{ lat: number; lon: number } | null>(null);
-    frameCenterRef.current = frameCenter ?? null;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -1983,17 +1970,9 @@ export function useWeatherLayers(
         // would put the camera somewhere different depending on WHICH toggle
         // you tapped to build the same two-layer view.
         const target = frameZoomForSelection(activeLayers, 'wind') ?? LAYER_FRAME_ZOOM.wind ?? 7;
-        const box = frameCenterRef.current;
-        const centre = map.getCenter();
-        const centreMoved = !!box && (Math.abs(centre.lat - box.lat) > 1e-6 || Math.abs(centre.lng - box.lon) > 1e-6);
-        // Nothing to do only when BOTH already match — the zoom test alone
-        // used to skip the flight while the camera sat over the wrong water.
-        if (Math.abs(map.getZoom() - target) < 0.05 && !centreMoved) return;
-        map.flyTo({
-            center: box ? [box.lon, box.lat] : [centre.lng, centre.lat],
-            zoom: target,
-            duration: 700,
-        });
+        if (Math.abs(map.getZoom() - target) < 0.05) return;
+        // Zoom only. No `center`: the skipper stays over the water they chose.
+        map.easeTo({ zoom: target, duration: 700 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady, planMode, embedded, passageOwnsCamera]);
 

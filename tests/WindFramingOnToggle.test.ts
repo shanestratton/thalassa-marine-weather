@@ -8,6 +8,7 @@
  * nothing, and wind pressed from a harbour left the camera deep. The
  * dedicated effect fires on every off→on transition, keeps the centre, and
  * reads its target from LAYER_FRAME_ZOOM so the number lives in one place.
+ * (It returned to the location box 2026-08-24 to 2026-10-06; see below.)
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -32,15 +33,17 @@ describe('wind framing on toggle', () => {
         expect(LAYER_FRAME_ZOOM.wind).toBe(9); // back to the harbour frame 2026-08-25
     });
 
-    it('returns to the location box rather than holding the current centre', () => {
-        // Reversed 2026-08-24. It used to keep the centre deliberately, which
-        // meant framing wind zoomed you in on wherever you had panned to
-        // instead of the water you actually selected.
-        expect(effect).toContain('frameCenterRef.current');
-        expect(effect).toContain('center: box ? [box.lon, box.lat]');
-        // ...and the no-op test must consider the centre too, or the flight is
-        // skipped while the camera sits over the wrong water at the right zoom.
-        expect(effect).toContain('centreMoved');
+    it('holds the current centre rather than flying to the location box', () => {
+        // Reversed again 2026-10-06 (Shane: "when you go to select a layer
+        // like wind for example, it flys you to the new location that you have
+        // in your glass page"). Returning to the box (2026-08-24) crossed from
+        // the vessel to the Glass location; Obs now opens where the box points,
+        // so the zoom alone frames that water. ObsLayerToggleCamera.test.tsx
+        // proves it on a live hook.
+        const code = effect.replace(/\/\/[^\n]*/g, '');
+        expect(code).toContain('map.easeTo({ zoom: target, duration: 700 })');
+        expect(code).not.toContain('center');
+        expect(src).not.toContain('frameCenter');
     });
 
     it('stays out of Plan and embedded surfaces, and does not fire on mount', () => {

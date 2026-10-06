@@ -1527,20 +1527,19 @@ export function useCycloneLayer(
 
         injectCycloneCSS();
 
-        // ── Synoptic view: CYCLONE_OPEN_ZOOM, user dead centre ──
+        // ── Synoptic view: CYCLONE_OPEN_ZOOM about what is on screen ──
         // minZoom stays 1 — the opening frame changed, not the floor.
         prevMaxZoomRef.current = map.getMaxZoom();
         map.setMinZoom(1);
         map.setMaxZoom(CYCLONE_MAX_ZOOM);
         openZoomRef.current = CYCLONE_OPEN_ZOOM;
 
-        const uLat = userLatRef.current;
-        const uLon = userLonRef.current;
-        if (isFinite(uLat) && isFinite(uLon) && (uLat !== 0 || uLon !== 0)) {
-            map.flyTo({ center: [uLon, uLat], zoom: CYCLONE_OPEN_ZOOM, duration: 800 });
-        } else {
-            map.easeTo({ center: [145, -28], zoom: CYCLONE_OPEN_ZOOM, duration: 400 });
-        }
+        // The centre stays put. Obs opens where the location box points (the
+        // vessel, or a chosen place such as Hawaii), and switching Storms on
+        // must never fly the chart off it to the phone's GPS (Shane
+        // 2026-10-06). The punter's own position still picks the closest
+        // storm below; the flight to that storm is the storm view itself.
+        map.easeTo({ zoom: CYCLONE_OPEN_ZOOM, duration: 800 });
 
         const onMoveEnd = () => {
             // Don't snap back if WE initiated the move

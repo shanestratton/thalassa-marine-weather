@@ -46,7 +46,7 @@ describe('clean OBS startup', () => {
         sessionStorage.setItem('thalassa_active_layers', '["wind","rain","pressure"]');
         localStorage.setItem('thalassa_mpa_visible', '1');
         const { result, rerender } = renderHook(
-            ({ plan }) => useWeatherLayers(mapRef, false, false, { lat: -20, lon: 149 }, plan, null, undefined, true),
+            ({ plan }) => useWeatherLayers(mapRef, false, false, { lat: -20, lon: 149 }, plan, undefined, true),
             { initialProps: { plan: false } },
         );
         expect(result.current.activeLayers.size).toBe(0);
@@ -94,7 +94,9 @@ describe('clean OBS startup', () => {
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(hub).toContain('const [weatherInspectMode, setWeatherInspectMode] = useState(false)');
         expect(hub).toContain('const [encVisible, setEncVisible] = useState(false)');
-        expect(hub).toContain("useObsStartupCamera(mapRef, mapReady, ownshipStartup && currentView === 'map')");
+        expect(hub).toContain(
+            "useObsStartupCamera(mapRef, mapReady, ownshipStartup && currentView === 'map', obsStart)",
+        );
         expect(hub).not.toContain('lastFlownCoordsRef');
         expect(hub).toContain('encSafetyDepthM, encHazardDepthM, coordCaptureMode)');
         expect(hub).toContain('useAnchorSwingLayer(mapRef, mapReady)');

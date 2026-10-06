@@ -1,5 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type mapboxgl from 'mapbox-gl';
 import type { GpsPosition } from '../services/GpsService';
 import type { OwnshipNavigationInput } from '../services/ownshipPosition';
@@ -12,7 +13,10 @@ const dependencies = vi.hoisted(() => ({
     gps: vi.fn(),
     foregroundGps: vi.fn(),
     backgroundGps: vi.fn(),
+    followKey: 'phone',
 }));
+
+vi.mock('../services/weatherPosition', () => ({ getWeatherFollowKey: () => dependencies.followKey }));
 
 vi.mock('../services/NmeaStore', () => ({
     NmeaStore: {
@@ -76,7 +80,13 @@ const maps = vi.hoisted(() => {
 
 vi.mock('mapbox-gl', () => ({ default: { Map: maps.FakeMap, ScaleControl: class {} } }));
 
-import { useObsStartupCamera } from '../components/map/useObsStartupCamera';
+import {
+    OBS_START_VESSEL,
+    OBS_VESSEL_ZOOM,
+    obsStartTarget,
+    useObsStartupCamera,
+    type ObsStartTarget,
+} from '../components/map/useObsStartupCamera';
 import { useMapInit } from '../components/map/useMapInit';
 
 const NOW = Date.parse('2026-09-23T00:00:00.000Z');
@@ -128,6 +138,7 @@ beforeEach(() => {
     dependencies.nmeaListeners.clear();
     dependencies.locationListeners.clear();
     dependencies.gps.mockResolvedValue(null);
+    dependencies.followKey = 'phone';
 });
 
 afterEach(async () => {
@@ -269,8 +280,176 @@ describe('OBS startup camera', () => {
     });
 });
 
+// Fictional coordinates for a chosen place far from the boat ("if i put
+// hawaii in the glass page, when i go to the obs page, it should show me that
+// location from the get go", Shane 2026-10-06).
+const HAWAII = { lat: 21.3, lon: -157.85 };
+const SUVA = { lat: -18.14, lon: 178.44 };
+const hawaii = (): ObsStartTarget => obsStartTarget({ defaultLocation: 'Hawaii', defaultLocationCoords: HAWAII });
+const suva = (): ObsStartTarget => obsStartTarget({ defaultLocation: 'Suva', defaultLocationCoords: SUVA });
+
+function mountBox(target: ObsStartTarget, ready = true, enabled = true) {
+    const map = new maps.FakeMap();
+    const props = { mapRef: { current: map as unknown as mapboxgl.Map | null }, ready, enabled, target };
+    const view = renderHook(
+        ({ mapRef, ready, enabled, target }) => useObsStartupCamera(mapRef, ready, enabled, target),
+        { initialProps: props },
+    );
+    return { ...view, map, props };
+}
+
+describe('reading the location box', () => {
+    it.each([undefined, null, '', 'Current Location'])('follows the vessel for %j', (defaultLocation) => {
+        expect(obsStartTarget({ defaultLocation, weatherCoords: WEATHER })).toEqual(OBS_START_VESSEL);
+    });
+
+    it('takes a chosen place from its saved coordinates, keyed on the choice', () => {
+        const target = obsStartTarget({
+            defaultLocation: 'Hawaii',
+            defaultLocationCoords: HAWAII,
+            weatherCoords: { lat: 21.31, lon: -157.86 },
+        });
+        expect(target).toEqual({ kind: 'place', key: 'place:Hawaii@21.3000,-157.8500', center: HAWAII });
+    });
+
+    it('fills a name-only choice from the report, and the key survives the report refining', () => {
+        const first = obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: { lat: 0, lon: 0 } });
+        expect(first).toEqual({ kind: 'place', key: 'place:Hawaii', center: null });
+        const resolved = obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: HAWAII });
+        expect(resolved).toEqual({ kind: 'place', key: 'place:Hawaii', center: HAWAII });
+    });
+});
+
+describe('OBS opens where the location box points', () => {
+    it('opens a chosen place at z10 at once, with no boat hop and no ownship lookup', () => {
+        nmeaFix(); // the boat is live and somewhere else entirely
+        const { map } = mountBox(hawaii(), false);
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+        // The place moves the camera only: ownship is not read, subscribed or
+        // refreshed, so it cannot be mistaken for (or replaced by) the vessel.
+        expect(dependencies.gps).not.toHaveBeenCalled();
+        expect(dependencies.foregroundGps).not.toHaveBeenCalled();
+        expect(dependencies.nmeaListeners.size).toBe(0);
+        expect(dependencies.locationListeners.size).toBe(0);
+    });
+
+    it('still opens on the vessel at z14 while the box follows the boat', () => {
+        nmeaFix();
+        dependencies.followKey = 'boat';
+        const { map } = mountBox(OBS_START_VESSEL);
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
+    });
+
+    it('waits for a name-only place to resolve rather than hopping via the boat', () => {
+        nmeaFix();
+        const pending = obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: null });
+        const { map, rerender, props } = mountBox(pending);
+        expect(map.jumpTo).not.toHaveBeenCalled();
+        expect(dependencies.gps).not.toHaveBeenCalled();
+        rerender({ ...props, target: obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: HAWAII }) });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+    });
+
+    it('lets a gesture win while a name-only place resolves', () => {
+        const pending = obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: null });
+        const { map, rerender, props } = mountBox(pending);
+        act(() => map.emit('dragstart', { originalEvent: new Event('pointermove') }));
+        rerender({ ...props, target: obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: HAWAII }) });
+        expect(map.jumpTo).not.toHaveBeenCalled();
+    });
+
+    it('opens a name-only place on the next visit when it resolves while Obs is hidden', () => {
+        // A typed Glass search resolves in about 0.4-2.7 s (never, offline).
+        // Leaving Obs before it lands is not the skipper taking over the
+        // camera, so the next visit opens on the place.
+        nmeaFix();
+        const pending = obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: { lat: 0, lon: 0 } });
+        const { map, rerender, props } = mountBox(pending);
+        expect(map.jumpTo).not.toHaveBeenCalled();
+        rerender({ ...props, enabled: false });
+        const resolved = obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: HAWAII });
+        rerender({ ...props, enabled: false, target: resolved });
+        expect(map.jumpTo).not.toHaveBeenCalled(); // nothing while Obs is hidden
+        rerender({ ...props, enabled: true, target: resolved });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+    });
+
+    it.each([
+        ['a chosen place', hawaii],
+        ['the vessel', () => OBS_START_VESSEL],
+    ] as const)('keeps the skipper’s view on a revisit when the box has not changed (%s)', (_label, target) => {
+        nmeaFix();
+        const { map, rerender, props } = mountBox(target());
+        expect(map.jumpTo).toHaveBeenCalledTimes(1);
+        rerender({ ...props, enabled: false });
+        rerender({ ...props, target: target(), enabled: true });
+        expect(map.jumpTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('recentres on the next visit after the box changes, place to place and place to vessel', () => {
+        nmeaFix();
+        const { map, rerender, props } = mountBox(hawaii());
+        expect(map.jumpTo).toHaveBeenLastCalledWith({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+        rerender({ ...props, enabled: false });
+        rerender({ ...props, enabled: false, target: suva() });
+        expect(map.jumpTo).toHaveBeenCalledTimes(1); // nothing while Obs is hidden
+        rerender({ ...props, enabled: true, target: suva() });
+        expect(map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(map.jumpTo).toHaveBeenLastCalledWith({ center: [SUVA.lon, SUVA.lat], zoom: 10 });
+        rerender({ ...props, enabled: false, target: suva() });
+        rerender({ ...props, enabled: false, target: OBS_START_VESSEL });
+        rerender({ ...props, enabled: true, target: OBS_START_VESSEL });
+        expect(map.jumpTo).toHaveBeenCalledTimes(3);
+        expect(map.jumpTo).toHaveBeenLastCalledWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
+    });
+
+    it('treats a new follow target as a new box', () => {
+        nmeaFix();
+        const { map, rerender, props } = mountBox(OBS_START_VESSEL);
+        expect(map.jumpTo).toHaveBeenCalledTimes(1);
+        rerender({ ...props, enabled: false });
+        dependencies.followKey = 'boat';
+        rerender({ ...props, enabled: true });
+        expect(map.jumpTo).toHaveBeenCalledTimes(2);
+        expect(map.jumpTo).toHaveBeenLastCalledWith({ center: [VESSEL.lon, VESSEL.lat], zoom: 14 });
+    });
+
+    it('waits for the next visit when the box changes while Obs is on screen', () => {
+        const { map, rerender, props } = mountBox(hawaii());
+        expect(map.jumpTo).toHaveBeenCalledTimes(1);
+        rerender({ ...props, target: suva() });
+        expect(map.jumpTo).toHaveBeenCalledTimes(1);
+        rerender({ ...props, target: suva(), enabled: false });
+        rerender({ ...props, target: suva(), enabled: true });
+        expect(map.jumpTo).toHaveBeenLastCalledWith({ center: [SUVA.lon, SUVA.lat], zoom: 10 });
+    });
+
+    it('leaves find-boat flying to the vessel at z14, never to the chosen place', () => {
+        const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+        expect(OBS_VESSEL_ZOOM).toBe(14);
+        expect(hub).toContain('const LOCATE_BOAT_ZOOM = OBS_VESSEL_ZOOM;');
+        const locate = hub.slice(hub.indexOf('onLocateMe={() => {'), hub.indexOf('onRecenter={() => {'));
+        expect(locate).toContain('resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState())');
+        expect(locate.match(/zoom: LOCATE_BOAT_ZOOM/g)).toHaveLength(2);
+        expect(locate).not.toContain('obsStart');
+        expect(locate).not.toContain('weatherCoords');
+    });
+
+    it('follows the box when it moves before the camera has settled', async () => {
+        // Boot order: the vessel centring is still waiting for a fix when the
+        // saved place arrives. The place wins, and the late fix cannot undo it.
+        const resolve = deferGps();
+        const { map, rerender, props } = mountBox(OBS_START_VESSEL);
+        expect(map.jumpTo).not.toHaveBeenCalled();
+        rerender({ ...props, target: hawaii() });
+        expect(map.jumpTo).toHaveBeenCalledExactlyOnceWith({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+        await act(async () => resolve(phoneFix()));
+        expect(map.jumpTo).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('Mapbox initial camera policy', () => {
-    function mountMap(ownshipStartup: boolean, embedded = false) {
+    function mountMap(ownshipStartup: boolean, embedded = false, obsStart?: ObsStartTarget) {
         const container = document.createElement('div');
         Object.defineProperties(container, { clientWidth: { value: 400 }, clientHeight: { value: 800 } });
         return renderHook(
@@ -286,6 +465,7 @@ describe('Mapbox initial camera policy', () => {
                     minimalLabels: false,
                     embedded,
                     ownshipStartup,
+                    obsStart,
                     location: dependencies.location,
                     initialCenter,
                     encVisible: false,
@@ -320,6 +500,24 @@ describe('Mapbox initial camera policy', () => {
         mountMap(true);
         expect(maps.instances[0].options.center).toEqual([145, -28]);
         expect(maps.instances[0].options.zoom).toBeLessThan(5);
+    });
+
+    it('constructs OBS on a place chosen in the location box at z10, not on the boat', () => {
+        nmeaFix();
+        mountMap(true, false, hawaii());
+        expect(maps.instances[0].options).toMatchObject({ center: [HAWAII.lon, HAWAII.lat], zoom: 10 });
+    });
+
+    it('opens broad rather than on the boat while a name-only place resolves', () => {
+        nmeaFix();
+        mountMap(true, false, obsStartTarget({ defaultLocation: 'Hawaii', weatherCoords: null }));
+        expect(maps.instances[0].options.center).toEqual([145, -28]);
+    });
+
+    it('keeps a Plan/picker map off the Obs place start', () => {
+        nmeaFix();
+        mountMap(false, false, hawaii());
+        expect(maps.instances[0].options).toMatchObject({ center: [WEATHER.lon, WEATHER.lat], zoom: 10 });
     });
 
     it('preserves selected-location startup for a Plan/picker map', () => {

@@ -28,7 +28,7 @@ import { registerChartMap } from './chartMapRegistry';
 import { addReliefBase, HIDDEN_BASE_GEOMETRY, LAND_STRUCTURE } from './reliefBase';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
 import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
-import { OBS_VESSEL_ZOOM } from './useObsStartupCamera';
+import { OBS_PLACE_ZOOM, OBS_VESSEL_ZOOM, type ObsStartTarget } from './useObsStartupCamera';
 import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
 
 /** Map instances created THIS PROCESS — the flight trail's #N. */
@@ -86,6 +86,12 @@ interface UseMapInitOptions {
     initialCenter?: { lat: number; lon: number };
     /** OBS starts at a fresh ownship fix, never a weather/home selection. */
     ownshipStartup?: boolean;
+    /**
+     * With ownshipStartup: where the location box points. A chosen place
+     * opens OBS there at z10 instead of on the vessel (Shane 2026-10-06);
+     * absent or 'vessel' keeps the ownship start.
+     */
+    obsStart?: ObsStartTarget;
     pickerMode?: boolean; // Kept as it's passed to usePickerMode
     /** The live ENC browse switch; plotting may still require the chart. */
     encVisible?: boolean;
@@ -159,6 +165,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         onLocationSelect,
         initialCenter,
         ownshipStartup = false,
+        obsStart,
         pickerMode: _pickerMode,
         settingPoint,
         showPassage,
@@ -317,9 +324,13 @@ export function useMapInit(opts: UseMapInitOptions) {
             return Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
         })();
 
-        // ── Default view: z10 on ownship for OBS, selected location elsewhere ──
-        // OBS may wait for its first real fix in useObsStartupCamera. An
-        // initial/home/search coordinate must not masquerade as the vessel.
+        // ── Default view: OBS where the location box points, selected location elsewhere ──
+        // OBS following a receiver opens on ownship at z14, and may wait for
+        // its first real fix in useObsStartupCamera. An initial/home/search
+        // coordinate must not masquerade as the vessel. OBS on a place chosen
+        // in the location box opens on that place at z10 from the first frame
+        // (Shane 2026-10-06), or the broad fallback while a name-only choice
+        // resolves; never on the boat first.
         // Other surfaces retain their existing initial-centre priority:
         //   1. `initialCenter` — the "location box" value (selected weather
         //      location). This is what the user actually cares about: if they
@@ -331,13 +342,17 @@ export function useMapInit(opts: UseMapInitOptions) {
         const validCenter = (pt?: { lat: number; lon: number }): boolean =>
             !!pt && isFinite(pt.lat) && isFinite(pt.lon) && (pt.lat !== 0 || pt.lon !== 0);
 
-        const preferredCenter = ownshipStartup
-            ? getCachedOwnshipPosition()
-            : validCenter(initialCenter)
-              ? { lat: initialCenter!.lat, lon: initialCenter!.lon }
-              : validCenter(location)
-                ? { lat: location.lat, lon: location.lon }
-                : null;
+        const obsPlace = ownshipStartup && obsStart?.kind === 'place' ? obsStart : null;
+        const obsPlaceCenter = obsPlace?.center && validCenter(obsPlace.center) ? obsPlace.center : null;
+        const preferredCenter = obsPlace
+            ? obsPlaceCenter && { lat: obsPlaceCenter.lat, lon: obsPlaceCenter.lon }
+            : ownshipStartup
+              ? getCachedOwnshipPosition()
+              : validCenter(initialCenter)
+                ? { lat: initialCenter!.lat, lon: initialCenter!.lon }
+                : validCenter(location)
+                  ? { lat: location.lat, lon: location.lon }
+                  : null;
 
         const startCenter: [number, number] = embedded
             ? [location.lon, location.lat]
@@ -355,9 +370,11 @@ export function useMapInit(opts: UseMapInitOptions) {
         const startZoom = embedded
             ? initialZoom
             : preferredCenter
-              ? ownshipStartup
-                  ? OBS_VESSEL_ZOOM
-                  : GOLDEN_BOOT_ZOOM
+              ? obsPlace
+                  ? OBS_PLACE_ZOOM
+                  : ownshipStartup
+                    ? OBS_VESSEL_ZOOM
+                    : GOLDEN_BOOT_ZOOM
               : ausNzFitZoom;
 
         // The 2026-08-09 flight trails show map:create TWICE per session, with

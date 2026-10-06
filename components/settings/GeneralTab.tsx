@@ -246,7 +246,10 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                             value={followsYou ? '' : settings.defaultLocation || ''}
                             onChange={(e) => {
                                 setPin('idle');
-                                onSave({ defaultLocation: e.target.value });
+                                // A typed port is name-only: clear the saved
+                                // coordinates (the last GPS fix while following)
+                                // so they cannot stand for it on boot or in Obs.
+                                onSave({ defaultLocation: e.target.value, defaultLocationCoords: undefined });
                             }}
                             aria-describedby={helpId}
                             className="min-h-11 min-w-0 flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"

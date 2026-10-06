@@ -23,13 +23,23 @@ describe('storm view opening zoom', () => {
         // It was `zoom: 1` in three separate places, so "change the opening
         // zoom" meant finding all three. One constant, one decision.
         const effect = src.slice(src.indexOf('// ── Synoptic view'), src.indexOf('const onMoveEnd'));
-        expect(effect).toContain('zoom: CYCLONE_OPEN_ZOOM, duration: 800');
-        expect(effect).toContain('zoom: CYCLONE_OPEN_ZOOM, duration: 400');
+        expect(effect).toContain('map.easeTo({ zoom: CYCLONE_OPEN_ZOOM, duration: 800 });');
         // …and the focus flight that lands on the storm itself.
         const focus = src.slice(src.indexOf('Flying to ${focusTarget.name}'), src.indexOf('} catch (e) {'));
         expect(focus).toContain('zoom: CYCLONE_OPEN_ZOOM');
         // No stragglers anywhere in the camera work.
         expect(src.slice(src.indexOf('// ── Synoptic view'))).not.toContain('zoom: 1,');
+    });
+
+    it('opens about what is on screen, never flying the chart to the phone', () => {
+        // Obs opens where the location box points (Hawaii, say). The open
+        // frame flew to the phone's GPS first (Shane 2026-10-06: "if i look
+        // at any layers, it should show me the details of that location").
+        // The punter's position still picks the closest storm.
+        const effect = src.slice(src.indexOf('// ── Synoptic view'), src.indexOf('const onMoveEnd'));
+        expect(effect).not.toContain('center:');
+        expect(effect).not.toContain('flyTo');
+        expect(src).toContain('findClosestCyclone(cyclones, userLatRef.current, userLonRef.current)');
     });
 
     it('changes where the view lands, NOT how far out you may pull', () => {

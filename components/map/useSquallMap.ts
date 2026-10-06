@@ -87,8 +87,6 @@ export function useSquallMap(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,
     mapReady: boolean,
     visible: boolean,
-    userLat?: number,
-    userLon?: number,
     allCyclones?: ActiveCyclone[],
     onSelectStorm?: (storm: ActiveCyclone) => void,
     /** Passage uses squalls as an overlay, without the standalone view's camera takeover. */
@@ -118,11 +116,11 @@ export function useSquallMap(
         const previousMin = map.getMinZoom();
         map.setMinZoom(minInt);
         map.setMaxZoom(SQUALL_MAX_ZOOM);
-        if (userLat && userLon && isFinite(userLat) && isFinite(userLon)) {
-            map.flyTo({ center: [userLon, userLat], zoom: minInt, duration: 800 });
-        } else {
-            map.easeTo({ center: [145, -28], zoom: minInt, duration: 400 });
-        }
+        // Zoom out about what is on screen; the centre stays put. Obs opens
+        // where the location box points (the vessel, or a chosen place such
+        // as Hawaii), and switching a layer on must never fly the chart off
+        // it, to the phone's GPS or anywhere else (Shane 2026-10-06).
+        map.easeTo({ zoom: minInt, duration: 800 });
         const onZoomEnd = () => {
             const zoom = map.getZoom();
             const snapped = Math.max(minInt, Math.min(Math.round(zoom), SQUALL_MAX_ZOOM));
@@ -136,8 +134,6 @@ export function useSquallMap(
             if (map.getMaxZoom() === SQUALL_MAX_ZOOM) map.setMaxZoom(previousMax);
             if (map.getMinZoom() === minInt) map.setMinZoom(previousMin);
         };
-        // Coordinates choose the entry frame; live position updates never refly it.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapRef, mapReady, visible, preserveCamera]);
 
     useEffect(() => {
