@@ -348,16 +348,25 @@ test('a client that does not accept stale (a pre-2b phone) never gets the stale 
 function hangingOverpass() {
     let release: ((r: OverpassReply) => void) | null = null;
     let calls = 0;
+    let markAborted: () => void = () => undefined;
+    const aborted = new Promise<void>((resolve) => {
+        markAborted = resolve;
+    });
     return {
         get calls() {
             return calls;
         },
+        /** Settles when the client aborts the hanging fetch (its deadline). */
+        aborted,
         release: (r: OverpassReply) => release?.(r),
         fetchOverpass: (init: OverpassRequest): Promise<OverpassReply> => {
             calls++;
             return new Promise<OverpassReply>((resolve, reject) => {
                 release = resolve;
-                init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+                init.signal.addEventListener('abort', () => {
+                    markAborted();
+                    reject(new Error('aborted'));
+                });
             });
         },
     };
@@ -463,20 +472,30 @@ test('a hanging Overpass that never answers is aborted at its deadline after the
         },
     );
     assert.equal(res.state, 'stale');
-    await new Promise((r) => setTimeout(r, 300));
+    // Wait for the deadline's abort itself, not a fixed 300 ms: on a loaded CI
+    // runner the 150 ms timer plus the in-flight cleanup overran 300 ms
+    // (run 37402933748, 2026-10-06), and the next call still saw the refresh
+    // in flight and answered 'stale'.
+    await hang.aborted;
     // Aborted, not saved over; and a later call asks Overpass again.
     assert.equal(await fs.readFile(file, 'utf8'), before);
     const ok = overpass([reply({ elements: [WATER_WAY] })]);
-    const fresh = await getOsmOverlay(
-        [153.09, -27.22, 153.11, -27.19],
-        { acceptStale: true },
-        {
-            fetchOverpass: ok.fetchOverpass,
-            cacheDir,
-            now: () => T0 + 30 * DAY,
-            staleAfterMs: 20,
-        },
-    );
+    let fresh = { state: 'stale' } as Awaited<ReturnType<typeof getOsmOverlay>>;
+    for (let attempt = 0; attempt < 40 && fresh.state !== 'fresh'; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 25));
+        // A call made while the aborted refresh is still being cleared up
+        // answers 'stale' WITHOUT asking Overpass, so ok.queries stays exact.
+        fresh = await getOsmOverlay(
+            [153.09, -27.22, 153.11, -27.19],
+            { acceptStale: true },
+            {
+                fetchOverpass: ok.fetchOverpass,
+                cacheDir,
+                now: () => T0 + 30 * DAY,
+                staleAfterMs: 20,
+            },
+        );
+    }
     assert.equal(fresh.state, 'fresh');
     assert.equal(ok.queries.length, 1);
 });
