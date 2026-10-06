@@ -39,20 +39,29 @@ export const JournalCard: React.FC<{
     'aria-label': string;
     title: string;
     /** What is inside, in a few words, or what is new; also the card's
-     *  description. */
+     *  description unless `description` says it in full. */
     subtitle: string;
+    /** The full reading for VoiceOver when the subtitle is its short form
+     *  (the Log's Voyage stats and Archived voyages cards). */
+    description?: string;
+    /** The card opens a sheet (the Log's pair): announced as a popup, with
+     *  whether it is open. */
+    opensSheet?: { open: boolean };
     /** A count worth a glance (unread messages), drawn in the corner. */
     badge?: string;
     /** The glyph, drawn in the hub accent. */
     icon: React.ReactNode;
     accent: string;
     onClick: () => void;
-}> = ({ 'aria-label': ariaLabel, title, subtitle, badge, icon, accent, onClick }) => {
+}> = ({ 'aria-label': ariaLabel, title, subtitle, description, opensSheet, badge, icon, accent, onClick }) => {
     const id = useId();
     return (
         <button
+            type="button"
             aria-label={ariaLabel}
-            aria-describedby={`${id}-sub`}
+            aria-describedby={description ? `${id}-desc` : `${id}-sub`}
+            aria-haspopup={opensSheet ? 'dialog' : undefined}
+            aria-expanded={opensSheet ? opensSheet.open : undefined}
             onClick={onClick}
             style={JOURNAL_CARD}
             className="vessel-hub-tile relative flex h-full min-w-0 items-center gap-3 overflow-hidden px-4 py-2 text-left transition-all active:scale-[0.98] card-lift"
@@ -82,6 +91,11 @@ export const JournalCard: React.FC<{
                 >
                     {subtitle}
                 </span>
+                {description && (
+                    <span id={`${id}-desc`} className="sr-only">
+                        {description}
+                    </span>
+                )}
             </span>
             {/* The count, the tab bar's badge colours; the subtitle says it in
                 words, so it is hidden from VoiceOver. */}

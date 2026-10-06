@@ -1,11 +1,13 @@
-import React, { useId, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { formatVoyageDuration, voyageElapsedMs } from '../../utils/voyageTiming';
 import { groupPassageLogs } from './PassageLogList';
 import { useEndpointNames } from './useEndpointNames';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
-import { ARCHIVE_DIDNT_LOAD, LOG_CARD_SHELL_ARCHIVED, LOG_CARD_TITLE } from './logPageHelpers';
+import { JournalCard } from '../../components/vesselHub/JournalCard';
+import { ModalSheet } from '../../components/ui/ModalSheet';
+import { ARCHIVE_DIDNT_LOAD, LOG_CARD_ACCENT } from './logPageHelpers';
 
 type RestorePassage = (passageId: string, voyageIds: string[]) => Promise<void>;
 
@@ -18,11 +20,6 @@ interface ArchivedVoyagesSectionProps {
     loading?: boolean;
     error?: string | null;
     onRetry?: () => void;
-    /** False while the page shows the one shared "history didn't load" line
-     *  and its Retry, so the collapsed card does not add a second Retry. */
-    collapsedRetry?: boolean;
-    /** Spacing for where the page places the card (default: below the list). */
-    className?: string;
 }
 
 function ArchivedVoyageCard({
@@ -80,12 +77,7 @@ export function ArchivedVoyagesSection({
     loading = false,
     error = null,
     onRetry,
-    collapsedRetry = true,
-    className = 'mt-5',
 }: ArchivedVoyagesSectionProps) {
-    const contentId = useId();
-    const titleId = useId();
-    const statusLineId = useId();
     const offline = !useOnlineStatus();
     const [restoringIds, setRestoringIds] = useState<readonly string[]>([]);
     const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -100,9 +92,6 @@ export function ArchivedVoyagesSection({
     const passageCount = groups.filter((group) => group.passage).length;
     const count = loggedArchivedVoyages.length;
     const busy = restoringIds.length > 0;
-    // Nothing to show and the read failed. Collapsed, this card is the only
-    // place the skipper sees it, so the Retry lives on the card itself.
-    const loadFailed = !!error && count === 0 && !loading;
     // A cause only when the app already knows it (probe-verified offline).
     const loadErrorText = error && offline ? `${error} You’re offline.` : error;
 
@@ -127,84 +116,47 @@ export function ArchivedVoyagesSection({
         }
     }
 
-    return (
-        // Voyage stats' recipe (radius, material, title ink, an icon on both,
-        // Show/Hide), and named by its title with the status as the
-        // description, as that card is (UX scorecard run 7).
-        <section className={`${className} ${LOG_CARD_SHELL_ARCHIVED}`}>
-            <button
-                type="button"
-                aria-expanded={showArchived}
-                aria-controls={contentId}
-                aria-labelledby={titleId}
-                aria-describedby={statusLineId}
-                onClick={() => setShowArchived(!showArchived)}
-                className="flex min-h-12 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/3 focus-visible:outline-2 focus-visible:outline-amber-300"
-            >
-                <span className="flex min-w-0 items-center gap-3">
-                    <svg
-                        aria-hidden="true"
-                        className="h-5 w-5 shrink-0 text-amber-300"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                        />
-                    </svg>
-                    <span className="min-w-0">
-                        <span id={titleId} className={LOG_CARD_TITLE}>
-                            Archived voyages
-                        </span>
-                        <span id={statusLineId} className="mt-1 block text-xs text-slate-400">
-                            {loading && count === 0
-                                ? 'Loading archive…'
-                                : error && count === 0
-                                  ? ARCHIVE_DIDNT_LOAD
-                                  : `${count} ${count === 1 ? 'voyage' : 'voyages'}${passageCount ? ` · ${passageCount} ${passageCount === 1 ? 'passage' : 'passages'}` : ''}`}
-                        </span>
-                    </span>
-                </span>
-                <span
-                    aria-hidden="true"
-                    className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-amber-200"
-                >
-                    {showArchived ? 'Hide' : 'Show'}
-                    <svg
-                        aria-hidden="true"
-                        className={`h-4 w-4 transition-transform ${showArchived ? 'rotate-180' : ''}`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 9 6 6 6-6" />
-                    </svg>
-                </span>
-            </button>
+    const voyagesLine = `${count} ${count === 1 ? 'voyage' : 'voyages'}`;
+    const statusLine =
+        loading && count === 0
+            ? 'Loading archive…'
+            : error && count === 0
+              ? ARCHIVE_DIDNT_LOAD
+              : count === 0
+                ? 'None yet'
+                : voyagesLine;
+    // The half-width card holds the count; "12 voyages · 3 passages" was cut
+    // on a 375 pt phone, so the passages are VoiceOver's (and the sheet's).
+    const statusDescription =
+        count > 0 && passageCount > 0
+            ? `${voyagesLine} · ${passageCount} ${passageCount === 1 ? 'passage' : 'passages'}`
+            : undefined;
 
-            {loadFailed && !showArchived && onRetry && collapsedRetry && (
-                <div className="-mt-1 flex items-center justify-between gap-3 px-4 pb-3">
-                    <span className="text-xs text-slate-400">{offline ? 'You’re offline.' : ''}</span>
-                    <button
-                        type="button"
-                        disabled={busy}
-                        aria-describedby={statusLineId}
-                        onClick={() => onRetry()}
-                        className="min-h-[44px] shrink-0 rounded-xl border border-sky-400/25 bg-sky-400/10 px-3.5 text-xs font-bold text-sky-200 transition-colors hover:bg-sky-400/20 disabled:opacity-50"
-                    >
-                        Retry
-                    </button>
-                </div>
-            )}
-            <p role="status" className={notice ? 'mx-4 mb-3 text-xs font-semibold text-emerald-300' : 'sr-only'}>
-                {notice}
-            </p>
-            {showArchived && (
-                <div id={contentId} className="space-y-3 border-t border-white/5 p-3" aria-busy={loading}>
+    return (
+        // The Vessel page's Diary/Scuttlebutt card, the other half of the
+        // Log's anchored pair beside Voyage stats (Shane 2026-10-06). A tap
+        // opens what expanding it showed: the archive, Restore, and the
+        // failed-load notice with its Refresh, in the app's centred sheet.
+        <>
+            <JournalCard
+                aria-label="Archived voyages"
+                title="Archived voyages"
+                subtitle={statusLine}
+                description={statusDescription}
+                opensSheet={{ open: showArchived }}
+                icon={
+                    <span className="flex" style={{ color: LOG_CARD_ACCENT }}>
+                        <ArchiveIcon />
+                    </span>
+                }
+                accent={LOG_CARD_ACCENT}
+                onClick={() => setShowArchived(true)}
+            />
+            <ModalSheet isOpen={showArchived} onClose={() => setShowArchived(false)} title="Archived voyages">
+                <p role="status" className={notice ? 'mb-3 text-xs font-semibold text-emerald-300' : 'sr-only'}>
+                    {notice}
+                </p>
+                <div className="space-y-3" aria-busy={loading}>
                     {loading && <p className="px-1 text-xs text-sky-200">Updating archive…</p>}
                     {(error || restoreError) && (
                         <div role="alert" className="rounded-xl border border-amber-400/25 bg-amber-400/10 p-3">
@@ -282,7 +234,7 @@ export function ArchivedVoyagesSection({
                         );
                     })}
                 </div>
-            )}
+            </ModalSheet>
             <ConfirmDialog
                 isOpen={!!restoreRequest}
                 title="Restore this passage?"
@@ -298,6 +250,19 @@ export function ArchivedVoyagesSection({
                     setRestoreRequest(null);
                 }}
             />
-        </section>
+        </>
+    );
+}
+
+function ArchiveIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+            />
+        </svg>
     );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { VoyageSummary } from '../services/shiplog/VoyageSummary';
 import type { ShipLogEntry } from '../types';
@@ -116,8 +116,14 @@ describe('lifetime log statistics presentation', () => {
                 notice="Archive refresh unavailable; showing last loaded history."
             />,
         );
-        expect(screen.getByText('Lifetime · includes archived')).toBeVisible();
-        fireEvent.click(screen.getByRole('button', { name: 'Voyage stats' }));
+        // The card's subline is the one-glance count; its description and the
+        // sheet keep the scope.
+        const card = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(card).toHaveAccessibleDescription(/Lifetime · includes archived/);
+        fireEvent.click(card);
+        expect(
+            within(screen.getByRole('dialog', { name: 'Voyage stats' })).getByText('Lifetime · includes archived'),
+        ).toBeVisible();
         for (const label of ['Distance', 'Sea Time', 'Voyages', 'Farthest', 'Fastest avg', 'Longest']) {
             expect(screen.getByText(label)).toBeVisible();
         }

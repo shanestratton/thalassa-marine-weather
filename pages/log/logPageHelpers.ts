@@ -66,6 +66,9 @@ export const HISTORY_PHONE_ONLY = 'Your full voyage history didn’t load — sh
  *  three times). Without the line, the cards keep LIFETIME_PHONE_ONLY and
  *  ARCHIVE_DIDNT_LOAD, which carry the cause themselves. */
 export const LIFETIME_PHONE_ONLY_UNDER_LINE = 'This phone only';
+/** The Voyage stats card's own short form of LIFETIME_PHONE_ONLY, when no
+ *  page line is above it: it still names the cause, in the archive's words. */
+export const LIFETIME_DIDNT_LOAD = 'Totals didn’t load';
 export const ARCHIVE_NOT_LOADED_UNDER_LINE = 'Not loaded';
 
 /** Signed out there is no account history to load, so "didn't load" is not
@@ -75,23 +78,14 @@ export const LOG_SIGNED_OUT_BODY = 'Sign in to see voyages from your other devic
 /** The page-level line for a signed-out phone, in place of HISTORY_PHONE_ONLY. */
 export const LOG_SIGNED_OUT_LINE = `Voyages on this phone. ${LOG_SIGNED_OUT_BODY}`;
 
-/** One card recipe for the Log's sibling disclosure cards (Voyage stats,
- *  Archived voyages): Plan's Departure material and radius, so the two no
- *  longer differ in corner, surface, title colour and icon. */
-export const LOG_CARD_SHELL =
-    'overflow-hidden rounded-2xl border border-sky-500/20 bg-linear-to-br from-sky-500/10 to-slate-900/40 shadow-[0_0_20px_rgba(14,165,233,0.08)]';
-/** Archived voyages keeps the recipe but wears a gold hue (Shane 2026-09-29:
- *  identical to Voyage stats directly above it, the two did not read apart at
- *  a glance). Border, glow and a faint wash only — not the filled amber of the
- *  'history didn't load' notice, so it never reads as a warning. */
-export const LOG_CARD_SHELL_ARCHIVED =
-    'overflow-hidden rounded-2xl border border-amber-300/40 bg-linear-to-br from-amber-400/10 to-slate-900/40 shadow-[0_0_22px_rgba(251,191,36,0.14)]';
-/** The card's title is a tappable row title, so it wears the app's one row
- *  recipe (Settings, the Vessel hub, Scuttlebutt): bold white sentence case
- *  over a grey description. Tracked sky capitals made 'VOYAGE STATS' read as
- *  a section eyebrow, a second recipe for the same kind of row (UX scorecard
- *  run 10); tracked capitals stay for eyebrows and chips. */
-export const LOG_CARD_TITLE = 'block text-sm font-bold text-white';
+/** The Log's Voyage stats and Archived voyages cards wear the Vessel page's
+ *  Diary and Scuttlebutt card (components/vesselHub/JournalCard) and its one
+ *  accent, the hub's sky, so the three pages' pairs read as one (Shane
+ *  2026-10-06: "make them look the same as the diary and scuttlebutt boxes for
+ *  consistency"). The archive's gold hue (2026-09-29) told two identical
+ *  stacked rows apart; side by side, with their own glyphs, they read apart
+ *  as Diary and Scuttlebutt do. */
+export const LOG_CARD_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
 
 /**
  * The full notice for a lifetime read that failed and never succeeded. It

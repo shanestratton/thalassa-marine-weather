@@ -5,7 +5,7 @@
  * We mock the heavy dependencies and test rendering & key interactions.
  */
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
 
 const logPageStateOverrides = vi.hoisted(() => ({
@@ -562,15 +562,18 @@ describe('LogPage', () => {
         render(<LogPage />);
         const toggle = screen.getByRole('button', { name: 'Voyage stats' });
         expect(toggle).toHaveAttribute('aria-expanded', 'false');
-        expect(screen.getByText('Distance')).not.toBeVisible();
+        expect(toggle).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(screen.queryByText('Distance')).not.toBeInTheDocument();
         expect(screen.getByTestId('voyage-v1')).toBeVisible();
         fireEvent.click(toggle);
         expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        const sheet = screen.getByRole('dialog', { name: 'Voyage stats' });
         for (const label of ['Distance', 'Sea Time', 'Voyages', 'Farthest', 'Fastest avg', 'Longest']) {
-            expect(screen.getByText(label)).toBeVisible();
+            expect(within(sheet).getByText(label)).toBeVisible();
         }
-        fireEvent.click(toggle);
-        expect(screen.getByText('Longest')).not.toBeVisible();
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+        expect(screen.queryByText('Longest')).not.toBeInTheDocument();
+        expect(toggle).toHaveAttribute('aria-expanded', 'false');
     });
 
     it('shows actual and imported tracks but hides planned routes from the main Log list', () => {
@@ -679,21 +682,70 @@ describe('LogPage', () => {
         expect(screen.getByRole('button', { name: /Archived voyages/i })).toHaveTextContent('1 voyage');
     });
 
-    it('keeps stats and archives in one free-scrolling history pane instead of snapping to voyage cards', () => {
+    it('anchors Voyage stats and Archived voyages above the free-scrolling voyage list, and each opens its sheet', () => {
+        // Shane 2026-10-06: "can we make the voyage stats and the archive
+        // voyages anchored to the page and also make them look the same as the
+        // diary and scuttlebutt boxes for consistency".
         render(<LogPage />);
         const history = screen.getByRole('region', { name: 'Voyage history' });
         const archive = screen.getByRole('button', { name: 'Archived voyages' });
-        expect(history).toContainElement(archive);
-        expect(history).toContainElement(screen.getByTestId('voyage-v1'));
         const stats = screen.getByRole('button', { name: 'Voyage stats' });
-        expect(history).toContainElement(stats);
+        // Outside the scroll region, side by side in one fixed pair, before it.
+        expect(history).not.toContainElement(archive);
+        expect(history).not.toContainElement(stats);
+        expect(history).toContainElement(screen.getByTestId('voyage-v1'));
+        const pair = stats.parentElement!;
+        expect(pair).toContainElement(archive);
+        expect(pair).toHaveClass('log-journal-pair', 'vessel-hub-journal', 'grid-cols-2', 'shrink-0');
+        expect(pair.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // The Vessel page's Diary/Scuttlebutt card.
+        for (const card of [stats, archive]) expect(card).toHaveClass('vessel-hub-tile');
         expect(history).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'overscroll-y-contain');
         expect(history.className).not.toMatch(/snap-(?:y|mandatory|proximity)/);
         fireEvent.click(stats);
-        const statsPanel = document.getElementById(stats.getAttribute('aria-controls')!);
-        expect(statsPanel).not.toHaveClass('overflow-y-auto');
+        const statsSheet = screen.getByRole('dialog', { name: 'Voyage stats' });
+        expect(within(statsSheet).getByText('Distance')).toBeVisible();
+        fireEvent.click(within(statsSheet).getByRole('button', { name: 'Close' }));
         fireEvent.click(archive);
         expect(archive).toHaveAttribute('aria-expanded', 'true');
+        const archiveSheet = screen.getByRole('dialog', { name: 'Archived voyages' });
+        expect(within(archiveSheet).getByText('No archived voyages')).toBeVisible();
+        expect(archive).toHaveAccessibleDescription('None yet');
+    });
+
+    it('never reopens the archive sheet by itself: not on a tab-bounce, not when recording stops', () => {
+        // Split view keeps the tab bar live beside the pane-scoped sheet, so
+        // Plan → Log remounts the page with the sheet left open (2026-10-06).
+        const first = render(<LogPage />);
+        fireEvent.click(screen.getByRole('button', { name: 'Archived voyages' }));
+        expect(screen.getByRole('dialog', { name: 'Archived voyages' })).toBeInTheDocument();
+        first.unmount();
+        const { rerender } = render(<LogPage />);
+        expect(screen.queryByRole('dialog', { name: 'Archived voyages' })).not.toBeInTheDocument();
+        // Recording starts with the sheet up, then stops.
+        fireEvent.click(screen.getByRole('button', { name: 'Archived voyages' }));
+        expect(screen.getByRole('dialog', { name: 'Archived voyages' })).toBeInTheDocument();
+        Object.assign(logPageStateOverrides.state, {
+            isTracking: true,
+            currentVoyageId: 'active-voyage',
+            entries: [
+                {
+                    id: 'active-fix',
+                    voyageId: 'active-voyage',
+                    latitude: -27.5,
+                    longitude: 153,
+                    timestamp: '2026-07-23T00:00:00.000Z',
+                    cumulativeDistanceNM: 1.2,
+                    speed: 5,
+                },
+            ],
+        });
+        rerender(<LogPage />);
+        expect(screen.queryByRole('dialog', { name: 'Archived voyages' })).not.toBeInTheDocument();
+        Object.assign(logPageStateOverrides.state, { isTracking: false, currentVoyageId: null, entries: [] });
+        rerender(<LogPage />);
+        expect(screen.queryByRole('dialog', { name: 'Archived voyages' })).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Archived voyages' })).toHaveAttribute('aria-expanded', 'false');
     });
 
     it('says a failed history read once, with one Retry that re-runs both loads (UX scorecard run 7)', () => {
@@ -718,15 +770,21 @@ describe('LogPage', () => {
         expect(reload).toHaveBeenCalledOnce();
     });
 
-    it('keeps each card’s own Retry when only one history read failed', () => {
+    it('keeps the card’s own Refresh, in its sheet, when only one history read failed', () => {
+        const reload = vi.fn().mockResolvedValue(undefined);
         Object.assign(logPageStateOverrides.hook, {
             archiveError: 'Couldn’t refresh the archive. Your saved voyages have not been changed.',
             archivedVoyages: [],
+            reloadArchivedVoyages: reload,
         });
         render(<LogPage />);
         expect(screen.queryByText(/showing this phone only/)).not.toBeInTheDocument();
-        expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
-        expect(screen.getByRole('button', { name: 'Retry' })).toHaveAccessibleDescription('Archive didn’t load');
+        const archive = screen.getByRole('button', { name: 'Archived voyages' });
+        expect(archive).toHaveAccessibleDescription('Archive didn’t load');
+        fireEvent.click(archive);
+        const sheet = screen.getByRole('dialog', { name: 'Archived voyages' });
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Refresh archive' }));
+        expect(reload).toHaveBeenCalledOnce();
     });
 
     it('accepts onBack callback without crashing', () => {

@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { LogPageHeader } from '../pages/log/LogPageHeader';
-import { VoyageStatsRollup } from '../pages/log/VoyageStatsRollup';
+import { VoyageStatsRollup, voyageStatsSubline } from '../pages/log/VoyageStatsRollup';
 import { DepartControl } from '../components/passage/DepartControl';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 import { lifetimeVoyageStats } from '../utils/lifetimeVoyageStats';
@@ -123,9 +123,13 @@ describe('Voyage stats when lifetime history is unavailable', () => {
                 lifetimeUnavailable
             />,
         );
-        expect(screen.getByText('Totals from this phone only — full history didn’t load')).toBeVisible();
-        expect(screen.queryByText('Lifetime · includes archived')).not.toBeInTheDocument();
-        fireEvent.click(screen.getByRole('button', { name: 'Voyage stats' }));
+        // The card says the short form, naming the cause (no page line is
+        // above it here); its description says it in full.
+        const card = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(within(card).getByText('Totals didn’t load')).toBeVisible();
+        expect(card).toHaveAccessibleDescription('Totals from this phone only — full history didn’t load');
+        expect(screen.queryByText(/Lifetime · includes archived/)).not.toBeInTheDocument();
+        fireEvent.click(card);
         expect(screen.getAllByText('--')).toHaveLength(3);
         expect(screen.queryByText('0.0')).not.toBeInTheDocument();
         expect(screen.queryByText('0h 0m')).not.toBeInTheDocument();
@@ -142,8 +146,10 @@ describe('Voyage stats when lifetime history is unavailable', () => {
                 lifetimeUnavailable
             />,
         );
-        expect(screen.getByText('Totals from this phone only — full history didn’t load')).toBeVisible();
-        fireEvent.click(screen.getByRole('button', { name: 'Voyage stats' }));
+        const card = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(within(card).getByText('Totals didn’t load')).toBeVisible();
+        expect(card).toHaveAccessibleDescription('Totals from this phone only — full history didn’t load');
+        fireEvent.click(card);
         expect(screen.getByText('12.4')).toBeVisible();
         expect(screen.queryByText('--')).not.toBeInTheDocument();
     });
@@ -176,22 +182,93 @@ describe('Voyage stats when lifetime history is unavailable', () => {
         render(<Harness />);
         const toggle = screen.getByRole('button', { name: 'Voyage stats' });
         expect(toggle).toHaveAccessibleDescription('Totals from this phone only — full history didn’t load');
-        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+        // A button cannot hold a second button: the card's Retry is in its
+        // sheet, beside the full notice (the shorthand gives way to it there).
+        expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+        fireEvent.click(toggle);
+        const sheet = screen.getByRole('dialog', { name: 'Voyage stats' });
+        expect(within(sheet).queryByText('Totals from this phone only — full history didn’t load')).toBeNull();
+        expect(within(sheet).getByRole('status')).toHaveTextContent(
+            'These totals count only the voyages on this phone.',
+        );
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Retry' }));
         expect(retry).toHaveBeenCalledOnce();
 
         // Mid-retry the card holds the warning instead of claiming "includes archived".
-        expect(screen.getByRole('button', { name: 'Retrying…' })).toBeDisabled();
-        expect(screen.getByText('Totals from this phone only — full history didn’t load')).toBeVisible();
-        expect(screen.queryByText('Lifetime · includes archived')).not.toBeInTheDocument();
+        expect(within(sheet).getByRole('button', { name: 'Retrying…' })).toBeDisabled();
+        expect(toggle).toHaveAccessibleDescription('Totals from this phone only — full history didn’t load');
+        expect(within(toggle).getByText('Totals didn’t load')).toBeVisible();
+        expect(screen.queryByText(/Lifetime · includes archived/)).not.toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Fail again' }));
-        expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+        expect(within(sheet).getByRole('button', { name: 'Retry' })).toBeEnabled();
+    });
+});
 
-        // Expanded, the shorthand gives way to the full notice, with Retry beside it.
-        fireEvent.click(toggle);
-        expect(screen.queryByText('Totals from this phone only — full history didn’t load')).not.toBeInTheDocument();
-        expect(screen.getByRole('status')).toHaveTextContent('These totals count only the voyages on this phone.');
-        expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+describe('Voyage stats card face', () => {
+    const records = lifetimeVoyageStats([], []).records;
+
+    it('under the page’s history line keeps the short form, the cause said once above it', () => {
+        render(
+            <VoyageStatsRollup
+                voyageStats={{ totalNm: 12.4, totalMs: 7_200_000, voyageCount: 1 }}
+                records={records}
+                lifetimeUnavailable
+                underHistoryLine
+            />,
+        );
+        const card = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(within(card).getByText('This phone only')).toBeVisible();
+        expect(card).toHaveAccessibleDescription('Totals from this phone only — full history didn’t load');
+    });
+
+    it('says "Loading totals…" while the first lifetime read is out, never "No voyages yet"', () => {
+        // Forty voyages in the cloud, none landed yet, one live entry counted.
+        const { rerender } = render(
+            <VoyageStatsRollup
+                voyageStats={{ totalNm: 0, totalMs: 0, voyageCount: 0 }}
+                records={records}
+                retrying
+                loaded={false}
+            />,
+        );
+        const card = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(within(card).getByText('Loading totals…')).toBeVisible();
+        expect(card).toHaveAccessibleDescription('Loading totals…');
+        expect(screen.queryByText('No voyages yet')).not.toBeInTheDocument();
+        rerender(
+            <VoyageStatsRollup
+                voyageStats={{ totalNm: 3.2, totalMs: 600_000, voyageCount: 1 }}
+                records={records}
+                retrying
+                loaded={false}
+            />,
+        );
+        expect(within(card).getByText('Loading totals…')).toBeVisible();
+        expect(screen.queryByText(/1 voyage/)).not.toBeInTheDocument();
+        // Landed: the real count. A later refresh keeps showing it.
+        rerender(
+            <VoyageStatsRollup
+                voyageStats={{ totalNm: 1234.4, totalMs: 1, voyageCount: 40 }}
+                records={records}
+                retrying
+                loaded
+            />,
+        );
+        expect(within(card).getByText('40 voyages · 1,234 nm')).toBeVisible();
+    });
+
+    it('compacts five-figure miles on the card and keeps them exact for VoiceOver', () => {
+        expect(voyageStatsSubline({ totalNm: 12_480, voyageCount: 128 })).toBe('128 voyages · 12.4k nm');
+        expect(voyageStatsSubline({ totalNm: 12_480, voyageCount: 128 }, { exact: true })).toBe(
+            '128 voyages · 12,480 nm',
+        );
+        expect(voyageStatsSubline({ totalNm: 9_999.4, voyageCount: 2 })).toBe('2 voyages · 9,999 nm');
+        expect(voyageStatsSubline({ totalNm: 12.44, voyageCount: 1 })).toBe('1 voyage · 12.4 nm');
+        render(<VoyageStatsRollup voyageStats={{ totalNm: 12_480, totalMs: 1, voyageCount: 128 }} records={records} />);
+        const card = screen.getByRole('button', { name: 'Voyage stats' });
+        expect(within(card).getByText('128 voyages · 12.4k nm')).toBeVisible();
+        expect(card).toHaveAccessibleDescription('128 voyages · 12,480 nm · Lifetime · includes archived');
     });
 });
 

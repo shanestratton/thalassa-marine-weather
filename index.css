@@ -886,7 +886,8 @@ input[type='date']::-webkit-calendar-picker-indicator {
 }
 
 /* The Plan page's front door wears the same surfaces (styles/plan-page.css). */
-.display-light :is(.vessel-hub-surface, .route-planner-page) {
+/* And the Log's Voyage stats / Archived voyages pair (pages/LogPage.tsx). */
+.display-light :is(.vessel-hub-surface, .route-planner-page, .log-journal-pair) {
     --vessel-surface-bg: #e2e8f0;
     --vessel-card-bg: rgba(255, 255, 255, 0.82);
     --vessel-card-border: rgba(15, 23, 42, 0.12);

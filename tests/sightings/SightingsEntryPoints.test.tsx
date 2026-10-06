@@ -240,7 +240,10 @@ describe('Log page, not recording', () => {
         const page = read('pages/LogPage.tsx');
         const list = page.slice(page.indexOf('<LogHistoryScroll>'));
         expect(list.indexOf('<LogSightingEntry onOpenChange={setSightingSheetOpen} />')).toBeGreaterThan(-1);
-        expect(list.indexOf('<LogSightingEntry')).toBeLessThan(list.indexOf('<VoyageStatsRollup'));
+        // First in the scrolling list; Voyage stats and Archived voyages are
+        // anchored above it since 2026-10-06, outside the scroll.
+        expect(list.indexOf('<LogSightingEntry')).toBeLessThan(list.indexOf('{/* Past Voyage Cards */}'));
+        expect(list.slice(0, list.indexOf('</LogHistoryScroll>'))).not.toContain('<VoyageStatsRollup');
         expect(page).toMatch(
             /\{FEATURE_VISIBILITY\.sightings && \(\s*<LogSightingEntry onOpenChange=\{setSightingSheetOpen\} \/>\s*\)\}/,
         );
