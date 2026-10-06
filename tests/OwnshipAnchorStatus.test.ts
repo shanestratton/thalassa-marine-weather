@@ -84,10 +84,15 @@ describe('own-vessel anchor status is explicit, not inferred from speed', () => 
         expect(ownshipStatusLabel({ ...position, speed: ms(0.6) }, OWN_CLOUD, sources(), now)).toBe('0.6 kts');
         expect(ownshipStatusLabel({ ...position, speed: ms(6.2) }, OWN_CLOUD, sources(), now)).toBe('6.2 kts');
     });
-    it('uses the watch only while it is on, not while it is being set or is paused', () => {
-        for (const state of ['idle', 'setting', 'paused'] as const) {
+    it('uses the watch only while it is on, not while it is being set; a paused watch reads Anchored', () => {
+        for (const state of ['idle', 'setting'] as const) {
             expect(ownshipStatusLabel(position, OWN_BUS, sources({ local: watching({ state }) }), now)).toBe('Stopped');
         }
+        // Shane 2026-10-07 ("Yes to amber"): the anchor is down but nothing is
+        // watching it, so the badge says Anchored in amber, as the row does.
+        expect(ownshipStatusLabel(position, OWN_BUS, sources({ local: watching({ state: 'paused' }) }), now)).toBe(
+            'Anchored',
+        );
         expect(ownshipStatusLabel(position, OWN_BUS, sources({ local: watching() }), now)).toBe('Anchored');
         expect(ownshipStatusLabel(position, OWN_BUS, sources({ local: watching({ state: 'alarm' }) }), now)).toBe(
             'Anchor alarm',
@@ -221,7 +226,7 @@ describe('own-vessel status is fix-age aware', () => {
 });
 
 // The one anchor-watch truth, in its own colour. Every active row condition but
-// alarm, drifting, setting, paused and idle reads 'Anchored'; only a watch that
+// alarm, drifting, setting and idle reads 'Anchored' (paused too, in amber); only a watch that
 // is holding may wear the calm green, or a watch that has lost its data reads
 // green on the chart while System status shows it red (review, 2026-10-07).
 describe("the badge's anchor colour is the anchor watch row's own", () => {
@@ -245,6 +250,14 @@ describe("the badge's anchor colour is the anchor watch row's own", () => {
                 anchorNote: 'anchor watch has no current data',
             });
         }
+    });
+
+    it('paused (anchor down, nothing watching): amber, and says so (Shane 2026-10-07)', () => {
+        expect(ownshipStatus(position, OWN_BUS, sources({ local: watching({ state: 'paused' }) }), now)).toEqual({
+            label: 'Anchored',
+            anchorTone: 'amber',
+            anchorNote: 'anchor watch paused, not watching',
+        });
     });
 
     it('authorisation expiring: amber', () => {
