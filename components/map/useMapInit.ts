@@ -27,7 +27,7 @@ import { installScaleBarLabel } from './scaleBarLabel';
 import { registerChartMap } from './chartMapRegistry';
 import { addReliefBase, HIDDEN_BASE_GEOMETRY, LAND_STRUCTURE } from './reliefBase';
 import { deferEncPrewarm } from './encPrewarmLifecycle';
-import { getCachedOwnshipPosition } from '../../services/ownshipPosition';
+import { obsFollowStartFix } from './obsCentre';
 import { OBS_PLACE_ZOOM, OBS_VESSEL_ZOOM, type ObsStartTarget } from './useObsStartupCamera';
 import { inshoreRouteLineLayers, surveyDashLayers, unverifiedRouteDashLayers } from './inshoreRouteState';
 
@@ -84,12 +84,12 @@ interface UseMapInitOptions {
      * surfaces. Takes priority over `location`; ignored by ownshipStartup.
      */
     initialCenter?: { lat: number; lon: number };
-    /** OBS starts at a fresh ownship fix, never a weather/home selection. */
+    /** OBS starts where the location box points, never a weather/home coordinate standing in for a receiver. */
     ownshipStartup?: boolean;
     /**
      * With ownshipStartup: where the location box points. A chosen place
-     * opens OBS there at z10 instead of on the vessel (Shane 2026-10-06);
-     * absent or 'vessel' keeps the ownship start.
+     * opens OBS there at z10 (Shane 2026-10-06); absent or 'follow' opens on
+     * what the box follows, the boat or the phone, at z14 (obsCentre).
      */
     obsStart?: ObsStartTarget;
     pickerMode?: boolean; // Kept as it's passed to usePickerMode
@@ -325,10 +325,12 @@ export function useMapInit(opts: UseMapInitOptions) {
         })();
 
         // ── Default view: OBS where the location box points, selected location elsewhere ──
-        // OBS following a receiver opens on ownship at z14, and may wait for
-        // its first real fix in useObsStartupCamera. An initial/home/search
-        // coordinate must not masquerade as the vessel. OBS on a place chosen
-        // in the location box opens on that place at z10 from the first frame
+        // OBS following a receiver opens at z14 on what the box follows: the
+        // boat's own position (never the phone) or the phone's (never the
+        // boat), live or last known, and useObsStartupCamera takes the first
+        // live fix. With none ever, the broad fallback. An initial/home/search
+        // coordinate must not masquerade as either. OBS on a place chosen in
+        // the location box opens on that place at z10 from the first frame
         // (Shane 2026-10-06), or the broad fallback while a name-only choice
         // resolves; never on the boat first.
         // Other surfaces retain their existing initial-centre priority:
@@ -347,7 +349,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         const preferredCenter = obsPlace
             ? obsPlaceCenter && { lat: obsPlaceCenter.lat, lon: obsPlaceCenter.lon }
             : ownshipStartup
-              ? getCachedOwnshipPosition()
+              ? obsFollowStartFix()
               : validCenter(initialCenter)
                 ? { lat: initialCenter!.lat, lon: initialCenter!.lon }
                 : validCenter(location)

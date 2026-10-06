@@ -17,9 +17,10 @@ import { chartMapBeside, onChartMapsChanged } from './chartMapRegistry';
 const RECENTER_FAB_VISIBLE = false;
 
 /**
- * Locate asks the boat first, then the phone (up to 10 s). No camera flight by
- * then means no fix; a flight that lands later (a permission prompt answered
- * slowly) still clears the notice and is still announced.
+ * Locate asks the boat or the phone (up to 10 s, the boat's network lookup
+ * capped there). No camera flight by then means no fix; a flight that lands
+ * later (a permission prompt answered slowly) still clears the notice and is
+ * still announced.
  */
 const LOCATE_NO_FIX_MS = 11_000;
 const LOCATE_NOTICE_MS = 5_000;
@@ -27,8 +28,21 @@ const LOCATE_LISTEN_MS = 30_000;
 
 type LocateState = 'idle' | 'finding' | 'no-fix';
 
+/** What a locate did, when the handler can say (find-boat on Obs: obsCentre.locateVessel). */
+export interface LocateResult {
+    centred: boolean;
+    /** Words for the status line; '' when the chart's own message speaks. */
+    announcement: string;
+    /** Nothing found, and the chart's own message is about something else: say it here, on screen too. */
+    noFix?: boolean;
+}
+
 interface MapActionFabsProps {
-    onLocateMe: () => void;
+    /**
+     * May return a promise of what it did: the button then ends its search on
+     * that answer and says those words, instead of waiting out its timer.
+     */
+    onLocateMe: () => void | Promise<LocateResult | null | void>;
     onRecenter: () => void;
     recenterDisabled: boolean;
 }
@@ -43,9 +57,17 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
     const [locate, setLocate] = useState<LocateState>('idle');
     const [announcement, setAnnouncement] = useState('');
     const stopWatchingLocate = useRef<(() => void) | null>(null);
+    /** Ends a "No position fix" line the handler's own answer put up. */
+    const noFixTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [zoomLimits, setZoomLimits] = useState({ atMin: false, atMax: false });
 
-    useEffect(() => () => stopWatchingLocate.current?.(), []);
+    useEffect(
+        () => () => {
+            stopWatchingLocate.current?.();
+            if (noFixTimer.current) clearTimeout(noFixTimer.current);
+        },
+        [],
+    );
 
     // Grey out a zoom button at the map's limit. The map is found through the
     // registry, and may only exist after this control mounts.
@@ -88,7 +110,12 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
     const handleLocate = useCallback(() => {
         stopWatchingLocate.current?.();
         stopWatchingLocate.current = null;
+        if (noFixTimer.current) clearTimeout(noFixTimer.current);
+        noFixTimer.current = null;
         const map = chartMapBeside(rootRef.current);
+        // Set once the handler has returned a promise: its answer speaks.
+        let answerComing = false;
+        let watching: (() => void) | null = null;
         if (map) {
             const timers: Array<ReturnType<typeof setTimeout>> = [];
             const stop = () => {
@@ -96,9 +123,10 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
                 timers.forEach(clearTimeout);
                 if (stopWatchingLocate.current === stop) stopWatchingLocate.current = null;
             };
+            watching = stop;
             function onMoveStart(event: unknown) {
                 // The skipper panning meanwhile is not the answer.
-                if (isGesture(event)) return;
+                if (isGesture(event) || answerComing) return;
                 stop();
                 setLocate('idle');
                 setAnnouncement('Chart centred on your position.');
@@ -120,7 +148,33 @@ export const MapActionFabs: React.FC<MapActionFabsProps> = ({ onLocateMe, onRece
             setLocate('finding');
             setAnnouncement('Finding your position…');
         }
-        onLocateMe();
+        const result = onLocateMe();
+        if (result instanceof Promise) {
+            answerComing = true;
+            result.then(
+                (answer) => {
+                    // A newer tap owns the button now.
+                    if (!answer || (watching && stopWatchingLocate.current !== watching)) return;
+                    watching?.();
+                    setAnnouncement(answer.announcement);
+                    if (!answer.noFix) {
+                        setLocate('idle');
+                        return;
+                    }
+                    setLocate('no-fix');
+                    noFixTimer.current = setTimeout(() => {
+                        noFixTimer.current = null;
+                        setLocate((state) => (state === 'no-fix' ? 'idle' : state));
+                    }, LOCATE_NOTICE_MS);
+                },
+                () => {
+                    if (watching && stopWatchingLocate.current === watching) {
+                        watching();
+                        setLocate('idle');
+                    }
+                },
+            );
+        }
     }, [onLocateMe]);
 
     return (

@@ -44,6 +44,8 @@ interface ThreatBannerProps {
     lightningActive: boolean;
     /** Fly the map to a (lat, lon, zoom). Banner taps invoke this. */
     flyTo: (lat: number, lon: number, zoom: number) => void;
+    /** Told whether the banner is on screen, so Obs's position message can sit below it. */
+    onShowingChange?: (showing: boolean) => void;
 }
 
 interface Threat {
@@ -82,8 +84,14 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
     cyclones,
     lightningActive,
     flyTo,
+    onShowingChange,
 }) => {
     const [threat, setThreat] = useState<Threat | null>(null);
+    const showing = visible && threat !== null;
+    useEffect(() => {
+        onShowingChange?.(showing);
+    }, [showing, onShowingChange]);
+    useEffect(() => () => onShowingChange?.(false), [onShowingChange]);
 
     // Lightning strike buffer — keep a rolling 5-min window of strikes
     // so we can re-evaluate proximity each tick without re-summing.

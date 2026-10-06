@@ -447,6 +447,55 @@ export async function boatOrHeldFix(
     return heldBoatFix(currentTime(), crewOwnerId);
 }
 
+/**
+ * The boat's position as this device knows it right now, asking no one: her
+ * bus when the receivers are hers, else the Pi's and her cloud row's latest
+ * throttled answers, else (with `held`) her held last fix. Never the phone.
+ * Keeps nothing and ends no choice. For a first frame and for cheap re-checks
+ * (Obs builds its map before any request could answer); boatOrHeldFix is the
+ * lookup. `crewOwnerId` names a crewed boat; null is the account's own.
+ */
+export function boatFixNow(
+    now = Date.now(),
+    crewOwnerId: string | null = null,
+    options: { held?: boolean } = {},
+): WeatherFix | null {
+    ensureCacheScope();
+    const bus = devicesAreHers('bus', crewOwnerId) ? busFix() : null;
+    if (usableBoatFix(bus, now)) return toWeatherFix(bus, 'bus');
+    const pi = devicesAreHers('pi', crewOwnerId) ? piLastAnswer : null;
+    if (usableBoatFix(pi, now)) return toWeatherFix(pi, 'pi');
+    const cloud = cloudLanes.get(crewOwnerId ?? '')?.answer ?? null;
+    if (usableBoatFix(cloud, now)) return toWeatherFix(cloud, 'cloud');
+    return options.held === false ? null : heldBoatFix(now, crewOwnerId);
+}
+
+/** The instrument feed, as NmeaStore describes it. */
+export interface InstrumentFeedState {
+    connectionStatus: string;
+    remote: { via: 'lan' | 'cloud' } | null;
+}
+
+/**
+ * Whether the instruments the store holds are the followed boat's (Shane
+ * 2026-10-06: "if the punter selects wind and there is a metric for it, it
+ * should show the vessels wind equipment"). Only while 'Current Location'
+ * follows a boat, and only her own receivers, as her position chain takes
+ * them: a gateway socket or the Pi over the boat LAN when they are hers, or
+ * the cloud row when it is hers (`cloudOwnerId`: the owner of the row that
+ * fed the store; the store prefers the account's own row, so while crewing it
+ * may be the other boat's). Following the phone, never.
+ */
+export function followedBoatOwnsInstruments(feed: InstrumentFeedState, cloudOwnerId: string | null): boolean {
+    const follow = currentFollow();
+    if (follow.target === 'phone' || (follow.target === 'crew' && !follow.crewOwnerId)) return false;
+    if (feed.connectionStatus === 'connected') return devicesAreHers('bus', follow.crewOwnerId);
+    if (feed.connectionStatus !== 'remote' || !feed.remote) return false;
+    if (feed.remote.via === 'lan') return devicesAreHers('pi', follow.crewOwnerId);
+    const hers = follow.crewOwnerId ?? getAuthIdentityScope().userId;
+    return Boolean(cloudOwnerId && hers && cloudOwnerId === hers);
+}
+
 async function phoneFix(provider: PhoneFixProvider, now: number): Promise<WeatherFix | null> {
     const scope = getAuthIdentityScope();
     const startedAt = Date.now();
