@@ -16,6 +16,11 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import {
+    captureLegacyPrivateMessagePermit,
+    isLegacyPrivateMessagePermitCurrent,
+    subscribePrivateMessageCutover,
+} from '../services/chat/e2ee/privateMessageCutover';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
 import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
 import { sightingsOutboxFlagged } from '../services/sightings/outboxFlag';
@@ -38,6 +43,8 @@ export function useAppBootstrap() {
     }>(() => ({ scope: identityScope, count: 0 }));
     const chatUnread =
         activeUserId &&
+        !!captureLegacyPrivateMessagePermit(identityScope) &&
+        chatUnreadState.scope.userId === identityScope.userId &&
         chatUnreadState.scope.key === identityScope.key &&
         chatUnreadState.scope.generation === identityScope.generation &&
         isAuthIdentityScopeCurrent(chatUnreadState.scope)
@@ -50,18 +57,38 @@ export function useAppBootstrap() {
         let timer: ReturnType<typeof setInterval> | null = null;
         let requestEpoch = 0;
         setChatUnreadState({ scope: actionScope, count: 0 });
-        if (!authChecked || !activeUserId || !isAuthIdentityScopeCurrent(actionScope)) {
+        const stopCutover = subscribePrivateMessageCutover(() => {
+            requestEpoch += 1;
+            if (timer) clearInterval(timer);
+            timer = null;
+            setChatUnreadState({ scope: actionScope, count: 0 });
+        });
+        if (
+            !authChecked ||
+            !activeUserId ||
+            !isAuthIdentityScopeCurrent(actionScope) ||
+            !captureLegacyPrivateMessagePermit(actionScope)
+        ) {
             return () => {
                 active = false;
+                stopCutover();
             };
         }
         import('../services/ChatService').then(({ ChatService }) => {
-            if (!active || !isAuthIdentityScopeCurrent(actionScope)) return;
+            if (!active || !isAuthIdentityScopeCurrent(actionScope) || !captureLegacyPrivateMessagePermit(actionScope))
+                return;
             const poll = () => {
                 const pollEpoch = ++requestEpoch;
+                const permit = captureLegacyPrivateMessagePermit(actionScope);
+                if (!permit) return Promise.resolve();
                 return ChatService.getUnreadDMCount()
                     .then((n) => {
-                        if (active && pollEpoch === requestEpoch && isAuthIdentityScopeCurrent(actionScope)) {
+                        if (
+                            active &&
+                            pollEpoch === requestEpoch &&
+                            isAuthIdentityScopeCurrent(actionScope) &&
+                            isLegacyPrivateMessagePermitCurrent(permit)
+                        ) {
                             setChatUnreadState({ scope: actionScope, count: n });
                         }
                     })
@@ -74,6 +101,7 @@ export function useAppBootstrap() {
             active = false;
             requestEpoch++;
             if (timer) clearInterval(timer);
+            stopCutover();
         };
     }, [activeUserId, authChecked, identityScope]);
 
@@ -441,14 +469,21 @@ export function useAppBootstrap() {
         const actionScope = identityScope;
         let active = true;
         let unbind: (() => void) | null = null;
+        const privatePermit = captureLegacyPrivateMessagePermit(actionScope);
         const foregroundHandler = (notification: Parameters<typeof pushForegroundToast>[0]) => {
+            const privateMessage =
+                notification.data?.notification_type === 'dm' || notification.data?.notification_type === 'hail';
+            if (privateMessage && (!active || !isLegacyPrivateMessagePermitCurrent(privatePermit))) return;
             if (notification.data?.notification_type === 'anchor_alarm') {
                 ShoreWatchAlarmService.receivePush(notification.data);
             }
-            pushForegroundToast(notification);
+            if (privateMessage) pushForegroundToast(notification, actionScope);
+            else pushForegroundToast(notification);
         };
         const tapHandler = (data: Readonly<Record<string, unknown>>) => {
             const type = data.notification_type as string;
+            if ((type === 'dm' || type === 'hail') && (!active || !isLegacyPrivateMessagePermitCurrent(privatePermit)))
+                return;
             switch (type) {
                 case 'dm':
                     setPage('chat');

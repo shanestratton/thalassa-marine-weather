@@ -16,7 +16,17 @@ import { supabase } from './supabase';
 import { createLogger } from '../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
 
+import {
+    captureLegacyPrivateMessagePermit,
+    isLegacyPrivateMessagePermitCurrent,
+    type LegacyPrivateMessagePermit,
+} from './chat/e2ee/privateMessageCutover';
+
 const log = createLogger('Push');
+// Only local dm/hail foreground publication and navigation are suppressed.
+// This cannot recall OS/APNs banners or change server notification payloads.
+const isPrivatePush = (data?: Record<string, unknown>) =>
+    data?.notification_type === 'dm' || data?.notification_type === 'hail';
 
 export type ForegroundPushNotification = {
     title?: string;
@@ -32,6 +42,7 @@ export type PushNotificationHandlers = Readonly<{
 type ScopedCallback<T> = Readonly<{
     scope: AuthIdentityScope;
     callback: (value: T) => void;
+    legacyPrivatePermit: LegacyPrivateMessagePermit | null;
 }>;
 
 type TokenWaiter = {
@@ -72,10 +83,12 @@ class PushNotificationServiceClass {
 
     set onNotificationTap(callback: ((data: Record<string, unknown>) => void) | null) {
         this.tapBinding = callback
-            ? Object.freeze({
-                  scope: getAuthIdentityScope(),
+            ? this.scopedCallback(
+                  getAuthIdentityScope(),
                   callback,
-              })
+                  () => this.tapBinding,
+                  (data) => data,
+              )
             : null;
     }
 
@@ -88,10 +101,12 @@ class PushNotificationServiceClass {
 
     set onForegroundPush(callback: ((notification: ForegroundPushNotification) => void) | null) {
         this.foregroundBinding = callback
-            ? Object.freeze({
-                  scope: getAuthIdentityScope(),
+            ? this.scopedCallback(
+                  getAuthIdentityScope(),
                   callback,
-              })
+                  () => this.foregroundBinding,
+                  (notification) => notification.data,
+              )
             : null;
     }
 
@@ -103,14 +118,18 @@ class PushNotificationServiceClass {
     bindNotificationHandlers(scope: AuthIdentityScope, handlers: PushNotificationHandlers): () => void {
         if (!this.isOwnedScope(scope)) return () => undefined;
 
-        const foregroundBinding: ScopedCallback<ForegroundPushNotification> = Object.freeze({
+        const foregroundBinding = this.scopedCallback(
             scope,
-            callback: handlers.onForegroundPush,
-        });
-        const tapBinding: ScopedCallback<Record<string, unknown>> = Object.freeze({
+            handlers.onForegroundPush,
+            () => this.foregroundBinding,
+            (notification) => notification.data,
+        );
+        const tapBinding = this.scopedCallback(
             scope,
-            callback: handlers.onNotificationTap,
-        });
+            handlers.onNotificationTap,
+            () => this.tapBinding,
+            (data) => data,
+        );
         this.foregroundBinding = foregroundBinding;
         this.tapBinding = tapBinding;
 
@@ -205,10 +224,13 @@ class PushNotificationServiceClass {
                             return;
                         }
 
-                        log.info('Push received (foreground):', notification.title);
                         const data = notification.data
                             ? Object.freeze({ ...(notification.data as Record<string, unknown>) })
                             : undefined;
+                        if (isPrivatePush(data) && !isLegacyPrivateMessagePermitCurrent(binding.legacyPrivatePermit))
+                            return;
+                        if (isPrivatePush(data)) log.info('Private push received (foreground)');
+                        else log.info('Push received (foreground):', notification.title);
                         binding.callback(
                             Object.freeze({
                                 title: notification.title ?? undefined,
@@ -234,7 +256,10 @@ class PushNotificationServiceClass {
                             return;
                         }
 
-                        log.info('Push tapped:', data);
+                        if (isPrivatePush(data) && !isLegacyPrivateMessagePermitCurrent(binding.legacyPrivatePermit))
+                            return;
+                        if (isPrivatePush(data)) log.info('Private push tapped');
+                        else log.info('Push tapped:', data);
                         binding.callback(Object.freeze({ ...data }));
                     }),
                 );
@@ -524,6 +549,26 @@ class PushNotificationServiceClass {
 
     // ---- PRIVATE ----
 
+    private scopedCallback<T>(
+        scope: AuthIdentityScope,
+        callback: (value: T) => void,
+        selected: () => ScopedCallback<T> | null,
+        payload: (value: T) => Record<string, unknown> | undefined,
+    ): ScopedCallback<T> {
+        const originalScope = Object.freeze({ key: scope.key, userId: scope.userId, generation: scope.generation });
+        const permit = captureLegacyPrivateMessagePermit(originalScope);
+        const binding: ScopedCallback<T> = Object.freeze({
+            scope: originalScope,
+            legacyPrivatePermit: permit,
+            callback: (value: T) => {
+                if (selected() !== binding || !this.isOwnedScope(originalScope)) return;
+                if (isPrivatePush(payload(value)) && !isLegacyPrivateMessagePermitCurrent(permit)) return;
+                callback(value);
+            },
+        });
+        return binding;
+    }
+
     private enqueueAssociation<T>(operation: () => Promise<T>): Promise<T> {
         const result = this.associationTail.then(operation);
         this.associationTail = result.then(
@@ -534,7 +579,7 @@ class PushNotificationServiceClass {
     }
 
     private isExactScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
-        return left.key === right.key && left.generation === right.generation;
+        return left.key === right.key && left.userId === right.userId && left.generation === right.generation;
     }
 
     private isOwnedScope(scope: AuthIdentityScope): boolean {

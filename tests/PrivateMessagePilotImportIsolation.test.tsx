@@ -189,6 +189,43 @@ afterEach(() => {
 });
 
 describe('ChatPage native import isolation — typed local rendering fixtures', () => {
+    it('protects a new scope switched synchronously during the initial native denial notification', async () => {
+        const initial = await localIdentity();
+        const policy = await import('../services/chat/e2ee/privateMessageCutover');
+        const other = '77777777-7777-4777-8777-777777777777';
+        let switched = false;
+        const stop = policy.subscribePrivateMessageCutover(() => {
+            if (!switched) {
+                switched = true;
+                identity!.setAuthIdentityScope(other);
+            }
+        });
+        const ChatPage = await wrapper();
+        const mounted = render(<ChatPage selection={{ kind: 'native-unavailable' }} />);
+        expect(switched).toBe(true);
+        expect(identity!.getAuthIdentityScope().userId).toBe(other);
+        expect(policy.captureLegacyPrivateMessagePermit(identity!.getAuthIdentityScope(), peer)).toBeNull();
+        expect(initial.userId).toBe(account);
+        mounted.unmount();
+        stop();
+        assertNoLegacyEvaluation();
+    });
+    it('latches legacy denial before unavailable native rendering and never releases it on unmount or account return', async () => {
+        const originalScope = await localIdentity();
+        const policy = await import('../services/chat/e2ee/privateMessageCutover');
+        const before = policy.captureLegacyPrivateMessagePermit(originalScope, peer);
+        expect(before).not.toBeNull();
+        const ChatPage = await wrapper();
+        const mounted = render(<ChatPage selection={{ kind: 'native-unavailable' }} />);
+        expect(screen.getByText(nativeUnavailableText)).toBeInTheDocument();
+        expect(policy.isLegacyPrivateMessagePermitCurrent(before)).toBe(false);
+        expect(policy.captureLegacyPrivateMessagePermit(originalScope, peer)).toBeNull();
+        mounted.unmount();
+        identity!.setAuthIdentityScope(null);
+        const returned = identity!.setAuthIdentityScope(account);
+        expect(policy.captureLegacyPrivateMessagePermit(returned, peer)).toBeNull();
+        assertNoLegacyEvaluation();
+    });
     it.each([
         ['explicit legacy', { selection: { kind: 'legacy' } }],
         ['default legacy', {}],

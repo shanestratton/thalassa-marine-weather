@@ -1,22 +1,63 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const backend = vi.hoisted(() => {
+    // Keep reply spies and all test plans unchanged; only adapt the fluent/lazy
+    // SDK terminal shape. No network/OS cancellation behavior is proven here.
+    const abortable = <T>(value: T, state: { signal?: AbortSignal } = {}): T => {
+        if (!value || (typeof value !== 'object' && typeof value !== 'function')) return value;
+        let completion: Promise<unknown> | undefined;
+        const check = () => {
+            if (state.signal?.aborted) throw new DOMException('Synthetic request aborted', 'AbortError');
+        };
+        const proxy = new Proxy(value as object, {
+            get(target, property) {
+                if (property === 'abortSignal')
+                    return (signal: AbortSignal) => {
+                        state.signal = signal;
+                        return proxy;
+                    };
+                if (property === 'signal') return state.signal;
+                if (property === 'then')
+                    return (resolve: (reply: unknown) => unknown, reject: (error: unknown) => unknown) => {
+                        completion ??= Promise.resolve()
+                            .then(() => {
+                                check();
+                                return value;
+                            })
+                            .then((reply) => {
+                                check();
+                                return reply;
+                            });
+                        return completion.then(resolve, reject);
+                    };
+                const member = Reflect.get(target, property, target);
+                return typeof member === 'function'
+                    ? (...args: unknown[]) => abortable(Reflect.apply(member, target, args), state)
+                    : member;
+            },
+        });
+        return proxy as T;
+    };
     const rpc = vi.fn();
     const insert = vi.fn();
     const records = new Map<string, string>();
     const getUser = vi.fn();
     const blockedIds: string[] = [];
-    return { rpc, insert, records, getUser, blockedIds };
+    return { rpc, insert, records, getUser, blockedIds, abortable };
 });
 
 vi.mock('../services/supabase', () => ({
     supabase: {
-        rpc: backend.rpc,
+        rpc: (...args: unknown[]) => backend.abortable(backend.rpc(...args)),
         auth: { getUser: backend.getUser, getSession: vi.fn() },
-        from: vi.fn(() => ({
-            insert: backend.insert,
-            select: () => ({ eq: async () => ({ data: backend.blockedIds.map((blocked_id) => ({ blocked_id })) }) }),
-        })),
+        from: vi.fn(() =>
+            backend.abortable({
+                insert: backend.insert,
+                select: () => ({
+                    eq: async () => ({ data: backend.blockedIds.map((blocked_id) => ({ blocked_id })) }),
+                }),
+            }),
+        ),
         removeChannel: vi.fn(),
     },
 }));
@@ -35,7 +76,7 @@ vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 
-import { ChatService } from '../services/ChatService';
+import { ChatService, LegacyPrivateMessagesUnavailableError } from '../services/ChatService';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 
 const clear = { blockedByMe: false, blockedEitherDirection: false };
@@ -133,7 +174,7 @@ describe('ChatService bilateral blocking', () => {
         await vi.waitFor(() => expect(backend.rpc).toHaveBeenCalledOnce());
         setAuthIdentityScope('account-b');
         resolve({ data: own, error: null });
-        await expect(pending).rejects.toThrow('Unable to verify');
+        await expect(pending).rejects.toBeInstanceOf(LegacyPrivateMessagesUnavailableError);
     });
 
     it('does not request caller-scoped state when the remote identity differs', async () => {
@@ -234,7 +275,7 @@ describe('ChatService bilateral blocking', () => {
         await vi.waitFor(() => expect(backend.rpc).toHaveBeenCalledOnce());
         setAuthIdentityScope('account-b');
         finish({ data: clear, error: null });
-        await expect(pending).resolves.toBeNull();
+        await expect(pending).rejects.toBeInstanceOf(LegacyPrivateMessagesUnavailableError);
         expect(backend.insert).not.toHaveBeenCalled();
     });
 

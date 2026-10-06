@@ -34,6 +34,11 @@ import { GlobalShoreWatchGate } from './components/anchor-watch/GlobalShoreWatch
 import { PiPairingBanner } from './components/PiPairingBanner';
 import { hasBeenDisplaced, holdsClaim, readRememberedHeld, rememberHeld } from './services/skipperDevice';
 import { PushToast } from './components/PushToast';
+import { getAuthIdentityScope } from './services/authIdentityScope';
+import {
+    captureLegacyPrivateMessagePermit,
+    isLegacyPrivateMessagePermitCurrent,
+} from './services/chat/e2ee/privateMessageCutover';
 import { PageTransition } from './components/ui/PageTransition';
 import { BuilderDeepLink } from './components/BuilderDeepLink';
 import { PlanSignOutButton } from './components/PlanSignOutButton';
@@ -116,6 +121,7 @@ const SystemStatusFallback: React.FC = () => (
 );
 
 const App: React.FC = () => {
+    const privatePushTapPermit = captureLegacyPrivateMessagePermit(getAuthIdentityScope());
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData, positionSource } = useWeather();
     const { settings, updateSettings, loading: settingsLoading } = useSettings();
@@ -1164,6 +1170,11 @@ const App: React.FC = () => {
                 <PushToast
                     onTap={(data) => {
                         const type = data.notification_type as string;
+                        if (
+                            (type === 'dm' || type === 'hail') &&
+                            !isLegacyPrivateMessagePermitCurrent(privatePushTapPermit)
+                        )
+                            return;
                         switch (type) {
                             case 'dm':
                                 setPage('chat');

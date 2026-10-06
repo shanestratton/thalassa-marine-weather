@@ -29,6 +29,17 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from './authIdentityScope';
+import {
+    captureLegacyPrivateMessagePermit,
+    captureLegacyPrivateMessageAbortScope,
+    isLegacyPrivateMessageAbortSignalCurrent,
+    isLegacyPrivateMessagePermitCurrent,
+    subscribePrivateMessageCutover,
+    PrivateMessageLegacyUnavailableError as LegacyPrivateMessagesUnavailableError,
+    type LegacyPrivateMessagePermit,
+} from './chat/e2ee/privateMessageCutover';
+
+export { PrivateMessageLegacyUnavailableError as LegacyPrivateMessagesUnavailableError } from './chat/e2ee/privateMessageCutover';
 
 // ── Re-export all public types and constants ─────────────────────
 export type {
@@ -183,6 +194,7 @@ function explicitQueueOwner(value: unknown): { known: boolean; userId: string | 
 class ChatServiceClass {
     private activeSubscriptions: Map<string, RealtimeChannel> = new Map();
     private dmSubscription: RealtimeChannel | null = null;
+    private dmSubscriptionPermit: LegacyPrivateMessagePermit | null = null;
     private currentUserId: string | null = null;
     private currentRole: ChatRole = 'member';
     private mutedUntil: Date | null = null;
@@ -209,6 +221,21 @@ class ChatServiceClass {
     };
 
     constructor() {
+        subscribePrivateMessageCutover(() => {
+            // Signal-only cancellation happens before native unsubscribe can
+            // synchronously invoke a captured realtime callback.
+            const channel = this.dmSubscription;
+            this.dmSubscription = null;
+            this.dmSubscriptionPermit = null;
+            this.dmBlockStatus.clear();
+            if (channel && supabase) {
+                try {
+                    void Promise.resolve(supabase.removeChannel(channel)).catch(() => {});
+                } catch {
+                    /* Callbacks remain locally denied. */
+                }
+            }
+        });
         subscribeAuthIdentityScope((next) => {
             // Hide account-derived state synchronously. A stale initializer is
             // generation-fenced before it can restore any of these fields.
@@ -218,6 +245,7 @@ class ChatServiceClass {
             });
             if (this.dmSubscription && supabase) supabase.removeChannel(this.dmSubscription);
             this.dmSubscription = null;
+            this.dmSubscriptionPermit = null;
             this.currentUserId = next.userId;
             this.currentRole = 'member';
             this.mutedUntil = null;
@@ -309,6 +337,75 @@ class ChatServiceClass {
         );
     }
 
+    private privateMessagePermit(scope: AuthIdentityScope, peerAccountId?: string): LegacyPrivateMessagePermit | null {
+        const permit = captureLegacyPrivateMessagePermit(scope, peerAccountId);
+        if (!permit && scope.userId && isAuthIdentityScopeCurrent(scope))
+            throw new LegacyPrivateMessagesUnavailableError();
+        return permit;
+    }
+
+    private requirePrivateMessagePermit(permit: LegacyPrivateMessagePermit, scope: AuthIdentityScope): void {
+        if (isAuthIdentityScopeCurrent(scope) && !isLegacyPrivateMessagePermitCurrent(permit))
+            throw new LegacyPrivateMessagesUnavailableError();
+    }
+
+    /** Check the ORIGINAL cancellation hint even when the adapter rejects. */
+    private async privateMessageWork<T>(
+        permit: LegacyPrivateMessagePermit,
+        scope: AuthIdentityScope,
+        work: () => PromiseLike<T>,
+    ): Promise<T> {
+        this.requirePrivateMessagePermit(permit, scope);
+        try {
+            return await work();
+        } finally {
+            this.requirePrivateMessagePermit(permit, scope);
+        }
+    }
+
+    /**
+     * PostgREST is lazy and token lookup can await before HTTP dispatch. The
+     * admitted ORIGINAL-permit signal follows that request through the SDK;
+     * the configured transport must honor an already-aborted signal BEFORE
+     * forwarding bytes. Aborting cannot roll back a request already dispatched.
+     */
+    private async privateMessageQuery<T>(
+        permit: LegacyPrivateMessagePermit,
+        scope: AuthIdentityScope,
+        query: (signal: AbortSignal) => PromiseLike<T>,
+    ): Promise<T> {
+        const request = captureLegacyPrivateMessageAbortScope(permit);
+        if (!request) throw new LegacyPrivateMessagesUnavailableError();
+        const requireAdmission = () => {
+            if (
+                request.signal.aborted ||
+                !isLegacyPrivateMessageAbortSignalCurrent(request.signal) ||
+                !isAuthIdentityScopeCurrent(scope) ||
+                !isLegacyPrivateMessagePermitCurrent(permit)
+            )
+                throw new LegacyPrivateMessagesUnavailableError();
+        };
+        try {
+            // Listener admission is explicit/fail-closed. Recheck AFTER it and
+            // after builder construction, before submitting the lazy thenable.
+            requireAdmission();
+            const submitted = query(request.signal);
+            requireAdmission();
+            const result = await submitted;
+            requireAdmission();
+            return result;
+        } finally {
+            // Transport cancellation can invalidate this owned signal without
+            // changing the permit. Check before disposal (which itself aborts),
+            // and always release the bounded request slot even on refusal.
+            try {
+                requireAdmission();
+            } finally {
+                request.dispose();
+            }
+        }
+    }
+
     /**
      * `getSession()` reads the locally persisted Supabase session. It is not
      * sufficient for authorizing a remote write, but it is sufficient proof
@@ -316,15 +413,22 @@ class ChatServiceClass {
      * cannot be reached. Every await is followed by the generation fence so
      * an account switch can never enqueue under the identity that just left.
      */
-    private async hasMatchingLocalSession(operation: ChatOperationContext): Promise<boolean> {
+    private async hasMatchingLocalSession(
+        operation: ChatOperationContext,
+        permit?: LegacyPrivateMessagePermit,
+    ): Promise<boolean> {
         if (!supabase || !this.operationIsCurrent(operation)) return false;
         try {
+            if (permit) this.requirePrivateMessagePermit(permit, operation.scope);
             const {
                 data: { session },
                 error,
             } = await supabase.auth.getSession();
+            if (permit) this.requirePrivateMessagePermit(permit, operation.scope);
             return !error && session?.user?.id === operation.userId && this.operationIsCurrent(operation);
         } catch (error) {
+            if (error instanceof LegacyPrivateMessagesUnavailableError) throw error;
+            if (permit) this.requirePrivateMessagePermit(permit, operation.scope);
             log.warn('Unable to verify local chat session:', error);
             return false;
         }
@@ -334,9 +438,30 @@ class ChatServiceClass {
         operation: ChatOperationContext,
         message: QueuedMessage,
         dmGeneration?: number,
+        privatePermit?: LegacyPrivateMessagePermit,
     ): Promise<'queued' | null> {
-        if (!(await this.hasMatchingLocalSession(operation)) || !this.operationIsCurrent(operation)) return null;
-        const queued = await this.queueOffline(message, operation.scope, dmGeneration);
+        const permit =
+            message.type === 'dm'
+                ? (privatePermit ?? this.privateMessagePermit(operation.scope, message.recipient_id))
+                : null;
+        const aggregatePermit = message.type === 'dm' ? this.privateMessagePermit(operation.scope) : null;
+        if (message.type === 'dm' && (!permit || !aggregatePermit)) return null;
+        const checkAdmission = () => {
+            if (permit) this.requirePrivateMessagePermit(permit, operation.scope);
+            if (aggregatePermit) this.requirePrivateMessagePermit(aggregatePermit, operation.scope);
+        };
+        checkAdmission();
+        const matching = await this.hasMatchingLocalSession(operation, permit ?? undefined);
+        checkAdmission();
+        if (!matching || !this.operationIsCurrent(operation)) return null;
+        const queued = await this.queueOffline(
+            message,
+            operation.scope,
+            dmGeneration,
+            permit ?? undefined,
+            aggregatePermit ?? undefined,
+        );
+        checkAdmission();
         return queued && this.operationIsCurrent(operation) ? 'queued' : null;
     }
 
@@ -776,20 +901,27 @@ class ChatServiceClass {
     // --- DIRECT MESSAGES ---
 
     async getDMConversations(): Promise<DMConversation[]> {
-        if (!supabase) return [];
+        const scope = getAuthIdentityScope();
+        const permit = this.privateMessagePermit(scope);
+        if (!supabase || !permit) return [];
         const operation = this.captureOperation();
         if (!operation) return [];
         const ownerId = operation.userId;
+        this.requirePrivateMessagePermit(permit, scope);
 
         // Keep the client aggregation bounded. This avoids downloading an
         // account's entire private-message history merely to render its inbox.
-        const { data } = await supabase
-            .from(DM_TABLE)
-            .select('sender_id, recipient_id, sender_name, message, created_at, read')
-            .or(`sender_id.eq.${ownerId},recipient_id.eq.${ownerId}`)
-            .order('created_at', { ascending: false })
-            .limit(MAX_DM_CONVERSATION_ROWS);
+        const { data } = await this.privateMessageQuery(permit, scope, (signal) =>
+            supabase!
+                .from(DM_TABLE)
+                .select('sender_id, recipient_id, sender_name, message, created_at, read')
+                .or(`sender_id.eq.${ownerId},recipient_id.eq.${ownerId}`)
+                .order('created_at', { ascending: false })
+                .limit(MAX_DM_CONVERSATION_ROWS)
+                .abortSignal(signal),
+        );
 
+        this.requirePrivateMessagePermit(permit, scope);
         if (!this.operationIsCurrent(operation) || !data || data.length === 0) return [];
 
         // Group by conversation partner
@@ -797,6 +929,7 @@ class ChatServiceClass {
         for (const dm of data as DirectMessage[]) {
             if (dm.sender_id !== ownerId && dm.recipient_id !== ownerId) continue;
             const partnerId = dm.sender_id === ownerId ? dm.recipient_id : dm.sender_id;
+            if (!captureLegacyPrivateMessagePermit(scope, partnerId)) continue;
             if (!convMap.has(partnerId)) {
                 convMap.set(partnerId, {
                     user_id: partnerId,
@@ -822,10 +955,15 @@ class ChatServiceClass {
             .map((conversation) => conversation.user_id)
             .slice(0, 100);
         if (unresolvedIds.length > 0) {
-            const { data: profiles } = await supabase
-                .from('chat_profiles')
-                .select('user_id, display_name')
-                .in('user_id', unresolvedIds);
+            this.requirePrivateMessagePermit(permit, scope);
+            const { data: profiles } = await this.privateMessageQuery(permit, scope, (signal) =>
+                supabase!
+                    .from('chat_profiles')
+                    .select('user_id, display_name')
+                    .in('user_id', unresolvedIds)
+                    .abortSignal(signal),
+            );
+            this.requirePrivateMessagePermit(permit, scope);
             if (!this.operationIsCurrent(operation)) return [];
             for (const profile of profiles || []) {
                 const conversation = convMap.get(profile.user_id as string);
@@ -835,29 +973,40 @@ class ChatServiceClass {
             }
         }
 
-        return Array.from(convMap.values()).sort(
-            (a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime(),
-        );
+        this.requirePrivateMessagePermit(permit, scope);
+        return Array.from(convMap.values())
+            .filter((conversation) => !!captureLegacyPrivateMessagePermit(scope, conversation.user_id))
+            .sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
     }
 
     async getDMThread(partnerId: string, limit = 50): Promise<DirectMessage[]> {
-        if (!supabase || !isSafePostgrestFilterId(partnerId)) return [];
+        if (!isSafePostgrestFilterId(partnerId)) return [];
+        const scope = getAuthIdentityScope();
+        const permit = this.privateMessagePermit(scope, partnerId);
+        if (!supabase || !permit) return [];
         const operation = this.captureOperation();
-        if (!operation || !(await this.verifyRemoteOperation(operation))) return [];
+        if (!operation) return [];
+        const verified = await this.privateMessageWork(permit, scope, () => this.verifyRemoteOperation(operation));
+        this.requirePrivateMessagePermit(permit, scope);
+        if (!verified || !this.operationIsCurrent(operation)) return [];
         const ownerId = operation.userId;
         const immutablePartnerId = partnerId;
         const pageSize = boundedInteger(limit, 50, 1, MAX_CHAT_PAGE_SIZE);
 
-        const { data } = await supabase
-            .from(DM_TABLE)
-            .select('*')
-            .or(
-                `and(sender_id.eq.${ownerId},recipient_id.eq.${immutablePartnerId}),` +
-                    `and(sender_id.eq.${immutablePartnerId},recipient_id.eq.${ownerId})`,
-            )
-            .order('created_at', { ascending: false })
-            .limit(pageSize);
+        const { data } = await this.privateMessageQuery(permit, scope, (signal) =>
+            supabase!
+                .from(DM_TABLE)
+                .select('*')
+                .or(
+                    `and(sender_id.eq.${ownerId},recipient_id.eq.${immutablePartnerId}),` +
+                        `and(sender_id.eq.${immutablePartnerId},recipient_id.eq.${ownerId})`,
+                )
+                .order('created_at', { ascending: false })
+                .limit(pageSize)
+                .abortSignal(signal),
+        );
 
+        this.requirePrivateMessagePermit(permit, scope);
         if (!this.operationIsCurrent(operation)) return [];
         const thread = ((data || []) as DirectMessage[])
             .filter(
@@ -870,20 +1019,32 @@ class ChatServiceClass {
         // Mark unread as read. Await the side effect so an identity fence can
         // stop it before it begins and callers never observe a detached write.
         if (data && data.length > 0) {
-            await supabase
-                .from(DM_TABLE)
-                .update({ read: true })
-                .eq('recipient_id', ownerId)
-                .eq('sender_id', immutablePartnerId)
-                .eq('read', false);
+            this.requirePrivateMessagePermit(permit, scope);
+            await this.privateMessageQuery(permit, scope, (signal) =>
+                supabase!
+                    .from(DM_TABLE)
+                    .update({ read: true })
+                    .eq('recipient_id', ownerId)
+                    .eq('sender_id', immutablePartnerId)
+                    .eq('read', false)
+                    .abortSignal(signal),
+            );
+            this.requirePrivateMessagePermit(permit, scope);
             if (!this.operationIsCurrent(operation)) return [];
         }
 
+        this.requirePrivateMessagePermit(permit, scope);
         return thread;
     }
 
     async sendDM(recipientId: string, text: string): Promise<DirectMessageSendResult> {
-        const result = await this.sendDMForScope(recipientId, text, getAuthIdentityScope(), true);
+        const scope = getAuthIdentityScope();
+        if (!isSafePostgrestFilterId(recipientId)) return null;
+        const permit = this.privateMessagePermit(scope, recipientId);
+        if (!permit) return null;
+        const result = await this.sendDMForScope(recipientId, text, scope, true, permit);
+        this.requirePrivateMessagePermit(permit, scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
         return result === CANCELLED_DM ? null : result;
     }
 
@@ -892,11 +1053,15 @@ class ChatServiceClass {
         text: string,
         operationScope: AuthIdentityScope,
         queueOnFailure: boolean,
+        originalPermit?: LegacyPrivateMessagePermit,
     ): Promise<DirectMessageSendResult | typeof CANCELLED_DM> {
         const blockGeneration = this.dmBlockGeneration.get(recipientId) ?? 0;
         const blockUnchanged = () => blockGeneration === (this.dmBlockGeneration.get(recipientId) ?? 0);
         const normalizedText = normalizeChatMessage(text);
         if (!normalizedText || !isSafePostgrestFilterId(recipientId)) return null;
+        const permit = originalPermit ?? this.privateMessagePermit(operationScope, recipientId);
+        if (!permit) return null;
+        this.requirePrivateMessagePermit(permit, operationScope);
         if (
             typeof navigator !== 'undefined' &&
             !navigator.onLine &&
@@ -918,7 +1083,9 @@ class ChatServiceClass {
                     },
                     operationScope,
                     blockGeneration,
+                    permit,
                 );
+                this.requirePrivateMessagePermit(permit, operationScope);
                 return queued ? 'queued' : null;
             }
             return null;
@@ -941,24 +1108,28 @@ class ChatServiceClass {
             timestamp: new Date().toISOString(),
         };
         if (queueOnFailure && typeof navigator !== 'undefined' && !navigator.onLine) {
-            return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration);
+            return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration, permit);
         }
 
         let user: User | null = null;
         try {
+            this.requirePrivateMessagePermit(permit, operationScope);
             const authResult = await supabase.auth.getUser();
+            this.requirePrivateMessagePermit(permit, operationScope);
             user = authResult.data.user;
             if (authResult.error) {
                 log.error('Auth error in sendDM:', authResult.error.message);
                 if (queueOnFailure && isAuthRetryableFetchError(authResult.error)) {
-                    return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration);
+                    return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration, permit);
                 }
                 return null;
             }
         } catch (authError) {
+            if (authError instanceof LegacyPrivateMessagesUnavailableError) throw authError;
+            this.requirePrivateMessagePermit(permit, operationScope);
             log.error('Auth error in sendDM:', authError);
             if (queueOnFailure && isAuthRetryableFetchError(authError)) {
-                return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration);
+                return this.queueForMatchingLocalSession(operation, queuedMessage, blockGeneration, permit);
             }
             return null;
         }
@@ -970,8 +1141,12 @@ class ChatServiceClass {
         // Check if either party has blocked the other
         let blocked: boolean;
         try {
-            blocked = await this.isBlockedForOperation(recipientId, operation);
+            this.requirePrivateMessagePermit(permit, operationScope);
+            blocked = await this.isBlockedForOperation(recipientId, operation, permit);
+            this.requirePrivateMessagePermit(permit, operationScope);
         } catch (error) {
+            if (error instanceof LegacyPrivateMessagesUnavailableError) throw error;
+            this.requirePrivateMessagePermit(permit, operationScope);
             log.warn('DM block status unavailable; message not sent:', error);
             if (!blockUnchanged()) return CANCELLED_DM;
             return null;
@@ -985,18 +1160,23 @@ class ChatServiceClass {
 
         const displayName = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Sailor';
 
-        const { data, error } = await supabase
-            .from(DM_TABLE)
-            .insert({
-                sender_id: user.id,
-                recipient_id: recipientId,
-                sender_name: displayName,
-                message: text,
-                read: recipientId === user.id,
-            })
-            .select()
-            .single();
+        this.requirePrivateMessagePermit(permit, operationScope);
+        const { data, error } = await this.privateMessageQuery(permit, operationScope, (signal) =>
+            supabase!
+                .from(DM_TABLE)
+                .insert({
+                    sender_id: user.id,
+                    recipient_id: recipientId,
+                    sender_name: displayName,
+                    message: text,
+                    read: recipientId === user.id,
+                })
+                .select()
+                .abortSignal(signal)
+                .single(),
+        );
 
+        this.requirePrivateMessagePermit(permit, operationScope);
         if (!this.operationIsCurrent(operation)) return null;
         if (error) {
             if (!blockUnchanged()) return CANCELLED_DM;
@@ -1005,7 +1185,8 @@ class ChatServiceClass {
             // denial into an offline message that sends after a later unblock.
             if (error.code === '42501' || error.code === '23514' || error.code === '23503') return CANCELLED_DM;
             if (queueOnFailure) {
-                const queued = await this.queueOffline(queuedMessage, operationScope, blockGeneration);
+                const queued = await this.queueOffline(queuedMessage, operationScope, blockGeneration, permit);
+                this.requirePrivateMessagePermit(permit, operationScope);
                 return queued ? 'queued' : null;
             }
             return null;
@@ -1013,11 +1194,13 @@ class ChatServiceClass {
 
         // Fire-and-forget: push notification to DM recipient
         if (data?.id && recipientId !== user.id) {
-            this.queuePushNotification(data.id, operation).catch(() => {
+            this.requirePrivateMessagePermit(permit, operationScope);
+            this.queuePushNotification(data.id, operation, permit).catch(() => {
                 /* best effort */
             });
         }
 
+        this.requirePrivateMessagePermit(permit, operationScope);
         return data as DirectMessage;
     }
 
@@ -1075,16 +1258,27 @@ class ChatServiceClass {
     }
 
     private async setUserBlock(userId: string, blocked: boolean): Promise<boolean> {
+        const scope = getAuthIdentityScope();
+        if (!isSafePostgrestFilterId(userId)) return false;
+        const permit = this.privateMessagePermit(scope, userId);
+        if (!permit) return false;
         const operation = this.captureOperation();
         if (!supabase || !operation || !isSafePostgrestFilterId(userId)) return false;
         const generation = (this.dmBlockGeneration.get(userId) ?? 0) + 1;
         this.dmBlockGeneration.set(userId, generation);
         try {
-            if (!(await this.verifyRemoteOperation(operation))) return false;
-            const { data, error } = await supabase.rpc('set_chat_user_block', {
-                p_other_user_id: userId,
-                p_blocked: blocked,
-            });
+            const verified = await this.privateMessageWork(permit, scope, () => this.verifyRemoteOperation(operation));
+            this.requirePrivateMessagePermit(permit, scope);
+            if (!verified || !this.operationIsCurrent(operation)) return false;
+            const { data, error } = await this.privateMessageQuery(permit, scope, (signal) =>
+                supabase!
+                    .rpc('set_chat_user_block', {
+                        p_other_user_id: userId,
+                        p_blocked: blocked,
+                    })
+                    .abortSignal(signal),
+            );
+            this.requirePrivateMessagePermit(permit, scope);
             if (error || !this.operationIsCurrent(operation) || this.dmBlockGeneration.get(userId) !== generation)
                 return false;
             const status = parseDMBlockStatus(data);
@@ -1094,39 +1288,59 @@ class ChatServiceClass {
             this.dmBlockStatus.set(userId, status);
             if (blocked) {
                 await this.withOfflineQueueLock(async () => {
+                    this.requirePrivateMessagePermit(permit, scope);
                     const key = authScopedStorageKey(OFFLINE_QUEUE_KEY, operation.scope);
                     const queue = await this.readScopedQueue(key, operation.scope);
+                    this.requirePrivateMessagePermit(permit, scope);
                     const remaining = queue.filter(
                         (message) => message.type !== 'dm' || message.recipient_id !== userId,
                     );
-                    if (remaining.length) await Preferences.set({ key, value: JSON.stringify(remaining) });
-                    else await Preferences.remove({ key });
+                    await this.writeScopedQueue(key, remaining, scope, permit);
+                    this.requirePrivateMessagePermit(permit, scope);
                 });
+                this.requirePrivateMessagePermit(permit, scope);
             }
+            this.requirePrivateMessagePermit(permit, scope);
             return this.operationIsCurrent(operation);
         } catch (error) {
+            if (error instanceof LegacyPrivateMessagesUnavailableError) throw error;
+            this.requirePrivateMessagePermit(permit, scope);
             log.warn('Unable to update chat block:', error);
             return false;
         }
     }
 
     async getDMBlockStatus(userId: string): Promise<DMBlockStatus> {
+        const scope = getAuthIdentityScope();
+        const permit = this.privateMessagePermit(scope, userId);
+        if (!permit) throw new Error('Unable to verify direct-message blocking.');
         const operation = this.captureOperation();
         if (!operation) throw new Error('Unable to verify direct-message blocking.');
-        return this.getDMBlockStatusForOperation(userId, operation);
+        const status = await this.getDMBlockStatusForOperation(userId, operation, permit);
+        this.requirePrivateMessagePermit(permit, scope);
+        return status;
     }
 
     private async getDMBlockStatusForOperation(
         userId: string,
         operation: ChatOperationContext,
+        permit: LegacyPrivateMessagePermit,
     ): Promise<DMBlockStatus> {
         const generation = this.dmBlockGeneration.get(userId) ?? 0;
         if (!supabase || !this.operationIsCurrent(operation) || !isSafePostgrestFilterId(userId)) {
             throw new Error('Unable to verify direct-message blocking.');
         }
-        if (!(await this.verifyRemoteOperation(operation)))
+        this.requirePrivateMessagePermit(permit, operation.scope);
+        const verified = await this.privateMessageWork(permit, operation.scope, () =>
+            this.verifyRemoteOperation(operation),
+        );
+        this.requirePrivateMessagePermit(permit, operation.scope);
+        if (!verified || !this.operationIsCurrent(operation))
             throw new Error('Unable to verify direct-message blocking.');
-        const { data, error } = await supabase.rpc('get_chat_dm_block_status', { p_other_user_id: userId });
+        const { data, error } = await this.privateMessageQuery(permit, operation.scope, (signal) =>
+            supabase!.rpc('get_chat_dm_block_status', { p_other_user_id: userId }).abortSignal(signal),
+        );
+        this.requirePrivateMessagePermit(permit, operation.scope);
         if (error || !this.operationIsCurrent(operation) || generation !== (this.dmBlockGeneration.get(userId) ?? 0))
             throw new Error('Unable to verify direct-message blocking.');
         const status = parseDMBlockStatus(data);
@@ -1136,19 +1350,36 @@ class ChatServiceClass {
 
     /** Check if DMs are blocked between current user and target (either direction) */
     async isBlocked(userId: string): Promise<boolean> {
-        return (await this.getDMBlockStatus(userId)).blockedEitherDirection;
+        const scope = getAuthIdentityScope();
+        const permit = this.privateMessagePermit(scope, userId);
+        if (!permit) throw new Error('Unable to verify direct-message blocking.');
+        const status = await this.getDMBlockStatus(userId);
+        this.requirePrivateMessagePermit(permit, scope);
+        return status.blockedEitherDirection;
     }
 
-    private async isBlockedForOperation(userId: string, operation: ChatOperationContext): Promise<boolean> {
-        return (await this.getDMBlockStatusForOperation(userId, operation)).blockedEitherDirection;
+    private async isBlockedForOperation(
+        userId: string,
+        operation: ChatOperationContext,
+        permit: LegacyPrivateMessagePermit,
+    ): Promise<boolean> {
+        const status = await this.getDMBlockStatusForOperation(userId, operation, permit);
+        this.requirePrivateMessagePermit(permit, operation.scope);
+        return status.blockedEitherDirection;
     }
 
     /** Get list of user IDs blocked by the current user */
     async getBlockedUsers(): Promise<string[]> {
+        const scope = getAuthIdentityScope();
+        const permit = this.privateMessagePermit(scope);
+        if (!permit) return [];
         if (!supabase) return [];
         const operation = this.captureOperation();
         if (!operation) return [];
-        const { data } = await supabase.from(DM_BLOCKS_TABLE).select('blocked_id').eq('blocker_id', operation.userId);
+        const { data } = await this.privateMessageQuery(permit, scope, (signal) =>
+            supabase!.from(DM_BLOCKS_TABLE).select('blocked_id').eq('blocker_id', operation.userId).abortSignal(signal),
+        );
+        this.requirePrivateMessagePermit(permit, scope);
         if (!this.operationIsCurrent(operation)) return [];
         // Self testing must never hide the caller's public Scuttlebutt posts.
         return (data || [])
@@ -1157,37 +1388,68 @@ class ChatServiceClass {
     }
 
     subscribeToDMs(onMessage: (dm: DirectMessage) => void): () => void {
+        const scope = getAuthIdentityScope();
+        const permit = this.privateMessagePermit(scope);
+        if (!permit) return () => {};
         if (!supabase) return () => {};
         const operation = this.captureOperation();
         if (!operation) return () => {};
 
         if (this.dmSubscription) {
-            supabase.removeChannel(this.dmSubscription);
+            const previous = this.dmSubscription;
+            this.dmSubscription = null;
+            this.dmSubscriptionPermit = null;
+            supabase.removeChannel(previous);
         }
+        this.requirePrivateMessagePermit(permit, scope);
+        let cancelled = false;
 
-        const channel = supabase
-            .channel('dm:inbox')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: DM_TABLE,
-                    filter: `recipient_id=eq.${operation.userId}`,
-                },
-                (payload) => {
-                    if (!this.operationIsCurrent(operation)) return;
-                    const dm = payload.new as DirectMessage;
-                    if (dm.recipient_id === operation.userId) onMessage(dm);
-                },
-            )
-            .subscribe();
+        const channel = supabase.channel('dm:inbox');
+        const admitted = () => {
+            if (isLegacyPrivateMessagePermitCurrent(permit) && this.operationIsCurrent(operation)) return true;
+            cancelled = true;
+            try {
+                void Promise.resolve(supabase!.removeChannel(channel)).catch(() => {});
+            } catch {
+                /* Locally closed. */
+            }
+            this.requirePrivateMessagePermit(permit, scope);
+            return false;
+        };
+        if (!admitted()) return () => {};
+        channel.on(
+            'postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: DM_TABLE,
+                filter: `recipient_id=eq.${operation.userId}`,
+            },
+            (payload) => {
+                if (
+                    cancelled ||
+                    this.dmSubscriptionPermit !== permit ||
+                    !isLegacyPrivateMessagePermitCurrent(permit) ||
+                    !this.operationIsCurrent(operation)
+                )
+                    return;
+                const dm = payload.new as DirectMessage;
+                if (dm.recipient_id === operation.userId && captureLegacyPrivateMessagePermit(scope, dm.sender_id))
+                    onMessage(dm);
+            },
+        );
+        if (!admitted()) return () => {};
+        channel.subscribe();
+        if (!admitted()) return () => {};
         this.dmSubscription = channel;
+        this.dmSubscriptionPermit = permit;
 
         return () => {
+            cancelled = true;
             if (this.dmSubscription === channel && supabase) {
-                supabase.removeChannel(channel);
                 this.dmSubscription = null;
+                this.dmSubscriptionPermit = null;
+                supabase.removeChannel(channel);
             }
         };
     }
@@ -2014,12 +2276,22 @@ class ChatServiceClass {
 
     // --- PUSH NOTIFICATIONS ---
 
-    private async queuePushNotification(messageId: string, operation: ChatOperationContext): Promise<void> {
+    private async queuePushNotification(
+        messageId: string,
+        operation: ChatOperationContext,
+        permit: LegacyPrivateMessagePermit,
+    ): Promise<void> {
         if (!supabase || !this.operationIsCurrent(operation)) return;
         try {
-            await supabase.rpc('queue_dm_push', { p_message_id: messageId });
+            this.requirePrivateMessagePermit(permit, operation.scope);
+            await this.privateMessageQuery(permit, operation.scope, (signal) =>
+                supabase!.rpc('queue_dm_push', { p_message_id: messageId }).abortSignal(signal),
+            );
+            this.requirePrivateMessagePermit(permit, operation.scope);
             if (!this.operationIsCurrent(operation)) return;
         } catch (e) {
+            if (e instanceof LegacyPrivateMessagesUnavailableError) throw e;
+            this.requirePrivateMessagePermit(permit, operation.scope);
             log.warn('[Chat]', e);
             /* Push notification is best-effort — never block message sending */
         }
@@ -2048,10 +2320,16 @@ class ChatServiceClass {
         return result;
     }
 
-    private async quarantineQueueValues(values: unknown[]): Promise<void> {
-        if (values.length === 0) return;
+    private async quarantineQueueValues(
+        values: unknown[],
+        scope: AuthIdentityScope,
+        permit: LegacyPrivateMessagePermit | null,
+    ): Promise<boolean> {
+        if (!permit || !isLegacyPrivateMessagePermitCurrent(permit) || !isAuthIdentityScopeCurrent(scope)) return false;
+        if (values.length === 0) return true;
         let existing: unknown[] = [];
         const { value } = await Preferences.get({ key: OFFLINE_QUEUE_QUARANTINE_KEY });
+        if (!isLegacyPrivateMessagePermitCurrent(permit) || !isAuthIdentityScopeCurrent(scope)) return false;
         if (value) {
             try {
                 const parsed = JSON.parse(value) as unknown;
@@ -2077,6 +2355,7 @@ class ChatServiceClass {
             key: OFFLINE_QUEUE_QUARANTINE_KEY,
             value: JSON.stringify(retained),
         });
+        return isLegacyPrivateMessagePermitCurrent(permit) && isAuthIdentityScopeCurrent(scope);
     }
 
     /**
@@ -2085,19 +2364,34 @@ class ChatServiceClass {
      * values explicitly owned by another account remain for that account.
      */
     private async migrateLegacyOfflineQueue(scope: AuthIdentityScope): Promise<void> {
+        const permit = captureLegacyPrivateMessagePermit(scope);
+        // Aggregate queue maintenance cannot safely classify protected private
+        // rows. After cutover only public rows may leave the historical key.
+        if (!permit) return this.migratePublicLegacyOfflineQueue(scope);
         const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
+        if (!isLegacyPrivateMessagePermitCurrent(permit) || !isAuthIdentityScopeCurrent(scope)) return;
         if (!value) return;
 
         let parsed: unknown;
         try {
             parsed = JSON.parse(value) as unknown;
         } catch {
-            await this.quarantineQueueValues([{ unreadable_legacy_payload: value }]);
+            if (
+                !(await this.quarantineQueueValues([{ unreadable_legacy_payload: value }], scope, permit)) ||
+                !isLegacyPrivateMessagePermitCurrent(permit) ||
+                !isAuthIdentityScopeCurrent(scope)
+            )
+                return;
             await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
             return;
         }
         if (!Array.isArray(parsed)) {
-            await this.quarantineQueueValues([parsed]);
+            if (
+                !(await this.quarantineQueueValues([parsed], scope, permit)) ||
+                !isLegacyPrivateMessagePermitCurrent(permit) ||
+                !isAuthIdentityScopeCurrent(scope)
+            )
+                return;
             await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
             return;
         }
@@ -2126,11 +2420,18 @@ class ChatServiceClass {
         if (adopting.length > 0) {
             const scopedKey = authScopedStorageKey(OFFLINE_QUEUE_KEY, scope);
             const existing = await this.readScopedQueue(scopedKey, scope);
+            if (!isLegacyPrivateMessagePermitCurrent(permit) || !isAuthIdentityScopeCurrent(scope)) return;
             const existingIds = new Set(existing.map((message) => message.queue_id));
             const merged = [...existing, ...adopting.filter((message) => !existingIds.has(message.queue_id))];
             await Preferences.set({ key: scopedKey, value: JSON.stringify(merged) });
+            if (!isLegacyPrivateMessagePermitCurrent(permit) || !isAuthIdentityScopeCurrent(scope)) return;
         }
-        await this.quarantineQueueValues(ambiguous);
+        if (
+            !(await this.quarantineQueueValues(ambiguous, scope, permit)) ||
+            !isLegacyPrivateMessagePermitCurrent(permit) ||
+            !isAuthIdentityScopeCurrent(scope)
+        )
+            return;
         if (remaining.length > 0) {
             await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(remaining) });
         } else {
@@ -2138,19 +2439,80 @@ class ChatServiceClass {
         }
     }
 
+    /** After cutover, move public legacy rows only; leave every private/unknown value held. */
+    private async migratePublicLegacyOfflineQueue(scope: AuthIdentityScope): Promise<void> {
+        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
+        if (!value || !isAuthIdentityScopeCurrent(scope)) return;
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(value);
+        } catch {
+            return;
+        }
+        if (!Array.isArray(parsed)) return;
+        const adopting: OwnedQueuedMessage[] = [];
+        const held: unknown[] = [];
+        for (const record of parsed) {
+            const owner = explicitQueueOwner(record);
+            if (
+                !isQueuedMessage(record) ||
+                record.type !== 'channel' ||
+                !owner.known ||
+                owner.userId !== scope.userId
+            ) {
+                held.push(record);
+                continue;
+            }
+            const original = record as QueuedMessage & Partial<OwnedQueuedMessage>;
+            adopting.push({
+                ...original,
+                owner_user_id: scope.userId,
+                queue_id: typeof original.queue_id === 'string' && original.queue_id ? original.queue_id : newQueueId(),
+            });
+        }
+        if (!adopting.length) return;
+        const key = authScopedStorageKey(OFFLINE_QUEUE_KEY, scope);
+        const existing = await this.readScopedQueue(key, scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        const ids = new Set(existing.map((record) => record.queue_id));
+        if (
+            !(await this.writeScopedQueue(
+                key,
+                [...existing, ...adopting.filter((record) => !ids.has(record.queue_id))],
+                scope,
+            ))
+        )
+            return;
+        if (!isAuthIdentityScopeCurrent(scope)) return;
+        if (held.length) await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(held) });
+        else await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
+    }
+
     private async readScopedQueue(key: string, scope: AuthIdentityScope): Promise<OwnedQueuedMessage[]> {
+        const permit = captureLegacyPrivateMessagePermit(scope);
         const { value } = await Preferences.get({ key });
+        if (!isAuthIdentityScopeCurrent(scope)) return [];
         if (!value) return [];
         let parsed: unknown;
         try {
             parsed = JSON.parse(value) as unknown;
         } catch {
-            await this.quarantineQueueValues([{ scoped_key: key, unreadable_payload: value }]);
+            if (
+                !(await this.quarantineQueueValues([{ scoped_key: key, unreadable_payload: value }], scope, permit)) ||
+                !isLegacyPrivateMessagePermitCurrent(permit) ||
+                !isAuthIdentityScopeCurrent(scope)
+            )
+                return [];
             await Preferences.remove({ key });
             return [];
         }
         if (!Array.isArray(parsed)) {
-            await this.quarantineQueueValues([{ scoped_key: key, value: parsed }]);
+            if (
+                !(await this.quarantineQueueValues([{ scoped_key: key, value: parsed }], scope, permit)) ||
+                !isLegacyPrivateMessagePermitCurrent(permit) ||
+                !isAuthIdentityScopeCurrent(scope)
+            )
+                return [];
             await Preferences.remove({ key });
             return [];
         }
@@ -2158,6 +2520,7 @@ class ChatServiceClass {
         const queue: OwnedQueuedMessage[] = [];
         const rejected: unknown[] = [];
         let normalized = false;
+        let normalizedPublic = false;
         for (const value of parsed) {
             if (!isQueuedMessage(value)) {
                 rejected.push(value);
@@ -2176,10 +2539,24 @@ class ChatServiceClass {
                 queue_id: typeof record.queue_id === 'string' && record.queue_id ? record.queue_id : newQueueId(),
                 owner_user_id: scope.userId,
             };
-            if (owned.queue_id !== record.queue_id || owned.owner_user_id !== record.owner_user_id) normalized = true;
+            if (owned.queue_id !== record.queue_id || owned.owner_user_id !== record.owner_user_id) {
+                normalized = true;
+                if (record.type === 'channel') normalizedPublic = true;
+            }
             queue.push(owned);
         }
-        await this.quarantineQueueValues(rejected);
+        // With no aggregate permit, retain every stored private object verbatim.
+        // Normalized in-memory rows are only worklist entries, not replacements.
+        if (!permit || !isLegacyPrivateMessagePermitCurrent(permit)) {
+            if (normalizedPublic) await this.writeScopedQueue(key, queue, scope);
+            return isAuthIdentityScopeCurrent(scope) ? queue : [];
+        }
+        if (
+            !(await this.quarantineQueueValues(rejected, scope, permit)) ||
+            !isLegacyPrivateMessagePermitCurrent(permit) ||
+            !isAuthIdentityScopeCurrent(scope)
+        )
+            return queue;
         if (normalized || rejected.length > 0) {
             if (queue.length > 0) await Preferences.set({ key, value: JSON.stringify(queue) });
             else await Preferences.remove({ key });
@@ -2187,11 +2564,75 @@ class ChatServiceClass {
         return queue;
     }
 
+    /** Mutate the public worklist without deleting/normalizing held private rows. */
+    private async writeScopedQueue(
+        key: string,
+        desired: OwnedQueuedMessage[],
+        scope: AuthIdentityScope,
+        privatePermit?: LegacyPrivateMessagePermit,
+        newPrivateQueueId?: string,
+        privateAdmissionPermit?: LegacyPrivateMessagePermit,
+    ): Promise<boolean> {
+        if (privatePermit) this.requirePrivateMessagePermit(privatePermit, scope);
+        if (privateAdmissionPermit) this.requirePrivateMessagePermit(privateAdmissionPermit, scope);
+        const maintenancePermit = captureLegacyPrivateMessagePermit(scope);
+        const { value } = await Preferences.get({ key });
+        if (privatePermit) this.requirePrivateMessagePermit(privatePermit, scope);
+        if (privateAdmissionPermit) this.requirePrivateMessagePermit(privateAdmissionPermit, scope);
+        if (!isAuthIdentityScopeCurrent(scope)) return false;
+        let output: unknown[] = desired;
+        if (!maintenancePermit || !isLegacyPrivateMessagePermitCurrent(maintenancePermit)) {
+            let parsed: unknown = [];
+            try {
+                if (value) parsed = JSON.parse(value);
+            } catch {
+                return false;
+            }
+            if (!Array.isArray(parsed)) return false;
+            const held = parsed.filter((record) => {
+                if (!isQueuedMessage(record) || record.type !== 'channel') return true;
+                const owner = explicitQueueOwner(record);
+                return owner.known && owner.userId !== scope.userId;
+            });
+            // Only an explicitly admitted NEW private item may be appended.
+            // Existing private objects, including malformed/old-schema objects,
+            // are held and never replaced by normalized worklist projections.
+            output = [
+                ...desired.filter(
+                    (record) =>
+                        record.type !== 'dm' ||
+                        (!!privatePermit && !!privateAdmissionPermit && record.queue_id === newPrivateQueueId),
+                ),
+                ...held,
+            ];
+        }
+        if (privatePermit) this.requirePrivateMessagePermit(privatePermit, scope);
+        if (privateAdmissionPermit) this.requirePrivateMessagePermit(privateAdmissionPermit, scope);
+        if (output.length) await Preferences.set({ key, value: JSON.stringify(output) });
+        else await Preferences.remove({ key });
+        if (privatePermit) this.requirePrivateMessagePermit(privatePermit, scope);
+        if (privateAdmissionPermit) this.requirePrivateMessagePermit(privateAdmissionPermit, scope);
+        return isAuthIdentityScopeCurrent(scope);
+    }
+
     private async queueOffline(
         msg: QueuedMessage,
         scope: AuthIdentityScope = getAuthIdentityScope(),
         dmGeneration?: number,
+        privatePermit?: LegacyPrivateMessagePermit,
+        originalAggregatePermit?: LegacyPrivateMessagePermit,
     ): Promise<boolean> {
+        const permit = msg.type === 'dm' ? (privatePermit ?? this.privateMessagePermit(scope, msg.recipient_id)) : null;
+        // NEW private admission must be replayable in this process. Capture the
+        // aggregate hint before the first await; never reissue it after refusal.
+        const aggregatePermit =
+            msg.type === 'dm' ? (originalAggregatePermit ?? this.privateMessagePermit(scope)) : null;
+        if (msg.type === 'dm' && (!permit || !aggregatePermit)) return false;
+        const checkAdmission = () => {
+            if (permit) this.requirePrivateMessagePermit(permit, scope);
+            if (aggregatePermit) this.requirePrivateMessagePermit(aggregatePermit, scope);
+        };
+        checkAdmission();
         const owned: OwnedQueuedMessage = {
             ...msg,
             queue_id: newQueueId(),
@@ -2199,6 +2640,8 @@ class ChatServiceClass {
         };
         try {
             const queued = await this.withOfflineQueueLock(async () => {
+                checkAdmission();
+                if (!isAuthIdentityScopeCurrent(scope)) return false;
                 if (
                     msg.type === 'dm' &&
                     msg.recipient_id &&
@@ -2209,18 +2652,31 @@ class ChatServiceClass {
                 )
                     return false;
                 await this.migrateLegacyOfflineQueue(scope);
+                checkAdmission();
+                if (!isAuthIdentityScopeCurrent(scope)) return false;
                 const key = authScopedStorageKey(OFFLINE_QUEUE_KEY, scope);
                 const queue = await this.readScopedQueue(key, scope);
+                checkAdmission();
+                if (!isAuthIdentityScopeCurrent(scope)) return false;
                 queue.push(owned);
-                await Preferences.set({ key, value: JSON.stringify(queue) });
-                return true;
+                return this.writeScopedQueue(
+                    key,
+                    queue,
+                    scope,
+                    permit ?? undefined,
+                    msg.type === 'dm' ? owned.queue_id : undefined,
+                    aggregatePermit ?? undefined,
+                );
             });
+            checkAdmission();
             if (!queued) return false;
             if (scope.userId === this.currentUserId && isAuthIdentityScopeCurrent(scope)) {
                 this.scheduleOfflineQueueRetry(scope, 15_000);
             }
             return true;
         } catch (e) {
+            if (e instanceof LegacyPrivateMessagesUnavailableError) throw e;
+            checkAdmission();
             log.warn('queueOffline best effort:', e);
             return false;
         }
@@ -2229,21 +2685,41 @@ class ChatServiceClass {
     private async syncOfflineQueue(scope: AuthIdentityScope = getAuthIdentityScope()): Promise<number> {
         if (!supabase) return 0;
         if (!scope.userId || this.currentUserId !== scope.userId || !isAuthIdentityScopeCurrent(scope)) return 0;
+        const queueMaintenancePermit = captureLegacyPrivateMessagePermit(scope);
         try {
             const key = authScopedStorageKey(OFFLINE_QUEUE_KEY, scope);
             const queue = await this.withOfflineQueueLock(async () => {
                 await this.migrateLegacyOfflineQueue(scope);
+                if (!isAuthIdentityScopeCurrent(scope)) return [];
                 return this.readScopedQueue(key, scope);
             });
             if (queue.length === 0) return 0;
 
             for (const msg of queue) {
                 if (!isAuthIdentityScopeCurrent(scope)) return 0;
+                const privatePermit =
+                    msg.type === 'dm' ? captureLegacyPrivateMessagePermit(scope, msg.recipient_id) : null;
+                // No private replay/terminal cancellation after a denial. The
+                // stored item is held; public items later in the queue continue.
+                if (
+                    msg.type === 'dm' &&
+                    (!privatePermit ||
+                        !queueMaintenancePermit ||
+                        !isLegacyPrivateMessagePermitCurrent(queueMaintenancePermit))
+                )
+                    continue;
                 // A block may have cancelled this queued item since the
                 // initial snapshot. Never revive a removed operation.
                 const stillQueued = await this.withOfflineQueueLock(async () =>
                     (await this.readScopedQueue(key, scope)).some((candidate) => candidate.queue_id === msg.queue_id),
                 );
+                if (!isAuthIdentityScopeCurrent(scope)) return 0;
+                if (
+                    privatePermit &&
+                    (!isLegacyPrivateMessagePermitCurrent(privatePermit) ||
+                        !isLegacyPrivateMessagePermitCurrent(queueMaintenancePermit))
+                )
+                    continue;
                 if (!stillQueued) continue;
                 let completed = false;
                 let confirmedDirectMessage: DirectMessage | null = null;
@@ -2257,7 +2733,25 @@ class ChatServiceClass {
                     );
                     completed = result !== null && result !== 'queued';
                 } else if (msg.type === 'dm' && msg.recipient_id) {
-                    const result = await this.sendDMForScope(msg.recipient_id, msg.message, scope, false);
+                    let result: DirectMessageSendResult | typeof CANCELLED_DM;
+                    try {
+                        result = await this.sendDMForScope(
+                            msg.recipient_id,
+                            msg.message,
+                            scope,
+                            false,
+                            privatePermit ?? undefined,
+                        );
+                    } catch (error) {
+                        if (error instanceof LegacyPrivateMessagesUnavailableError) continue;
+                        throw error;
+                    }
+                    if (
+                        !privatePermit ||
+                        !isLegacyPrivateMessagePermitCurrent(privatePermit) ||
+                        !isLegacyPrivateMessagePermitCurrent(queueMaintenancePermit)
+                    )
+                        continue;
                     // A confirmed block is a terminal cancellation, not a
                     // message to silently send after a future unblock.
                     completed = result !== null && result !== 'queued';
@@ -2266,7 +2760,14 @@ class ChatServiceClass {
                     }
                 }
                 if (!completed) continue;
-                if (confirmedDirectMessage && typeof window !== 'undefined' && isAuthIdentityScopeCurrent(scope)) {
+                if (
+                    confirmedDirectMessage &&
+                    privatePermit &&
+                    isLegacyPrivateMessagePermitCurrent(privatePermit) &&
+                    isLegacyPrivateMessagePermitCurrent(queueMaintenancePermit) &&
+                    typeof window !== 'undefined' &&
+                    isAuthIdentityScopeCurrent(scope)
+                ) {
                     window.dispatchEvent(
                         new CustomEvent(QUEUED_DM_SENT_EVENT, {
                             detail: {
@@ -2280,15 +2781,33 @@ class ChatServiceClass {
                 // Re-read under the mutation lock so concurrent appends survive.
                 // Remove exactly this confirmed-success/cancelled operation, never the
                 // whole queue and never another account's scoped key.
-                await this.withOfflineQueueLock(async () => {
-                    const live = await this.readScopedQueue(key, scope);
-                    const remaining = live.filter(
-                        (candidate) =>
-                            candidate.queue_id !== msg.queue_id || candidate.owner_user_id !== msg.owner_user_id,
-                    );
-                    if (remaining.length === 0) await Preferences.remove({ key });
-                    else await Preferences.set({ key, value: JSON.stringify(remaining) });
-                });
+                try {
+                    await this.withOfflineQueueLock(async () => {
+                        if (
+                            !isAuthIdentityScopeCurrent(scope) ||
+                            (privatePermit &&
+                                (!isLegacyPrivateMessagePermitCurrent(privatePermit) ||
+                                    !isLegacyPrivateMessagePermitCurrent(queueMaintenancePermit)))
+                        )
+                            return;
+                        const live = await this.readScopedQueue(key, scope);
+                        if (
+                            !isAuthIdentityScopeCurrent(scope) ||
+                            (privatePermit &&
+                                (!isLegacyPrivateMessagePermitCurrent(privatePermit) ||
+                                    !isLegacyPrivateMessagePermitCurrent(queueMaintenancePermit)))
+                        )
+                            return;
+                        const remaining = live.filter(
+                            (candidate) =>
+                                candidate.queue_id !== msg.queue_id || candidate.owner_user_id !== msg.owner_user_id,
+                        );
+                        await this.writeScopedQueue(key, remaining, scope, privatePermit ?? undefined);
+                    });
+                } catch (error) {
+                    if (error instanceof LegacyPrivateMessagesUnavailableError) continue;
+                    throw error;
+                }
             }
             if (!isAuthIdentityScopeCurrent(scope)) return 0;
             return this.withOfflineQueueLock(async () => {
@@ -2304,14 +2823,21 @@ class ChatServiceClass {
     // --- UNREAD COUNT ---
 
     async getUnreadDMCount(): Promise<number> {
+        const scope = getAuthIdentityScope();
+        const permit = this.privateMessagePermit(scope);
+        if (!permit) return 0;
         if (!supabase) return 0;
         const operation = this.captureOperation();
         if (!operation) return 0;
-        const { count } = await supabase
-            .from(DM_TABLE)
-            .select('*', { count: 'exact', head: true })
-            .eq('recipient_id', operation.userId)
-            .eq('read', false);
+        const { count } = await this.privateMessageQuery(permit, scope, (signal) =>
+            supabase!
+                .from(DM_TABLE)
+                .select('*', { count: 'exact', head: true })
+                .eq('recipient_id', operation.userId)
+                .eq('read', false)
+                .abortSignal(signal),
+        );
+        this.requirePrivateMessagePermit(permit, scope);
         return this.operationIsCurrent(operation) ? count || 0 : 0;
     }
 
@@ -2329,9 +2855,12 @@ class ChatServiceClass {
             this.activeSubscriptions.delete(channelId);
         });
         if (this.dmSubscription) {
-            if (supabase) supabase.removeChannel(this.dmSubscription);
+            const channel = this.dmSubscription;
             this.dmSubscription = null;
+            this.dmSubscriptionPermit = null;
+            if (supabase) supabase.removeChannel(channel);
         }
+        this.dmSubscriptionPermit = null;
         this.currentUserId = null;
         this.currentRole = 'member';
         this.mutedUntil = null;

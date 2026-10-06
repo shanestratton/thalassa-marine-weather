@@ -11,6 +11,7 @@ function deferred<T>() {
 const chatHarness = vi.hoisted(() => {
     type Result = { data?: any; error?: any; count?: number | null };
     const queued = new Map<string, Array<Result | Promise<Result>>>();
+    const startedQueries: Array<{ table: string; action: string }> = [];
     const actions: Array<{
         table: string;
         action: string;
@@ -32,6 +33,7 @@ const chatHarness = vi.hoisted(() => {
         values.push(result);
         queued.set(key(table, action), values);
     };
+    const clearPending = (table: string, action: string) => queued.delete(key(table, action));
     const next = (table: string, action: string): Result | Promise<Result> => {
         const values = queued.get(key(table, action));
         return values?.shift() ?? { data: null, error: null, count: 0 };
@@ -46,6 +48,16 @@ const chatHarness = vi.hoisted(() => {
             orFilter: undefined as string | undefined,
         };
         const query: Record<string, any> = {};
+        let signal: AbortSignal | undefined;
+        let completion: Promise<Result> | undefined;
+        const check = () => {
+            if (signal?.aborted) throw new DOMException('Synthetic request aborted', 'AbortError');
+        };
+        query.abortSignal = vi.fn((nextSignal: AbortSignal) => {
+            signal = nextSignal;
+            query.signal = signal;
+            return query;
+        });
         for (const method of ['select', 'order', 'range', 'limit', 'in']) {
             query[method] = vi.fn(() => query);
         }
@@ -66,8 +78,21 @@ const chatHarness = vi.hoisted(() => {
             });
         }
         query.single = vi.fn(() => query);
-        query.then = (resolve: (value: Result) => unknown, reject: (reason: unknown) => unknown) =>
-            Promise.resolve(next(operation.table, operation.action)).then(resolve, reject);
+        query.then = (resolve: (value: Result) => unknown, reject: (reason: unknown) => unknown) => {
+            completion ??= Promise.resolve()
+                .then(() => {
+                    check();
+                    // Lazy synthetic submission/plan consumption, not builder
+                    // construction or evidence of physical HTTP dispatch.
+                    startedQueries.push({ table: operation.table, action: operation.action });
+                    return next(operation.table, operation.action);
+                })
+                .then((result) => {
+                    check();
+                    return result;
+                });
+            return completion.then(resolve, reject);
+        };
         return query;
     });
 
@@ -79,6 +104,36 @@ const chatHarness = vi.hoisted(() => {
         return Promise.resolve(nextAuth);
     });
     const removeChannel = vi.fn();
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpcBuilder = (...args: unknown[]) => {
+        const reply = rpc(...args);
+        let signal: AbortSignal | undefined;
+        let completion: Promise<Result> | undefined;
+        const check = () => {
+            if (signal?.aborted) throw new DOMException('Synthetic RPC aborted', 'AbortError');
+        };
+        const query = {
+            signal: undefined as AbortSignal | undefined,
+            abortSignal: (nextSignal: AbortSignal) => {
+                signal = nextSignal;
+                query.signal = signal;
+                return query;
+            },
+            then: (resolve: (value: Result) => unknown, reject: (error: unknown) => unknown) => {
+                completion ??= Promise.resolve()
+                    .then(() => {
+                        check();
+                        return reply;
+                    })
+                    .then((result) => {
+                        check();
+                        return result;
+                    });
+                return completion.then(resolve, reject);
+            },
+        };
+        return query;
+    };
     const channel = vi.fn((name: string) => {
         const entry = { name, channel: {} as Record<string, unknown> } as (typeof realtime)[number];
         const channelObject = {
@@ -102,6 +157,7 @@ const chatHarness = vi.hoisted(() => {
 
     const reset = () => {
         queued.clear();
+        startedQueries.length = 0;
         actions.length = 0;
         realtime.length = 0;
         authQueue.length = 0;
@@ -109,6 +165,7 @@ const chatHarness = vi.hoisted(() => {
         getUser.mockClear();
         removeChannel.mockClear();
         channel.mockClear();
+        rpc.mockClear();
     };
 
     return {
@@ -116,6 +173,8 @@ const chatHarness = vi.hoisted(() => {
         authQueue,
         channel,
         enqueue,
+        clearPending,
+        startedQueries,
         from,
         getUser,
         realtime,
@@ -129,7 +188,7 @@ const chatHarness = vi.hoisted(() => {
             },
             channel,
             removeChannel,
-            rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
+            rpc: rpcBuilder,
         },
     };
 });
@@ -154,7 +213,7 @@ vi.mock('@capacitor/preferences', () => ({
     },
 }));
 
-import { ChatService } from '../services/ChatService';
+import { ChatService, LegacyPrivateMessagesUnavailableError } from '../services/ChatService';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
 
 function switchTo(userId: string) {
@@ -181,7 +240,7 @@ describe('ChatService adversarial identity boundary', () => {
 
     it('drops stale DM lists and never marks an A thread read after switching to B', async () => {
         const conversations = deferred<{ data: unknown[]; error: null }>();
-        chatHarness.enqueue('direct_messages', 'select', conversations.promise);
+        chatHarness.enqueue('chat_direct_messages', 'select', conversations.promise);
         const conversationRequest = ChatService.getDMConversations();
 
         switchTo('account-b');
@@ -199,18 +258,30 @@ describe('ChatService adversarial identity boundary', () => {
             ],
             error: null,
         });
-        await expect(conversationRequest).resolves.toEqual([]);
+        await expect(conversationRequest).rejects.toBeInstanceOf(LegacyPrivateMessagesUnavailableError);
 
         setAuthIdentityScope('account-a');
         (ChatService as any).currentUserId = 'account-a';
+        // The unused B reply belongs to the prior stage, not this new A request.
+        chatHarness.authQueue.length = 0;
         chatHarness.authQueue.push({
             data: { user: { id: 'account-a', email: 'a@example.com', user_metadata: {} } },
             error: null,
         });
         const thread = deferred<{ data: unknown[]; error: null }>();
-        chatHarness.enqueue('direct_messages', 'select', thread.promise);
+        // The inbox was cancelled before its lazy SELECT consumed this plan.
+        // Remove only that previous stage's unconsumed private SELECT reply.
+        chatHarness.clearPending('chat_direct_messages', 'select');
+        chatHarness.enqueue('chat_direct_messages', 'select', thread.promise);
+        const previousQueries = chatHarness.startedQueries.length;
         const threadRequest = ChatService.getDMThread('friend-a');
         await vi.waitFor(() => expect(chatHarness.getUser).toHaveBeenCalled());
+        await vi.waitFor(() =>
+            expect(chatHarness.startedQueries.slice(previousQueries)).toContainEqual({
+                table: 'chat_direct_messages',
+                action: 'select',
+            }),
+        );
 
         switchTo('account-b');
         thread.resolve({
@@ -227,11 +298,11 @@ describe('ChatService adversarial identity boundary', () => {
             error: null,
         });
 
-        await expect(threadRequest).resolves.toEqual([]);
+        await expect(threadRequest).rejects.toBeInstanceOf(LegacyPrivateMessagesUnavailableError);
         expect(chatHarness.actions.filter((action) => action.action === 'update')).toEqual([]);
     });
 
-    it('prevents stale block writes and returns zero for stale unread results', async () => {
+    it('prevents stale block writes and rejects cancelled unread requests', async () => {
         const auth = deferred<{
             data: { user: { id: string; email: string; user_metadata: object } };
             error: null;
@@ -250,11 +321,11 @@ describe('ChatService adversarial identity boundary', () => {
         setAuthIdentityScope('account-a');
         (ChatService as any).currentUserId = 'account-a';
         const unread = deferred<{ data: null; error: null; count: number }>();
-        chatHarness.enqueue('direct_messages', 'select', unread.promise);
+        chatHarness.enqueue('chat_direct_messages', 'select', unread.promise);
         const unreadRequest = ChatService.getUnreadDMCount();
         switchTo('account-b');
         unread.resolve({ data: null, error: null, count: 9 });
-        await expect(unreadRequest).resolves.toBe(0);
+        await expect(unreadRequest).rejects.toBeInstanceOf(LegacyPrivateMessagesUnavailableError);
     });
 
     it('rejects foreign realtime rows and all callbacks from an A channel after cutover', () => {

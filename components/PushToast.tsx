@@ -15,6 +15,15 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { triggerHaptic } from '../utils/system';
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../services/authIdentityScope';
+import {
+    captureLegacyPrivateMessagePermit,
+    isLegacyPrivateMessagePermitCurrent,
+    subscribePrivateMessageCutover,
+    type LegacyPrivateMessagePermit,
+} from '../services/chat/e2ee/privateMessageCutover';
+
+const isPrivatePushType = (type: unknown) => type === 'dm' || type === 'hail';
 import {
     SosIcon,
     AlertTriangleIcon,
@@ -34,6 +43,7 @@ interface ToastItem {
     data?: Record<string, unknown>;
     createdAt: number;
     dismissing?: boolean;
+    legacyPrivatePermit?: LegacyPrivateMessagePermit;
 }
 
 interface PushToastProps {
@@ -193,19 +203,26 @@ const PushToastCard: React.FC<{
 };
 
 // ── Singleton toast queue (accessible from PushNotificationService) ──
-type ToastPusher = (notification: { title?: string; body?: string; data?: Record<string, unknown> }) => void;
+type ToastNotification = { title?: string; body?: string; data?: Record<string, unknown> };
+type ToastPusher = (notification: ToastNotification, permit?: LegacyPrivateMessagePermit) => void;
 let globalPushToast: ToastPusher | null = null;
 
-export function pushForegroundToast(notification: { title?: string; body?: string; data?: Record<string, unknown> }) {
-    if (globalPushToast) globalPushToast(notification);
+export function pushForegroundToast(notification: ToastNotification, originalScope = getAuthIdentityScope()) {
+    const privateMessage = isPrivatePushType(notification.data?.notification_type);
+    const permit = privateMessage ? captureLegacyPrivateMessagePermit(originalScope) : null;
+    if (privateMessage && !isLegacyPrivateMessagePermitCurrent(permit)) return;
+    if (globalPushToast) globalPushToast(notification, permit ?? undefined);
 }
 
 export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
     const [toasts, setToasts] = useState<ToastItem[]>([]);
 
     // Register the global push function
-    const addToast = useCallback((notification: { title?: string; body?: string; data?: Record<string, unknown> }) => {
-        const type = (notification.data?.notification_type as string) || 'general';
+    const addToast = useCallback((notification: ToastNotification, permit?: LegacyPrivateMessagePermit) => {
+        const data = notification.data ? Object.freeze({ ...notification.data }) : undefined;
+        const type = (data?.notification_type as string) || 'general';
+        const privateMessage = isPrivatePushType(type);
+        if (privateMessage && !isLegacyPrivateMessagePermitCurrent(permit)) return;
         const isCritical = CRITICAL_TYPES.includes(type);
 
         const toast: ToastItem = {
@@ -213,7 +230,8 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
             title: notification.title || 'Thalassa',
             body: notification.body || '',
             type,
-            data: notification.data,
+            data,
+            legacyPrivatePermit: privateMessage ? permit : undefined,
             createdAt: Date.now(),
         };
 
@@ -221,6 +239,7 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
         triggerHaptic(isCritical ? 'heavy' : 'medium');
 
         setToasts((prev) => {
+            if (privateMessage && !isLegacyPrivateMessagePermitCurrent(permit)) return prev;
             const next = [toast, ...prev];
             // Cap at MAX_TOASTS
             return next.slice(0, MAX_TOASTS);
@@ -228,10 +247,11 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
 
         // Auto-dismiss
         const timeout = isCritical ? CRITICAL_DISMISS_MS : DISMISS_MS;
+        const toastId = toast.id;
         setTimeout(() => {
-            setToasts((prev) => prev.map((t) => (t.id === toast.id ? { ...t, dismissing: true } : t)));
+            setToasts((prev) => prev.map((t) => (t.id === toastId ? { ...t, dismissing: true } : t)));
             setTimeout(() => {
-                setToasts((prev) => prev.filter((t) => t.id !== toast.id));
+                setToasts((prev) => prev.filter((t) => t.id !== toastId));
             }, 300); // Allow exit animation
         }, timeout);
     }, []);
@@ -239,9 +259,19 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
     useEffect(() => {
         globalPushToast = addToast;
         return () => {
-            globalPushToast = null;
+            if (globalPushToast === addToast) globalPushToast = null;
         };
     }, [addToast]);
+
+    useEffect(() => {
+        const clearPrivate = () => setToasts((rows) => rows.filter((row) => !isPrivatePushType(row.type)));
+        const stopCutover = subscribePrivateMessageCutover(clearPrivate);
+        const stopIdentity = subscribeAuthIdentityScope(clearPrivate);
+        return () => {
+            stopCutover();
+            stopIdentity();
+        };
+    }, []);
 
     const dismiss = useCallback((id: string) => {
         setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, dismissing: true } : t)));
@@ -253,12 +283,17 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
     const handleTap = useCallback(
         (toast: ToastItem) => {
             dismiss(toast.id);
+            if (isPrivatePushType(toast.type) && !isLegacyPrivateMessagePermitCurrent(toast.legacyPrivatePermit))
+                return;
             if (onTap && toast.data) onTap(toast.data);
         },
         [dismiss, onTap],
     );
 
-    if (toasts.length === 0) return null;
+    const visibleToasts = toasts.filter(
+        (row) => !isPrivatePushType(row.type) || isLegacyPrivateMessagePermitCurrent(row.legacyPrivatePermit),
+    );
+    if (visibleToasts.length === 0) return null;
 
     return (
         <div
@@ -266,7 +301,7 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
             style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}
         >
             <div className="flex flex-col items-center gap-2 px-4">
-                {toasts.map((toast, index) => (
+                {visibleToasts.map((toast, index) => (
                     <PushToastCard key={toast.id} toast={toast} index={index} onTap={handleTap} onDismiss={dismiss} />
                 ))}
             </div>
