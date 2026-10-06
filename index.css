@@ -3843,6 +3843,60 @@ body,
     border-color: rgb(15 23 42 / 0.6);
 }
 
+/* ── Opened credits grow up, between the wordmark and the right-hand rail ──
+   Mapbox's opened compact credits are a white card with the ⓘ at the card's
+   top right, inside the bottom-right container, and that container is
+   anchored by its foot: every line the credits wrap to lifts the card's top,
+   the ⓘ with it, and whatever is stacked above the card. One-line credits
+   never showed it. Obs opening on the location box at z10 (build 121) brings
+   the Anchorages credit in at once ('Anchorages: © OpenStreetMap contributors
+   (ODbL) · GBRMPA | © Mapbox © Maxar', two lines on a phone and in a 1024x520
+   split pane), and the furniture let go twice (e2e/chart-warning.spec.ts):
+   the ⓘ rose 20px under the layers button in the short split pane, so the
+   credits could not be closed, and the scale bar rose with it into the open
+   layer panel's corner. Relief's GEBCO credit with Anchorages, Moorings or
+   Lightning runs to five lines and more, so no fixed allowance would hold.
+   At any length instead:
+   - opened, the container keeps its corner but pads its right side out past
+     the right-hand rail (MOB, the layers button, the portrait zoom buttons,
+     Locate: max(16px, inset) + max(44px, 3rem) in from the edge), 4px clear
+     like the open layer panel, less the card's own 10px margin. However high
+     the card climbs, neither it nor its ⓘ reaches under the helm or over
+     Locate. The ⓘ moves left with the card, as it already moved up with it.
+     A landscape phone, with MOB beside the layers button, pads further, past
+     MOB (the short-landscape block, below).
+     Not while the layer panel is open on a narrow chart: the panel runs to
+     the rail there and would lie over an ⓘ left of it (the panel rules,
+     below);
+   - the scale bar keeps the place it has with the credits shut, out of the
+     container's flow: its foot 44px up (the shut ⓘ's 24px card on Mapbox's
+     10px margins), then its own 10px margin;
+   - and it steps out while the credits are open. The card climbs over its
+     place, and which of the two then paints on top is DOM order alone (both
+     positioned, z auto): the scale is added after the attribution, so it
+     comes first, until the chart re-lays its credits (paneAwareAttribution:
+     a window resize across the compact line, an iPad split, rotation or
+     Stage Manager resize), when Mapbox inserts the new attribution FIRST and
+     the ruler drew across the licence text and over the ⓘ that closes it.
+     Covered in part, it was a shortened bar under a full-length label as
+     well. It comes back when the credits shut.
+   Compact layout only: Mapbox's full strip (a roomy map) has no ⓘ and keeps
+   its own flow. Containers and the scale only; the attribution and logo
+   elements themselves are never named. */
+.thalassa-chart-map[data-attribution-layout='compact'] .mapboxgl-ctrl-bottom-right .mapboxgl-ctrl-scale {
+    position: absolute;
+    right: 0;
+    bottom: 44px;
+}
+.thalassa-chart-map[data-attribution-layout='compact'] .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+    padding-right: calc(max(16px, env(safe-area-inset-right)) + max(44px, 3rem) + 4px - 10px);
+}
+.thalassa-chart-map[data-attribution-layout='compact']
+    .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true'])
+    .mapboxgl-ctrl-scale {
+    visibility: hidden;
+}
+
 /* Keep the coverage notice below the top/MOB/layer controls, not bottom-anchored
    to a full-bleed map that extends behind navigation. This also leaves the
    Locate/scale/attribution stack intact on narrow phones. */
@@ -4097,6 +4151,41 @@ main:has(.thalassa-chart-controls-panel)
         .thalassa-anchorage-chip
     ) {
     z-index: 498;
+}
+/* …and on a compact chart the open panel takes the scale bar's corner. The
+   panel runs to the right-hand rail (or 432px), the scale up to 116px in from
+   the edge, so on a chart this narrow (640px or less, or a split pane under
+   960px) the panel's top edge can lie anywhere across the ruler: a stub of
+   it then showed beside the panel's rounded corner — a shortened bar under a
+   full-length label, and the one part of it the panel did not cover. The
+   ruler steps out while the panel is up and comes back when it closes. Never
+   in short landscape, where the panel stops 156px short of the edge. The
+   scale only; the credits beside it stay.
+   For the same reason the opened credits keep Mapbox's own corner while the
+   panel is up there: padded out past the rail (the opened-credits rule
+   above) their ⓘ, at the card's top right, landed inside the panel's box,
+   under its Hide button. In the corner the ⓘ rises up the rail column above
+   the shut one, which the panel never covers; the card itself sits under the
+   panel (499, above). Up to the gap's top only: the portrait zoom buttons
+   stand at 242px (+ inset), over the 499 card, so a card longer than the gap
+   above the container (4rem + 73px, +4px clear) scrolls inside it, its ⓘ in
+   the top line. Short landscape keeps the padding: there the ⓘ lands in the
+   92px between the panel and the rail. Containers only. */
+@media not ((orientation: landscape) and (max-height: 600px)) {
+    main:has(.thalassa-chart-controls-panel)
+        .thalassa-chart-map[data-attribution-layout='compact']
+        .mapboxgl-ctrl-bottom-right
+        .mapboxgl-ctrl-scale {
+        display: none;
+    }
+    main:has(.thalassa-chart-controls-panel)
+        .thalassa-chart-map[data-attribution-layout='compact']
+        .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+        padding-right: 0;
+        max-height: calc(242px - 4rem - 73px - 4px);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
 }
 /* Short landscape (the same 600px line as the zoom rail and the ENC notice):
    the zoom rail owns the middle-left, so both surfaces start right of it
@@ -4601,6 +4690,40 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
     }
     .thalassa-chart-map .mapboxgl-ctrl-bottom-right {
         right: env(safe-area-inset-right);
+    }
+    /* Here MOB stands BESIDE the layers button (.radial-helm-mob, below:
+       max(16px, inset) + 80..132px in, y 64..116), not above it, so the
+       right-hand rail is two buttons wide and a long opened card climbing
+       past the rail's padding ran its top right under MOB (helm 10020 over
+       its 10019): MOB lay across the licence text (568x320, tab bar open,
+       Relief's GEBCO credit with Anchorages, five lines). Opened, the card
+       stops on the open layer panel's own line instead, 156px + inset in
+       (8px clear of MOB), less the card's 10px margin; this container
+       already stands the inset in from the edge. With the tab bar folded
+       too: the card starts lower there but climbs as far with more credits.
+       While the layer panel is up the card sits under the panel (499) and
+       its ⓘ must stay out of the panel's box, so then it keeps the rail
+       padding, measured from the map's edge: the ⓘ lands in the gap
+       between the panel and the rail, left of the rail and right of MOB. */
+    .thalassa-chart-map[data-attribution-layout='compact']
+        .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+        padding-right: calc(156px - 10px);
+    }
+    main:has(.thalassa-chart-controls-panel)
+        .thalassa-chart-map[data-attribution-layout='compact']
+        .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+        padding-right: calc(
+            max(16px, env(safe-area-inset-right)) - env(safe-area-inset-right) + max(44px, 3rem) + 4px - 10px
+        );
+    }
+    /* With the bar folded the bottom-right container comes down to the
+       wordmark's own row (60px, above), so a long opened card ran left across
+       the Mapbox wordmark, a licence credit. Opened, it stops right of the
+       wordmark's run (94px) and wraps above it instead, on its 10px margin. */
+    :root:not(:has(nav[aria-label='Navigation toggle']))
+        .thalassa-chart-map[data-attribution-layout='compact']
+        .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
+        left: calc(env(safe-area-inset-left) + 94px);
     }
     :root:not(:has(nav[aria-label='Navigation toggle'])) .thalassa-map-action-fabs {
         bottom: calc(env(safe-area-inset-bottom) + 12px) !important;

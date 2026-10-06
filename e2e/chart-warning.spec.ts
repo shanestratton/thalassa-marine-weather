@@ -33,8 +33,21 @@ test.use({
 
 const EMPTY_ENC_NOTICE = 'No verified ENC charts installed. Library imports are reference-only.';
 type TideFixture = 'none' | 'available';
+/** A real long credit (Relief's, components/map/reliefBase.ts, as plain text):
+ *  with the Anchorages credit it wraps the opened card to five lines in a
+ *  1024x520 split pane and nine on a 320px phone. The fixture's own style
+ *  carries it, so it shows whatever base the test picks. */
+const LONG_CREDIT =
+    'Seafloor relief derived from GEBCO Compilation Group (2026) GEBCO 2026 Grid; GBR 30 m © Commonwealth of ' +
+    'Australia (Geoscience Australia), CC BY 4.0; coastline © OpenStreetMap contributors. Not for navigation.';
 
-async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, tideFixture?: TideFixture) {
+async function openEmptyChart(
+    page: Page,
+    baseURL: string,
+    testInfo: TestInfo,
+    tideFixture?: TideFixture,
+    { longCredits = false }: { longCredits?: boolean } = {},
+) {
     const origin = new URL(baseURL).origin;
     let tideResponses = 0;
     const tideAnchorSeconds = Math.floor(Date.now() / 1000);
@@ -89,8 +102,23 @@ async function openEmptyChart(page: Page, baseURL: string, testInfo: TestInfo, t
                     // App-owned symbol layers require glyph metadata even
                     // when this background-only fixture has no label features.
                     glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}.pbf',
-                    sources: {},
-                    layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#0f2433' } }],
+                    // An empty source credits the map as soon as a visible
+                    // layer uses it, like any real one.
+                    sources: longCredits
+                        ? {
+                              'long-credit': {
+                                  type: 'geojson',
+                                  data: { type: 'FeatureCollection', features: [] },
+                                  attribution: LONG_CREDIT,
+                              },
+                          }
+                        : {},
+                    layers: [
+                        { id: 'background', type: 'background', paint: { 'background-color': '#0f2433' } },
+                        ...(longCredits
+                            ? [{ id: 'long-credit', type: 'fill', source: 'long-credit', paint: { 'fill-opacity': 0 } }]
+                            : []),
+                    ],
                 }),
             });
         } else if (
@@ -334,6 +362,18 @@ const cases: {
     navClosed?: boolean;
     /** The Anchorages layer on too: its 'Next 12 hours' chip joins the layer pill. */
     anchorages?: boolean;
+    /** Zoom buttons pressed from where Obs opens (+in, -out): the scale bar's
+     *  length and the credits change with the zoom, the furniture must not. */
+    zoomSteps?: number;
+    /** A long real credit on the chart (LONG_CREDIT): the opened card wraps
+     *  to many lines and climbs. */
+    longCredits?: boolean;
+    /** Open Obs at this window size first, then resize to the case's: the
+     *  chart re-lays its credits across the compact line, and Mapbox puts the
+     *  new attribution BEFORE the scale bar in its DOM (on load it comes
+     *  after), as a desktop resize, an iPad split, rotation or Stage Manager
+     *  resize all do. */
+    flipFrom?: { width: number; height: number };
 }[] = [
     { width: 320, height: 568, mode: 'dark' },
     { width: 390, height: 844, mode: 'dark' },
@@ -372,15 +412,38 @@ const cases: {
     // A tablet prints Mapbox's full credit strip, always shown, running left
     // under the layer controls' corner: they must stand above its row.
     { width: 834, height: 1194, mode: 'dark', anchorages: true },
+    // Obs opens on the location box at z10 (build 121), where the Anchorages
+    // credit wraps the opened card to two lines; the furniture must hold at
+    // other zooms (a shorter or longer scale bar, more or fewer credits) and
+    // under credits many lines long.
+    { width: 320, height: 568, mode: 'dark', anchorages: true, zoomSteps: 1 },
+    { width: 1024, height: 520, mode: 'dark', split: true, anchorages: true, zoomSteps: -2 },
+    { width: 320, height: 568, mode: 'dark', anchorages: true, longCredits: true },
+    { width: 1024, height: 520, mode: 'dark', split: true, anchorages: true, longCredits: true },
+    { width: 667, height: 375, mode: 'dark', tide: 'available', navClosed: true, anchorages: true, longCredits: true },
+    // A landscape phone sets MOB beside the layers button: the opened card
+    // must stop left of both, tab bar open or folded.
+    { width: 568, height: 320, mode: 'dark', tide: 'available', anchorages: true, longCredits: true },
+    { width: 568, height: 320, mode: 'dark', navClosed: true, anchorages: true, longCredits: true },
+    // Re-laid at runtime (the strip of a roomy window to the compact ⓘ):
+    // the scale bar must not paint over the opened card or its ⓘ.
+    {
+        width: 600,
+        height: 800,
+        mode: 'dark',
+        anchorages: true,
+        longCredits: true,
+        flipFrom: { width: 1280, height: 800 },
+    },
 ];
 
 for (const size of cases) {
-    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tide ? ` tide depth ${size.tide}` : ''}${size.wideFont ? ' wide fallback font' : ''}${size.navClosed ? ' nav closed' : ''}${size.anchorages ? ' anchorages' : ''}`, async ({
+    test(`ENC warning clears controls at ${size.width}x${size.height} ${size.mode}${size.split ? ' split' : ''}${size.tide ? ` tide depth ${size.tide}` : ''}${size.wideFont ? ' wide fallback font' : ''}${size.navClosed ? ' nav closed' : ''}${size.anchorages ? ' anchorages' : ''}${size.zoomSteps ? ` zoom ${size.zoomSteps > 0 ? '+' : ''}${size.zoomSteps}` : ''}${size.longCredits ? ' long credits' : ''}${size.flipFrom ? ` from ${size.flipFrom.width}x${size.flipFrom.height}` : ''}`, async ({
         page,
         baseURL,
     }, testInfo) => {
         test.setTimeout(90_000);
-        await page.setViewportSize({ width: size.width, height: size.height });
+        await page.setViewportSize(size.flipFrom ?? { width: size.width, height: size.height });
         await page.addInitScript(
             ({ mode, split, tideDepth }) => {
                 for (const key of [
@@ -398,7 +461,39 @@ for (const size of cases) {
             },
             { mode: size.mode, split: size.split === true, tideDepth: size.tide !== undefined },
         );
-        const glyphDiagnostics = await openEmptyChart(page, baseURL!, testInfo, size.tide);
+        const glyphDiagnostics = await openEmptyChart(page, baseURL!, testInfo, size.tide, {
+            longCredits: size.longCredits,
+        });
+        if (size.flipFrom) {
+            const chartMap = page.locator('.thalassa-chart-map');
+            await expect(chartMap).toHaveAttribute('data-attribution-layout', 'strip');
+            await page.setViewportSize({ width: size.width, height: size.height });
+            await expect(chartMap).toHaveAttribute('data-attribution-layout', 'compact');
+            // The case is only worth its run if the order really flipped.
+            const order = await chartMap
+                .locator('.mapboxgl-ctrl-bottom-right')
+                .evaluate((corner) =>
+                    [...corner.children].flatMap((child) =>
+                        child.classList.contains('mapboxgl-ctrl-attrib')
+                            ? ['attribution']
+                            : child.classList.contains('mapboxgl-ctrl-scale')
+                              ? ['scale']
+                              : [],
+                    ),
+                );
+            expect(order, 'Mapbox re-adds the attribution first in its corner').toEqual(['attribution', 'scale']);
+        }
+        if (size.zoomSteps) {
+            // As a skipper does: the zoom buttons, one step at a time.
+            const readout = page.getByRole('img', { name: /^Zoom \d+\.\d$/ });
+            let zoom = Number((await readout.getAttribute('aria-label'))!.replace('Zoom ', ''));
+            const button = page.getByRole('button', { name: size.zoomSteps > 0 ? 'Zoom in' : 'Zoom out', exact: true });
+            for (let step = 0; step < Math.abs(size.zoomSteps); step++) {
+                await button.click();
+                zoom += Math.sign(size.zoomSteps);
+                await expect(page.getByRole('img', { name: `Zoom ${zoom.toFixed(1)}`, exact: true })).toBeVisible();
+            }
+        }
         if (size.wideFont) {
             await page.addStyleTag({ content: ':root { --font-sans: Verdana, sans-serif; }' });
             await page.evaluate(() => document.fonts.ready);
@@ -644,7 +739,29 @@ for (const size of cases) {
         if (await compactCredits()) {
             await creditsToggle.click();
             await expect(creditsToggle).toHaveAttribute('aria-expanded', 'true');
+            if (size.longCredits) await expect(attribution).toContainText(LONG_CREDIT);
             await expectFullHitTarget(attribution, 'Opened Mapbox credits');
+            // However many lines the card wraps to, its ⓘ (at the card's top
+            // right) stays pressable to close it, and the card stays off the
+            // right-hand rail: never under the helm, never over MOB or Locate.
+            await expectFullHitTarget(creditsToggle, 'Mapbox credits toggle with the credits open');
+            const openedCredits = await visibleBox(attribution, page);
+            for (const [label, control] of [
+                ['MOB', mob],
+                ['Layers', layers],
+                ['Locate', locate],
+            ] as const)
+                expectApart(openedCredits, await visibleBox(control, page), `Opened Mapbox credits overlap ${label}`);
+            // The ruler never draws across the card, whichever comes first in
+            // Mapbox's DOM, and is never left part-covered beside it (a
+            // shortened bar under a full-length label).
+            await expectPaintsUnder(scale, attribution, 'the Mapbox scale bar paints over the opened credits');
+            if (await scale.isVisible())
+                expectApart(
+                    openedCredits,
+                    (await scale.boundingBox())!,
+                    'the opened credits cover part of the scale bar',
+                );
             await expectFullHitTarget(logo, 'Mapbox logo beside the opened credits');
             await testInfo.attach('enc-warning-layout-credits-open', {
                 body: await page.screenshot(),
