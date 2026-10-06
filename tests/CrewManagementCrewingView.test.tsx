@@ -496,7 +496,12 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
 
         renderPage();
         const stack = await screen.findByTestId('readiness-stack');
-        await waitFor(() => expect(stack).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'));
+        // The shared passages arrive after the membership, view and draft loads
+        // settle; on a loaded CI runner that took 1,086 ms against waitFor's
+        // 1 s default (run 37396349113, 2026-10-06), so allow longer.
+        await waitFor(() => expect(stack).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'), {
+            timeout: 5_000,
+        });
         expect(screen.getByText('2 shared from Wandering Albatross')).toBeInTheDocument();
         expect(screen.queryByText(/yours/)).not.toBeInTheDocument();
 
