@@ -29,10 +29,14 @@ import { createNativeExchangeServer } from './nativeExchangeServer.mjs';
 
 assert.equal(process.platform, 'darwin');
 assert.equal(process.arch, 'arm64');
-const [cacheArg, archiveArg, ...extra] = process.argv.slice(2);
+const [cacheArg, archiveArg, ...options] = process.argv.slice(2);
 assert(
-    cacheArg && archiveArg && !extra.length && [cacheArg, archiveArg].every(isAbsolute),
-    'Provide only the existing verified native-cache directory and pinned PGlite archive',
+    cacheArg &&
+        archiveArg &&
+        [cacheArg, archiveArg].every(isAbsolute) &&
+        (options.length === 0 ||
+            (options.length === 2 && options[0] === '--native-exchange-receipt' && isAbsolute(options[1]))),
+    'Provide the existing cache/archive and only an optional completed native-exchange receipt',
 );
 assert(!lstatSync(cacheArg).isSymbolicLink() && lstatSync(cacheArg).isDirectory());
 assert(!lstatSync(archiveArg).isSymbolicLink() && lstatSync(archiveArg).isFile());
@@ -57,21 +61,70 @@ for (const path of cacheInputs) assert(!lstatSync(path).isSymbolicLink() && lsta
 // A previous successful native research run is required before reusing its
 // cache. Its receipt is evidence of execution, NOT an artifact-signing chain.
 const priorReceipts = readdirSync(cache).filter((name) => /^run-[0-9a-f-]+\.json$/.test(name));
-assert(
-    priorReceipts.some((name) => {
-        const path = join(cache, name);
-        if (lstatSync(path).isSymbolicLink() || lstatSync(path).size > 64 * 1024) return false;
-        const value = JSON.parse(readFileSync(path, 'utf8'));
-        return (
-            value.status === 'passed' &&
-            value.observation === 'cleanup-and-uninstall-complete' &&
-            Array.isArray(value.completedPhases) &&
-            value.completedPhases.some((phase) => phase.phase === 'relay-replay')
-        );
-    }),
-    'Cache must belong to a completed native PostgreSQL research proof',
-);
+const originalPriorPassed = priorReceipts.some((name) => {
+    const path = join(cache, name);
+    if (lstatSync(path).isSymbolicLink() || lstatSync(path).size > 64 * 1024) return false;
+    const value = JSON.parse(readFileSync(path, 'utf8'));
+    return (
+        value.status === 'passed' &&
+        value.observation === 'cleanup-and-uninstall-complete' &&
+        Array.isArray(value.completedPhases) &&
+        value.completedPhases.some((phase) => phase.phase === 'relay-replay')
+    );
+});
 const cacheHashes = Object.fromEntries(cacheInputs.map((path) => [path, digest(path)]));
+let priorExchangeEvidenceSha256;
+if (options.length) {
+    const path = options[1];
+    assert(!lstatSync(path).isSymbolicLink() && lstatSync(path).isFile() && lstatSync(path).size < 256 * 1024);
+    const bytes = readFileSync(path);
+    const previous = JSON.parse(bytes.toString('utf8'));
+    const historicalPhases = [
+        'tls-refuse',
+        'prepare',
+        'opening',
+        'retry',
+        'reply',
+        'successor',
+        'verify',
+        'recovery',
+        'cleanup',
+    ];
+    const phases =
+        previous.completedPhases?.length === 10
+            ? [
+                  'tls-refuse',
+                  'prepare',
+                  'private-messages',
+                  'opening',
+                  'retry',
+                  'reply',
+                  'successor',
+                  'verify',
+                  'recovery',
+                  'cleanup',
+              ]
+            : historicalPhases;
+    assert(
+        previous.status === 'passed' &&
+            previous.observation === 'native-encrypted-https-sql-proof-passed' &&
+            previous.disposableSimulatorRemoved === true &&
+            previous.physicalPhoneExecution === false &&
+            previous.providerManifestSha256 === nativePin.manifestSha256 &&
+            previous.providerLockSha256 === nativePin.lockfileSha256 &&
+            Array.isArray(previous.completedPhases) &&
+            previous.completedPhases.length === phases.length &&
+            previous.completedPhases.every(
+                (value, index) => value.phase === phases[index] && value.stage === 'complete',
+            ) &&
+            previous.cacheHashes &&
+            typeof previous.cacheHashes === 'object' &&
+            Object.keys(previous.cacheHashes).sort().join('\n') === Object.keys(cacheHashes).sort().join('\n') &&
+            Object.entries(cacheHashes).every(([path, hash]) => previous.cacheHashes[path] === hash),
+        'Completed exchange evidence must match every exact cached artifact and pinned provider',
+    );
+    priorExchangeEvidenceSha256 = createHash('sha256').update(bytes).digest('hex');
+} else assert(originalPriorPassed, 'Cache must belong to a completed native PostgreSQL research proof');
 const scratch = mkdtempSync(join(tmpdir(), 'thalassa-native-exchange-'));
 assert(statfsSync(scratch).bavail * statfsSync(scratch).bsize > 3 * 1024 ** 3, 'Keep at least 3 GiB free');
 
@@ -116,6 +169,7 @@ const receipt = {
     phase: 'build',
     completedPhases: [],
     cacheHashes,
+    priorExchangeEvidenceSha256,
     providerManifestSha256: nativePin.manifestSha256,
     providerLockSha256: nativePin.lockfileSha256,
     fixtureAuth: true,
@@ -173,6 +227,7 @@ try {
             'VodozemacExchangeProbe.swift',
         ].map((name) => join(experiment, name)),
         join(experiment, 'bridge-native/ResearchMessagingAdapter.swift'),
+        join(experiment, 'bridge-native/ResearchPrivateMessageAdapter.swift'),
     ];
     for (const path of sources) assert(!lstatSync(path).isSymbolicLink() && lstatSync(path).isFile());
     receipt.sourceHashes = Object.fromEntries(sources.map((path) => [path, digest(path)]));
@@ -332,7 +387,9 @@ try {
         // regression suites and their owned-fixture cleanup. A slow simulator
         // may exceed a minute; this HARNESS bound never extends any native Auth
         // lease, HTTP timeout or held-lock fixture deadline.
-        const deadline = Date.now() + (phase === 'prepare' ? 180_000 : 60_000);
+        // Shared-Mac regression-batch budget only. Native verified leases,
+        // policy permits, HTTP deadlines and held-gate bounds are unchanged.
+        const deadline = Date.now() + (phase === 'prepare' ? 600_000 : phase === 'private-messages' ? 180_000 : 60_000);
         let status;
         while (Date.now() < deadline) {
             if (existsSync(statusPath)) {
@@ -386,18 +443,36 @@ try {
                     status.enrollmentIntentFixtureAssertions > 0,
             );
             receipt.nativeEnrollmentIntentFixtureAssertions = status.enrollmentIntentFixtureAssertions;
-            assert(Number.isSafeInteger(status.messageAuthorityFixtureAssertions) && status.messageAuthorityFixtureAssertions > 0);
+            assert(
+                Number.isSafeInteger(status.messageAuthorityFixtureAssertions) &&
+                    status.messageAuthorityFixtureAssertions > 0,
+            );
             receipt.nativeMessageAuthorityFixtureAssertions = status.messageAuthorityFixtureAssertions;
-            assert(Number.isSafeInteger(status.pairingHistoryFixtureAssertions) && status.pairingHistoryFixtureAssertions > 0);
+            assert(
+                Number.isSafeInteger(status.pairingHistoryFixtureAssertions) &&
+                    status.pairingHistoryFixtureAssertions > 0,
+            );
             receipt.nativePairingHistoryFixtureAssertions = status.pairingHistoryFixtureAssertions;
-            assert(Number.isSafeInteger(status.scopedRelayFixtureAssertions) && status.scopedRelayFixtureAssertions > 0);
+            assert(
+                Number.isSafeInteger(status.scopedRelayFixtureAssertions) && status.scopedRelayFixtureAssertions > 0,
+            );
             receipt.nativeScopedRelayFixtureAssertions = status.scopedRelayFixtureAssertions;
-            assert(Number.isSafeInteger(status.scopedEnrollmentFixtureAssertions) && status.scopedEnrollmentFixtureAssertions > 0);
+            assert(
+                Number.isSafeInteger(status.scopedEnrollmentFixtureAssertions) &&
+                    status.scopedEnrollmentFixtureAssertions > 0,
+            );
             receipt.nativeScopedEnrollmentFixtureAssertions = status.scopedEnrollmentFixtureAssertions;
             assert(Number.isSafeInteger(status.readinessFixtureAssertions) && status.readinessFixtureAssertions > 0);
             receipt.nativeReadinessFixtureAssertions = status.readinessFixtureAssertions;
             assert(Number.isSafeInteger(status.bridgeFixtureAssertions) && status.bridgeFixtureAssertions > 0);
             receipt.nativeBridgeFixtureAssertions = status.bridgeFixtureAssertions;
+        }
+        if (phase === 'private-messages') {
+            assert(
+                Number.isSafeInteger(status.privateMessageFixtureAssertions) &&
+                    status.privateMessageFixtureAssertions > 0,
+            );
+            receipt.nativePrivateMessageFixtureAssertions = status.privateMessageFixtureAssertions;
         }
         receipt.completedPhases.push({
             phase,
@@ -422,7 +497,17 @@ try {
     run(['simctl', 'keychain', simulator, 'add-root-cert', relay.certPath], { quiet: true });
     receipt.rootAddedOnlyToNewSimulator = true;
     saveReceipt();
-    for (const phase of ['prepare', 'opening', 'retry', 'reply', 'successor', 'verify', 'recovery', 'cleanup']) {
+    for (const phase of [
+        'prepare',
+        'private-messages',
+        'opening',
+        'retry',
+        'reply',
+        'successor',
+        'verify',
+        'recovery',
+        'cleanup',
+    ]) {
         await launch(phase);
         if (phase === 'opening') {
             await relay.verify({ expectedDecisions: 1, expectedFaults: { lostResponses: 1 } });

@@ -24,7 +24,7 @@ private struct ExchangeArguments {
     static func read() throws -> ExchangeArguments {
         let args = CommandLine.arguments
         guard args.count == 7, args[1] == "--exchange",
-              ["tls-refuse", "prepare", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
+              ["tls-refuse", "prepare", "private-messages", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
               let run = UUID(uuidString: args[3]), let alice = UUID(uuidString: args[4]), let bob = UUID(uuidString: args[5]),
               alice != bob else { throw ExchangeFailure.configuration }
         return ExchangeArguments(phase: args[2], run: run, alice: alice, bob: bob, origin: args[6])
@@ -35,7 +35,8 @@ private struct ExchangeArguments {
                 accountDirectoryFixtureAssertions: Int = 0, enrollmentIntentFixtureAssertions: Int = 0,
                 messageAuthorityFixtureAssertions: Int = 0, pairingHistoryFixtureAssertions: Int = 0,
                 scopedRelayFixtureAssertions: Int = 0, scopedEnrollmentFixtureAssertions: Int = 0,
-                readinessFixtureAssertions: Int = 0, bridgeFixtureAssertions: Int = 0) throws {
+                readinessFixtureAssertions: Int = 0, bridgeFixtureAssertions: Int = 0,
+                privateMessageFixtureAssertions: Int = 0) throws {
         let json: [String: Any] = ["runID": run.uuidString.lowercased(), "phase": phase, "status": value,
             "stage": stage, "pid": ProcessInfo.processInfo.processIdentifier, "physicalDeviceProtectionVerified": false,
             "authFixtureAssertions": authFixtureAssertions,
@@ -46,7 +47,8 @@ private struct ExchangeArguments {
             "scopedRelayFixtureAssertions": scopedRelayFixtureAssertions,
             "scopedEnrollmentFixtureAssertions": scopedEnrollmentFixtureAssertions,
             "readinessFixtureAssertions": readinessFixtureAssertions,
-            "bridgeFixtureAssertions": bridgeFixtureAssertions]
+            "bridgeFixtureAssertions": bridgeFixtureAssertions,
+            "privateMessageFixtureAssertions": privateMessageFixtureAssertions]
         let path = documents.appendingPathComponent("exchange-status-" + run.uuidString.lowercased() + ".json")
         try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: path, options: [.atomic])
     }
@@ -98,7 +100,7 @@ private struct ExchangeParticipant {
     }
 }
 
-private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, Int, Int, Int, Int, Int, Int, Int) {
+private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, Int, Int, Int, Int, Int, Int, Int, Int) {
     var authFixtureAssertions = 0
     var accountDirectoryFixtureAssertions = 0
     var enrollmentIntentFixtureAssertions = 0
@@ -108,6 +110,14 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
     var scopedEnrollmentFixtureAssertions = 0
     var readinessFixtureAssertions = 0
     var bridgeFixtureAssertions = 0
+    var privateMessageFixtureAssertions = 0
+    if args.phase == "private-messages" {
+        privateMessageFixtureAssertions = try await runDmResearchPrivateMessageProbe(progressForResearch: { label in
+            try? args.status("running", stage: "private-message-" + label)
+        })
+        print("PASS isolated native private message fixture assertions: \(privateMessageFixtureAssertions)")
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0, privateMessageFixtureAssertions)
+    }
     if args.phase == "tls-refuse" {
         // Valid transport input reaches TLS: host separately requires an actual
         // failed TLS handshake and zero HTTP/Auth/SQL calls before CA install.
@@ -121,7 +131,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
             _ = try await transport.register(bundle: body, credential: credential, currentContext: { context })
             throw ExchangeFailure.assertion("untrusted-tls-accepted")
         } catch is DmRelayTransportError { /* Expected; no trust bypass. */ }
-        return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     }
     if args.phase == "prepare" {
         try exchangeRequire(!FileManager.default.fileExists(atPath: args.root.path), "fresh-store-namespace")
@@ -141,7 +151,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
         try aStore.destroyForTesting(); try bStore.destroyForTesting()
         try exchangeRequire(try FileManager.default.contentsOfDirectory(atPath: args.root.path).isEmpty, "exact-empty-cleanup")
         try FileManager.default.removeItem(at: args.root)
-        return (0, 0, 0, 0, 0, 0, 0, 0, 0)
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     }
     let ao = ExchangeFixture.alice, bo = ExchangeFixture.bob, generation = ExchangeFixture.peerGeneration
     let a: VodozemacDmCoordinator, b: VodozemacDmCoordinator
@@ -365,7 +375,7 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
     }
     return (authFixtureAssertions, accountDirectoryFixtureAssertions, enrollmentIntentFixtureAssertions,
             messageAuthorityFixtureAssertions, pairingHistoryFixtureAssertions, scopedRelayFixtureAssertions,
-            scopedEnrollmentFixtureAssertions, readinessFixtureAssertions, bridgeFixtureAssertions)
+            scopedEnrollmentFixtureAssertions, readinessFixtureAssertions, bridgeFixtureAssertions, privateMessageFixtureAssertions)
 }
 
 @main
@@ -404,7 +414,8 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
                                 accountDirectoryFixtureAssertions: checks.1, enrollmentIntentFixtureAssertions: checks.2,
                                 messageAuthorityFixtureAssertions: checks.3, pairingHistoryFixtureAssertions: checks.4,
                                 scopedRelayFixtureAssertions: checks.5, scopedEnrollmentFixtureAssertions: checks.6,
-                                readinessFixtureAssertions: checks.7, bridgeFixtureAssertions: checks.8)
+                                readinessFixtureAssertions: checks.7, bridgeFixtureAssertions: checks.8,
+                                privateMessageFixtureAssertions: checks.9)
                 print("PASS isolated native HTTPS exchange phase: " + args.phase)
                 fflush(stdout); exit(0)
             } catch {

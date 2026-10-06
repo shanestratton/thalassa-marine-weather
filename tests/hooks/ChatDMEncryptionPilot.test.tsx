@@ -8,13 +8,17 @@ import {
     type NativePrivateMessageResult,
     type NativePrivateMessageAuthority,
     type NativePrivateMessageReadiness,
+    type NativePrivateMessageInboxEntry,
+    type NativePrivateMessageThread,
     type NativePrivateTextMessage,
     type PrivateMessageNativePort,
     type PrivateMessagePilotEvent,
     type PrivateMessagePilotResult,
     type PrivateMessagePilotRuntime,
+    type PrivateMessagePilotMessage,
+    type PrivateMessagePilotConversation,
+    type PrivateMessagePilotThread,
 } from '../../services/chat/e2ee/privateMessagePilot';
-import type { DirectMessage, DMConversation } from '../../services/ChatService';
 
 const legacy = vi.hoisted(() => ({
     status: vi.fn(),
@@ -51,13 +55,42 @@ import { ChatDMCompose, ChatDMInbox, ChatDMThread, PrivateMessagePilotNotice } f
 
 const account = '11111111-1111-4111-8111-111111111111';
 const peer = '22222222-2222-4222-8222-222222222222';
+const fixtureId = '44444444-4444-4444-8444-444444444444';
+const localCreatedAtMillis = 1790899200000;
 const authority: NativePrivateMessageAuthority = {
     accountId: account,
     deviceId: '33333333-3333-4333-8333-333333333333',
     lifecycleVersion: 'fixture:epoch1',
     serverVerified: true,
 };
-const permissions = { peerAccountId: peer, blockedByMe: false, blockedEitherDirection: false, canSend: true };
+const permissions = {
+    peerAccountId: peer,
+    blockedByMe: false,
+    blockedEitherDirection: false,
+    canSend: true,
+    reason: null,
+};
+const nativeThread = (
+    messages: NativePrivateTextMessage[] = [],
+    overrides: Partial<NativePrivateMessageThread> = {},
+): NativePrivateMessageThread => ({
+    peerAccountId: peer,
+    messages,
+    permissions,
+    unresolvedCount: 0,
+    pendingAttemptId: null,
+    ...overrides,
+});
+const nativeInbox = (lastText: string | null = null): NativePrivateMessageInboxEntry[] => [
+    {
+        peerAccountId: peer,
+        displayName: 'Paired sailor',
+        lastText,
+        lastLocalCreatedAtMillis: localCreatedAtMillis,
+        unreadCount: 0,
+        historyAvailable: true,
+    },
+];
 const ok = <T,>(value: T): NativePrivateMessageResult<T> => ({ status: 'ok', authority, value });
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -69,28 +102,36 @@ function deferred<T>() {
 function fixture() {
     const port = {
         readiness: vi.fn(async () => ({ status: 'ready' as const, authority, supportedContent: ['text'] as ['text'] })),
-        getInbox: vi.fn(async () =>
-            ok([
-                {
-                    user_id: peer,
-                    display_name: 'Paired sailor',
-                    last_message: '',
-                    last_at: '2026-10-02T00:00:00.000Z',
-                    unread_count: 1,
-                },
-            ]),
-        ),
-        getThread: vi.fn(async () => ok({ messages: [] as NativePrivateTextMessage[], ...permissions })),
+        getInbox: vi.fn(async () => ok(nativeInbox())),
+        getThread: vi.fn(async () => ok(nativeThread())),
         sendText: vi.fn(async ({ clientMessageId, text }: { clientMessageId: string; text: string }) =>
             ok({
-                id: clientMessageId,
+                id: `outgoing:${clientMessageId}` as const,
+                clientMessageId,
+                direction: 'outgoing' as const,
                 senderAccountId: account,
                 recipientAccountId: peer,
-                senderName: 'You',
+                senderName: 'You' as const,
                 text,
-                createdAt: '2026-10-02T00:00:00.000Z',
-                read: true,
+                localCreatedAtMillis,
+                read: false as const,
                 delivery: 'server_accepted' as const,
+                reason: null,
+            }),
+        ),
+        retryPending: vi.fn(async ({ clientMessageId }: { clientMessageId: string }) =>
+            ok({
+                id: `outgoing:${clientMessageId}` as const,
+                clientMessageId,
+                direction: 'outgoing' as const,
+                senderAccountId: account,
+                recipientAccountId: peer,
+                senderName: 'You' as const,
+                text: null,
+                localCreatedAtMillis: null,
+                read: false as const,
+                delivery: 'server_accepted' as const,
+                reason: null,
             }),
         ),
         getBlockStatus: vi.fn(async () => ok(permissions)),
@@ -102,7 +143,7 @@ function fixture() {
                           blockedByMe: true,
                           blockedEitherDirection: true,
                           canSend: false,
-                          reason: 'blocked' as const,
+                          reason: 'unavailable' as const,
                       }
                     : permissions,
             ),
@@ -117,25 +158,41 @@ function fixture() {
     };
     return { port, ...renderHook(() => useChatDMs(options)) };
 }
-const renderedMessage = (overrides: Partial<DirectMessage> = {}): DirectMessage => ({
-    id: '44444444-4444-4444-8444-444444444444',
-    sender_id: peer,
-    recipient_id: account,
-    sender_name: 'Peer',
-    message: 'Incoming fixture',
-    read: false,
-    created_at: '2026-10-02T00:00:00.000Z',
-    ...overrides,
-});
-const renderedInbox = (message = '', unread = 0): DMConversation[] => [
+const renderedMessage = (overrides: Partial<PrivateMessagePilotMessage> = {}): PrivateMessagePilotMessage => {
+    const direction = overrides.direction ?? (overrides.sender_id === account ? 'outgoing' : 'incoming');
+    const clientMessageId = overrides.clientMessageId ?? overrides.id?.split(':')[1] ?? fixtureId;
+    return {
+        kind: 'native-pilot',
+        id: `${direction}:${clientMessageId}`,
+        clientMessageId,
+        direction,
+        sender_id: direction === 'outgoing' ? account : peer,
+        recipient_id: direction === 'outgoing' ? peer : account,
+        sender_name: direction === 'outgoing' ? 'You' : 'Paired sailor',
+        message: 'Incoming fixture',
+        read: false,
+        created_at: direction === 'outgoing' ? '2026-10-02T00:00:00.000Z' : null,
+        localCreatedAtMillis: direction === 'outgoing' ? localCreatedAtMillis : null,
+        delivery: direction === 'outgoing' ? 'server_accepted' : 'received',
+        reason: null,
+        ...overrides,
+    };
+};
+const renderedInbox = (message: string | null = null): PrivateMessagePilotConversation[] => [
     {
+        kind: 'native-pilot',
         user_id: peer,
         display_name: 'Paired sailor',
         last_message: message,
         last_at: '2026-10-02T00:00:00.000Z',
-        unread_count: unread,
+        unread_count: 0,
+        historyAvailable: true,
     },
 ];
+const renderedThread = (
+    messages: PrivateMessagePilotMessage[] = [],
+    overrides: Partial<PrivateMessagePilotThread> = {},
+): PrivateMessagePilotThread => ({ messages, permissions, unresolvedCount: 0, pendingAttemptId: null, ...overrides });
 const renderedOk = <T,>(value: T): PrivateMessagePilotResult<T> => ({ status: 'ok', value });
 /** Already-validated runtime responses isolate the screen's own async fence. */
 function renderingFixture() {
@@ -143,9 +200,7 @@ function renderingFixture() {
     const runtime = {
         kind: 'native-pilot' as const,
         getInbox: vi.fn(async (): ReturnType<PrivateMessagePilotRuntime['getInbox']> => renderedOk(renderedInbox())),
-        getThread: vi.fn(
-            async (): ReturnType<PrivateMessagePilotRuntime['getThread']> => renderedOk({ messages: [], permissions }),
-        ),
+        getThread: vi.fn(async (): ReturnType<PrivateMessagePilotRuntime['getThread']> => renderedOk(renderedThread())),
         getBlockStatus: vi.fn(
             async (): ReturnType<PrivateMessagePilotRuntime['getBlockStatus']> => renderedOk(permissions),
         ),
@@ -156,11 +211,28 @@ function renderingFixture() {
             ): ReturnType<PrivateMessagePilotRuntime['sendText']> =>
                 renderedOk(
                     renderedMessage({
-                        id: args[2],
+                        id: `outgoing:${args[2]}`,
+                        clientMessageId: args[2],
                         message: args[3],
                         sender_id: account,
                         recipient_id: peer,
-                        read: true,
+                    }),
+                ),
+        ),
+        retryPending: vi.fn(
+            async (
+                ...args: Parameters<PrivateMessagePilotRuntime['retryPending']>
+            ): ReturnType<PrivateMessagePilotRuntime['retryPending']> =>
+                renderedOk(
+                    renderedMessage({
+                        id: `outgoing:${args[2]}`,
+                        clientMessageId: args[2],
+                        direction: 'outgoing',
+                        sender_id: account,
+                        recipient_id: peer,
+                        message: null,
+                        created_at: null,
+                        localCreatedAtMillis: null,
                     }),
                 ),
         ),
@@ -194,7 +266,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('injected native-only PM hook fixtures', () => {
-    it('routes inbox, thread, text send, block and subscription exclusively through the native port', async () => {
+    it('routes inbox, thread, text send and subscription exclusively through the native port, with block controls unavailable', async () => {
         const { result, port } = fixture();
         let unsubscribe!: () => void;
         act(() => {
@@ -214,7 +286,7 @@ describe('injected native-only PM hook fixtures', () => {
             await result.current.handleBlockUser();
             await result.current.handleUnblockUser();
         });
-        expect(port.setBlocked).toHaveBeenCalledTimes(2);
+        expect(port.setBlocked).not.toHaveBeenCalled();
         unsubscribe();
         expectNoLegacyPath();
     });
@@ -228,11 +300,111 @@ describe('injected native-only PM hook fixtures', () => {
         expect(result.current.pilotSendDisabled).toBe(true);
         expect(result.current.dmText).toBe('Keep fixture draft');
         expect(result.current.dmThread).toEqual([]);
+        expect(result.current.pilotPendingAttemptId).toBe(firstId);
         await act(async () => result.current.sendDMMessage());
         expect(port.sendText).toHaveBeenCalledTimes(1);
         await act(async () => result.current.retryBlockStatus());
         await act(async () => result.current.sendDMMessage());
+        expect(port.sendText).toHaveBeenCalledTimes(1);
+        await act(async () => result.current.retryPilotPendingMessage());
         expect(port.sendText.mock.calls[1][0].clientMessageId).toBe(firstId);
+        expect(port.sendText.mock.calls[1][0].text).toBe('Keep fixture draft');
+        expect(port.retryPending).not.toHaveBeenCalled();
+        expectNoLegacyPath();
+    });
+    it('recovers the exact native pending ID after reopening even when its plaintext and time are unavailable', async () => {
+        const { result, port } = fixture();
+        const recovered: NativePrivateTextMessage = {
+            id: `outgoing:${fixtureId}`,
+            clientMessageId: fixtureId,
+            direction: 'outgoing',
+            senderAccountId: account,
+            recipientAccountId: peer,
+            senderName: 'You',
+            text: null,
+            localCreatedAtMillis: null,
+            read: false,
+            delivery: 'pending',
+            reason: null,
+        };
+        port.getThread.mockResolvedValue(
+            ok(nativeThread([recovered], { unresolvedCount: 1, pendingAttemptId: fixtureId })),
+        );
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        expect(result.current.pilotPendingAttemptId).toBe(fixtureId);
+        expect(result.current.dmThread[0].message).toBeNull();
+        expect(result.current.dmThread[0].created_at).toBeNull();
+        act(() => result.current.setDmText('A different new draft'));
+        await act(async () => result.current.sendDMMessage());
+        expect(port.sendText).not.toHaveBeenCalled();
+        await act(async () => result.current.retryPilotPendingMessage());
+        expect(port.retryPending).toHaveBeenCalledExactlyOnceWith({
+            authority,
+            peerAccountId: peer,
+            clientMessageId: fixtureId,
+        });
+        expect(result.current.dmText).toBe('A different new draft');
+        expect(result.current.dmThread[0]).toMatchObject({
+            id: `outgoing:${fixtureId}`,
+            message: null,
+            created_at: null,
+            delivery: 'server_accepted',
+            read: false,
+        });
+        expect(result.current.pilotPendingAttemptId).toBeNull();
+        expectNoLegacyPath();
+    });
+    it('reconciles native pending state before a new send and retries the pending ID rather than an earlier settled row', async () => {
+        const { result, port } = fixture();
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        const pendingId = '55555555-5555-4555-8555-555555555555';
+        const pendingMessage = (clientMessageId: string): NativePrivateTextMessage => ({
+            id: `outgoing:${clientMessageId}`,
+            clientMessageId,
+            direction: 'outgoing',
+            senderAccountId: account,
+            recipientAccountId: peer,
+            senderName: 'You',
+            text: null,
+            localCreatedAtMillis: null,
+            read: false,
+            delivery: 'pending',
+            reason: null,
+        });
+        port.getThread.mockResolvedValue(
+            ok(
+                nativeThread(
+                    [{ ...pendingMessage(fixtureId), delivery: 'server_accepted' }, pendingMessage(pendingId)],
+                    {
+                        unresolvedCount: 2,
+                        pendingAttemptId: pendingId,
+                    },
+                ),
+            ),
+        );
+        act(() => result.current.setDmText('Do not replace unresolved native work'));
+        await act(async () => result.current.sendDMMessage());
+        expect(port.sendText).not.toHaveBeenCalled();
+        expect(result.current.pilotPendingAttemptId).toBe(pendingId);
+        await act(async () => result.current.retryPilotPendingMessage());
+        expect(port.retryPending.mock.calls[0][0].clientMessageId).toBe(pendingId);
+        expect(port.sendText).not.toHaveBeenCalled();
+        expect(result.current.dmText).toBe('Do not replace unresolved native work');
+        expectNoLegacyPath();
+    });
+    it('retains the original local preparation ID across permission retry and sends its original text', async () => {
+        const { result, port } = fixture();
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        port.sendText.mockResolvedValueOnce({ status: 'unavailable', reason: 'transport_failure' } as never);
+        act(() => result.current.setDmText('Original attempted draft'));
+        await act(async () => result.current.sendDMMessage());
+        const original = port.sendText.mock.calls[0][0];
+        act(() => result.current.setDmText('Changed draft stays separate'));
+        await act(async () => result.current.retryBlockStatus());
+        expect(result.current.pilotPendingAttemptId).toBe(original.clientMessageId);
+        await act(async () => result.current.retryPilotPendingMessage());
+        expect(port.sendText.mock.calls[1][0]).toEqual(original);
+        expect(result.current.dmText).toBe('Changed draft stays separate');
         expectNoLegacyPath();
     });
     it('never sends a structured share or a self message through a legacy path', async () => {
@@ -258,7 +430,7 @@ describe('injected native-only PM hook fixtures', () => {
         await vi.waitFor(() => expect(port.getThread).toHaveBeenCalledTimes(1));
         act(() => setAuthIdentityScope(peer));
         await act(async () => {
-            thread.resolve(ok({ messages: [], ...permissions }));
+            thread.resolve(ok(nativeThread()));
             await opening;
         });
         expect(result.current.dmThread).toEqual([]);
@@ -274,9 +446,7 @@ describe('injected native-only PM hook fixtures', () => {
         act(() => {
             opening = result.current.openDMInbox();
         });
-        port.getThread.mockResolvedValueOnce(
-            ok({ messages: [], ...permissions, canSend: false, reason: 'peer_changed' }) as never,
-        );
+        port.getThread.mockResolvedValueOnce({ status: 'unavailable', reason: 'peer_changed' } as never);
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
         await act(async () => {
             inbox.resolve(ok([]));
@@ -304,14 +474,17 @@ describe('injected native-only PM hook fixtures', () => {
         await act(async () => {
             pending.resolve(
                 ok({
-                    id: request.clientMessageId,
+                    id: `outgoing:${request.clientMessageId}`,
+                    clientMessageId: request.clientMessageId,
+                    direction: 'outgoing',
                     senderAccountId: account,
                     recipientAccountId: peer,
                     senderName: 'You',
                     text: request.text,
-                    createdAt: '2026-10-02T00:00:00.000Z',
-                    read: true,
+                    localCreatedAtMillis,
+                    read: false,
                     delivery: 'server_accepted',
+                    reason: null,
                 }),
             );
             await sending;
@@ -321,7 +494,7 @@ describe('injected native-only PM hook fixtures', () => {
         expect(result.current.dmPartner).toBeNull();
         expectNoLegacyPath();
     });
-    it('counts one unread message for duplicate native callbacks with the same ID', async () => {
+    it('deduplicates native callbacks without inventing an unread count', async () => {
         const { result, port } = fixture();
         let receive!: (event: NativePrivateMessageEvent) => void;
         port.subscribe.mockImplementation(async (_request, callback) => {
@@ -334,21 +507,24 @@ describe('injected native-only PM hook fixtures', () => {
         });
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
         const incoming: NativePrivateTextMessage = {
-            id: '44444444-4444-4444-8444-444444444444',
+            id: `incoming:${fixtureId}`,
+            clientMessageId: fixtureId,
+            direction: 'incoming',
             senderAccountId: peer,
             recipientAccountId: account,
-            senderName: 'Peer',
+            senderName: 'Paired sailor',
             text: 'Incoming fixture',
-            createdAt: '2026-10-02T00:00:00.000Z',
+            localCreatedAtMillis: null,
             read: false,
-            delivery: 'server_accepted',
+            delivery: 'received',
+            reason: null,
         };
         await act(async () => {
             receive(ok(incoming));
             receive(ok(incoming));
         });
         expect(result.current.dmThread).toHaveLength(1);
-        expect(result.current.unreadDMs).toBe(1);
+        expect(result.current.unreadDMs).toBe(0);
         unsubscribe();
         expectNoLegacyPath();
     });
@@ -394,12 +570,12 @@ describe('injected native-only PM hook fixtures', () => {
         port.getThread.mockImplementation(async () => ({
             status: 'ok',
             authority: renewedAuthority,
-            value: { ...permissions, messages: [] },
+            value: nativeThread(),
         }));
         port.getInbox.mockImplementation(async () => ({
             status: 'ok',
             authority: renewedAuthority,
-            value: renderedInbox('', 1),
+            value: nativeInbox(),
         }));
         await act(async () => {
             ready = { status: 'ready', authority: renewedAuthority, supportedContent: ['text'] };
@@ -410,14 +586,17 @@ describe('injected native-only PM hook fixtures', () => {
         expect(fresh.result.current.dmText).toBe('Draft across renewal');
         expect(fresh.result.current.dmPartner?.id).toBe(peer);
         const incoming: NativePrivateTextMessage = {
-            id: '55555555-5555-4555-8555-555555555555',
+            id: 'incoming:55555555-5555-4555-8555-555555555555',
+            clientMessageId: '55555555-5555-4555-8555-555555555555',
+            direction: 'incoming',
             senderAccountId: peer,
             recipientAccountId: account,
-            senderName: 'Peer',
+            senderName: 'Paired sailor',
             text: 'After renewal',
-            createdAt: '2026-10-02T00:00:00.000Z',
+            localCreatedAtMillis: null,
             read: false,
-            delivery: 'server_accepted',
+            delivery: 'received',
+            reason: null,
         };
         await act(async () => receive({ status: 'ok', authority: renewedAuthority, value: incoming }));
         expect(fresh.result.current.dmThread[0].message).toBe('After renewal');
@@ -441,31 +620,20 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         expect(result.current.pilotSendDisabled).toBe(true);
         expectNoLegacyPath();
     });
-    it('closes block confirmation when the control fences and renews its rendering lease', async () => {
-        const { result, runtime, emit } = renderingFixture();
+    it('does not invoke unavailable pilot block or unblock controls or alter the draft', async () => {
+        const { result, runtime } = renderingFixture();
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
         act(() => {
             result.current.setDmText('Draft across peer control');
-            result.current.setShowBlockConfirm(true);
         });
-        const blockedPermissions = {
-            ...permissions,
-            blockedByMe: true,
-            blockedEitherDirection: true,
-            canSend: false,
-            reason: 'blocked' as const,
-        };
-        runtime.getThread.mockResolvedValueOnce(renderedOk({ messages: [], permissions: blockedPermissions }));
-        runtime.setBlocked.mockImplementationOnce(async () => {
-            // Faithful control-state order of the separate SDK/native adapter.
-            emit({ status: 'unavailable', reason: 'stale_authority' });
-            emit({ status: 'ready' });
-            return renderedOk(blockedPermissions);
+        await act(async () => {
+            await result.current.handleBlockUser();
+            await result.current.handleUnblockUser();
         });
-        await act(async () => result.current.handleBlockUser());
         expect(result.current.showBlockConfirm).toBe(false);
-        expect(result.current.blockedByMe).toBe(true);
-        expect(result.current.pilotSendDisabled).toBe(true);
+        expect(result.current.blockedByMe).toBe(false);
+        expect(runtime.setBlocked).not.toHaveBeenCalled();
+        expect(result.current.pilotSendDisabled).toBe(false);
         expect(result.current.blockMutationPending).toBe(false);
         expect(result.current.dmText).toBe('Draft across peer control');
         expectNoLegacyPath();
@@ -483,25 +651,22 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
                     const pending = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getThread']>>>();
                     runtime.getThread.mockReturnValueOnce(pending.promise);
                     resolve = () =>
-                        pending.resolve(
-                            renderedOk({ messages: [renderedMessage({ message: 'Old plaintext' })], permissions }),
-                        );
+                        pending.resolve(renderedOk(renderedThread([renderedMessage({ message: 'Old plaintext' })])));
                     if (operation === 'ready read') emit({ status: 'ready' });
                     else completion = result.current.openDMThread(peer, 'Paired sailor');
                 } else if (operation === 'inbox' || operation === 'unread') {
                     const pending = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getInbox']>>>();
                     runtime.getInbox.mockReturnValueOnce(pending.promise);
-                    resolve = () => pending.resolve(renderedOk(renderedInbox('Old inbox plaintext', 3)));
+                    resolve = () => pending.resolve(renderedOk(renderedInbox('Old inbox plaintext')));
                     completion =
                         operation === 'inbox' ? result.current.openDMInbox() : result.current.loadUnreadCount();
                 } else if (operation === 'permissions' || operation === 'control') {
-                    const pending = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getBlockStatus']>>>();
-                    resolve = () => pending.resolve(renderedOk(permissions));
+                    const pending = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getThread']>>>();
+                    resolve = () => pending.resolve(renderedOk(renderedThread()));
                     if (operation === 'permissions') {
-                        runtime.getBlockStatus.mockReturnValueOnce(pending.promise);
+                        runtime.getThread.mockReturnValueOnce(pending.promise);
                         completion = result.current.retryBlockStatus();
                     } else {
-                        runtime.setBlocked.mockReturnValueOnce(pending.promise);
                         completion = result.current.handleUnblockUser();
                     }
                 } else {
@@ -511,10 +676,11 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
                         pending.resolve(
                             renderedOk(
                                 renderedMessage({
+                                    id: `outgoing:${runtime.sendText.mock.calls[0][2]}`,
+                                    clientMessageId: runtime.sendText.mock.calls[0][2],
                                     sender_id: account,
                                     recipient_id: peer,
                                     message: 'Keep same-owner draft',
-                                    read: true,
                                 }),
                             ),
                         );
@@ -523,8 +689,12 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
                 // Opening a new thread deliberately resets a draft; native
                 // lease renewal must not erase a draft already in that view.
                 result.current.setDmText('Keep same-owner draft');
-                emit({ status: 'unavailable', reason: 'unavailable' });
+                if (operation !== 'send') emit({ status: 'unavailable', reason: 'unavailable' });
             });
+            if (operation === 'send') {
+                await vi.waitFor(() => expect(runtime.sendText).toHaveBeenCalledTimes(1));
+                act(() => emit({ status: 'unavailable', reason: 'unavailable' }));
+            }
             expect(result.current.pilotSendDisabled).toBe(true);
             await act(async () => {
                 resolve();
@@ -538,6 +708,7 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
             expect(result.current.pilotSendDisabled).toBe(true);
             expect(result.current.blockMutationPending).toBe(false);
             expect(result.current.blockStatusLoading).toBe(false);
+            expect(runtime.setBlocked).not.toHaveBeenCalled();
             expectNoLegacyPath();
         },
     );
@@ -547,19 +718,19 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         act(() => result.current.setDmText('Draft across renewal'));
         const snapshot = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getThread']>>>();
         runtime.getThread.mockReturnValueOnce(snapshot.promise);
-        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Incoming fixture', 1)));
+        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Incoming fixture')));
         act(() => emit({ status: 'ready' }));
         await act(async () => emit(renderedOk(renderedMessage())));
         expect(result.current.dmThread).toHaveLength(1);
-        await act(async () => snapshot.resolve(renderedOk({ messages: [], permissions })));
+        await act(async () => snapshot.resolve(renderedOk(renderedThread())));
         expect(result.current.dmThread.map((message) => message.message)).toEqual(['Incoming fixture']);
-        expect(result.current.unreadDMs).toBe(1);
+        expect(result.current.unreadDMs).toBe(0);
         expect(result.current.dmText).toBe('Draft across renewal');
         expect(result.current.pilotSendDisabled).toBe(false);
         const inboxReads = runtime.getInbox.mock.calls.length;
         await act(async () => emit(renderedOk(renderedMessage())));
         expect(result.current.dmThread).toHaveLength(1);
-        expect(result.current.unreadDMs).toBe(1);
+        expect(result.current.unreadDMs).toBe(0);
         expect(runtime.getInbox).toHaveBeenCalledTimes(inboxReads);
         expectNoLegacyPath();
     });
@@ -568,15 +739,15 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         const snapshot = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getInbox']>>>();
         runtime.getInbox.mockReturnValueOnce(snapshot.promise);
         act(() => emit({ status: 'ready' }));
-        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Incoming fixture', 1)));
+        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Incoming fixture')));
         await act(async () => emit(renderedOk(renderedMessage())));
         expect(result.current.dmConversations[0].last_message).toBe('Incoming fixture');
-        await act(async () => snapshot.resolve(renderedOk(renderedInbox('', 0))));
+        await act(async () => snapshot.resolve(renderedOk(renderedInbox())));
         expect(result.current.dmConversations[0].last_message).toBe('Incoming fixture');
-        expect(result.current.unreadDMs).toBe(1);
+        expect(result.current.unreadDMs).toBe(0);
         expectNoLegacyPath();
     });
-    it('preserves newer native acceptance/read status when an older send snapshot resolves', async () => {
+    it('preserves newer native relay acceptance when an older pending send snapshot resolves', async () => {
         const { result, runtime, emit } = renderingFixture();
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
         act(() => result.current.setDmText('Outbound fixture'));
@@ -586,16 +757,17 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         act(() => {
             sending = result.current.sendDMMessage();
         });
+        await vi.waitFor(() => expect(runtime.sendText).toHaveBeenCalledTimes(1));
         const message = renderedMessage({
-            id: runtime.sendText.mock.calls[0][2],
+            id: `outgoing:${runtime.sendText.mock.calls[0][2]}`,
+            clientMessageId: runtime.sendText.mock.calls[0][2],
             sender_id: account,
             recipient_id: peer,
             message: 'Outbound fixture',
-            read: true,
         });
         await act(async () => emit(renderedOk(message)));
         await act(async () => {
-            pending.resolve(renderedOk({ ...message, read: false, delivery_status: 'sending' }));
+            pending.resolve(renderedOk({ ...message, delivery: 'pending' }));
             await sending;
         });
         expect(result.current.dmThread).toEqual([message]);
@@ -604,8 +776,8 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
     });
     it('clears runtime A plaintext and draft and requires runtime B permissions before sending', async () => {
         const { result, runtime, rerender, emit } = renderingFixture();
-        runtime.getThread.mockResolvedValueOnce(renderedOk({ messages: [renderedMessage()], permissions }));
-        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Runtime A private preview', 1)));
+        runtime.getThread.mockResolvedValueOnce(renderedOk(renderedThread([renderedMessage()])));
+        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Runtime A private preview')));
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
         act(() => result.current.setDmText('Runtime A private draft'));
         const staleSend = result.current.sendDMMessage;
@@ -613,7 +785,7 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         const replacement: PrivateMessagePilotRuntime = {
             ...runtime,
             getThread: vi.fn(() => pending.promise),
-            getInbox: vi.fn(async () => renderedOk(renderedInbox('', 0))),
+            getInbox: vi.fn(async () => renderedOk(renderedInbox())),
             sendText: vi.fn(async () => renderedOk(renderedMessage())),
         };
         rerender({ runtime: replacement });
@@ -636,33 +808,138 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         await act(async () => result.current.sendDMMessage());
         expect(replacement.sendText).not.toHaveBeenCalled();
         await act(async () => {
-            pending.resolve(renderedOk({ messages: [], permissions }));
+            pending.resolve(renderedOk(renderedThread()));
             await opening;
         });
         expect(result.current.pilotSendDisabled).toBe(false);
         expect(result.current.dmText).toBe('New runtime B draft');
         expectNoLegacyPath();
     });
-    it('never downgrades accepted/read native events, even if pending arrives later', async () => {
+    it('never downgrades relay acceptance or fabricates reading, even if pending arrives later', async () => {
         const { result, emit, runtime } = renderingFixture();
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
-        const message = renderedMessage({ sender_id: account, recipient_id: peer, read: true });
+        const message = renderedMessage({ sender_id: account, recipient_id: peer });
         await act(async () => emit(renderedOk(message)));
         const reads = runtime.getInbox.mock.calls.length;
-        await act(async () => emit(renderedOk({ ...message, read: false, delivery_status: 'sending' })));
+        await act(async () => emit(renderedOk({ ...message, delivery: 'pending' })));
         expect(result.current.dmThread).toEqual([message]);
+        expect(result.current.dmThread[0].read).toBe(false);
         expect(runtime.getInbox).toHaveBeenCalledTimes(reads);
+        expectNoLegacyPath();
+    });
+    it.each(['readiness refresh', 'permission retry', 'same-peer reopen', 'pending retry'] as const)(
+        'does not restore a settled attempt from an older pending %s snapshot',
+        async (operation) => {
+            const { result, runtime, emit } = renderingFixture();
+            const pending = renderedMessage({
+                sender_id: account,
+                recipient_id: peer,
+                message: 'Native pending fixture',
+                delivery: 'pending',
+            });
+            const oldThread = renderedThread([pending], { pendingAttemptId: fixtureId });
+            runtime.getThread.mockResolvedValueOnce(renderedOk(oldThread));
+            await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+            expect(result.current.pilotPendingAttemptId).toBe(fixtureId);
+            const snapshot = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getThread']>>>();
+            runtime.getThread.mockReturnValueOnce(snapshot.promise);
+            let completion: Promise<void> | undefined;
+            act(() => {
+                if (operation === 'readiness refresh') emit({ status: 'ready' });
+                else if (operation === 'permission retry') completion = result.current.retryBlockStatus();
+                else if (operation === 'same-peer reopen')
+                    completion = result.current.openDMThread(peer, 'Paired sailor');
+                else completion = result.current.retryPilotPendingMessage();
+            });
+            await act(async () => emit(renderedOk({ ...pending, delivery: 'server_accepted' })));
+            expect(result.current.pilotPendingAttemptId).toBeNull();
+            await act(async () => {
+                snapshot.resolve(renderedOk(oldThread));
+                await completion;
+                for (let index = 0; index < 10; index += 1) await Promise.resolve();
+            });
+            expect(result.current.dmThread).toHaveLength(1);
+            expect(result.current.dmThread[0]).toMatchObject({
+                id: `outgoing:${fixtureId}`,
+                delivery: 'server_accepted',
+            });
+            expect(result.current.pilotPendingAttemptId).toBeNull();
+            expect(result.current.pilotSendDisabled).toBe(false);
+            expect(runtime.sendText).not.toHaveBeenCalled();
+            expect(runtime.retryPending).not.toHaveBeenCalled();
+            expectNoLegacyPath();
+        },
+    );
+    it.each(['text', 'local timestamp', 'raw timestamp outside the Date range'] as const)(
+        'remembers known native %s through an unknown rendering update and closes conflicting content',
+        async (field) => {
+            const { result, emit } = renderingFixture();
+            await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+            const known = renderedMessage({
+                sender_id: account,
+                recipient_id: peer,
+                message: 'Original native plaintext',
+                ...(field === 'raw timestamp outside the Date range'
+                    ? { created_at: null, localCreatedAtMillis: Number.MAX_SAFE_INTEGER }
+                    : {}),
+            });
+            const unknown = {
+                ...known,
+                ...(field === 'text' ? { message: null } : { created_at: null, localCreatedAtMillis: null }),
+            };
+            const conflict = {
+                ...known,
+                ...(field === 'text'
+                    ? { message: 'Conflicting native plaintext' }
+                    : field === 'local timestamp'
+                      ? { created_at: '2026-10-02T00:00:01.000Z', localCreatedAtMillis: localCreatedAtMillis + 1000 }
+                      : { localCreatedAtMillis: Number.MAX_SAFE_INTEGER - 1 }),
+            };
+            await act(async () => emit(renderedOk(known)));
+            await act(async () => emit(renderedOk(unknown)));
+            expect(result.current.dmThread).toHaveLength(1);
+            expect(result.current.dmThread[0]).toMatchObject({
+                message: unknown.message,
+                created_at: unknown.created_at,
+                localCreatedAtMillis: unknown.localCreatedAtMillis,
+            });
+            await act(async () => emit(renderedOk(conflict)));
+            expect(result.current.dmThread).toEqual([]);
+            expect(result.current.pilotSendDisabled).toBe(true);
+            expect(result.current.pilotStatusText).toContain('unavailable');
+            expectNoLegacyPath();
+        },
+    );
+    it('keeps opposite-direction messages with the same client UUID as separate rendered records', async () => {
+        const { result, emit } = renderingFixture();
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        const incoming = renderedMessage();
+        const outgoing = renderedMessage({ sender_id: account, recipient_id: peer, message: 'Outgoing fixture' });
+        await act(async () => {
+            emit(renderedOk(incoming));
+            emit(renderedOk(outgoing));
+        });
+        expect(result.current.dmThread.map((message) => message.id)).toEqual([
+            `incoming:${fixtureId}`,
+            `outgoing:${fixtureId}`,
+        ]);
+        expect(result.current.dmThread.map((message) => message.message)).toEqual([
+            'Incoming fixture',
+            'Outgoing fixture',
+        ]);
+        expect(result.current.unreadDMs).toBe(0);
+        expect(result.current.pilotSendDisabled).toBe(false);
         expectNoLegacyPath();
     });
     it('deduplicates an event already present in a snapshot instead of incrementing unread', async () => {
         const { result, runtime, emit } = renderingFixture();
-        runtime.getThread.mockResolvedValueOnce(renderedOk({ messages: [renderedMessage()], permissions }));
-        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Incoming fixture', 1)));
+        runtime.getThread.mockResolvedValueOnce(renderedOk(renderedThread([renderedMessage()])));
+        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Incoming fixture')));
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
         const inboxReads = runtime.getInbox.mock.calls.length;
         await act(async () => emit(renderedOk(renderedMessage())));
         expect(result.current.dmThread).toHaveLength(1);
-        expect(result.current.unreadDMs).toBe(1);
+        expect(result.current.unreadDMs).toBe(0);
         expect(runtime.getInbox).toHaveBeenCalledTimes(inboxReads);
         expectNoLegacyPath();
     });
@@ -679,7 +956,9 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
             for (let index = 0; index < 33; index += 1) {
                 emit(
                     renderedOk(
-                        renderedMessage({ id: `44444444-4444-4444-8444-${index.toString().padStart(12, '0')}` }),
+                        renderedMessage({
+                            id: `incoming:44444444-4444-4444-8444-${index.toString().padStart(12, '0')}`,
+                        }),
                     ),
                 );
             }
@@ -707,23 +986,94 @@ describe('pilot screen rendering fixtures', () => {
     it('renders structured-looking fixture data as text without remote recipe/photo rendering', () => {
         render(
             <ChatDMThread
-                thread={[
-                    {
-                        id: 'fixture',
-                        sender_id: peer,
-                        recipient_id: account,
-                        sender_name: 'Peer',
-                        message: '🍳RECIPE:fixture',
-                        read: false,
-                        created_at: '2026-10-02T00:00:00.000Z',
-                    },
-                ]}
+                thread={[renderedMessage({ message: '🍳RECIPE:fixture' })]}
                 pilotActive
                 currentUserId={account}
             />,
         );
         expect(screen.getByText('🍳RECIPE:fixture')).toBeTruthy();
         expect(screen.queryByRole('img')).toBeNull();
+    });
+    it('renders missing native text and time explicitly and keeps recipient read status unknown', () => {
+        render(
+            <ChatDMThread
+                thread={[renderedMessage({ message: null, created_at: null, localCreatedAtMillis: null })]}
+                pilotActive
+                currentUserId={account}
+            />,
+        );
+        expect(screen.getByText('Message text unavailable')).toBeTruthy();
+        expect(screen.getByText('Time unknown')).toBeTruthy();
+        expect(screen.getByText('· Received · Read status unknown')).toBeTruthy();
+        expect(screen.queryByText('· Relay accepted')).toBeNull();
+    });
+    it('renders unavailable native inbox history without inventing a preview, timestamp or unread badge', () => {
+        render(
+            <ChatDMInbox
+                conversations={[
+                    {
+                        ...renderedInbox()[0],
+                        last_message: null,
+                        last_at: null,
+                        historyAvailable: false,
+                    },
+                ]}
+                onOpenThread={vi.fn()}
+                currentUserId={account}
+                pilotActive
+            />,
+        );
+        expect(screen.getByText('Native history unavailable')).toBeTruthy();
+        expect(screen.getByText('Time unknown')).toBeTruthy();
+        expect(screen.getByRole('listitem').getAttribute('aria-label')).toBe('Message Paired sailor');
+        expect(screen.queryByText(/\d+ unread/)).toBeNull();
+    });
+    it('makes the actual pilot message paragraph selectable for copying berth codes', () => {
+        render(
+            <ChatDMThread
+                thread={[renderedMessage({ message: 'Berth B12 · access code 6842' })]}
+                pilotActive
+                currentUserId={account}
+            />,
+        );
+        const paragraph = screen.getByText('Berth B12 · access code 6842');
+        expect(paragraph.tagName).toBe('P');
+        expect(paragraph.classList.contains('select-text')).toBe(true);
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        expect(selection.toString()).toBe('Berth B12 · access code 6842');
+        selection.removeAllRanges();
+    });
+    it('hides pilot block and unblock controls even when legacy confirmation state is supplied', () => {
+        const block = vi.fn();
+        const unblock = vi.fn();
+        render(
+            <ChatDMCompose
+                dmText="Fixture"
+                setDmText={vi.fn()}
+                partnerName="Paired sailor"
+                keyboardOffset={0}
+                isUserBlocked={false}
+                blockedByMe={false}
+                blockStatusLoading={false}
+                blockStatusError={null}
+                blockMutationPending={false}
+                onRetryBlockStatus={vi.fn()}
+                showBlockConfirm
+                setShowBlockConfirm={vi.fn()}
+                onSendDM={vi.fn()}
+                onBlock={block}
+                onUnblock={unblock}
+                pilotActive
+            />,
+        );
+        expect(screen.queryByRole('button', { name: /block|unblock/i })).toBeNull();
+        expect(screen.queryByText(/Block Paired sailor\?/)).toBeNull();
+        expect(block).not.toHaveBeenCalled();
+        expect(unblock).not.toHaveBeenCalled();
     });
     it('blocks both button and Enter while native capability is unavailable', () => {
         const send = vi.fn();

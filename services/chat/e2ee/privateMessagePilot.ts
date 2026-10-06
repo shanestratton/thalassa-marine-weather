@@ -4,8 +4,8 @@
  * provide pilot history or submit a pilot message. Typed fixtures are not E2EE.
  */
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../authIdentityScope';
-import type { DirectMessage, DMConversation } from '../types';
-import { MAX_CHAT_MESSAGE_CHARS } from '../messagePolicy';
+import { isPrivateMessagePilotText } from './privateMessageTextPolicy';
+export { isPrivateMessagePilotText } from './privateMessageTextPolicy';
 
 export const PRIVATE_MESSAGE_PILOT_LABEL = 'Encryption test—not reviewed';
 
@@ -45,32 +45,78 @@ export type NativePrivateMessageResult<T> =
     | { status: 'unavailable'; reason: PrivateMessageFailure };
 
 export interface NativePrivateTextMessage {
-    id: string;
+    id: `outgoing:${string}` | `incoming:${string}`;
+    clientMessageId: string;
+    direction: 'outgoing' | 'incoming';
     senderAccountId: string;
     recipientAccountId: string;
-    senderName: string;
-    text: string;
-    createdAt: string;
-    read: boolean;
+    senderName: 'You' | 'Paired sailor';
+    text: string | null;
+    localCreatedAtMillis: number | null;
+    read: false;
     /** Acceptance is not recipient delivery or reading. */
-    delivery: 'server_accepted' | 'pending';
+    delivery: 'server_accepted' | 'pending' | 'rejected' | 'received';
+    reason: null | 'blocked' | 'device-revoked' | 'record-conflict';
 }
 
 export interface NativePrivateMessageThread {
     peerAccountId: string;
     messages: NativePrivateTextMessage[];
-    blockedByMe: boolean;
-    blockedEitherDirection: boolean;
-    canSend: boolean;
-    reason?: PrivateMessageFailure;
+    permissions: NativePrivateMessageBlockStatus;
+    unresolvedCount: number;
+    pendingAttemptId: string | null;
+}
+
+export interface NativePrivateMessageInboxEntry {
+    peerAccountId: string;
+    displayName: 'Paired sailor';
+    lastText: string | null;
+    lastLocalCreatedAtMillis: number | null;
+    unreadCount: 0;
+    historyAvailable: boolean;
+}
+
+/** Explicit pilot rendering data; legacy DM types retain their stronger fields. */
+export interface PrivateMessagePilotMessage {
+    kind: 'native-pilot';
+    id: NativePrivateTextMessage['id'];
+    clientMessageId: string;
+    direction: NativePrivateTextMessage['direction'];
+    sender_id: string;
+    recipient_id: string;
+    sender_name: NativePrivateTextMessage['senderName'];
+    message: string | null;
+    created_at: string | null;
+    localCreatedAtMillis: number | null;
+    read: false;
+    delivery: NativePrivateTextMessage['delivery'];
+    reason: NativePrivateTextMessage['reason'];
+}
+
+export interface PrivateMessagePilotConversation {
+    kind: 'native-pilot';
+    user_id: string;
+    display_name: 'Paired sailor';
+    last_message: string | null;
+    last_at: string | null;
+    unread_count: 0;
+    historyAvailable: boolean;
+}
+
+export interface PrivateMessagePilotThread {
+    messages: PrivateMessagePilotMessage[];
+    permissions: NativePrivateMessageBlockStatus;
+    unresolvedCount: number;
+    pendingAttemptId: string | null;
 }
 
 export interface NativePrivateMessageBlockStatus {
     peerAccountId: string;
     blockedByMe: boolean;
     blockedEitherDirection: boolean;
+    /** Snapshot hint only; native dispatch atomically rechecks durable policy. */
     canSend: boolean;
-    reason?: PrivateMessageFailure;
+    reason: null | 'unavailable';
 }
 
 export type NativePrivateMessageEvent =
@@ -89,7 +135,7 @@ export interface PrivateMessageNativePort {
     readiness(): Promise<NativePrivateMessageReadiness>;
     getInbox(request: {
         authority: NativePrivateMessageAuthority;
-    }): Promise<NativePrivateMessageResult<DMConversation[]>>;
+    }): Promise<NativePrivateMessageResult<NativePrivateMessageInboxEntry[]>>;
     getThread(request: {
         authority: NativePrivateMessageAuthority;
         peerAccountId: string;
@@ -99,6 +145,12 @@ export interface PrivateMessageNativePort {
         peerAccountId: string;
         clientMessageId: string;
         text: string;
+    }): Promise<NativePrivateMessageResult<NativePrivateTextMessage>>;
+    /** Retry only this already prepared native attempt; no caller plaintext. */
+    retryPending(request: {
+        authority: NativePrivateMessageAuthority;
+        peerAccountId: string;
+        clientMessageId: string;
     }): Promise<NativePrivateMessageResult<NativePrivateTextMessage>>;
     getBlockStatus(request: {
         authority: NativePrivateMessageAuthority;
@@ -124,26 +176,26 @@ export type PrivateMessagePilotResult<T> =
     | { status: 'ok'; value: T }
     | { status: 'unavailable'; reason: PrivateMessageFailure };
 
-export type PrivateMessagePilotEvent = PrivateMessagePilotResult<DirectMessage> | { status: 'ready' };
+export type PrivateMessagePilotEvent = PrivateMessagePilotResult<PrivateMessagePilotMessage> | { status: 'ready' };
 
 export interface PrivateMessagePilotRuntime {
     readonly kind: 'native-pilot';
-    getInbox(scope: AuthIdentityScope): Promise<PrivateMessagePilotResult<DMConversation[]>>;
+    getInbox(scope: AuthIdentityScope): Promise<PrivateMessagePilotResult<PrivateMessagePilotConversation[]>>;
     getThread(
         scope: AuthIdentityScope,
         peerAccountId: string,
-    ): Promise<
-        PrivateMessagePilotResult<{
-            messages: DirectMessage[];
-            permissions: NativePrivateMessageBlockStatus;
-        }>
-    >;
+    ): Promise<PrivateMessagePilotResult<PrivateMessagePilotThread>>;
     sendText(
         scope: AuthIdentityScope,
         peerAccountId: string,
         clientMessageId: string,
         text: string,
-    ): Promise<PrivateMessagePilotResult<DirectMessage>>;
+    ): Promise<PrivateMessagePilotResult<PrivateMessagePilotMessage>>;
+    retryPending(
+        scope: AuthIdentityScope,
+        peerAccountId: string,
+        clientMessageId: string,
+    ): Promise<PrivateMessagePilotResult<PrivateMessagePilotMessage>>;
     getBlockStatus(
         scope: AuthIdentityScope,
         peerAccountId: string,
@@ -182,6 +234,24 @@ const boundedString = (value: unknown, max: number): value is string =>
     typeof value === 'string' && value.length > 0 && value.length <= max && !value.includes('\0');
 const record = (value: unknown): value is Record<string, unknown> =>
     !!value && typeof value === 'object' && !Array.isArray(value);
+const hasOnlyKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
+    Object.keys(value).length === keys.length && Object.keys(value).every((key) => keys.includes(key));
+const validMillis = (value: unknown): value is number | null =>
+    value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+const renderTime = (value: number | null): string | null => {
+    if (value === null) return null;
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+};
+const validDelivery = (value: unknown): value is NativePrivateTextMessage['delivery'] =>
+    value === 'pending' || value === 'server_accepted' || value === 'rejected' || value === 'received';
+const validMessageReason = (value: unknown): value is NativePrivateTextMessage['reason'] =>
+    value === null || value === 'blocked' || value === 'device-revoked' || value === 'record-conflict';
+const validNativeRowId = (
+    value: unknown,
+    direction: NativePrivateTextMessage['direction'],
+    clientMessageId: string,
+): value is NativePrivateTextMessage['id'] => typeof value === 'string' && value === `${direction}:${clientMessageId}`;
 function reasonOf(value: unknown): PrivateMessageFailure {
     return typeof value === 'string' && FAILURES.has(value as PrivateMessageFailure)
         ? (value as PrivateMessageFailure)
@@ -206,16 +276,6 @@ function sameAuthority(a: NativePrivateMessageAuthority, b: unknown): boolean {
         a.lifecycleVersion === b.lifecycleVersion
     );
 }
-/** Structured shares are unsupported even when disguised as legacy text. */
-export function isPrivateMessagePilotText(text: unknown): text is string {
-    return (
-        typeof text === 'string' &&
-        text.trim().length > 0 &&
-        text.length <= MAX_CHAT_MESSAGE_CHARS &&
-        !text.includes('\0') &&
-        !text.split(/\r?\n/).some((line) => line.startsWith('📍PIN|') || line.startsWith('🍳RECIPE:'))
-    );
-}
 function validPermissions(value: unknown): value is NativePrivateMessageBlockStatus {
     return (
         record(value) &&
@@ -223,38 +283,66 @@ function validPermissions(value: unknown): value is NativePrivateMessageBlockSta
         typeof value.blockedByMe === 'boolean' &&
         typeof value.blockedEitherDirection === 'boolean' &&
         typeof value.canSend === 'boolean' &&
+        (value.reason === null || value.reason === 'unavailable') &&
         (!value.blockedByMe || value.blockedEitherDirection) &&
-        !(value.canSend && (value.blockedEitherDirection || value.reason !== undefined)) &&
-        (value.canSend || (typeof value.reason === 'string' && FAILURES.has(value.reason as PrivateMessageFailure)))
+        !(value.canSend && (value.blockedEitherDirection || value.reason !== null)) &&
+        (value.canSend || value.reason === 'unavailable') &&
+        hasOnlyKeys(value, ['peerAccountId', 'blockedByMe', 'blockedEitherDirection', 'canSend', 'reason'])
     );
 }
-function mapMessage(value: unknown, accountId: string, peerAccountId?: string): DirectMessage | null {
+function mapMessage(value: unknown, accountId: string, peerAccountId?: string): PrivateMessagePilotMessage | null {
     if (
         !record(value) ||
-        !validId(value.id) ||
+        !validId(value.clientMessageId) ||
+        (value.direction !== 'outgoing' && value.direction !== 'incoming') ||
+        !validNativeRowId(value.id, value.direction, value.clientMessageId) ||
         !validId(value.senderAccountId) ||
         !validId(value.recipientAccountId) ||
         value.senderAccountId === value.recipientAccountId ||
-        !boundedString(value.senderName, 200) ||
-        !isPrivateMessagePilotText(value.text) ||
-        !boundedString(value.createdAt, 40) ||
-        !Number.isFinite(Date.parse(value.createdAt)) ||
-        typeof value.read !== 'boolean' ||
-        !['server_accepted', 'pending'].includes(value.delivery as string) ||
+        value.senderName !== (value.direction === 'outgoing' ? 'You' : 'Paired sailor') ||
+        !(value.text === null || isPrivateMessagePilotText(value.text)) ||
+        !validMillis(value.localCreatedAtMillis) ||
+        value.read !== false ||
+        !validDelivery(value.delivery) ||
+        !validMessageReason(value.reason) ||
+        (value.delivery === 'rejected' && value.reason === null) ||
+        (value.delivery !== 'rejected' && value.reason !== null) ||
+        (value.direction === 'outgoing'
+            ? value.senderAccountId !== accountId || value.delivery === 'received'
+            : value.recipientAccountId !== accountId ||
+              value.delivery !== 'received' ||
+              value.localCreatedAtMillis !== null) ||
         !(value.senderAccountId === accountId || value.recipientAccountId === accountId) ||
-        (value.delivery === 'pending' && value.senderAccountId !== accountId) ||
-        (peerAccountId && !(value.senderAccountId === peerAccountId || value.recipientAccountId === peerAccountId))
+        (peerAccountId && !(value.senderAccountId === peerAccountId || value.recipientAccountId === peerAccountId)) ||
+        !hasOnlyKeys(value, [
+            'id',
+            'clientMessageId',
+            'direction',
+            'senderAccountId',
+            'recipientAccountId',
+            'senderName',
+            'text',
+            'localCreatedAtMillis',
+            'read',
+            'delivery',
+            'reason',
+        ])
     )
         return null;
     return {
+        kind: 'native-pilot',
         id: value.id,
+        clientMessageId: value.clientMessageId,
+        direction: value.direction,
         sender_id: value.senderAccountId,
         recipient_id: value.recipientAccountId,
-        sender_name: value.senderName,
+        sender_name: value.direction === 'outgoing' ? 'You' : 'Paired sailor',
         message: value.text,
-        read: value.read,
-        created_at: value.createdAt,
-        ...(value.delivery === 'pending' ? { delivery_status: 'sending' as const } : {}),
+        read: false,
+        created_at: renderTime(value.localCreatedAtMillis),
+        localCreatedAtMillis: value.localCreatedAtMillis,
+        delivery: value.delivery,
+        reason: value.reason,
     };
 }
 
@@ -348,26 +436,35 @@ export function createPrivateMessagePilotRuntime(port: PrivateMessageNativePort)
                 !result.value.every(
                     (item) =>
                         record(item) &&
-                        validId(item.user_id) &&
-                        item.user_id !== scope.userId &&
-                        boundedString(item.display_name, 200) &&
-                        (item.last_message === '' || isPrivateMessagePilotText(item.last_message)) &&
-                        boundedString(item.last_at, 40) &&
-                        Number.isFinite(Date.parse(item.last_at)) &&
-                        Number.isSafeInteger(item.unread_count) &&
-                        item.unread_count >= 0 &&
-                        item.unread_count <= 16,
+                        validId(item.peerAccountId) &&
+                        item.peerAccountId !== scope.userId &&
+                        item.displayName === 'Paired sailor' &&
+                        (item.lastText === null || isPrivateMessagePilotText(item.lastText)) &&
+                        validMillis(item.lastLocalCreatedAtMillis) &&
+                        item.unreadCount === 0 &&
+                        typeof item.historyAvailable === 'boolean' &&
+                        (item.historyAvailable || (item.lastText === null && item.lastLocalCreatedAtMillis === null)) &&
+                        hasOnlyKeys(item, [
+                            'peerAccountId',
+                            'displayName',
+                            'lastText',
+                            'lastLocalCreatedAtMillis',
+                            'unreadCount',
+                            'historyAvailable',
+                        ]),
                 )
             )
                 return unavailable();
             return {
                 status: 'ok',
-                value: result.value.map((item) => ({
-                    user_id: item.user_id,
-                    display_name: item.display_name,
-                    last_message: item.last_message,
-                    last_at: item.last_at,
-                    unread_count: item.unread_count,
+                value: result.value.map<PrivateMessagePilotConversation>((item) => ({
+                    kind: 'native-pilot',
+                    user_id: item.peerAccountId,
+                    display_name: item.displayName,
+                    last_message: item.lastText,
+                    last_at: renderTime(item.lastLocalCreatedAtMillis),
+                    unread_count: item.unreadCount,
+                    historyAvailable: item.historyAvailable,
                 })),
             };
         },
@@ -380,25 +477,41 @@ export function createPrivateMessagePilotRuntime(port: PrivateMessageNativePort)
             if (
                 !record(value) ||
                 value.peerAccountId !== peerAccountId ||
-                !validPermissions(value) ||
+                !validPermissions(value.permissions) ||
+                value.permissions.peerAccountId !== peerAccountId ||
                 !Array.isArray(value.messages) ||
-                value.messages.length > 32
+                value.messages.length > 32 ||
+                !Number.isSafeInteger(value.unresolvedCount) ||
+                typeof value.unresolvedCount !== 'number' ||
+                value.unresolvedCount < 0 ||
+                value.unresolvedCount > 16 ||
+                !(value.pendingAttemptId === null || validId(value.pendingAttemptId)) ||
+                !hasOnlyKeys(value, ['peerAccountId', 'messages', 'permissions', 'unresolvedCount', 'pendingAttemptId'])
             )
                 return unavailable();
-            const messages = value.messages.map((item) => mapMessage(item, scope.userId!, peerAccountId));
-            if (messages.some((item) => !item) || new Set(messages.map((item) => item!.id)).size !== messages.length)
+            const messages: PrivateMessagePilotMessage[] = [];
+            for (const item of value.messages) {
+                const mapped = mapMessage(item, scope.userId!, peerAccountId);
+                if (!mapped || messages.some((message) => message.id === mapped.id)) return unavailable();
+                messages.push(mapped);
+            }
+            const outgoing = messages.filter((message) => message.direction === 'outgoing');
+            const incoming = messages.filter((message) => message.direction === 'incoming');
+            const pending = outgoing.filter((message) => message.delivery === 'pending');
+            if (
+                outgoing.length > 16 ||
+                incoming.length > 16 ||
+                pending.length > 1 ||
+                value.pendingAttemptId !== (pending[0]?.clientMessageId ?? null)
+            )
                 return unavailable();
             return {
                 status: 'ok',
                 value: {
-                    messages: messages as DirectMessage[],
-                    permissions: {
-                        peerAccountId,
-                        blockedByMe: value.blockedByMe,
-                        blockedEitherDirection: value.blockedEitherDirection,
-                        canSend: value.canSend,
-                        ...(value.reason ? { reason: value.reason } : {}),
-                    },
+                    messages,
+                    permissions: { ...value.permissions },
+                    unresolvedCount: value.unresolvedCount,
+                    pendingAttemptId: value.pendingAttemptId,
                 },
             };
         },
@@ -413,9 +526,26 @@ export function createPrivateMessagePilotRuntime(port: PrivateMessageNativePort)
             if (result.status !== 'ok') return result;
             const message = mapMessage(result.value, scope.userId!, peerAccountId);
             return message &&
-                message.id === clientMessageId &&
+                message.direction === 'outgoing' &&
+                message.clientMessageId === clientMessageId &&
                 message.sender_id === scope.userId &&
                 message.message === text
+                ? { status: 'ok', value: message }
+                : unavailable();
+        },
+        async retryPending(scope, peerAccountId, clientMessageId) {
+            const failure = peerFailure(scope, peerAccountId);
+            if (failure) return failure;
+            if (!validId(clientMessageId)) return unavailable('unsupported_content');
+            const result = await invoke(scope, (authority) =>
+                port.retryPending({ authority, peerAccountId, clientMessageId }),
+            );
+            if (result.status !== 'ok') return result;
+            const message = mapMessage(result.value, scope.userId!, peerAccountId);
+            return message &&
+                message.direction === 'outgoing' &&
+                message.clientMessageId === clientMessageId &&
+                message.sender_id === scope.userId
                 ? { status: 'ok', value: message }
                 : unavailable();
         },
@@ -456,7 +586,17 @@ export function createPrivateMessagePilotRuntime(port: PrivateMessageNativePort)
             let pendingEventChecks = 0;
             let eventSequence = 0;
             let eventBarrier = 0;
-            const latestEvents = new Map<string, { sequence: number; message: DirectMessage }>();
+            const latestEvents = new Map<
+                string,
+                {
+                    sequence: number;
+                    message: PrivateMessagePilotMessage;
+                    knownText: string | null;
+                    knownLocalCreatedAtMillis: number | null;
+                    knownTerminalDelivery: PrivateMessagePilotMessage['delivery'] | null;
+                    knownReason: PrivateMessagePilotMessage['reason'];
+                }
+            >();
             const notify = (event: PrivateMessagePilotEvent) => {
                 try {
                     listener(event);
@@ -516,13 +656,27 @@ export function createPrivateMessagePilotRuntime(port: PrivateMessageNativePort)
                             failEvents('unavailable');
                             return;
                         }
-                        const prior = latestEvents.get(message.id)?.message;
+                        const previous = latestEvents.get(message.id);
+                        const prior = previous?.message;
                         if (
+                            previous &&
                             prior &&
                             (prior.sender_id !== message.sender_id ||
                                 prior.recipient_id !== message.recipient_id ||
-                                prior.message !== message.message ||
-                                prior.created_at !== message.created_at)
+                                prior.clientMessageId !== message.clientMessageId ||
+                                prior.direction !== message.direction ||
+                                (previous.knownText !== null &&
+                                    message.message !== null &&
+                                    previous.knownText !== message.message) ||
+                                (previous.knownLocalCreatedAtMillis !== null &&
+                                    message.localCreatedAtMillis !== null &&
+                                    previous.knownLocalCreatedAtMillis !== message.localCreatedAtMillis) ||
+                                (previous.knownTerminalDelivery !== null &&
+                                    message.delivery !== 'pending' &&
+                                    previous.knownTerminalDelivery !== message.delivery) ||
+                                (previous.knownReason !== null &&
+                                    message.reason !== null &&
+                                    previous.knownReason !== message.reason))
                         ) {
                             failEvents('unavailable');
                             return;
@@ -537,7 +691,21 @@ export function createPrivateMessagePilotRuntime(port: PrivateMessageNativePort)
                             failEvents('unavailable', true);
                             return;
                         }
-                        latestEvents.set(message.id, { sequence, message });
+                        // Nullable rendering cannot erase already observed row
+                        // facts. Keep only bounded volatile facts, never fill an
+                        // unknown display field from old plaintext or JS input.
+                        latestEvents.set(message.id, {
+                            sequence,
+                            message,
+                            knownText: message.message ?? previous?.knownText ?? null,
+                            knownLocalCreatedAtMillis:
+                                message.localCreatedAtMillis ?? previous?.knownLocalCreatedAtMillis ?? null,
+                            knownTerminalDelivery:
+                                message.delivery === 'pending'
+                                    ? (previous?.knownTerminalDelivery ?? null)
+                                    : message.delivery,
+                            knownReason: message.reason ?? previous?.knownReason ?? null,
+                        });
                         pendingEventChecks += 1;
                         void authorityFor(scope)
                             .then((current) => {

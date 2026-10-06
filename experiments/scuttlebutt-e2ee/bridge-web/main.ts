@@ -1,6 +1,8 @@
 import './style.css';
-import { ResearchAuthController, type ResearchAuthState } from './auth';
+import { ResearchAuthController, researchNativePlugin, type ResearchAuthState } from './auth';
 import { createResearchMessagingController, renderResearchMessages, researchSendSetupReady } from './messaging';
+import { createResearchPrivateMessageNativePlugin } from './privateMessagePort';
+import { createPrivateMessageViewController, mountPrivateMessageView } from './privateMessageView';
 
 function element<T extends HTMLElement>(id: string): T {
     const found = document.getElementById(id);
@@ -18,6 +20,61 @@ const signIn = element<HTMLButtonElement>('sign-in');
 const reverify = element<HTMLButtonElement>('reverify');
 const reverifyPairing = element<HTMLButtonElement>('reverify-pairing');
 const signOut = element<HTMLButtonElement>('sign-out');
+const previewOpen = element<HTMLButtonElement>('private-message-preview-open');
+const previewPanel = element<HTMLDivElement>('private-message-preview-panel');
+const previewStatus = element<HTMLParagraphElement>('private-message-preview-status');
+const privatePort = createResearchPrivateMessageNativePlugin(researchNativePlugin);
+const privateView = createPrivateMessageViewController({
+    port: privatePort,
+    nativeReadiness: () => privatePort.readiness(),
+    createClientMessageId: () => crypto.randomUUID(),
+});
+const privateMount = mountPrivateMessageView(previewPanel, privateView);
+let previewRevision = 0;
+function hidePrivatePreview() {
+    previewRevision += 1;
+    privateView.close();
+    privatePort.invalidateView();
+    previewPanel.hidden = true;
+    previewStatus.textContent = 'Private message view closed. Native account state is unchanged.';
+}
+previewOpen.addEventListener('click', () => {
+    hidePrivatePreview();
+    const ticket = previewRevision;
+    const account = auth.getState().account;
+    if (!account || auth.getState().status !== 'authenticated' || document.visibilityState === 'hidden') return;
+    previewStatus.textContent = 'Checking the native account and confirmed peer…';
+    void privatePort
+        .connectCurrentAccount()
+        .then(async (ready) => {
+            const current = auth.getState();
+            if (
+                ticket !== previewRevision ||
+                current.status !== 'authenticated' ||
+                document.visibilityState === 'hidden'
+            )
+                return;
+            if (ready.status !== 'ready') {
+                previewStatus.textContent =
+                    'Private message test unavailable. Check native peer and enrollment setup, then retry.';
+                return;
+            }
+            if (
+                current.account?.accountId !== ready.authority.accountId ||
+                current.account.deviceId !== ready.authority.deviceId
+            )
+                return;
+            previewPanel.hidden = false;
+            const opened = await privateView.start();
+            if (ticket === previewRevision)
+                previewStatus.textContent = opened
+                    ? 'Native private message test open. Relay acceptance is not delivery or reading.'
+                    : 'Native private message test unavailable. Nothing is sent automatically.';
+        })
+        .catch(() => {
+            if (ticket === previewRevision) hidePrivatePreview();
+        });
+});
 
 const messages: Record<ResearchAuthState['status'], { title: string; detail: string }> = {
     unsupported: {
@@ -43,6 +100,10 @@ const messages: Record<ResearchAuthState['status'], { title: string; detail: str
 };
 
 auth.subscribe((state) => {
+    // One shared Research Auth/SDK loop. Its transitions immediately clear the
+    // preview; only explicit native full-pair connection can reopen it.
+    hidePrivatePreview();
+    previewOpen.disabled = state.status !== 'authenticated';
     // Fixed local-stage wording only. Never show SDK/native errors, credentials
     // or infer a specific expiry cause from an unavailable native account.
     const reason = auth.getUnavailableReason();
@@ -226,13 +287,17 @@ copyCard.addEventListener('click', async () => {
 const leaseCheck = window.setInterval(() => void auth.checkCurrentAccount(), 15_000);
 document.addEventListener('visibilitychange', () => {
     messaging.setVisible(document.visibilityState !== 'hidden');
-    if (document.visibilityState === 'hidden') password.value = '';
-    else void auth.checkCurrentAccount();
+    if (document.visibilityState === 'hidden') {
+        password.value = '';
+        hidePrivatePreview();
+    } else void auth.checkCurrentAccount();
 });
 window.addEventListener('pagehide', () => {
     password.value = '';
     window.clearInterval(leaseCheck);
     messaging.dispose();
+    hidePrivatePreview();
+    privateMount.destroy();
     auth.dispose();
 });
 

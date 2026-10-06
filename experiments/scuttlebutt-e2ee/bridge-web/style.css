@@ -442,3 +442,30 @@ textarea {
             opacity 0.15s;
     }
 }
+
+#private-message-preview-panel {
+    margin-top: 20px;
+}
+#private-message-preview-panel [role='log'] {
+    max-height: 48vh;
+    overflow-y: auto;
+    padding: 12px;
+    border: 1px solid rgba(174, 145, 233, 0.3);
+    border-radius: 16px;
+}
+#private-message-preview-panel [data-message-id] {
+    margin: 12px 0;
+    padding: 16px;
+    background: rgba(82, 205, 213, 0.08);
+    border-radius: 12px;
+}
+#private-message-preview-panel .select-text {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+#private-message-preview-panel button {
+    margin: 8px 0;
+}

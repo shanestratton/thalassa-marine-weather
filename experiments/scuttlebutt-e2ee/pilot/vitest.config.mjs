@@ -14,6 +14,7 @@ export default {
             'tests/ChatPage.test.tsx',
             'tests/ChatSelfConversation.test.tsx',
             'tests/E2eePilotBridgeAuth.test.ts',
+            'tests/TextSelectionContract.test.ts',
         ],
         testTimeout: 20000,
         hookTimeout: 20000,

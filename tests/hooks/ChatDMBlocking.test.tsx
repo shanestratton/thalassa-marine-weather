@@ -154,7 +154,10 @@ describe('DM blocking hook safety', () => {
                     receive(sent);
                 });
                 expect(result.current.dmThread).toHaveLength(1);
-                expect(result.current.dmThread[0].delivery_status).toBe('sending');
+                const optimistic = result.current.dmThread[0];
+                expect('kind' in optimistic).toBe(false);
+                if ('kind' in optimistic) throw new Error('Legacy echo must not contain a native pilot row');
+                expect(optimistic.delivery_status).toBe('sending');
             }
             await act(async () => {
                 pending.resolve(sent);

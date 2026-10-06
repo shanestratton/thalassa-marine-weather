@@ -6,7 +6,31 @@ import { getAvatarGradient, timeAgo } from './chatUtils';
 import { RecipeCard } from './RecipeCard';
 import { MAX_CHAT_MESSAGE_CHARS } from '../../services/chat/messagePolicy';
 import { Button } from '../ui/Button';
-import { PRIVATE_MESSAGE_PILOT_LABEL } from '../../services/chat/e2ee/privateMessagePilot';
+import {
+    PRIVATE_MESSAGE_PILOT_LABEL,
+    type PrivateMessagePilotConversation,
+    type PrivateMessagePilotMessage,
+} from '../../services/chat/e2ee/privateMessagePilot';
+
+type RenderedConversation = DMConversation | PrivateMessagePilotConversation;
+type RenderedMessage = DirectMessage | PrivateMessagePilotMessage;
+const isPilotConversation = (value: RenderedConversation): value is PrivateMessagePilotConversation =>
+    'kind' in value && value.kind === 'native-pilot';
+const isPilotMessage = (value: RenderedMessage): value is PrivateMessagePilotMessage =>
+    'kind' in value && value.kind === 'native-pilot';
+
+function pilotDeliveryText(message: PrivateMessagePilotMessage): string {
+    switch (message.delivery) {
+        case 'pending':
+            return '· Pending native relay';
+        case 'server_accepted':
+            return '· Relay accepted';
+        case 'received':
+            return '· Received · Read status unknown';
+        case 'rejected':
+            return message.reason === null ? '· Rejected' : `· Rejected · ${message.reason.replace(/-/g, ' ')}`;
+    }
+}
 
 export const PrivateMessagePilotNotice: React.FC<{ statusText?: string | null }> = ({ statusText }) => (
     <div className="mx-4 my-3 rounded-xl border border-amber-300/30 bg-amber-500/10 p-3" role="status">
@@ -76,7 +100,7 @@ function getConversationPreview(message: string): string {
 
 // --- DM Inbox ---
 export interface ChatDMInboxProps {
-    conversations: DMConversation[];
+    conversations: RenderedConversation[];
     onOpenThread: (userId: string, name: string) => void;
     currentUserId?: string | null;
     pilotActive?: boolean;
@@ -134,10 +158,17 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(
                         <div className="text-left flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-0.5">
                                 <p className="text-sm font-semibold text-white/85">{conv.display_name}</p>
-                                <span className="text-xs text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
+                                <span className="text-xs text-white/40 tabular-nums">
+                                    {conv.last_at === null ? 'Time unknown' : timeAgo(conv.last_at)}
+                                </span>
                             </div>
                             <p className="text-xs text-white/60 truncate">
-                                {pilotActive ? conv.last_message : getConversationPreview(conv.last_message)}
+                                {isPilotConversation(conv)
+                                    ? (conv.last_message ??
+                                      (conv.historyAvailable
+                                          ? 'Message text unavailable'
+                                          : 'Native history unavailable'))
+                                    : getConversationPreview(conv.last_message)}
                             </p>
                         </div>
                         {conv.unread_count > 0 && (
@@ -154,7 +185,7 @@ ChatDMInbox.displayName = 'ChatDMInbox';
 
 // --- DM Thread ---
 export interface ChatDMThreadProps {
-    thread: DirectMessage[];
+    thread: RenderedMessage[];
     partnerName?: string;
     currentUserId?: string | null;
     isSelfConversation?: boolean;
@@ -191,7 +222,10 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(
                     </div>
                 )}
                 {thread.map((dm, i) => {
-                    const isSelf = dm.sender_id === 'self' || dm.sender_id === currentUserId;
+                    const pilot = isPilotMessage(dm);
+                    const isSelf = pilot
+                        ? dm.direction === 'outgoing'
+                        : dm.sender_id === 'self' || dm.sender_id === currentUserId;
                     return (
                         <div
                             key={dm.id}
@@ -205,25 +239,29 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(
                                         : 'bg-white/4 border border-white/4 rounded-bl-lg'
                                 }`}
                             >
-                                {pilotActive ? (
-                                    <p className="text-base text-white/70 leading-relaxed">{dm.message}</p>
+                                {pilot ? (
+                                    <p className="text-base text-white/70 leading-relaxed select-text">
+                                        {dm.message ?? 'Message text unavailable'}
+                                    </p>
                                 ) : (
                                     renderMessageContent(dm.message, isSelf)
                                 )}
                                 <p className="text-xs text-white/40 mt-1 tabular-nums">
-                                    {timeAgo(dm.created_at)}
-                                    {dm.delivery_status === 'sending' && (
-                                        <span className="ml-1 text-sky-300/70" role="status">
-                                            {pilotActive ? '· Awaiting native relay confirmation' : '· Sending…'}
+                                    {dm.created_at === null ? 'Time unknown' : timeAgo(dm.created_at)}
+                                    {pilot && (
+                                        <span className="ml-1 text-white/40" role="status">
+                                            {pilotDeliveryText(dm)}
                                         </span>
                                     )}
-                                    {!pilotActive && dm.delivery_status === 'queued' && (
+                                    {!pilot && dm.delivery_status === 'sending' && (
+                                        <span className="ml-1 text-sky-300/70" role="status">
+                                            · Sending…
+                                        </span>
+                                    )}
+                                    {!pilot && dm.delivery_status === 'queued' && (
                                         <span className="ml-1 text-amber-300/70" role="status">
                                             · Queued — sends when online
                                         </span>
-                                    )}
-                                    {pilotActive && isSelf && !dm.delivery_status && (
-                                        <span className="ml-1 text-white/40">· Relay accepted</span>
                                     )}
                                 </p>
                             </div>
@@ -285,7 +323,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                 className={`relative px-4 pt-2 ${keyboardOffset > 0 ? 'pb-2' : 'pb-[calc(4.5rem+env(safe-area-inset-bottom))]'}`}
             >
                 {/* Block confirmation dialog */}
-                {showBlockConfirm && (
+                {showBlockConfirm && !pilotActive && (
                     <div className="mb-3 p-4 rounded-2xl bg-red-500/5 border border-red-400/15">
                         <p className="text-sm text-white/60 mb-3">
                             {isSelfConversation
@@ -347,7 +385,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                 )}
 
                 {/* Only the sailor who placed a block can remove it. */}
-                {isUserBlocked && !showBlockConfirm ? (
+                {isUserBlocked && (!showBlockConfirm || pilotActive) ? (
                     <div className="flex items-center justify-between py-2">
                         <p className="text-sm text-white/70" role="status">
                             {blockedByMe && isSelfConversation
@@ -356,7 +394,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                                   ? 'You have blocked this sailor.'
                                   : 'Messaging is unavailable for this conversation.'}
                         </p>
-                        {blockedByMe && (
+                        {blockedByMe && !pilotActive && (
                             <button
                                 onClick={() => setShowBlockConfirm(true)}
                                 disabled={blockStatusLoading || !!blockStatusError || blockMutationPending}
@@ -368,7 +406,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                         )}
                     </div>
                 ) : (
-                    !showBlockConfirm && (
+                    (!showBlockConfirm || pilotActive) && (
                         <div className="flex items-center gap-2" role="toolbar" aria-label="Message compose">
                             <input
                                 type="text"
