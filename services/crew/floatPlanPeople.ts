@@ -13,6 +13,19 @@
  * Pure and import-free: the Vessel hub counts with it without loading Supabase.
  */
 
+/**
+ * How senior each app crew role is, for the one role a person with several
+ * vessel_crew rows carries: the order get_crew_vessel_view (20261003120000)
+ * ranks them in. One map for both devices, so the skipper's float plan and
+ * the crew's own view of the boat cannot drift apart.
+ */
+export const CREW_ROLE_SENIORITY: Readonly<Record<string, number>> = Object.freeze({
+    'co-skipper': 4,
+    navigator: 3,
+    deckhand: 2,
+    punter: 1,
+});
+
 export interface FloatPlanSelfDetails {
     name: string | null;
     phone: string | null;

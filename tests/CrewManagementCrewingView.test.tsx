@@ -448,6 +448,38 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         expect(screen.queryAllByText(/· age /)).toHaveLength(1);
     });
 
+    it("lists the skipper's own people too, in Crew aboard and on the float plan: all three (Shane 2026-10-06)", async () => {
+        // The production shape: the skipper's profile names Skipper and First
+        // mate; the one accepted invitee (you, a co-skipper) is not on it.
+        mocks.vessel = { ...mocks.vessel, crewRoster: [{ name: 'Tom Okafor', age: 41, rank: 'Skipper' }] };
+        const view: CrewVesselView = {
+            ...VIEW,
+            vessel: { ...VIEW.vessel, crewCount: undefined },
+            roster: [
+                { name: 'Ana Reyes', rank: 'Skipper' },
+                { name: 'Priya Nair', rank: 'First mate' },
+            ],
+            manifest: [
+                { isSkipper: true, isSelf: false, role: 'skipper', name: 'Capt Ana Reyes' },
+                { isSkipper: false, isSelf: true, role: 'co-skipper', name: 'Tom O' },
+            ],
+        };
+        seedView([view]);
+        mocks.loadCrewVesselView.mockImplementation(async () => ({ status: 'fresh', view }));
+        renderPage();
+
+        const aboard = await screen.findByRole('list', { name: 'Crew aboard Wandering Albatross' });
+        expect(
+            within(aboard)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual(['Ana ReyesSkipper', 'Priya NairFirst mate', 'Tom Okafor (you)Co-skipper']);
+        const card = screen.getByTestId('crew-float-plan-card');
+        expect(within(card).getByText('People aboard: 3')).toBeInTheDocument();
+        expect(within(card).getByText('Priya Nair')).toBeInTheDocument();
+        expect(await screen.findByTestId('readiness-stack')).toHaveAttribute('data-standing-crew', '3');
+    });
+
     it('says nothing about sharing before the server can take your details', async () => {
         mocks.shareFloatPlanDetails.mockResolvedValue('unavailable');
         renderPage();

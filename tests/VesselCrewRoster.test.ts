@@ -40,6 +40,9 @@ describe('rosterSeedsFromVesselProfile', () => {
     it('the roles are the one list the Float Plan uses', () => {
         expect(FLOAT_PLAN_ROLES).toEqual([
             'Skipper',
+            // The invite picker's second-in-command (2026-10-06), so an accepted
+            // co-skipper keeps their role on the plan instead of reading "Role…".
+            'Co-skipper',
             'First mate',
             'Navigator',
             'Engineer',

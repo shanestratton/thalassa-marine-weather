@@ -9,8 +9,10 @@
  * failure or identity change returns null rather than a wrong roster.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { readFileSync } from 'node:fs';
+import { aboardCount, CREW_ROLE_SENIORITY } from '../services/crew/floatPlanPeople';
 
 const supabaseMocks = vi.hoisted(() => ({
     getUser: vi.fn(),
@@ -78,17 +80,20 @@ function tables(config: {
     crew: { data: unknown; error: { message: string } | null };
     members: { data: unknown; error: { message: string } | null };
     details?: { data: unknown; error: { message: string; code?: string } | null };
+    voyages?: { data: unknown; error: { message: string; code?: string } | null };
 }) {
     const crew = queryBuilder(config.crew);
     const members = queryBuilder(config.members);
     const details = queryBuilder(config.details ?? { data: [], error: null });
+    const voyages = queryBuilder(config.voyages ?? { data: [], error: null });
     supabaseMocks.from.mockImplementation((table: string) => {
         if (table === 'vessel_crew') return crew;
         if (table === 'boat_members') return members;
         if (table === 'crew_float_plan_details') return details;
+        if (table === 'voyages') return voyages;
         throw new Error(`unexpected table ${table}`);
     });
-    return { crew, members, details };
+    return { crew, members, details, voyages };
 }
 
 describe('renderCrewDisplayName', () => {
@@ -122,7 +127,9 @@ describe('renderCrewDisplayName', () => {
 
 describe('crewRoleToFloatPlanRole', () => {
     it('maps the invite roles onto the roster roles a coordinator recognises', () => {
-        expect(crewRoleToFloatPlanRole('co-skipper')).toBe('First mate');
+        // The invite picker's own word (Shane 2026-10-06: "captain, first mate
+        // and co captain"): a co-skipper is not the profile's First mate.
+        expect(crewRoleToFloatPlanRole('co-skipper')).toBe('Co-skipper');
         expect(crewRoleToFloatPlanRole('navigator')).toBe('Navigator');
         expect(crewRoleToFloatPlanRole('deckhand')).toBe('Deckhand');
         expect(crewRoleToFloatPlanRole('punter')).toBe('Guest');
@@ -131,6 +138,18 @@ describe('crewRoleToFloatPlanRole', () => {
     it('is Crew for anything it does not know', () => {
         expect(crewRoleToFloatPlanRole('')).toBe('Crew');
         expect(crewRoleToFloatPlanRole('bosun')).toBe('Crew');
+    });
+});
+
+describe('CREW_ROLE_SENIORITY', () => {
+    it('ranks the roles exactly as get_crew_vessel_view does, so both devices pick the same role', () => {
+        // One map for the skipper's float plan, the crew's own view of the
+        // boat and the shared binders (review 2026-10-06: it had four copies).
+        const sql = readFileSync('supabase/migrations/20261003120000_crew_vessel_view.sql', 'utf8');
+        const ranks = Object.fromEntries(
+            [...sql.matchAll(/WHEN '([a-z-]+)' THEN (\d+)/g)].map(([, role, rank]) => [role, Number(rank)]),
+        );
+        expect(ranks).toEqual({ ...CREW_ROLE_SENIORITY });
     });
 });
 
@@ -175,7 +194,7 @@ describe('loadFloatPlanCrew', () => {
         expect(result).not.toBeNull();
         expect(result!.aboard).toEqual([
             { name: 'Capt. Shane Stratton', role: 'Skipper', source: 'skipper', crewUserId: OWNER },
-            { name: 'Marta "M" Kowalski', role: 'First mate', source: 'crew', crewUserId: 'u-marta' },
+            { name: 'Marta "M" Kowalski', role: 'Co-skipper', source: 'crew', crewUserId: 'u-marta' },
         ]);
         expect(result!.invited).toEqual([
             { name: 'Tom', role: 'Guest', source: 'invite', crewUserId: 'u-tom' },
@@ -190,7 +209,7 @@ describe('loadFloatPlanCrew', () => {
         expect(supabaseMocks.from.mock.calls.filter(([table]) => table === 'boat_members')).toHaveLength(1);
     });
 
-    it('includes rows scoped to THIS voyage, excludes other voyages, and lists a person once', async () => {
+    it('lists accepted crew whatever passage their invite named, each once, and offers only this passage’s invites', async () => {
         tables({
             crew: {
                 data: [
@@ -202,12 +221,21 @@ describe('loadFloatPlanCrew', () => {
                         voyage_id: 'v-1',
                         role: 'navigator',
                     }),
+                    // Accepted for another passage: the invite's passage is what they
+                    // may see (chat, route, meals), not whether they are aboard.
                     crewRow({ crew_user_id: 'u-other', crew_email: 'other@example.com', voyage_id: 'v-99' }),
                     // Accepted globally, still pending for this voyage — aboard, not a chip.
                     crewRow({
                         crew_user_id: 'u-lee',
                         crew_email: 'lee@example.com',
                         voyage_id: 'v-1',
+                        status: 'pending',
+                    }),
+                    // Pending for another passage: not offered on this one.
+                    crewRow({
+                        crew_user_id: 'u-later',
+                        crew_email: 'later@example.com',
+                        voyage_id: 'v-99',
                         status: 'pending',
                     }),
                 ],
@@ -218,9 +246,284 @@ describe('loadFloatPlanCrew', () => {
 
         const result = await loadFloatPlanCrew('v-1');
 
-        expect(result!.aboard.map((seed) => seed.name)).toEqual(['Shane Stratton', 'Marta', 'Lee']);
+        expect(result!.aboard.map((seed) => seed.name)).toEqual(['Shane Stratton', 'Marta', 'Lee', 'Other']);
         expect(result!.aboard[2]).toMatchObject({ role: 'Navigator', source: 'crew' });
         expect(result!.invited).toEqual([]);
+    });
+
+    describe('an invitee accepted for one passage, on the float plan of another (Shane 2026-10-06)', () => {
+        // The production shape, with fictional people (the repository is public):
+        // ONE accepted vessel_crew row, role co-skipper, scoped to a passage that
+        // has since finished; their own name and age shared, no phone.
+        const scoped = {
+            data: [
+                crewRow({
+                    crew_user_id: 'u-tom',
+                    crew_email: 'tom.o@example.com',
+                    role: 'co-skipper',
+                    voyage_id: 'voyage-finished',
+                }),
+            ],
+            error: null,
+        };
+        const details = {
+            data: [{ user_id: 'u-tom', full_name: 'Tom Okafor', phone: null, age: 41 }],
+            error: null,
+        };
+        beforeEach(() => {
+            signedInAs(OWNER, { first_name: 'Ana', last_name: 'Reyes' });
+        });
+
+        it.each([
+            ['the passage planner (no voyage yet)', null, 'Magnetic Island day sail'],
+            ['Cast Off on another passage', 'voyage-next', 'Magnetic Island day sail'],
+            ['the passage the invite named', 'voyage-finished', undefined],
+        ])('is aboard from %s, as a Co-skipper with their own name and age', async (_from, voyageId, invitedFor) => {
+            tables({
+                crew: scoped,
+                members: {
+                    data: [{ user_id: 'u-tom', prefix: null, first_name: 'Tom', last_name: 'O', nickname: null }],
+                    error: null,
+                },
+                details,
+                voyages: {
+                    data: [
+                        {
+                            id: 'voyage-finished',
+                            voyage_name: 'Magnetic Island day sail',
+                            departure_port: null,
+                            destination_port: null,
+                        },
+                    ],
+                    error: null,
+                },
+            });
+
+            const result = await loadFloatPlanCrew(voyageId);
+
+            expect(result!.aboard).toEqual([
+                { name: 'Ana Reyes', role: 'Skipper', source: 'skipper', crewUserId: OWNER },
+                {
+                    name: 'Tom Okafor',
+                    role: 'Co-skipper',
+                    source: 'crew',
+                    crewUserId: 'u-tom',
+                    shared: { name: 'Tom Okafor', phone: null, age: 41, appName: 'Tom O' },
+                    // Said aloud on the plan when it is not this plan's passage (review 2026-10-06).
+                    ...(invitedFor ? { invitedFor } : {}),
+                },
+            ]);
+            expect(result!.invited).toEqual([]);
+        });
+
+        it("joins the skipper's Skipper and First mate: three aboard, each once, by role", async () => {
+            tables({ crew: scoped, members: { data: [], error: null }, details });
+            const profile = rosterSeedsFromVesselProfile({
+                crewRoster: [
+                    { name: 'Ana Reyes', age: 52, rank: 'Skipper' },
+                    { name: 'Priya Nair', age: 38, rank: 'First mate' },
+                ],
+            });
+
+            const merged = mergeProfileWithCrew(profile, (await loadFloatPlanCrew(null))!.aboard);
+
+            expect(merged.map((person) => [person.name, person.role, person.age, person.added])).toEqual([
+                ['Ana Reyes', 'Skipper', 52, false],
+                ['Priya Nair', 'First mate', 38, false],
+                ['Tom Okafor', 'Co-skipper', 41, true],
+            ]);
+            expect(aboardCount(merged.length, undefined)).toBe(3);
+        });
+
+        it('is one person when the skipper also typed them into his own list', async () => {
+            tables({ crew: scoped, members: { data: [], error: null }, details });
+            const profile = rosterSeedsFromVesselProfile({
+                crewRoster: [
+                    { name: 'Ana Reyes', age: 52, rank: 'Skipper' },
+                    { name: 'Priya Nair', age: 38, rank: 'First mate' },
+                    { name: 'Tom', rank: 'Crew' },
+                ],
+            });
+
+            const merged = mergeProfileWithCrew(profile, (await loadFloatPlanCrew(null))!.aboard);
+
+            // His own name and age; the rank the skipper chose for him stands.
+            expect(merged.map((person) => [person.name, person.role, person.age])).toEqual([
+                ['Ana Reyes', 'Skipper', 52],
+                ['Priya Nair', 'First mate', 38],
+                ['Tom Okafor', 'Crew', 41],
+            ]);
+        });
+
+        it('takes the most senior role when one person holds rows for several passages', async () => {
+            tables({
+                crew: {
+                    data: [
+                        crewRow({ crew_user_id: 'u-tom', crew_email: 'tom.o@example.com', role: 'deckhand' }),
+                        crewRow({
+                            crew_user_id: 'u-tom',
+                            crew_email: 'tom.o@example.com',
+                            role: 'co-skipper',
+                            voyage_id: 'voyage-finished',
+                        }),
+                    ],
+                    error: null,
+                },
+                members: { data: [], error: null },
+            });
+
+            const result = await loadFloatPlanCrew(null);
+
+            expect(result!.aboard.map((seed) => [seed.crewUserId, seed.role])).toEqual([
+                [OWNER, 'Skipper'],
+                ['u-tom', 'Co-skipper'],
+            ]);
+        });
+    });
+
+    describe('names the passage an invite was for, when it is not this plan’s (review 2026-10-06)', () => {
+        // Accepted crew are aboard whatever passage their invite named, so a
+        // one-off day-sail guest would otherwise ride along on every later
+        // plan without a word. The plan says which passage they came from.
+        const voyageRow = (id: string, voyage_name: string, departure_port = null, destination_port = null) => ({
+            id,
+            voyage_name,
+            departure_port,
+            destination_port,
+        });
+
+        it("from the skipper's own voyages, in one read, only for crew invited elsewhere", async () => {
+            const { voyages } = tables({
+                crew: {
+                    data: [
+                        crewRow({ crew_user_id: 'u-tom', role: 'co-skipper', voyage_id: 'voyage-finished' }),
+                        crewRow({ crew_user_id: 'u-sam', role: 'punter', voyage_id: 'voyage-daysail' }),
+                        crewRow({ crew_user_id: 'u-lee', role: 'deckhand' }),
+                        crewRow({ crew_user_id: 'u-jo', role: 'navigator', voyage_id: 'voyage-next' }),
+                    ],
+                    error: null,
+                },
+                members: { data: [], error: null },
+                voyages: {
+                    data: [
+                        voyageRow('voyage-finished', 'Magnetic Island day sail'),
+                        {
+                            id: 'voyage-daysail',
+                            voyage_name: '',
+                            departure_port: 'Townsville',
+                            destination_port: 'Orpheus Island',
+                        },
+                    ],
+                    error: null,
+                },
+            });
+
+            const result = await loadFloatPlanCrew('voyage-next');
+
+            expect(voyages.select).toHaveBeenCalledWith('id, voyage_name, departure_port, destination_port');
+            expect(voyages.eq).toHaveBeenCalledWith('user_id', OWNER);
+            expect(voyages.in).toHaveBeenCalledWith('id', ['voyage-finished', 'voyage-daysail']);
+            expect(supabaseMocks.from.mock.calls.filter(([table]) => table === 'voyages')).toHaveLength(1);
+            expect(result!.aboard.map((seed) => [seed.crewUserId, seed.invitedFor])).toEqual([
+                [OWNER, undefined],
+                ['u-tom', 'Magnetic Island day sail'],
+                ['u-sam', 'Townsville → Orpheus Island'],
+                ['u-lee', undefined],
+                ['u-jo', undefined],
+            ]);
+            expect(result!.aboard.filter((seed) => 'invitedFor' in seed)).toHaveLength(2);
+        });
+
+        it('says nothing for crew who also hold an every-passage or this-passage invite', async () => {
+            const { voyages } = tables({
+                crew: {
+                    data: [
+                        crewRow({ crew_user_id: 'u-tom', role: 'co-skipper', voyage_id: 'voyage-finished' }),
+                        crewRow({ crew_user_id: 'u-tom', role: 'deckhand' }),
+                        crewRow({ crew_user_id: 'u-sam', role: 'punter', voyage_id: 'voyage-daysail' }),
+                        crewRow({ crew_user_id: 'u-sam', role: 'punter', voyage_id: 'voyage-next' }),
+                    ],
+                    error: null,
+                },
+                members: { data: [], error: null },
+            });
+
+            const result = await loadFloatPlanCrew('voyage-next');
+
+            expect(result!.aboard.map((seed) => [seed.crewUserId, seed.role, seed.invitedFor])).toEqual([
+                [OWNER, 'Skipper', undefined],
+                ['u-tom', 'Co-skipper', undefined],
+                ['u-sam', 'Guest', undefined],
+            ]);
+            expect(voyages.select).not.toHaveBeenCalled();
+        });
+
+        it('names the latest of several other passages', async () => {
+            tables({
+                crew: {
+                    data: [
+                        crewRow({ crew_user_id: 'u-sam', role: 'punter', voyage_id: 'voyage-old' }),
+                        crewRow({ crew_user_id: 'u-sam', role: 'punter', voyage_id: 'voyage-daysail' }),
+                    ],
+                    error: null,
+                },
+                members: { data: [], error: null },
+                voyages: {
+                    data: [
+                        voyageRow('voyage-old', 'Winter delivery run'),
+                        voyageRow('voyage-daysail', 'Orpheus day sail'),
+                    ],
+                    error: null,
+                },
+            });
+
+            const result = await loadFloatPlanCrew(null);
+
+            expect(result!.aboard[1].invitedFor).toBe('Orpheus day sail');
+        });
+
+        it('reads "another passage" when the voyage is gone, unnamed or unreadable, and the plan still loads', async () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+            onTestFinished(() => warn.mockRestore());
+            const rows = {
+                data: [crewRow({ crew_user_id: 'u-tom', role: 'co-skipper', voyage_id: 'voyage-finished' })],
+                error: null,
+            };
+
+            tables({ crew: rows, members: { data: [], error: null }, voyages: { data: [], error: null } });
+            expect((await loadFloatPlanCrew(null))!.aboard[1].invitedFor).toBe('another passage');
+
+            tables({
+                crew: rows,
+                members: { data: [], error: null },
+                voyages: { data: [voyageRow('voyage-finished', '  ')], error: null },
+            });
+            expect((await loadFloatPlanCrew(null))!.aboard[1].invitedFor).toBe('another passage');
+            expect(warn).not.toHaveBeenCalled();
+
+            tables({
+                crew: rows,
+                members: { data: [], error: null },
+                voyages: { data: null, error: { message: 'permission denied' } },
+            });
+            const failed = await loadFloatPlanCrew(null);
+            expect(failed!.aboard.map((seed) => [seed.crewUserId, seed.invitedFor])).toEqual([
+                [OWNER, undefined],
+                ['u-tom', 'another passage'],
+            ]);
+            expect(warn).toHaveBeenCalledWith(
+                '[floatPlanCrew]',
+                'float plan crew: passage names read failed',
+                'permission denied',
+            );
+
+            const builders = tables({ crew: rows, members: { data: [], error: null } });
+            builders.voyages.in.mockImplementation(() => {
+                throw new Error('offline');
+            });
+            const thrown = await loadFloatPlanCrew(null);
+            expect(thrown!.aboard[1].invitedFor).toBe('another passage');
+        });
     });
 
     it('names the skipper from auth metadata when there is no boat_members row, and leaves it empty otherwise', async () => {
