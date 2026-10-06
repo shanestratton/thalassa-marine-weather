@@ -3859,7 +3859,8 @@ body,
    At any length instead:
    - opened, the container keeps its corner but pads its right side out past
      the right-hand rail (MOB, the layers button, the portrait zoom buttons,
-     Locate: max(16px, inset) + max(44px, 3rem) in from the edge), 4px clear
+     Locate: max(16px, inset) + the widest of them, MOB's fixed 52px or the
+     others' max(44px, 3rem), in from the edge), 4px clear
      like the open layer panel, less the card's own 10px margin. However high
      the card climbs, neither it nor its ⓘ reaches under the helm or over
      Locate. The ⓘ moves left with the card, as it already moved up with it.
@@ -3889,7 +3890,7 @@ body,
     bottom: 44px;
 }
 .thalassa-chart-map[data-attribution-layout='compact'] .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
-    padding-right: calc(max(16px, env(safe-area-inset-right)) + max(44px, 3rem) + 4px - 10px);
+    padding-right: calc(max(16px, env(safe-area-inset-right)) + max(52px, 3rem) + 4px - 10px);
 }
 .thalassa-chart-map[data-attribution-layout='compact']
     .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true'])
@@ -4713,7 +4714,7 @@ main:has(.storm-hud-badges) .thalassa-route-scrubber {
         .thalassa-chart-map[data-attribution-layout='compact']
         .mapboxgl-ctrl-bottom-right:has(button[aria-expanded='true']) {
         padding-right: calc(
-            max(16px, env(safe-area-inset-right)) - env(safe-area-inset-right) + max(44px, 3rem) + 4px - 10px
+            max(16px, env(safe-area-inset-right)) - env(safe-area-inset-right) + max(52px, 3rem) + 4px - 10px
         );
     }
     /* With the bar folded the bottom-right container comes down to the
