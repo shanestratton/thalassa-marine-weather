@@ -42,6 +42,13 @@ export interface ResearchPolicyStatus {
     readonly blockedByMe: boolean;
     readonly blockedByPeer: boolean;
 }
+/** Durable account policy only; it grants neither device authority nor encryption. */
+export interface ResearchAccountModeStatus {
+    readonly requestId: string;
+    readonly ownerUserId: string;
+    readonly ownerDeviceId: string;
+    readonly mode: 'legacy-permitted' | 'protected-required';
+}
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const POLICY_BINDING_FIELDS = [
     'requestId',
@@ -109,6 +116,18 @@ function policyStatus(value: unknown, request: ResearchSignedRequest): Readonly<
         return fail();
     return Object.freeze(receipt) as unknown as Readonly<ResearchPolicyStatus>;
 }
+function accountModeStatus(value: unknown, request: ResearchSignedRequest): Readonly<ResearchAccountModeStatus> {
+    const receipt = readFields(value, ['requestId', 'ownerUserId', 'ownerDeviceId', 'mode']);
+    if (
+        receipt.requestId !== request.requestId ||
+        receipt.ownerUserId !== request.userId ||
+        receipt.ownerDeviceId !== request.deviceId ||
+        !['legacy-permitted', 'protected-required'].includes(receipt.mode as string) ||
+        (request.action === 'require-protected' && receipt.mode !== 'protected-required')
+    )
+        return fail();
+    return Object.freeze(receipt) as unknown as Readonly<ResearchAccountModeStatus>;
+}
 
 export function createResearchSignedGateway(deps: ResearchSignedGatewayDependencies) {
     const registration = createResearchGateway({
@@ -154,6 +173,8 @@ export function createResearchSignedGateway(deps: ResearchSignedGatewayDependenc
                 if (request.action === 'send')
                     return sendReceipt(result, parseResearchSendPayload(request.payload, actor, request.deviceId));
                 if (request.action === 'policy') return policyStatus(result, request);
+                if (request.action === 'require-protected' || request.action === 'account-mode')
+                    return accountModeStatus(result, request);
                 return result;
             });
         },

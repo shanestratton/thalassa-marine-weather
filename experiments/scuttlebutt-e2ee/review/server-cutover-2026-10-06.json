@@ -1,0 +1,213 @@
+{
+    "schemaVersion": 1,
+    "recordedAtUTC": "2026-10-06T09:46:54.374Z",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "baseCommit": "8c69793c14925c1e7f53e5c0fd2f4995d59809d9",
+    "dirtyTreeAtExecution": true,
+    "status": "passed",
+    "shippingApproved": false,
+    "productionActivated": false,
+    "masterPushed": false,
+    "primaryBuildOrSync": false,
+    "humanDeviceChanged": false,
+    "hostedServiceChanged": false,
+    "nativeProviderOrCodecChanged": false,
+    "scope": "Signed durable one-way account mode, local synthetic legacy SQL barrier and accepted-decision generic private notification outbox; no native/hosted/production cutover or APNs sink.",
+    "sourceHashes": {
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md": "a8528efa907e388d0558726b6b6baafd556c7ff7e53b3055dd088e084e18961d",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md": "dd7b62332018146ed7f33b67f06a729a4aaee7ad173eb9a41afda59f96cafe14",
+        "experiments/scuttlebutt-e2ee/relay/README.md": "6c053842514e7d3fec4787e890fe3fcdc5663558185de407dd3140cf64a13d38",
+        "experiments/scuttlebutt-e2ee/relay/hostedGateway.ts": "911d198d7c8326adc860d9b3c536f8bc64ea919a7fcfddf2568c227c1f818e57",
+        "experiments/scuttlebutt-e2ee/relay/relay.sql": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01",
+        "experiments/scuttlebutt-e2ee/relay/signedGateway.ts": "4f00091333257d90208db3757857ec4e3e6867f81fccd355f538e18beb1e29d6",
+        "experiments/scuttlebutt-e2ee/relay/signedRequest.ts": "ff297d8502f53067821a93e8deeda07cd9ec22ca460ee1670c98535337140e84",
+        "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs": "1c2e47c97996ae2dff855515f2a92760f2d9bbba3d0f009f90f16054f7ed7581",
+        "tests/E2eeHostedGateway.test.ts": "8d2955929b75abac2be981e940214c9748c8e62bfabd900ada0760581840cd90",
+        "experiments/scuttlebutt-e2ee/relay/cutover.tsconfig.json": "dffe69c2118cfe0d982fb42dee5ae8f87970353f37b666e9e96b4b30a3a2cbee",
+        "experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs": "8370d465210854e04c3331b843adc271d0167e38087460821e2f85a4021c8dd4",
+        "experiments/scuttlebutt-e2ee/relay/legacyCutoverFixture.sql": "545fe6f85727257fb1837aa097cb966492f3fd24944e9708360d03f0259e206a",
+        "experiments/scuttlebutt-e2ee/relay/privateNotification.ts": "310751f9d1eb9005aa37d35484045dd5e7b808a3cecfb82a551107802a5cc4d6",
+        "experiments/scuttlebutt-e2ee/relay/privateNotifications.sql": "ab07a8e8400e139d6c7e3bd840fabec6db8f0a4e4650e61e57c96eaea879d6e7",
+        "tests/E2eePrivateNotification.test.ts": "eb9521c34a518af17c8ffc6f924b89ec4695dcb811a930f4306b3f1d6c7f258b",
+        "tests/E2eeServerCutoverGateway.test.ts": "1c3c1b959ca9cd815ca1aad7039f41ef4d79e14631a3759e22ed7cd9c3c93441"
+    },
+    "sql": {
+        "receipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-T60bTe/receipt.json",
+            "sha256": "2fe7ee4c113946882f47339efeeb9abda4f83ef38d7d2eb905bd70a2ed4a1b71"
+        },
+        "log": {
+            "path": "/private/tmp/thalassa-cutover-proof-log.U36hIQ",
+            "sha256": "51340b4e94bd845af2601b194da467d7a8d93b99fd8da6be3e04fc8fd4ac2a4c"
+        },
+        "sourceHashes": {
+            "experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs": "8370d465210854e04c3331b843adc271d0167e38087460821e2f85a4021c8dd4",
+            "experiments/scuttlebutt-e2ee/relay/relay.sql": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01",
+            "experiments/scuttlebutt-e2ee/relay/privateNotifications.sql": "ab07a8e8400e139d6c7e3bd840fabec6db8f0a4e4650e61e57c96eaea879d6e7",
+            "experiments/scuttlebutt-e2ee/relay/legacyCutoverFixture.sql": "545fe6f85727257fb1837aa097cb966492f3fd24944e9708360d03f0259e206a",
+            "experiments/scuttlebutt-e2ee/relay/pglite-pin.json": "bc2cb4052bded220e41ecc9d12448df0b0ed9447664390e03d99bc759389c31c",
+            "experiments/scuttlebutt-e2ee/relay/deviceBundle.ts": "37f529632bbd364860a926ea8253517bd3a56bac37d21d3623b2013b4fedbd0f",
+            "experiments/scuttlebutt-e2ee/relay/signedRequest.ts": "ff297d8502f53067821a93e8deeda07cd9ec22ca460ee1670c98535337140e84",
+            "experiments/scuttlebutt-e2ee/relay/signedGateway.ts": "4f00091333257d90208db3757857ec4e3e6867f81fccd355f538e18beb1e29d6",
+            "experiments/scuttlebutt-e2ee/relay/gateway.ts": "3f7e546ad5a49a220b4af7a0dc56209c3460f31f290cc5f0e307c770a745a64a",
+            "experiments/scuttlebutt-e2ee/relay/privateNotification.ts": "310751f9d1eb9005aa37d35484045dd5e7b808a3cecfb82a551107802a5cc4d6",
+            "services/chat/e2ee/directMessageEnvelope.ts": "0261897560058dd36830e0b5a1bfd7d40aeded64aa638ed2e8a2bc528a164fdf",
+            "services/chat/e2ee/encryptedDmDelivery.ts": "cc138ba7d91983057205ee68c523ff73e67aba4a24ee52eb0664dedfb85bbfe2"
+        },
+        "completedGroups": [
+            "fresh mode query is signed, principal-bound and does not consume mutation budget",
+            "positive legacy ownership, read-only update and generic queue control",
+            "cutover and signed mutation ledger roll back together on post-operation failure",
+            "durable one-way cutover denies client reads and privileged legacy writes without changing old bytes",
+            "new cutover nonce cannot downgrade or replace the original selection; old nonce contents conflict",
+            "restriction remains effective when a permissive legacy policy is added",
+            "accepted opaque send without both protected accounts gets a terminally suppressed notification",
+            "accepted decision and one UUID notification are atomic and exact retry does not duplicate",
+            "processor token claim emits only fixed generic content and never marks delivered or read",
+            "post-operation rollback leaves no decision, notification or signed request orphan",
+            "block then unblock terminally suppresses both directions and already claimed work",
+            "blocked send refuses without adding a notification",
+            "either endpoint cutover blocks legacy and either endpoint block suppresses its queue",
+            "registered revoked device can diagnose but cannot initiate fresh cutover; exact old receipt survives",
+            "device revocation terminally suppresses pending notifications and fresh sends refuse",
+            "mode diagnostics remain fresh at the bounded 512-request limit; no false cutover success",
+            "private tables/helpers are denied; processors have only projection claim/finish grants",
+            "independent sequential restricted sessions cannot assume owner or read private policy storage",
+            "database close/reopen retains durable mode, original legacy bytes and terminal notification routes"
+        ],
+        "groupCount": 19,
+        "archiveIntegrity": "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q==",
+        "engine": "Pinned PGlite 0.5.8 on disk, one engine, sequential restricted sessions and database reopen",
+        "signature": "Real independently generated Ed25519 fixture keys and WebCrypto request verification",
+        "identity": "Mocked gateway Auth and caller-settable synthetic legacy GUC; not Supabase JWT evidence",
+        "ciphertext": "One-byte synthetic envelope; no Olm or encryption result",
+        "command": "/opt/homebrew/opt/node@24/bin/node --experimental-strip-types experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs /absolute/path/to/pinned/pglite.tgz"
+    },
+    "compatibilitySql": {
+        "log": {
+            "path": "/private/tmp/thalassa-cutover-compat.HwWJNA",
+            "sha256": "432994087de4e056db9145ab7d4bc0c431b20d43b852598a9a47c2791ab32640"
+        },
+        "groupCount": 31,
+        "overlayInstalled": false,
+        "sourceHashes": {
+            "experiments/scuttlebutt-e2ee/relay/proof.mjs": "c00b7a540b08e8d22b061927eb0e339020bde1c97942a3f03f7667523477481c",
+            "experiments/scuttlebutt-e2ee/relay/signedSqlProof.mjs": "60311da1bdcccfb93114a24def1e3e57aa7d7a7ce502a50e6a0f2175bd4e2bd1",
+            "experiments/scuttlebutt-e2ee/relay/relay.sql": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01"
+        },
+        "category": "Existing local fixture proof against changed base schema; no network or independent concurrent sessions"
+    },
+    "checks": {
+        "tests": 1261,
+        "suites": 20,
+        "testsLog": {
+            "path": "/private/tmp/thalassa-cutover-checks.cSqNMi",
+            "sha256": "dbbae472099e92a8283201f90d1b2594a0ee46e59620109853f35ec62805dfec"
+        },
+        "focusedStrictTypesPassed": true,
+        "typesLog": {
+            "path": "/private/tmp/thalassa-cutover-types.ZYCMHN",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "namedLintPassed": true,
+        "lintLog": {
+            "path": "/private/tmp/thalassa-cutover-lint-verified-2026-10-06.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formatPassed": true,
+        "formatScope": "Named changed TypeScript/MJS/config files only; existing Markdown was edited surgically, not globally reformatted.",
+        "preCommitHook": "HUSKY=0 avoids the automatic npx wrapper; named lint, format, types and research checks were executed directly without installation or shared dependency writes.",
+        "formatLog": {
+            "path": "/private/tmp/thalassa-cutover-format-2026-10-06.log",
+            "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+        },
+        "commands": [
+            "/opt/homebrew/opt/node@24/bin/node node_modules/vitest/vitest.mjs run --config experiments/scuttlebutt-e2ee/relay/vitest.config.mjs --configLoader runner --no-cache",
+            "/opt/homebrew/opt/node@24/bin/node node_modules/typescript/bin/tsc --noEmit -p experiments/scuttlebutt-e2ee/relay/cutover.tsconfig.json"
+        ],
+        "category": "Deterministic TypeScript framing, mocked adapters and UI fixtures; overlaps earlier suites, not live encrypted exchanges"
+    },
+    "retainedAttempts": [
+        {
+            "status": "failed",
+            "category": "Initial runner syntax/format check",
+            "cause": "Missing processor helper closing brace; corrected before SQL execution. Tool transcript retains parse diagnostics, no dedicated artifact."
+        },
+        {
+            "status": "failed",
+            "category": "SQL capacity fixture",
+            "failure": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-bbUpRf/failure.json",
+                "sha256": "1ee2b107d51646f6e664fda9691051b0800f3ae61ea56440279e4605f7015782"
+            },
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-proof-log.MBgeOS",
+                "sha256": "8b36b806e8599736c4abecea542fc062abed4e7a27e1d727fd6e3b8cced5828a"
+            },
+            "completedGroups": 15,
+            "cause": "Noncanonical placeholder request wires correctly refused by table CHECKs. Corrected fixture seeds 512 canonical bound signed wires, without weakening constraints."
+        },
+        {
+            "status": "failed",
+            "category": "Research fixture signing-byte assertion",
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-checks.2xV2kD",
+                "sha256": "625929053cca282008e9b56e161d817b027695024471958dbef2e8c78dda3929"
+            },
+            "passed": 1257,
+            "failed": 2,
+            "cause": "Unsigned-only helper received signed objects; assertion now supplies exact eight unsigned fields and retains independently constructed signing domain."
+        },
+        {
+            "status": "passed",
+            "category": "Pre-lint SQL execution",
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-RwcUgF/receipt.json",
+                "sha256": "4920c7a1c76e72927575326c7656b61b42e7abca95c0432b5aebfc60dbd80f0e"
+            },
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-proof-log.ORose3",
+                "sha256": "1e4c858c26ef9a3d4af6fb530974cfa23ed081e85ab937aae29304085f37e5f8"
+            },
+            "groupCount": 19
+        },
+        {
+            "status": "passed",
+            "category": "Before two added hosted contract controls",
+            "tests": 1259,
+            "suites": 20,
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-checks.sHsUQT",
+                "sha256": "f2fe6f148a8af43941e7638394c4e407527cacc7d346d62b0947b6c9950ab840"
+            }
+        },
+        {
+            "status": "failed",
+            "category": "Runner named lint",
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-lint-2026-10-06.log",
+                "sha256": "f99fdfdf12349d8a9b93df2ece17cf1c08e5848cbd9cdd9101e5f7c200271eaa"
+            },
+            "cause": "Explicit Node Buffer import needed; progress uses allowed console.info. Corrected runner re-executed all19 SQL groups."
+        }
+    ],
+    "internalReview": {
+        "independentAudit": false,
+        "scope": "Agent source review: signature/grants/freshness/replay/notification lifecycle",
+        "foundAndFixed": "Capacity fixture placeholder CHECK violation",
+        "futureSinkLimits": [
+            "Projection claim commits before a future external dispatch; post-claim block/revoke cannot retract an emitted notification.",
+            "Same claim token can obtain the generic projection repeatedly. Sink deduplication and ambiguous-response handling are required."
+        ]
+    },
+    "remainingGates": [
+        "Native codec/account-authority integration of new actions; native still rejects them.",
+        "Scoped migration of the authorized isolated hosted project, preserving human accounts/keys/messages.",
+        "Actual legacy production table, definer/RPC, old-client and private push claim enforcement; stand-in fixtures do not ship enforcement.",
+        "Notification worker enumeration, expiry/reclaim, dispatch freshness, recipient routing and external sink deduplication.",
+        "Independent PostgreSQL connections, lock/snapshot interleavings and distributed gateway races.",
+        "Inbox cursor/retention, multi-peer and device/prekey renewal/recovery policy.",
+        "Full physical device acceptance, dependency/licence obligations and independent external security review.",
+        "Separate owner release decision; master remains untouched."
+    ]
+}

@@ -1,0 +1,13 @@
+{
+    "extends": "../../../tsconfig.json",
+    "compilerOptions": { "types": ["node"], "allowImportingTsExtensions": true },
+    "include": [
+        "../../../tests/E2eeServerCutoverGateway.test.ts",
+        "../../../tests/E2eePrivateNotification.test.ts",
+        "../../../tests/E2eeHostedGateway.test.ts",
+        "signedRequest.ts",
+        "signedGateway.ts",
+        "hostedGateway.ts",
+        "privateNotification.ts"
+    ]
+}

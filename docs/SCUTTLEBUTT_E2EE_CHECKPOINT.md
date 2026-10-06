@@ -78,7 +78,9 @@ screens, including an ordinary text-only private-message view over the same
 native account host. The main-app pilot contract remains injected and disabled
 by default. Its native hook and rendering imports are now separated from legacy
 chat. An explicit native selection now latches process-local legacy denial across
-private callers, queues and foreground push. Durable/server cutover is not complete. These are not a shipping
+private callers, queues and foreground push. Durable account mode and legacy SQL
+denial now have fresh local fixture evidence, but native/hosted/production cutover
+is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
@@ -111,6 +113,63 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 6 October durable server cutover and generic notification fixtures
+
+Signed `require-protected` chooses a durable account mode; signed `account-mode`
+reads it afresh without consuming the bounded mutation ledger. Both accept only
+the exact empty-array payload and return four account/device/request-bound fields.
+The request version/signature domain and existing ten-field peer policy remain
+unchanged. A fresh cutover requires a registered non-revoked device. The original
+selection survives a later cutover nonce and database reopen. An exact committed
+receipt survives revocation as a historical fact, not permission. There is no
+client/gateway downgrade or reset grant. Database owners remain trusted.
+
+`privateNotifications.sql` is a fresh-fixture overlay, not a Supabase migration.
+An accepted decision atomically creates one private outbox row with a distinct
+server-generated UUIDv4 route. Exact message retries do not add another route;
+conflicts/refusals add none. Only a narrow processor can claim or acknowledge
+work. Claims recheck both protected account modes, registered device bindings,
+revocation and bilateral blocks under the same READ COMMITTED lock. Blocking,
+revocation or binding replacement terminally suppresses pending/claimed work.
+The projection contains only fixed generic text and an opaque route, never a
+name, message preview, client message ID, key, envelope or claimed read state.
+The TypeScript parser copies and freezes exact plain data and refuses extras,
+accessors and hostile reflection errors with fixed diagnostics.
+
+The synthetic legacy-table overlay proves restrictive RLS denial at either-endpoint
+cutover and BEFORE-write denial even for privileged writes bypassing RLS. Old
+message/preview bytes are preserved, not encrypted, deleted or relabelled. Its
+processor suppresses legacy private queue entries rather than projecting old
+previews. Fixture identity is a spoofable local GUC, not Supabase Auth evidence.
+No existing production table, push function, account or human device changed.
+
+`cutoverProof.mjs` passed **19 SQL scenario groups** using on-disk PGlite, real
+Ed25519 fixture signatures, mocked account identity and one-byte synthetic
+ciphertext. It covers rollback of mode/ledger and decision/outbox transactions,
+the 512-request limit, restricted sequential sessions and database close/reopen.
+The expanded Research suite passed **1,261 tests in 20 suites**, focused strict
+TypeScript and named lint. Counts overlap prior suites; none counts live encrypted
+exchanges. The [server cutover manifest](../experiments/scuttlebutt-e2ee/review/server-cutover-2026-10-06.json)
+records exact sources, receipts, corrections and evidence limits. The existing
+relay proof also passed all **31 SQL scenario groups** against the changed base
+schema, without the new overlays. The first SQL
+attempt correctly refused noncanonical capacity-fixture wires; corrected fixtures
+retain every table CHECK. Two new signing-byte tests initially passed a signed
+object to an unsigned-only helper; their corrected assertions preserve independent
+signature-domain checks. A runner syntax correction and explicit Node Buffer
+import/fixed progress logging found by lint are also recorded.
+The two additional hosted-adapter cases check static parameter binding and
+transaction configuration for each new action, not a deployed host.
+
+There is no external notification sink, enumeration worker, claim expiry/reclaim
+or exactly-once APNs result. A crashed consumer can strand a claim; the same token
+can obtain its generic projection again. Future sink delivery needs deduplication
+and fresh dispatch checks. A later suppression/failed acknowledgement cannot
+retract a notification already dispatched. Native codecs still refuse the new
+actions, and the existing hosted project has not received this slice. Independent
+PostgreSQL connections, production legacy paths, physical acceptance, dependency
+review and the independent security assessment remain release gates.
 
 ### 6 October client legacy cutover and fetch dispatch guard
 
@@ -2653,9 +2712,11 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: implement authoritative durable/server cutover and content-free private
-notifications after the process-local client guards, preserving explicit native-unavailable mode without
-a legacy fallback. Then implement durable inbox progress and
+Next: integrate the locally verified durable account mode into native authority
+and the isolated relay without resetting human state. Apply actual legacy-table
+and notification-worker enforcement only through separately scoped, reviewed
+deployment; local stand-ins do not complete that boundary. Preserve explicit
+native-unavailable mode without a legacy fallback. Then implement durable inbox progress and
 retention, and an explicit device/prekey lifecycle and recovery policy. The ordinary
 Research port is not the shipping integration or a complete physical acceptance
 pass. The injected-auth SQL proof is not live authenticated transport. The synthetic

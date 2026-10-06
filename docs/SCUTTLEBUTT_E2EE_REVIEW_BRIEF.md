@@ -100,6 +100,28 @@ and dispatched writes/APNs cannot be recalled. Old queued plaintext is held, not
 encrypted or deleted; mixed public queue maintenance may rewrite its container
 without changing private object fields. No shipping switch or security claim is
 authorized by these local cancellation results.
+
+The subsequent local server fixture adds signed one-way `require-protected`
+and fresh `account-mode` without changing existing peer-policy receipts. A durable
+account row drives restrictive synthetic legacy-table RLS and privileged-write
+guards. Old history/preview bytes stay unchanged. An accepted-decision trigger
+atomically queues one server-generated UUIDv4 notification route; processor claims
+recheck current account/device/block state and return only fixed generic content.
+Lifecycle suppression is terminal for pending/claimed work. The
+[server cutover manifest](../experiments/scuttlebutt-e2ee/review/server-cutover-2026-10-06.json)
+records 19 on-disk SQL scenario groups, 1,261 Research tests in 20 suites and
+focused strict types/lint. The existing relay proof also passed its 31 groups
+against the changed base schema. These use real fixture signatures but mocked Auth,
+legacy identity and ciphertext; they are not native/hosted/production enforcement.
+
+Review the synthetic identity boundary, READ COMMITTED freshness and grant
+separation before adapting these overlays to real tables. There is no external
+push sink or claim expiry/reclaim. Same-token claims can repeat projections;
+sink deduplication, dispatch-time freshness and lost-response handling remain
+required. An acknowledgement cannot retract an already emitted notification.
+Native codecs intentionally still reject these new actions. Existing hosted and
+human-device candidates are unchanged; internal agent review is not independent
+assessment.
 The fixed 16-outgoing/16-incoming budgets,
 scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or
@@ -219,6 +241,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Provider manifest and lock](../experiments/scuttlebutt-e2ee/vodozemac-probe/README.md), [provider pin](../experiments/scuttlebutt-e2ee/vodozemac-pin.json) and [native bridge pin](../experiments/scuttlebutt-e2ee/vodozemac-native-pin.json).
 - [Native provider and licence inventory](../experiments/scuttlebutt-e2ee/vodozemac-native/README.md), `VodozemacSealedStore.swift`, `VodozemacDmCoordinator.swift`, `VodozemacDmFrame.swift`, `VodozemacSupabaseAuth.swift` and `VodozemacAuthSession.swift` in `experiments/scuttlebutt-e2ee/`.
 - [Relay contract and reproduction](../experiments/scuttlebutt-e2ee/relay/README.md), including `relay.sql`, `signedGateway.ts`, `supabaseAuth.ts`, `hostedGateway.ts`, `nativeExchangeProof.mjs`, `hosted/` deployment/fixture runners and their source/artifact receipts.
+- [Local cutover runner](../experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs), `privateNotifications.sql`, `legacyCutoverFixture.sql` and the [server cutover evidence](../experiments/scuttlebutt-e2ee/review/server-cutover-2026-10-06.json). Fresh fixture overlays are not production migrations; retained previews and spoofable GUC identity are deliberate test controls.
 - [Research adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift), [plugin](../experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift), [web controller and literal renderer](../experiments/scuttlebutt-e2ee/bridge-web/messaging.ts), native bridge fixtures and `tests/E2eePilotBridgeMessaging.test.ts`. These are separate from the shipping private-message port; include both native and JavaScript publication fences in the assessment.
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.
