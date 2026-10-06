@@ -1,0 +1,353 @@
+{
+    "schemaVersion": 1,
+    "recordedAtUTC": "2026-10-06T16:42:53.475Z",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "baseCommit": "b62206ab105b2a427015167ff74c8a28f041601b",
+    "dirtyTreeAtExecution": true,
+    "status": "passed",
+    "shippingApproved": false,
+    "productionActivated": false,
+    "masterPushed": false,
+    "primaryBuildOrSync": false,
+    "humanDeviceChanged": false,
+    "humanAccountModeSelected": false,
+    "hostedSqlSupportChanged": true,
+    "hostedEdgeDeployed": false,
+    "sourceHashes": {
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md": "af5d5e48363fa9ed267eab44b1e19ecce1b9b7a4db4619bdb81be383d8a49843",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md": "c70c35dd6464f613cdd070adcad548ac74e071170aa9ddf0b0f4f82802d89c02",
+        "experiments/scuttlebutt-e2ee/VodozemacExchangeProbe.swift": "096b0e1fa358a8f9623e5d2ae093c0d30fa7bd3b8ffe7aa6b04752fb4c14dd65",
+        "experiments/scuttlebutt-e2ee/relay/README.md": "5be9e22377a68299e4762d211a5f833e062e95733b8664c4d9ff8b8bf6a02298",
+        "experiments/scuttlebutt-e2ee/relay/nativeExchangeProof.mjs": "29547fd95c0bb1e752ca58a61902e60480651b8bc2626492cd65f5c872ec32ff",
+        "experiments/scuttlebutt-e2ee/relay/nativeExchangeServer.mjs": "a56a751aac3e328e8d4a6cc04bd27bee00f657891aa7d900bda9f5e2b920bf0a",
+        "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs": "6d8ec33ce3f35356cb2d9830717606f285d490562e12450ace6c6481fcc0c20d",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountModeExchangeProbe.swift": "a86f95b56b1eb4eca95a7bff04d554f10dfa4091655f6f2896bdb82c3e9f1946",
+        "experiments/scuttlebutt-e2ee/hosted/cutover.tsconfig.json": "4f1b00b7cb702b6f0d286a0f6be885ec9236d74d12cbcfe9a85fbb17afb88343",
+        "experiments/scuttlebutt-e2ee/hosted/cutoverMigration.mjs": "b079ae3a244d7566e8dd9b5ba4639a6385ffea685fba14598ce8080449e0bed5",
+        "experiments/scuttlebutt-e2ee/hosted/cutoverMigrationProof.mjs": "64ac38bca29347d7ad8d9e30eddac995dc433145846c8f93587a1d51ac7a94c9",
+        "experiments/scuttlebutt-e2ee/hosted/updateCutover.mjs": "08521e2fa9e72d61f2bb598bc535614b3b630e1942bab216600acdb5c866c40e",
+        "tests/E2eeCutoverMigration.test.ts": "2ef452ed106393b77d3b28802f41ed00b6c821b4ddaea04f9ee4d0778d301f85"
+    },
+    "native": {
+        "receipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-cUgz8Y/exchange-run.json",
+            "sha256": "fa33068566a0e6902700ccdf72374adfcdeeaaacace098fb859426629b4eb520"
+        },
+        "log": {
+            "path": "/private/tmp/thalassa-account-mode-exchange.68zp7L",
+            "sha256": "b2923926106edd7b0ebc6f3a1d42aeddd1ea15bb7d8ec98887aae37fb66a02c4"
+        },
+        "sourceHashes": {
+            "/private/tmp/thalassa-native-cache-recovered.Q545Lt/bindings/thalassa_vodozemac_native.swift": "f26c6256b43c383209f9d8da64afe2c87ea84cd647a312a9be322d4f403fa62e",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "1cd6ae52b3aaf7841f1f0ac4e772ba26de435bb26d871ad758ec98829b61cb75",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "64151767d92a25dc303cbdac2bfd08a43804653eb0f9ee9f357088b7d6facec0",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacDmCoordinatorProbe.swift": "aab199712b27347388b2db71616c002688642b5de16407962cbd1e642706dccf",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacEnrollmentIntentProbe.swift": "ddd8e2bec1fd22371a1c1ccc1c8d5d1c98850f64a5e8b757558a6ef784408920",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAuthProbe.swift": "e3b1d86811f2fdedaed397b3011acea4c14b824235c18c3fac46173a6678cbd7",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAccountDirectoryProbe.swift": "f5eeae2803e56f4a51ff50c19dab2b4a7e566c5bfde31622763ad9c8636464cd",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacMessageAuthorityProbe.swift": "521b59afc7ba4e11eb287e32bb83f3af6dd81578938a836649ad1b0da85e1e6b",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacPairingHistoryProbe.swift": "79a9a695e1fe94e581b24e4d40aeee9c258fe3060115e4188f9386284905a5f6",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacScopedRelayProbe.swift": "ea16106150d1497e7ba9aefa9a4d030a970a7abe9001b46a75dcc5496e97f52a",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacScopedEnrollmentProbe.swift": "882f030050f5d2c9102b20d3df240e268b3f888cad760541df493021e3b8b9fe",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacReadinessProbe.swift": "2a978a0cc1f557354e92a0a09ebedb81ae049a5d4b3cdcadd7236633076b7588",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacResearchBridgeProbe.swift": "54b9ddb9ebc04009257666fefd22e556ac796002b393c0609fda7baeb92cb3a6",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAccountModeProbe.swift": "a38f054a40b0477a77c718f817dd5eb8f576e21509b9908b087c3c4b88ab6860",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacAccountModeExchangeProbe.swift": "a86f95b56b1eb4eca95a7bff04d554f10dfa4091655f6f2896bdb82c3e9f1946",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayResultProbe.swift": "0675a941c9b681f34f1db2bbcb6b54d61a3a96185a84c3e26fde34e807dea81b",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacLifecycleProbe.swift": "a3d6447bc36c04553b2d53e20b29fa27ca8d0c1d0252893de77741296fa27d1d",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacUnresolvedProbe.swift": "03a470db22b047124a1288368685140173d3cfad4edc09f828e2ef848cee04a1",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacRelayClient.swift": "0d31e6979b68b11b071920b1686c28a8a87af933d7e7c2e37a9b9f8bd353e68c",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "28408a37cb00f98a194c27b2fcebc18b0528f5c8dc6d30c667d9331c09b340e8",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/VodozemacExchangeProbe.swift": "096b0e1fa358a8f9623e5d2ae093c0d30fa7bd3b8ffe7aa6b04752fb4c14dd65",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "0c365e197988be26234cf773fec80e822e08fb170e7b77346b8065f69ced385d",
+            "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36"
+        },
+        "cacheHashes": {
+            "/private/tmp/thalassa-native-cache-recovered.Q545Lt/target/aarch64-apple-ios-sim/debug/libthalassa_vodozemac_native.a": "ce81b9cf0723a108c42f8eb2bd03f001aa4800739000aac525dd7e03461d8c0f",
+            "/private/tmp/thalassa-native-cache-recovered.Q545Lt/bindings/thalassa_vodozemac_native.swift": "f26c6256b43c383209f9d8da64afe2c87ea84cd647a312a9be322d4f403fa62e",
+            "/private/tmp/thalassa-native-cache-recovered.Q545Lt/bindings/thalassa_vodozemac_nativeFFI.h": "e135cfea1701a0e760f6741edd7c848f8197907cdbf2683a2a923742be31fb11",
+            "/private/tmp/thalassa-native-cache-recovered.Q545Lt/bindings/thalassa_vodozemac_nativeFFI.modulemap": "c7d5f877e8d06da086653661f8052ab5fec7d136061edcad1bfcd504ea295f41"
+        },
+        "priorCompletedExchangeEvidenceSha256": "a8530dd24c494dc850c8ad784d37544e9ad2f9760f5ed1e1194c990601621df2",
+        "assertions": 21,
+        "completedPhases": [
+            "tls-refuse",
+            "account-mode-exchange"
+        ],
+        "serverVerification": {
+            "devices": 1,
+            "decisions": 0,
+            "requests": 1,
+            "protectedAccounts": 1,
+            "httpRequests": 5,
+            "authRequests": 5,
+            "rpcCalls": 9,
+            "tlsRefusals": 1,
+            "registrations": 1,
+            "dispatches": 4,
+            "lostResponses": 0,
+            "lostAccountModeResponses": 1,
+            "requireProtectedRequests": 2,
+            "accountModeRequests": 2,
+            "accountModeExactRetries": 1,
+            "wrongReceipts": 0,
+            "malformedLists": 0,
+            "poisonLists": 0,
+            "staleContextRequests": 0,
+            "databaseReopens": 0,
+            "unexpectedFailures": 0
+        },
+        "serverReopenVerification": {
+            "devices": 1,
+            "decisions": 0,
+            "requests": 1,
+            "protectedAccounts": 1,
+            "httpRequests": 5,
+            "authRequests": 5,
+            "rpcCalls": 9,
+            "tlsRefusals": 1,
+            "registrations": 1,
+            "dispatches": 4,
+            "lostResponses": 0,
+            "lostAccountModeResponses": 1,
+            "requireProtectedRequests": 2,
+            "accountModeRequests": 2,
+            "accountModeExactRetries": 1,
+            "wrongReceipts": 0,
+            "malformedLists": 0,
+            "poisonLists": 0,
+            "staleContextRequests": 0,
+            "databaseReopens": 1,
+            "unexpectedFailures": 0
+        },
+        "disposableSimulatorRemoved": true,
+        "rootAddedOnlyToNewSimulator": true,
+        "category": "Native-issued registration/mode signatures over ordinary URLSession TLS to actual local signed gateway and on-disk SQL. Native/server Auth explicitly synthetic. No encrypted messages, hosted Auth, human devices or concurrency/audit proof.",
+        "cacheRecovery": "Original module map missing. Fresh cache recovered identical module map from prior private build; all four exact artifact suffixes/hashes matched completed exchange receipt. Original cache not changed; provenance not independently attested."
+    },
+    "localMigration": {
+        "receipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-cutover-migration-proof-szIDjp/receipt.json",
+            "sha256": "34a7c1fc88fa4e39d58784a82afdf5ff5f089a1fcd07332287ccaba533814102"
+        },
+        "log": {
+            "path": "/private/tmp/thalassa-cutover-migration-checks.4Rpthd",
+            "sha256": "71a8267b2d6652c7839597c99fc6a01500d72efc840e6673d4f7b09a877617f0"
+        },
+        "sourceHashes": {
+            "experiments/scuttlebutt-e2ee/hosted/cutoverMigration.mjs": "b079ae3a244d7566e8dd9b5ba4639a6385ffea685fba14598ce8080449e0bed5",
+            "experiments/scuttlebutt-e2ee/hosted/cutoverMigrationProof.mjs": "64ac38bca29347d7ad8d9e30eddac995dc433145846c8f93587a1d51ac7a94c9",
+            "experiments/scuttlebutt-e2ee/relay/relay.sql": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01",
+            "experiments/scuttlebutt-e2ee/relay/pglite-pin.json": "bc2cb4052bded220e41ecc9d12448df0b0ed9447664390e03d99bc759389c31c",
+            "experiments/scuttlebutt-e2ee/relay/deviceBundle.ts": "37f529632bbd364860a926ea8253517bd3a56bac37d21d3623b2013b4fedbd0f",
+            "experiments/scuttlebutt-e2ee/relay/signedRequest.ts": "ff297d8502f53067821a93e8deeda07cd9ec22ca460ee1670c98535337140e84",
+            "experiments/scuttlebutt-e2ee/relay/signedGateway.ts": "4f00091333257d90208db3757857ec4e3e6867f81fccd355f538e18beb1e29d6",
+            "experiments/scuttlebutt-e2ee/relay/gateway.ts": "3f7e546ad5a49a220b4af7a0dc56209c3460f31f290cc5f0e307c770a745a64a",
+            "services/chat/e2ee/directMessageEnvelope.ts": "0261897560058dd36830e0b5a1bfd7d40aeded64aa638ed2e8a2bc528a164fdf",
+            "services/chat/e2ee/encryptedDmDelivery.ts": "cc138ba7d91983057205ee68c523ff73e67aba4a24ee52eb0664dedfb85bbfe2"
+        },
+        "baselineSourceSha256": "96112dc474c8df60c36a5b8a2aded33b6c5b8e81d7a36b94b52ba8311d074a9f",
+        "archiveIntegrity": "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q==",
+        "groupCount": 6,
+        "groups": [
+            "exact approved baseline and narrow migration source",
+            "stale preflight refuses transaction and leaves no half installation",
+            "atomic support addition preserves all old catalog/data and grants",
+            "installed classification is inspectable without replaying DDL",
+            "privilege and schema drift refuses rather than broadening permissions",
+            "database reopen preserves complete installed snapshot"
+        ],
+        "category": "Local pinned PostgreSQL engine with synthetic Auth, real fixture signatures and nonempty legacy device/decision/block/request rows; no hosted/native/live Auth/concurrency/audit evidence"
+    },
+    "hosted": {
+        "receipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-update-R78Z3B/cutover-update-receipt.json",
+            "sha256": "bf131506d48fd2cb65435f61d857c0c2ee5c01910c88ce4ffdf1f9f42af8b1fc"
+        },
+        "project": "kmtupdvwdgbhtssqqova",
+        "organization": "tideqlkywysyczrqreiz",
+        "status": "applied",
+        "sourceSqlSha256": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01",
+        "updaterSha256": "08521e2fa9e72d61f2bb598bc535614b3b630e1942bab216600acdb5c866c40e",
+        "migrationModuleSha256": "b079ae3a244d7566e8dd9b5ba4639a6385ffea685fba14598ce8080449e0bed5",
+        "deltaSha256": "1f5a9b3687c7b7b043d8f2d2bf60d256d1cbb6e9c8ecf040b0b411c813e783bb",
+        "functions": [
+            {
+                "signature": "e2ee_research.execute_request(text,text,text,text,text,bigint,text)",
+                "oid": 18014,
+                "bodySha256": "abe27d23514e2ebc0f026a8682e4d81e5b59abace8ca03f662dc31f3bcd03324"
+            },
+            {
+                "signature": "e2ee_research.parse_request(text)",
+                "oid": 17900,
+                "bodySha256": "880bfbeac75369a61f0b712b28294af57accdde663e095551e23893bce6d53e6"
+            },
+            {
+                "signature": "e2ee_research.parse_request_payload(text,text)",
+                "oid": 17901,
+                "bodySha256": "e5b74da6eb2336b37b50de6bb7c18057352a176b22de69b42f038d9f9561b3a7"
+            }
+        ],
+        "dataDiagnostics": {
+            "algorithm": "MD5/counts; change diagnostics, not cryptographic attestation",
+            "before": [
+                {
+                    "count": 4,
+                    "digest": "d05bd3cccfa3dd973e83ac5a4b5a02d0",
+                    "name": "devices"
+                },
+                {
+                    "count": 0,
+                    "digest": "d41d8cd98f00b204e9800998ecf8427e",
+                    "name": "blocks"
+                },
+                {
+                    "count": 3,
+                    "digest": "cb8ae328decd2ec767dc8c44a19168fa",
+                    "name": "claims"
+                },
+                {
+                    "count": 14,
+                    "digest": "59f91bf15c6031f9689acece70b5a8c7",
+                    "name": "decisions"
+                },
+                {
+                    "count": 69,
+                    "digest": "b0b47056e0d5590fa33c759f5f3c309c",
+                    "name": "requests"
+                }
+            ],
+            "after": [
+                {
+                    "count": 4,
+                    "digest": "d05bd3cccfa3dd973e83ac5a4b5a02d0",
+                    "name": "devices"
+                },
+                {
+                    "count": 0,
+                    "digest": "d41d8cd98f00b204e9800998ecf8427e",
+                    "name": "blocks"
+                },
+                {
+                    "count": 3,
+                    "digest": "cb8ae328decd2ec767dc8c44a19168fa",
+                    "name": "claims"
+                },
+                {
+                    "count": 14,
+                    "digest": "59f91bf15c6031f9689acece70b5a8c7",
+                    "name": "decisions"
+                },
+                {
+                    "count": 69,
+                    "digest": "b0b47056e0d5590fa33c759f5f3c309c",
+                    "name": "requests"
+                },
+                {
+                    "count": 0,
+                    "digest": "d41d8cd98f00b204e9800998ecf8427e",
+                    "name": "protected_accounts"
+                }
+            ]
+        },
+        "safety": {
+            "cutoverSupportOnly": true,
+            "existingFunctionOidsAndPermissionsPreserved": true,
+            "atomicPrecommitInvariantsChecked": true,
+            "newEmptyPolicyTableCreated": true,
+            "accountProtectionSelected": false,
+            "rolesSecretsParticipantsKeysOrOldRowsMutated": false,
+            "notificationsInstalled": false,
+            "edgeFunctionDeployed": false,
+            "productionTouched": false,
+            "secretsPrinted": false,
+            "independentAuditPerformed": false
+        },
+        "preservedAuthoritySha256": "279a75df7a1ada2f4a8582e413f46338bb57db5d23fb80084c33fec3cd35ec5e",
+        "category": "Real isolated management-API SQL support installation with exact precommit catalog/old row diagnostic preservation and postflight verification. Empty protected_accounts table; no account selected, Edge deployment, participant/secret/key replacement or old row rewrite."
+    },
+    "checks": {
+        "tests": 1520,
+        "suites": 21,
+        "testsLog": {
+            "path": "/private/tmp/thalassa-cutover-migration-tests.cNT6Vk",
+            "sha256": "b92a8317b941df7d941cd690fdd5077d6a1b45070cf1a627623f49ea9c68390e"
+        },
+        "afterLintNormalization": {
+            "focusedMigrationCases": 161,
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-migration-focus.nJHqFn",
+                "sha256": "e6771a4dad9340f68bc909934f1389dfe5ab3bdc0e959928f49f6b6803e781c2"
+            }
+        },
+        "focusedFixtureTypesPassed": true,
+        "typesLog": {
+            "path": "/private/tmp/thalassa-cutover-migration-types.GAaLlT",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "javaScriptBodiesStaticallyChecked": false,
+        "namedMigrationLintPassed": true,
+        "lintLog": {
+            "path": "/private/tmp/thalassa-cutover-migration-lint-final-2026-10-07.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "namedTsMjsConfigFormatPassed": true,
+        "formatLog": {
+            "path": "/private/tmp/thalassa-hosted-cutover-format-2026-10-07.log",
+            "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+        },
+        "category": "161 new migration contract fixtures plus overlapping Research suites; not live encrypted messages.",
+        "preCommitHook": "HUSKY=0 avoids automatic npx wrapper. Scoped lint/format/types/tests run directly without installation or shared dependency writes."
+    },
+    "retainedAttempts": [
+        {
+            "status": "failed",
+            "category": "Native cache preflight",
+            "log": {
+                "path": "/private/tmp/thalassa-account-mode-exchange.ld0k8S",
+                "sha256": "4f13b7c8de1cc87e8b000e4cf0b65f912a42b94d563a073ce3f13f5da5d70438"
+            },
+            "cause": "Missing .modulemap refused before compilation/simulator creation. Exact prior build copy recovered into new cache; completed-exchange artifact suffix/hash comparison retained."
+        },
+        {
+            "status": "failed",
+            "category": "First real-engine migration precommit",
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-cutover-migration-proof-AZlHYL/failure.json",
+                "sha256": "6e955431fd1c32df66093b37b41d04e226bc09615bd219b6bec44a8a2e80ca05"
+            },
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-migration-checks.GsN1QJ",
+                "sha256": "0f2468662e28734a7a5651176059ff9608d263f5ea28e4c084621a73ca92242c"
+            },
+            "cause": "PostgreSQL18 exposes four explicit NOT NULL constraint rows. Transaction rolled back; allow only complete exact4 or older absent representation, with malformed/partial rows rejected."
+        },
+        {
+            "status": "failed",
+            "category": "New fixture regex style lint",
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-migration-lint-2026-10-07.log",
+                "sha256": "ca1fbe56ed8451efba7f970b76479983be48f199613fe61ad336bba9c12422e7"
+            },
+            "cause": "no-regex-spaces requested {4}. Mechanical lint normalization; all161 migration cases reran successfully."
+        }
+    ],
+    "remainingGates": [
+        "New cutover-aware Edge deployment tool/receipt contract, preserving JWT, secrets, participants and unrelated revisions.",
+        "Positive isolated hosted disposable-actor checks and native-to-hosted acceptance; SQL installation alone is not API or encrypted message evidence.",
+        "Main-app native durable cold-start legacy denial and actual production legacy/push enforcement.",
+        "Expired/historical selection recovery, device/prekey renewal/replacement and inbox retention policies.",
+        "Independent PostgreSQL concurrency, physical-device matrix, dependency/provenance/licence obligations and independent security assessment.",
+        "Separate owner release decision. Master/production/primary builds remain untouched."
+    ]
+}

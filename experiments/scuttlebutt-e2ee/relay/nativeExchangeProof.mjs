@@ -1,6 +1,7 @@
 /**
  * Isolated simulator-native Olm → ordinary URLSession HTTPS → on-disk SQL proof.
  * Usage: node --experimental-strip-types nativeExchangeProof.mjs NATIVE_CACHE PGLITE_ARCHIVE
+ * Focused real-local mode exchange: append --account-mode-exchange-only.
  * Creates and removes ONE disposable simulator; never uses an existing device.
  * Its fresh localhost CA is trusted only in that disposable simulator, after a
  * negative untrusted-TLS check. No system CA, physical phone or app is changed.
@@ -34,6 +35,11 @@ const [cacheArg, archiveArg, ...options] = process.argv.slice(2);
 // no localhost server, SQL, custom CA or actual HTTPS exchange in this mode.
 const accountModeOnly = options.at(-1) === '--account-mode-only';
 if (accountModeOnly) options.pop();
+// Focused native-issued account policy -> ordinary HTTPS -> actual local SQL.
+// Independent of historical encrypted-message phases; Auth remains synthetic.
+const accountModeExchangeOnly = options.at(-1) === '--account-mode-exchange-only';
+if (accountModeExchangeOnly) options.pop();
+assert(!(accountModeOnly && accountModeExchangeOnly), 'Choose exactly one focused account-mode runner');
 assert(
     cacheArg &&
         archiveArg &&
@@ -77,6 +83,25 @@ const originalPriorPassed = priorReceipts.some((name) => {
     );
 });
 const cacheHashes = Object.fromEntries(cacheInputs.map((path) => [path, digest(path)]));
+// Cache relocation is allowed only for the same four artifacts, matched by
+// their exact known suffix AND hash from a completed exchange receipt. Never
+// synthesize a passed receipt or repair the original shared cache in place.
+const artifactSuffixes = [
+    'target/aarch64-apple-ios-sim/debug/libthalassa_vodozemac_native.a',
+    'bindings/thalassa_vodozemac_native.swift',
+    'bindings/thalassa_vodozemac_nativeFFI.h',
+    'bindings/thalassa_vodozemac_nativeFFI.modulemap',
+];
+function artifactHashes(hashes) {
+    assert(hashes && typeof hashes === 'object' && Object.keys(hashes).length === artifactSuffixes.length);
+    return Object.fromEntries(
+        artifactSuffixes.map((suffix) => {
+            const entries = Object.entries(hashes).filter(([path]) => isAbsolute(path) && path.endsWith('/' + suffix));
+            assert(entries.length === 1 && /^[0-9a-f]{64}$/.test(entries[0][1]));
+            return [suffix, entries[0][1]];
+        }),
+    );
+}
 let priorExchangeEvidenceSha256;
 if (options.length) {
     const path = options[1];
@@ -123,8 +148,7 @@ if (options.length) {
             ) &&
             previous.cacheHashes &&
             typeof previous.cacheHashes === 'object' &&
-            Object.keys(previous.cacheHashes).sort().join('\n') === Object.keys(cacheHashes).sort().join('\n') &&
-            Object.entries(cacheHashes).every(([path, hash]) => previous.cacheHashes[path] === hash),
+            JSON.stringify(artifactHashes(previous.cacheHashes)) === JSON.stringify(artifactHashes(cacheHashes)),
         'Completed exchange evidence must match every exact cached artifact and pinned provider',
     );
     priorExchangeEvidenceSha256 = createHash('sha256').update(bytes).digest('hex');
@@ -183,6 +207,7 @@ const receipt = {
         ? 'synthetic-urlprotocol-no-ca-or-server'
         : 'ordinary-urlsession-disposable-simulator-root',
     accountModeOnly,
+    accountModeExchangeOnly,
 };
 const saveReceipt = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
 saveReceipt();
@@ -225,6 +250,7 @@ try {
             'VodozemacReadinessProbe.swift',
             'VodozemacResearchBridgeProbe.swift',
             'VodozemacAccountModeProbe.swift',
+            'VodozemacAccountModeExchangeProbe.swift',
             'VodozemacRelayPolicy.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
@@ -358,7 +384,12 @@ try {
         });
     });
     run(['simctl', 'install', simulator, app], { timeout: 180_000, quiet: true });
-    if (!accountModeOnly) relay = await createNativeExchangeServer({ archivePath, scratch });
+    if (!accountModeOnly)
+        relay = await createNativeExchangeServer({
+            archivePath,
+            scratch,
+            loseFirstProtectedResponse: accountModeExchangeOnly,
+        });
     receipt.origin = relay?.origin ?? 'https://account-mode-fixture.invalid';
     saveReceipt();
     const container = run(['simctl', 'get_app_container', simulator, bundle, 'data'], { quiet: true });
@@ -399,7 +430,11 @@ try {
         // policy permits, HTTP deadlines and held-gate bounds are unchanged.
         const deadline =
             Date.now() +
-            (phase === 'prepare' ? 600_000 : ['private-messages', 'account-mode'].includes(phase) ? 180_000 : 60_000);
+            (phase === 'prepare'
+                ? 600_000
+                : ['private-messages', 'account-mode', 'account-mode-exchange'].includes(phase)
+                  ? 180_000
+                  : 60_000);
         let status;
         while (Date.now() < deadline) {
             if (existsSync(statusPath)) {
@@ -490,6 +525,12 @@ try {
             );
             receipt.nativeAccountModeFixtureAssertions = status.accountModeFixtureAssertions;
         }
+        if (phase === 'account-mode-exchange') {
+            assert(
+                Number.isSafeInteger(status.accountModeExchangeAssertions) && status.accountModeExchangeAssertions > 0,
+            );
+            receipt.nativeAccountModeExchangeAssertions = status.accountModeExchangeAssertions;
+        }
         receipt.completedPhases.push({
             phase,
             pid,
@@ -521,38 +562,48 @@ try {
         run(['simctl', 'keychain', simulator, 'add-root-cert', relay.certPath], { quiet: true });
         receipt.rootAddedOnlyToNewSimulator = true;
         saveReceipt();
-        for (const phase of [
-            'prepare',
-            'private-messages',
-            'opening',
-            'retry',
-            'reply',
-            'successor',
-            'verify',
-            'recovery',
-            'cleanup',
-        ]) {
-            await launch(phase);
-            if (phase === 'opening') {
-                await relay.verify({ expectedDecisions: 1, expectedFaults: { lostResponses: 1 } });
-                await relay.reopen();
+        if (accountModeExchangeOnly) {
+            await launch('account-mode-exchange');
+            receipt.serverVerification = await relay.verifyAccountModes();
+            await relay.reopen();
+            receipt.serverReopenVerification = await relay.verifyAccountModes();
+            assert.equal(receipt.serverReopenVerification.databaseReopens, 1);
+            receipt.status = 'passed';
+            receipt.observation = 'native-account-mode-https-sql-proof-passed';
+        } else {
+            for (const phase of [
+                'prepare',
+                'private-messages',
+                'opening',
+                'retry',
+                'reply',
+                'successor',
+                'verify',
+                'recovery',
+                'cleanup',
+            ]) {
+                await launch(phase);
+                if (phase === 'opening') {
+                    await relay.verify({ expectedDecisions: 1, expectedFaults: { lostResponses: 1 } });
+                    await relay.reopen();
+                }
             }
+            receipt.serverVerification = await relay.verify({
+                expectedDecisions: 4,
+                expectedMessages: 4,
+                expectedClientIds: ['exchange-opening', 'exchange-reply', 'exchange-successor', 'exchange-recovery'],
+                forbiddenPlaintexts: [
+                    'Native HTTPS research opening',
+                    'Native HTTPS research reply',
+                    'Native HTTPS research successor',
+                    'Native HTTPS research recovery',
+                ],
+                expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 8 },
+            });
+            await relay.reopen();
+            receipt.status = 'passed';
+            receipt.observation = 'native-encrypted-https-sql-proof-passed';
         }
-        receipt.serverVerification = await relay.verify({
-            expectedDecisions: 4,
-            expectedMessages: 4,
-            expectedClientIds: ['exchange-opening', 'exchange-reply', 'exchange-successor', 'exchange-recovery'],
-            forbiddenPlaintexts: [
-                'Native HTTPS research opening',
-                'Native HTTPS research reply',
-                'Native HTTPS research successor',
-                'Native HTTPS research recovery',
-            ],
-            expectedFaults: { lostResponses: 1, wrongReceipts: 1, malformedLists: 1, poisonLists: 8 },
-        });
-        await relay.reopen();
-        receipt.status = 'passed';
-        receipt.observation = 'native-encrypted-https-sql-proof-passed';
     }
 } catch (error) {
     failure = error;
@@ -593,6 +644,8 @@ if (failure) throw failure;
 console.log(
     accountModeOnly
         ? 'PASS native account mode and private-message synthetic fixtures; no SQL/network/CA proof.'
-        : 'PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.',
+        : accountModeExchangeOnly
+          ? 'PASS native-issued account mode -> ordinary TLS -> signed local SQL, exact uncertain retry and SQL reopen.'
+          : 'PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.',
 );
 console.log('Disposable simulator removed. NOT two phones, live Auth or independent security review.');

@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 6 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
+Updated 7 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -142,6 +142,24 @@ case seeds historical signed bytes. This is not a hosted, controlled process-dea
 physical-device or actual Capacitor invocation result. The new controls have not
 been installed on the human devices or deployed to the hosted service. Assess the
 conservative historical-intent refusal and cold-start/rollout gap explicitly.
+The later [hosted cutover evidence](../experiments/scuttlebutt-e2ee/review/hosted-cutover-2026-10-07.json)
+records 21 native account-control assertions over real local HTTPS/signed SQL,
+six real-engine migration groups with nonempty synthetic rows, 1,520 Research
+tests in 21 suites and a subsequent 161-case rerun after lint normalization.
+Native/server Auth remain fixtures; account controls create no encrypted message.
+A missing cached module map was recovered into a fresh cache from a hash-matching
+prior build. This is not independent provider provenance or physical acceptance.
+
+The isolated hosted SQL update creates an empty policy table/ungranted helper
+and replaces only three bodies under exact precommit checks. Old OIDs/ACLs,
+columns/defaults, indexes, constraints/triggers, roles/memberships, domains,
+default privileges and row diagnostics are retained. The new foreign key's RI
+triggers and PostgreSQL 18 NOT NULL entries receive explicit topology checks.
+No human protection choice, key/account reset, notification overlay, Edge update
+or production migration occurred. The old policy-only deployment tool needs a
+separate expanded receipt contract before deploying the new API. Full hosted
+native exchange, cold-start/legacy enforcement and external review remain gates.
+
 The fixed 16-outgoing/16-incoming budgets,
 scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or
@@ -263,6 +281,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Relay contract and reproduction](../experiments/scuttlebutt-e2ee/relay/README.md), including `relay.sql`, `signedGateway.ts`, `supabaseAuth.ts`, `hostedGateway.ts`, `nativeExchangeProof.mjs`, `hosted/` deployment/fixture runners and their source/artifact receipts.
 - [Local cutover runner](../experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs), `privateNotifications.sql`, `legacyCutoverFixture.sql` and the [server cutover evidence](../experiments/scuttlebutt-e2ee/review/server-cutover-2026-10-06.json). Fresh fixture overlays are not production migrations; retained previews and spoofable GUC identity are deliberate test controls.
 - [Native account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeProbe.swift) and [native cutover evidence](../experiments/scuttlebutt-e2ee/review/native-cutover-2026-10-06.json). The native runner's explicit `--account-mode-only` mode uses synthetic Auth/relay and skips its SQL/HTTPS/CA setup; keep this evidence distinct from the older exchange path.
+- [Native HTTPS account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeExchangeProbe.swift), [guarded migration contract](../experiments/scuttlebutt-e2ee/hosted/cutoverMigration.mjs), [real-engine migration runner](../experiments/scuttlebutt-e2ee/hosted/cutoverMigrationProof.mjs) and [hosted cutover manifest](../experiments/scuttlebutt-e2ee/review/hosted-cutover-2026-10-07.json). Account-control transport, local migration tests and real hosted support installation are separate evidence categories.
 - [Research adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift), [plugin](../experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift), [web controller and literal renderer](../experiments/scuttlebutt-e2ee/bridge-web/messaging.ts), native bridge fixtures and `tests/E2eePilotBridgeMessaging.test.ts`. These are separate from the shipping private-message port; include both native and JavaScript publication fences in the assessment.
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.

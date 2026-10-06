@@ -1,0 +1,5 @@
+{
+    "extends": "../../../tsconfig.json",
+    "compilerOptions": { "types": ["node"], "allowJs": true, "checkJs": false },
+    "include": ["../../../tests/E2eeCutoverMigration.test.ts", "cutoverMigration.mjs"]
+}

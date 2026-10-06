@@ -24,7 +24,8 @@ observed results.
 with the exact payload `[]`. The four-field receipt reports durable account policy,
 not encryption or device permission. Existing peer-policy fields and signed-wire
 version/domain are unchanged. No downgrade API exists. Explicit native Research
-controls now support both actions; they have not been deployed to the hosted pilot.
+controls support both actions. Isolated hosted SQL support is installed; deploying
+the cutover-aware Edge API and positive hosted checks remain separate steps.
 
 `privateNotifications.sql` and `legacyCutoverFixture.sql` install only into a
 fresh local fixture after `relay.sql`. They are not migrations. The first queues
@@ -69,6 +70,15 @@ requests. The archive argument is retained for the existing runner contract and
 is not executed in this mode. See [native cutover evidence](../review/native-cutover-2026-10-06.json).
 No phone/iPad update, primary sync, hosted change or release authorization follows.
 
+`--account-mode-exchange-only` instead runs ordinary native URLSession HTTPS to a
+fresh local signed gateway/on-disk SQL, with explicit fixture Auth. It first
+refuses untrusted TLS, then trusts a fresh CA only on the disposable simulator.
+It checks the exact native request after a committed reply is lost, protected
+mode persistence and SQL reopen, without encrypted messages or human accounts.
+Cache relocation requires the same four artifact suffixes/hashes as a completed
+exchange receipt; a missing module map may be recovered into a fresh cache only,
+never repaired in place or justified by a fabricated passed receipt.
+
 ## Isolated hosted pilot — not app encryption
 
 The owner-approved test project is `kmtupdvwdgbhtssqqova` in organization
@@ -85,6 +95,17 @@ rerun it to reset keys or messages. Config/link/project/organization checks refu
 other targets. `repair-gateway-schema` restores only gateway schema USAGE under
 the owner role; no elevated grants or data rewrite. The ordinary app has no pilot
 configuration, plugin registration or live chat cutover.
+
+`../hosted/updateCutover.mjs` defaults to read-only `inspect`. Explicit
+`apply-cutover` adds only an empty protected-account table/ungranted helper and
+replaces three approved function bodies under exact precommit preservation and
+topology checks. It does not choose protection, register devices, change roles,
+rewrite old rows, install notifications or deploy Edge. Mixed/partial/unknown
+states refuse; a complete target supports an `already-applied` receipt without
+replaying DDL. See [7 October evidence](../review/hosted-cutover-2026-10-07.json)
+for the actual isolated installation, six local-engine groups and source hashes.
+The older policy-only update/deployment scripts retain their narrower source
+pins and cannot truthfully consume this expanded receipt; do not bypass them.
 
 `../hosted/updatePolicy.mjs` defaults to read-only inspection of the existing
 approved pilot. Explicit `apply-policy` replaces only three pinned function
