@@ -104,3 +104,26 @@ export const WIND_GRADIENT = `linear-gradient(to top, ${WIND_BANDS.map((b, i) =>
     const pct = (kt: number) => ((kt / WIND_TOP_KT) * 100).toFixed(2);
     return `${b.hex} ${pct(fromKt)}%, ${b.hex} ${pct(b.toKt)}%`;
 }).join(', ')})`;
+
+/**
+ * The streaks' own palette (Shane 2026-10-06: "the wind is impossible to see
+ * in shore, maybe we could make it white???"). Below the 20 kt reef line the
+ * streaks are white: the 0-20 kt blues and green were specks on Relief's blue
+ * lagoon. From the reef line up they keep the warning hues, which stand out on
+ * blue water and are what a skipper needs flagged. Same one-knot buckets as
+ * WIND_COLORS, so the band edges do not move. Chips and labels keep
+ * WIND_BANDS' colours (getWindColor).
+ */
+export const WIND_PARTICLE_WHITE_BELOW_KT = 20;
+export const WIND_PARTICLE_WHITE = '#ffffff';
+export const WIND_PARTICLE_COLORS: string[] = WIND_COLORS.map((hex, k) =>
+    k < WIND_PARTICLE_WHITE_BELOW_KT ? WIND_PARTICLE_WHITE : hex,
+);
+
+/** The legend for the streaks: WIND_GRADIENT with the sub-20 kt bands white. */
+export const WIND_PARTICLE_GRADIENT = `linear-gradient(to top, ${WIND_BANDS.map((b, i) => {
+    const fromKt = i === 0 ? 0 : WIND_BANDS[i - 1].toKt;
+    const pct = (kt: number) => ((kt / WIND_TOP_KT) * 100).toFixed(2);
+    const hex = b.toKt <= WIND_PARTICLE_WHITE_BELOW_KT ? WIND_PARTICLE_WHITE : b.hex;
+    return `${hex} ${pct(fromKt)}%, ${hex} ${pct(b.toKt)}%`;
+}).join(', ')})`;
