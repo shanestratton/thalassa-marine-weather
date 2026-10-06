@@ -109,7 +109,8 @@ export interface OwnshipAnchorStatus {
  * (presentAnchorWatchRow, the System status box and the Vessel tile read the
  * same row): 'Anchor alarm' while it sounds, 'Drifting' outside the swing
  * circle, 'Anchored' while the watch is on, for this boat. Null when no watch
- * on this boat is on: being set, paused or idle reads as the boat's speed.
+ * on this boat is on: being set or idle reads as the boat's speed. A paused
+ * watch (anchor down, nothing watching) reads an amber 'Anchored'.
  *
  * The colour is the row's: green only while the watch is holding. A watch
  * that has lost its data is red and one that is expiring, waiting or not
@@ -136,8 +137,11 @@ export function ownshipAnchorStatus(
             return { label: 'Anchor alarm', tone: 'red', note: null };
         case 'drifting':
             return { label: 'Drifting', tone: 'red', note: null };
-        case 'setting':
+        // Paused: the anchor is down but nothing is watching it, so the badge
+        // says so in amber, as the row does (Shane 2026-10-07: "Yes to amber").
         case 'paused':
+            return { label: 'Anchored', tone: 'amber', note: 'anchor watch paused, not watching' };
+        case 'setting':
         case 'idle':
             return null;
         case 'holding':
