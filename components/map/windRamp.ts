@@ -120,6 +120,19 @@ export const WIND_PARTICLE_COLORS: string[] = WIND_COLORS.map((hex, k) =>
     k < WIND_PARTICLE_WHITE_BELOW_KT ? WIND_PARTICLE_WHITE : hex,
 );
 
+/**
+ * The streak colour for one speed, bucketed exactly as windColorForKt — for
+ * the close-in renderer (CloseInWindLayer), which draws the whole view in the
+ * one local wind rather than handing leaflet-velocity a colour scale.
+ */
+export function windParticleColorForKt(kt: number): string {
+    const v = kt * KT_TO_MS;
+    if (!Number.isFinite(v) || v <= 0) return WIND_PARTICLE_COLORS[0];
+    if (v >= WIND_MAX_MS) return WIND_PARTICLE_COLORS[WIND_PARTICLE_COLORS.length - 1];
+    const i = Math.floor((WIND_PARTICLE_COLORS.length * v) / WIND_MAX_MS);
+    return WIND_PARTICLE_COLORS[Math.min(Math.max(i, 0), WIND_PARTICLE_COLORS.length - 1)];
+}
+
 /** The legend for the streaks: WIND_GRADIENT with the sub-20 kt bands white. */
 export const WIND_PARTICLE_GRADIENT = `linear-gradient(to top, ${WIND_BANDS.map((b, i) => {
     const fromKt = i === 0 ? 0 : WIND_BANDS[i - 1].toKt;

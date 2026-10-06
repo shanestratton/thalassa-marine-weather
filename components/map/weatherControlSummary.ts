@@ -15,6 +15,17 @@ export interface WeatherControlSummaryInput {
     cmemsLayerStates?: Partial<Record<CmemsLayerId, CmemsLayerLoadState>>;
     extraLegendCount?: number;
     lookingAhead?: boolean;
+    /**
+     * Close-in mode's local wind (MapboxVelocityOverlay → closeInWind), already
+     * formatted in the user's units: '8 kt SE' or 'Calm'. Absent at low zoom.
+     */
+    windCloseIn?: WindCloseInSummary | null;
+}
+
+export interface WindCloseInSummary {
+    value: string;
+    source: 'boat' | 'model';
+    stale: boolean;
 }
 
 export interface WeatherControlSummary {
@@ -308,10 +319,17 @@ export function summarizeWeatherControls(input: WeatherControlSummaryInput): Wea
     const issues = all.flatMap(({ summary }) => summary.issues).sort((a, b) => a.priority - b.priority);
     const status = input.lookingAhead ? 'Look-ahead' : current.state;
     const otherCount = total - 1;
+    // Close-in (high zoom): the local value leads, named by its source; the
+    // play state moves down to the time line. Only on a drawable wind field.
+    const closeIn =
+        active === 'wind' && input.windCloseIn && (current.state === 'Playing' || current.state === 'Paused')
+            ? input.windCloseIn
+            : null;
     const primary = [
         current.label,
-        current.source,
-        status,
+        closeIn?.value,
+        closeIn?.source === 'boat' ? 'Boat' : current.source,
+        closeIn ? null : status,
         otherCount > 0 ? `+${otherCount} ${otherCount === 1 ? 'layer' : 'layers'}` : null,
     ]
         .filter(Boolean)
@@ -319,11 +337,21 @@ export function summarizeWeatherControls(input: WeatherControlSummaryInput): Wea
     // Only the leading warning is abbreviated. Every issue remains in the accessible label,
     // and a visible +N alerts count makes other affected layers impossible to mistake for all-clear.
     const alert = issues[0] ? `${issues[0].short}${issues.length > 1 ? ` +${issues.length - 1} alerts` : ''}` : '';
-    const secondary = [current.time, alert || (layers.length > 1 ? 'Independent times' : '')]
-        .filter(Boolean)
-        .join(' · ');
+    const lead =
+        closeIn?.source === 'boat'
+            ? [`True wind · Boat instruments${closeIn.stale ? ' · Stale' : ''}`]
+            : closeIn
+              ? [status, current.time]
+              : [current.time];
+    const secondary = [...lead, alert || (layers.length > 1 ? 'Independent times' : '')].filter(Boolean).join(' · ');
+    const closeInText = !closeIn
+        ? ''
+        : closeIn.source === 'boat'
+          ? `Wind at the boat: ${closeIn.value}, the boat's own true-wind instruments${closeIn.stale ? ', stale' : ''}`
+          : `Wind at the screen centre: ${closeIn.value}, ${current.source} model forecast`;
     const accessibleText = [
         primary,
+        closeInText,
         ...all.map(({ summary }) =>
             [summary.label, summary.source, summary.state, summary.time, ...summary.details].filter(Boolean).join('; '),
         ),
