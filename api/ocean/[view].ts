@@ -348,15 +348,22 @@ export async function handleOcean(request: Request, env: Env = processEnv()): Pr
     if (url.search.length > MAX_QUERY_CHARS) return refuse('query too long', 400, head);
     const view = url.pathname.replace(/\/+$/, '').split('/').pop();
     if (view !== 'summary' && view !== 'rows') return refuse('unknown view', 404, head);
+    // Vercel hands a dynamic route its segment as a query parameter too
+    // (api/ocean/[view].ts sees /api/ocean/summary?view=summary). Drop only
+    // that echo of the path; any other `view` is still an unknown parameter.
+    // Found live on 2026-10-07: every summary call said 'summary takes no
+    // parameters' while the unit tests, built without it, passed.
+    const params = new URLSearchParams(url.searchParams);
+    if (params.getAll('view').length === 1 && params.get('view') === view) params.delete('view');
 
     let rpc: string;
     let body: Record<string, Json>;
     if (view === 'summary') {
-        if ([...url.searchParams.keys()].length > 0) return refuse('summary takes no parameters', 400, head);
+        if ([...params.keys()].length > 0) return refuse('summary takes no parameters', 400, head);
         rpc = 'get_ocean_summary';
         body = {};
     } else {
-        const query = parseRowsQuery(url.searchParams);
+        const query = parseRowsQuery(params);
         if (typeof query === 'string') return refuse(query, 400, head);
         rpc = 'get_ocean_sightings';
         body = { ...query };

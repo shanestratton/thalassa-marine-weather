@@ -139,6 +139,31 @@ describe('requests', () => {
         expect(q('s=-21&w=148&n=-19&e=150&before_id=0f6f2d0e-5d0b-4c4e-9a51-1f0c2b7a9e01')).toMatch(/previous page/);
     });
 
+    // Vercel also passes a dynamic route's segment as a query parameter, so
+    // the function sees /api/ocean/summary?view=summary (found live on
+    // 2026-10-07, when every summary said 'summary takes no parameters').
+    it('accepts the request exactly as Vercel delivers it, with the ?view= echo of its path', async () => {
+        upstream(200, { v: 1 });
+        expect((await get('/api/ocean/summary?view=summary')).status).not.toBe(400);
+        expect(seen[0].url).toBe('https://fixture.supabase.co/rest/v1/rpc/get_ocean_summary');
+        upstream(200, []);
+        expect((await get('/api/ocean/rows?s=-21&w=148&n=-19&e=150&view=rows')).status).toBe(200);
+        expect(JSON.parse(String(seen[0].init.body))).toEqual({
+            p_south: -21,
+            p_west: 148,
+            p_north: -19,
+            p_east: 150,
+            p_before: null,
+            p_before_id: null,
+        });
+        // Only the echo of the path is dropped: anything else is still refused.
+        upstream(200, { v: 1 });
+        expect((await get('/api/ocean/summary?view=rows')).status).toBe(400);
+        expect((await get('/api/ocean/summary?view=summary&view=summary')).status).toBe(400);
+        expect((await get('/api/ocean/rows?s=-21&w=148&n=-19&e=150&view=summary')).status).toBe(400);
+        expect(seen).toHaveLength(0);
+    });
+
     it('asks PostgREST with the publishable key only', async () => {
         upstream(200, []);
         await get('/api/ocean/rows?s=-21&w=148&n=-19&e=150');
