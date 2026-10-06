@@ -20,6 +20,8 @@ import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
 import { AnchorIcon, CheckIcon, DeviceIcon, DownloadIcon, ShareIcon, XIcon } from './Icons';
 import { PenIcon } from './vesselHub/icons';
+import { JOURNAL_CHIP } from './vesselHub/JournalCard';
+import { daylightUiColor } from '../utils/daylightUiColor';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
@@ -68,6 +70,17 @@ const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
     }
     return map;
 };
+
+// The two answers to "Two positions, skipper": neutral glass rows with the
+// page's one sky accent on their icon chips (the New Entry page's look,
+// Shane 2026-10-06); they were a cyan row and a violet one. The dialog sits
+// outside the form, so its card (.diary-gps-choice) joins the light-mode
+// surface tokens in index.css itself, or by day the chips would keep their
+// dark-mode wash.
+const GPS_CHOICE_CLASS =
+    'flex min-h-[56px] w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 text-left transition-colors hover:bg-white/10';
+const GPS_CHOICE_CHIP_CLASS = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg';
+const GPS_CHOICE_CHIP: React.CSSProperties = { ...JOURNAL_CHIP, color: daylightUiColor('#7dd3fc') };
 
 // ── Component ──────────────────────────────────────────────────
 export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
@@ -1339,7 +1352,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         aria-labelledby={gpsConflictTitleId}
                         aria-describedby={gpsConflictBodyId}
                     >
-                        <div className="w-full max-w-sm max-h-full overflow-y-auto rounded-3xl border border-sky-500/25 bg-slate-950 p-5 shadow-[0_0_40px_rgba(56,189,248,0.15)]">
+                        <div className="diary-gps-choice w-full max-w-sm max-h-full overflow-y-auto rounded-3xl border border-sky-500/25 bg-slate-950 p-5 shadow-[0_0_40px_rgba(56,189,248,0.15)]">
                             <h2
                                 id={gpsConflictTitleId}
                                 className="text-sm font-black uppercase tracking-[0.14em] text-sky-300"
@@ -1360,11 +1373,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                         triggerHaptic('light');
                                         applyGpsChoice('vessel');
                                     }}
-                                    className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-4 text-left"
+                                    className={GPS_CHOICE_CLASS}
                                 >
-                                    <AnchorIcon className="h-5 w-5 shrink-0 text-cyan-200" />
+                                    <span aria-hidden="true" className={GPS_CHOICE_CHIP_CLASS} style={GPS_CHOICE_CHIP}>
+                                        <AnchorIcon className="h-4 w-4" />
+                                    </span>
                                     <span>
-                                        <span className="block text-sm font-bold text-cyan-200">On the boat</span>
+                                        <span className="block text-sm font-bold text-white">On the boat</span>
                                         <span className="block text-[11px] text-gray-400">
                                             Pin it at the vessel —{' '}
                                             {formatCoord(gpsConflict.vessel.lat, gpsConflict.vessel.lon)}
@@ -1377,13 +1392,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                         triggerHaptic('light');
                                         applyGpsChoice('phone');
                                     }}
-                                    className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-violet-500/25 bg-violet-500/10 px-4 text-left"
+                                    className={GPS_CHOICE_CLASS}
                                 >
-                                    <DeviceIcon className="h-5 w-5 shrink-0 text-violet-200" />
+                                    <span aria-hidden="true" className={GPS_CHOICE_CHIP_CLASS} style={GPS_CHOICE_CHIP}>
+                                        <DeviceIcon className="h-4 w-4" />
+                                    </span>
                                     <span>
-                                        <span className="block text-sm font-bold text-violet-200">
-                                            Where I'm standing
-                                        </span>
+                                        <span className="block text-sm font-bold text-white">Where I'm standing</span>
                                         <span className="block text-[11px] text-gray-400">
                                             Pin it here — {formatCoord(gpsConflict.phone.lat, gpsConflict.phone.lon)}
                                         </span>

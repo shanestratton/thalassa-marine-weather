@@ -1,0 +1,609 @@
+/*
+ * The diary's New Entry and Edit Entry page (components/diary/DiaryComposeForm.tsx).
+ * Shane 2026-10-06: "can you update the diary entry page to make it more in
+ * line with our new look".
+ *
+ * The tier-1 language of the Vessel and Plan pages: glass cards, one sky
+ * accent, amber only for a warning, the emerald primary at the foot, 44 px
+ * targets and one-line uppercase eyebrows. From top to bottom: Title (the
+ * date and time by default), Trip (the Plan page's Trip tile), Mood (one
+ * segmented row), Where (the place and the saved position), Writing style,
+ * Photos (six dashed glass tiles), the text box, then the video.
+ *
+ * Light mode takes the Vessel page's surfaces through --vessel-card-* and
+ * --vessel-journal-* (index.css scopes them to .diary-compose); dark and
+ * night keep the fallbacks here. Sizes are px, not rem: the root font is
+ * fluid (13 px at 320), and 44 must stay 44.
+ *
+ * No card clips its content (no overflow: hidden): the keyboard guard
+ * (utils/keyboardScroll.ts) treats a clipping ancestor taller than its field
+ * as the field's viewport, which would centre a field in its card instead of
+ * above the keyboard.
+ */
+
+.diary-compose-body {
+    container: diary-compose / inline-size;
+}
+
+/* A wide screen (an iPad in full screen) keeps the form one readable column. */
+.diary-compose-column {
+    width: 100%;
+    max-width: 40rem;
+    margin-right: auto;
+    margin-left: auto;
+}
+
+/* ── A card: the Plan page's plot settings glass ── */
+.diary-card {
+    flex-shrink: 0;
+    padding: 8px 12px 4px;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 16px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 10px 26px rgba(2, 6, 23, 0.18);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    transition: border-color 150ms ease;
+}
+/* The card carries the focus of the field inside it: a 2 px sky ring at its
+   edge (its border plus a 1 px shadow ring). The style card has its own
+   ring for the keyboard, below. */
+.diary-card:not(.diary-style):focus-within {
+    border-color: var(--day-ui-accent, #7dd3fc);
+    box-shadow:
+        0 0 0 1px var(--day-ui-accent, #7dd3fc),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 10px 26px rgba(2, 6, 23, 0.18);
+}
+
+/* The one-line uppercase eyebrow (the Plan card's DEPARTURE). */
+.diary-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    height: 16px;
+    color: var(--day-ui-accent, #7dd3fc);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    line-height: 16px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.diary-eyebrow svg {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+}
+.diary-eyebrow-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 4px;
+    margin-bottom: 6px;
+}
+.diary-count {
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+}
+
+/* A field inside a card: the card draws the glass; the field is bare and
+   44 px tall, its top 4 px under the eyebrow (a tap there focuses it
+   anyway: the eyebrow is its label). 16 px, or iOS zooms the page to it. */
+.diary-field {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    margin-top: -4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 16px;
+    outline: none;
+}
+/* A text field always matches :focus-visible, so the app's ring
+   (index.css, *:focus-visible) would draw tight round the bare field and
+   through its eyebrow. The card draws the focus instead. */
+.diary-card .diary-field:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+/* The title: by default a long weekday, the date, the long month, the year
+   and the time ('Wednesday 30 September 2026 · 08:48'). The longest of those
+   fits the field with room to spare at 390 at 16.5 px, at 375 at 15.5 px and
+   at 320 at 13 px bold (measured over every day of 2026 at the widest time;
+   at 17, 16 and 14 px it did not). A typed title longer than the field
+   scrolls within it, as any text field. */
+.diary-field-title {
+    font-size: 16.5px;
+    font-weight: 800;
+}
+@container diary-compose (max-width: 351.98px) {
+    .diary-field-title {
+        font-size: 15.5px;
+    }
+}
+@container diary-compose (max-width: 339.98px) {
+    .diary-field-title {
+        font-size: 13px;
+        font-weight: 700;
+    }
+}
+
+.diary-rule {
+    height: 1px;
+    margin: 0 0 6px;
+    background: var(--day-ui-border, rgba(255, 255, 255, 0.06));
+}
+
+/* The saved position: the source word, then the coordinates, in the mono face. */
+.diary-position {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 22px;
+    margin-bottom: 6px;
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 12px;
+    line-height: 1.35;
+}
+.diary-position svg {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--day-ui-accent, #7dd3fc);
+}
+.diary-position-source {
+    color: var(--day-ui-text, #e2e8f0);
+    font-weight: 700;
+}
+/* No fix yet: the one warning on the page. */
+.diary-position-warn {
+    color: #fcd34d;
+}
+.diary-position-warn svg {
+    color: #fbbf24;
+}
+.display-light .diary-position-warn,
+.display-light .diary-position-warn svg {
+    color: var(--day-ui-amber, #92400e);
+}
+
+/* ── Trip: the Plan page's Trip tile (plan-tile / plan-tile-select) ── */
+.diary-trip {
+    min-height: 60px;
+}
+.diary-trip .plan-tile-body {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+.diary-trip-label {
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    line-height: 16px;
+    text-transform: uppercase;
+}
+.diary-trip-value {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.25;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+.diary-trip-status {
+    margin-top: 1px;
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+.diary-trip[data-disabled='true'] {
+    cursor: default;
+    opacity: 0.55;
+}
+.diary-trip[data-disabled='true'] .plan-tile-select {
+    cursor: default;
+}
+.diary-trip[data-disabled='true']:hover {
+    transform: none;
+    box-shadow: none;
+}
+
+/* ── Mood: one segmented row of the four ── */
+.diary-mood {
+    display: grid;
+    flex-shrink: 0;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 16px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+}
+.diary-mood-option {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    min-height: 44px;
+    padding: 0 3px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 800;
+    transition:
+        background-color 150ms ease,
+        border-color 150ms ease,
+        color 150ms ease;
+}
+.diary-mood-option:active {
+    transform: scale(0.97);
+}
+.diary-mood-option[aria-pressed='true'] {
+    border-color: var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+    background: var(
+        --vessel-journal-chip-bg,
+        linear-gradient(145deg, rgba(56, 189, 248, 0.32) 0%, rgba(14, 165, 233, 0.1) 100%)
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: var(--day-ui-text, #ffffff);
+}
+.diary-mood-emoji {
+    flex-shrink: 0;
+    font-size: 15px;
+    line-height: 1;
+}
+.diary-mood-option:not([aria-pressed='true']) .diary-mood-emoji {
+    opacity: 0.75;
+}
+.diary-mood-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Up to a 375-380 pt phone (a column under 352 px): the label goes under
+   its icon, so all four keep one row and every word whole. Beside the icon,
+   'Neutral' was cut to 'Neut…' at 375 and 380; from 390 it fits there with
+   room to spare. */
+@container diary-compose (max-width: 351.98px) {
+    .diary-mood-option {
+        flex-direction: column;
+        gap: 2px;
+        min-height: 48px;
+        padding: 4px 2px;
+        font-size: 11px;
+    }
+}
+
+/* ── Polish style: the sparkle tile and a tile for the style, its native
+   select laid invisibly over it as on the Trip tile ── */
+.diary-polish {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    min-height: 56px;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 16px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    color: var(--day-ui-accent, #7dd3fc);
+    transition: transform 150ms ease;
+}
+.diary-polish:not(:disabled):active {
+    transform: scale(0.95);
+}
+.diary-polish:disabled {
+    cursor: default;
+}
+.diary-polish[data-ready='true'] {
+    border-color: var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+    background: var(
+        --vessel-journal-chip-bg,
+        linear-gradient(145deg, rgba(56, 189, 248, 0.32) 0%, rgba(14, 165, 233, 0.1) 100%)
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.diary-polish[data-ready='false'] {
+    opacity: 0.4;
+}
+.diary-polish svg {
+    width: 22px;
+    height: 22px;
+}
+.diary-style {
+    position: relative;
+    min-width: 0;
+    min-height: 56px;
+    padding: 8px 32px 8px 12px;
+    cursor: pointer;
+}
+.diary-style:has(.plan-tile-select:focus-visible) {
+    outline: 2px solid var(--day-ui-accent, #7dd3fc);
+    outline-offset: 2px;
+}
+.diary-style-value {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 2px;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.3;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+.diary-select-chevron {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    width: 16px;
+    height: 16px;
+    color: var(--day-ui-accent, #7dd3fc);
+    pointer-events: none;
+    transform: translateY(-50%);
+}
+.diary-polishing {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 6px 12px;
+    border: 1px solid var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+    border-radius: 12px;
+    background: var(
+        --vessel-journal-card-bg,
+        linear-gradient(145deg, rgba(56, 189, 248, 0.17) 0%, rgba(20, 25, 35, 0.72) 64%)
+    );
+    color: var(--day-ui-accent, #7dd3fc);
+    font-size: 12px;
+    font-weight: 800;
+}
+.diary-polishing svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* ── Photos: six dashed glass tiles in one row, 44 px at the least ── */
+.diary-photos {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 88px));
+    gap: 6px;
+}
+@container diary-compose (max-width: 339.98px) {
+    .diary-photos {
+        gap: 4px;
+    }
+}
+.diary-photo,
+.diary-photo-add {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 12px;
+}
+.diary-photo {
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+}
+/* The image is rounded itself rather than clipped by its tile, so the remove
+   control's hit area can reach past the tile's corner. */
+.diary-photo-img {
+    border-radius: 11px;
+}
+/* Remove a photo: a dark 20 px dot 3 px inside the tile's top right corner,
+   concentric with its rounded corner. Its hit area is 32 px and anchored to
+   that corner: 9 px beyond the tile's top and right edges and 23 px into it
+   (11 and 21 at 320, with an 18 px dot), so it never reaches the middle of
+   a tile (26 px in at 375, 23 px at 320). The offsets count from the
+   tile's padding edge, inside its 1 px border.
+   A tap on the photo itself must not remove it: the copy uploaded this
+   session is discarded with it, and there is no undo. The next tile is
+   painted later, so it keeps taps on its own area. No z-index, which would
+   lift the hit area over that neighbour. */
+.diary-photo-remove {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    opacity: 0;
+    transition: opacity 150ms ease;
+}
+.diary-photo-remove-dot {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.6);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    font-size: 11px;
+    line-height: 1;
+}
+@container diary-compose (max-width: 339.98px) {
+    .diary-photo-remove {
+        top: -12px;
+        right: -12px;
+    }
+    .diary-photo-remove-dot {
+        width: 18px;
+        height: 18px;
+        font-size: 10px;
+    }
+}
+/* On a phone there is no hover, so the dot always shows; with a mouse it
+   shows on hover, and for the keyboard on focus. */
+.diary-photo:hover .diary-photo-remove,
+.diary-photo .diary-photo-remove:focus-visible {
+    opacity: 1;
+}
+@media (hover: none) {
+    .diary-photo-remove {
+        opacity: 1;
+    }
+}
+.diary-photo-remove:disabled {
+    cursor: not-allowed;
+}
+/* The keyboard ring goes round the dot, not the invisible hit area. */
+.diary-photo .diary-photo-remove:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+.diary-photo .diary-photo-remove:focus-visible .diary-photo-remove-dot {
+    outline: 2px solid var(--day-ui-accent, #7dd3fc);
+    outline-offset: 2px;
+}
+.diary-photo-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px dashed rgba(125, 211, 252, 0.3);
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    color: var(--day-ui-accent, #7dd3fc);
+    transition:
+        border-color 150ms ease,
+        background-color 150ms ease;
+}
+.diary-photo-add:not(:disabled):hover {
+    border-color: rgba(125, 211, 252, 0.6);
+}
+.diary-photo-add:disabled {
+    cursor: default;
+    opacity: 0.4;
+}
+.display-light .diary-photo-add {
+    border-color: rgba(3, 105, 161, 0.35);
+}
+.diary-photo-add svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* ── The text box: a tall glass card of its own ── */
+.diary-body {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 14px 16px;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 16px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 10px 26px rgba(2, 6, 23, 0.18);
+    font-size: 15px;
+    line-height: 1.6;
+    outline: none;
+    resize: none;
+    transition: border-color 150ms ease;
+}
+/* Focused, the text box wears the cards' 2 px sky ring at its own edge in
+   place of the app's offset ring, and keeps its corners (the app's ring
+   squares them to 4 px). */
+.diary-compose .diary-body:focus {
+    border-color: var(--day-ui-accent, #7dd3fc);
+    box-shadow:
+        0 0 0 1px var(--day-ui-accent, #7dd3fc),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        0 10px 26px rgba(2, 6, 23, 0.18);
+}
+.diary-compose .diary-body:focus-visible {
+    border-radius: 16px;
+    outline: none;
+}
+.diary-body:disabled {
+    opacity: 0.6;
+}
+
+/* ── Video: a dashed glass bar after the text ── */
+.diary-video-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 48px;
+    border: 1.5px dashed rgba(125, 211, 252, 0.3);
+    border-radius: 14px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 13px;
+    font-weight: 700;
+    transition: border-color 150ms ease;
+}
+.diary-video-add svg {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    color: var(--day-ui-accent, #7dd3fc);
+}
+.diary-video-add:not(:disabled):hover {
+    border-color: rgba(125, 211, 252, 0.6);
+}
+.diary-video-add:disabled {
+    cursor: default;
+    opacity: 0.4;
+}
+.display-light .diary-video-add {
+    border-color: rgba(3, 105, 161, 0.35);
+}
+.diary-video {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 14px;
+}
+
+/* ── The foot: Cancel the quiet secondary, Save the emerald primary ── */
+.diary-cancel {
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.12));
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--day-ui-muted, #cbd5e1);
+}
+.diary-cancel:not(:disabled):hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.display-light .diary-cancel {
+    background: #ffffff;
+}
+:root:not(.display-light) .diary-save:not(:disabled) {
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.18);
+}
+:root:not(.display-light) .diary-save {
+    color: #6ee7b7;
+}
+.diary-spinner {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 9999px;
+}

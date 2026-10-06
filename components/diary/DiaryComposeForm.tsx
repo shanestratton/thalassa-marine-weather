@@ -6,17 +6,29 @@
  * the keyboard, mood defaults to EPIC, and the entry's GPS coords are shown
  * (and always saved) by default. The ✨ polish pass stays — it just works
  * on typed words now. Legacy voice entries keep playback in the entry view.
+ *
+ * The new look since 2026-10-06 (Shane: "can you update the diary entry page
+ * to make it more in line with our new look"): the Vessel and Plan pages'
+ * glass cards, one sky accent and the emerald primary. Title, Trip (the Plan
+ * page's Trip tile), Mood (one segmented row), Where, the polish tile and its
+ * style, Photos and the text box, then the video; Cancel and Save at the
+ * foot. Every field, state and label of the old form is still here.
+ * styles/diary-compose.css draws it.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
 import { keepEditableAboveKeyboard, scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
 import { DiaryPhoto } from './DiaryPhoto';
 import { DiaryVideo } from './DiaryVideo';
 import { OfflineBadge } from '../ui/OfflineBadge';
-import { Button } from '../ui/Button';
 import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
+import { AnchorIcon, CalendarIcon, DeviceIcon, EditIcon, FlagIcon, MapPinIcon, SparklesIcon } from '../Icons';
+import { PLAN_ACCENT, PLAN_TILE_CLASS, PLAN_TILE_STYLE } from '../passage/PlanTile';
+import { JOURNAL_CHIP } from '../vesselHub/JournalCard';
+import { CONTOUR_BG } from '../vesselHub/glass';
+import { ACTION_BAR_THEMES } from '../ui/actionBarThemes';
 
 interface DiaryComposeFormProps {
     // State
@@ -34,7 +46,8 @@ interface DiaryComposeFormProps {
     polishing: boolean;
     /** Device fix still being acquired — the coords line says so. */
     gpsLoading: boolean;
-    /** Formatted "27.1234°S, 153.1234°E" once a fix (or photo EXIF) landed. */
+    /** Formatted "27.1234°S, 153.1234°E" once a fix (or photo EXIF) landed,
+     *  led by its source ("Boat · …" or "Phone · …") when DiaryPage knows it. */
     coordsLabel: string | null;
     polishStyle: PolishStyle;
     tripPicker?: {
@@ -62,6 +75,87 @@ interface DiaryComposeFormProps {
     onVideoSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onVideoRemove: () => void;
 }
+
+/** Photos an entry holds; the add tiles fill the row up to this. */
+const MAX_PHOTOS = 6;
+const MOODS: DiaryMood[] = ['epic', 'good', 'neutral', 'rough'];
+const NO_TRIP_LABEL = 'No trip · general diary';
+
+/** The position line's source word, split from DiaryPage's "Boat · 27.1°S, …". */
+function splitPosition(label: string): { source: 'Boat' | 'Phone' | null; coords: string } {
+    const match = /^(Boat|Phone) · (.*)$/.exec(label);
+    return match ? { source: match[1] as 'Boat' | 'Phone', coords: match[2] } : { source: null, coords: label };
+}
+
+/** Save at the foot: the emerald of 'Start plotting' (TapToAction). By day a
+ *  solid 700 fill with a white label, as every daylight primary; the `!` is
+ *  because the track colours are inline. */
+const SAVE_STYLE: React.CSSProperties = {
+    background: ACTION_BAR_THEMES.emerald.track,
+    border: ACTION_BAR_THEMES.emerald.trackBorder,
+};
+const SAVE_DAYLIGHT =
+    '[.display-light_&]:bg-none! [.display-light_&]:bg-emerald-700! [.display-light_&]:border-emerald-800! [.display-light_&]:text-white! [.display-light_&]:shadow-md [.display-light_&]:shadow-slate-900/15';
+
+/** A tap on a photo stays on the photo. A finger tap on something that does
+ *  not respond to clicks is moved by the browser to the nearest control that
+ *  does (touch adjustment, Chromium and WebKit alike), which here was the
+ *  photo's remove control: a tap in the middle of a photo removed it, and the
+ *  copy uploaded this session with it. A click handler on the image (React
+ *  marks it with an onclick) makes the photo the nearest control itself. */
+const KEEP_TAP_ON_PHOTO = () => undefined;
+
+const ChevronDown: React.FC<{ className: string }> = ({ className }) => (
+    <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M6 9l6 6 6-6" />
+    </svg>
+);
+
+const PlusGlyph: React.FC = () => (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m7-7H5" />
+    </svg>
+);
+
+const CameraGlyph: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+        <circle cx="12" cy="13" r="3" />
+    </svg>
+);
+
+const VideoGlyph: React.FC = () => (
+    <svg
+        aria-hidden="true"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="m16 13 5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11" />
+        <rect x="2" y="6" width="14" height="12" rx="2" />
+    </svg>
+);
 
 export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
     ({
@@ -97,6 +191,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         const fileRef = useRef<HTMLInputElement>(null);
         const videoRef = useRef<HTMLInputElement>(null);
         const bodyRef = useRef<HTMLTextAreaElement>(null);
+        const id = useId();
 
         // Re-check the focused editor after keyboard padding has painted.
         // The video now follows the editor, so scrolling to the column's tail
@@ -111,311 +206,415 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         }, [keyboardHeight]);
 
         const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
+        const canPolish = body.trim().length >= 10;
+
+        // The trip choices, in the order the select has always listed them:
+        // No trip, the entry's own trip when it is no longer a recent one,
+        // then the recent trips (the entry's own one named first).
+        const tripOptions = tripPicker
+            ? [
+                  { value: '', label: NO_TRIP_LABEL },
+                  ...(tripPicker.originalVoyageId &&
+                  !tripPicker.choices.some((choice) => choice.voyageId === tripPicker.originalVoyageId)
+                      ? [{ value: tripPicker.originalVoyageId, label: tripPicker.originalLabel }]
+                      : []),
+                  ...tripPicker.choices.map((choice) => ({
+                      value: choice.voyageId,
+                      label: `${choice.voyageId === tripPicker.originalVoyageId ? `${tripPicker.originalLabel} · ` : ''}${choice.label}`,
+                  })),
+              ]
+            : [];
+        const tripLabel = tripOptions.find((option) => option.value === tripPicker?.value)?.label ?? NO_TRIP_LABEL;
+        const tripDisabled = !!tripPicker && (saving || tripPicker.disabled);
+        const tripStatus = tripPicker?.loading
+            ? 'Loading recent trips…'
+            : tripPicker?.unavailable
+              ? 'No recent trips available. Your diary can still be saved.'
+              : null;
+
+        const position = coordsLabel ? splitPosition(coordsLabel) : null;
+        const PositionIcon =
+            position?.source === 'Boat' ? AnchorIcon : position?.source === 'Phone' ? DeviceIcon : MapPinIcon;
+        const addSlots = Math.max(0, MAX_PHOTOS - photos.length);
 
         return (
-            <div className="flex flex-col h-full bg-slate-950 text-white" style={{ paddingBottom: bottomPad }}>
-                {/* Header */}
+            <div
+                className="diary-compose flex flex-col h-full bg-slate-950 text-white"
+                style={{ paddingBottom: bottomPad, backgroundImage: CONTOUR_BG, backgroundSize: '400px 400px' }}
+            >
+                {/* Header — the PageHeader recipe (44 px back, the title, its
+                    status under it). Back cancels the entry, so it is not the
+                    edge swipe's data-page-back. */}
                 <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
+                    <div className="diary-compose-column flex items-start gap-3">
                         <button
+                            type="button"
                             aria-label="Cancel this action"
                             onClick={onCancel}
                             disabled={saving}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40"
+                            className="press flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl bg-white/5 p-2 transition-colors hover:bg-white/10 disabled:opacity-40"
                         >
                             <svg
-                                className="w-5 h-5 text-gray-400"
+                                aria-hidden="true"
+                                className="h-5 w-5 shrink-0 text-gray-400"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
                                 strokeWidth={2}
                             >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                             </svg>
                         </button>
-                        <div className="flex-1">
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">
+                        <div className="flex min-h-[44px] min-w-0 flex-1 flex-col justify-center">
+                            <h1 className="ui-page-title text-xl font-extrabold leading-tight text-white uppercase tracking-wider">
                                 {isEditing ? 'Edit Entry' : 'New Entry'}
                             </h1>
+                            <div className="mt-1.5 flex empty:hidden">
+                                <OfflineBadge />
+                            </div>
                         </div>
-                        <OfflineBadge />
                     </div>
                 </div>
 
                 {/* Compose body */}
-                <div className="flex-1 flex flex-col p-4 gap-3 min-h-0 overflow-auto no-scrollbar">
-                    {/* Title — prefilled with today's date/time so the keyboard
-                        doesn't pop up; the skipper edits only if they tap in. */}
-                    <input
-                        type="text"
-                        placeholder="Entry title (optional)"
-                        value={title}
-                        onChange={(e) => onSetTitle(e.target.value)}
-                        onFocus={(e) => {
-                            // First tap selects the prefilled text so a single
-                            // keystroke replaces it; otherwise editing in place works.
-                            e.currentTarget.select();
-                            scrollInputAboveKeyboard(e);
-                        }}
-                        className="shrink-0 w-full bg-white/3 border border-white/8 rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-hidden focus:border-sky-500/30 transition-colors"
-                    />
+                <div className="diary-compose-body flex-1 flex flex-col px-4 pt-1 pb-4 min-h-0 overflow-auto no-scrollbar">
+                    <div className="diary-compose-column flex flex-1 flex-col gap-2">
+                        {/* Title — prefilled with today's date/time so the keyboard
+                            doesn't pop up; the skipper edits only if they tap in. */}
+                        <div className="diary-card">
+                            <label htmlFor={`${id}-title`} className="diary-eyebrow">
+                                <CalendarIcon />
+                                Title
+                            </label>
+                            <input
+                                id={`${id}-title`}
+                                type="text"
+                                placeholder="Entry title (optional)"
+                                value={title}
+                                onChange={(e) => onSetTitle(e.target.value)}
+                                onFocus={(e) => {
+                                    // First tap selects the prefilled text so a single
+                                    // keystroke replaces it; otherwise editing in place works.
+                                    e.currentTarget.select();
+                                    scrollInputAboveKeyboard(e);
+                                }}
+                                className="diary-field diary-field-title text-white placeholder-gray-500"
+                            />
+                        </div>
 
-                    {tripPicker && (
-                        <div className="shrink-0 rounded-xl border border-purple-500/25 bg-purple-500/10 px-3 py-2">
-                            <label className="flex items-center gap-3 text-sm font-bold text-purple-300">
-                                Trip
+                        {/* Trip — the Plan page's Trip tile: the face shows the
+                            choice, and the native select is laid invisibly over
+                            the whole tile, so a tap anywhere opens it. */}
+                        {tripPicker && (
+                            <div
+                                className={`${PLAN_TILE_CLASS} plan-tile-trip diary-trip`}
+                                style={PLAN_TILE_STYLE}
+                                data-disabled={tripDisabled || undefined}
+                            >
+                                <span className="plan-tile-body">
+                                    <span
+                                        aria-hidden="true"
+                                        className="plan-tile-icon"
+                                        style={{ ...JOURNAL_CHIP, color: PLAN_ACCENT }}
+                                    >
+                                        <FlagIcon />
+                                    </span>
+                                    <span className="flex min-w-0 flex-1 flex-col">
+                                        <span aria-hidden="true" className="diary-trip-label">
+                                            Trip
+                                        </span>
+                                        <span aria-hidden="true" className="diary-trip-value text-white">
+                                            {tripLabel}
+                                        </span>
+                                        {tripStatus && (
+                                            <span id={`${id}-trip-status`} className="diary-trip-status" role="status">
+                                                {tripStatus}
+                                            </span>
+                                        )}
+                                    </span>
+                                    <svg
+                                        aria-hidden="true"
+                                        className="plan-tile-go"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke={PLAN_ACCENT}
+                                        strokeWidth={2}
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    >
+                                        <path d="M6 9l6 6 6-6" />
+                                    </svg>
+                                </span>
                                 <select
                                     aria-label="Diary trip"
+                                    aria-describedby={tripStatus ? `${id}-trip-status` : undefined}
                                     value={tripPicker.value}
                                     onChange={(event) => tripPicker.onChange(event.target.value)}
-                                    disabled={saving || tripPicker.disabled}
-                                    className="min-w-0 flex-1 rounded-lg bg-slate-900 px-2 py-2 text-sm text-white disabled:opacity-50"
+                                    disabled={tripDisabled}
+                                    className="plan-tile-select scheme-dark [.display-light_&]:scheme-light"
                                 >
-                                    <option value="">No trip · general diary</option>
-                                    {tripPicker.originalVoyageId &&
-                                        !tripPicker.choices.some(
-                                            (choice) => choice.voyageId === tripPicker.originalVoyageId,
-                                        ) && (
-                                            <option value={tripPicker.originalVoyageId}>
-                                                {tripPicker.originalLabel}
-                                            </option>
-                                        )}
-                                    {tripPicker.choices.map((choice) => (
-                                        <option key={choice.voyageId} value={choice.voyageId}>
-                                            {choice.voyageId === tripPicker.originalVoyageId
-                                                ? `${tripPicker.originalLabel} · `
-                                                : ''}
-                                            {choice.label}
+                                    {tripOptions.map((option) => (
+                                        <option key={option.value || 'none'} value={option.value}>
+                                            {option.label}
                                         </option>
                                     ))}
                                 </select>
-                            </label>
-                            {(tripPicker.loading || tripPicker.unavailable) && (
-                                <p className="mt-1 text-xs text-gray-400" role="status">
-                                    {tripPicker.loading
-                                        ? 'Loading recent trips…'
-                                        : 'No recent trips available. Your diary can still be saved.'}
-                                </p>
-                            )}
+                            </div>
+                        )}
+
+                        {/* Mood — one segmented row; the chosen one wears the
+                            sky accent. */}
+                        <div role="group" aria-label="Mood" className="diary-mood">
+                            {MOODS.map((key) => {
+                                const cfg = MOOD_CONFIG[key];
+                                return (
+                                    <button
+                                        type="button"
+                                        aria-label={`Set mood to ${cfg.label}`}
+                                        aria-pressed={mood === key}
+                                        key={key}
+                                        onClick={() => {
+                                            onSetMood(key);
+                                            triggerHaptic('light');
+                                        }}
+                                        className="diary-mood-option min-h-[44px]"
+                                    >
+                                        <span aria-hidden="true" className="diary-mood-emoji">
+                                            {cfg.emoji}
+                                        </span>
+                                        <span className="diary-mood-label">{cfg.label}</span>
+                                    </button>
+                                );
+                            })}
                         </div>
-                    )}
 
-                    {/* Mood selector */}
-                    <div className="shrink-0 grid grid-cols-4 gap-1.5">
-                        {(['epic', 'good', 'neutral', 'rough'] as DiaryMood[]).map((key) => {
-                            const cfg = MOOD_CONFIG[key];
-                            return (
-                                <button
-                                    aria-label={`Set mood to ${cfg.label}`}
-                                    key={key}
-                                    onClick={() => {
-                                        onSetMood(key);
-                                        triggerHaptic('light');
-                                    }}
-                                    className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                                        mood === key
-                                            ? 'bg-white/15 border border-white/20 scale-[1.02]'
-                                            : 'bg-white/5 border border-white/6 opacity-60 hover:opacity-90'
-                                    }`}
-                                >
-                                    <span>{cfg.emoji}</span>
-                                    <span className={cfg.color}>{cfg.label}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
+                        {/* Where — the place name, then the position that will
+                            be saved with the entry. */}
+                        <div className="diary-card">
+                            <label htmlFor={`${id}-place`} className="diary-eyebrow">
+                                <MapPinIcon />
+                                Where
+                            </label>
+                            {/* Location name input — overrides the auto-detected
+                                place name. Useful for back-dated entries where
+                                the current GPS reading doesn't match where the
+                                skipper actually was when the event happened. */}
+                            <input
+                                id={`${id}-place`}
+                                type="text"
+                                placeholder="Location (override e.g. Moreton Bay)"
+                                value={locationName}
+                                onChange={(e) => onSetLocationName(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
+                                className="diary-field text-white placeholder-gray-500"
+                            />
+                            <div aria-hidden="true" className="diary-rule" />
+                            {/* GPS coords — always on the entry by default (Shane
+                                2026-08-25). Shown so the punter can SEE what will
+                                be saved; honesty when there is no fix yet. */}
+                            <p
+                                className={`diary-position font-mono${
+                                    !position && !gpsLoading ? ' diary-position-warn' : ''
+                                }`}
+                            >
+                                <PositionIcon />
+                                {position ? (
+                                    <span className="min-w-0">
+                                        {position.source && (
+                                            <>
+                                                <span className="diary-position-source">{position.source}</span>
+                                                {' · '}
+                                            </>
+                                        )}
+                                        <span>{position.coords}</span>
+                                    </span>
+                                ) : (
+                                    <span className="min-w-0">
+                                        {gpsLoading ? 'Acquiring GPS fix…' : 'No GPS fix — will retry when you save'}
+                                    </span>
+                                )}
+                            </p>
+                        </div>
 
-                    {/* ═══ POLISH · STYLE — single 44px row ═══ */}
-                    <div className="shrink-0 space-y-2">
-                        <div className="flex gap-2 items-stretch">
-                            {/* Polish — icon-only, dimmed until body has enough
-                                text to polish. The style chip on the right tells
-                                the user what style this button will apply. */}
+                        {/* Polish style — the ✨ polish tile, dimmed until the
+                            body has enough text to polish, and the style it will
+                            apply. The style's native select is laid invisibly
+                            over its tile, as on the Trip tile; the choice
+                            persists via settings.polishStyle. The eyebrow says
+                            the select's name, so Voice Control finds it. */}
+                        <div className="flex shrink-0 items-stretch gap-2">
                             <button
                                 aria-label="Polish entry text"
                                 type="button"
                                 onClick={onPolish}
-                                disabled={polishing || body.trim().length < 10}
-                                className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all active:scale-[0.95] text-lg ${
-                                    polishing
-                                        ? 'bg-purple-500/30 border-purple-500/30 animate-pulse'
-                                        : body.trim().length >= 10
-                                          ? 'bg-purple-500/15 border-purple-500/25 hover:bg-purple-500/25'
-                                          : 'bg-white/3 border-white/6 opacity-30 cursor-default'
-                                }`}
+                                disabled={polishing || !canPolish}
+                                data-ready={canPolish || polishing}
+                                className={`diary-polish min-h-[56px]${polishing ? ' animate-pulse' : ''}`}
                             >
-                                <span aria-hidden="true">{polishing ? '⏳' : '✨'}</span>
+                                {polishing ? (
+                                    <span aria-hidden="true" className="diary-spinner animate-spin" />
+                                ) : (
+                                    <SparklesIcon />
+                                )}
                             </button>
-
-                            {/* Polish style — preset dropdown, fills the rest
-                                of the row. Chip + chevron makes it obvious this
-                                is interactive. Choice persists via
-                                settings.polishStyle. */}
-                            <div className="relative flex-1 min-w-0">
+                            <div className="diary-card diary-style flex-1">
+                                <span aria-hidden="true" className="diary-eyebrow">
+                                    <EditIcon />
+                                    Polish style
+                                </span>
+                                <span aria-hidden="true" className="diary-style-value text-white">
+                                    {POLISH_LABEL[polishStyle]}
+                                </span>
+                                <ChevronDown className="diary-select-chevron" />
                                 <select
                                     value={polishStyle}
                                     onChange={(e) => onSetPolishStyle(e.target.value as PolishStyle)}
                                     aria-label="Polish style"
-                                    className="w-full h-11 appearance-none bg-purple-500/8 border border-purple-500/25 rounded-xl pl-3 pr-8 text-[11px] text-purple-100 font-bold outline-hidden focus:border-purple-400/60 hover:bg-purple-500/12 transition-colors cursor-pointer scheme-dark"
+                                    className="plan-tile-select scheme-dark [.display-light_&]:scheme-light"
                                 >
                                     {(Object.entries(POLISH_LABEL) as [PolishStyle, string][]).map(([value, label]) => (
-                                        <option key={value} value={value} className="bg-slate-900 text-purple-100">
+                                        <option key={value} value={value}>
                                             {label}
                                         </option>
                                     ))}
                                 </select>
-                                <svg
-                                    className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-purple-300/70"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2.5}
-                                    aria-hidden="true"
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
                             </div>
                         </div>
 
-                        {/* Location name input — overrides the auto-detected
-                            place name. Useful for back-dated entries where
-                            the current GPS reading doesn't match where the
-                            skipper actually was when the event happened. */}
-                        <input
-                            type="text"
-                            placeholder="Location (override e.g. Moreton Bay)"
-                            value={locationName}
-                            onChange={(e) => onSetLocationName(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] text-gray-300 placeholder-gray-500 outline-hidden focus:border-sky-500/30 transition-colors"
-                        />
-
-                        {/* GPS coords — always on the entry by default (Shane
-                            2026-08-25). Shown so the punter can SEE what will
-                            be saved; honesty when there is no fix yet. */}
-                        <p className="px-1 text-[10px] font-mono text-gray-500">
-                            <span aria-hidden>📍 </span>
-                            {coordsLabel ??
-                                (gpsLoading ? 'Acquiring GPS fix…' : 'No GPS fix — will retry when you save')}
-                        </p>
-                    </div>
-
-                    {/* Photos */}
-                    <div className="shrink-0">
-                        <div
-                            className="grid gap-2"
-                            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}
-                        >
-                            {photos.map((url, i) => (
-                                <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
-                                    <DiaryPhoto src={url} alt="" className="w-full h-full object-cover" />
+                        {/* Photos — six dashed glass tiles in one row. */}
+                        <div className="shrink-0">
+                            <div className="diary-eyebrow-row">
+                                <span className="diary-eyebrow">
+                                    <CameraGlyph />
+                                    Photos
+                                </span>
+                                <span className="diary-count">
+                                    {photos.length === 0 ? `Up to ${MAX_PHOTOS}` : `${photos.length} of ${MAX_PHOTOS}`}
+                                </span>
+                            </div>
+                            <div className="diary-photos">
+                                {photos.map((url, i) => (
+                                    <div key={i} className="diary-photo">
+                                        <DiaryPhoto
+                                            src={url}
+                                            alt=""
+                                            onClick={KEEP_TAP_ON_PHOTO}
+                                            className="diary-photo-img w-full h-full object-cover"
+                                        />
+                                        {/* Remove: a dot in the corner, its hit area
+                                            anchored there (styles/diary-compose.css),
+                                            never over the middle of the photo. */}
+                                        <button
+                                            type="button"
+                                            aria-label="Remove this item"
+                                            onClick={() => onPhotoRemove(i)}
+                                            disabled={saving}
+                                            className="diary-photo-remove w-8 h-8"
+                                        >
+                                            <span aria-hidden="true" className="diary-photo-remove-dot">
+                                                ✕
+                                            </span>
+                                        </button>
+                                    </div>
+                                ))}
+                                {Array.from({ length: addSlots }).map((_, i) => (
                                     <button
-                                        aria-label="Remove this item"
-                                        onClick={() => onPhotoRemove(i)}
+                                        type="button"
+                                        aria-label={`Add diary photo ${photos.length + i + 1}`}
+                                        key={`add-${i}`}
+                                        onClick={() => fileRef.current?.click()}
+                                        disabled={saving || uploading || photos.length >= MAX_PHOTOS}
+                                        className="diary-photo-add min-h-[44px]"
+                                    >
+                                        {uploading && i === 0 ? (
+                                            <CameraGlyph className="h-[18px] w-[18px] animate-pulse" />
+                                        ) : (
+                                            <PlusGlyph />
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Polishing indicator */}
+                        {polishing && (
+                            <div className="diary-polishing">
+                                <SparklesIcon className="animate-pulse" />
+                                <span>Styling your entry…</span>
+                            </div>
+                        )}
+
+                        {/* Writing comes before video. Keep real height in the
+                            flex column so a preview cannot collapse or overlap the
+                            editor on a short phone; overflow stays in this panel. */}
+                        <div className="flex-1 min-h-40">
+                            <textarea
+                                ref={bodyRef}
+                                aria-label="Diary entry text"
+                                placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
+                                value={body}
+                                onChange={(e) => onSetBody(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
+                                disabled={polishing}
+                                className="diary-body min-h-40 text-gray-200 placeholder-gray-500"
+                            />
+                        </div>
+                        {/* Video follows the content box, including its Add button,
+                            so attaching a clip never moves the writing field down.
+                            Preview stays local; upload still happens on save. */}
+                        <div className="shrink-0">
+                            {videoUrl ? (
+                                <div className="diary-video">
+                                    <DiaryVideo src={videoUrl} className="w-full max-h-48 bg-black" />
+                                    <button
+                                        type="button"
+                                        aria-label="Remove the video"
+                                        onClick={onVideoRemove}
                                         disabled={saving}
-                                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+                                        className="hit-target-44 absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-[12px] text-white disabled:cursor-not-allowed"
                                     >
                                         ✕
                                     </button>
                                 </div>
-                            ))}
-                            {Array.from({ length: Math.max(1, 6 - photos.length) }).map((_, i) => (
+                            ) : (
                                 <button
-                                    aria-label={`Add diary photo ${photos.length + i + 1}`}
-                                    key={`add-${i}`}
-                                    onClick={() => fileRef.current?.click()}
-                                    disabled={saving || uploading || photos.length >= 6}
-                                    className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-400 transition-colors disabled:opacity-30"
+                                    type="button"
+                                    aria-label="Add a video clip"
+                                    onClick={() => videoRef.current?.click()}
+                                    disabled={saving || uploading}
+                                    className="diary-video-add min-h-[48px]"
                                 >
-                                    {uploading && i === 0 ? (
-                                        <span className="text-xs animate-pulse">📷</span>
-                                    ) : (
-                                        <>
-                                            <svg
-                                                className="w-4 h-4"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={1.5}
-                                            >
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                            </svg>
-                                        </>
-                                    )}
+                                    <VideoGlyph />
+                                    <span>Add a video — up to 1 minute</span>
                                 </button>
-                            ))}
+                            )}
                         </div>
-                    </div>
-                    {/* Polishing indicator */}
-                    {polishing && (
-                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/15 rounded-xl">
-                            <span className="text-sm animate-pulse">✨</span>
-                            <span className="text-xs font-bold text-purple-300">Styling your entry…</span>
-                        </div>
-                    )}
-
-                    {/* Writing comes before video. Keep real height in the
-                        flex column so a preview cannot collapse or overlap the
-                        editor on a short phone; overflow stays in this panel. */}
-                    <div className="flex-1 min-h-40">
-                        <textarea
-                            ref={bodyRef}
-                            aria-label="Diary entry text"
-                            placeholder={polishing ? 'Styling your entry…' : 'What happened out there?'}
-                            value={body}
-                            onChange={(e) => onSetBody(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            disabled={polishing}
-                            className="block w-full h-full min-h-40 bg-slate-900 border border-white/8 rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-hidden focus:border-sky-500/30 transition-colors disabled:opacity-60"
-                        />
-                    </div>
-                    {/* Video follows the content box, including its Add button,
-                        so attaching a clip never moves the writing field down.
-                        Preview stays local; upload still happens on save. */}
-                    <div className="shrink-0">
-                        {videoUrl ? (
-                            <div className="relative rounded-xl overflow-hidden border border-violet-500/20">
-                                <DiaryVideo src={videoUrl} className="w-full max-h-48 bg-black" />
-                                <button
-                                    aria-label="Remove the video"
-                                    onClick={onVideoRemove}
-                                    disabled={saving}
-                                    className="hit-target-44 absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-[12px] text-white disabled:cursor-not-allowed"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                aria-label="Add a video clip"
-                                onClick={() => videoRef.current?.click()}
-                                disabled={saving || uploading}
-                                className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-white/10 py-2 text-xs font-semibold text-gray-400 transition-colors hover:border-violet-500/30 hover:text-violet-300 disabled:opacity-30"
-                            >
-                                <span>🎥</span>
-                                <span>Add a video — up to 1 minute</span>
-                            </button>
-                        )}
                     </div>
                 </div>
 
                 {/* ═══ SAVE + CANCEL — fixed at bottom ═══ */}
                 <div className="shrink-0 px-4 py-3 border-t border-white/5 bg-slate-950">
-                    <div className="flex gap-3">
-                        <Button
+                    <div className="diary-compose-column flex gap-3">
+                        <button
+                            type="button"
                             aria-label="Cancel this action"
                             onClick={onCancel}
                             disabled={saving}
-                            className="flex-1 text-gray-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="diary-cancel press flex min-h-[52px] flex-1 items-center justify-center rounded-full px-4 text-[15px] font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                             Cancel
-                        </Button>
+                        </button>
                         <button
+                            type="button"
                             aria-label="Save changes"
                             onClick={onSave}
                             disabled={saving || polishing || (!body.trim() && !title.trim() && !audioUrl)}
-                            className="flex-2 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"
+                            style={SAVE_STYLE}
+                            className={`diary-save press flex min-h-[52px] flex-2 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-bold disabled:cursor-not-allowed ${
+                                saving ? 'disabled:opacity-80' : 'disabled:opacity-40'
+                            } ${SAVE_DAYLIGHT}`}
                         >
+                            {saving && <span aria-hidden="true" className="diary-spinner animate-spin" />}
                             {saving ? 'Saving…' : isEditing ? 'Update Entry' : 'Save Entry'}
                         </button>
                     </div>
