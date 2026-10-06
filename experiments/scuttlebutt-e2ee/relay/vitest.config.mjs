@@ -10,6 +10,7 @@ export default {
             'tests/E2eeResearchGateway.test.ts',
             'tests/E2eeResearchSignedGateway.test.ts',
             'tests/E2eeServerCutoverGateway.test.ts',
+            'tests/E2eeCutoverMigration.test.ts',
             'tests/E2eePrivateNotification.test.ts',
             'tests/E2eeResearchSupabaseAuth.test.ts',
             'tests/E2eeResearchHttpGateway.test.ts',

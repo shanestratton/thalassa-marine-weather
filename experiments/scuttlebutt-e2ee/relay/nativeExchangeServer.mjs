@@ -35,7 +35,8 @@ const headers = Object.freeze({
     'x-content-type-options': 'nosniff',
 });
 
-export async function createNativeExchangeServer({ archivePath, scratch }) {
+export async function createNativeExchangeServer({ archivePath, scratch, loseFirstProtectedResponse = false }) {
+    assert.equal(typeof loseFirstProtectedResponse, 'boolean');
     assert(isAbsolute(archivePath) && isAbsolute(scratch), 'Explicit absolute research paths required');
     assert(!lstatSync(scratch).isSymbolicLink() && lstatSync(scratch).isDirectory());
     const directory = join(realpathSync(scratch), 'native-exchange-relay');
@@ -130,6 +131,10 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
         registrations: 0,
         dispatches: 0,
         lostResponses: 0,
+        lostAccountModeResponses: 0,
+        requireProtectedRequests: 0,
+        accountModeRequests: 0,
+        accountModeExactRetries: 0,
         wrongReceipts: 0,
         malformedLists: 0,
         poisonLists: 0,
@@ -177,6 +182,7 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
     let origin;
     let boundary;
     let active = 0;
+    let lostAccountModeWire;
     const sockets = new Set();
     const server = createServer(
         { key: readFileSync(keyPath), cert: readFileSync(certPath) },
@@ -217,6 +223,27 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
                     if (incoming.url === '/v1/dispatch') {
                         counters.dispatches++;
                         const requestObject = JSON.parse(body.toString('utf8'));
+                        if (requestObject.action === 'account-mode') counters.accountModeRequests++;
+                        if (requestObject.action === 'require-protected') {
+                            counters.requireProtectedRequests++;
+                            if (lostAccountModeWire !== undefined) {
+                                assert(
+                                    body.toString('utf8') === lostAccountModeWire,
+                                    'Native retry keeps original signed cutover wire',
+                                );
+                                counters.accountModeExactRetries++;
+                            }
+                            if (loseFirstProtectedResponse && counters.lostAccountModeResponses === 0) {
+                                assert.equal(
+                                    JSON.parse(responseBytes.toString('utf8')).result.mode,
+                                    'protected-required',
+                                );
+                                lostAccountModeWire = body.toString('utf8');
+                                counters.lostAccountModeResponses++;
+                                incoming.socket.destroy(); // Signed cutover committed; never fabricate a native receipt.
+                                return;
+                            }
+                        }
                         if (
                             requestObject.action === 'send' &&
                             requestObject.requestId === 'lost-send' &&
@@ -323,12 +350,66 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
             decisions: (await db.query('SELECT * FROM e2ee_research.decisions ORDER BY server_id')).rows,
             requests: (await db.query('SELECT * FROM e2ee_research.requests ORDER BY owner_id,device_id,request_id'))
                 .rows,
+            protectedAccounts: (await db.query('SELECT * FROM e2ee_research.protected_accounts ORDER BY owner_id'))
+                .rows,
         };
     }
     return Object.freeze({
         origin,
         certPath,
         counters: () => Object.freeze({ ...counters }),
+        async verifyAccountModes() {
+            const value = await snapshot();
+            assert.equal(value.devices, 1, 'Exactly one explicitly enrolled native fixture device');
+            assert.equal(value.decisions.length, 0, 'Account-mode controls create no message decisions');
+            assert.equal(value.requests.length, 1, 'Fresh diagnostics consume no mutation ledger rows');
+            assert.equal(value.protectedAccounts.length, 1, 'One durable one-way account mode');
+            const selected = value.protectedAccounts[0],
+                request = value.requests[0];
+            assert(
+                selected.owner_id === '11111111-1111-4111-8111-111111111111',
+                'Only authenticated fixture owner selected',
+            );
+            assert(
+                selected.owner_id === request.owner_id &&
+                    selected.selecting_device_id === request.device_id &&
+                    selected.selecting_request_id === request.request_id,
+                'Mode selection retains original signed request binding',
+            );
+            assert(
+                request.request_wire === lostAccountModeWire,
+                'SQL ledger retains exactly the uncertain native signed wire',
+            );
+            assert(
+                request.outcome.mode === 'protected-required',
+                'SQL cutover receipt records protected-required only',
+            );
+            assert.equal(counters.registrations, 1);
+            assert.equal(counters.requireProtectedRequests, 2);
+            assert.equal(counters.accountModeRequests, 2);
+            assert.equal(counters.accountModeExactRetries, 1);
+            assert.equal(counters.lostAccountModeResponses, 1);
+            assert.equal(
+                counters.httpRequests,
+                5,
+                'Only explicit native registration and four mode dispatches reach HTTP',
+            );
+            assert.equal(counters.authRequests, 5, 'Every account control checks fresh synthetic Auth');
+            assert.equal(counters.dispatches, 4);
+            assert.equal(
+                counters.rpcCalls,
+                9,
+                'Registration plus trusted key lookup and signed execution for every mode dispatch',
+            );
+            assert.equal(counters.unexpectedFailures, 0);
+            return Object.freeze({
+                devices: value.devices,
+                decisions: 0,
+                requests: 1,
+                protectedAccounts: 1,
+                ...counters,
+            });
+        },
         async verify({
             expectedDecisions,
             expectedMessages,
@@ -378,7 +459,11 @@ export async function createNativeExchangeServer({ archivePath, scratch }) {
             const before = await snapshot();
             await db.close();
             db = await PGlite.create(databasePath);
-            assert.deepEqual(await snapshot(), before, 'On-disk SQL decisions and requests survive reopen');
+            assert.deepEqual(
+                await snapshot(),
+                before,
+                'On-disk SQL decisions, requests and account modes survive reopen',
+            );
             counters.databaseReopens++;
         },
         async close() {

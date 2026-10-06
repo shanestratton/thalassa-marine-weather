@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 6 October 2026. Active branch:
+Updated: 7 October 2026. Active branch:
 `codex/scuttlebutt-e2ee-integration-2026-10-06`.
 The published foundation branch remains at `3c30f47c`; it was not rewritten.
 The integration branch was rebased onto master `7e0b27a4`, retaining the newer
@@ -80,8 +80,9 @@ by default. Its native hook and rendering imports are now separated from legacy
 chat. An explicit native selection now latches process-local legacy denial across
 private callers, queues and foreground push. Durable account mode and legacy SQL
 denial now have fresh local fixture evidence. Explicit native account controls
-also have local adapter evidence, but hosted/production cutover and main-app
-cold-start admission are not integrated. These are not a shipping
+also have local adapter and real local HTTPS/SQL evidence. Isolated hosted SQL
+support is installed without selecting a human account; its Edge API, production
+cutover and main-app cold-start admission are not integrated. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
@@ -114,6 +115,61 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 7 October native HTTPS account policy and guarded hosted SQL support
+
+Native-issued controls passed ordinary URLSession HTTPS, signed gateway
+verification and on-disk PostgreSQL. The fresh simulator first refused the
+untrusted TLS certificate; its one-day fixture CA was then trusted only on that
+newly owned simulator. Native/server Auth remain explicit fixtures. The run
+passed **21 native assertions** covering registration, fresh mode diagnostics,
+a cutover committed before its reply was dropped, and exact original signed-wire/
+nonce recovery. The relay checked one device, one mutation ledger row, one protected
+account, no message decisions and matching original request bytes. SQL reopen
+retained the mode/request. This is account-control evidence, not an encrypted
+message, live Supabase login or physical-device exchange.
+
+The original cached module map was missing, so the first runner refused before
+compilation. A prior private build supplied the exact hash-matching file to a
+fresh cache; the original cache was not repaired. Relocation checks match all
+four artifact suffixes/hashes to a completed exchange receipt, not an independent
+artifact attestation or fresh provider build. The disposable simulator and CA
+were removed.
+
+`hosted/updateCutover.mjs` defaults to read-only inspection. Its pure pinned
+module admits only the approved baseline or complete target, refusing mixed or
+partial installations. The owner transaction takes the pilot lock, checks the
+exact preflight, creates an empty protected-account table/ungranted helper, and
+replaces only three function bodies. Old function OIDs/ACLs, relations, columns/
+defaults, indexes, constraints/triggers, domains, roles/memberships, schema/default
+privileges and row diagnostics are preserved. The new foreign key's four internal
+RI triggers and PostgreSQL 18's exact four NOT NULL catalog entries are checked
+additions, not ignored drift. No notification overlay/processing role is installed.
+
+The real-engine migration proof passed **six scenario groups** with nonempty
+synthetic device, message-decision, block and request rows and real fixture
+signatures. It covers stale-preflight rollback, exact old catalog/data preservation,
+installed classification, privilege drift and reopen. The first attempt rolled
+back when PostgreSQL 18 exposed separate NOT NULL constraints; corrected checks
+accept only the exact complete set or the older representation. Research checks
+passed **1,520 tests in 21 suites**; after a lint-only regex normalization, all
+**161 migration cases** passed again. Focused fixture types, named lint and format
+checks pass; that test TypeScript config does not statically check JavaScript bodies.
+
+The guarded update was applied only to `kmtupdvwdgbhtssqqova`. Precommit invariants
+passed; postflight confirmed the complete target and an empty policy table. No
+human account was selected for protection. Existing keys, participants, secrets,
+old rows and privileges were not rewritten. MD5/counts are change diagnostics,
+not cryptographic data attestation. No Edge deployment, human app update, primary
+sync, production or master mutation accompanied it. The [hosted cutover manifest](../experiments/scuttlebutt-e2ee/review/hosted-cutover-2026-10-07.json)
+retains exact sources/receipts and failed attempts.
+
+Next: cutover-aware isolated Edge deployment preserving JWT/secrets/allowlist,
+then disposable-actor positive hosted checks and native hosted acceptance. The
+old policy-only deployment script cannot truthfully accept this table/helper
+receipt. Main-app cold-start denial, real legacy/push enforcement, device/prekey
+recovery, retention, independent concurrency and external review remain release
+gates. Ordinary builds and human devices stay unchanged.
 
 ### 6 October native durable account policy controls
 
@@ -163,8 +219,9 @@ retains source/artifact hashes, the initial fixture compile failure, two interna
 review corrections and the exact evidence categories. Cached provider/framework
 inputs were hash-checked, not freshly rebuilt or independently attested.
 
-Next: scoped hosted cutover migration/reproduction without resetting human state,
-main-app native cold-start legacy denial, and durable inbox/device/prekey lifecycle
+At this native checkpoint hosted migration was still pending; the 7 October
+evidence above records its later application. Next remain main-app cold-start
+legacy denial, and durable inbox/device/prekey lifecycle
 and recovery. Actual legacy production tables/private push remain outside these
 local controls. Full device acceptance, independent PostgreSQL concurrency,
 dependency obligations and the external security assessment still gate release.
@@ -2768,8 +2825,8 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: migrate and reproduce the locally verified account mode on the isolated
-hosted relay without resetting human state, then connect native durable selection
+Next: deploy and verify the isolated cutover-aware Edge API without resetting
+human state, then connect native durable selection
 to main-app cold-start denial. Native controls alone do not close that boundary.
 Apply actual legacy-table
 and notification-worker enforcement only through separately scoped, reviewed
