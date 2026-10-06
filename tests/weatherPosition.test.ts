@@ -40,12 +40,14 @@ import {
     boatFixNow,
     boatOrHeldFix,
     describeWeatherFix,
+    followedBoatCloudRowNow,
     followedBoatOwnsInstruments,
     formatFixAge,
     getHeldChoice,
     getWeatherFollowCrewOwner,
     getWeatherFollowTarget,
     heldBoatFix,
+    lookUpFollowedBoatCloudRow,
     WEATHER_FOLLOW_TARGET_EVENT,
     resolveWeatherPosition,
     setHeldChoice,
@@ -820,5 +822,103 @@ describe('Obs: the boat as known now, and whose instruments these are', () => {
         expect(followedBoatOwnsInstruments(cloudFeed, SKIPPER)).toBe(true);
         chain.deviceRungOwner.mockImplementation(() => SKIPPER); // paired to her Pi
         expect(followedBoatOwnsInstruments(lan, null)).toBe(true);
+    });
+
+    // Shane 2026-10-07: "when you use your vessel as your location, the wind in
+    // obs at zoom 14 no longer uses the vessels wind data, even if it knows
+    // it". Ashore the instrument store is empty on Obs; the followed boat's
+    // cloud row (the one the camera and the marker already read) carries her
+    // true wind, so the close-in wind reads it from the chain, never the store.
+    describe('the followed boat’s cloud row, for her wind ashore', () => {
+        const windy = (owner: 'own' | 'crewed', timestamp = T0 - 5_000) => ({
+            latitude: owner === 'own' ? -20.27 : -19.1,
+            longitude: owner === 'own' ? 148.72 : 147.6,
+            timestamp,
+            rung: 'cloud' as const,
+            source: 'pi-cloud',
+            twsKts: owner === 'own' ? 14 : 22,
+            twdDeg: owner === 'own' ? 200 : 90,
+            twaDeg: -40,
+            windSampleAt: timestamp - 1_000,
+        });
+        const rows = () =>
+            chain.cloudFix.mockImplementation(async (_now?: number, owner?: string) =>
+                owner === 'self' ? windy('own') : owner === SKIPPER ? windy('crewed') : null,
+            );
+
+        it('following the phone: no row, and no lookup at all', async () => {
+            rows();
+            setWeatherFollowTarget('phone');
+            await lookUpFollowedBoatCloudRow(T0);
+            expect(chain.cloudFix).not.toHaveBeenCalled();
+            // Even with her row already read for the marker, the phone's box never borrows it.
+            setWeatherFollowTarget('boat');
+            await lookUpFollowedBoatCloudRow(T0);
+            setWeatherFollowTarget('phone');
+            expect(followedBoatCloudRowNow(T0)).toBeNull();
+        });
+
+        it('following the own boat: strictly her own row, with her wind and its sample time', async () => {
+            rows();
+            setWeatherFollowTarget('boat');
+            expect(followedBoatCloudRowNow(T0)).toBeNull(); // asks no one
+            await lookUpFollowedBoatCloudRow(T0);
+            expect(chain.cloudFix).toHaveBeenCalledWith(T0, 'self');
+            expect(followedBoatCloudRowNow(T0 + 1_000)).toMatchObject({
+                kind: 'cloud',
+                lat: -20.27,
+                twsKts: 14,
+                twdDeg: 200,
+                twaDeg: -40,
+                windSampleAt: T0 - 6_000,
+            });
+        });
+
+        it('following the boat crewed on: her skipper’s row only, never the own row', async () => {
+            rows();
+            setWeatherFollowTarget('boat');
+            await lookUpFollowedBoatCloudRow(T0);
+            setWeatherFollowTarget('crew', { ownerId: SKIPPER, fallback: 'boat' });
+            // The own row is in hand; it is not hers.
+            expect(followedBoatCloudRowNow(T0)).toBeNull();
+            await lookUpFollowedBoatCloudRow(T0);
+            expect(chain.cloudFix).toHaveBeenLastCalledWith(T0, SKIPPER);
+            expect(followedBoatCloudRowNow(T0)).toMatchObject({ lat: -19.1, twsKts: 22, twdDeg: 90 });
+        });
+
+        it('shares the chain’s 30 s throttle with the camera and the marker', async () => {
+            rows();
+            setWeatherFollowTarget('boat');
+            await boatOrHeldFix(T0, null, { readOnly: true });
+            for (let i = 1; i <= 10; i++) await lookUpFollowedBoatCloudRow(T0 + i * 2_000);
+            expect(chain.cloudFix).toHaveBeenCalledTimes(1);
+            await lookUpFollowedBoatCloudRow(T0 + CLOUD_POLL_MS);
+            expect(chain.cloudFix).toHaveBeenCalledTimes(2);
+        });
+
+        it('a row past the cloud lane’s 60 s gate is no row; another account’s row never survives', async () => {
+            rows();
+            setWeatherFollowTarget('boat');
+            await lookUpFollowedBoatCloudRow(T0);
+            expect(followedBoatCloudRowNow(T0 - 5_000 + 60_000)).not.toBeNull();
+            expect(followedBoatCloudRowNow(T0 - 5_000 + 60_001)).toBeNull();
+            setAuthIdentityScope('someone-else');
+            expect(followedBoatCloudRowNow(T0)).toBeNull();
+        });
+
+        it('keeps only wind values in range; a missing one stays unknown, never 0', async () => {
+            chain.cloudFix.mockImplementation(async () => ({
+                ...windy('own'),
+                twsKts: 151,
+                twdDeg: 360,
+                twaDeg: -181,
+                windSampleAt: Number.NaN,
+            }));
+            setWeatherFollowTarget('boat');
+            await lookUpFollowedBoatCloudRow(T0);
+            const row = followedBoatCloudRowNow(T0)!;
+            expect(row).not.toBeNull();
+            for (const key of ['twsKts', 'twdDeg', 'twaDeg', 'windSampleAt'] as const) expect(row[key]).toBeUndefined();
+        });
     });
 });

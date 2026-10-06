@@ -3416,6 +3416,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windNowIdx={weather.windNowIdx}
                         windGrid={weather.windState.grid ?? undefined}
                         boatInstruments={obsStart.kind === 'follow'}
+                        boatLookUp={obsShowing}
                     />
                 )}
 
