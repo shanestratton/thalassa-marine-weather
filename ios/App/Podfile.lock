@@ -1,5 +1,5 @@
 PODS:
-  - Capacitor (8.1.0):
+  - Capacitor (8.5.2):
     - CapacitorCordova
   - CapacitorApp (8.0.1):
     - Capacitor
@@ -11,7 +11,7 @@ PODS:
     - Capacitor
   - CapacitorCommunitySpeechRecognition (7.0.1):
     - Capacitor
-  - CapacitorCordova (8.1.0)
+  - CapacitorCordova (8.5.2)
   - CapacitorFilesystem (8.1.2):
     - Capacitor
     - IONFilesystemLib (~> 1.1.1)
@@ -128,13 +128,13 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@transistorsoft/capacitor-background-geolocation"
 
 SPEC CHECKSUMS:
-  Capacitor: 47b825120c6b8b6d6f9f053e9350a8960d436710
+  Capacitor: 89067779e14fb7ea56af07b4817f45d1f0c2a269
   CapacitorApp: 942306cd1acf7774a00e89a3986af3a67c8cad7a
   CapacitorBrowser: 76847841b74c11ccac0a1afae18cf06e3bd59044
   CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
   CapacitorCommunityKeepAwake: 332bf035bbdf0b1c244fd492b35a8a06c8802111
   CapacitorCommunitySpeechRecognition: 3e03566c44c2bb3b52391a33d4518b1adbdeb38f
-  CapacitorCordova: e8b76fd95fc1e157775abc484c59cc0de464095d
+  CapacitorCordova: 5bec5648cbd09a176ce34ce5e7b6cdabb2c8a327
   CapacitorFilesystem: 2db285a1ac6e475cc27cae2e1bea999000f9e2be
   CapacitorGeolocation: 7132de914f9d853ec4642dc1d36e4e2018a4e8a8
   CapacitorHaptics: 4df2c625445cef39b67ea635a21802bc92df3b82
