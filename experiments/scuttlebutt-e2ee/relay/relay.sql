@@ -207,7 +207,7 @@ BEGIN
        OR NOT e2ee_research.valid_id(value->>'userId')
        OR NOT e2ee_research.valid_id(value->>'deviceId')
        OR NOT e2ee_research.valid_id(value->>'requestId')
-       OR value->>'action' NOT IN ('revoke','block','claim','send','list','policy')
+       OR value->>'action' NOT IN ('revoke','block','claim','send','list','policy','require-protected','account-mode')
        OR NOT e2ee_research.valid_uint(value->'expiresAt')
        OR (value->>'expiresAt')::bigint = 0
        OR value->>'payload' COLLATE "C" ~ '[^ -~]'
@@ -240,7 +240,7 @@ BEGIN
         RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
     END IF;
     CASE action
-    WHEN 'revoke' THEN
+    WHEN 'revoke', 'require-protected', 'account-mode' THEN
         IF jsonb_array_length(value) <> 0 THEN
             RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
         END IF;
@@ -352,6 +352,18 @@ CREATE TABLE e2ee_research.requests (
     CHECK (e2ee_research.parse_request(request_wire)->>'requestId' = request_id)
 );
 
+-- Row existence is the one-way protected-required policy. There is no legacy
+-- setter, downgrade, update, eviction or revocation cleanup. Selection records
+-- the original signed request; exceptions roll it back with that request's ledger.
+-- The device FK deliberately does not cascade: policy survives device revocation.
+CREATE TABLE e2ee_research.protected_accounts (
+    owner_id e2ee_research.identifier PRIMARY KEY,
+    selecting_device_id e2ee_research.identifier NOT NULL,
+    selecting_request_id e2ee_research.identifier NOT NULL,
+    selected_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    FOREIGN KEY (owner_id, selecting_device_id) REFERENCES e2ee_research.devices(user_id, device_id)
+);
+
 -- No client policies or direct gateway table access. Table-owner definer RPCs
 -- perform all account checks; their deliberate RLS bypass is part of the boundary.
 ALTER TABLE e2ee_research.devices ENABLE ROW LEVEL SECURITY;
@@ -359,8 +371,16 @@ ALTER TABLE e2ee_research.blocks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE e2ee_research.claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE e2ee_research.decisions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE e2ee_research.requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE e2ee_research.protected_accounts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON ALL TABLES IN SCHEMA e2ee_research FROM PUBLIC, e2ee_research_gateway;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA e2ee_research FROM PUBLIC, e2ee_research_gateway;
+
+-- Internal fresh-read helper, with no client or gateway EXECUTE grant. The
+-- trusted legacy/notification boundary must acquire lock_pilot BEFORE calling.
+-- VOLATILE avoids retaining a pre-lock snapshot under READ COMMITTED.
+CREATE FUNCTION e2ee_research.requires_protected(actor text) RETURNS boolean
+LANGUAGE sql VOLATILE STRICT SET search_path = pg_catalog
+AS $$ SELECT EXISTS (SELECT 1 FROM e2ee_research.protected_accounts WHERE owner_id = actor) $$;
 
 CREATE FUNCTION e2ee_research.is_blocked(first_user text, second_user text) RETURNS boolean
 LANGUAGE sql STABLE SET search_path = pg_catalog
@@ -603,6 +623,18 @@ BEGIN
     IF request_exists AND NOT e2ee_research.same_text(existing.request_wire, execute_request.request_wire) THEN
         RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
     END IF;
+    IF action = 'account-mode' THEN
+        -- A diagnostic is always fresh, including for a registered revoked
+        -- device. Never cache a legacy-permitted result or consume nonce budget.
+        arguments := e2ee_research.parse_request_payload(action, payload);
+        now_seconds := floor(extract(epoch FROM clock_timestamp()))::bigint;
+        SELECT * INTO registered FROM e2ee_research.devices WHERE user_id = actor AND device_id = device;
+        IF NOT FOUND OR expires_at <= now_seconds OR expires_at > now_seconds + 300 THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        RETURN jsonb_build_object('requestId', request_id, 'ownerUserId', actor, 'ownerDeviceId', device,
+            'mode', CASE WHEN e2ee_research.requires_protected(actor) THEN 'protected-required' ELSE 'legacy-permitted' END);
+    END IF;
     IF action = 'policy' THEN
         -- This is a fresh read under the same global lock as block/revoke/send.
         -- Never retain an old false flag in the mutation nonce ledger, and never
@@ -626,7 +658,7 @@ BEGIN
             'blockedByPeer', EXISTS (SELECT 1 FROM e2ee_research.blocks WHERE owner_id = peer.user_id AND other_id = actor AND blocked));
     END IF;
     IF request_exists THEN
-        -- Send/block/revoke receipts describe an immutable committed decision,
+        -- Send/block/revoke/cutover receipts describe an immutable committed decision,
         -- not current permission. Reads and key claims still require authority
         -- at replay time; an old nonce must not bypass revocation or a block.
         arguments := e2ee_research.parse_request_payload(action, payload);
@@ -646,12 +678,23 @@ BEGIN
     END IF;
     now_seconds := floor(extract(epoch FROM clock_timestamp()))::bigint;
     SELECT * INTO registered FROM e2ee_research.devices WHERE user_id = actor AND device_id = device;
+    -- The bounded 512-mutation/request pilot budget includes first and fresh
+    -- repeated require-protected requests. Exhaustion is unresolved, never a
+    -- successful cutover receipt. account-mode diagnostics above consume none.
     IF NOT FOUND OR expires_at <= now_seconds OR expires_at > now_seconds + 300
        OR (SELECT count(*) FROM e2ee_research.requests WHERE owner_id = actor) >= 512 THEN
         RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
     END IF;
     arguments := e2ee_research.parse_request_payload(action, payload);
     CASE action
+    WHEN 'require-protected' THEN
+        IF registered.revoked THEN
+            RAISE EXCEPTION 'Invalid research relay request' USING ERRCODE = '22023';
+        END IF;
+        INSERT INTO e2ee_research.protected_accounts(owner_id, selecting_device_id, selecting_request_id)
+        VALUES (actor, device, request_id) ON CONFLICT (owner_id) DO NOTHING;
+        outcome := jsonb_build_object('requestId', request_id, 'ownerUserId', actor, 'ownerDeviceId', device,
+            'mode', 'protected-required');
     WHEN 'revoke' THEN
         outcome := e2ee_research.revoke_device(actor, device);
     WHEN 'block' THEN

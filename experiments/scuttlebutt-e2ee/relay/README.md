@@ -18,6 +18,42 @@ synthetic account credentials and payloads. A test existing in the runner is not
 a claim that it passed; use the completed run output and checkpoint record for
 observed results.
 
+## Local durable cutover and generic notification fixtures
+
+`relay.sql` now supports signed `require-protected` and fresh `account-mode`, both
+with the exact payload `[]`. The four-field receipt reports durable account policy,
+not encryption or device permission. Existing peer-policy fields and signed-wire
+version/domain are unchanged. No downgrade API exists. New native actions have
+not been integrated or deployed to the hosted pilot.
+
+`privateNotifications.sql` and `legacyCutoverFixture.sql` install only into a
+fresh local fixture after `relay.sql`. They are not migrations. The first queues
+one accepted-decision notification with fixed generic content and an opaque
+server UUID. The second stands in for legacy messages and private previews to
+test denial/suppression while preserving old bytes. Its caller-settable GUC
+identity is explicitly mocked, not authenticated. Private policy tables and
+helpers remain ungranted; only narrow processor claims/acknowledgements and the
+necessary synthetic-client RLS gate are exposed.
+
+Reproduce with an already-owned archive matching `pglite-pin.json`; this runner
+does not fetch/install anything or write shared dependencies:
+
+```sh
+pgrep -fl "vite build|tsc|vitest"
+node --experimental-strip-types experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs /absolute/path/pglite.tgz
+```
+
+The runner retains source copies/hashes and a sanitized receipt in a fresh private
+temporary directory. SQL runs on disk with real Ed25519 fixture signatures and
+synthetic Auth/legacy identity/ciphertext; close/reopen is persistence evidence,
+not independent-connection concurrency or device encryption. See the
+[checkpoint](../../../docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md) and
+[server manifest](../review/server-cutover-2026-10-06.json) for executed results.
+No external sink, worker enumeration or claim expiry/reclaim is installed.
+Repeated same-token projections require sink deduplication; post-claim block or
+revocation cannot retract an already dispatched notification. No delivery/read
+or exactly-once push claim follows from a unique SQL row.
+
 ## Isolated hosted pilot — not app encryption
 
 The owner-approved test project is `kmtupdvwdgbhtssqqova` in organization

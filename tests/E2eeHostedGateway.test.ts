@@ -132,6 +132,56 @@ describe('isolated hosted signed gateway', () => {
             expect(db.query).toHaveBeenLastCalledWith(expect.any(String), values);
         },
     );
+    it.each(['require-protected', 'account-mode'] as const)(
+        'binds signed %s to the exact configured execute_request transaction',
+        async (action) => {
+            const deviceId = 'hosted-device';
+            const requestId = `hosted-${action}`;
+            const expiresAt = 100;
+            const result = {
+                requestId,
+                ownerUserId: user,
+                ownerDeviceId: deviceId,
+                mode: action === 'require-protected' ? 'protected-required' : 'legacy',
+            };
+            const statement =
+                'SELECT e2ee_research.execute_request($1::text,$2::text,$3::text,$4::text,$5::text,$6::bigint,$7::text) AS result';
+            const query = vi.fn(async (sql: string) =>
+                sql.startsWith('SELECT session_user') ? [role] : sql === statement ? [{ result }] : [],
+            );
+            const transaction = vi.fn(
+                async <T>(body: (tx: { query: typeof query }) => Promise<T>): Promise<T> => await body({ query }),
+            );
+            // Adapter fixture only: Auth and device-signature verification occur
+            // in the signed gateway before this server-only SQL adapter.
+            const wire = JSON.stringify({
+                version: 1,
+                protocol: 'olm-v1',
+                userId: user,
+                deviceId,
+                action,
+                requestId,
+                expiresAt,
+                payload: '[]',
+                signature: 'A'.repeat(86),
+            });
+            const values = [user, deviceId, requestId, action, '[]', expiresAt, wire] as const;
+            expect(await createHostedResearchRpc({ transaction })('execute_request', values)).toEqual(result);
+            expect(transaction).toHaveBeenCalledTimes(1);
+            expect(query.mock.calls).toEqual([
+                ['SET TRANSACTION ISOLATION LEVEL READ COMMITTED', []],
+                ["SET LOCAL statement_timeout = '4000ms'", []],
+                ["SET LOCAL lock_timeout = '1000ms'", []],
+                ["SET LOCAL idle_in_transaction_session_timeout = '5000ms'", []],
+                [
+                    'SELECT session_user AS login, rolsuper, rolcreaterole, rolcreatedb, rolbypassrls, rolinherit FROM pg_catalog.pg_roles WHERE rolname = session_user',
+                    [],
+                ],
+                ['SET LOCAL ROLE e2ee_research_gateway', []],
+                [statement, values],
+            ]);
+        },
+    );
     it.each(['revoke_device', 'set_block', 'claim_prekey', 'send_message', 'list_messages'])(
         'refuses unsigned %s before starting SQL',
         async (name) => {
