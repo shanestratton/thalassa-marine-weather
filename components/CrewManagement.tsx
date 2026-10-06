@@ -2181,6 +2181,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         vessels={crewVessels}
                         rows={crewRows}
                         view={crewView}
+                        self={myFloatPlan}
                         stale={crewViewStale}
                         loading={crewViewLoading}
                         onLeave={(rows) => handleLeaveCrewVessel(rows, crewBoat)}

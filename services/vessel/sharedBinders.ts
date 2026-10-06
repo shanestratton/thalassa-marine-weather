@@ -40,6 +40,7 @@ import {
 } from '../authIdentityScope';
 import { createLogger } from '../../utils/createLogger';
 import type { CrewRole } from '../CrewService';
+import { CREW_ROLE_SENIORITY } from '../crew/floatPlanPeople';
 
 const log = createLogger('SharedBinders');
 
@@ -329,10 +330,8 @@ function accessSignature(snapshot: SharedBinderSnapshot | null, selection: strin
 
 // ── Crew vessels (the crewing view, 2026-10-03) ────────────────
 
-const ROLE_SENIORITY: Readonly<Record<string, number>> = { 'co-skipper': 4, navigator: 3, deckhand: 2, punter: 1 };
-
 function seniority(role: string | null): number {
-    return role ? (ROLE_SENIORITY[role] ?? 0) : -1;
+    return role ? (CREW_ROLE_SENIORITY[role] ?? 0) : -1;
 }
 
 /**

@@ -32,7 +32,13 @@ import {
     type AuthIdentityScope,
 } from '../authIdentityScope';
 import { listCrewVessels } from '../vessel/sharedBinders';
-import { aboardCount, mergeAboard, type AboardPerson, type FloatPlanSelfDetails } from './floatPlanPeople';
+import {
+    aboardCount,
+    CREW_ROLE_SENIORITY,
+    mergeAboard,
+    type AboardPerson,
+    type FloatPlanSelfDetails,
+} from './floatPlanPeople';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CrewVesselView');
@@ -401,8 +407,6 @@ function isMissingFunction(error: unknown): boolean {
     return code === 'PGRST202' || code === '42883';
 }
 
-const ROLE_SENIORITY: Readonly<Record<string, number>> = { 'co-skipper': 4, navigator: 3, deckhand: 2, punter: 1 };
-
 type FallbackClient = NonNullable<typeof import('../supabase').supabase>;
 
 /**
@@ -444,7 +448,7 @@ async function loadFallback(
     if (ownRows.length === 0) return 'not-crew';
     const ownRole = ownRows
         .map((row: Record<string, unknown>) => (typeof row.role === 'string' ? row.role : ''))
-        .sort((a: string, b: string) => (ROLE_SENIORITY[b] ?? 0) - (ROLE_SENIORITY[a] ?? 0))[0];
+        .sort((a: string, b: string) => (CREW_ROLE_SENIORITY[b] ?? 0) - (CREW_ROLE_SENIORITY[a] ?? 0))[0];
 
     type MemberRow = NameParts & { user_id?: unknown; boats?: unknown };
     const live = (Array.isArray(members.data) ? (members.data as MemberRow[]) : []).filter((row) => {

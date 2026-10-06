@@ -6,7 +6,18 @@
  *   Crewing on Wandering Albatross
  *   Skipper: Capt Ana Reyes · Your role: Co-skipper
  *   [register chips]                      Switch boat · Leave
- *   Crew aboard Wandering Albatross — read-only, the skipper first, '(you)'.
+ *   Crew aboard Wandering Albatross — read-only, '(you)' against your row.
+ *
+ * Crew aboard is everyone, each once (Shane 2026-10-06: "it does not show the
+ * other person ... we need all 3 people on both devices"): the skipper's own
+ * vessel-profile people (his First mate, a partner who has no app) and the app
+ * crew not already among them, merged exactly as the float plan card merges
+ * them (crewVesselPeople). It used to list the app crew alone, so anyone the
+ * skipper typed but never invited was missing here while the card counted
+ * them. The order is the skipper's own profile order (his Skipper row is
+ * usually first, but not if he put someone above it), then app crew he never
+ * typed; an app skipper with no Skipper row heads the list. Names and roles
+ * only: never a phone or an age, yours included.
  *
  * Presentational: CrewManagement decides what leaving or switching does. Never
  * an email: the skipper appears by name.
@@ -17,20 +28,20 @@ import { REGISTER_ICONS, REGISTER_LABELS, type CrewMember, type SharedRegister }
 import {
     crewRoleLabel,
     crewVesselName,
+    crewVesselPeople,
     getCachedCrewVesselView,
     type CrewVesselView,
 } from '../../services/crew/crewVesselView';
+import { CREW_ROLE_SENIORITY, type FloatPlanSelfDetails } from '../../services/crew/floatPlanPeople';
 import type { CrewVessel } from '../../services/vessel/sharedBinders';
 import { SKIPPER_BOAT_FALLBACK } from '../vessel/SharedBinderLine';
 import { triggerHaptic } from '../../utils/system';
-
-const ROLE_RANK: Readonly<Record<string, number>> = { 'co-skipper': 4, navigator: 3, deckhand: 2, punter: 1 };
 
 /** The most senior role across the account's rows for this boat. */
 export function seniorRole(rows: readonly Pick<CrewMember, 'role'>[], fallback?: string | null): string | null {
     const roles = rows.map((row) => row.role as string).filter(Boolean);
     if (fallback) roles.push(fallback);
-    return roles.sort((a, b) => (ROLE_RANK[b] ?? 0) - (ROLE_RANK[a] ?? 0))[0] ?? null;
+    return roles.sort((a, b) => (CREW_ROLE_SENIORITY[b] ?? 0) - (CREW_ROLE_SENIORITY[a] ?? 0))[0] ?? null;
 }
 
 /** The hull this account is crew on, by the view's name first (see crewVesselName). */
@@ -51,6 +62,11 @@ interface CrewingVesselPanelProps {
     /** The account's own accepted rows for this boat (role and register chips). */
     rows: CrewMember[];
     view: CrewVesselView | null;
+    /**
+     * Your own details from Settings → Vessel Profile, so you are matched and
+     * named as on the float plan card. Only the name is shown here.
+     */
+    self?: FloatPlanSelfDetails | null;
     stale: boolean;
     loading: boolean;
     onLeave: (rows: CrewMember[]) => void;
@@ -62,6 +78,7 @@ export const CrewingVesselPanel: React.FC<CrewingVesselPanelProps> = ({
     vessels,
     rows,
     view,
+    self = null,
     stale,
     loading,
     onLeave,
@@ -75,6 +92,7 @@ export const CrewingVesselPanel: React.FC<CrewingVesselPanelProps> = ({
     const registers = [...new Set(rows.flatMap((row) => row.shared_registers))] as SharedRegister[];
     const title = `Crewing on ${boat}`;
     const aboardTitle = `Crew aboard ${boat}`;
+    const people = crewVesselPeople(view, self);
 
     return (
         <section aria-label={title} data-testid="crewing-vessel-panel" className="mb-5">
@@ -126,20 +144,19 @@ export const CrewingVesselPanel: React.FC<CrewingVesselPanelProps> = ({
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
                     <h3 className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">{aboardTitle}</h3>
                 </div>
-                {view && view.manifest.length > 0 ? (
+                {people.length > 0 ? (
                     <ul aria-label={aboardTitle} className="space-y-1.5">
-                        {view.manifest.map((entry, index) => (
+                        {people.map((person, index) => (
                             <li
-                                key={`${entry.isSkipper ? 'skipper' : 'crew'}-${index}`}
+                                key={`${person.isSelf ? 'self' : 'person'}-${index}`}
                                 className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/3 px-3 py-2.5"
                             >
                                 <span className="text-sm font-semibold text-white truncate">
-                                    {entry.name || (entry.isSkipper ? 'Skipper' : entry.isSelf ? 'You' : 'Crew')}
-                                    {entry.isSelf && entry.name ? ' (you)' : ''}
+                                    {person.name ||
+                                        (person.isSelf ? 'You' : person.role === 'Skipper' ? 'Skipper' : 'Crew')}
+                                    {person.isSelf && person.name ? ' (you)' : ''}
                                 </span>
-                                <span className="shrink-0 text-[11px] font-bold text-sky-300/80">
-                                    {crewRoleLabel(entry.role)}
-                                </span>
+                                <span className="shrink-0 text-[11px] font-bold text-sky-300/80">{person.role}</span>
                             </li>
                         ))}
                     </ul>

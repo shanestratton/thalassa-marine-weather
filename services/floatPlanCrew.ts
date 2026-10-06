@@ -29,7 +29,14 @@ import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentity
 import type { CrewInviteStatus, CrewRole } from './CrewService';
 import { activeOwnedBoatId } from '../components/crewManagement/activeOwnedBoat';
 import { createLogger } from '../utils/createLogger';
-import { floatPlanSelfDetails, isNotPushedYet, mergeAboard, type FloatPlanSelfDetails } from './crew/floatPlanPeople';
+import {
+    CREW_ROLE_SENIORITY,
+    floatPlanSelfDetails,
+    isNotPushedYet,
+    mergeAboard,
+    type FloatPlanSelfDetails,
+} from './crew/floatPlanPeople';
+import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from './shiplog/plannedRouteNaming';
 
 const log = createLogger('floatPlanCrew');
 
@@ -40,6 +47,9 @@ const log = createLogger('floatPlanCrew');
  */
 export const FLOAT_PLAN_ROLES = [
     'Skipper',
+    // The invite picker's second-in-command (2026-10-06): an accepted
+    // co-skipper keeps that role on the plan rather than reading "Role…".
+    'Co-skipper',
     'First mate',
     'Navigator',
     'Engineer',
@@ -62,6 +72,14 @@ export type FloatPlanRosterSeed = {
      * `name` is already theirs; `appName` is what the app calls them.
      */
     shared?: FloatPlanSelfDetails & { appName: string };
+    /**
+     * Accepted crew whose every invite named a passage other than this plan's:
+     * that passage's name (or "another passage"), so the sheet can say where
+     * they came from rather than list a one-off guest on every later plan
+     * without a word (review 2026-10-06). Absent for crew invited for every
+     * passage or for this one.
+     */
+    invitedFor?: string;
 };
 
 export interface FloatPlanCrew {
@@ -138,11 +156,15 @@ export function renderCrewDisplayName(parts: CrewNameParts | null | undefined, f
  * The crew-invite role → the Float Plan's CREW_ROLES label. The sheet's role
  * <select> only offers its own list, so an unmapped value would render as
  * "Role…" and lose the information; 'Crew' is the honest default.
+ *
+ * A co-skipper is 'Co-skipper', the invite picker's own word (Shane
+ * 2026-10-06: "captain, first mate and co captain"): reading them as 'First
+ * mate' put two First mates on a plan whose profile already names one.
  */
 export function crewRoleToFloatPlanRole(role: CrewRole | string): string {
     switch (role) {
         case 'co-skipper':
-            return 'First mate';
+            return 'Co-skipper';
         case 'navigator':
             return 'Navigator';
         case 'deckhand':
@@ -155,47 +177,116 @@ export function crewRoleToFloatPlanRole(role: CrewRole | string): string {
 }
 
 /**
- * Rows that belong to THIS float plan: global crew (voyage_id null) plus crew
- * invited for the given voyage. Crew invited for a different passage are not
- * aboard this one. De-duplicated by crew_user_id (or, for a pending invite that
- * has no account yet, by email) — the same person can hold a global row and a
- * voyage row, and must appear once.
+ * Who belongs on THIS float plan, each person once, de-duplicated by
+ * crew_user_id (or, for a pending invite with no account yet, by email).
+ *
+ * Accepted crew are aboard whatever passage their invite named (Shane
+ * 2026-10-06: "we need all 3 people on both devices"). An invite that shares
+ * passage access is scoped to the passage selected when it was sent, so the
+ * scope says which passage's chat, route and meals they see, not whether they
+ * sail: the production invitee was scoped to a passage that had finished,
+ * and the planner opens the float plan with no voyage at all, so the old
+ * "this voyage only" rule dropped them from every plan. Membership is
+ * vessel-level, as the server reads it for the crew's own view of the boat
+ * and the shared binders; the sheet says "Added from your crew: … — remove
+ * anyone not aboard", and names the passage of anyone invited only for
+ * another one, so an over-count is never silent. A person with several rows
+ * carries their most senior role, as on their own device.
+ *
+ * Pending invites stay offers for THIS plan only: global ones and this
+ * voyage's, as "Add <name>" chips, never pre-listed.
  */
 function partitionCrewRows(
     rows: VesselCrewRow[],
     voyageId: string | null | undefined,
     ownerId: string,
-): { accepted: VesselCrewRow[]; pending: VesselCrewRow[] } {
+): { accepted: VesselCrewRow[]; pending: VesselCrewRow[]; elsewhere: Map<VesselCrewRow, string> } {
     const accepted: VesselCrewRow[] = [];
     const pending: VesselCrewRow[] = [];
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
+    // Per accepted person: invited for every passage or this one, else the
+    // latest other passage their invites named (rows arrive oldest first).
+    const here = new Set<string>();
+    const lastElsewhere = new Map<string, string>();
     const keyOf = (row: VesselCrewRow): string | null => {
         if (row.crew_user_id) return `user:${row.crew_user_id}`;
         const email = clean(row.crew_email).toLowerCase();
         return email ? `email:${email}` : null;
     };
-    const relevant = rows.filter(
-        (row) =>
-            (row.voyage_id === null || row.voyage_id === undefined || row.voyage_id === voyageId) &&
-            row.crew_user_id !== ownerId,
-    );
-    // Accepted first, so a person who is both accepted (global) and pending
-    // (voyage) lands aboard rather than in the invite chips.
-    for (const row of relevant) {
+    const forThisPlan = (row: VesselCrewRow) =>
+        row.voyage_id === null || row.voyage_id === undefined || row.voyage_id === voyageId;
+    const rank = (row: VesselCrewRow) => CREW_ROLE_SENIORITY[row.role] ?? 0;
+    const others = rows.filter((row) => row.crew_user_id !== ownerId);
+    // Accepted first, so a person who is both accepted and pending lands
+    // aboard rather than in the invite chips.
+    for (const row of others) {
         if (row.status !== 'accepted') continue;
         const key = keyOf(row);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        accepted.push(row);
+        if (!key) continue;
+        if (forThisPlan(row)) here.add(key);
+        else if (row.voyage_id) lastElsewhere.set(key, row.voyage_id);
+        const at = seen.get(key);
+        if (at === undefined) {
+            seen.set(key, accepted.length);
+            accepted.push(row);
+        } else if (rank(row) > rank(accepted[at])) {
+            accepted[at] = row;
+        }
     }
-    for (const row of relevant) {
-        if (row.status !== 'pending') continue;
+    const elsewhere = new Map<VesselCrewRow, string>();
+    for (const [key, at] of seen) {
+        const passage = lastElsewhere.get(key);
+        if (passage && !here.has(key)) elsewhere.set(accepted[at], passage);
+    }
+    for (const row of others) {
+        if (row.status !== 'pending' || !forThisPlan(row)) continue;
         const key = keyOf(row);
         if (!key || seen.has(key)) continue;
-        seen.add(key);
+        seen.set(key, -1);
         pending.push(row);
     }
-    return { accepted, pending };
+    return { accepted, pending, elsewhere };
+}
+
+/** What the sheet calls a passage it cannot name. */
+const ANOTHER_PASSAGE = 'another passage';
+
+/**
+ * The skipper's own names for the passages crew were invited for, by voyage
+ * id, the way the float plan names its own passage. One read; any failure or
+ * a passage gone or unnamed leaves it out, and the caller says "another
+ * passage". Never fails the float plan: the names are a courtesy.
+ */
+async function passageNames(
+    client: NonNullable<typeof supabase>,
+    ownerId: string,
+    voyageIds: string[],
+): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    try {
+        const { data, error } = await client
+            .from('voyages')
+            .select('id, voyage_name, departure_port, destination_port')
+            .eq('user_id', ownerId)
+            .in('id', voyageIds);
+        if (error) {
+            log.warn('float plan crew: passage names read failed', error.message);
+            return names;
+        }
+        for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+            if (typeof row?.id !== 'string') continue;
+            const text = (value: unknown) => (typeof value === 'string' ? value : null);
+            const departure = text(row.departure_port)?.trim();
+            const destination = text(row.destination_port)?.trim();
+            const name =
+                formatStoredPlannedRouteName(text(row.voyage_name)) ??
+                (departure || destination ? formatPlannedRouteLabel(departure, destination) : null);
+            if (name) names.set(row.id, clean(name).slice(0, 80));
+        }
+    } catch (error) {
+        log.warn('float plan crew: passage names read failed', error);
+    }
+    return names;
 }
 
 /**
@@ -234,7 +325,11 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
             return null;
         }
 
-        const { accepted, pending } = partitionCrewRows((crewData ?? []) as VesselCrewRow[], voyageId, user.id);
+        const { accepted, pending, elsewhere } = partitionCrewRows(
+            (crewData ?? []) as VesselCrewRow[],
+            voyageId,
+            user.id,
+        );
 
         const nameIds = [
             user.id,
@@ -306,18 +401,27 @@ export async function loadFloatPlanCrew(voyageId?: string | null): Promise<Float
             }
         }
 
+        // Crew invited only for other passages are still aboard, but the plan
+        // says which passage (review 2026-10-06), so a one-off guest on every
+        // later plan is never silent.
+        const passages =
+            elsewhere.size > 0 ? await passageNames(supabase, user.id, [...new Set(elsewhere.values())]) : null;
+        if (!isAuthIdentityScopeCurrent(scope)) return null;
+
         const toSeed = (row: VesselCrewRow, source: 'crew' | 'invite'): FloatPlanRosterSeed => {
             const appName = renderCrewDisplayName(
                 row.crew_user_id ? names.get(row.crew_user_id) : undefined,
                 row.crew_email ?? undefined,
             );
             const own = source === 'crew' && row.crew_user_id ? shared.get(row.crew_user_id) : undefined;
+            const otherPassage = source === 'crew' ? elsewhere.get(row) : undefined;
             return {
                 name: own?.name || appName,
                 role: crewRoleToFloatPlanRole(row.role),
                 source,
                 crewUserId: row.crew_user_id ?? null,
                 ...(own ? { shared: { ...own, appName } } : {}),
+                ...(otherPassage ? { invitedFor: passages?.get(otherPassage) ?? ANOTHER_PASSAGE } : {}),
             };
         };
 

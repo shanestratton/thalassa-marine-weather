@@ -97,6 +97,15 @@ function isCrewSeededRow(row: RosterRow): boolean {
     return row.source === 'skipper' || row.source === 'crew';
 }
 
+/** Crew user id → the other passage their invite named (FloatPlanRosterSeed.invitedFor). */
+function invitedElsewhere(aboard: readonly FloatPlanRosterSeed[]): ReadonlyMap<string, string> {
+    return new Map(
+        aboard.flatMap((seed) =>
+            seed.crewUserId && seed.invitedFor ? [[seed.crewUserId, seed.invitedFor] as const] : [],
+        ),
+    );
+}
+
 interface FloatPlanSheetProps {
     /** Active/draft voyage source used by Cast Off. */
     voyage?: Voyage;
@@ -302,7 +311,13 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     /** The roster came from the vessel profile's own people (Shane 2026-09-09) — the skipper's list, not the invites. */
     const [rosterFromProfile, setRosterFromProfile] = useState(false);
     /** Accepted crew the merge added beyond the profile's own people (2026-10-05), said aloud so an over-count is never silent. */
-    const [addedFromCrew, setAddedFromCrew] = useState<string[]>([]);
+    const [addedFromCrew, setAddedFromCrew] = useState<Array<{ name: string; invitedFor?: string }>>([]);
+    /**
+     * Crew invited only for another passage, by crew user id → that passage
+     * (review 2026-10-06): they are aboard, but a one-off guest must not ride
+     * along on every later plan without the sheet saying where they came from.
+     */
+    const [crewInvitedFor, setCrewInvitedFor] = useState<ReadonlyMap<string, string>>(() => new Map());
     // People the profile's "Crew aboard" counts but nobody names, worked out
     // once when the roster seeds (2026-10-05). Each person the skipper then
     // adds by hand or from an invite chip fills one; removing a named person
@@ -462,6 +477,8 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         void (async () => {
             const result = await loadFloatPlanCrew(voyage?.id ?? null);
             if (cancelled || !result || !isAuthIdentityScopeCurrent(scope)) return;
+            const invitedFor = invitedElsewhere(result.aboard);
+            setCrewInvitedFor(invitedFor);
             if (seededFromProfile) {
                 // Accepted crew join the skipper's own list, each person once,
                 // an invitee with their own name, phone and age (Shane
@@ -480,7 +497,12 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         })),
                     );
                     setAddedFromCrew(
-                        merged.filter((person) => person.added && person.name).map((person) => person.name),
+                        merged
+                            .filter((person) => person.added && person.name)
+                            .map((person) => {
+                                const passage = person.crewUserId ? invitedFor.get(person.crewUserId) : undefined;
+                                return passage ? { name: person.name, invitedFor: passage } : { name: person.name };
+                            }),
                     );
                     setUnnamedAboard(unnamedBeyond(merged.length));
                 }
@@ -522,7 +544,17 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         const unnamed = Math.max(0, unnamedAboard - addedByHand);
         if (personsRoster.length > 0) setPersonsOnBoard(Math.min(99, personsRoster.length + unnamed));
     }, [rosterFromCrew, rosterFromProfile, personsRoster, unnamedAboard]);
-    const addedStillListed = addedFromCrew.filter((name) => personsRoster.some((row) => row.name === name));
+    const addedStillListed = addedFromCrew
+        .filter((added) => personsRoster.some((row) => row.name === added.name))
+        .map((added) => (added.invitedFor ? `${added.name} (invited for ${added.invitedFor})` : added.name));
+    // A crew-list roster (no vessel-profile people): the crew rows still
+    // listed whose invites named only another passage.
+    const elsewhereStillListed = rosterFromProfile
+        ? []
+        : personsRoster.flatMap((row) => {
+              const passage = isCrewSeededRow(row) && row.crewUserId ? crewInvitedFor.get(row.crewUserId) : undefined;
+              return passage ? [`${row.name.trim() || 'Unnamed crew'} (${passage})`] : [];
+          });
 
     /**
      * Re-read the crew list on request. Replaces only the rows that came from
@@ -562,6 +594,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         );
         const next = [...seeded, ...kept];
         setPersonsRoster(next);
+        setCrewInvitedFor(invitedElsewhere(result.aboard));
         setRosterFromCrew(result.aboard.some((seed) => seed.name.trim().length > 0));
         setInvitedCrew(
             result.invited.filter(
@@ -922,6 +955,11 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                             {rosterFromProfile && addedStillListed.length > 0 && (
                                 <span className="block">
                                     {`Added from your crew: ${addedStillListed.join(', ')} — remove anyone not aboard.`}
+                                </span>
+                            )}
+                            {elsewhereStillListed.length > 0 && (
+                                <span className="block">
+                                    {`Invited for another passage: ${elsewhereStillListed.join(', ')} — remove anyone not aboard.`}
                                 </span>
                             )}
                         </p>

@@ -302,6 +302,111 @@ describe('FloatPlanSheet crew prefill', () => {
         expect(document.body.textContent).toContain('Marta Kowalski — First mate, 29, mobile 0491 570 157');
     });
 
+    it('captain, first mate and the co-skipper invitee: three aboard, each by role (Shane 2026-10-06)', async () => {
+        // The vessel profile names two; the one accepted invitee is the third.
+        mocks.vessel.crewCount = 2;
+        mocks.vessel.crewRoster = [
+            { name: 'Ana Reyes', age: 52, rank: 'Skipper' },
+            { name: 'Priya Nair', age: 38, rank: 'First mate' },
+        ];
+        const coSkipper: FloatPlanRosterSeed = {
+            name: 'Tom Okafor',
+            role: 'Co-skipper',
+            source: 'crew',
+            crewUserId: 'u-tom',
+            shared: { name: 'Tom Okafor', phone: null, age: 41, appName: 'Tom O' },
+        };
+        load.mockResolvedValue({ aboard: [ANA, coSkipper], invited: [] });
+        render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+        await waitFor(() => expect(nameInputs()).toHaveLength(3));
+
+        expect(nameInputs().map((input) => input.value)).toEqual(['Ana Reyes', 'Priya Nair', 'Tom Okafor']);
+        expect((screen.getByLabelText('Person 1 role') as HTMLSelectElement).value).toBe('Skipper');
+        expect((screen.getByLabelText('Person 2 role') as HTMLSelectElement).value).toBe('First mate');
+        expect((screen.getByLabelText('Person 3 role') as HTMLSelectElement).value).toBe('Co-skipper');
+        expect((screen.getByLabelText('Person 3 age') as HTMLInputElement).value).toBe('41');
+        expect(peopleAboard()).toBe('3');
+        expect(screen.queryByText(/The roster lists/)).toBeNull();
+        expect(screen.getByText('Added from your crew: Tom Okafor — remove anyone not aboard.')).toBeInTheDocument();
+        // The plan itself names all three with their roles.
+        expect(document.body.textContent).toContain('Tom Okafor — Co-skipper, 41');
+    });
+
+    describe('crew invited for another passage are named with it (review 2026-10-06)', () => {
+        // Accepted crew are aboard whatever passage their invite named, so a
+        // one-off guest must never ride along on a later plan without a word.
+        const SAM: FloatPlanRosterSeed = {
+            name: 'Sam Lee',
+            role: 'Guest',
+            source: 'crew',
+            crewUserId: 'u-sam',
+            invitedFor: 'Orpheus day sail',
+        };
+
+        it('on the vessel-profile list: the added line names the passage, and goes when they are removed', async () => {
+            mocks.vessel.crewRoster = [
+                { name: 'Ana Reyes', age: 52, rank: 'Skipper' },
+                { name: 'Priya Nair', age: 38, rank: 'First mate' },
+            ];
+            const coSkipper: FloatPlanRosterSeed = {
+                name: 'Tom Okafor',
+                role: 'Co-skipper',
+                source: 'crew',
+                crewUserId: 'u-tom',
+            };
+            load.mockResolvedValue({ aboard: [ANA, coSkipper, SAM], invited: [] });
+            render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+            await waitFor(() => expect(nameInputs()).toHaveLength(4));
+
+            expect(
+                screen.getByText(
+                    'Added from your crew: Tom Okafor, Sam Lee (invited for Orpheus day sail) — remove anyone not aboard.',
+                ),
+            ).toBeInTheDocument();
+            expect(peopleAboard()).toBe('4');
+
+            fireEvent.click(screen.getByRole('button', { name: 'Remove person 4' }));
+
+            expect(
+                screen.getByText('Added from your crew: Tom Okafor — remove anyone not aboard.'),
+            ).toBeInTheDocument();
+            expect(screen.queryByText(/Orpheus day sail/)).toBeNull();
+            expect(peopleAboard()).toBe('3');
+        });
+
+        it('on a crew-list roster: one line names them and the passage, and goes when they are removed', async () => {
+            load.mockResolvedValue({ aboard: [SKIPPER, LEE, SAM], invited: [] });
+            render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+            await waitFor(() => expect(nameInputs()).toHaveLength(3));
+
+            expect(
+                screen.getByText('Invited for another passage: Sam Lee (Orpheus day sail) — remove anyone not aboard.'),
+            ).toBeInTheDocument();
+
+            fireEvent.click(screen.getByRole('button', { name: 'Remove person 3' }));
+
+            expect(screen.queryByText(/Invited for another passage/)).toBeNull();
+        });
+
+        it('a refresh re-reads who was invited elsewhere', async () => {
+            load.mockResolvedValue({ aboard: [SKIPPER, LEE], invited: [] });
+            render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+            await waitFor(() => expect(nameInputs()).toHaveLength(2));
+            expect(screen.queryByText(/Invited for another passage/)).toBeNull();
+
+            load.mockResolvedValue({ aboard: [SKIPPER, LEE, SAM], invited: [] });
+            fireEvent.click(screen.getByTestId('float-plan-roster-refresh'));
+
+            await waitFor(() =>
+                expect(
+                    screen.getByText(
+                        'Invited for another passage: Sam Lee (Orpheus day sail) — remove anyone not aboard.',
+                    ),
+                ).toBeInTheDocument(),
+            );
+        });
+    });
+
     it("never counts fewer than the profile's own Crew aboard number", async () => {
         mocks.vessel.crewCount = 4;
         mocks.vessel.crewRoster = [{ name: 'Ana Reyes', age: 51, rank: 'Skipper' }, { name: '' }, { name: '' }];
