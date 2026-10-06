@@ -325,6 +325,69 @@ describe('CloseInWindLayer', () => {
         expect(frames.size).toBe(0);
     });
 
+    it('a lost local wind clears the streaks at once and stops the loop, instead of freezing the last frame', () => {
+        // Review 2026-10-06: the screen centre left the grid (or the boat feed
+        // died) and the last frame stayed painted, frozen, panning with the chart.
+        const { map, camera } = harness();
+        const layer = new CloseInWindLayer(map, options());
+        layer.show();
+        layer.setWind({ kt: 12, fromDeg: 135 });
+        for (let i = 0; i < 10; i += 1) layer.stepFrame();
+        ctx.ops = [];
+        layer.setWind(null);
+        expect(ctx.ops).toContain('clear');
+        expect(layer.particleCount).toBe(0);
+        expect(frames.size).toBe(0);
+        ctx.ops = [];
+        for (let i = 0; i < 120; i += 1) layer.stepFrame();
+        camera.x = 30;
+        map.emit('move');
+        map.emit('resize');
+        expect(ctx.ops.filter((op) => op.startsWith('stroke'))).toHaveLength(0);
+        expect(ctx.ops).not.toContain('drawImage:copy');
+        expect(layer.particleCount).toBe(0);
+        expect(frames.size).toBe(0);
+        // The wind comes back: the field and the loop come back with it.
+        layer.setWind({ kt: 12, fromDeg: 135 });
+        expect(layer.particleCount).toBe(closeInParticleCount(390, 844, 12, 1));
+        expect(frames.size).toBe(1);
+        expect(layer.velocity.y).toBeLessThan(0);
+        layer.destroy();
+    });
+
+    it('reduced motion: a lost local wind clears the arrows too', () => {
+        const { map } = harness();
+        const layer = new CloseInWindLayer(map, options({ reducedMotion: true }));
+        layer.show();
+        layer.setWind({ kt: 12, fromDeg: 180 });
+        ctx.ops = [];
+        ctx.segments = [];
+        layer.setWind(null);
+        expect(ctx.ops).toContain('clear');
+        expect(ctx.segments).toHaveLength(0);
+        layer.destroy();
+    });
+
+    it('stops the loop while the chart is kept alive hidden at 0x0, and resumes at size', () => {
+        // App.tsx keeps Obs mounted under display:none while The Glass shows.
+        const { map, size } = harness();
+        const layer = new CloseInWindLayer(map, options());
+        layer.show();
+        layer.setWind({ kt: 8, fromDeg: 135 });
+        expect(frames.size).toBe(1);
+        size.w = 0;
+        size.h = 0;
+        map.emit('resize');
+        expect(frames.size).toBe(0);
+        size.w = 390;
+        size.h = 844;
+        map.emit('resize');
+        expect(frames.size).toBe(1);
+        expect(layer.particleCount).toBe(closeInParticleCount(390, 844, 8, 1));
+        layer.destroy();
+        expect(frames.size).toBe(0);
+    });
+
     it('destroy is immediate and idempotent', () => {
         const { container, map } = harness();
         const layer = new CloseInWindLayer(map, options());

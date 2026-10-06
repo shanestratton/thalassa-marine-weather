@@ -8,9 +8,10 @@
  * the whole screen sits inside one or two forecast grid cells the field is
  * uniform anyway, the density ramp has thinned the particles, and the
  * map-scaled speed makes a light breeze a few slow specks. So past a
- * threshold computed from the ACTIVE grid's spacing and the viewport, Obs
- * draws the local wind in SCREEN space instead: one uniform flow across the
- * view, at an on-screen speed that grows with the wind (CloseInWindLayer).
+ * threshold computed from the viewport against a fixed 0.25 deg reference
+ * (the chart's finest fetch tier), Obs draws the local wind in SCREEN space
+ * instead: one uniform flow across the view, at an on-screen speed that grows
+ * with the wind (CloseInWindLayer).
  *
  * Pure, DOM-free and leaflet-free, so the pill (MapWeatherControls) can read
  * the readout without importing the renderer.
@@ -25,15 +26,29 @@ import { convertSpeed } from '../../utils/units';
 // ── Threshold ───────────────────────────────────────────────────
 
 /**
- * Close-in starts when the screen spans fewer than this many grid cells, and
- * ends only once it spans more than CLOSE_IN_EXIT_CELLS. "Spans" is the square
- * root of the viewport's area in cells, so a phone turned on its side keeps
- * its mode. For ECMWF's 0.25 deg on a 390x844 phone at Airlie that is z10.02
- * in and z9.68 out: a third of a zoom level of hysteresis, so a camera that
- * settles at the edge cannot flicker between the two renderers.
+ * Close-in starts when the screen spans fewer than this many reference cells,
+ * and ends only once it spans more than CLOSE_IN_EXIT_CELLS. "Spans" is the
+ * square root of the viewport's area in cells, so a phone turned on its side
+ * keeps its mode. On a 390x844 phone at Airlie that is z10.02 in and z9.68
+ * out: a third of a zoom level of hysteresis, so a camera that settles at the
+ * edge cannot flicker between the two renderers.
  */
 export const CLOSE_IN_ENTER_CELLS = 1.5;
 export const CLOSE_IN_EXIT_CELLS = 1.9;
+
+/**
+ * The cells are counted against this FIXED spacing, the chart's finest wind
+ * fetch tier (WindDataController's FINE_GRID_RES_DEG, pinned by a test), and
+ * never against the grid on screen. Review 2026-10-06: the grid on screen is
+ * the FETCH lattice, not the model. A z11+ viewport fetch is a 3x3 lattice
+ * about 1.25 screens across, so measured against it a pinch out of one level
+ * exited close-in, booted leaflet, and the refetch re-entered; and the coarse
+ * 1 deg or 2.08 deg grid that lands first pulled close-in down to z7-z9, one
+ * interpolated value painted over 200 km. Against the reference the mode
+ * depends only on the camera.
+ */
+export const CLOSE_IN_REFERENCE_GRID_DEG = 0.25;
+const REFERENCE_SPACING: GridSpacing = { dxDeg: CLOSE_IN_REFERENCE_GRID_DEG, dyDeg: CLOSE_IN_REFERENCE_GRID_DEG };
 
 /** Mapbox GL's world is 512 px wide at z0. */
 const MAPBOX_WORLD_PX_AT_Z0 = 512;
@@ -43,7 +58,11 @@ export interface GridSpacing {
     dyDeg: number;
 }
 
-/** Mean column/row spacing of the grid actually on screen; null if it has a single row or column. */
+/**
+ * Mean column/row spacing of a grid's lattice; null if it has a single row or
+ * column. Close-in uses it only to tell a usable grid from none: the spacing of
+ * a fetch lattice says nothing about the model (CLOSE_IN_REFERENCE_GRID_DEG).
+ */
 export function windGridSpacingDeg(grid: Pick<WindGrid, 'lats' | 'lons'> | null | undefined): GridSpacing | null {
     if (!grid || !Array.isArray(grid.lons) || !Array.isArray(grid.lats)) return null;
     const { lons, lats } = grid;
@@ -82,6 +101,20 @@ export function nextCloseInMode(wasCloseIn: boolean, cells: number | null): bool
     return wasCloseIn ? cells <= CLOSE_IN_EXIT_CELLS : cells < CLOSE_IN_ENTER_CELLS;
 }
 
+/**
+ * The mode for a settled camera: the viewport against the fixed reference,
+ * with hysteresis. The grid only has to be there (a lattice to sample), so a
+ * grid swap at the same camera never changes the mode.
+ */
+export function closeInModeFor(
+    wasCloseIn: boolean,
+    view: ViewportScale,
+    grid: Pick<WindGrid, 'lats' | 'lons'> | null | undefined,
+): boolean {
+    if (!windGridSpacingDeg(grid)) return false;
+    return nextCloseInMode(wasCloseIn, viewportGridCells(view, REFERENCE_SPACING));
+}
+
 // ── Model sample ────────────────────────────────────────────────
 
 const MS_TO_KT = 3600 / 1852;
@@ -106,6 +139,11 @@ function bracket(axis: ArrayLike<number>, value: number): { i: number; t: number
  * fractional scrubber frame: the same vector interpolation leaflet-velocity
  * does between grid points, and the same frame blend windVelocityFrame does
  * between hours. Null outside the grid: an edge is never extrapolated.
+ *
+ * A corner with u and v both exactly 0 is MISSING data, not calm:
+ * OpenMeteoWindFetcher zero-fills a null hour (a partly synced model), and a
+ * real calm reported to the 0.1 km/h is rare enough that failing closed there
+ * (no readout) is the safe side of painting a hole as a confident 'Calm'.
  */
 export function sampleWindGridAt(
     grid: WindGrid | null | undefined,
@@ -134,25 +172,30 @@ export function sampleWindGridAt(
     const f = Math.max(0, Math.min(Number.isFinite(frame) ? frame : 0, frames - 1));
     const h0 = Math.floor(f);
     const h1 = Math.min(h0 + 1, frames - 1);
-    const at = (field: Float32Array[], h: number): number | null => {
-        const data = field[h];
-        if (!data || data.length < size) return null;
-        const i00 = y.i * nx + x.i;
-        const corners = [data[i00], data[i00 + 1], data[i00 + nx], data[i00 + nx + 1]];
-        if (!corners.every(Number.isFinite)) return null;
-        const south = corners[0] * (1 - x.t) + corners[1] * x.t;
-        const north = corners[2] * (1 - x.t) + corners[3] * x.t;
+    const i00 = y.i * nx + x.i;
+    const cornerIndex = [i00, i00 + 1, i00 + nx, i00 + nx + 1];
+    const blend = (c: number[]): number => {
+        const south = c[0] * (1 - x.t) + c[1] * x.t;
+        const north = c[2] * (1 - x.t) + c[3] * x.t;
         return south * (1 - y.t) + north * y.t;
     };
-    const u0 = at(grid.u, h0);
-    const v0 = at(grid.v, h0);
-    if (u0 === null || v0 === null) return null;
+    const at = (h: number): { u: number; v: number } | null => {
+        const uData = grid.u[h];
+        const vData = grid.v[h];
+        if (!uData || !vData || uData.length < size || vData.length < size) return null;
+        const u = cornerIndex.map((i) => uData[i]);
+        const v = cornerIndex.map((i) => vData[i]);
+        if (!u.every(Number.isFinite) || !v.every(Number.isFinite)) return null;
+        if (u.some((value, k) => value === 0 && v[k] === 0)) return null;
+        return { u: blend(u), v: blend(v) };
+    };
+    const base = at(h0);
+    if (!base) return null;
     const lerp = f - h0;
-    const u1 = lerp > 0 ? at(grid.u, h1) : null;
-    const v1 = lerp > 0 ? at(grid.v, h1) : null;
-    // A malformed next frame holds the valid base frame, as the renderer does.
-    if (u1 === null || v1 === null) return { u: u0, v: v0 };
-    return { u: u0 * (1 - lerp) + u1 * lerp, v: v0 * (1 - lerp) + v1 * lerp };
+    const next = lerp > 0 ? at(h1) : null;
+    // A malformed or zero-filled next frame holds the valid base frame, as the renderer does.
+    if (!next) return base;
+    return { u: base.u * (1 - lerp) + next.u * lerp, v: base.v * (1 - lerp) + next.v * lerp };
 }
 
 export interface LocalWind {

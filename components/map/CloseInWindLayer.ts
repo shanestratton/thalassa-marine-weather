@@ -14,7 +14,10 @@
  *
  * Panning carries the streaks with the water; a pinch rescales them about the
  * camera. prefers-reduced-motion draws a static arrow field and never starts
- * the animation loop. A hidden app stops the loop.
+ * the animation loop. The loop runs only while there is something to draw: a
+ * hidden app, a 0x0 container (Obs kept alive under display:none) or no local
+ * wind stops it. Losing the wind clears the canvas at once, so the last
+ * frame's streaks can never stay painted, frozen, in an old direction.
  */
 import { CLOSE_IN_CALM_KT, closeInParticleCount, closeInScreenSpeed, type LocalWind } from './closeInWind';
 import { windParticleColorForKt } from './windRamp';
@@ -179,28 +182,35 @@ export class CloseInWindLayer {
         this.element.style.opacity = '1';
         this.shown = true;
         if (this.reducedMotion) this.drawStatic();
-        else this.startLoop();
+        else this.syncLoop();
     }
 
-    /** The local wind, or null for none (nothing drawn). */
+    /** The local wind, or null for none: the canvas is cleared and the loop stops until a wind arrives. */
     setWind(wind: LocalWind | null): void {
         if (this.destroyed) return;
+        if (!wind) {
+            this.wind = null;
+            this.particles = [];
+            this.vx = this.vy = this.targetVx = this.targetVy = 0;
+            this.clearCanvas();
+            this.syncLoop();
+            return;
+        }
         const first = this.wind === null;
-        this.wind = wind ? { kt: wind.kt, fromDeg: wind.fromDeg } : null;
-        const kt = wind?.kt ?? 0;
-        this.colour = windParticleColorForKt(kt);
-        const perFrame = (closeInScreenSpeed(kt) * this.frameTime) / 1000;
-        const calm = !wind || kt < CLOSE_IN_CALM_KT || wind.fromDeg === null;
+        this.wind = { kt: wind.kt, fromDeg: wind.fromDeg };
+        this.colour = windParticleColorForKt(wind.kt);
+        const perFrame = (closeInScreenSpeed(wind.kt) * this.frameTime) / 1000;
         // Calm with no direction keeps drifting the way it was going, slowly.
-        const heading = calm && (wind?.fromDeg ?? null) === null ? this.currentScreenAngle() : this.screenAngle(wind!);
-        this.targetVx = wind ? Math.cos(heading) * perFrame : 0;
-        this.targetVy = wind ? Math.sin(heading) * perFrame : 0;
+        const heading = wind.fromDeg === null ? this.currentScreenAngle() : this.screenAngle(wind);
+        this.targetVx = Math.cos(heading) * perFrame;
+        this.targetVy = Math.sin(heading) * perFrame;
         if (first) {
             this.vx = this.targetVx;
             this.vy = this.targetVy;
         }
         this.fitPopulation();
         if (this.reducedMotion && this.shown) this.drawStatic();
+        this.syncLoop();
     }
 
     /** Hand over to the leaflet field: wait `delayMs` while it fades in, fade out, then destroy. */
@@ -288,7 +298,7 @@ export class CloseInWindLayer {
     }
 
     private fitPopulation(): void {
-        const target = closeInParticleCount(this.width, this.height, this.wind?.kt ?? 0, this.tierScale);
+        const target = this.wind ? closeInParticleCount(this.width, this.height, this.wind.kt, this.tierScale) : 0;
         if (this.particles.length > target) this.particles.length = target;
         while (this.particles.length < target) {
             this.particles.push({
@@ -323,6 +333,8 @@ export class CloseInWindLayer {
         this.particles = [];
         this.fitPopulation();
         if (this.reducedMotion && this.shown) this.drawStatic();
+        // A 0x0 container (kept alive under display:none) parks the loop; a size back restarts it.
+        this.syncLoop();
     }
 
     private resetAnchor(): void {
@@ -358,7 +370,7 @@ export class CloseInWindLayer {
             y: p.y + (this.latticeOffset.y - this.anchorPx.y) * s,
         };
         const ctx = this.ctx;
-        if (ctx && !this.reducedMotion) {
+        if (ctx && !this.reducedMotion && this.wind) {
             try {
                 // The trails go with them, in one copy of the canvas onto itself.
                 ctx.globalCompositeOperation = 'copy';
@@ -398,10 +410,33 @@ export class CloseInWindLayer {
     };
 
     private readonly onVisibility = (): void => {
-        if (typeof document === 'undefined') return;
-        if (document.hidden) this.stopLoop();
-        else if (this.shown && !this.reducedMotion) this.startLoop();
+        this.syncLoop();
     };
+
+    /** Run the loop exactly while there is something to animate on a visible, sized, shown canvas. */
+    private syncLoop(): void {
+        const hidden = typeof document !== 'undefined' && document.hidden;
+        const wanted =
+            this.shown &&
+            !this.destroyed &&
+            !this.reducedMotion &&
+            !hidden &&
+            this.wind !== null &&
+            this.width > 0 &&
+            this.height > 0;
+        if (wanted) this.startLoop();
+        else this.stopLoop();
+    }
+
+    /** Wipe what is drawn (source-over), then restore the frame recipe's carried alpha. */
+    private clearCanvas(): void {
+        const ctx = this.ctx;
+        if (!ctx) return;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        ctx.clearRect(0, 0, this.width, this.height);
+        ctx.globalAlpha = 0.9 * this.fade;
+    }
 
     private startLoop(): void {
         if (this.frameId !== null || this.destroyed || this.reducedMotion) return;

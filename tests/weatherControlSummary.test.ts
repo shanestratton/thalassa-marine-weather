@@ -350,8 +350,9 @@ describe('weatherControlSummary close-in wind readout', () => {
         expect(result.primary).toBe('Wind · 14 kt SSW · Boat');
         expect(result.secondary).toBe('True wind · Boat instruments');
         expect(result.accessibleText).toContain("Wind at the boat: 14 kt SSW, the boat's own true-wind instruments");
+        // Stale leads, so a 320 px pill that truncates the end still shows it.
         expect(summary({ windCloseIn: { ...boat, stale: true } }).secondary).toBe(
-            'True wind · Boat instruments · Stale',
+            'Stale · True wind · Boat instruments',
         );
     });
 

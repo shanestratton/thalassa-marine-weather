@@ -10,13 +10,14 @@
  * Cleanup: removes the heatmap plus the optional velocity layer/Leaflet overlay.
  *
  * CLOSE-IN MODE (Shane 2026-10-06, z14 over Airlie: "i turned wind on, but
- * nothing showed up"). Once the screen spans under 1.5 cells of the grid on
- * screen (about z10 for ECMWF 0.25 deg on a phone; closeInWind.ts), the geo
- * field hands over to CloseInWindLayer: the local wind as one screen-space
- * flow, from the boat's true-wind instruments when they are usable, the boat
- * is on screen and the scrubber is at now, else the selected model at the
- * screen centre for the scrubbed hour. The two cross-fade, with hysteresis,
- * and the leaflet engine is torn down rather than left animating underneath.
+ * nothing showed up"). Once the screen spans under 1.5 cells of a fixed
+ * 0.25 deg reference, the chart's finest fetch tier (about z10 on a phone,
+ * whatever lattice is cached; closeInWind.ts), the geo field hands over to
+ * CloseInWindLayer: the local wind as one screen-space flow, from the boat's
+ * true-wind instruments when they are usable, the boat is on screen and the
+ * scrubber is at now, else the selected model at the screen centre for the
+ * scrubbed hour. The two cross-fade, with hysteresis, and the leaflet engine
+ * is torn down rather than left animating underneath.
  *
  * Usage:
  *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible />
@@ -33,15 +34,14 @@ import { WIND_MAX_MS, WIND_PARTICLE_COLORS } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 import { CloseInWindLayer } from './CloseInWindLayer';
 import {
+    closeInModeFor,
     isWindScrubAtNow,
-    nextCloseInMode,
     pickBoatTrueWind,
     resolveCloseInWind,
     sampleWindGridAt,
     setCloseInWindReadout,
-    viewportGridCells,
     windFromVector,
-    windGridSpacingDeg,
+    type CloseInWindSource,
 } from './closeInWind';
 
 const log = createLogger('MapboxVelocityOverlay');
@@ -291,23 +291,29 @@ function applyVelocityData(
 const CROSSFADE_MS = 400;
 /** The leaflet field fades in 600 ms after setup; the close-in field holds until then. */
 const LEAFLET_FADE_IN_DELAY_MS = 600;
+/**
+ * While the boat is the source, re-read it this often. Its freshness tiers run
+ * on the sample clock, but the store only notifies on a sample or a watchdog
+ * tick, and the watchdog is not running without a Pi pairing or a saved
+ * gateway: a feed that stopped would otherwise hold its last value until the
+ * next pan.
+ */
+const BOAT_RECHECK_MS = 2000;
 
-/** Does the camera, as it has settled, call for close-in? (with hysteresis) */
+/** Does the camera, as it has settled, call for close-in? (with hysteresis; the grid need only be there) */
 function closeInFor(map: mapboxgl.Map, grid: WindGrid | undefined, wasCloseIn: boolean): boolean {
-    const spacing = windGridSpacingDeg(grid);
-    if (!spacing) return false;
     try {
         const container = map.getContainer();
-        const cells = viewportGridCells(
+        return closeInModeFor(
+            wasCloseIn,
             {
                 zoom: map.getZoom(),
                 widthPx: container.clientWidth,
                 heightPx: container.clientHeight,
                 centreLat: map.getCenter().lat,
             },
-            spacing,
+            grid,
         );
-        return nextCloseInMode(wasCloseIn, cells);
     } catch {
         return false;
     }
@@ -403,7 +409,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         return () => {
             mapboxMap.off('zoomend', updateParticleZoomSupport);
         };
-        // windGrid: a model switch changes the grid spacing, so re-decide.
+        // windGrid: close-in needs a grid, so a cleared or arriving grid
+        // re-decides. The threshold itself is the camera's alone, so a grid
+        // swap at the same camera never flips the mode.
     }, [mapboxMap, visible, particlesEnabled, windGrid]);
 
     const closeInWanted = Boolean(mapboxMap && visible && particlesEnabled && particleZoomSupported && closeIn);
@@ -449,6 +457,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // The grid the close-in field last sampled: a different (or no) grid at
     // hand-over means a model switch, and the old model's wind must not linger.
     const sampledGridRef = useRef<WindGrid | undefined>(undefined);
+    const closeInSourceRef = useRef<CloseInWindSource | null>(null);
     const refreshCloseInRef = useRef<() => void>(() => {});
     refreshCloseInRef.current = () => {
         const layer = closeInLayerRef.current;
@@ -469,6 +478,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             model: vector ? windFromVector(vector.u, vector.v) : null,
         });
         sampledGridRef.current = windGridPropRef.current;
+        closeInSourceRef.current = wind?.source ?? null;
         layer.setWind(wind);
         setCloseInWindReadout(wind);
     };
@@ -497,10 +507,15 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         // the instruments arrive every few seconds.
         mapboxMap.on('moveend', refresh);
         const unsubscribe = NmeaStore.subscribe(refresh);
+        const recheck = setInterval(() => {
+            if (closeInSourceRef.current === 'boat') refresh();
+        }, BOAT_RECHECK_MS);
         const owned = layer;
         return () => {
             mapboxMap.off('moveend', refresh);
             unsubscribe();
+            clearInterval(recheck);
+            closeInSourceRef.current = null;
             setCloseInWindReadout(null);
             const forget = () => {
                 if (closeInLayerRef.current === owned) closeInLayerRef.current = null;

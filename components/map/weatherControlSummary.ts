@@ -337,9 +337,10 @@ export function summarizeWeatherControls(input: WeatherControlSummaryInput): Wea
     // Only the leading warning is abbreviated. Every issue remains in the accessible label,
     // and a visible +N alerts count makes other affected layers impossible to mistake for all-clear.
     const alert = issues[0] ? `${issues[0].short}${issues.length > 1 ? ` +${issues.length - 1} alerts` : ''}` : '';
+    // Stale leads the boat line: a 320 px pill truncates the end of it.
     const lead =
         closeIn?.source === 'boat'
-            ? [`True wind · Boat instruments${closeIn.stale ? ' · Stale' : ''}`]
+            ? [`${closeIn.stale ? 'Stale · ' : ''}True wind · Boat instruments`]
             : closeIn
               ? [status, current.time]
               : [current.time];

@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     CLOSE_IN_CALM_KT,
     CLOSE_IN_ENTER_CELLS,
     CLOSE_IN_EXIT_CELLS,
     CLOSE_IN_MAX_PX_S,
+    CLOSE_IN_REFERENCE_GRID_DEG,
+    closeInModeFor,
     closeInParticleCount,
     closeInScreenSpeed,
     formatCloseInWind,
@@ -66,7 +70,7 @@ function grid(frames: Array<{ u: number[]; v: number[] }>): WindGrid {
 }
 
 describe('close-in threshold maths', () => {
-    it('reads the grid spacing from the grid itself, not a hard-coded model', () => {
+    it("measures a lattice's spacing (close-in uses it only to tell a usable grid from none)", () => {
         expect(windGridSpacingDeg(grid([{ u: Array(9).fill(0), v: Array(9).fill(0) }]))).toEqual(ECMWF);
         const coarse = {
             ...grid([{ u: Array(9).fill(0), v: Array(9).fill(0) }]),
@@ -120,6 +124,72 @@ describe('close-in threshold maths', () => {
     });
 });
 
+/** A 3x3 lattice centred on Airlie at `spacingDeg`: the shapes WindDataController really caches. */
+function lattice(spacingDeg: number): WindGrid {
+    const axis = (centre: number) => [centre - spacingDeg, centre, centre + spacingDeg];
+    const lats = axis(AIRLIE_LAT);
+    const lons = axis(148.72);
+    return {
+        ...grid([{ u: Array(9).fill(-2), v: Array(9).fill(2) }]),
+        lats,
+        lons,
+        south: lats[0],
+        north: lats[2],
+        west: lons[0],
+        east: lons[2],
+    };
+}
+
+describe('close-in threshold: the camera decides, not the cached lattice', () => {
+    // Review 2026-10-06: the on-screen grid is the FETCH lattice, not the model.
+    // A z11+ viewport fetch is a 3x3 lattice ~1.25 screens across (0.08 deg on a
+    // phone at z12); the first grid to land is often the 1 deg or 2.08 deg coarse one.
+    const fine = lattice(0.25);
+    const viewportFetch = lattice(0.08);
+    const synoptic = lattice(2.083);
+    const oneDegree = lattice(1);
+    const at = (zoom: number) => ({ zoom, ...PHONE, centreLat: AIRLIE_LAT });
+
+    it('gives the same mode at the same camera whatever lattice is cached', () => {
+        for (const zoom of [5, 7, 8, 9, 9.5, 9.7, 9.9, 10.1, 11, 12, 14, 18]) {
+            const cells = viewportGridCells(at(zoom), ECMWF);
+            for (const cached of [fine, viewportFetch, synoptic, oneDegree]) {
+                expect(closeInModeFor(false, at(zoom), cached)).toBe(nextCloseInMode(false, cells));
+                expect(closeInModeFor(true, at(zoom), cached)).toBe(nextCloseInMode(true, cells));
+            }
+        }
+    });
+
+    it('a coarse grid on screen no longer pulls close-in down to z7-z9', () => {
+        for (const cached of [synoptic, oneDegree, lattice(0.5)]) {
+            for (const zoom of [7, 8, 9, 9.9]) expect(closeInModeFor(false, at(zoom), cached)).toBe(false);
+            expect(closeInModeFor(false, at(10.1), cached)).toBe(true);
+        }
+    });
+
+    it('a pinch out of one level on the old viewport lattice holds close-in: no exit and re-entry on the refetch', () => {
+        // In close-in at z12 on its own 3x3 fetch; settle at z11 with that grid still cached.
+        expect(closeInModeFor(true, at(12), viewportFetch)).toBe(true);
+        expect(closeInModeFor(true, at(11), viewportFetch)).toBe(true);
+        // And the same lattice does not hold close-in off when zooming in to z11.
+        expect(closeInModeFor(false, at(11), viewportFetch)).toBe(true);
+    });
+
+    it('still refuses close-in with no grid, a degenerate grid or an unmeasured viewport', () => {
+        expect(closeInModeFor(false, at(14), undefined)).toBe(false);
+        expect(closeInModeFor(true, at(14), null)).toBe(false);
+        expect(closeInModeFor(false, at(14), { ...fine, lons: [148.72] })).toBe(false);
+        expect(closeInModeFor(true, { zoom: 14, widthPx: 0, heightPx: 0, centreLat: AIRLIE_LAT }, fine)).toBe(false);
+    });
+
+    it("measures against the chart's finest wind fetch tier (WindDataController FINE_GRID_RES_DEG)", () => {
+        const source = readFileSync(resolve(process.cwd(), 'services/weather/WindDataController.ts'), 'utf8');
+        const fineTier = source.match(/const FINE_GRID_RES_DEG = ([\d.]+);/);
+        expect(fineTier).not.toBeNull();
+        expect(Number(fineTier![1])).toBe(CLOSE_IN_REFERENCE_GRID_DEG);
+    });
+});
+
 function expectVector(actual: { u: number; v: number } | null, u: number, v: number): void {
     expect(actual).not.toBeNull();
     expect(actual!.u).toBeCloseTo(u, 6);
@@ -159,6 +229,31 @@ describe('close-in model sample', () => {
         expect(
             sampleWindGridAt({ ...g, u: [new Float32Array([Number.NaN, 1, 1, 1, 1, 1, 1, 1, 1])] }, 0, -20.4, 148.55),
         ).toBeNull();
+    });
+});
+
+describe('close-in model sample fails closed on zero-filled data', () => {
+    // OpenMeteoWindFetcher writes `?? 0` for a null hour (a partly synced
+    // model): u = v = 0 exactly. Close-in must not paint that hole as Calm.
+    const fill = (u: number, v: number) => ({ u: Array(9).fill(u), v: Array(9).fill(v) });
+
+    it('a corner with u and v both exactly 0 is missing data, not Calm', () => {
+        const hole = grid([{ u: [1, 1, 1, 1, 0, 1, 1, 1, 1], v: [1, 1, 1, 1, -0, 1, 1, 1, 1] }]);
+        expect(sampleWindGridAt(hole, 0, -20.3, 148.6)).toBeNull();
+        expect(sampleWindGridAt(hole, 0, -20.1, 148.9)).toBeNull();
+        expect(sampleWindGridAt(grid([fill(0, 0)]), 0, -20.3, 148.6)).toBeNull();
+        expect(sampleWindGridAt(grid([fill(-0, -0)]), 0, -20.3, 148.6)).toBeNull();
+    });
+
+    it('a real light wind with one component at 0 is still wind', () => {
+        expectVector(sampleWindGridAt(grid([fill(0, 0.3)]), 0, -20.3, 148.6), 0, 0.3);
+        expectVector(sampleWindGridAt(grid([fill(-0.2, 0)]), 0, -20.3, 148.6), -0.2, 0);
+    });
+
+    it('a zero-filled next hour holds the base hour instead of halving the wind', () => {
+        const g = grid([fill(2, 1), fill(0, 0)]);
+        expectVector(sampleWindGridAt(g, 0.5, -20.3, 148.6), 2, 1);
+        expect(sampleWindGridAt(g, 1, -20.3, 148.6)).toBeNull();
     });
 });
 

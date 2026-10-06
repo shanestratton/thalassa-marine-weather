@@ -652,7 +652,7 @@ describe('MapboxVelocityOverlay close-in mode', () => {
         view.unmount();
     });
 
-    it('past the grid-derived threshold it cross-fades to the screen-space field and parks leaflet', async () => {
+    it('past the close-in threshold it cross-fades to the screen-space field and parks leaflet', async () => {
         mocks.releasePlugin();
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
         const mapbox = phoneHarness(8);
@@ -868,5 +868,114 @@ describe('MapboxVelocityOverlay close-in mode and a model switch', () => {
         expect(getCloseInWindReadout()!.kt).toBeCloseTo(12, 3);
         expect(getCloseInWindReadout()!.fromDeg).toBeCloseTo(90, 3);
         view.unmount();
+    });
+});
+
+describe('MapboxVelocityOverlay close-in: the camera decides, not the cached lattice', () => {
+    afterEach(() => {
+        nmea.reset();
+        vi.restoreAllMocks();
+    });
+
+    /** A 3x3 lattice centred on Airlie at `spacingDeg`, 8 kt from the SE: the shapes the chart really caches. */
+    function lattice(spacingDeg: number): WindGrid {
+        const fine = airlieGrid();
+        const axis = (centre: number) => [centre - spacingDeg, centre, centre + spacingDeg];
+        const lats = axis(AIRLIE.lat);
+        const lons = axis(AIRLIE.lng);
+        return {
+            ...fine,
+            u: fine.u.map((f) => f.slice(0, 9)),
+            v: fine.v.map((f) => f.slice(0, 9)),
+            speed: fine.speed.map((f) => f.slice(0, 9)),
+            width: 3,
+            height: 3,
+            lats,
+            lons,
+            south: lats[0],
+            north: lats[2],
+            west: lons[0],
+            east: lons[2],
+            refTime: `lattice-${spacingDeg}`,
+        };
+    }
+
+    it('a coarse grid on screen keeps the leaflet field at z9 instead of one value over 200 km', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(9);
+        const layersBefore = mocks.velocityLayers.length;
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={lattice(2.083)}
+                windHour={0}
+                windNowIdx={0}
+            />,
+        );
+        expect(closeInElement(mapbox)).toBeNull();
+        expect(getCloseInWindReadout()).toBeNull();
+        await waitFor(() => expect(mocks.velocityLayers.length).toBe(layersBefore + 1));
+        view.unmount();
+    });
+
+    it('a pinch out on the old viewport lattice holds close-in, and the refetch does not flip it back', async () => {
+        // Review 2026-10-06: a z11+ viewport fetch is a 3x3 lattice ~1.25 screens
+        // across. Measured against it, a pinch out of one level read 2.5 cells and
+        // exited, leaflet booted, then the refetch at 1.25 cells re-entered.
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(12);
+        const mapsBefore = mocks.leafletMaps.length;
+        const props = { mapboxMap: mapbox.map as never, visible: true, windHour: 0, windNowIdx: 0 };
+        const view = render(<MapboxVelocityOverlay {...props} windGrid={lattice(0.08)} />);
+        const closeIn = closeInElement(mapbox);
+        expect(closeIn).not.toBeNull();
+        settleAt(mapbox, 11);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(closeInElement(mapbox)).toBe(closeIn);
+        // The z11 refetch, then a model's own grid, then the coarse warm grid: no flips.
+        view.rerender(<MapboxVelocityOverlay {...props} windGrid={lattice(0.16)} />);
+        expect(getCloseInWindReadout()).not.toBeNull();
+        view.rerender(<MapboxVelocityOverlay {...props} windGrid={airlieGrid(12, 90)} />);
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(12, 3);
+        view.rerender(<MapboxVelocityOverlay {...props} windGrid={lattice(2.083)} />);
+        expect(getCloseInWindReadout()).not.toBeNull();
+        expect(closeInElement(mapbox)).toBe(closeIn);
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(mocks.leafletMaps.length).toBe(mapsBefore);
+        view.unmount();
+    });
+
+    it('drops a boat reading that went dead without a store notification', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+        try {
+            vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+            const mapbox = phoneHarness(14);
+            nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+            const view = render(
+                <MapboxVelocityOverlay
+                    mapboxMap={mapbox.map as never}
+                    visible
+                    windGrid={airlieGrid()}
+                    windHour={0}
+                    windNowIdx={0}
+                />,
+            );
+            expect(getCloseInWindReadout()).toMatchObject({ source: 'boat', stale: false });
+            // No more samples and no notification (no watchdog running): the
+            // overlay's own re-check still moves the readout through the tiers.
+            act(() => vi.advanceTimersByTime(9_000));
+            expect(getCloseInWindReadout()).toMatchObject({ source: 'boat', stale: true });
+            act(() => vi.advanceTimersByTime(5_000));
+            expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+            expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
+            view.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
