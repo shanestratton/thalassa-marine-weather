@@ -17,6 +17,8 @@ describe('MapboxVelocityOverlay selected-grid architecture', () => {
     it('receives the reactive selected-model grid rather than the initial-load ref', () => {
         expect(mapHubSource).toContain('windGrid={weather.windState.grid ?? undefined}');
         expect(mapHubSource).not.toContain('windGrid={weather.windGridRef?.current ?? undefined}');
+        // Close-in mode reads the boat's instruments only at the frame labelled Near now.
+        expect(mapHubSource).toContain('windNowIdx={weather.windNowIdx}');
     });
 
     it('covers frame zero in both grid-arrival orders and clears an absent grid', () => {

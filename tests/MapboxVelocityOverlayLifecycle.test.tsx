@@ -8,6 +8,7 @@ import {
 } from '../components/map/MapboxVelocityOverlay';
 import type { VelocityGribRecord } from '../components/map/windVelocityFrame';
 import type { WindGrid } from '../services/weather/windGridEncoding';
+import { getCloseInWindReadout, viewportGridCells } from '../components/map/closeInWind';
 
 type MapHandler = () => void;
 
@@ -107,6 +108,50 @@ vi.mock('leaflet-velocity-ts', async () => {
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => mocks.logger,
 }));
+
+// The boat's instruments, as the overlay reads them: a controllable store.
+const nmea = vi.hoisted(() => {
+    const empty = () => ({ value: null, lastUpdated: 0, freshness: 'dead' });
+    const listeners = new Set<() => void>();
+    const store = {
+        state: {} as Record<string, unknown>,
+        boatFeed: false,
+        reset() {
+            store.state = {
+                tws: empty(),
+                twd: empty(),
+                twaSigned: empty(),
+                headingTrue: empty(),
+                latitude: empty(),
+                longitude: empty(),
+                sog: empty(),
+                cog: empty(),
+                connectionStatus: 'disconnected',
+            };
+            store.boatFeed = false;
+        },
+        live(patch: Record<string, number>) {
+            const now = Date.now();
+            for (const [key, value] of Object.entries(patch)) {
+                store.state[key] = { value, lastUpdated: now, freshness: 'live' };
+            }
+            for (const listener of [...listeners]) listener();
+        },
+        NmeaStore: {
+            getState: () => store.state,
+            isBoatFeed: () => store.boatFeed,
+            subscribe: (listener: () => void) => {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+        },
+        listenerCount: () => listeners.size,
+    };
+    store.reset();
+    return store;
+});
+
+vi.mock('../services/NmeaStore', () => ({ NmeaStore: nmea.NmeaStore }));
 
 interface MapboxHarness {
     container: HTMLDivElement;
@@ -483,6 +528,9 @@ describe('MapboxVelocityOverlay React lifecycle', () => {
     });
 
     it('keeps wind mounted and reapplies sparse, slow particles at harbour zoom', async () => {
+        // This harness has an unmeasured (0x0) container and a 1x1 grid, so
+        // close-in mode cannot engage: this pins the leaflet path's own
+        // high-zoom maths. Close-in has its own suite at the end of the file.
         const mapbox = createMapboxHarness(9);
         const before = mocks.leafletMaps.length;
         const beforeLayers = mocks.velocityLayers.length;
@@ -505,5 +553,320 @@ describe('MapboxVelocityOverlay React lifecycle', () => {
         });
         view.unmount();
         expect(mapbox.listeners.size).toBe(0);
+    });
+});
+
+// ── Close-in mode (Shane 2026-10-06, z14 over Airlie: "i turned wind on, but nothing showed up") ──
+
+const AIRLIE = { lat: -20.27, lng: 148.72 };
+const KT = 1852 / 3600;
+
+/** A 9x9, 0.25 deg ECMWF-like grid centred on Airlie: `kt` from `fromDeg` everywhere, two hourly frames. */
+function airlieGrid(kt = 8, fromDeg = 135, laterKt = kt): WindGrid {
+    const frame = (speedKt: number) => {
+        const ms = speedKt * KT;
+        const rad = (fromDeg * Math.PI) / 180;
+        return {
+            u: new Float32Array(81).fill(-ms * Math.sin(rad)),
+            v: new Float32Array(81).fill(-ms * Math.cos(rad)),
+            speed: new Float32Array(81).fill(ms),
+        };
+    };
+    const a = frame(kt);
+    const b = frame(laterKt);
+    const lats = Array.from({ length: 9 }, (_, i) => AIRLIE.lat - 1 + i * 0.25);
+    const lons = Array.from({ length: 9 }, (_, i) => AIRLIE.lng - 1 + i * 0.25);
+    return {
+        u: [a.u, b.u],
+        v: [a.v, b.v],
+        speed: [a.speed, b.speed],
+        width: 9,
+        height: 9,
+        lats,
+        lons,
+        north: lats[8],
+        south: lats[0],
+        west: lons[0],
+        east: lons[8],
+        totalHours: 2,
+        refTime: 'airlie',
+    };
+}
+
+/** The harness at a phone's size over Airlie. project() puts every point at (100, 80): on screen. */
+function phoneHarness(zoom: number): MapboxHarness {
+    const mapbox = createMapboxHarness(zoom);
+    Object.defineProperty(mapbox.container, 'clientWidth', { configurable: true, get: () => 390 });
+    Object.defineProperty(mapbox.container, 'clientHeight', { configurable: true, get: () => 844 });
+    mapbox.map.getCenter.mockReturnValue(AIRLIE);
+    return mapbox;
+}
+
+/** The zoom at which this phone spans `cells` of the 0.25 deg grid. */
+function zoomForCells(cells: number): number {
+    const at10 = viewportGridCells(
+        { zoom: 10, widthPx: 390, heightPx: 844, centreLat: AIRLIE.lat },
+        { dxDeg: 0.25, dyDeg: 0.25 },
+    )!;
+    return 10 + Math.log2(at10 / cells);
+}
+
+const closeInElement = (mapbox: MapboxHarness) =>
+    mapbox.container.querySelector('[data-close-in-wind="true"]') as HTMLDivElement | null;
+
+function settleAt(mapbox: MapboxHarness, zoom: number): void {
+    act(() => {
+        mapbox.map.getZoom.mockReturnValue(zoom);
+        mapbox.emit('zoom');
+        mapbox.emit('moveend');
+        mapbox.emit('zoomend');
+    });
+}
+
+describe('MapboxVelocityOverlay close-in mode', () => {
+    afterEach(() => {
+        nmea.reset();
+        vi.restoreAllMocks();
+    });
+
+    it('low zoom still uses leaflet-velocity, unchanged', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(8);
+        const mapsBefore = mocks.leafletMaps.length;
+        const layersBefore = mocks.velocityLayers.length;
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid()}
+                windHour={0}
+                windNowIdx={0}
+            />,
+        );
+        await waitFor(() => expect(mocks.velocityLayers.length).toBe(layersBefore + 1));
+        expect(mocks.leafletMaps.length).toBe(mapsBefore + 1);
+        expect(closeInElement(mapbox)).toBeNull();
+        expect(getCloseInWindReadout()).toBeNull();
+        expect(mocks.velocityLayers[layersBefore]._windy).toBeDefined();
+        view.unmount();
+    });
+
+    it('past the grid-derived threshold it cross-fades to the screen-space field and parks leaflet', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(8);
+        const mapsBefore = mocks.leafletMaps.length;
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid()}
+                windHour={0}
+                windNowIdx={0}
+            />,
+        );
+        await waitFor(() => expect(mocks.leafletMaps.length).toBe(mapsBefore + 1));
+        const leaflet = mocks.leafletMaps[mapsBefore];
+        const leafletOverlay = mapbox.container.firstElementChild as HTMLDivElement;
+        await waitFor(() => expect(leafletOverlay.style.opacity).toBe('1'));
+
+        // Just above the entry line: still the geo field.
+        settleAt(mapbox, zoomForCells(1.55));
+        expect(closeInElement(mapbox)).toBeNull();
+
+        settleAt(mapbox, 14);
+        const closeIn = closeInElement(mapbox)!;
+        expect(closeIn).not.toBeNull();
+        expect(closeIn.style.opacity).toBe('1');
+        expect(closeIn.style.zIndex).toBe('400');
+        expect(closeIn.style.filter).toBe(leafletOverlay.style.filter);
+        expect(leafletOverlay.style.opacity).toBe('0');
+        // The model at the screen centre, named as the model.
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model', stale: false });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
+        expect(getCloseInWindReadout()!.fromDeg).toBeCloseTo(135, 3);
+        // Leaflet is torn down once its fade has run, not left animating underneath.
+        expect(leaflet.remove).not.toHaveBeenCalled();
+        await waitFor(() => expect(leaflet.remove).toHaveBeenCalledOnce());
+        expect(closeInElement(mapbox)).toBe(closeIn);
+
+        view.unmount();
+        expect(closeInElement(mapbox)).toBeNull();
+        expect(getCloseInWindReadout()).toBeNull();
+        expect(mapbox.listeners.size).toBe(0);
+    });
+
+    it('holds the mode inside the hysteresis band, then hands back to leaflet with a cross-fade', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        const mapsBefore = mocks.leafletMaps.length;
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid()}
+                windHour={0}
+                windNowIdx={0}
+            />,
+        );
+        // Opened already close in: leaflet is never started.
+        expect(closeInElement(mapbox)).not.toBeNull();
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(mocks.leafletMaps.length).toBe(mapsBefore);
+
+        // Between the entry and exit lines: no flip.
+        settleAt(mapbox, zoomForCells(1.7));
+        expect(closeInElement(mapbox)).not.toBeNull();
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        });
+        expect(mocks.leafletMaps.length).toBe(mapsBefore);
+
+        // Past the exit line: leaflet comes back and the close-in field fades out after it.
+        settleAt(mapbox, zoomForCells(2));
+        expect(getCloseInWindReadout()).toBeNull();
+        await waitFor(() => expect(mocks.leafletMaps.length).toBe(mapsBefore + 1));
+        const fading = closeInElement(mapbox)!;
+        expect(fading).not.toBeNull();
+        expect(fading.style.opacity).toBe('1');
+        await waitFor(() => expect(closeInElement(mapbox)).toBeNull(), { timeout: 2000 });
+        view.unmount();
+    });
+
+    it('reads the boat instruments first when live, on screen and at now; the model when scrubbed away', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const props = { mapboxMap: mapbox.map as never, visible: true, windGrid: airlieGrid(8, 135, 20) };
+        const view = render(<MapboxVelocityOverlay {...props} windHour={0} windNowIdx={0} />);
+        expect(getCloseInWindReadout()).toEqual({ kt: 14, fromDeg: 200, source: 'boat', stale: false });
+        // A fresh sample is picked up from the store's own notifications.
+        act(() => nmea.live({ tws: 15, twd: 210 }));
+        expect(getCloseInWindReadout()).toMatchObject({ kt: 15, fromDeg: 210, source: 'boat' });
+
+        // Scrubbed to the next hour: the model for that hour, never the boat.
+        view.rerender(<MapboxVelocityOverlay {...props} windHour={1} windNowIdx={0} />);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(20, 3);
+
+        // Back at now, but the instruments have gone quiet (dead): the model.
+        nmea.reset();
+        view.rerender(<MapboxVelocityOverlay {...props} windHour={0} windNowIdx={0} />);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
+        view.unmount();
+        expect(nmea.listenerCount()).toBe(0);
+    });
+
+    it('a boat off screen does not speak for the water on screen', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        mapbox.map.project.mockImplementation(([lng]: [number, number]) =>
+            lng === 150 ? { x: 2000, y: 80 } : { x: 100, y: 80 },
+        );
+        nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: 150 });
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid()}
+                windHour={0}
+                windNowIdx={0}
+            />,
+        );
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        view.unmount();
+    });
+
+    it('MOB hides it at once, with nothing left fading over the casualty', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        const props = { mapboxMap: mapbox.map as never, windGrid: airlieGrid(), windHour: 0, windNowIdx: 0 };
+        const view = render(<MapboxVelocityOverlay {...props} visible />);
+        expect(closeInElement(mapbox)).not.toBeNull();
+        view.rerender(<MapboxVelocityOverlay {...props} visible={false} />);
+        expect(closeInElement(mapbox)).toBeNull();
+        expect(getCloseInWindReadout()).toBeNull();
+        expect(mapbox.listeners.size).toBe(0);
+        // The skipper's wind comes back by itself when MOB clears.
+        view.rerender(<MapboxVelocityOverlay {...props} visible />);
+        expect(closeInElement(mapbox)).not.toBeNull();
+        view.unmount();
+    });
+
+    it('prefers-reduced-motion shows the static arrow field', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation(
+            (query: string) =>
+                ({
+                    matches: query.includes('prefers-reduced-motion'),
+                    media: query,
+                    addEventListener: vi.fn(),
+                    removeEventListener: vi.fn(),
+                }) as unknown as MediaQueryList,
+        );
+        const mapbox = phoneHarness(14);
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid()}
+                windHour={0}
+                windNowIdx={0}
+            />,
+        );
+        expect(closeInElement(mapbox)?.dataset.motion).toBe('static');
+        view.unmount();
+        matchMedia.mockRestore();
+    });
+
+    it('cannot engage without a measured viewport or a grid to measure against', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const unmeasured = createMapboxHarness(14);
+        const a = render(
+            <MapboxVelocityOverlay
+                mapboxMap={unmeasured.map as never}
+                visible
+                windGrid={airlieGrid()}
+                windHour={0}
+                windNowIdx={0}
+            />,
+        );
+        expect(closeInElement(unmeasured)).toBeNull();
+        a.unmount();
+        const noGrid = phoneHarness(14);
+        const b = render(<MapboxVelocityOverlay mapboxMap={noGrid.map as never} visible windHour={0} windNowIdx={0} />);
+        expect(closeInElement(noGrid)).toBeNull();
+        b.unmount();
+    });
+});
+
+describe('MapboxVelocityOverlay close-in mode and a model switch', () => {
+    afterEach(() => {
+        nmea.reset();
+        vi.restoreAllMocks();
+    });
+
+    it('a cleared grid removes the close-in streaks at once instead of fading the old model out', () => {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        const props = { mapboxMap: mapbox.map as never, visible: true, windHour: 0, windNowIdx: 0 };
+        const view = render(<MapboxVelocityOverlay {...props} windGrid={airlieGrid()} />);
+        expect(closeInElement(mapbox)).not.toBeNull();
+        view.rerender(<MapboxVelocityOverlay {...props} windGrid={undefined} />);
+        expect(closeInElement(mapbox)).toBeNull();
+        expect(getCloseInWindReadout()).toBeNull();
+        // The new model's grid brings it straight back, sampled from that grid.
+        view.rerender(<MapboxVelocityOverlay {...props} windGrid={airlieGrid(12, 90)} />);
+        expect(closeInElement(mapbox)).not.toBeNull();
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(12, 3);
+        expect(getCloseInWindReadout()!.fromDeg).toBeCloseTo(90, 3);
+        view.unmount();
     });
 });

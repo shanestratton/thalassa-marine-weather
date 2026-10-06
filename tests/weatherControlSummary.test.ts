@@ -332,3 +332,60 @@ describe('weatherControlSummary', () => {
         expect(result.secondary.length).toBeLessThanOrEqual(80);
     });
 });
+
+describe('weatherControlSummary close-in wind readout', () => {
+    const model = { value: '8 kt SE', source: 'model' as const, stale: false };
+    const boat = { value: '14 kt SSW', source: 'boat' as const, stale: false };
+
+    it('puts the local model value in the wind pill, named by model, with the play state below', () => {
+        const result = summary({ windCloseIn: model });
+        expect(result.primary).toBe('Wind · 8 kt SE · ECMWF');
+        expect(result.secondary).toBe('Paused · 09-27 09:30 UTC');
+        expect(result.tone).toBe('neutral');
+        expect(result.accessibleText).toContain('Wind at the screen centre: 8 kt SE, ECMWF model forecast');
+    });
+
+    it('names the boat when the instruments are shown, and says when they are stale', () => {
+        const result = summary({ windCloseIn: boat });
+        expect(result.primary).toBe('Wind · 14 kt SSW · Boat');
+        expect(result.secondary).toBe('True wind · Boat instruments');
+        expect(result.accessibleText).toContain("Wind at the boat: 14 kt SSW, the boat's own true-wind instruments");
+        expect(summary({ windCloseIn: { ...boat, stale: true } }).secondary).toBe(
+            'True wind · Boat instruments · Stale',
+        );
+    });
+
+    it('says Calm in the same place', () => {
+        expect(summary({ windCloseIn: { value: 'Calm', source: 'model', stale: false } }).primary).toBe(
+            'Wind · Calm · ECMWF',
+        );
+    });
+
+    it('keeps the layer count and the alerts', () => {
+        const result = summary({ windCloseIn: model, activeWeatherLayers: ['wind', 'rain'] });
+        expect(result.primary).toBe('Wind · 8 kt SE · ECMWF · +1 layer');
+        expect(result.secondary).toBe('Paused · 09-27 09:30 UTC · Independent times');
+        const refreshing = summary(
+            { windCloseIn: model },
+            { windState: { loading: true, error: null, grid: weather().windState.grid } },
+        );
+        expect(refreshing.secondary).toBe('Paused · 09-27 09:30 UTC · Wind refreshing');
+    });
+
+    it('never dresses an unready or unselected wind layer with a local value', () => {
+        const loading = summary(
+            { windCloseIn: model },
+            { windReady: false, windState: { loading: true, error: null } },
+        );
+        expect(loading.primary).toBe('Wind · ECMWF · Loading');
+        const rain = summary({ windCloseIn: model, activeLayer: 'rain', activeWeatherLayers: ['wind', 'rain'] });
+        expect(rain.primary).toBe('Rain · Radar · Paused · +1 layer');
+        expect(summary({ windCloseIn: null }).primary).toBe('Wind · ECMWF · Paused');
+    });
+
+    it('keeps Look-ahead as the state while the passage strip drives the clock', () => {
+        const result = summary({ windCloseIn: model, lookingAhead: true });
+        expect(result.primary).toBe('Wind · 8 kt SE · ECMWF');
+        expect(result.secondary).toBe('Look-ahead · 09-27 09:30 UTC');
+    });
+});

@@ -3441,6 +3441,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             !mobActive && (weather.activeLayers.has('velocity') || weather.activeLayers.has('wind'))
                         }
                         windHour={weather.windHour}
+                        windNowIdx={weather.windNowIdx}
                         windGrid={weather.windState.grid ?? undefined}
                     />
                 )}

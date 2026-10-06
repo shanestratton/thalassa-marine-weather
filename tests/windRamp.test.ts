@@ -149,3 +149,21 @@ describe('the streak palette (white below the reef line)', () => {
         for (const b of WIND_BANDS.filter((x) => x.toKt <= 20)) expect(WIND_PARTICLE_GRADIENT).not.toContain(b.hex);
     });
 });
+
+describe('windParticleColorForKt (the close-in streak colour)', () => {
+    it('is the streak palette at the renderer bucket edges: white below 20 kt, warning hues from the reef line', async () => {
+        const { windParticleColorForKt, WIND_PARTICLE_WHITE } = await import('../components/map/windRamp');
+        // Same buckets as the leaflet field's colour: only the sub-20 kt bands turn white.
+        const coolHexes = WIND_BANDS.filter((b) => b.toKt <= 20).map((b) => b.hex);
+        for (let tenths = 0; tenths <= 650; tenths += 1) {
+            const kt = tenths / 10;
+            const field = windColorForKt(kt);
+            expect(windParticleColorForKt(kt)).toBe(coolHexes.includes(field) ? WIND_PARTICLE_WHITE : field);
+        }
+        expect(windParticleColorForKt(19.9)).toBe(WIND_PARTICLE_WHITE);
+        expect(windParticleColorForKt(22)).toBe('#ee7a0b');
+        expect(windParticleColorForKt(Number.NaN)).toBe(WIND_PARTICLE_WHITE);
+        expect(windParticleColorForKt(-3)).toBe(WIND_PARTICLE_WHITE);
+        expect(windParticleColorForKt(500)).toBe(WIND_BANDS[WIND_BANDS.length - 1].hex);
+    });
+});

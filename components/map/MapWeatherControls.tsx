@@ -21,6 +21,8 @@ import type { CmemsLayerId } from './CmemsAttribution';
 import type { CmemsLayerLoadState } from './useCmemsGridRefresh';
 import { isCmemsRenderedStepReady } from './useCmemsPlayback';
 import { useUIStore } from '../../stores/uiStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { formatCloseInWind, useCloseInWindReadout } from './closeInWind';
 import { openExternalUrl } from '../../services/externalLinks';
 import {
     pressureProvenance,
@@ -72,6 +74,12 @@ export function MapWeatherControls({
     const passageLookAheadOn = usePassageLookAheadOn();
     const [selectedLayer, setSelectedLayer] = useState<HelixLayer>(null);
     const summaryId = useId();
+    // Close-in mode's local wind (high zoom), in the user's speed unit.
+    const closeInWind = useCloseInWindReadout();
+    const speedUnit = useSettingsStore((state) => state.settings?.units?.speed);
+    const windCloseIn = closeInWind
+        ? { value: formatCloseInWind(closeInWind, speedUnit), source: closeInWind.source, stale: closeInWind.stale }
+        : null;
 
     // Identify active weather layers (only scrubber-capable types).
     const weatherKeys: HelixLayer[] = [
@@ -121,6 +129,7 @@ export function MapWeatherControls({
         cmemsLayerStates,
         extraLegendCount: hasExtraLegend ? Math.max(1, extraLegendCount || 1) : 0,
         lookingAhead,
+        windCloseIn,
     });
     const hideControlsButton = (
         <button
@@ -359,6 +368,9 @@ export function MapWeatherControls({
                     onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
                     onScrubStart = () => weather.setWindPlaying(false);
                     sublabel += ` · ${windValidTime}`;
+                    // Close-in: what the streaks are showing, where.
+                    if (windCloseIn)
+                        sublabel = `${windCloseIn.value} ${windCloseIn.source === 'boat' ? 'at the boat' : 'here'} · ${sublabel}`;
                 }
             } else if (activeLayer === 'currents' && isCmemsFeatureEnabled('currents')) {
                 frameIndex = weather.currentsHour;

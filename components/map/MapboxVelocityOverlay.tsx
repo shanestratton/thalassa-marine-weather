@@ -9,6 +9,15 @@
  *
  * Cleanup: removes the heatmap plus the optional velocity layer/Leaflet overlay.
  *
+ * CLOSE-IN MODE (Shane 2026-10-06, z14 over Airlie: "i turned wind on, but
+ * nothing showed up"). Once the screen spans under 1.5 cells of the grid on
+ * screen (about z10 for ECMWF 0.25 deg on a phone; closeInWind.ts), the geo
+ * field hands over to CloseInWindLayer: the local wind as one screen-space
+ * flow, from the boat's true-wind instruments when they are usable, the boat
+ * is on screen and the scrubber is at now, else the selected model at the
+ * screen centre for the scrubbed hour. The two cross-fade, with hysteresis,
+ * and the leaflet engine is torn down rather than left animating underneath.
+ *
  * Usage:
  *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible />
  */
@@ -16,8 +25,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
-import { WIND_MAX_MS, WIND_PARTICLE_COLORS, windColorForKt } from './windRamp';
+import { particleScale } from '../../utils/deviceTier';
+import { NmeaStore } from '../../services/NmeaStore';
+import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { LocationStore } from '../../stores/LocationStore';
+import { WIND_MAX_MS, WIND_PARTICLE_COLORS } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
+import { CloseInWindLayer } from './CloseInWindLayer';
+import {
+    isWindScrubAtNow,
+    nextCloseInMode,
+    pickBoatTrueWind,
+    resolveCloseInWind,
+    sampleWindGridAt,
+    setCloseInWindReadout,
+    viewportGridCells,
+    windFromVector,
+    windGridSpacingDeg,
+} from './closeInWind';
 
 const log = createLogger('MapboxVelocityOverlay');
 import L from 'leaflet';
@@ -34,6 +59,8 @@ interface MapboxVelocityOverlayProps {
     particlesEnabled?: boolean;
     windHour?: number;
     windGrid?: WindGrid;
+    /** The scrubber frame labelled Near now: the boat's instruments speak only there. */
+    windNowIdx?: number;
 }
 
 // Speed-graded wind particle scale — blue → cyan → green → orange → red →
@@ -68,8 +95,9 @@ const PARTICLE_LINE_WIDTH = 1;
  * How much of each trail survives a frame. leaflet-velocity's `opacity` is
  * the fade: every frame it keeps this fraction of what is already drawn
  * ('destination-in'), and draws new segments at 0.9 x this alpha. 0.97 is the
- * library default; 0.98 keeps a trail about 1.5x as long at 30 fps (half-life
- * 34 frames, was 23). Shane 2026-10-06: "make the wind sperm a bit longer and
+ * library default. The fade fill is drawn at the previous frame's globalAlpha
+ * (0.9 x opacity), so the per-frame keep is 0.98 x 0.882 = 0.864 (was
+ * 0.97 x 0.873 = 0.847): trails about 15% longer, not the 1.5x first claimed. Shane 2026-10-06: "make the wind sperm a bit longer and
  * a bit darker. but no extras".
  */
 const PARTICLE_FADE = 0.98;
@@ -257,6 +285,65 @@ function applyVelocityData(
     return replacement;
 }
 
+// ── Close-in helpers ─────────────────────────────────────────
+
+/** Both overlays fade over 0.4 s (the container transition). */
+const CROSSFADE_MS = 400;
+/** The leaflet field fades in 600 ms after setup; the close-in field holds until then. */
+const LEAFLET_FADE_IN_DELAY_MS = 600;
+
+/** Does the camera, as it has settled, call for close-in? (with hysteresis) */
+function closeInFor(map: mapboxgl.Map, grid: WindGrid | undefined, wasCloseIn: boolean): boolean {
+    const spacing = windGridSpacingDeg(grid);
+    if (!spacing) return false;
+    try {
+        const container = map.getContainer();
+        const cells = viewportGridCells(
+            {
+                zoom: map.getZoom(),
+                widthPx: container.clientWidth,
+                heightPx: container.clientHeight,
+                centreLat: map.getCenter().lat,
+            },
+            spacing,
+        );
+        return nextCloseInMode(wasCloseIn, cells);
+    } catch {
+        return false;
+    }
+}
+
+function prefersReducedMotion(): boolean {
+    try {
+        return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Where the boat is, for "is the boat on screen": its own GPS through the
+ * store (any lane: the Pi reports the boat's fix), else this phone's GPS but
+ * only when the instruments come from aboard (the gateway socket or the Pi on
+ * the boat LAN). A phone reading the cloud row may be a hundred miles away.
+ */
+function boatPosition(): { lat: number; lon: number } | null {
+    const location = LocationStore.getState();
+    const aboard = NmeaStore.isBoatFeed();
+    const fix = resolveOwnshipPosition(NmeaStore.getState(), aboard ? location : { ...location, source: 'initial' });
+    return fix ? { lat: fix.lat, lon: fix.lon } : null;
+}
+
+function onScreen(map: mapboxgl.Map, lat: number, lon: number): boolean {
+    try {
+        const container = map.getContainer();
+        const p = map.project([lon, lat]);
+        return p.x >= 0 && p.y >= 0 && p.x <= container.clientWidth && p.y <= container.clientHeight;
+    } catch {
+        return false;
+    }
+}
+
 // ── Component ─────────────────────────────────────────────────
 
 export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
@@ -265,6 +352,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     particlesEnabled = true,
     windHour = 0,
     windGrid,
+    windNowIdx,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -276,23 +364,35 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const [particleZoomSupported, setParticleZoomSupported] = useState(() =>
         Boolean(mapboxMap && mapboxMap.getZoom() >= MIN_PARTICLE_ZOOM),
     );
+    // Close-in is decided from the settled camera. Seeded on mount, so Obs
+    // opening at z14 never starts the leaflet engine just to park it.
+    const [closeIn, setCloseIn] = useState(() =>
+        Boolean(mapboxMap && visible && particlesEnabled && closeInFor(mapboxMap, windGrid, false)),
+    );
+    // Leaflet stays up through the cross-fade into close-in, then is torn down.
+    const [leafletParked, setLeafletParked] = useState(closeIn);
     // Track latest values so the async setup can apply the correct hour
     const windHourRef = useRef(windHour);
     const windGridPropRef = useRef(windGrid);
+    const windNowIdxRef = useRef(windNowIdx);
     windHourRef.current = windHour;
     windGridPropRef.current = windGrid;
+    windNowIdxRef.current = windNowIdx;
 
     // The OBS wind read is directional at every supported zoom. Wait for the
     // camera to settle before mounting/unmounting the second map so a z3
-    // transition cannot fight Mapbox's zoom animation.
+    // transition cannot fight Mapbox's zoom animation. The same settle decides
+    // close-in, so a mode switch never lands mid-pinch either.
     useEffect(() => {
         if (!mapboxMap || !visible || !particlesEnabled) {
             setParticleZoomSupported(false);
+            setCloseIn(false);
             return;
         }
 
         const updateParticleZoomSupport = () => {
             setParticleZoomSupported(mapboxMap.getZoom() >= MIN_PARTICLE_ZOOM);
+            setCloseIn((was) => closeInFor(mapboxMap, windGridPropRef.current, was));
         };
 
         updateParticleZoomSupport();
@@ -303,9 +403,123 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         return () => {
             mapboxMap.off('zoomend', updateParticleZoomSupport);
         };
-    }, [mapboxMap, visible, particlesEnabled]);
+        // windGrid: a model switch changes the grid spacing, so re-decide.
+    }, [mapboxMap, visible, particlesEnabled, windGrid]);
 
-    const particlesActive = particlesEnabled && particleZoomSupported;
+    const closeInWanted = Boolean(mapboxMap && visible && particlesEnabled && particleZoomSupported && closeIn);
+    const closeInWantedRef = useRef(closeInWanted);
+    closeInWantedRef.current = closeInWanted;
+    const particlesActive = particlesEnabled && particleZoomSupported && !leafletParked;
+
+    // Leaflet's half of the cross-fade. Into close-in: fade its overlay out,
+    // and park (tear down) the engine once that has run. Out of close-in: it
+    // starts again at once and fades in on its own 600 ms timer.
+    useEffect(() => {
+        const overlay = overlayRef.current;
+        if (!closeInWanted) {
+            setLeafletParked(false);
+            if (overlay && velocityLayerRef.current) overlay.style.opacity = '1';
+            return;
+        }
+        const wasShowing = overlay?.style.opacity === '1';
+        if (overlay) overlay.style.opacity = '0';
+        if (!wasShowing) {
+            setLeafletParked(true);
+            return;
+        }
+        const park = setTimeout(() => setLeafletParked(true), CROSSFADE_MS + 50);
+        return () => clearTimeout(park);
+    }, [closeInWanted]);
+
+    // ── Close-in field ──────────────────────────────────────────
+    const closeInLayerRef = useRef<CloseInWindLayer | null>(null);
+    const unmountedRef = useRef(false);
+    // Hidden (MOB, Wind off) means gone now; only a zoom-out hands over with a fade.
+    const handOverRef = useRef(false);
+    handOverRef.current = Boolean(mapboxMap && visible && particlesEnabled);
+    useEffect(() => {
+        unmountedRef.current = false;
+        return () => {
+            unmountedRef.current = true;
+            closeInLayerRef.current?.destroy();
+            closeInLayerRef.current = null;
+        };
+    }, []);
+
+    // The grid the close-in field last sampled: a different (or no) grid at
+    // hand-over means a model switch, and the old model's wind must not linger.
+    const sampledGridRef = useRef<WindGrid | undefined>(undefined);
+    const refreshCloseInRef = useRef<() => void>(() => {});
+    refreshCloseInRef.current = () => {
+        const layer = closeInLayerRef.current;
+        if (!layer || !mapboxMap || !closeInWantedRef.current) return;
+        let centre: { lat: number; lng: number };
+        try {
+            centre = mapboxMap.getCenter();
+        } catch {
+            return;
+        }
+        const vector = sampleWindGridAt(windGridPropRef.current, windHourRef.current, centre.lat, centre.lng);
+        const boat = pickBoatTrueWind(NmeaStore.getState());
+        const position = boat ? boatPosition() : null;
+        const wind = resolveCloseInWind({
+            boat,
+            boatInView: !!position && onScreen(mapboxMap, position.lat, position.lon),
+            scrubAtNow: isWindScrubAtNow(windHourRef.current, windNowIdxRef.current),
+            model: vector ? windFromVector(vector.u, vector.v) : null,
+        });
+        sampledGridRef.current = windGridPropRef.current;
+        layer.setWind(wind);
+        setCloseInWindReadout(wind);
+    };
+
+    useEffect(() => {
+        if (!closeInWanted || !mapboxMap) return;
+        let layer = closeInLayerRef.current;
+        if (layer && layer.map !== mapboxMap) {
+            layer.destroy();
+            layer = null;
+        }
+        if (!layer) {
+            layer = new CloseInWindLayer(mapboxMap, {
+                filter: PARTICLE_HALO,
+                fade: PARTICLE_FADE,
+                lineWidth: PARTICLE_LINE_WIDTH,
+                tierScale: particleScale(),
+                reducedMotion: prefersReducedMotion(),
+            });
+            closeInLayerRef.current = layer;
+        }
+        layer.show();
+        const refresh = () => refreshCloseInRef.current();
+        refresh();
+        // The centre sample and "is the boat on screen" move with the camera;
+        // the instruments arrive every few seconds.
+        mapboxMap.on('moveend', refresh);
+        const unsubscribe = NmeaStore.subscribe(refresh);
+        const owned = layer;
+        return () => {
+            mapboxMap.off('moveend', refresh);
+            unsubscribe();
+            setCloseInWindReadout(null);
+            const forget = () => {
+                if (closeInLayerRef.current === owned) closeInLayerRef.current = null;
+            };
+            const sameModel = !!windGridPropRef.current && windGridPropRef.current === sampledGridRef.current;
+            if (!unmountedRef.current && handOverRef.current && sameModel) {
+                // Zoomed out: hold until leaflet has faded in, then fade.
+                owned.release(LEAFLET_FADE_IN_DELAY_MS, forget);
+            } else {
+                owned.destroy();
+                forget();
+            }
+        };
+    }, [closeInWanted, mapboxMap]);
+
+    // A new hour, a new grid, or the scrubber leaving now: re-read the local wind.
+    useEffect(() => {
+        if (closeInWanted) refreshCloseInRef.current();
+    }, [closeInWanted, windHour, windGrid, windNowIdx]);
 
     // The selected WindStore grid is the sole particle source. This effect
     // covers grid/hour updates after Leaflet setup, including the first frame.
@@ -332,7 +546,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 zoomCompensatedVelocityScale(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
                 zoomScaledParticleMultiplier(mapboxMap?.getZoom() ?? VELOCITY_SCALE_REF_ZOOM),
             );
-            if (overlayRef.current) overlayRef.current.style.opacity = '1';
+            if (overlayRef.current) overlayRef.current.style.opacity = closeInWantedRef.current ? '0' : '1';
             syncRef.current?.();
         } catch (err) {
             // Never leave the previous model painted after a renderer update
@@ -581,7 +795,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 lMap.invalidateSize();
                 syncFull();
                 // Fade in only when a selected-model grid has produced a layer.
-                if (overlayRef.current && velocityLayerRef.current) overlayRef.current.style.opacity = '1';
+                // Not while close-in holds the screen (a zoom-in mid-boot).
+                if (overlayRef.current && velocityLayerRef.current && !closeInWantedRef.current)
+                    overlayRef.current.style.opacity = '1';
             }, 600);
 
             // Second boot pass: a cold-start layout transient that OUTLIVES

@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { MapWeatherControls } from '../components/map/MapWeatherControls';
 import type { useWeatherLayers } from '../components/map/useWeatherLayers';
 import { startPassageLookAhead, stopPassageLookAhead } from '../stores/passageHudStore';
+import { setCloseInWindReadout } from '../components/map/closeInWind';
+import { useSettingsStore } from '../stores/settingsStore';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -728,6 +730,59 @@ describe('MapWeatherControls', () => {
                 expect(pill.style.bottom).toBe('');
             }
             cleanup();
+        }
+    });
+
+    it('close-in: the pill carries the local wind in the chosen unit, named by its source', () => {
+        const previous = useSettingsStore.getState().settings;
+        const speed = (unit: string) =>
+            act(() =>
+                useSettingsStore.setState({
+                    settings: { ...previous, units: { ...previous.units, speed: unit } } as typeof previous,
+                }),
+            );
+        try {
+            speed('kts');
+            act(() => setCloseInWindReadout({ kt: 8.2, fromDeg: 135, source: 'model', stale: false }));
+            render(<MapWeatherControls {...controls} controlsHidden weather={weather()} />);
+            const pill = screen.getByTestId('weather-status-pill');
+            expect(pill).toHaveTextContent('Wind · 8 kt SE · ICON');
+            expect(pill).toHaveTextContent('Paused ·');
+            speed('kmh');
+            expect(pill).toHaveTextContent('Wind · 15 km/h SE · ICON');
+            speed('kts');
+            act(() => setCloseInWindReadout({ kt: 14, fromDeg: 200, source: 'boat', stale: false }));
+            expect(pill).toHaveTextContent('Wind · 14 kt SSW · Boat');
+            expect(pill).toHaveTextContent('True wind · Boat instruments');
+            act(() => setCloseInWindReadout({ kt: 0.4, fromDeg: null, source: 'model', stale: false }));
+            expect(pill).toHaveTextContent('Wind · Calm · ICON');
+            // Low zoom again: the pill is exactly as it was.
+            act(() => setCloseInWindReadout(null));
+            expect(pill).toHaveTextContent('Wind · ICON · Paused');
+        } finally {
+            act(() => setCloseInWindReadout(null));
+            act(() => useSettingsStore.setState({ settings: previous }));
+        }
+    });
+
+    it('close-in: the open wind timeline leads its caption with the local value', () => {
+        const previous = useSettingsStore.getState().settings;
+        try {
+            act(() =>
+                useSettingsStore.setState({
+                    settings: { ...previous, units: { ...previous.units, speed: 'kts' } } as typeof previous,
+                }),
+            );
+            act(() => setCloseInWindReadout({ kt: 8.2, fromDeg: 135, source: 'model', stale: false }));
+            const view = render(<MapWeatherControls {...controls} weather={weather()} />);
+            expect(view.container).toHaveTextContent('8 kt SE here · Model forecast');
+            act(() => setCloseInWindReadout({ kt: 14, fromDeg: 200, source: 'boat', stale: false }));
+            expect(view.container).toHaveTextContent('14 kt SSW at the boat · Model forecast');
+            act(() => setCloseInWindReadout(null));
+            expect(view.container).not.toHaveTextContent(' here · ');
+        } finally {
+            act(() => setCloseInWindReadout(null));
+            act(() => useSettingsStore.setState({ settings: previous }));
         }
     });
 });
