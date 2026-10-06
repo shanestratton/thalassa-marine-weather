@@ -151,14 +151,16 @@ const acquiringSince = new Map<string, number>();
 const dismissedFollowVoyages = new Set<string>();
 
 /**
- * Same module-scope pattern for the two page-local view toggles that were
+ * Same module-scope pattern for the page-local live-map toggle, which was
  * resetting on every tab-bounce ("I literally have to start all over again",
  * Shane mid-voyage 2026-08-01). The reducer-owned view state has its own memo
- * in useLogPageState; these two live here because they never joined the
- * reducer. Cleared on identity change alongside the prompt guards.
+ * in useLogPageState; this one lives here because it never joined the
+ * reducer. Cleared on identity change alongside the prompt guards. (The
+ * archive's open state had a memo too while it was an inline disclosure; as a
+ * sheet, restoring it popped the dialog open by itself on a split-view
+ * tab-bounce, 2026-10-06, so it starts closed.)
  */
 let liveMapExpandedMemo = false;
-let showArchivedMemo = false;
 
 /** Test-only: the guards outlive component instances BY DESIGN, which also
  *  makes them outlive test cases — each spec must start unprompted. */
@@ -166,7 +168,6 @@ export function resetFollowPromptGuardsForTest(): void {
     confirmedFollowVoyages.clear();
     dismissedFollowVoyages.clear();
     liveMapExpandedMemo = false;
-    showArchivedMemo = false;
 }
 
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
@@ -1376,7 +1377,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // Sightings' quick log is up from the list: the voyage cards' mini maps
     // unmount under it (iOS paints Leaflet above fixed overlays).
     const [sightingSheetOpen, setSightingSheetOpen] = useState(false);
-    const [showArchived, setShowArchived] = useState(() => showArchivedMemo);
+    const [showArchived, setShowArchived] = useState(false);
     /** The shared history line's Retry is running (see historyUnreachable). */
     const [historyRetryPending, setHistoryRetryPending] = useState(false);
 
@@ -1623,9 +1624,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     useEffect(() => {
         liveMapExpandedMemo = liveMapExpanded;
     }, [liveMapExpanded]);
+    // The archive card is the idle Log's: when recording starts its sheet
+    // goes with it, so it cannot reappear by itself when recording stops.
     useEffect(() => {
-        showArchivedMemo = showArchived;
-    }, [showArchived]);
+        if (state.isTracking) setShowArchived(false);
+    }, [state.isTracking]);
 
     // GPS Disclaimer modal state
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
@@ -2083,8 +2086,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
 
                     {historyUnreachable && <HistoryStatusLine onRetry={retryHistory} retrying={historyRetryPending} />}
 
-                    {/* Career totals and records stay available without crowding the log. */}
-                    {isTracking && (
+                    {/* Career totals and records stay available without crowding the
+                        log. Anchored, in the Vessel page's Diary/Scuttlebutt card
+                        (Shane 2026-10-06): idle, Voyage stats and Archived voyages
+                        sit side by side above the voyage list, which scrolls in the
+                        room below them; recording, Voyage stats alone, one row, above
+                        the live card. Each opens its content in a centred sheet. */}
+                    <div
+                        className={`log-journal-pair vessel-hub-journal mx-4 mb-3 grid shrink-0 gap-3 ${isTracking ? 'log-journal-pair--single grid-cols-1' : 'grid-cols-2'}`}
+                    >
                         <VoyageStatsRollup
                             voyageStats={voyageStats}
                             records={records}
@@ -2092,8 +2102,25 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             lifetimeUnavailable={lifetimeUnavailable}
                             onRetry={historyUnreachable ? undefined : reloadArchivedVoyages}
                             retrying={lifetimeLoading}
+                            loaded={lifetimeLoaded}
+                            underHistoryLine={historyUnreachable}
                         />
-                    )}
+                        {/* The archive is the idle Log's, as it always was: no
+                            restores mid-recording. */}
+                        {!isTracking && (
+                            <ArchivedVoyagesSection
+                                key={`${identityScope.key}:${identityScope.generation}`}
+                                loggedArchivedVoyages={loggedArchivedVoyages}
+                                showArchived={showArchived}
+                                setShowArchived={setShowArchived}
+                                handleUnarchiveVoyage={handleUnarchiveVoyage}
+                                handleRestorePassage={handleRestorePassage}
+                                loading={archivesLoading}
+                                error={archiveError}
+                                onRetry={historyUnreachable ? retryHistory : reloadArchivedVoyages}
+                            />
+                        )}
+                    </div>
 
                     {castOffHandoff &&
                         (castOffHandoff.caution ||
@@ -2176,43 +2203,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 {FEATURE_VISIBILITY.sightings && (
                                     <LogSightingEntry onOpenChange={setSightingSheetOpen} />
                                 )}
-                                {/* Stats scroll with history so expanding them cannot
-                                    squeeze the archive off a short phone screen. */}
-                                <VoyageStatsRollup
-                                    inHistory
-                                    voyageStats={voyageStats}
-                                    records={records}
-                                    notice={lifetimeStatsNotice}
-                                    lifetimeUnavailable={lifetimeUnavailable}
-                                    onRetry={historyUnreachable ? undefined : reloadArchivedVoyages}
-                                    retrying={lifetimeLoading}
-                                />
-                                {/* The smaller "X TODAY · Y VOYAGES · Z NM"
-                                    status row that used to live here was
-                                    removed 2026-05-17 — it was a duplicate
-                                    of the three big gauge tiles up at the
-                                    top of the page, just in worse formatting
-                                    (and using a different — broken — data
-                                    source for the totals). Career counts now
-                                    live in one place: the gauge tile grid. */}
-
-                                {/* ── Archived Voyages ── directly under Voyage stats, so
-                                    history sits together above the current log (UX
-                                    scorecard run 6). */}
-                                <ArchivedVoyagesSection
-                                    key={`${identityScope.key}:${identityScope.generation}`}
-                                    className="mb-3"
-                                    loggedArchivedVoyages={loggedArchivedVoyages}
-                                    showArchived={showArchived}
-                                    setShowArchived={setShowArchived}
-                                    handleUnarchiveVoyage={handleUnarchiveVoyage}
-                                    handleRestorePassage={handleRestorePassage}
-                                    loading={archivesLoading}
-                                    error={archiveError}
-                                    onRetry={historyUnreachable ? retryHistory : reloadArchivedVoyages}
-                                    collapsedRetry={!historyUnreachable}
-                                />
-
                                 {/* Past Voyage Cards */}
                                 {loading && loggedVoyages.length === 0 ? (
                                     <VoyageListSkeleton />

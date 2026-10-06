@@ -26,8 +26,25 @@ const summary = (id: string, start: number, distance: number, passageGroupId?: s
     landFraction: 0,
 });
 
+const params = new URLSearchParams(window.location.search);
+// ?theme=light: the daylight remap, as App.tsx sets it on the root.
+if (params.get('theme') === 'light') document.documentElement.classList.add('display-light');
+
+const stats = { totalNm: 620.8, totalMs: 100 * 60 * 60 * 1000, voyageCount: 9 };
+const records = {
+    longestPassageNM: 306,
+    longestPassageVoyageId: 'first',
+    fastestAvgKts: 6.7,
+    fastestVoyageId: 'daydream',
+    longestDurationMs: 46 * 60 * 60 * 1000,
+    longestDurationVoyageId: 'first',
+    voyageCount: 9,
+};
+
 function Fixture() {
-    const logMode = new URLSearchParams(window.location.search).get('log') === '1';
+    const logMode = params.get('log') === '1';
+    // ?tracking=1: the recording Log, the stats card above the live card.
+    const tracking = params.get('tracking') === '1';
     const [open, setOpen] = useState(!logMode);
     const [voyages, setVoyages] = useState([
         summary('daydream', -20, 15.6),
@@ -43,7 +60,6 @@ function Fixture() {
     ]);
     const archive = (
         <ArchivedVoyagesSection
-            className={logMode ? 'mb-3' : undefined}
             loggedArchivedVoyages={voyages}
             showArchived={open}
             setShowArchived={setOpen}
@@ -64,40 +80,45 @@ function Fixture() {
                     <h1 className="text-lg font-black">Ship’s log</h1>
                 </header>
                 <div className="absolute inset-x-0 top-14 bottom-28 flex min-h-0 flex-col pt-3">
-                    <LogHistoryScroll>
-                        <VoyageStatsRollup
-                            inHistory
-                            voyageStats={{ totalNm: 620.8, totalMs: 100 * 60 * 60 * 1000, voyageCount: 9 }}
-                            records={{
-                                longestPassageNM: 306,
-                                longestPassageVoyageId: 'first',
-                                fastestAvgKts: 6.7,
-                                fastestVoyageId: 'daydream',
-                                longestDurationMs: 46 * 60 * 60 * 1000,
-                                longestDurationVoyageId: 'first',
-                                voyageCount: 9,
-                            }}
-                        />
-                        {archive}
-                        <section aria-label="Current voyages" className="space-y-3">
-                            {['Day sail', 'Harbour cruise', 'Passage south', 'Latest anchorage'].map((title, index) => (
-                                <article
-                                    key={title}
-                                    aria-label={`Current voyage ${title}`}
-                                    className="min-h-44 snap-start rounded-2xl border border-white/10 bg-slate-900/40 p-4"
-                                >
-                                    <h2 className="text-sm font-bold">{title}</h2>
-                                    <p className="mt-2 text-xs text-slate-400">
-                                        Recorded voyage {index + 1} · sample data
-                                    </p>
-                                    <div
-                                        className="mt-4 h-16 rounded-xl border border-sky-400/15 bg-sky-950/30"
-                                        aria-hidden="true"
-                                    />
-                                </article>
-                            ))}
+                    {/* As pages/LogPage.tsx: the pair anchored above the list. */}
+                    <div
+                        className={`log-journal-pair vessel-hub-journal mx-4 mb-3 grid shrink-0 gap-3 ${tracking ? 'log-journal-pair--single grid-cols-1' : 'grid-cols-2'}`}
+                    >
+                        <VoyageStatsRollup voyageStats={stats} records={records} />
+                        {!tracking && archive}
+                    </div>
+                    {tracking ? (
+                        <section
+                            aria-label="Live voyage"
+                            className="mx-4 flex flex-1 flex-col rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                        >
+                            <h2 className="text-sm font-bold">Recording · sample data</h2>
+                            <div className="mt-3 min-h-[100px] flex-1 rounded-xl border border-white/5 bg-[#0b1220]" />
                         </section>
-                    </LogHistoryScroll>
+                    ) : (
+                        <LogHistoryScroll>
+                            <section aria-label="Current voyages" className="space-y-3">
+                                {['Day sail', 'Harbour cruise', 'Passage south', 'Latest anchorage'].map(
+                                    (title, index) => (
+                                        <article
+                                            key={title}
+                                            aria-label={`Current voyage ${title}`}
+                                            className="min-h-44 snap-start rounded-2xl border border-white/10 bg-slate-900/40 p-4"
+                                        >
+                                            <h2 className="text-sm font-bold">{title}</h2>
+                                            <p className="mt-2 text-xs text-slate-400">
+                                                Recorded voyage {index + 1} · sample data
+                                            </p>
+                                            <div
+                                                className="mt-4 h-16 rounded-xl border border-sky-400/15 bg-sky-950/30"
+                                                aria-hidden="true"
+                                            />
+                                        </article>
+                                    ),
+                                )}
+                            </section>
+                        </LogHistoryScroll>
+                    )}
                 </div>
                 <footer
                     role="contentinfo"
@@ -105,7 +126,7 @@ function Fixture() {
                     className="fixed inset-x-0 bottom-14 z-10 flex h-14 items-center border-t border-white/10 bg-slate-950 px-4"
                 >
                     <button type="button" className="min-h-11 w-full rounded-xl bg-sky-500/20 text-sm font-bold">
-                        Start tracking
+                        {tracking ? 'Stop tracking' : 'Start tracking'}
                     </button>
                 </footer>
                 <nav

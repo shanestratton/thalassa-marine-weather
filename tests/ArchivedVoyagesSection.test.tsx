@@ -61,7 +61,12 @@ describe('ArchivedVoyagesSection', () => {
                 ]}
             />,
         );
-        expect(screen.getByText('5 voyages · 1 passage')).toBeVisible();
+        // The half-width card holds the count; the passages are its
+        // description (and the sheet's), so "12 voyages · 3 passages" is
+        // never cut on a 375 pt phone.
+        const card = screen.getByRole('button', { name: 'Archived voyages' });
+        expect(within(card).getByText('5 voyages', { exact: true })).toBeVisible();
+        expect(card).toHaveAccessibleDescription('5 voyages · 1 passage');
         expect(screen.getAllByRole('article')).toHaveLength(5);
         const passage = screen.getByRole('region', { name: 'Archived passage · 3 legs' });
         expect(within(passage).getAllByRole('article')).toHaveLength(3);
@@ -79,14 +84,19 @@ describe('ArchivedVoyagesSection', () => {
         expect(within(card).queryByText('2d 0h')).not.toBeInTheDocument();
     });
 
-    it('collapses cards while keeping the full voyage count visible', () => {
+    it('opens the archive in a sheet and closes it, the full voyage count kept on the card', () => {
         render(<Archive voyages={[voyage('trip')]} />);
-        // Named by its title, with the status as the description and the
-        // Show/Hide hint out of the name, as Voyage stats is (UX scorecard run 7).
+        // Named by its title, with the status as the description, as Voyage
+        // stats is (UX scorecard run 7); the Diary/Scuttlebutt card since
+        // 2026-10-06, so it announces the sheet it opens.
         const header = screen.getByRole('button', { name: 'Archived voyages' });
         expect(header).toHaveAccessibleDescription('1 voyage');
-        fireEvent.click(header);
+        expect(header).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(header).toHaveAttribute('aria-expanded', 'true');
+        const sheet = screen.getByRole('dialog', { name: 'Archived voyages' });
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
         expect(header).toHaveAttribute('aria-expanded', 'false');
+        expect(screen.queryByRole('dialog', { name: 'Archived voyages' })).not.toBeInTheDocument();
         expect(screen.queryByRole('article')).not.toBeInTheDocument();
         expect(screen.getByText('1 voyage')).toBeVisible();
         fireEvent.click(header);
@@ -108,7 +118,7 @@ describe('ArchivedVoyagesSection', () => {
         expect(screen.getByText('No archived voyages')).toBeVisible();
     });
 
-    it('offers Retry on the collapsed card when the archive failed to load', () => {
+    it('says the archive didn’t load on the card, and its sheet offers the Refresh', () => {
         const retry = vi.fn();
         const Collapsed = () => {
             const [open, setOpen] = useState(false);
@@ -125,19 +135,17 @@ describe('ArchivedVoyagesSection', () => {
         };
         render(<Collapsed />);
         expect(screen.getByText('Archive didn’t load')).toBeVisible();
-        // One failure phrase and one disclosure word across the Log's cards.
+        // One failure phrase across the Log's cards; a button cannot hold a
+        // second button, so the card's Retry lives in the sheet it opens.
         const header = screen.getByRole('button', { name: 'Archived voyages' });
         expect(header).toHaveAccessibleDescription('Archive didn’t load');
-        expect(header).toHaveTextContent('Show');
         expect(header).not.toHaveTextContent('Details');
-        const retryButton = screen.getByRole('button', { name: 'Retry' });
-        expect(retryButton).toHaveAccessibleDescription('Archive didn’t load');
-        fireEvent.click(retryButton);
-        expect(retry).toHaveBeenCalledOnce();
-        // Expanded, the full error carries its own Refresh archive.
-        fireEvent.click(screen.getByRole('button', { name: /Archived voyages/ }));
         expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
-        expect(screen.getByRole('button', { name: 'Refresh archive' })).toBeEnabled();
+        fireEvent.click(header);
+        const sheet = screen.getByRole('dialog', { name: 'Archived voyages' });
+        expect(within(sheet).getByRole('alert')).toHaveTextContent('Couldn’t refresh the archive.');
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Refresh archive' }));
+        expect(retry).toHaveBeenCalledOnce();
     });
 
     it('leaves the Retry to the page while it shows the shared history line', () => {
@@ -149,7 +157,6 @@ describe('ArchivedVoyagesSection', () => {
                 handleUnarchiveVoyage={vi.fn()}
                 error="Couldn’t refresh the archive."
                 onRetry={vi.fn()}
-                collapsedRetry={false}
             />,
         );
         expect(screen.getByText('Archive didn’t load')).toBeVisible();
@@ -208,10 +215,14 @@ describe('ArchivedVoyagesSection', () => {
             />,
         );
         fireEvent.click(screen.getByRole('button', { name: 'Restore passage' }));
-        expect(screen.getByRole('dialog')).toHaveTextContent('Return all 2 archived legs to your log.');
+        expect(screen.getByRole('dialog', { name: 'Restore this passage?' })).toHaveTextContent(
+            'Return all 2 archived legs to your log.',
+        );
         expect(restore).not.toHaveBeenCalled();
         fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Restore this passage?' })).not.toBeInTheDocument();
+        // Cancelling the confirm leaves the archive's sheet open beneath it.
+        expect(screen.getByRole('dialog', { name: 'Archived voyages' })).toBeVisible();
         fireEvent.click(screen.getByRole('button', { name: 'Restore passage' }));
         fireEvent.click(screen.getByRole('button', { name: 'Restore 2 legs' }));
         await waitFor(() => expect(restore).toHaveBeenCalledExactlyOnceWith('north', ['leg2', 'leg1']));
@@ -251,6 +262,6 @@ describe('ArchivedVoyagesSection', () => {
             expect(screen.getByRole('alert')).toHaveTextContent('Restored 1 of 3 voyages. Two remain archived.'),
         );
         expect(screen.getByRole('status')).toBeEmptyDOMElement();
-        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(screen.queryByRole('dialog', { name: 'Restore this passage?' })).not.toBeInTheDocument();
     });
 });
