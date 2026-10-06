@@ -42,6 +42,9 @@ export default defineConfig({
         // A fixture page (e2e/fixtures/navigation-marker-anchoring.html): it needs
         // the dev server, not the production preview the e2e suite runs on.
         'ownship-label-layout.spec.ts',
+        // The own-ship boat: glyph, badge words, legibility per palette and base,
+        // and the held-position message clear of her (e2e/fixtures/ownship-boat-marker.tsx).
+        'ownship-boat-marker.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

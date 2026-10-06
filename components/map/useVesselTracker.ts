@@ -1,27 +1,32 @@
 /**
- * useVesselTracker — Live vessel position layer using BgGeoManager.
+ * useVesselTracker — the own-ship marker: a little boat where the vessel is,
+ * with her status beside it.
  *
- * Shows a rotatable vessel icon on the map that updates in real-time.
- * Includes heading indicator, SOG display, accuracy ring, and a fading
- * wake trail.
+ * Whose position it draws comes from ownshipBoatFix: the boat's OWN chain,
+ * the same one the Obs camera centres on (her bus, her Pi, her cloud row, then
+ * her held fix), so the camera and the marker cannot disagree. Build 121
+ * moved the camera onto that chain and left this marker on the ownship
+ * arbiter, which ashore falls back to the phone: Obs opened on the boat in
+ * her marina and the marker sat on the skipper's phone at home (Shane
+ * 2026-10-07: "there is no longer a dot for where the vessel is ... it could
+ * be a nice little boat ... With either anchored or stopped ... Also it would
+ * have sog"). A punter whose phone is all the boat has keeps the old path: the
+ * arbiter, NMEA while it is fresh, the phone as the fallback.
  *
- * Position goes through the ownship arbiter — the NMEA feed while it is
- * fresh, phone GPS as the fallback. This marker is literally labelled
- * "vessel" and yet it watched only the phone, which parked the arrow on
- * the skipper's HOUSE while the boat sat on her marina berth streaming
- * her real position the whole time (Shane, 2026-08-31: "the obs is STILL
- * showing my home"). When NMEA wins, the badge shows the boat's actual
- * SOG and the arrow her fresh true heading, or COG only while moving.
- * Without a reliable direction, a neutral dot never invents a bow bearing.
+ * The badge reads the one anchor-watch truth (presentAnchorWatchRow) for this
+ * boat, then 'Stopped' or her SOG while the fix is live, and 'Last fix 3 h'
+ * once it is not. The bow follows a fresh true heading, or the course over
+ * ground only while she is moving; without either, an upright side-on boat
+ * never invents a bow bearing.
  */
 import mapboxgl from 'mapbox-gl';
-import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
+import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
 import { BgGeoManager, type CachedPosition } from '../../services/BgGeoManager';
 import { GpsService } from '../../services/GpsService';
 import { NmeaGpsProvider } from '../../services/NmeaGpsProvider';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
-import { resolveOwnshipPosition } from '../../services/ownshipPosition';
+import { freshMovementMetric, resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
 import { GPS_VERY_STALE_MS } from '../../services/shiplog/PositionResolver';
 import {
@@ -37,8 +42,26 @@ import { convexHull, hullRing, type LonLat } from '../../utils/convexHull';
 import { AnchorWatchService } from '../../services/AnchorWatchService';
 import { AnchorWatchSyncService } from '../../services/AnchorWatchSyncService';
 import { ShoreWatchAlarmService } from '../../services/ShoreWatchAlarmService';
-import { ownshipStatusLabel } from './ownshipStatus';
-import { resolveOwnshipDirection } from './ownshipDirection';
+import { AnchorPiWatchKeeper } from '../../services/anchorPiWatchKeeper';
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../../services/authIdentityScope';
+import { subscribeSharedBinders } from '../../services/vessel/sharedBinders';
+import { WEATHER_FOLLOW_TARGET_EVENT } from '../../services/weatherPosition';
+import { SKIPPER_BOAT_FALLBACK } from '../vessel/skipperBoatFallback';
+import type { ObsBoatNames } from './obsCentre';
+import { ownshipStatus, type OwnshipMarkerIdentity, type OwnshipStatusPresentation } from './ownshipStatus';
+import { resolveOwnshipDirection, type DirectionInstruments, type OwnshipDirection } from './ownshipDirection';
+import {
+    REMOTE_LANE_LIVE_MAX_AGE_MS,
+    lookUpVesselMarkerFix,
+    ownBoatLookedUp,
+    ownshipMarkerSubject,
+    rememberSeenVesselFix,
+    sameOwnshipSubject,
+    seenVesselFix,
+    vesselMarkerFixNow,
+    type OwnshipSubject,
+    type VesselMarkerFix,
+} from './ownshipBoatFix';
 import {
     isBasePlaceLabelLayer,
     isSettlementPlaceFeature,
@@ -100,19 +123,37 @@ const GLOW_BORDER_LIVE = 'rgba(56, 189, 248, 0.35)';
 const GLOW_FILL_LIVE = 'rgba(56, 189, 248, 0.22)';
 /** Badge's left edge from the fix: glow radius (12) + 6 px air. */
 const BADGE_OFFSET_PX = 18;
-/** Theme text classes: .display-light darkens each for a light chip. */
+/**
+ * Theme text classes: .display-light darkens each for a light chip. Each
+ * holds 4.5:1 on the badge's own chip (12 px bold is not large text): red-500
+ * read 4.0:1 on the dark chip, so the reds are red-400 (6.2:1), which daylight
+ * darkens to red-700 as before (browser-tests/ownship-boat-marker.spec.ts).
+ */
 const STATUS_TONE_CLASS = {
     live: 'text-sky-400',
     anchored: 'text-emerald-400',
-    alarm: 'text-red-500',
+    /** An anchor watch that is expiring, waiting or not updating this phone (the row's amber). */
+    caution: 'text-amber-400',
+    alarm: 'text-red-400',
     /** 'Last fix 46 s': amber, then red once the position is history (5 min). */
     stale: 'text-amber-400',
-    lost: 'text-red-500',
+    lost: 'text-red-400',
 } as const;
 
+/** Top-down hull, bow up: a pointed bow, full quarters, a flat transom. */
+const HULL_PATH =
+    'M12 1.6C15.9 5.2 17.6 9.6 17.6 13.8C17.6 17.2 16.9 20 16.1 21.6Q15.8 22.4 14.9 22.4H9.1Q8.2 22.4 7.9 21.6C7.1 20 6.4 17.2 6.4 13.8C6.4 9.6 8.1 5.2 12 1.6Z';
+/** The side-on boat: a hull, her mainsail aft of the mast and a jib forward. */
+const SIDE_HULL_PATH = 'M2.8 15.9H21.2L18.9 19.9Q18.5 20.6 17.7 20.6H6.3Q5.5 20.6 5.1 19.9Z';
+const MAINSAIL_PATH = 'M12.8 2.4V14.3H19.6Z';
+const JIB_PATH = 'M11.2 4.6V14.3H5.4Z';
+/** A dark hairline round the white edge: legible on light bases and bright imagery. */
+const GLYPH_HALO = 'drop-shadow(0 0 0.8px rgba(2, 6, 23, 0.95)) drop-shadow(0 1px 1.5px rgba(2, 6, 23, 0.55))';
+let vesselElementSeq = 0;
+
 /**
- * Build the vessel marker DOM element.
- * Directional arrow + accuracy ring + SOG badge.
+ * Build the vessel marker DOM element: the boat, its halo, the status badge
+ * beside it and the fix-age chip above.
  */
 export function createVesselElement(): HTMLDivElement {
     const el = document.createElement('div');
@@ -142,8 +183,16 @@ export function createVesselElement(): HTMLDivElement {
     `;
     el.appendChild(ring);
 
-    // Vessel arrow (rotates with heading). No CSS angle tween: 359° → 1°
-    // would otherwise sweep through the wrong 358° around the compass.
+    // The boat (rotates with heading). No CSS angle tween: 359° → 1° would
+    // otherwise sweep through the wrong 358° around the compass.
+    //
+    // Two drawings in one 28 px box. With a direction (a fresh true heading,
+    // or the course while she moves): a top-down hull, bow along it. Without
+    // one (stopped, anchored, an old fix): a small side-on sailing boat, kept
+    // upright on screen, which reads as "a boat" and claims no bow bearing.
+    // Both carry a white edge and a dark hairline halo, so they hold on the
+    // dark chart, the light Relief base and satellite imagery alike.
+    const id = `vesselHull${++vesselElementSeq}`;
     const arrow = document.createElement('div');
     arrow.className = 'vessel-arrow';
     arrow.style.cssText = `
@@ -151,15 +200,23 @@ export function createVesselElement(): HTMLDivElement {
         position: relative; z-index: 2;
     `;
     arrow.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path class="vessel-directional-shape" style="display:none" d="M12 2L4 20L12 16L20 20L12 2Z" fill="url(#vesselGrad)" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
-            <circle class="vessel-neutral-shape" cx="12" cy="12" r="6" fill="url(#vesselGrad)" stroke="white" stroke-width="1.5"/>
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="display:block;overflow:visible;filter:${GLYPH_HALO}">
             <defs>
-                <linearGradient id="vesselGrad" x1="12" y1="2" x2="12" y2="20" gradientUnits="userSpaceOnUse">
+                <linearGradient id="${id}" x1="12" y1="2" x2="12" y2="22" gradientUnits="userSpaceOnUse">
                     <stop offset="0" stop-color="#38bdf8"/>
                     <stop offset="1" stop-color="#0284c7"/>
                 </linearGradient>
             </defs>
+            <g class="vessel-directional-shape" style="display:none">
+                <path d="${HULL_PATH}" fill="url(#${id})" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+                <rect x="9.6" y="10.4" width="4.8" height="6.6" rx="1.7" fill="rgba(255,255,255,0.32)"/>
+                <circle cx="12" cy="8.4" r="1.15" fill="white"/>
+            </g>
+            <g class="vessel-neutral-shape">
+                <path d="${MAINSAIL_PATH}" fill="#f0f9ff" stroke="#0369a1" stroke-width="1.1" stroke-linejoin="round"/>
+                <path d="${JIB_PATH}" fill="#f0f9ff" stroke="#0369a1" stroke-width="1.1" stroke-linejoin="round"/>
+                <path d="${SIDE_HULL_PATH}" fill="url(#${id})" stroke="white" stroke-width="1.4" stroke-linejoin="round"/>
+            </g>
         </svg>
     `;
     el.appendChild(arrow);
@@ -265,6 +322,86 @@ function applyGpsAgeTier(el: HTMLDivElement, tier: GpsAgeTier, chipText: string 
     const colour = tier === 'lost' ? '#ef4444' : '#f59e0b';
     chip.style.color = colour;
     chip.style.borderColor = tier === 'lost' ? 'rgba(239, 68, 68, 0.6)' : 'rgba(245, 158, 11, 0.5)';
+}
+
+/** The badge's anchor words: they hold the badge, and the fix age moves to the chip. */
+const ANCHOR_LABELS: ReadonlySet<string> = new Set(['Anchor alarm', 'Drifting', 'Anchored']);
+
+/**
+ * Paint the badge, its colour and the marker's grey from the one fix state,
+ * and return what the marker's spoken name says of them. The words come from
+ * ownshipStatus; this only presents them. An anchor word takes the anchor
+ * watch row's own colour (green only while it holds; red when it has lost its
+ * data; amber while it expires, waits or has no updates here). Exported for
+ * the layout spec.
+ */
+export function presentOwnshipStatus(el: HTMLElement, status: OwnshipStatusPresentation, fix: GpsFixState): string {
+    const badge = el.querySelector('.vessel-sog-badge') as HTMLElement | null;
+    if (!badge) return '';
+    const { label, anchorTone, anchorNote } = status;
+    badge.textContent = label;
+    const tier = gpsAgeTier(fix);
+    const anchorLabel = ANCHOR_LABELS.has(label);
+    const tone = anchorLabel
+        ? anchorTone === 'green'
+            ? 'anchored'
+            : anchorTone === 'amber'
+              ? 'caution'
+              : // An anchor word with no tone of its own is never the calm green.
+                'alarm'
+        : tier === 'locked'
+          ? 'live'
+          : tier;
+    badge.classList.remove(...Object.values(STATUS_TONE_CLASS));
+    badge.classList.add(STATUS_TONE_CLASS[tone]);
+    badge.dataset.tone = tone;
+    const chipText = anchorLabel ? ownshipFixLabel(fix) : null;
+    applyGpsAgeTier(el as HTMLDivElement, tier, chipText);
+    // What the badge and chip show, in their own words: 'Last fix 46 s'
+    // already says the position is old, and a softer hedge on top ('may be
+    // stale') would be a second wording for the one fix state. The watch's
+    // note is the row's own words for what the colour says.
+    const spoken = [spokenOwnshipBadge(label)];
+    if (anchorLabel && anchorNote) spoken.push(anchorNote);
+    if (chipText) spoken.push(spokenOwnshipBadge(chipText));
+    return spoken.join(', ');
+}
+
+/**
+ * Keep the side-on boat upright on screen. The marker turns with the map
+ * (rotationAlignment 'map': Mapbox rotates it by minus the bearing), which
+ * would tip a side-on drawing over; this turns it back by the bearing.
+ */
+export function uprightOwnshipNeutral(el: HTMLElement, mapBearing: number): void {
+    const neutral = el.querySelector('.vessel-neutral-shape');
+    if (!neutral) return;
+    const bearing = Number.isFinite(mapBearing) ? Math.round(mapBearing * 10) / 10 : 0;
+    const next = bearing ? `rotate(${bearing} 12 12)` : '';
+    if ((neutral.getAttribute('transform') ?? '') === next) return;
+    if (next) neutral.setAttribute('transform', next);
+    else neutral.removeAttribute('transform');
+}
+
+/**
+ * Point the boat: the top-down hull along a known direction, else the upright
+ * side-on boat. Returns the spoken half of the marker's name. Exported for the
+ * layout spec.
+ */
+export function presentOwnshipDirection(el: HTMLElement, direction: OwnshipDirection, mapBearing = 0): string {
+    const arrow = el.querySelector('.vessel-arrow') as HTMLElement | null;
+    if (!arrow) return 'heading unavailable';
+    el.dataset.directionSource = direction.source;
+    arrow.style.transform = `rotate(${direction.degrees ?? 0}deg)`;
+    const shape = arrow.querySelector('.vessel-directional-shape') as SVGElement | null;
+    const neutral = arrow.querySelector('.vessel-neutral-shape') as SVGElement | null;
+    if (shape) shape.style.display = direction.degrees === null ? 'none' : '';
+    if (neutral) neutral.style.display = direction.degrees === null ? '' : 'none';
+    uprightOwnshipNeutral(el, mapBearing);
+    return direction.source === 'heading'
+        ? `bow heading ${Math.round(direction.degrees)}° true`
+        : direction.source === 'course'
+          ? `course over ground ${Math.round(direction.degrees)}° true; bow heading unavailable`
+          : 'heading unavailable';
 }
 
 // ── Own-ship footprint: a label-collision obstacle (NOT PLACED) ──
@@ -906,7 +1043,81 @@ function updateTrailData(map: mapboxgl.Map, coords: [number, number][]) {
 
 // ── Hook ──
 
-export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean, visible: boolean) {
+export interface VesselTrackerOptions {
+    /** The boats Obs can name: the marker is spoken as her ('Kittiwake, stopped'). */
+    names?: ObsBoatNames;
+    /**
+     * Ask the boat's chain (her Pi, her cloud row) while her bus is not here.
+     * MapHub sets it while Obs is on screen; off it, the marker shows what
+     * this device already holds and asks no one.
+     */
+    lookUp?: boolean;
+}
+
+/** How often the marker asks her chain while her bus is not here; the chain throttles each lane to 30 s. */
+export const OWNSHIP_LOOKUP_EVERY_MS = 5_000;
+
+/**
+ * On Obs, signed in, before the own boat's chain has answered once this
+ * session, the phone is not drawn as own ship for at most this long: it would
+ * flash up as 'Own ship' at the phone and hand the marker to the boat a moment
+ * later. A phone-only punter's marker waits for that one look (or this cap).
+ */
+export const OWNSHIP_FIRST_LOOK_HOLD_MS = 2_000;
+
+/** The marker's own receiver of last resort: none. The boat's branch hands the arbiter no phone. */
+const NO_PHONE_LOCATION = { lat: Number.NaN, lon: Number.NaN, source: 'none', timestamp: 0 } as const;
+
+/** What the marker last drew, and from whom. */
+interface MarkerDrawn {
+    position: TrackerPosition;
+    /** The boat's receivers, not the phone. */
+    viaVessel: boolean;
+    identity: OwnshipMarkerIdentity;
+    /** Her row's own speed, course and heading (Pi and cloud lanes); the bus reads the store. */
+    instruments: DirectionInstruments | null;
+}
+
+/**
+ * The bus's speed in m/s for the marker while the store's SOG is fresh, else
+ * null: unknown ('SOG —'). The arbiter's own `sog` is 0 when the reading is
+ * missing or stale, which the badge would call 'Stopped' on a moving boat.
+ */
+function busSpeedMs(store: Parameters<typeof resolveOwnshipPosition>[0], now: number): number | null {
+    const knots = freshMovementMetric(store.sog, now);
+    return knots === null ? null : knots / 1.94384;
+}
+
+const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** Her row's speed, course and heading as dated readings, for the direction resolver. */
+function laneInstruments(fix: VesselMarkerFix): DirectionInstruments {
+    const reading = (value: number | null, at: number | null) =>
+        value === null || at === null ? undefined : { value, lastUpdated: at, freshness: 'live' };
+    return {
+        headingTrue: reading(fix.headingTrueDeg, fix.headingTrueAt),
+        sog: reading(fix.sogKts, fix.timestamp),
+        cog: reading(fix.cogDeg, fix.timestamp),
+    };
+}
+
+/** How long the drawn fix counts as live, by the lane it came down (gpsFixState's gates). */
+function laneLiveMaxAgeMs(lane: OwnshipMarkerIdentity['lane']): number {
+    if (lane === 'bus') return boatLiveFixMaxAgeMs(NmeaStore.getState());
+    if (lane === 'pi' || lane === 'cloud') return REMOTE_LANE_LIVE_MAX_AGE_MS;
+    // History is never live: a held fix always reads 'Last fix 3 h'.
+    if (lane === 'held') return -1;
+    return PHONE_LIVE_FIX_MAX_AGE_MS;
+}
+
+const UNKNOWN_DIRECTION: OwnshipDirection = { degrees: null, source: 'unknown' };
+
+export function useVesselTracker(
+    mapRef: MutableRefObject<mapboxgl.Map | null>,
+    mapReady: boolean,
+    visible: boolean,
+    options: VesselTrackerOptions = {},
+) {
     const markerRef = useRef<mapboxgl.Marker | null>(null);
     const elementRef = useRef<HTMLDivElement | null>(null);
     const trailCoordsRef = useRef<[number, number][]>([]);
@@ -923,94 +1134,127 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
     // dated by the phone's fix, never by the boat's newer one (a 20-min-old
     // phone position must not borrow the boat's 'Stopped').
     const lastFixAtRef = useRef<Record<'vessel' | 'phone', number | null>>({ vessel: null, phone: null });
-    const lastMarkerPositionRef = useRef<{ position: TrackerPosition; viaVessel: boolean } | null>(null);
+    const lastMarkerPositionRef = useRef<MarkerDrawn | null>(null);
     /** The two halves of the marker's spoken name: what its chip says, and which way she points. */
     const spokenStatusRef = useRef('');
     const spokenDirectionRef = useRef('heading unavailable');
     /** Set by the effect: re-checks the one place label own-ship would print through. */
     const placeLabelSyncRef = useRef<(() => void) | null>(null);
+    /** Whose position the marker draws (ownshipMarkerSubject); the trail, swing and clocks are this subject's. */
+    const subjectRef = useRef<OwnshipSubject>({ kind: 'phone' });
+    /** The subject the trail, the swing and the fix clocks belong to; null before the first. */
+    const trailSubjectRef = useRef<OwnshipSubject | null>(null);
+    /** The boat's last fix the trail took, so a repaint of the same fix never adds it twice. */
+    const lastTrailFixRef = useRef<string | null>(null);
+    const namesRef = useRef<ObsBoatNames | undefined>(options.names);
+    namesRef.current = options.names;
+    const lookUpRef = useRef(options.lookUp === true);
+    lookUpRef.current = options.lookUp === true;
+    /** For MapHub: the phone gets a dot of its own only while the marker is a boat. */
+    const [subjectKind, setSubjectKind] = useState<OwnshipSubject['kind']>('phone');
+
+    /** What the marker is called: her name, or 'Own ship'. */
+    const markerName = useCallback(() => {
+        const subject = subjectRef.current;
+        if (subject.kind === 'phone') return 'Own ship';
+        const names = namesRef.current;
+        if (subject.crewOwnerId) {
+            const name = names?.crew?.ownerId === subject.crewOwnerId ? names.crew.name?.trim() : null;
+            return name || capitalise(SKIPPER_BOAT_FALLBACK);
+        }
+        return names?.own?.trim() || 'Own ship';
+    }, []);
 
     // One img, one name: its status chip is a child the name must carry, or
     // VoiceOver never hears 'Stopped' or that the fix is 54 s old (UX scorecard
-    // run 10). 'Own ship, last fix 54 seconds ago; heading unavailable': the
+    // run 10). 'Kittiwake, last fix 54 seconds ago; heading unavailable': the
     // chip's own words and nothing more, so the name can never say something
     // the chip and gpsFixState do not.
-    const nameMarker = useCallback((el: HTMLElement) => {
-        const status = spokenStatusRef.current;
-        const label = `Own ship${status ? `, ${status}` : ''}; ${spokenDirectionRef.current}`;
-        el.setAttribute('role', 'img');
-        el.setAttribute('aria-label', label);
-        el.title = label;
-    }, []);
+    const nameMarker = useCallback(
+        (el: HTMLElement) => {
+            const status = spokenStatusRef.current;
+            const label = `${markerName()}${status ? `, ${status}` : ''}; ${spokenDirectionRef.current}`;
+            if (el.getAttribute('aria-label') === label) return;
+            el.setAttribute('role', 'img');
+            el.setAttribute('aria-label', label);
+            el.title = label;
+        },
+        [markerName],
+    );
+
+    const mapBearing = useCallback(() => {
+        const map = mapRef.current as (mapboxgl.Map & { getBearing?: () => number }) | null;
+        try {
+            return map && typeof map.getBearing === 'function' ? map.getBearing() : 0;
+        } catch {
+            return 0;
+        }
+    }, [mapRef]);
 
     const updateDirection = useCallback(() => {
         const last = lastMarkerPositionRef.current;
         const el = elementRef.current;
-        const arrow = el?.querySelector('.vessel-arrow') as HTMLElement | null;
-        if (!last || !el || !arrow) return;
-        const direction = resolveOwnshipDirection(last.position, last.viaVessel, NmeaStore.getState());
-        el.dataset.directionSource = direction.source;
-        spokenDirectionRef.current =
-            direction.source === 'heading'
-                ? `bow heading ${Math.round(direction.degrees)}° true`
-                : direction.source === 'course'
-                  ? `course over ground ${Math.round(direction.degrees)}° true; bow heading unavailable`
-                  : 'heading unavailable';
+        if (!last || !el) return;
+        const { lane } = last.identity;
+        // History has no bow; her row's readings are as old as its position;
+        // the bus and the phone read their own live sources.
+        const direction =
+            lane === 'held'
+                ? UNKNOWN_DIRECTION
+                : lane === 'pi' || lane === 'cloud'
+                  ? resolveOwnshipDirection(
+                        last.position,
+                        true,
+                        last.instruments ?? {},
+                        Date.now(),
+                        REMOTE_LANE_LIVE_MAX_AGE_MS,
+                    )
+                  : resolveOwnshipDirection(last.position, last.viaVessel, NmeaStore.getState());
+        spokenDirectionRef.current = presentOwnshipDirection(el, direction, mapBearing());
         nameMarker(el);
-        arrow.style.transform = `rotate(${direction.degrees ?? 0}deg)`;
-        const shape = arrow.querySelector('.vessel-directional-shape') as SVGElement;
-        const dot = arrow.querySelector('.vessel-neutral-shape') as SVGElement;
-        shape.style.display = direction.degrees === null ? 'none' : '';
-        dot.style.display = direction.degrees === null ? '' : 'none';
-    }, [nameMarker]);
+    }, [nameMarker, mapBearing]);
 
     // The badge's words, its colour and the marker's grey all come from ONE
-    // fix state: lastFixAtRef through the receiver's live gate — the gates the
+    // fix state: lastFixAtRef through the lane's live gate — the gates the
     // System status box uses (components/gpsFixState.ts). A fix past its gate
     // is 'Last fix 46 s' on a grey marker, never a live-looking 'Stopped'.
     const updateStatusBadge = useCallback(() => {
         const last = lastMarkerPositionRef.current;
         const el = elementRef.current;
-        const badge = el?.querySelector('.vessel-sog-badge') as HTMLElement | null;
-        if (!last || !el || !badge) return;
+        if (!last || !el) return;
         const now = Date.now();
         const fix = gpsFixState(
             lastFixAtRef.current[last.viaVessel ? 'vessel' : 'phone'],
-            last.viaVessel ? boatLiveFixMaxAgeMs(NmeaStore.getState()) : PHONE_LIVE_FIX_MAX_AGE_MS,
+            laneLiveMaxAgeMs(last.identity.lane),
             now,
         );
-        const label = ownshipStatusLabel(
+        const status = ownshipStatus(
             last.position,
-            last.viaVessel,
-            AnchorWatchService.getSnapshot(),
-            AnchorWatchSyncService.getState(),
-            ShoreWatchAlarmService.getSnapshot(),
+            last.identity,
+            {
+                local: AnchorWatchService.getSnapshot(),
+                shore: ShoreWatchAlarmService.getSnapshot(),
+                // No listener: the 1 s ticker re-reads it.
+                piSessionCode: AnchorPiWatchKeeper.keepingSessionCode(),
+            },
             now,
             fix,
         );
-        badge.textContent = label;
-        const tier = gpsAgeTier(fix);
-        const anchorLabel = label === 'Anchor alarm' || label === 'Anchored';
-        const tone =
-            label === 'Anchor alarm' ? 'alarm' : label === 'Anchored' ? 'anchored' : tier === 'locked' ? 'live' : tier;
-        badge.classList.remove(...Object.values(STATUS_TONE_CLASS));
-        badge.classList.add(STATUS_TONE_CLASS[tone]);
-        const chipText = anchorLabel ? ownshipFixLabel(fix) : null;
-        applyGpsAgeTier(el, tier, chipText);
-        // What the badge and chip show, in their own words: 'Last fix 46 s'
-        // already says the position is old, and a softer hedge on top ('may
-        // be stale') would be a second wording for the one fix state.
-        const spoken = [spokenOwnshipBadge(label)];
-        if (chipText) spoken.push(spokenOwnshipBadge(chipText));
-        spokenStatusRef.current = spoken.join(', ');
+        spokenStatusRef.current = presentOwnshipStatus(el, status, fix);
         nameMarker(el);
     }, [nameMarker]);
 
     const updateMarker = useCallback(
-        (pos: TrackerPosition, viaVessel = false, fixAt: number | null = pos.timestamp) => {
+        (
+            pos: TrackerPosition,
+            identity: OwnshipMarkerIdentity = { owner: 'phone', lane: 'phone' },
+            fixAt: number | null = pos.timestamp,
+            instruments: DirectionInstruments | null = null,
+        ) => {
             const map = mapRef.current;
             if (!map || !visible) return;
 
+            const viaVessel = identity.lane !== 'phone';
             const { latitude, longitude } = pos;
             // BEFORE the trail-noise early-return below — a stationary
             // vessel still refreshes its fix age on every callback.
@@ -1046,15 +1290,27 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             } else {
                 markerRef.current.setLngLat([longitude, latitude]);
             }
-            // A quiet tell for anyone debugging which truth the arrow is on.
-            if (elementRef.current) elementRef.current.dataset.source = viaVessel ? 'vessel' : 'phone';
+            // A quiet tell for anyone debugging which truth the boat is on.
+            if (elementRef.current) {
+                elementRef.current.dataset.source = viaVessel ? 'vessel' : 'phone';
+                elementRef.current.dataset.lane = identity.lane;
+            }
 
             // Anchor state is explicit, never inferred from a low GPS speed.
-            lastMarkerPositionRef.current = { position: pos, viaVessel };
+            lastMarkerPositionRef.current = { position: pos, viaVessel, identity, instruments };
             updateDirection();
             updateStatusBadge();
             // After the badge: its width is part of what a town name must clear.
             placeLabelSyncRef.current?.();
+
+            // History never draws a wake: her held fix is where she WAS.
+            if (identity.lane === 'held') return;
+            // The boat's chain is re-read every second; the same fix is one point.
+            if (subjectRef.current.kind === 'boat') {
+                const key = `${longitude},${latitude},${fixAt ?? ''}`;
+                if (key === lastTrailFixRef.current) return;
+                lastTrailFixRef.current = key;
+            }
 
             // ── One receiver per trail ──
             // The wake trail and the swing envelope are a RECEIVER's story.
@@ -1275,7 +1531,6 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         };
         const onMoveEnd = () => syncPlaceLabelWhenIdle();
         if (map && typeof map.on === 'function') map.on('moveend', onMoveEnd);
-
         // The NMEA store only ingests once something starts it. Boot claims
         // it when a gateway is saved, but this marker must not depend on that
         // ordering — same belt-and-braces as TheGlassPage and the location
@@ -1283,10 +1538,162 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         // met a gateway opens no sockets.
         if (NmeaListenerService.getSavedConfig()) NmeaStore.start();
 
-        // Every paint goes through the ownship arbiter. The phone watch stays
-        // as both the fallback position and a repaint tick; NMEA repaints
-        // through its own subscription below.
-        const paint = (phone?: {
+        /** The marker goes: no position for its subject (a boat with no fix is never drawn at the phone). */
+        const dropMarker = () => {
+            if (markerRef.current) {
+                markerRef.current.remove();
+                markerRef.current = null;
+                elementRef.current = null;
+            }
+            lastMarkerPositionRef.current = null;
+            lastLookKey = null;
+            if (map) {
+                syncOwnshipObstacle(map, null);
+                syncOwnshipPlaceLabel(map, null);
+            }
+        };
+
+        /** A new subject's story starts clean: its own trail, swing, fix clocks and last fix. */
+        const startSubjectStory = () => {
+            trailCoordsRef.current = [];
+            swingPointsRef.current = [];
+            lastSourceRef.current = null;
+            vesselSpokeRef.current = false;
+            lastFixAtRef.current = { vessel: null, phone: null };
+            lastTrailFixRef.current = null;
+            if (map) {
+                removeTrailLayers(map);
+                removeSwingLayers(map);
+            }
+        };
+
+        // ── The boat: her own chain, exactly as the Obs camera reads it ──
+        // Never the phone, wherever it is: no position from her is no marker.
+        const paintBoat = (crewOwnerId: string | null) => {
+            const now = Date.now();
+            const owner: OwnshipMarkerIdentity['owner'] = crewOwnerId ? 'crew' : 'own';
+            let fix: VesselMarkerFix | null = vesselMarkerFixNow(crewOwnerId, now);
+            // Her lane went quiet this session: she is where she last reported,
+            // as history, never an older held fix (ownshipBoatFix keeps her
+            // newest dated fix per boat for the session, across remounts).
+            const seen = seenVesselFix(crewOwnerId);
+            if (seen && (!fix || (fix.lane === 'held' && (fix.timestamp ?? 0) < seen.timestamp))) {
+                fix = { ...seen, lane: 'held', sogKts: null, cogDeg: null, headingTrueDeg: null, headingTrueAt: null };
+            }
+            if (!fix) {
+                dropMarker();
+                return;
+            }
+            if (fix.lane === 'bus') {
+                // Her bus on this phone (a gateway socket, or the Pi over the
+                // boat LAN): the instruments themselves, as always.
+                const store = NmeaStore.getState();
+                const own = NmeaStore.isBoatFeed() ? resolveOwnshipPosition(store, NO_PHONE_LOCATION) : null;
+                if (own && own.source === 'nmea') {
+                    // The Pi's lanes stamp lat/lon with the time THIS PHONE read
+                    // them; only the snapshot's position sample dates the
+                    // coordinates. The System status boat card dates them by it
+                    // (boatGpsDiagnosticSource) and Radio's vessel fix does too
+                    // (radioTelemetryPosition), so the badge does — or a Pi
+                    // republishing old coordinates reads 'Stopped' here while the
+                    // card says 'No live fix' and Radio says NO FIX. The Pi sends
+                    // that sample time whenever it can prove the fix's age, so a
+                    // Pi row without one is undated, exactly as Radio treats it.
+                    // Another device's shared row keeps its receipt time.
+                    const remote = store.connectionStatus === 'remote' ? store.remote : null;
+                    const sampleAt = remote?.positionSampleAt;
+                    const fixAt = !remote
+                        ? own.timestamp
+                        : typeof sampleAt === 'number' && Number.isFinite(sampleAt)
+                          ? Math.min(sampleAt, own.timestamp)
+                          : remote.source === 'pi'
+                            ? null
+                            : own.timestamp;
+                    rememberSeenVesselFix(crewOwnerId, {
+                        lat: own.lat,
+                        lon: own.lon,
+                        timestamp: fixAt,
+                        lane: 'bus',
+                        sogKts: null,
+                        cogDeg: null,
+                        headingTrueDeg: null,
+                        headingTrueAt: null,
+                    });
+                    updateMarker(
+                        {
+                            latitude: own.lat,
+                            longitude: own.lon,
+                            accuracy: 15,
+                            altitude: null,
+                            // Direction comes from independently timestamped
+                            // metrics, not the arbiter's numeric-zero fallback.
+                            heading: null,
+                            // Her store's own SOG while it is fresh; unknown is
+                            // 'SOG —', never the arbiter's stand-in 0 ('Stopped').
+                            speed: busSpeedMs(store, now),
+                            timestamp: own.timestamp,
+                            receivedAt: now,
+                        },
+                        { owner, lane: 'bus' },
+                        fixAt,
+                    );
+                    return;
+                }
+            }
+            rememberSeenVesselFix(crewOwnerId, fix);
+            updateMarker(
+                {
+                    latitude: fix.lat,
+                    longitude: fix.lon,
+                    accuracy: 15,
+                    altitude: null,
+                    heading: null,
+                    // Her row speaks knots; the marker eats m/s. No speed is unknown, never 0.
+                    speed: fix.sogKts === null ? null : fix.sogKts / 1.94384,
+                    // Undated (her row without the Pi's sample time): no bow, and
+                    // fixAt null leaves the fix clock alone, so the badge says
+                    // 'No fix' or 'Last fix' on a grey boat, never a live 'Stopped'.
+                    timestamp: fix.timestamp ?? 0,
+                    receivedAt: now,
+                },
+                { owner, lane: fix.lane },
+                fix.timestamp,
+                fix.lane === 'held' ? null : laneInstruments(fix),
+            );
+        };
+        // ── end paintBoat
+
+        // ── The phone's first-look hold (OWNSHIP_FIRST_LOOK_HOLD_MS) ──
+        // Until the own boat's chain has been asked once this session, the
+        // phone is not yet known to be all the boat has: drawing it as own ship
+        // flashed the phone up as 'Own ship · Stopped' where the chart centres,
+        // then the marker jumped to the boat a second later. Off Obs (nothing
+        // asks), signed out (no boat to ask for), or past the cap: no hold.
+        const holdPhoneUntil = Date.now() + OWNSHIP_FIRST_LOOK_HOLD_MS;
+        let phoneReleased = false;
+        /** The phone watch's newest position, for the paint the hold's release owes it. */
+        let lastPhone: Parameters<typeof paintPhone>[0];
+        const phoneHeld = () => {
+            if (phoneReleased) return false;
+            const holding =
+                lookUpRef.current &&
+                getAuthIdentityScope().userId !== null &&
+                !ownBoatLookedUp() &&
+                Date.now() < holdPhoneUntil;
+            if (!holding) phoneReleased = true;
+            return holding;
+        };
+        const releasePhone = () => {
+            if (phoneReleased || disposed) return;
+            phoneReleased = true;
+            if (subjectRef.current.kind === 'phone' && lastPhone) paint(lastPhone);
+        };
+        const phoneHoldTimer = window.setTimeout(releasePhone, OWNSHIP_FIRST_LOOK_HOLD_MS);
+
+        // A punter whose phone is all the boat has: the ownship arbiter, as
+        // it always was. The phone watch is both the fallback position and a
+        // repaint tick; NMEA repaints through its own subscription below.
+        const paintPhone = (phone?: {
             latitude: number;
             longitude: number;
             accuracy?: number | null;
@@ -1295,20 +1702,11 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             speed?: number | null;
             timestamp?: number | null;
         }) => {
+            if (phone) lastPhone = phone;
             const store = NmeaStore.getState();
             const own = resolveOwnshipPosition(store, LocationStore.getState());
             if (own && own.source === 'nmea') {
-                // The Pi's lanes stamp lat/lon with the time THIS PHONE read
-                // them; only the snapshot's position sample dates the
-                // coordinates. The System status boat card dates them by it
-                // (boatGpsDiagnosticSource) and Radio's vessel fix does too
-                // (radioTelemetryPosition), so the badge does — or a Pi
-                // republishing old coordinates reads 'Stopped' here while the
-                // card says 'No live fix' and Radio says NO FIX. The Pi sends
-                // that sample time whenever it can prove the fix's age, so a
-                // Pi row without one is undated, exactly as Radio treats it.
-                // Another device's shared row keeps its receipt time. The
-                // arbiter's own gates, and the direction's, are untouched.
+                // Dated as the boat's branch dates her bus (see paintBoat).
                 const remote = store.connectionStatus === 'remote' ? store.remote : null;
                 const sampleAt = remote?.positionSampleAt;
                 const fixAt = !remote
@@ -1324,20 +1722,17 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                         longitude: own.lon,
                         accuracy: 15,
                         altitude: null,
-                        // Direction comes from independently timestamped
-                        // metrics, not the arbiter's numeric-zero fallback.
                         heading: null,
-                        // The arbiter speaks knots; the marker eats m/s.
-                        speed: own.sog / 1.94384,
+                        speed: busSpeedMs(store, Date.now()),
                         timestamp: own.timestamp,
                         receivedAt: Date.now(),
                     },
-                    true,
+                    { owner: 'own', lane: 'bus' },
                     fixAt,
                 );
                 return;
             }
-            if (!phone) return;
+            if (!phone || phoneHeld()) return;
             updateMarker({
                 latitude: phone.latitude,
                 longitude: phone.longitude,
@@ -1350,24 +1745,114 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             });
         };
 
-        // Passive foreground watch: it consumes an existing Location grant
-        // but never initializes background tracking or raises permission UI
-        // merely because the chart was restored at launch.
-        const unsub = GpsService.watchPosition((pos) => paint(pos));
+        const paint = (phone?: Parameters<typeof paintPhone>[0]) => {
+            const subject = subjectRef.current;
+            if (subject.kind === 'boat') paintBoat(subject.crewOwnerId);
+            else paintPhone(phone);
+        };
+
+        // Passive foreground watch, held only while the marker IS the phone:
+        // it consumes an existing Location grant but never initializes
+        // background tracking or raises permission UI merely because the
+        // chart was restored at launch. A boat's marker never reads it.
+        let unsubPhone: (() => void) | null = null;
+        const syncPhoneWatch = () => {
+            const wanted = subjectRef.current.kind === 'phone';
+            if (wanted && !unsubPhone) unsubPhone = GpsService.watchPosition((pos) => paint(pos));
+            else if (!wanted && unsubPhone) {
+                unsubPhone();
+                unsubPhone = null;
+            }
+        };
+
+        /** Re-read whose position the marker draws; a new subject starts its own story. `force`: an account change. */
+        const resolveSubject = (force = false) => {
+            let next: OwnshipSubject;
+            try {
+                next = ownshipMarkerSubject(Date.now());
+            } catch {
+                next = { kind: 'phone' };
+            }
+            const before = trailSubjectRef.current;
+            subjectRef.current = next;
+            if (force || !before || !sameOwnshipSubject(before, next)) {
+                if (before) {
+                    startSubjectStory();
+                    dropMarker();
+                }
+                trailSubjectRef.current = next;
+            }
+            setSubjectKind(next.kind);
+            syncPhoneWatch();
+        };
+        resolveSubject();
+
+        // Ask her chain while her bus is not here (Obs on screen only), on
+        // every re-check: the chain throttles each lane itself (30 s). A phone
+        // subject keeps asking for the own boat too, so an own boat whose only
+        // receiver is her cloud row is found whenever she answers, and once she
+        // has, ownshipBoatFix keeps her the subject for the session (a failed
+        // read shows her where she was, never the phone in her place).
+        let asking = false;
+        const askChain = () => {
+            if (disposed || asking || !lookUpRef.current) return;
+            const subject = subjectRef.current;
+            if (subject.kind === 'boat' && vesselMarkerFixNow(subject.crewOwnerId, Date.now())?.lane === 'bus') return;
+            asking = true;
+            void lookUpVesselMarkerFix(subject.kind === 'boat' ? subject.crewOwnerId : null).finally(() => {
+                asking = false;
+                if (disposed) return;
+                resolveSubject();
+                paint();
+                if (ownBoatLookedUp()) releasePhone();
+            });
+        };
+
+        // The box moved (a pick, Switch boat, the crewing ending), or another
+        // account signed in: whose boat this is may have changed.
+        const onFollowChange = () => {
+            resolveSubject();
+            paint();
+            askChain();
+        };
+        const onAccountChange = () => {
+            resolveSubject(true);
+            paint();
+            askChain();
+        };
+        window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, onFollowChange);
+        const unsubScope = subscribeAuthIdentityScope(onAccountChange);
+        const unsubBinders = subscribeSharedBinders(onFollowChange);
+
+        // The side-on boat stays upright while the chart turns.
+        const onRotate = () => {
+            if (elementRef.current) uprightOwnshipNeutral(elementRef.current, mapBearing());
+        };
+        if (map && typeof map.on === 'function') map.on('rotate', onRotate);
+
         const unsubNmea = NmeaGpsProvider.onPosition(() => paint());
         const unsubDirection = NmeaStore.subscribe(updateDirection);
         const unsubAnchor = AnchorWatchService.subscribe(updateStatusBadge);
         const unsubSync = AnchorWatchSyncService.onStateChange(updateStatusBadge);
         const unsubShore = ShoreWatchAlarmService.subscribe(updateStatusBadge);
         paint();
+        askChain();
+        const lookUpTimer = window.setInterval(askChain, OWNSHIP_LOOKUP_EVERY_MS);
 
         // Staleness ticker — the only path that can grey the marker once
         // fixes STOP arriving (see lastFixAtRef comment). The badge update
-        // applies the tier from the same fix state as its words.
+        // applies the tier from the same fix state as its words. For a boat
+        // it also re-reads her chain, which the Pi and cloud lanes refresh
+        // without telling anyone.
         const staleTicker = window.setInterval(() => {
+            resolveSubject();
+            // A boat's repaint updates her badge and bow as it goes.
+            if (subjectRef.current.kind === 'boat') paint();
             if (!elementRef.current || !lastMarkerPositionRef.current) return;
-            updateStatusBadge();
-            updateDirection();
+            if (subjectRef.current.kind === 'phone') {
+                updateStatusBadge();
+                updateDirection();
+            }
             if (!map || !canLook) return;
             // The style was still loading at mount: arm as soon as it is not.
             if (!placeLabelsArmed) placeLabelsArmed = armOwnshipPlaceLabels(map);
@@ -1393,12 +1878,21 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
 
         return () => {
             window.clearInterval(staleTicker);
+            window.clearInterval(lookUpTimer);
+            window.clearTimeout(phoneHoldTimer);
             disposed = true;
             clearSettleTimer();
             dropLabelIdleRun();
             placeLabelSyncRef.current = null;
-            if (map && typeof map.off === 'function') map.off('moveend', onMoveEnd);
-            unsub?.();
+            if (map && typeof map.off === 'function') {
+                map.off('moveend', onMoveEnd);
+                map.off('rotate', onRotate);
+            }
+            window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, onFollowChange);
+            unsubScope();
+            unsubBinders();
+            unsubPhone?.();
+            unsubPhone = null;
             unsubNmea();
             unsubDirection();
             unsubAnchor();
@@ -1416,44 +1910,43 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
                 syncOwnshipPlaceLabel(map, null);
             }
         };
-    }, [mapReady, visible, updateMarker, updateStatusBadge, updateDirection, mapRef]);
+    }, [mapReady, visible, updateMarker, updateStatusBadge, updateDirection, mapRef, mapBearing]);
 
-    // Fly-to-vessel
+    // Fly to the vessel: where the marker is, and for a punter whose phone is
+    // all the boat has, the arbiter's answer or the phone.
     const flyToVessel = useCallback(() => {
         const map = mapRef.current;
         if (!map) return;
+        const fly = (lon: number, lat: number) =>
+            map.flyTo({
+                center: [lon, lat],
+                zoom: 14,
+                duration: 1200,
+                essential: true,
+            });
+
+        const subject = subjectRef.current;
+        if (subject.kind === 'boat') {
+            // Her chain only, as the marker draws her: never the phone.
+            const fix = vesselMarkerFixNow(subject.crewOwnerId, Date.now()) ?? seenVesselFix(subject.crewOwnerId);
+            if (fix) fly(fix.lon, fix.lat);
+            return;
+        }
 
         // The boat's own answer first — flying "to the vessel" must not mean
         // flying to the phone while the NMEA feed is live.
         const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
         if (own && own.source === 'nmea') {
-            map.flyTo({
-                center: [own.lon, own.lat],
-                zoom: 14,
-                duration: 1200,
-                essential: true,
-            });
+            fly(own.lon, own.lat);
             return;
         }
 
         const pos = BgGeoManager.getLastPosition();
         if (pos) {
-            map.flyTo({
-                center: [pos.longitude, pos.latitude],
-                zoom: 14,
-                duration: 1200,
-                essential: true,
-            });
+            fly(pos.longitude, pos.latitude);
         } else {
             GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((p) => {
-                if (p) {
-                    map.flyTo({
-                        center: [p.longitude, p.latitude],
-                        zoom: 14,
-                        duration: 1200,
-                        essential: true,
-                    });
-                }
+                if (p) fly(p.longitude, p.latitude);
             });
         }
     }, [mapRef]);
@@ -1470,5 +1963,5 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
         }
     }, [mapRef]);
 
-    return { flyToVessel, clearTrail };
+    return { flyToVessel, clearTrail, subject: subjectKind };
 }

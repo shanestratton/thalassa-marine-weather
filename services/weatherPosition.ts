@@ -75,6 +75,17 @@ export interface WeatherFix {
     rung?: BoatFixRung;
     /** Signal K's source id when the Pi answered, e.g. 'ublox-gps.GP'. */
     source?: string | null;
+    /**
+     * What the lane carries beside the position, for the own-ship marker
+     * (the cloud row has them; the bus is read from the instrument store, and
+     * a held fix keeps none). Absent when the lane did not say.
+     */
+    sogKts?: number;
+    cogDeg?: number;
+    /** When the receiver sampled the position, never later than `timestamp`. */
+    positionAt?: number;
+    headingTrueDeg?: number;
+    headingTrueAt?: number;
 }
 
 /** What the caller's phone provider returns. */
@@ -240,8 +251,11 @@ function usableBoatFix(fix: BoatFix | null, now: number): fix is BoatFix {
     return now - fix.timestamp <= maxAge;
 }
 
+const finite = (value: number | null | undefined): value is number =>
+    typeof value === 'number' && Number.isFinite(value);
+
 function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
-    return {
+    const out: WeatherFix = {
         lat: fix.latitude,
         lon: fix.longitude,
         timestamp: fix.timestamp,
@@ -249,6 +263,20 @@ function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
         rung: fix.rung,
         source: fix.source ?? null,
     };
+    // Only what the lane said: a missing speed is unknown, never 0.
+    if (finite(fix.sogKts) && fix.sogKts >= 0) out.sogKts = fix.sogKts;
+    if (finite(fix.cogDeg) && fix.cogDeg >= 0 && fix.cogDeg < 360) out.cogDeg = fix.cogDeg;
+    if (finite(fix.positionAt) && fix.positionAt > 0) out.positionAt = Math.min(fix.positionAt, fix.timestamp);
+    if (
+        finite(fix.headingTrueDeg) &&
+        fix.headingTrueDeg >= 0 &&
+        fix.headingTrueDeg < 360 &&
+        finite(fix.headingTrueAt)
+    ) {
+        out.headingTrueDeg = fix.headingTrueDeg;
+        out.headingTrueAt = fix.headingTrueAt;
+    }
+    return out;
 }
 
 /**
@@ -468,6 +496,22 @@ export function boatFixNow(
     const cloud = cloudLanes.get(crewOwnerId ?? '')?.answer ?? null;
     if (usableBoatFix(cloud, now)) return toWeatherFix(cloud, 'cloud');
     return options.held === false ? null : heldBoatFix(now, crewOwnerId);
+}
+
+/**
+ * The boat's cloud row as this device last read it, asking no one, or null
+ * when it is not usable now. For the own-ship marker's speed while the Pi lane
+ * (/api/gps carries no speed or course) is the one answering.
+ */
+export function boatCloudRowNow(now = Date.now(), crewOwnerId: string | null = null): WeatherFix | null {
+    ensureCacheScope();
+    const cloud = cloudLanes.get(crewOwnerId ?? '')?.answer ?? null;
+    return usableBoatFix(cloud, now) ? toWeatherFix(cloud, 'cloud') : null;
+}
+
+/** Read the boat's cloud row once, on the chain's own 30 s throttle; keeps no fix and ends no choice. */
+export async function lookUpBoatCloudRow(now = Date.now(), crewOwnerId: string | null = null): Promise<void> {
+    await throttledCloudFix(now, crewOwnerId);
 }
 
 /** The instrument feed, as NmeaStore describes it. */

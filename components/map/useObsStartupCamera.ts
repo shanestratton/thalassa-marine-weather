@@ -103,7 +103,7 @@ function obsStartKey(target: ObsStartTarget): string {
  * box (from a Glass pinned beside Obs too), Switch boat, the crewing ending,
  * or an account change.
  */
-function useWeatherFollowKey(): string {
+export function useWeatherFollowKey(): string {
     const [key, setKey] = useState(getWeatherFollowKey);
     useEffect(() => {
         const read = () => setKey(getWeatherFollowKey());

@@ -258,7 +258,7 @@ function expectStale(t: ReturnType<typeof mountTracker>, ageText: string) {
 
 function expectLost(t: ReturnType<typeof mountTracker>, ageText: string) {
     expect(t.status().textContent).toBe(`Last fix ${ageText}`);
-    expect(t.status().classList.contains('text-red-500')).toBe(true);
+    expect(t.status().classList.contains('text-red-400')).toBe(true);
     expect(t.status().classList.contains('text-amber-400')).toBe(false);
     expect(t.chip().style.display).toBe('none');
     expect(t.arrow().style.filter).toBe('grayscale(1) brightness(0.85)');
@@ -716,7 +716,7 @@ describe('useVesselTracker dates each receiver by its own fix', () => {
         const t = mountTracker();
         expect(t.marker().element.dataset.source).toBe('vessel');
         expect(t.status().textContent).toBe('No fix');
-        expect(t.status().classList.contains('text-red-500')).toBe(true);
+        expect(t.status().classList.contains('text-red-400')).toBe(true);
         expect(t.arrow().style.filter).toBe('grayscale(1) brightness(0.85)');
         const card = presentGpsDiagnostics(
             boatGpsDiagnosticSource(mocks.nmeaState as unknown as Parameters<typeof boatGpsDiagnosticSource>[0])!,
