@@ -1971,6 +1971,10 @@ export function useWeatherLayers(
         // you tapped to build the same two-layer view.
         const target = frameZoomForSelection(activeLayers, 'wind') ?? LAYER_FRAME_ZOOM.wind ?? 7;
         if (Math.abs(map.getZoom() - target) < 0.05) return;
+        // Wind zooms IN to its frame, never out (2026-10-06): closer in, the
+        // close-in wind field shows the breeze at any zoom, so pulling a
+        // skipper out of z14 in the marina would only hide it.
+        if (map.getZoom() > target) return;
         // Zoom only. No `center`: the skipper stays over the water they chose.
         map.easeTo({ zoom: target, duration: 700 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
