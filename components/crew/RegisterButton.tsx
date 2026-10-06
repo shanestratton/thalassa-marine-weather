@@ -1,11 +1,13 @@
 /**
  * RegisterButton — Reusable register toggle button for crew permissions.
  *
- * Shows a register icon + label with a checkmark indicator.
- * Used in both InviteCrewModal and Edit Permissions modal.
+ * Shows a register glyph + label with a checkmark indicator: the Crew & Float
+ * Plan page's line glyphs in its one accent (2026-10-06), not emoji.
+ * Used in InviteCrewModal.
  */
 import React from 'react';
-import { type SharedRegister, REGISTER_LABELS, REGISTER_ICONS } from '../../services/CrewService';
+import { type SharedRegister, REGISTER_LABELS } from '../../services/CrewService';
+import { RegisterGlyph } from './crewGlyphs';
 
 interface RegisterButtonProps {
     reg: SharedRegister;
@@ -26,7 +28,7 @@ export const RegisterButton: React.FC<RegisterButtonProps> = ({ reg, selected, o
         }`}
     >
         <div className="flex items-center gap-2">
-            <span className="text-lg">{REGISTER_ICONS[reg]}</span>
+            <RegisterGlyph register={reg} className="crew-accent h-4 w-4 shrink-0" />
             <p className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}>{REGISTER_LABELS[reg]}</p>
         </div>
         <div

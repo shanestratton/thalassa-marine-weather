@@ -5,7 +5,7 @@
  * Each card is a <details> accordion with delegation badge + inner card.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { type CrewMember } from '../../services/CrewService';
 import { type VoyageRow } from '../CrewManagement';
 
@@ -35,6 +35,17 @@ import { type PassageStatus } from '../../services/PassagePlanService';
 interface ReadinessCardStackProps {
     selectedPassageId: string;
     passageStatus: PassageStatus;
+    /**
+     * False while the page paints the access this device last verified
+     * (services/crew/lastPassageStatus) and the live check is still out. The
+     * cards render on the painted status, but nothing that writes is handed
+     * over until the verified answer lands: the departure edits (and the
+     * Summary card's past-departure roll-forward), delegation, Galley
+     * purchases and the watch plan. The page's own handlers check the verified
+     * status, so a write handed over early would be dropped without a word.
+     * Defaults to true (a caller that passes only verified status).
+     */
+    canAct?: boolean;
     draftVoyages: VoyageRow[];
     visibleCrew: CrewMember[];
     planCrewCount: number;
@@ -96,7 +107,10 @@ const ChevronDown = () => (
     </svg>
 );
 
-/* ── Accordion header styling helper ── */
+/* ── Accordion header styling helper ──
+   The Crew & Float Plan page's tier-1 look (2026-10-06, styles/crew-page.css):
+   a card still to do wears the Plan tile's sky glass, not red (red is kept for
+   destructive actions); done is emerald, a caution amber. */
 const summaryClasses = (isReady: boolean, isAmber = false) => {
     if (isReady) {
         return 'bg-linear-to-r from-emerald-500/6 to-teal-500/3 border-emerald-500/15 hover:from-emerald-500/10 hover:to-teal-500/6';
@@ -104,19 +118,19 @@ const summaryClasses = (isReady: boolean, isAmber = false) => {
     if (isAmber) {
         return 'bg-linear-to-r from-amber-500/6 to-orange-500/3 border-amber-500/15 hover:from-amber-500/10 hover:to-orange-500/6';
     }
-    return 'bg-linear-to-r from-red-500/6 to-orange-500/3 border-red-500/15 hover:from-red-500/10 hover:to-orange-500/6';
+    return 'crew-feature-card';
 };
 
 const iconClasses = (isReady: boolean, isAmber = false) => {
-    if (isReady) return 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20';
-    if (isAmber) return 'from-amber-500/20 to-orange-500/10 border-amber-500/20';
-    return 'from-red-500/20 to-orange-500/10 border-red-500/20';
+    if (isReady) return 'bg-linear-to-br from-emerald-500/20 to-teal-600/10 border border-emerald-500/20';
+    if (isAmber) return 'bg-linear-to-br from-amber-500/20 to-orange-500/10 border border-amber-500/20';
+    return 'crew-tile-icon';
 };
 
 const subtitleColor = (isReady: boolean, isAmber = false) => {
-    if (isReady) return 'text-emerald-400/70';
-    if (isAmber) return 'text-amber-400/70';
-    return 'text-red-400/70';
+    if (isReady) return 'text-emerald-400/80';
+    if (isAmber) return 'text-amber-400/80';
+    return 'crew-muted';
 };
 
 /* ── Single Readiness Card Accordion ── */
@@ -176,14 +190,14 @@ const CardAccordion: React.FC<CardAccordionProps> = ({
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${summaryClasses(isReady, isAmber)}`}
             >
                 <div
-                    className={`w-11 h-11 rounded-xl bg-linear-to-br border flex items-center justify-center text-xl shrink-0 ${iconClasses(isReady, isAmber)}`}
+                    className={`w-11! h-11! rounded-xl! flex items-center justify-center text-xl shrink-0 ${iconClasses(isReady, isAmber)}`}
                 >
                     {isReady ? readyEmoji : emoji}
                 </div>
-                <div className="flex-1 text-left">
+                <div className="flex-1 min-w-0 text-left">
                     {/* A div, not a <p>: DelegationBadge renders a block dropdown, which is
                         invalid inside a paragraph (React logs validateDOMNesting). */}
-                    <div className="text-lg font-semibold text-white inline-flex items-center">
+                    <div className="text-[15px] font-black leading-tight text-white inline-flex flex-wrap items-center">
                         {title}
                         {showDelegation && (
                             <DelegationBadge
@@ -196,7 +210,9 @@ const CardAccordion: React.FC<CardAccordionProps> = ({
                             />
                         )}
                     </div>
-                    <p className={`text-sm ${subtitleColor(isReady, isAmber)}`}>{isReady ? readySubtitle : subtitle}</p>
+                    <p className={`mt-0.5 text-[13px] font-semibold ${subtitleColor(isReady, isAmber)}`}>
+                        {isReady ? readySubtitle : subtitle}
+                    </p>
                 </div>
                 <ChevronDown />
             </summary>
@@ -220,26 +236,19 @@ const GroupHeader: React.FC<{ label: string; ready: number; total: number; notAp
 }) => {
     const complete = total > 0 && ready === total;
     return (
-        <div className="flex items-center gap-2 mb-3 mt-1">
-            <div className={`w-1 h-4 rounded-full ${complete ? 'bg-emerald-400' : 'bg-violet-400'}`} />
-            <span
-                className={`text-[11px] font-black uppercase tracking-[0.2em] ${complete ? 'text-emerald-400' : 'text-violet-400'}`}
-            >
-                {label}
-            </span>
+        // The page's uppercase eyebrow, its one accent for the count (emerald
+        // once every card is done), and the chevron: a 44 px row to tap.
+        <div className="flex min-h-[44px] items-center gap-2 mb-1">
+            <span className="crew-eyebrow">{label}</span>
             {total > 0 && (
-                <span
-                    className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                        complete
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                            : 'bg-violet-500/10 border-violet-500/20 text-violet-400'
-                    }`}
-                >
+                <span className={`ml-auto crew-pill ${complete ? 'crew-pill--active' : ''}`}>
                     {ready}/{total}
                     {notApplicable > 0 && ` required · ${notApplicable} N/A`}
                 </span>
             )}
-            <ChevronDown />
+            <span className={total > 0 ? '' : 'ml-auto'}>
+                <ChevronDown />
+            </span>
         </div>
     );
 };
@@ -250,6 +259,7 @@ type OpenReadinessCard = { group: ReadinessGroupKey; cardKey: string };
 export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     selectedPassageId,
     passageStatus,
+    canAct = true,
     draftVoyages,
     visibleCrew,
     planCrewCount,
@@ -305,6 +315,15 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // don't own with no profile of its boat here — never your own boat.
     const passageVessel: VesselProfileOverride | null | undefined =
         hasVerifiedPassageAccess && !passageStatus.isOwner ? (crewVesselProfile ?? null) : undefined;
+    // The owner's writes wait for the verified answer (see `canAct`). The boat
+    // shown above follows the painted status, so it does not flip on arrival.
+    const ownerCanAct = passageStatus.isOwner && canAct;
+    // A crew grant's Galley purchases wait the same way. Memoised so the card
+    // sees one object per status, not a new one every render.
+    const galleyPassageStatus = useMemo(
+        () => (canAct || !passageStatus.canEditStores ? passageStatus : { ...passageStatus, canEditStores: false }),
+        [canAct, passageStatus],
+    );
     const [provisioningStatus, setProvisioningStatus] = useState<{ voyageId: string; ready: boolean } | null>(null);
     const provisioningReady =
         canCountReadiness && provisioningStatus?.voyageId === selectedPassageId && provisioningStatus.ready;
@@ -328,7 +347,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
         delegationMenuOpen,
         onMenuToggle: onDelegationMenuToggle,
         onAssign: onAssignCard,
-        showDelegation: passageStatus.isOwner,
+        showDelegation: ownerCanAct,
     };
 
     // Domestic passages do not need a customs clearance. Keep that fact out
@@ -425,8 +444,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 rolled-up group headers so the user knows why the cards
                 are absent. */}
             {!hasPassage && (
-                <div className="mb-4 rounded-xl border border-white/6 bg-white/2 px-4 py-3 text-center">
-                    <p className="text-sm text-gray-400">
+                <div className="crew-note mb-4 text-center">
+                    <p className="text-[13px] font-medium">
                         {noPassageHint ??
                             (draftVoyages.length === 0
                                 ? 'Plan a route to start ticking off your passage readiness.'
@@ -470,8 +489,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         routeCoordinates={activeVoyage.routeCoordinates}
                         plannedRouteId={activeVoyage.plannedRouteId}
                         distanceNm={activeVoyage.distanceNm}
-                        onDepartureTimeChange={passageStatus.isOwner ? handleActiveDepartureTimeChange : undefined}
-                        allowFloatPlan={passageStatus.isOwner}
+                        onDepartureTimeChange={ownerCanAct ? handleActiveDepartureTimeChange : undefined}
+                        allowFloatPlan={ownerCanAct}
                         passageVessel={passageVessel}
                     />
                 </div>
@@ -521,7 +540,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             destination={activeVoyage?.arrivalCoords}
                             routeCoordinates={activeVoyage?.routeCoordinates}
                             departureTime={activeVoyage?.departure_time}
-                            onDepartureTimeChange={passageStatus.isOwner ? handleActiveDepartureTimeChange : undefined}
+                            onDepartureTimeChange={ownerCanAct ? handleActiveDepartureTimeChange : undefined}
                             onReviewedChange={onWeatherWindowChange}
                             vesselOverride={passageVessel}
                         />
@@ -585,13 +604,13 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                     {canViewMeals && (
                         <div className="mb-4">
                             <GalleyCard
-                                passageStatus={passageStatus}
+                                passageStatus={galleyPassageStatus}
                                 className=""
                                 // declined rows are retained 7 days for the roster's 'Declined' label only; they are not souls aboard.
                                 registeredCrewCount={visibleCrew.filter((m) => m.status !== 'declined').length}
                                 standingCrewAboard={standingCrewAboard}
                                 onProvisionedChange={handleProvisionedChange}
-                                {...(passageStatus.isOwner
+                                {...(ownerCanAct
                                     ? {
                                           cardDelegations,
                                           delegationMenuOpen,
@@ -632,7 +651,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                     passageDurationHours={activeVoyage?.durationHours}
                                     voyageName={activeVoyage?.voyage_name || null}
                                     onReviewedChange={onWatchChange}
-                                    readOnly={!passageStatus.isOwner}
+                                    readOnly={!ownerCanAct}
                                 />
                             </CardAccordion>
 

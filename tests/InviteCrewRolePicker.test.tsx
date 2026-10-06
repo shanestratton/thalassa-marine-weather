@@ -316,6 +316,34 @@ describe('InviteCrewModal role picker (2026-09-08)', () => {
         expect(screen.queryByText(/stores and galley/i)).not.toBeInTheDocument();
     });
 
+    it('while passage access is being checked, Send waits only when a passage register is ticked (2026-10-06)', () => {
+        const props = {
+            inviteEmail: 'mate@example.com',
+            inviteRole: 'deckhand' as CrewRole,
+            inviteLoading: false,
+            inviteError: null,
+            inviteSuccess: false,
+            onEmailChange: vi.fn(),
+            onRoleChange: vi.fn(),
+            onToggleRegister: vi.fn(),
+            onInvite: vi.fn(),
+        };
+        const { rerender } = render(
+            <InviteCrewModal {...props} inviteRegisters={['stores', 'passage_checklist']} passageAccessChecking />,
+        );
+        expect(screen.getByRole('button', { name: 'Send crew invitation' })).toBeDisabled();
+        expect(screen.getByText('Checking passage access… Send unlocks when it answers.')).toBeInTheDocument();
+
+        // A boat register needs no passage check.
+        rerender(<InviteCrewModal {...props} inviteRegisters={['stores']} passageAccessChecking />);
+        expect(screen.getByRole('button', { name: 'Send crew invitation' })).toBeEnabled();
+        expect(screen.queryByText(/Send unlocks when it answers/)).toBeNull();
+
+        // Once the check has answered, Send is back.
+        rerender(<InviteCrewModal {...props} inviteRegisters={['stores', 'passage_checklist']} />);
+        expect(screen.getByRole('button', { name: 'Send crew invitation' })).toBeEnabled();
+    });
+
     it('a crew code carries the Galley only when it is ticked', () => {
         expect(crewCodePermissions('deckhand', []).can_view_galley).toBe(false);
         expect(crewCodePermissions('co-skipper', ['stores']).can_view_galley).toBe(false);

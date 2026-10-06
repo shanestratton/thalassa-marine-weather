@@ -135,6 +135,13 @@ export interface InviteCrewModalProps {
     onInvite: () => void;
     /** Closes the host ModalSheet from the crew-code panel's Done button. */
     onDone?: () => void;
+    /**
+     * True while the page is still verifying the selected passage. A passage
+     * register can only be shared from a passage verified as yours, so Send
+     * waits (with a line saying why) instead of refusing with "Select one of
+     * your own passages" while the page shows that passage as yours.
+     */
+    passageAccessChecking?: boolean;
 }
 
 interface IssuedCrewCode {
@@ -160,6 +167,7 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
     onToggleRegister,
     onInvite,
     onDone,
+    passageAccessChecking = false,
 }) => {
     // Crew-code state lives here rather than in CrewManagement: the code is a
     // one-shot result shown inside this modal and discarded with it.
@@ -181,6 +189,8 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
     const selectedRole = INVITE_ROLE_OPTIONS.find((option) => option.role === inviteRole) ?? INVITE_ROLE_OPTIONS[0];
     const trimmedEmail = inviteEmail.trim();
     const codeCaution = crewCodeCaution(inviteRegisters);
+    const waitingOnPassageCheck =
+        passageAccessChecking && inviteRegisters.some((register) => PASSAGE_REGISTERS.includes(register));
 
     const handleCreateCode = async () => {
         // Identity fence: capture the scope before the await and refuse to
@@ -411,15 +421,22 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
                 </div>
             )}
 
+            {waitingOnPassageCheck && (
+                <p role="status" className="text-xs text-gray-400 ml-1">
+                    Checking passage access… Send unlocks when it answers.
+                </p>
+            )}
+
             {/* Send button */}
             <button
                 aria-label="Send crew invitation"
                 onClick={onInvite}
-                disabled={inviteLoading || !inviteEmail.trim() || inviteRegisters.length === 0}
-                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!inviteEmail.trim() || inviteRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}
+                disabled={inviteLoading || !inviteEmail.trim() || inviteRegisters.length === 0 || waitingOnPassageCheck}
+                // The page's emerald primary (styles/crew-page.css).
+                className="crew-cta w-full min-h-[48px]! text-sm"
             >
                 {inviteLoading ? (
-                    <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 ) : (
                     `Send Invite (${inviteRegisters.length} register${inviteRegisters.length !== 1 ? 's' : ''})`
                 )}

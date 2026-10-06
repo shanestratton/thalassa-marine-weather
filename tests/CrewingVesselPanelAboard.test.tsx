@@ -53,7 +53,6 @@ function panel(view: CrewVesselView | null, self: typeof SELF | null = SELF) {
             self={self}
             stale={false}
             loading={false}
-            onLeave={vi.fn()}
             onSwitch={vi.fn()}
         />,
     );

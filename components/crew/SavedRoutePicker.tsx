@@ -25,6 +25,7 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { triggerHaptic } from '../../utils/system';
 import { orderSavedRouteRows, type SavedRoutePickerRow } from '../../services/savedRouteOrder';
 import { SavedRouteList } from '../routes/SavedRouteRows';
+import { ChevronDownGlyph, RouteGlyph } from './crewGlyphs';
 
 export type { SavedRoutePickerRow };
 
@@ -32,15 +33,18 @@ interface SavedRoutePickerProps {
     rows: SavedRoutePickerRow[];
     selectedId: string;
     onSelect: (id: string) => void;
+    /** The library's count ("4 yours · 1 shared"), the tile's subline. */
+    subline?: React.ReactNode;
 }
 
-export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, selectedId, onSelect }) => {
+export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, selectedId, onSelect, subline }) => {
     const [open, setOpen] = useState(false);
     const closeButtonRef = useRef<HTMLButtonElement>(null);
     /* Generated, not a literal. A second surface mounting this list with a
        hard-coded id would emit duplicate DOM ids and make a listbox query by
        accessible name ambiguous. */
     const listboxId = useId();
+    const faceId = useId();
     const dialogRef = useFocusTrap<HTMLDivElement>(open, {
         initialFocusRef: closeButtonRef,
         onEscape: () => setOpen(false),
@@ -57,6 +61,10 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
 
     return (
         <>
+            {/* The Plan page's Trip tile face (2026-10-06): the route glyph in
+                its raised tile, the route as the title, the library's count
+                as the subline, a chevron for "a list". Named "Saved Routes";
+                the route and the count are its description. */}
             <button
                 type="button"
                 role="combobox"
@@ -64,25 +72,32 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                 aria-haspopup="listbox"
                 aria-expanded={open}
                 aria-controls={listboxId}
+                aria-describedby={subline ? `${faceId}-route ${faceId}-sub` : `${faceId}-route`}
                 onClick={() => {
                     triggerHaptic('light');
                     setOpen(true);
                 }}
-                className="w-full min-h-[44px] flex items-center justify-between gap-2 bg-white/6 border border-white/12 rounded-lg px-3 py-2.5 text-sm text-left focus:outline-hidden focus:border-violet-500/40"
+                className="crew-feature-card crew-route-tile card-lift transition-all active:scale-[0.98]"
             >
-                <span className={selected ? 'text-white' : 'text-gray-400'}>
-                    {selected ? [selected.name, selected.legBadge].filter(Boolean).join(' ') : 'Choose a saved route…'}
+                <span aria-hidden="true" className="crew-tile-icon">
+                    <RouteGlyph />
                 </span>
-                <svg
-                    className="w-4 h-4 shrink-0 text-violet-300"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden="true"
-                >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
+                <span className="min-w-0 flex-1">
+                    <span
+                        id={`${faceId}-route`}
+                        className={`crew-route-title ${selected ? 'text-white' : 'crew-muted'}`}
+                    >
+                        {selected
+                            ? [selected.name, selected.legBadge].filter(Boolean).join(' ')
+                            : 'Choose a saved route…'}
+                    </span>
+                    {subline && (
+                        <span id={`${faceId}-sub`} className="crew-route-sub">
+                            {subline}
+                        </span>
+                    )}
+                </span>
+                <ChevronDownGlyph className="crew-route-chevron" />
             </button>
 
             {open && (
@@ -103,7 +118,7 @@ export const SavedRoutePicker: React.FC<SavedRoutePickerProps> = ({ rows, select
                         >
                             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-white/6">
                                 <div>
-                                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-violet-300">
+                                    <p className="text-[11px] font-black uppercase tracking-[0.2em] text-sky-300">
                                         Saved Routes
                                     </p>
                                     <p className="mt-0.5 text-[11px] text-gray-500">
