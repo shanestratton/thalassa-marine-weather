@@ -125,7 +125,7 @@ const REQUIRED_CSP_DIRECTIVES = Object.freeze([
 ]);
 
 const DOCUMENT_HEADER_SOURCES = Object.freeze([
-    '/((?!.*\\..*).*)',
+    '/((?!api/)(?!.*\\..*).*)',
     '/index.html',
     '/logs.html',
     '/beta.html',
@@ -146,7 +146,7 @@ const REQUIRED_REWRITES = Object.freeze([
     ['/feedback', '/feedback.html'],
     ['/ocean', '/ocean.html'],
     ['/ocean/:path*', '/ocean.html'],
-    ['/((?!.*\\..*).*)', '/index.html'],
+    ['/((?!api/)(?!.*\\..*).*)', '/index.html'],
 ]);
 
 const REQUIRED_REDIRECTS = Object.freeze([
@@ -223,7 +223,7 @@ export function validateVercelConfig(config) {
     }
 
     const catchAllRewriteIndex = Array.isArray(config.rewrites)
-        ? config.rewrites.findIndex((rule) => rule?.source === '/((?!.*\\..*).*)')
+        ? config.rewrites.findIndex((rule) => rule?.source === '/((?!api/)(?!.*\\..*).*)')
         : -1;
     if (catchAllRewriteIndex !== (config.rewrites?.length ?? 0) - 1) {
         failures.push('the dotless SPA fallback must remain the last rewrite');

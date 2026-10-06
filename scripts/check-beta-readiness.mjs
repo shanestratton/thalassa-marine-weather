@@ -1523,7 +1523,7 @@ check(
         !Object.hasOwn(marineVercelConfig, 'routes') &&
         !Object.hasOwn(marineVercelConfig, 'functions') &&
         JSON.stringify(marineVercelConfig.rewrites?.at(-1)) ===
-            JSON.stringify({ source: '/((?!.*\\..*).*)', destination: '/index.html' }) &&
+            JSON.stringify({ source: '/((?!api/)(?!.*\\..*).*)', destination: '/index.html' }) &&
         includesAll(releaseAssetProxyTest, [
             'matches the Python canonical generation fixture exactly',
             'derives the same weekly shard, including the ISO year boundary',

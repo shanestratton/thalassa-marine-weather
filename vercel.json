@@ -53,7 +53,7 @@
             "destination": "/ocean.html"
         },
         {
-            "source": "/((?!.*\\..*).*)",
+            "source": "/((?!api/)(?!.*\\..*).*)",
             "destination": "/index.html"
         }
     ],
@@ -86,7 +86,7 @@
             ]
         },
         {
-            "source": "/((?!.*\\..*).*)",
+            "source": "/((?!api/)(?!.*\\..*).*)",
             "headers": [
                 {
                     "key": "Cache-Control",
