@@ -1,28 +1,104 @@
 /*
  * The diary's New Entry and Edit Entry page (components/diary/DiaryComposeForm.tsx).
  * Shane 2026-10-06: "can you update the diary entry page to make it more in
- * line with our new look".
+ * line with our new look", then "could we make the diary page just fit the
+ * area. I hate scrolling it looks terrible. Use your banging new boxes".
  *
- * The tier-1 language of the Vessel and Plan pages: glass cards, one sky
+ * The tier-1 language of the Vessel and Plan pages: glass boxes, one sky
  * accent, amber only for a warning, the emerald primary at the foot, 44 px
- * targets and one-line uppercase eyebrows. From top to bottom: Title (the
- * date and time by default), Trip (the Plan page's Trip tile), Mood (one
- * segmented row), Where (the place and the saved position), Writing style,
- * Photos (six dashed glass tiles), the text box, then the video.
+ * targets and one-line uppercase eyebrows. From top to bottom: one box of
+ * three rows (Title, Where and its saved position, Trip), the Vessel page's
+ * rows-in-one-box; the one-row Mood; the media box (Photos, the video pill
+ * on its line, six dashed tiles); and the writing card, whose text box takes
+ * every pixel left, its ✨ polish and style at its foot.
+ *
+ * The page fits its screen with no scroll on every phone from an SE (375x667)
+ * up, on a standard iPhone with Display Zoom (320x693), and in the iPad's
+ * split pane (browser-tests/diary-compose-layout.spec.ts measures it inside
+ * the real header and tab bar, with the app's 16 px iOS no-zoom rule on every
+ * field). A short screen (under 800 px: an SE, an iPad pane, a phone on its
+ * side) takes the compact tier, and a 320 pt one the narrow tier below; the
+ * column only scrolls while the keyboard is up, on a 320x568 screen or a
+ * phone on its side, or by a few px at 320x693 with both long notes wrapped.
+ * The tiers key on the screen's height, not the page's, so the keyboard
+ * coming up never changes them under a field being typed in.
  *
  * Light mode takes the Vessel page's surfaces through --vessel-card-* and
  * --vessel-journal-* (index.css scopes them to .diary-compose); dark and
  * night keep the fallbacks here. Sizes are px, not rem: the root font is
  * fluid (13 px at 320), and 44 must stay 44.
  *
- * No card clips its content (no overflow: hidden): the keyboard guard
+ * No box clips its content (no overflow: hidden): the keyboard guard
  * (utils/keyboardScroll.ts) treats a clipping ancestor taller than its field
- * as the field's viewport, which would centre a field in its card instead of
+ * as the field's viewport, which would centre a field in its box instead of
  * above the keyboard.
  */
 
+.diary-compose {
+    /* The standard tier. */
+    --diary-gap: 6px;
+    --diary-row: 48px;
+    --diary-row-pad: 5px;
+    --diary-text-min: 72px;
+    --diary-text-pad: 12px 14px 6px;
+    --diary-foot-button: 48px;
+}
+@media (max-height: 799.98px) {
+    .diary-compose {
+        --diary-gap: 4px;
+        --diary-row: 44px;
+        --diary-row-pad: 3px;
+        --diary-tile: 44px;
+        /* The least the text box gives way to: an SE with no GPS fix and no
+           recent trips, both long notes wrapped onto two lines. */
+        --diary-text-min: 44px;
+        --diary-text-pad: 10px 14px 4px;
+        --diary-foot-button: 44px;
+    }
+}
+/* A screen too short to fit at all (320x568, a phone on its side) scrolls
+   anyway, so the text box keeps room for a few lines: four, and on its side
+   three, so the whole writing card (the text box and its polish row) still
+   fits the short column it scrolls in. */
+@media (max-height: 599.98px) {
+    .diary-compose {
+        --diary-text-min: 96px;
+    }
+}
+@media (orientation: landscape) and (max-height: 499.98px) {
+    .diary-compose {
+        --diary-text-min: 72px;
+    }
+}
+
+.diary-compose-head {
+    padding-top: 6px;
+    padding-bottom: 4px;
+}
 .diary-compose-body {
     container: diary-compose / inline-size;
+    padding-top: 2px;
+    padding-bottom: 6px;
+}
+.diary-compose-foot {
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+@media (max-height: 799.98px) {
+    .diary-compose-head {
+        padding-top: 2px;
+        padding-bottom: 2px;
+    }
+    .diary-compose-body {
+        padding-bottom: 4px;
+    }
+    .diary-compose-foot {
+        padding-top: 4px;
+        padding-bottom: 4px;
+    }
+}
+.diary-foot-button {
+    min-height: var(--diary-foot-button);
 }
 
 /* A wide screen (an iPad in full screen) keeps the form one readable column. */
@@ -32,11 +108,15 @@
     margin-right: auto;
     margin-left: auto;
 }
+.diary-stack {
+    gap: var(--diary-gap);
+}
 
-/* ── A card: the Plan page's plot settings glass ── */
-.diary-card {
+/* ── A box: the Vessel and Plan pages' glass ── */
+.diary-group,
+.diary-media,
+.diary-write {
     flex-shrink: 0;
-    padding: 8px 12px 4px;
     border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
     border-radius: 16px;
     background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
@@ -47,16 +127,6 @@
     backdrop-filter: blur(16px);
     transition: border-color 150ms ease;
 }
-/* The card carries the focus of the field inside it: a 2 px sky ring at its
-   edge (its border plus a 1 px shadow ring). The style card has its own
-   ring for the keyboard, below. */
-.diary-card:not(.diary-style):focus-within {
-    border-color: var(--day-ui-accent, #7dd3fc);
-    box-shadow:
-        0 0 0 1px var(--day-ui-accent, #7dd3fc),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04),
-        0 10px 26px rgba(2, 6, 23, 0.18);
-}
 
 /* The one-line uppercase eyebrow (the Plan card's DEPARTURE). */
 .diary-eyebrow {
@@ -66,9 +136,9 @@
     min-width: 0;
     height: 16px;
     color: var(--day-ui-accent, #7dd3fc);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 900;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
     line-height: 16px;
     text-transform: uppercase;
     white-space: nowrap;
@@ -78,32 +148,77 @@
     width: 14px;
     height: 14px;
 }
-.diary-eyebrow-row {
+.diary-count {
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    line-height: 16px;
+    white-space: nowrap;
+}
+
+/* ── The rows box: Title, Where and Trip, hairlines between them ── */
+.diary-row {
+    position: relative;
+    min-height: var(--diary-row);
+    padding: var(--diary-row-pad) 12px 0;
+}
+.diary-row:first-child {
+    border-radius: 15px 15px 0 0;
+}
+.diary-row:last-child {
+    border-radius: 0 0 15px 15px;
+}
+.diary-row:only-child {
+    border-radius: 15px;
+}
+/* The hairline between rows (the Vessel page's ListDivider), inset to the text. */
+.diary-row + .diary-row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 12px;
+    left: 12px;
+    height: 1px;
+    background: var(--day-ui-border, rgba(255, 255, 255, 0.06));
+    pointer-events: none;
+}
+/* A row carries the focus of its field: a 2 px sky ring inside its edge. */
+.diary-row:focus-within {
+    box-shadow: inset 0 0 0 2px var(--day-ui-accent, #7dd3fc);
+}
+.diary-row:focus-within::before,
+.diary-row:focus-within + .diary-row::before {
+    opacity: 0;
+}
+
+/* The label line: the eyebrow, and beside it on the right any status it
+   carries (the saved position, the trips loading). A long status wraps
+   beside the eyebrow rather than being cut. */
+.diary-row-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 0 4px;
-    margin-bottom: 6px;
+    min-height: 16px;
 }
-.diary-count {
-    color: var(--day-ui-muted, #94a3b8);
-    font-size: 11px;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.04em;
+.diary-row-head > .diary-eyebrow {
+    flex-shrink: 0;
 }
 
-/* A field inside a card: the card draws the glass; the field is bare and
-   44 px tall, its top 4 px under the eyebrow (a tap there focuses it
-   anyway: the eyebrow is its label). 16 px, or iOS zooms the page to it. */
+/* A field in a row: bare, the row's full height, its box laid over the
+   label line so a tap anywhere on the row lands in it (the label is its
+   name, so a tap there focuses it anyway). Its text sits under the label
+   line, whatever that line's height. 16 px at the least, or iOS zooms the
+   page to it. */
 .diary-field {
     position: relative;
     display: block;
     width: 100%;
-    min-height: 44px;
-    margin-top: -4px;
-    padding: 0;
+    min-height: var(--diary-row);
+    margin-top: calc(-16px - var(--diary-row-pad));
+    padding: calc(16px + var(--diary-row-pad)) 0 0;
     border: 0;
     background: transparent;
     font-size: 16px;
@@ -111,49 +226,36 @@
 }
 /* A text field always matches :focus-visible, so the app's ring
    (index.css, *:focus-visible) would draw tight round the bare field and
-   through its eyebrow. The card draws the focus instead. */
-.diary-card .diary-field:focus-visible {
+   through its eyebrow. The row draws the focus instead. */
+.diary-row .diary-field:focus-visible {
     outline: none;
     box-shadow: none;
 }
-/* The title: by default a long weekday, the date, the long month, the year
-   and the time ('Wednesday 30 September 2026 · 08:48'). The longest of those
-   fits the field with room to spare at 390 at 16.5 px, at 375 at 15.5 px and
-   at 320 at 13 px bold (measured over every day of 2026 at the widest time;
-   at 17, 16 and 14 px it did not). A typed title longer than the field
-   scrolls within it, as any text field. */
+/* The title: 16 px, as every field on a phone (styles/ios-input-zoom.css
+   sets it, !important, or iOS zooms the page to the field). Its default is a
+   long weekday, the date, the long month, the year and the time
+   ('Wednesday 30 September 2026 · 08:48'), which fits from 390 up; under 390
+   the default is the short form ('Wed 30 Sept 2026 · 08:48',
+   utils/diaryTitle.ts), as the long one did not fit at 375 or 320. Measured
+   over every day of 2026 and every minute. A typed title longer than the
+   field scrolls within it, as any text field. */
 .diary-field-title {
-    font-size: 16.5px;
     font-weight: 800;
 }
-@container diary-compose (max-width: 351.98px) {
-    .diary-field-title {
-        font-size: 15.5px;
-    }
-}
-@container diary-compose (max-width: 339.98px) {
-    .diary-field-title {
-        font-size: 13px;
-        font-weight: 700;
-    }
-}
 
-.diary-rule {
-    height: 1px;
-    margin: 0 0 6px;
-    background: var(--day-ui-border, rgba(255, 255, 255, 0.06));
-}
-
-/* The saved position: the source word, then the coordinates, in the mono face. */
+/* The saved position: the source word, then the coordinates, in the mono
+   face, on the Where label line. */
 .diary-position {
     display: flex;
+    flex: 1 1 0;
     align-items: center;
-    gap: 8px;
-    min-height: 22px;
-    margin-bottom: 6px;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
     color: var(--day-ui-muted, #94a3b8);
     font-size: 12px;
-    line-height: 1.35;
+    line-height: 16px;
+    text-align: right;
 }
 .diary-position svg {
     flex-shrink: 0;
@@ -177,48 +279,54 @@
     color: var(--day-ui-amber, #92400e);
 }
 
-/* ── Trip: the Plan page's Trip tile (plan-tile / plan-tile-select) ── */
-.diary-trip {
-    min-height: 60px;
-}
-.diary-trip .plan-tile-body {
-    padding-top: 8px;
-    padding-bottom: 8px;
-}
-.diary-trip-label {
-    color: var(--day-ui-muted, #94a3b8);
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: 0.1em;
-    line-height: 16px;
-    text-transform: uppercase;
+/* ── Trip: the face shows the choice; the native select is laid invisibly
+   over the whole row (plan-tile-select, styles/plan-page.css) ── */
+.diary-row-trip {
+    padding-right: 36px;
+    padding-bottom: 4px;
+    cursor: pointer;
 }
 .diary-trip-value {
     display: -webkit-box;
     overflow: hidden;
     font-size: 14px;
     font-weight: 800;
-    line-height: 1.25;
+    line-height: 18px;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
 }
 .diary-trip-status {
-    margin-top: 1px;
+    flex: 1 1 0;
+    min-width: 0;
     color: var(--day-ui-muted, #94a3b8);
     font-size: 12px;
     font-weight: 600;
-    line-height: 1.35;
+    line-height: 16px;
+    text-align: right;
 }
-.diary-trip[data-disabled='true'] {
+.diary-row-trip[data-disabled='true'] {
     cursor: default;
+}
+.diary-row-trip[data-disabled='true'] > :not(select) {
     opacity: 0.55;
 }
-.diary-trip[data-disabled='true'] .plan-tile-select {
+.diary-row-trip[data-disabled='true'] .plan-tile-select {
     cursor: default;
 }
-.diary-trip[data-disabled='true']:hover {
-    transform: none;
+/* The trip's select draws no ring of its own (it is invisible): the row's. */
+.diary-row-trip .plan-tile-select:focus-visible {
+    outline: none;
     box-shadow: none;
+}
+.diary-select-chevron {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    width: 16px;
+    height: 16px;
+    color: var(--day-ui-accent, #7dd3fc);
+    pointer-events: none;
+    transform: translateY(-50%);
 }
 
 /* ── Mood: one segmented row of the four ── */
@@ -227,12 +335,17 @@
     flex-shrink: 0;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
-    padding: 4px;
+    padding: 3px;
     border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
     border-radius: 16px;
     background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
     -webkit-backdrop-filter: blur(16px);
     backdrop-filter: blur(16px);
+}
+@media (max-height: 799.98px) {
+    .diary-mood {
+        padding: 2px;
+    }
 }
 .diary-mood-option {
     display: flex;
@@ -243,7 +356,7 @@
     min-height: 44px;
     padding: 0 3px;
     border: 1px solid transparent;
-    border-radius: 12px;
+    border-radius: 13px;
     color: var(--day-ui-muted, #94a3b8);
     font-size: 12px;
     font-weight: 800;
@@ -285,100 +398,127 @@
     .diary-mood-option {
         flex-direction: column;
         gap: 2px;
-        min-height: 48px;
-        padding: 4px 2px;
-        font-size: 11px;
+        padding: 3px 2px;
+        font-size: 12px;
+        line-height: 14px;
+    }
+    .diary-mood-emoji {
+        font-size: 14px;
     }
 }
 
-/* ── Polish style: the sparkle tile and a tile for the style, its native
-   select laid invisibly over it as on the Trip tile ── */
-.diary-polish {
+/* ── Media: Photos and the video pill on one line, six tiles beneath ── */
+.diary-media {
+    padding: 0 8px 8px;
+}
+@media (max-height: 799.98px) {
+    .diary-media {
+        padding-bottom: 6px;
+    }
+}
+@container diary-compose (max-width: 339.98px) {
+    .diary-media {
+        padding-right: 4px;
+        padding-left: 4px;
+    }
+}
+.diary-media-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+}
+/* Photos and the count; on the narrowest phone the count goes under the
+   word rather than squeeze the pill. */
+.diary-media-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 8px;
+    min-width: 0;
+    padding-left: 4px;
+}
+
+/* The video pill: a 44 px target, its face a sky-edged pill. Over the
+   corner of the photo tile below it, in case a remove dot's hit area
+   reaches up under it. */
+.diary-video-pill {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-shrink: 0;
     align-items: center;
-    justify-content: center;
-    width: 56px;
-    min-height: 56px;
-    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
-    border-radius: 16px;
-    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
     color: var(--day-ui-accent, #7dd3fc);
-    transition: transform 150ms ease;
 }
-.diary-polish:not(:disabled):active {
-    transform: scale(0.95);
+.diary-video-pill-face {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px 0 10px;
+    border: 1.5px solid var(--day-ui-accent, rgba(125, 211, 252, 0.7));
+    border-radius: 9999px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 16px;
+    white-space: nowrap;
+    transition:
+        background-color 150ms ease,
+        border-color 150ms ease;
 }
-.diary-polish:disabled {
+.diary-video-pill svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+.diary-video-pill-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+button.diary-video-pill:not(:disabled):active .diary-video-pill-face {
+    transform: scale(0.97);
+}
+button.diary-video-pill:disabled {
     cursor: default;
+    opacity: 0.4;
 }
-.diary-polish[data-ready='true'] {
-    border-color: var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+/* A clip is on: the chosen-segment wash, the words in the text colour. */
+.diary-video-pill[data-state='on'] .diary-video-pill-face {
+    border-color: var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.45));
     background: var(
         --vessel-journal-chip-bg,
         linear-gradient(145deg, rgba(56, 189, 248, 0.32) 0%, rgba(14, 165, 233, 0.1) 100%)
     );
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: var(--day-ui-text, #e2e8f0);
 }
-.diary-polish[data-ready='false'] {
-    opacity: 0.4;
+.diary-video-pill[data-state='on'] svg {
+    color: var(--day-ui-accent, #7dd3fc);
 }
-.diary-polish svg {
-    width: 22px;
-    height: 22px;
+/* An edit: a label, not a control, so it wears no accent; full strength,
+   so its words keep their contrast. */
+.diary-video-pill[data-state='note'] {
+    cursor: default;
+    color: var(--day-ui-muted, #94a3b8);
 }
-.diary-style {
-    position: relative;
-    min-width: 0;
-    min-height: 56px;
-    padding: 8px 32px 8px 12px;
-    cursor: pointer;
+.diary-video-pill[data-state='note'] .diary-video-pill-face {
+    border-color: var(--vessel-card-border, rgba(255, 255, 255, 0.14));
+    border-style: dashed;
 }
-.diary-style:has(.plan-tile-select:focus-visible) {
+/* The keyboard ring goes round the face, not the invisible 44 px box. */
+.diary-video-pill:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+.diary-video-pill:focus-visible .diary-video-pill-face {
     outline: 2px solid var(--day-ui-accent, #7dd3fc);
     outline-offset: 2px;
-}
-.diary-style-value {
-    display: -webkit-box;
-    overflow: hidden;
-    margin-top: 2px;
-    font-size: 13px;
-    font-weight: 800;
-    line-height: 1.3;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-}
-.diary-select-chevron {
-    position: absolute;
-    top: 50%;
-    right: 12px;
-    width: 16px;
-    height: 16px;
-    color: var(--day-ui-accent, #7dd3fc);
-    pointer-events: none;
-    transform: translateY(-50%);
-}
-.diary-polishing {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    min-height: 36px;
-    padding: 6px 12px;
-    border: 1px solid var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
-    border-radius: 12px;
-    background: var(
-        --vessel-journal-card-bg,
-        linear-gradient(145deg, rgba(56, 189, 248, 0.17) 0%, rgba(20, 25, 35, 0.72) 64%)
-    );
-    color: var(--day-ui-accent, #7dd3fc);
-    font-size: 12px;
-    font-weight: 800;
-}
-.diary-polishing svg {
-    width: 16px;
-    height: 16px;
 }
 
 /* ── Photos: six dashed glass tiles in one row, 44 px at the least ── */
@@ -389,7 +529,7 @@
 }
 @container diary-compose (max-width: 339.98px) {
     .diary-photos {
-        gap: 4px;
+        gap: 3px;
     }
 }
 .diary-photo,
@@ -399,6 +539,14 @@
     min-width: 44px;
     min-height: 44px;
     border-radius: 12px;
+}
+/* A short screen: the tiles keep the row's width and drop to 44 px tall. */
+@media (max-height: 799.98px) {
+    .diary-photo,
+    .diary-photo-add {
+        aspect-ratio: auto;
+        height: var(--diary-tile);
+    }
 }
 .diary-photo {
     border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
@@ -506,79 +654,286 @@
     height: 18px;
 }
 
-/* ── The text box: a tall glass card of its own ── */
-.diary-body {
-    display: block;
-    width: 100%;
-    height: 100%;
-    padding: 14px 16px;
-    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
-    border-radius: 16px;
-    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.04),
-        0 10px 26px rgba(2, 6, 23, 0.18);
-    font-size: 15px;
-    line-height: 1.6;
-    outline: none;
-    resize: none;
-    transition: border-color 150ms ease;
+/* ── The writing card: the text box fills it, the polish row at its foot ── */
+.diary-write {
+    position: relative;
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
 }
-/* Focused, the text box wears the cards' 2 px sky ring at its own edge in
-   place of the app's offset ring, and keeps its corners (the app's ring
-   squares them to 4 px). */
-.diary-compose .diary-body:focus {
+/* Focused, the card wears the rows' sky ring at its own edge in place of
+   the app's offset ring round the bare text box. */
+.diary-write:has(.diary-body:focus) {
     border-color: var(--day-ui-accent, #7dd3fc);
     box-shadow:
         0 0 0 1px var(--day-ui-accent, #7dd3fc),
         inset 0 1px 0 rgba(255, 255, 255, 0.04),
         0 10px 26px rgba(2, 6, 23, 0.18);
 }
-.diary-compose .diary-body:focus-visible {
-    border-radius: 16px;
+.diary-body {
+    display: block;
+    flex: 1 1 0;
+    width: 100%;
+    min-height: var(--diary-text-min);
+    padding: var(--diary-text-pad);
+    border: 0;
+    border-radius: 15px 15px 0 0;
+    background: transparent;
+    /* 16 px, as every field (styles/ios-input-zoom.css). */
+    font-size: 16px;
+    line-height: 1.5;
     outline: none;
+    resize: none;
+}
+/* With the keyboard up the column scrolls, and the text box keeps room for
+   a few lines (the keyboard guard caps it to the band it can show). */
+html[data-keyboard-open='true'] .diary-body {
+    min-height: 144px;
+}
+.diary-compose .diary-body:focus-visible {
+    outline: none;
+    box-shadow: none;
 }
 .diary-body:disabled {
     opacity: 0.6;
 }
-
-/* ── Video: a dashed glass bar after the text ── */
-.diary-video-add {
+/* While a polish runs: a note over the card's top corner, so nothing moves. */
+.diary-polishing {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 8px;
-    width: 100%;
-    min-height: 48px;
-    border: 1.5px dashed rgba(125, 211, 252, 0.3);
-    border-radius: 14px;
-    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
-    color: var(--day-ui-muted, #94a3b8);
-    font-size: 13px;
-    font-weight: 700;
-    transition: border-color 150ms ease;
-}
-.diary-video-add svg {
-    flex-shrink: 0;
-    width: 18px;
-    height: 18px;
+    gap: 6px;
+    min-height: 28px;
+    padding: 4px 10px;
+    border: 1px solid var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+    border-radius: 9999px;
+    background: var(--vessel-surface-bg, #0f172a);
     color: var(--day-ui-accent, #7dd3fc);
+    font-size: 12px;
+    font-weight: 800;
+    pointer-events: none;
 }
-.diary-video-add:not(:disabled):hover {
-    border-color: rgba(125, 211, 252, 0.6);
+.display-light .diary-polishing {
+    background: #ffffff;
 }
-.diary-video-add:disabled {
+.diary-polishing svg {
+    width: 14px;
+    height: 14px;
+}
+.diary-write-tools {
+    display: flex;
+    flex-shrink: 0;
+    align-items: stretch;
+    gap: 6px;
+    padding: 0 6px 6px;
+}
+.diary-polish {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    min-height: 44px;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 12px;
+    background: var(--day-ui-surface-soft, rgba(255, 255, 255, 0.04));
+    color: var(--day-ui-accent, #7dd3fc);
+    transition: transform 150ms ease;
+}
+.diary-polish:not(:disabled):active {
+    transform: scale(0.95);
+}
+.diary-polish:disabled {
     cursor: default;
+}
+.diary-polish[data-ready='true'] {
+    border-color: var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+    background: var(
+        --vessel-journal-chip-bg,
+        linear-gradient(145deg, rgba(56, 189, 248, 0.32) 0%, rgba(14, 165, 233, 0.1) 100%)
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.diary-polish[data-ready='false'] {
     opacity: 0.4;
 }
-.display-light .diary-video-add {
-    border-color: rgba(3, 105, 161, 0.35);
+.diary-polish svg {
+    width: 20px;
+    height: 20px;
 }
-.diary-video {
+/* The style chip: its eyebrow names the select; the native select is laid
+   invisibly over it, as on the Trip row. */
+.diary-style {
     position: relative;
-    overflow: hidden;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    min-height: 44px;
+    padding: 4px 32px 4px 10px;
     border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
-    border-radius: 14px;
+    border-radius: 12px;
+    background: var(--day-ui-surface-soft, rgba(255, 255, 255, 0.04));
+    cursor: pointer;
+}
+.diary-style .diary-eyebrow {
+    height: 14px;
+    line-height: 14px;
+}
+/* The select covers the chip's border too, so the target is the chip's 44 px. */
+.diary-style .plan-tile-select {
+    inset: -1px;
+    width: calc(100% + 2px);
+    height: calc(100% + 2px);
+}
+.diary-style:has(.plan-tile-select:focus-visible) {
+    outline: 2px solid var(--day-ui-accent, #7dd3fc);
+    outline-offset: 2px;
+}
+.diary-style .plan-tile-select:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+.diary-style-value {
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 17px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+/* 'Shakespearean — maritime grandeur' keeps one line on a 375 pt phone. */
+@container diary-compose (max-width: 351.98px) {
+    .diary-style-value {
+        font-size: 12px;
+        line-height: 16px;
+    }
+}
+.diary-spinner {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 9999px;
+}
+
+/* ── The narrowest phones: a 320 pt screen (an SE zoomed, any standard
+   iPhone with Display Zoom, 320x693), a column under 340 px ──
+   Display Zoom on a standard iPhone is not the SE: it must fit too. Every
+   word still shows; what goes is ornament and air. The Where line's two
+   glyphs go, so the saved position keeps one line beside its eyebrow
+   ('Phone · 27.1234°S, 153.1234°E' wrapped to two at 320); a long status
+   that must wrap does so at 14 px a line; the polish style shows its name
+   ('Shakespearean'), its gloss only in the select; the gaps close a little. */
+@container diary-compose (max-width: 339.98px) {
+    .diary-row-where .diary-row-head {
+        gap: 6px;
+    }
+    .diary-row-where .diary-eyebrow svg,
+    .diary-row-where .diary-position svg {
+        display: none;
+    }
+    .diary-position {
+        letter-spacing: -0.02em;
+    }
+    .diary-position,
+    .diary-trip-status {
+        line-height: 14px;
+    }
+    .diary-style-gloss {
+        display: none;
+    }
+}
+@media (max-height: 799.98px) {
+    @container diary-compose (max-width: 339.98px) {
+        .diary-stack {
+            --diary-gap: 3px;
+            --diary-row-pad: 2px;
+        }
+        .diary-mood {
+            padding: 1px;
+        }
+        .diary-media {
+            padding-bottom: 4px;
+        }
+        .diary-write-tools {
+            padding: 0 4px 4px;
+        }
+    }
+}
+/* The head and the column are not inside the column's container: the same
+   narrow phones by the screen's width (a 340 px column is a 372 px screen). */
+@media (max-width: 371.98px) and (max-height: 799.98px) {
+    .diary-compose-body {
+        padding-top: 1px;
+        padding-bottom: 2px;
+    }
+}
+/* Offline, the Saved locally badge goes under the page title at 320; it
+   comes in tighter there, so the head grows by 6 px, not 14. */
+@media (max-width: 371.98px) {
+    .diary-compose-title {
+        row-gap: 2px;
+    }
+    .diary-offline > * {
+        padding-top: 1px;
+        padding-bottom: 1px;
+    }
+}
+
+/* A phone on its side with the keyboard up (App.tsx's isMobileLandscape: a
+   landscape screen under 500 px tall). Under the one-row app header the
+   keyboard left a strip of about 30 px between the page's head and its foot,
+   so a field being typed in could not show. While the keyboard is up the head
+   steps aside (Cancel and Save stay at the foot); it comes back with the
+   keyboard down. */
+@media (orientation: landscape) and (max-height: 499.98px) {
+    html[data-keyboard-open='true'] .diary-compose-head {
+        display: none;
+    }
+}
+
+/* ── The video sheet (a ModalSheet, portalled outside the page) ── */
+.diary-video-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.diary-video-player {
+    max-height: min(50dvh, 22rem);
+    object-fit: contain;
+}
+.diary-video-remove {
+    min-height: 44px;
+    padding: 0 16px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: 9999px;
+    background: rgba(248, 113, 113, 0.08);
+    color: #fca5a5;
+    font-size: 14px;
+    font-weight: 800;
+}
+.display-light .diary-video-remove {
+    border-color: rgba(185, 28, 28, 0.35);
+    background: #fff1f2;
+    color: var(--day-ui-danger, #b91c1c);
+}
+.diary-video-remove:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.diary-video-caption {
+    margin: 0;
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
 }
 
 /* ── The foot: Cancel the quiet secondary, Save the emerald primary ── */
@@ -598,12 +953,4 @@
 }
 :root:not(.display-light) .diary-save {
     color: #6ee7b7;
-}
-.diary-spinner {
-    flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-    border: 2px solid currentColor;
-    border-top-color: transparent;
-    border-radius: 9999px;
 }

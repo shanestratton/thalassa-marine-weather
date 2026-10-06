@@ -2825,6 +2825,16 @@ class DiaryServiceClass {
         if (entry.audio_url && this._managedStorageRefBelongsToScope(entry.audio_url, AUDIO_BUCKET, scope) !== false) {
             this._registerMediaRef(entry.audio_url, scope);
         }
+        // The clip too (2026-10-06). Only the phone's own idb-video: ref was
+        // ever registered, so once the drain swapped it for the uploaded (or
+        // Pi-parked) URL, resolveVideoUrl's ownership check refused every
+        // synced clip and the player said it could not be loaded, for good.
+        // The pending write after the drain's swap comes through here, as do
+        // the cache and a single fetched row; another account's path is still
+        // refused, here and again when signing.
+        if (entry.video_url && this._managedStorageRefBelongsToScope(entry.video_url, VIDEO_BUCKET, scope) !== false) {
+            this._registerMediaRef(entry.video_url, scope);
+        }
     }
 
     private _ownsMediaRef(ref: string, scope: AuthIdentityScope): boolean {

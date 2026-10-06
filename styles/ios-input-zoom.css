@@ -1,0 +1,16 @@
+/*
+ * Prevent iOS input zoom: Safari and the WKWebView zoom the page to any
+ * input, select or textarea whose text is under 16 px when it takes focus.
+ *
+ * It lived inline in index.html, so no layout fixture loaded it, and their
+ * tests measured fields at sizes the phone never draws: the diary's title
+ * was tested at 15.5 px at 375 and 13 px at 320 while the app drew it at
+ * 16 px and cut the long default date (review, 2026-10-06). index.html links
+ * this file in the inline rule's old place, ahead of index.css, and a fixture
+ * that models a page with fields imports it ahead of index.css too.
+ */
+input,
+select,
+textarea {
+    font-size: 16px !important;
+}

@@ -9,17 +9,9 @@
 import { useReducer } from 'react';
 import { DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 import { reconcileDiaryEntries } from '../services/diaryEntryIdentity';
-
-// Default title for a fresh compose: "Monday 14 January 2026 · 14:32".
-// The keyboard doesn't pop up on open — the skipper only edits the
-// title if they tap into the field.
-const formatEntryTitleDefault = (d: Date): string => {
-    const weekday = d.toLocaleDateString('en-AU', { weekday: 'long' });
-    const month = d.toLocaleDateString('en-AU', { month: 'long' });
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${weekday} ${d.getDate()} ${month} ${d.getFullYear()} · ${hh}:${mm}`;
-};
+// Default title for a fresh compose: "Monday 14 January 2026 · 14:32", or
+// "Mon 14 Jan 2026 · 14:32" on a screen under 390 pt (utils/diaryTitle.ts).
+import { formatEntryTitleDefault } from '../utils/diaryTitle';
 
 // ── State Shape ────────────────────────────────────────────────
 
