@@ -1,121 +1,165 @@
 /**
- * SwipeableCrewCard — Reusable card with swipe-to-reveal-delete.
+ * SwipeableCrewCard — one crew row with swipe-to-reveal Remove (or Leave).
  * Used for both "My Crew" (captain's view) and "Shared With Me" (crew's view).
+ *
+ * The tier-1 card (Shane 2026-10-06: "the crew and float plan page also needs
+ * to be dragged into the 21st century"): the person by NAME where the app
+ * knows it (their own float-plan name, else their byline on the boat), their
+ * role, the status as a small pill, Edit as a quiet icon button and the shared
+ * registers as one grid of line glyphs. An invite nobody has accepted yet has
+ * no name to show, so it is titled by its email, as before; with a name the
+ * email moves to the subline, so the skipper can still tell who it went to.
+ *
+ * A declined invite has nothing to edit; its quiet button removes it, so the
+ * row can be cleared without the swipe.
  */
 
 import React from 'react';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { triggerHaptic } from '../../utils/system';
-import { type SharedRegister, REGISTER_LABELS, REGISTER_ICONS } from '../../services/CrewService';
 import { type CrewMember } from '../../services/CrewService';
+import { crewRoleLabel } from '../../services/crew/crewVesselView';
+import { RegisterChips } from './RegisterChips';
+import { AnchorGlyph, PencilGlyph, TrashGlyph } from './crewGlyphs';
+import { BreakableEmail } from './BreakableEmail';
 
 export interface SwipeableCrewCardProps {
     member: CrewMember;
     mode: 'captain' | 'crew';
     onDelete: () => void;
     onEdit?: () => void;
+    /**
+     * The crew member's name, when the app knows it (captain mode, accepted
+     * crew): never a phone or an age, only the name.
+     */
+    displayName?: string | null;
 }
 
-export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onDelete, onEdit }) => {
+const STATUS: Record<string, { label: string; tone: string; note?: string }> = {
+    accepted: { label: 'Active', tone: 'crew-pill--active' },
+    pending: { label: 'Invited', tone: '', note: 'Waiting for them to accept' },
+    declined: { label: 'Declined', tone: 'crew-pill--quiet' },
+};
+
+/** Two initials from a name, or the first letter of an email. */
+export function crewInitials(name: string | null | undefined, email: string): string {
+    const words = (name ?? '')
+        .replace(/["“”].*?["“”]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => /^[\p{L}\p{N}]/u.test(word));
+    if (words.length > 0) {
+        const first = words[0][0] ?? '';
+        const last = words.length > 1 ? (words[words.length - 1][0] ?? '') : '';
+        return `${first}${last}`.toUpperCase();
+    }
+    return (email.trim()[0] ?? '?').toUpperCase();
+}
+
+export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({
+    member,
+    mode,
+    onDelete,
+    onEdit,
+    displayName,
+}) => {
     const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
         onSwipeComplete: () => void triggerHaptic('light'),
     });
 
     const isCaptain = mode === 'captain';
     const deleteLabel = isCaptain ? 'Remove' : 'Leave';
+    const email = isCaptain ? member.crew_email : member.owner_email;
+    const name = isCaptain && member.status === 'accepted' ? displayName?.trim() || null : null;
+    const status = STATUS[member.status] ?? STATUS.declined;
+    // Role · email · note, the email given its own break points.
+    const sublineParts: React.ReactNode[] = isCaptain
+        ? [
+              crewRoleLabel(member.role),
+              name ? <BreakableEmail key="email" email={email} /> : null,
+              status.note ?? null,
+          ].filter((part) => part !== null && part !== '')
+        : ["Skipper's Registers"];
+    const subline = sublineParts.flatMap((part, index) => (index === 0 ? [part] : [' · ', part]));
 
     return (
-        <div className="relative overflow-hidden rounded-xl">
+        <div className="relative overflow-hidden rounded-2xl">
             {/* Delete/Leave zone (revealed on swipe) */}
             <button
                 type="button"
                 aria-label={deleteLabel}
                 tabIndex={swipeOffset > 0 ? 0 : -1}
-                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-2xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
                 onClick={() => {
                     resetSwipe();
                     onDelete();
                 }}
             >
-                <div className="text-center text-white">
-                    <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                    </svg>
+                <span className="flex flex-col items-center text-white">
+                    <TrashGlyph className="mb-0.5 h-5 w-5" />
                     <span className="text-[11px] font-bold">{deleteLabel}</span>
-                </div>
+                </span>
             </button>
 
             {/* Main card (slides on swipe) — ref attaches native touch listeners */}
             <div
                 ref={ref}
-                className={`relative transition-transform ${isSwiping ? '' : 'duration-200'} ${isCaptain ? 'bg-white/3 border border-white/6' : 'bg-emerald-500/5 border border-emerald-500/15'} rounded-xl p-4`}
+                data-testid="crew-member-card"
+                className={`crew-card crew-member-card relative p-3.5 transition-transform ${isSwiping ? '' : 'duration-200'}`}
                 style={{ transform: `translateX(-${swipeOffset}px)`, touchAction: 'pan-y' }}
             >
-                <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                        {!isCaptain && (
-                            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/20 flex items-center justify-center">
-                                <span className="text-lg">⚓</span>
-                            </div>
-                        )}
-                        <div>
-                            <p className="text-sm font-bold text-white">
-                                {isCaptain ? member.crew_email : member.owner_email}
+                <div className="flex items-start gap-3">
+                    <span aria-hidden="true" className="crew-avatar" data-testid="crew-avatar">
+                        {isCaptain ? crewInitials(name, email) : <AnchorGlyph />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <p className="crew-card-title min-w-0 text-white">
+                                {name ?? <BreakableEmail email={email} />}
                             </p>
-                            {isCaptain ? (
-                                <p
-                                    className={`text-[11px] font-bold mt-0.5 ${member.status === 'accepted' ? 'text-emerald-400' : member.status === 'pending' ? 'text-amber-400' : 'text-gray-400'}`}
-                                >
-                                    {member.status === 'accepted'
-                                        ? '✓ Active'
-                                        : member.status === 'pending'
-                                          ? '⏳ Waiting for them to accept'
-                                          : 'Declined'}
-                                </p>
-                            ) : (
-                                <p className="text-[11px] text-emerald-400 font-bold mt-0.5">Skipper's Registers</p>
-                            )}
+                            {isCaptain && <span className={`crew-pill ${status.tone}`}>{status.label}</span>}
                         </div>
+                        <p className="crew-card-sub mt-0.5">{subline}</p>
                     </div>
 
-                    {/* Edit button (captain only, non-declined) */}
+                    {/* Edit (captain only, non-declined); a declined row's quiet Remove. */}
                     {isCaptain && member.status !== 'declined' && onEdit && (
                         <button
+                            type="button"
                             aria-label="Edit crew member details"
                             onClick={onEdit}
-                            className="hit-target-44 text-[11px] text-sky-400/60 hover:text-sky-400 font-bold transition-colors px-2 py-1"
+                            className="crew-icon-btn"
                         >
-                            Edit
+                            <span>
+                                <PencilGlyph />
+                            </span>
+                        </button>
+                    )}
+                    {isCaptain && member.status === 'declined' && (
+                        <button
+                            type="button"
+                            aria-label={`Remove the declined invite for ${email}`}
+                            onClick={onDelete}
+                            className="crew-icon-btn"
+                        >
+                            <span>
+                                <TrashGlyph />
+                            </span>
                         </button>
                     )}
                 </div>
 
                 {/* Explanation for crew */}
                 {!isCaptain && (
-                    <p className="text-[11px] text-gray-400 mb-2.5">
+                    <p className="crew-card-sub mt-2.5 font-medium">
                         You have access to the following registers. Any changes you make will update the Skipper's data.
                     </p>
                 )}
 
-                {/* Shared register badges */}
-                <div className="flex flex-wrap gap-1.5">
-                    {member.shared_registers.map((reg: SharedRegister) => (
-                        <span
-                            key={reg}
-                            className={`px-2 py-1 ${isCaptain ? 'bg-white/5 border border-white/10 text-gray-300' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'} rounded-lg text-[11px] font-bold`}
-                        >
-                            {REGISTER_ICONS[reg]} {REGISTER_LABELS[reg]}
-                        </span>
-                    ))}
-                </div>
+                {/* Shared registers, one grid */}
+                <RegisterChips registers={member.shared_registers} className="mt-3" />
 
                 {/* Swipe hint — subtle */}
-                <p className="text-[11px] text-gray-500 mt-2 text-right">← swipe to {deleteLabel.toLowerCase()}</p>
+                <p className="crew-swipe-hint">← swipe to {deleteLabel.toLowerCase()}</p>
             </div>
         </div>
     );

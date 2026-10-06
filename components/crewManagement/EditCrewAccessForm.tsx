@@ -11,12 +11,12 @@ import React from 'react';
 import {
     ALL_REGISTERS,
     ALWAYS_SHARED_REGISTERS,
-    REGISTER_ICONS,
     REGISTER_LABELS,
     type CrewMember,
     type SharedRegister,
 } from '../../services/CrewService';
 import { type AuthIdentityScope } from '../../services/authIdentityScope';
+import { RegisterGlyph, TrashGlyph } from '../crew/crewGlyphs';
 
 interface EditCrewAccessFormProps {
     editBoatMemberLoaded: boolean;
@@ -33,6 +33,11 @@ interface EditCrewAccessFormProps {
     setEditRegisters: React.Dispatch<React.SetStateAction<SharedRegister[]>>;
     toggleRegister: (register: SharedRegister, list: SharedRegister[], setList: (v: SharedRegister[]) => void) => void;
     handleSavePermissions: () => Promise<void>;
+    /**
+     * Remove this person from the crew: the same soft remove (with Undo) as
+     * swiping their card, so it can be done without the swipe.
+     */
+    onRemove?: () => void;
     scopeStillOwnsPage: (scope: AuthIdentityScope) => boolean;
     renderScope: AuthIdentityScope;
 }
@@ -52,6 +57,7 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
     setEditRegisters,
     toggleRegister,
     handleSavePermissions,
+    onRemove,
     scopeStillOwnsPage,
     renderScope,
 }) => {
@@ -153,7 +159,7 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
                                 }`}
                             >
                                 <div className="flex items-center gap-2">
-                                    <span className="text-lg">{REGISTER_ICONS[reg]}</span>
+                                    <RegisterGlyph register={reg} className="crew-accent h-4 w-4 shrink-0" />
                                     <p className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}>
                                         {REGISTER_LABELS[reg]}
                                     </p>
@@ -187,10 +193,30 @@ export const EditCrewAccessForm: React.FC<EditCrewAccessFormProps> = ({
                 aria-label="Save crew management changes"
                 onClick={handleSavePermissions}
                 disabled={editRegisters.length === 0}
-                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 ${editRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}
+                className="crew-cta w-full min-h-[48px]! text-sm"
             >
                 Save Changes
             </button>
+
+            {/* Removing is destructive: its own quiet red row, set apart from
+                Save. It is the swipe's Remove, with the same Undo. */}
+            {onRemove && editTarget && (
+                <div
+                    className="border-t pt-4"
+                    style={{ borderColor: 'var(--vessel-card-border, rgba(255, 255, 255, 0.08))' }}
+                >
+                    <button
+                        type="button"
+                        onClick={() => {
+                            if (scopeStillOwnsPage(renderScope)) onRemove();
+                        }}
+                        className="crew-danger-row"
+                    >
+                        <TrashGlyph />
+                        <span>Remove from crew</span>
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

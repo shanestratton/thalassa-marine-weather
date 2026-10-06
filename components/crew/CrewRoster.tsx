@@ -3,13 +3,23 @@
  *
  * Extracted from CrewManagement to reduce monolithic component.
  * Handles the captain crew list, invite acceptance, and crew view sections.
+ *
+ * The tier-1 look (Shane 2026-10-06: "the crew and float plan page also needs
+ * to be dragged into the 21st century as well", styles/crew-page.css): each
+ * section opens with an uppercase eyebrow and a count pill, Invite crew is the
+ * page's emerald primary, and every person is one glass card. Disband Entire
+ * Group no longer sits under the list beside the everyday buttons:
+ * CrewManagement draws it as a quiet red row at the very foot of the page
+ * (CrewDangerRow), with the same confirm dialog.
  */
 
 import React from 'react';
-import { type CrewMember, REGISTER_ICONS, REGISTER_LABELS } from '../../services/CrewService';
+import { type CrewMember } from '../../services/CrewService';
 import { SwipeableCrewCard } from './SwipeableCrewCard';
+import { BreakableEmail } from './BreakableEmail';
+import { RegisterChips } from './RegisterChips';
+import { AnchorGlyph, PlusGlyph, UsersGlyph } from './crewGlyphs';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
-import { EmptyState } from '../ui/EmptyState';
 
 interface CrewRosterProps {
     visibleCrew: CrewMember[];
@@ -25,11 +35,15 @@ interface CrewRosterProps {
     onEditMember: (member: CrewMember) => void;
     onAcceptInvite: (invite: CrewMember) => void;
     onDeclineInvite: (invite: CrewMember) => void;
-    onDisbandClick: () => void;
     /** Opens the captain's invite-crew modal. Rendered inline in the
      *  "My Crew" section header so the action lives with the list it
      *  affects, rather than competing with the page title. */
     onInviteClick: () => void;
+    /**
+     * Accepted crew's names by crew_user_id (useCrewCardNames): their own
+     * float-plan name, else their byline on the boat. Names only.
+     */
+    crewNames?: Readonly<Record<string, string>>;
     /**
      * 'crewing' (2026-10-03): the account is crew on a skipper's boat, so the
      * page belongs to that boat. Only Pending Invites render here; the boat's
@@ -37,6 +51,21 @@ interface CrewRosterProps {
      */
     mode?: 'own' | 'crewing';
 }
+
+/** An eyebrow row: the section's name, its count, and at most one action. */
+const SectionHead: React.FC<{ title: string; count?: React.ReactNode; action?: React.ReactNode }> = ({
+    title,
+    count,
+    action,
+}) => (
+    <div className="mb-3 flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+            <h2 className="crew-eyebrow">{title}</h2>
+            {count}
+        </div>
+        {action}
+    </div>
+);
 
 export const CrewRoster: React.FC<CrewRosterProps> = ({
     visibleCrew,
@@ -49,8 +78,8 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
     onEditMember,
     onAcceptInvite,
     onDeclineInvite,
-    onDisbandClick,
     onInviteClick,
+    crewNames = {},
     mode = 'own',
 }) => {
     if (loading) {
@@ -65,54 +94,48 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
         <>
             {/* ── PENDING INVITES (Crew view) ── */}
             {pendingInvites.length > 0 && (
-                <div className="mb-6">
-                    <div className="flex items-center gap-2 mb-3">
-                        <div className="w-1 h-4 rounded-full bg-amber-500" />
-                        <span className="text-[11px] font-black text-amber-400 uppercase tracking-[0.2em]">
-                            Pending Invites
-                        </span>
-                        <span className="ml-auto px-2 py-0.5 bg-amber-500/20 text-amber-400 text-[11px] font-bold rounded-full">
-                            {pendingInvites.length}
-                        </span>
-                    </div>
+                <section className="mb-6">
+                    <SectionHead
+                        title="Pending Invites"
+                        count={<span className="crew-pill">{pendingInvites.length}</span>}
+                    />
 
                     <div className="space-y-2">
                         {pendingInvites.map((invite) => (
-                            <div key={invite.id} className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
-                                <div className="flex items-start justify-between mb-3">
-                                    <div>
-                                        <p className="text-sm font-bold text-white">{invite.owner_email}</p>
-                                        <p className="text-[11px] text-gray-400 mt-0.5">
-                                            wants to share registers with you
-                                        </p>
+                            <div key={invite.id} className="crew-card p-3.5">
+                                <div className="flex items-start gap-3">
+                                    <span aria-hidden="true" className="crew-avatar">
+                                        <AnchorGlyph />
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                            <p className="crew-card-title min-w-0 text-white">
+                                                <BreakableEmail email={invite.owner_email} />
+                                            </p>
+                                            <span className="crew-pill">Pending</span>
+                                        </div>
+                                        <p className="crew-card-sub mt-0.5">wants to share registers with you</p>
                                     </div>
                                 </div>
 
                                 {/* Shared registers */}
-                                <div className="flex flex-wrap gap-1.5 mb-3">
-                                    {invite.shared_registers.map((reg) => (
-                                        <span
-                                            key={reg}
-                                            className="px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-gray-300"
-                                        >
-                                            {REGISTER_ICONS[reg]} {REGISTER_LABELS[reg]}
-                                        </span>
-                                    ))}
-                                </div>
+                                <RegisterChips registers={invite.shared_registers} className="mt-3" />
 
                                 {/* Actions */}
-                                <div className="flex gap-2">
+                                <div className="mt-3 flex gap-2">
                                     <button
+                                        type="button"
                                         aria-label="Accept crew invite request"
                                         onClick={() => onAcceptInvite(invite)}
-                                        className="flex-1 py-2 min-h-[44px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors active:scale-95"
+                                        className="crew-cta flex-1"
                                     >
                                         Accept
                                     </button>
                                     <button
+                                        type="button"
                                         aria-label="Decline crew invite request"
                                         onClick={() => onDeclineInvite(invite)}
-                                        className="flex-1 py-2 min-h-[44px] bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-bold rounded-lg transition-colors active:scale-95"
+                                        className="crew-quiet flex-1"
                                     >
                                         Decline
                                     </button>
@@ -120,21 +143,15 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                             </div>
                         ))}
                     </div>
-                </div>
+                </section>
             )}
 
             {mode === 'own' && (
                 <>
                     {/* ── SHARED WITH ME (Crew view) — swipe to leave ── */}
                     {memberships.length > 0 && (
-                        <div className="mb-6">
-                            <div className="flex items-center gap-2 mb-3">
-                                <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                                <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
-                                    Shared with Me
-                                </span>
-                            </div>
-
+                        <section className="mb-6">
+                            <SectionHead title="Shared with Me" />
                             <div className="space-y-2">
                                 {memberships.map((membership) => (
                                     <SwipeableCrewCard
@@ -145,46 +162,41 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                                     />
                                 ))}
                             </div>
-                        </div>
+                        </section>
                     )}
 
                     {/* ── MY CREW (Captain view) — swipe to remove ──
-                Empty state is a compact one-liner card (~50px) — half
-                the height of the original EmptyState component (~120px),
-                but with enough presence to make it feel intentional
-                rather than missing UI. Once there's actual crew, the
-                hint disappears in favour of the card list. */}
-                    <div className="mb-3">
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className="w-1 h-4 rounded-full bg-sky-500" />
-                            <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">
-                                My Crew
-                            </span>
-                            {/* Standing complement + invitees, kept separate on
-                        purpose: an invitee isn't a soul on board until they
-                        accept, and this line is what the skipper checks
-                        against provisioning and the float plan. */}
-                            {(standingCrewAboard ?? 0) > 0 ? (
-                                <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
-                                    {standingCrewAboard} aboard
-                                    {visibleCrew.length > 0 ? ` · +${visibleCrew.length} invited` : ''}
-                                </span>
-                            ) : (
-                                visibleCrew.length > 0 && (
-                                    <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
-                                        {visibleCrew.length}
+                        Empty, it is one compact card; once there is crew, the
+                        hint gives way to the cards. */}
+                    <section className="mb-5">
+                        <SectionHead
+                            title="My Crew"
+                            count={
+                                // Standing complement + invitees, kept separate on
+                                // purpose: an invitee isn't a soul on board until
+                                // they accept, and this line is what the skipper
+                                // checks against provisioning and the float plan.
+                                (standingCrewAboard ?? 0) > 0 ? (
+                                    <span className="crew-pill">
+                                        {standingCrewAboard} aboard
+                                        {visibleCrew.length > 0 ? ` · +${visibleCrew.length} invited` : ''}
                                     </span>
+                                ) : (
+                                    visibleCrew.length > 0 && <span className="crew-pill">{visibleCrew.length}</span>
                                 )
-                            )}
-                            <button
-                                type="button"
-                                aria-label="Invite crew member"
-                                onClick={onInviteClick}
-                                className="hit-target-44 ml-auto px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all"
-                            >
-                                + Invite Crew
-                            </button>
-                        </div>
+                            }
+                            action={
+                                <button
+                                    type="button"
+                                    aria-label="Invite crew member"
+                                    onClick={onInviteClick}
+                                    className="crew-cta"
+                                >
+                                    <PlusGlyph />
+                                    <span>Invite crew</span>
+                                </button>
+                            }
+                        />
 
                         {visibleCrew.length > 0 ? (
                             <div className="space-y-2 stagger-in">
@@ -193,30 +205,26 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                                         key={member.id}
                                         member={member}
                                         mode="captain"
+                                        displayName={member.crew_user_id ? crewNames[member.crew_user_id] : null}
                                         onDelete={() => onSoftDeleteCaptain(member)}
                                         onEdit={member.status !== 'declined' ? () => onEditMember(member) : undefined}
                                     />
                                 ))}
                             </div>
                         ) : (
-                            <EmptyState
-                                icon="👥"
-                                title="No crew yet"
-                                subtitle="Tap + Invite Crew to share registers and passage readiness with your crew."
-                                compact
-                            />
+                            <div className="crew-card flex items-center gap-3 p-3.5">
+                                <span aria-hidden="true" className="crew-tile-icon">
+                                    <UsersGlyph />
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-bold text-white">No crew yet</p>
+                                    <p className="crew-card-sub mt-0.5">
+                                        Tap Invite crew to share registers and passage readiness with your crew.
+                                    </p>
+                                </div>
+                            </div>
                         )}
-
-                        {/* Disband Group — danger zone */}
-                        {visibleCrew.length > 0 && (
-                            <button
-                                onClick={onDisbandClick}
-                                className="w-full mt-4 py-3 px-4 min-h-[44px] rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold hover:bg-red-500/10 transition-colors active:scale-[0.98]"
-                            >
-                                🚨 Disband Entire Group
-                            </button>
-                        )}
-                    </div>
+                    </section>
                 </>
             )}
         </>

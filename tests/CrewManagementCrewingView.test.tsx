@@ -634,7 +634,16 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
     it('Leave flips to your own page at once, Undo flips back, and a confirmed leave removes every row', async () => {
         renderPage();
         const panel = await screen.findByRole('region', { name: 'Crewing on Wandering Albatross' });
-        fireEvent.click(within(panel).getByRole('button', { name: 'Leave Wandering Albatross' }));
+        // Leaving is destructive: the page's last row, not beside Switch boat
+        // in the boat's card (the tier-1 look, 2026-10-06).
+        const leave = screen.getByRole('button', { name: 'Leave Wandering Albatross' });
+        expect(panel).not.toContainElement(leave);
+        expect(
+            screen.getByTestId('crew-float-plan-card').compareDocumentPosition(leave) &
+                Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        expect(leave).toHaveAccessibleDescription(/Ends your access to Wandering Albatross/);
+        fireEvent.click(leave);
 
         expect(await screen.findByText('My Crew')).toBeInTheDocument();
         expect(screen.getByText('Left Wandering Albatross')).toBeInTheDocument();

@@ -1,0 +1,479 @@
+/*
+ * The Crew & Float Plan page (components/CrewManagement.tsx and its parts in
+ * components/crew and components/crewManagement). Shane 2026-10-06: "the crew
+ * and float plan page also needs to be dragged into the 21st century as well".
+ *
+ * The tier-1 language of the Vessel, Plan and Log pages: glass cards, one sky
+ * accent, amber only for a warning, red only for a destructive action, the
+ * emerald primary, 44 px targets, uppercase eyebrows.
+ *
+ * Dark and night are the defaults below (night is the dark page under the
+ * app's red scrim). Daylight takes the Vessel hub's surface tokens on the
+ * page (index.css lists .crew-page with .vessel-hub-surface), and every class
+ * that can also appear in a sheet, which portals outside the page, carries
+ * its own .display-light rule rather than a page token.
+ *
+ * These rules are unlayered, so they win over Tailwind utilities on the same
+ * property: the outer margin is always the caller's utility, never set here,
+ * and a utility that must beat one of these is marked important (w-11!).
+ */
+
+/* ── Eyebrows, pills, muted copy ── */
+.crew-eyebrow {
+    color: var(--day-ui-muted, #9ca3af);
+    font-size: 0.75rem;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    line-height: 18px;
+    text-transform: uppercase;
+}
+.crew-muted {
+    color: var(--day-ui-muted, #94a3b8);
+}
+.crew-accent {
+    color: var(--day-ui-accent, #7dd3fc);
+}
+
+.crew-pill {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    min-height: 22px;
+    padding: 1px 8px;
+    border: 1px solid rgba(125, 211, 252, 0.24);
+    border-radius: 999px;
+    background: rgba(125, 211, 252, 0.12);
+    color: var(--day-ui-accent, #7dd3fc);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+    white-space: nowrap;
+}
+.crew-pill--active {
+    border-color: rgba(52, 211, 153, 0.26);
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--day-ui-success, #6ee7b7);
+}
+.crew-pill--quiet {
+    border-color: rgba(148, 163, 184, 0.22);
+    background: rgba(148, 163, 184, 0.1);
+    color: var(--day-ui-muted, #94a3b8);
+}
+.display-light .crew-pill {
+    border-color: rgba(3, 105, 161, 0.22);
+    background: #e0f2fe;
+}
+.display-light .crew-pill--active {
+    border-color: rgba(5, 150, 105, 0.3);
+    background: #ecfdf5;
+}
+.display-light .crew-pill--quiet {
+    border-color: rgba(71, 85, 105, 0.22);
+    background: #f1f5f9;
+}
+
+/* ── Surfaces ──
+   The hub's surfaces without their backdrop blur: this page sits on a flat
+   background, where blur changes nothing on screen, and a long page of
+   blurred cards costs the iOS web view a compositing layer each. */
+/* An everyday card: the hub's glass (vesselHub/glass.ts GLASS.card). */
+.crew-card {
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 16px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+}
+/* The page's lead card (the boat you crew on, the route picker): the
+   Diary/Scuttlebutt wash (vesselHub/JournalCard JOURNAL_CARD). */
+.crew-feature-card {
+    border: 1px solid var(--vessel-journal-card-border, rgba(125, 211, 252, 0.24));
+    border-radius: 16px;
+    background: var(
+        --vessel-journal-card-bg,
+        linear-gradient(145deg, rgba(56, 189, 248, 0.17) 0%, rgba(20, 25, 35, 0.72) 64%)
+    );
+    box-shadow: var(
+        --vessel-journal-card-shadow,
+        inset 0 1px 0 rgba(186, 230, 253, 0.12),
+        0 8px 22px rgba(14, 165, 233, 0.08)
+    );
+}
+/* The raised icon tile (JOURNAL_CHIP), in the accent. */
+.crew-tile-icon {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+    border-radius: 11px;
+    background: var(
+        --vessel-journal-chip-bg,
+        linear-gradient(145deg, rgba(56, 189, 248, 0.32) 0%, rgba(14, 165, 233, 0.1) 100%)
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: var(--day-ui-accent, #7dd3fc);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+}
+.crew-tile-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* A note under a section: a quiet glass line. */
+.crew-note {
+    padding: 10px 12px;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.08));
+    border-radius: 14px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+/* ── A crew member's card ── */
+.crew-member-card {
+    container: crew-card / inline-size;
+}
+.crew-avatar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--vessel-journal-chip-border, rgba(125, 211, 252, 0.3));
+    border-radius: 999px;
+    background: var(
+        --vessel-journal-chip-bg,
+        linear-gradient(145deg, rgba(56, 189, 248, 0.32) 0%, rgba(14, 165, 233, 0.1) 100%)
+    );
+    color: var(--day-ui-accent, #7dd3fc);
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+}
+.crew-avatar svg {
+    width: 18px;
+    height: 18px;
+}
+/* Names and emails wrap rather than clip, even an unbroken address. An email
+   wraps after its "@", its domain whole (a long one also before its last
+   "."; BreakableEmail); break-word splits a part only when that part alone is
+   wider than the card, so a narrow card no longer strands the "m" of ".com"
+   on a line of its own. */
+.crew-card-title {
+    font-size: 14px;
+    font-weight: 800;
+    line-height: 1.3;
+    overflow-wrap: break-word;
+}
+.crew-card-sub {
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    overflow-wrap: break-word;
+}
+.crew-swipe-hint {
+    margin: 8px 0 0;
+    color: var(--day-ui-muted, #64748b);
+    font-size: 11px;
+    text-align: right;
+}
+
+/* The shared registers: one grid, one glyph size, one colour. Two columns on a
+   phone, three in a wide card (an iPad, the split pane). A long label wraps
+   inside its chip rather than clipping. */
+.crew-chips {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 0;
+    list-style: none;
+}
+@container crew-card (min-width: 460px) {
+    .crew-chips {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+.crew-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    min-height: 30px;
+    padding: 4px 9px;
+    border: 1px solid rgba(125, 211, 252, 0.14);
+    border-radius: 10px;
+    background: rgba(125, 211, 252, 0.07);
+    color: #e2e8f0;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+.crew-chip svg {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--day-ui-accent, #7dd3fc);
+}
+.display-light .crew-chip {
+    border-color: rgba(3, 105, 161, 0.16);
+    background: #f0f9ff;
+    color: #0f172a;
+}
+
+/* ── Buttons ── */
+/* The emerald primary: the Plan CTA's tinted track in the dark, its solid 700
+   step in daylight (components/ui/TapToAction, actionBarThemes). */
+.crew-cta {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.2) 100%);
+    color: #6ee7b7;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.2;
+    transition:
+        transform 120ms ease,
+        background-color 160ms ease;
+}
+.crew-cta svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+.crew-cta:active:not(:disabled) {
+    transform: scale(0.97);
+}
+.crew-cta:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.display-light .crew-cta {
+    border-color: #065f46;
+    background: #047857;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+    color: #ffffff;
+}
+/* A locked primary reads as inert, not invisible: the label stays legible. */
+.crew-cta--locked,
+.crew-cta--locked:disabled {
+    border-color: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    color: #9ca3af;
+    opacity: 1;
+}
+.display-light .crew-cta--locked,
+.display-light .crew-cta--locked:disabled {
+    border-color: rgba(15, 23, 42, 0.16);
+    background: #f1f5f9;
+    box-shadow: none;
+    color: #475569;
+}
+
+/* A quiet secondary: glass, the accent's text. */
+.crew-quiet {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid rgba(125, 211, 252, 0.2);
+    border-radius: 12px;
+    background: rgba(125, 211, 252, 0.06);
+    color: var(--day-ui-accent, #7dd3fc);
+    font-size: 12px;
+    font-weight: 800;
+}
+.crew-quiet svg {
+    flex-shrink: 0;
+    width: 15px;
+    height: 15px;
+}
+.display-light .crew-quiet {
+    border-color: rgba(3, 105, 161, 0.22);
+    background: #f0f9ff;
+}
+
+/* A quiet icon button: 44 px to the finger, a 34 px ring to the eye. */
+.crew-icon-btn {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin: -6px -8px 0 0;
+    border-radius: 999px;
+    color: var(--day-ui-muted, #94a3b8);
+}
+.crew-icon-btn > span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    transition: color 160ms ease;
+}
+.crew-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+.crew-icon-btn:hover > span,
+.crew-icon-btn:focus-visible > span {
+    color: var(--day-ui-accent, #7dd3fc);
+}
+.display-light .crew-icon-btn > span {
+    border-color: rgba(15, 23, 42, 0.14);
+    background: #ffffff;
+}
+
+/* The destructive row: quiet, red, on its own at the foot of what it ends. */
+.crew-danger-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 16px;
+    border: 1px solid rgba(248, 113, 113, 0.22);
+    border-radius: 14px;
+    background: transparent;
+    color: var(--day-ui-danger, #f87171);
+    font-size: 13px;
+    font-weight: 800;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+.crew-danger-row svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+.crew-danger-row:active {
+    background: rgba(239, 68, 68, 0.08);
+}
+.display-light .crew-danger-row {
+    border-color: rgba(185, 28, 28, 0.28);
+    background: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Saved routes: the Plan Trip tile's face on the picker ── */
+.crew-route-tile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 64px;
+    padding: 10px 14px;
+    text-align: left;
+}
+.crew-route-tile:focus-visible {
+    outline: 2px solid var(--day-ui-accent, #7dd3fc);
+    outline-offset: 2px;
+}
+.crew-route-title {
+    display: block;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+}
+.crew-route-sub {
+    display: block;
+    margin-top: 2px;
+    color: var(--day-ui-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+.crew-route-chevron {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    color: var(--day-ui-accent, #7dd3fc);
+}
+
+/* ── Inputs ── */
+.crew-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.1));
+    border-radius: 12px;
+    background: var(--vessel-card-bg, rgba(20, 25, 35, 0.6));
+    color: #ffffff;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 160ms ease;
+}
+.crew-input:focus {
+    border-color: var(--day-ui-accent, rgba(125, 211, 252, 0.6));
+}
+.display-light .crew-input {
+    color: #0f172a;
+}
+.crew-input:disabled {
+    cursor: progress;
+    opacity: 0.75;
+}
+
+/* ── Lists: Crew aboard, one glass box with dividers ── */
+.crew-list {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    list-style: none;
+}
+.crew-list > li + li {
+    border-top: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.07));
+}
+
+/* The float plan's label/value rows, divided. */
+.crew-rows > div + div {
+    border-top: 1px solid var(--vessel-card-border, rgba(255, 255, 255, 0.06));
+}
+
+/* "Checking passage access…": a soft pulse while the first answer comes. */
+.crew-pulse {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--day-ui-accent, #7dd3fc);
+    animation: crew-pulse 1.4s ease-in-out infinite;
+}
+@keyframes crew-pulse {
+    0%,
+    100% {
+        opacity: 0.35;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .crew-pulse {
+        animation: none;
+    }
+}

@@ -80,6 +80,8 @@ import { AlertTriangleIcon, SosIcon } from './Icons';
 // ── Extracted sub-components ──
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
+import { CrewDangerRow } from './crew/CrewDangerRow';
+import { LeaveGlyph, WarningGlyph } from './crew/crewGlyphs';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
 import { type SavedRoutePickerRow } from './crew/SavedRoutePicker';
 import { PageHeader } from './ui/PageHeader';
@@ -127,9 +129,19 @@ import { CrewFloatPlanCard } from './crewManagement/CrewFloatPlanCard';
 import { type VesselProfileOverride } from './passage/VesselProfileSummary';
 import { floatPlanSelfDetails } from '../services/crew/floatPlanPeople';
 import { shareMyFloatPlanDetails } from '../services/crew/crewFloatPlanDetails';
+// ── The page's tier-1 look (Shane 2026-10-06) ──
+import { useCrewCardNames } from '../hooks/useCrewCardNames';
+import { readLastPassageStatus, rememberPassageStatus } from '../services/crew/lastPassageStatus';
 
 /** Re-exported here so every existing importer of this module is unchanged. */
 export type { VoyageRow } from './crewManagement/types';
+
+/**
+ * How long a remembered passage grant may paint while the live check is out,
+ * matching loadData's 6 s. getPassageStatus has no deadline of its own, and a
+ * stalled link (Starlink at sea) must not keep a revoked grant on screen.
+ */
+const PASSAGE_CHECK_PAINT_MS = 6000;
 
 export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack }) => {
     // Auth state comes from the global authStore — same source of truth
@@ -239,6 +251,19 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     selectedPassageRef.current = selectedPassageId;
     const [passageStatus, setPassageStatus] = useState<PassageStatus>(NO_PASSAGE_ACCESS);
     const [passageStatusLoading, setPassageStatusLoading] = useState(true);
+    // Cache-first (Shane 2026-10-06: "Checking passage access…" on every
+    // visit): the access this device last VERIFIED for the selected passage,
+    // painted while getPassageStatus answers again. It only paints; every
+    // action below still waits for the verified `passageStatus`
+    // (services/crew/lastPassageStatus). The first ever visit has none and
+    // keeps the loading line.
+    const [paintedPassageStatus, setPaintedPassageStatus] = useState<PassageStatus | null>(() =>
+        readLastPassageStatus(getAuthIdentityScope(), getActivePassageId()),
+    );
+    // getPassageStatus has no deadline of its own: past this the paint is
+    // dropped (a stalled link must not keep a possibly-revoked grant on
+    // screen) and the loading line says the connection is slow.
+    const [passageCheckSlow, setPassageCheckSlow] = useState(false);
     const passageSelectionVersion = useRef(0);
     const dropdownReloadVersion = useRef(0);
     // ETA-backfill writes are capped at one attempt per row per mount: the
@@ -389,6 +414,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setSelectedPassageId(nextPassageId);
             setPassageStatus(NO_PASSAGE_ACCESS);
             setPassageStatusLoading(Boolean(next.userId));
+            setPaintedPassageStatus(null);
             setLoading(Boolean(next.userId));
             setDeletedMember(null);
             setActiveVoyageName(null);
@@ -559,27 +585,61 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (!authUserId || !scopeStillOwnsPage(scope)) {
             setPassageStatus(NO_PASSAGE_ACCESS);
             setPassageStatusLoading(false);
+            setPaintedPassageStatus(null);
+            setPassageCheckSlow(false);
             return;
         }
 
         let active = true;
         setPassageStatus(NO_PASSAGE_ACCESS);
         setPassageStatusLoading(true);
+        setPassageCheckSlow(false);
+        setPaintedPassageStatus(readLastPassageStatus(scope, selectedPassageId || null));
+
+        // The paint lives no longer than this. The check carries on, and its
+        // answer, however late, still lands; the memory is left alone, since
+        // no answer is not a denial.
+        const slowTimer = window.setTimeout(() => {
+            if (!active || !scopeStillOwnsPage(scope)) return;
+            setPaintedPassageStatus(null);
+            setPassageCheckSlow(true);
+        }, PASSAGE_CHECK_PAINT_MS);
+
+        // getPassageStatus answers "no access" when it cannot reach the
+        // server too. Offline that is not a denial, so the page follows it
+        // but keeps the remembered grant for the next visit's paint (which
+        // still waits for a real answer before anything can be changed).
+        const remember = (status: PassageStatus) => {
+            if (!selectedPassageId) return;
+            const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+            if (offline && !status.visible) return;
+            rememberPassageStatus(scope, selectedPassageId, status);
+        };
 
         void getPassageStatus(selectedPassageId || null)
             .then((status) => {
                 if (!active || !scopeStillOwnsPage(scope)) return;
                 setPassageStatus(status);
+                // A grant is remembered for the next visit's first paint; an
+                // answered denial (revoked) forgets it.
+                remember(status);
             })
             .catch(() => {
-                if (active && scopeStillOwnsPage(scope)) setPassageStatus(NO_PASSAGE_ACCESS);
+                if (!active || !scopeStillOwnsPage(scope)) return;
+                setPassageStatus(NO_PASSAGE_ACCESS);
+                remember(NO_PASSAGE_ACCESS);
             })
             .finally(() => {
-                if (active && scopeStillOwnsPage(scope)) setPassageStatusLoading(false);
+                window.clearTimeout(slowTimer);
+                if (!active || !scopeStillOwnsPage(scope)) return;
+                setPassageStatusLoading(false);
+                setPaintedPassageStatus(null);
+                setPassageCheckSlow(false);
             });
 
         return () => {
             active = false;
+            window.clearTimeout(slowTimer);
         };
     }, [authUserId, memberships, scopeStillOwnsPage, selectedPassageId]);
 
@@ -1280,7 +1340,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             passageStatus.voyageId === passageId &&
             passageStatus.ownerUserId === scope.userId;
         if (includesPassageAccess && !ownsSelectedPassage) {
-            setInviteError('Select one of your own passages before sharing passage access.');
+            // Send waits while the check is out (InviteCrewModal), so this is
+            // only a backstop; the page may be painting the passage as yours.
+            setInviteError(
+                passageStatusLoading
+                    ? 'Still checking passage access. Try again in a moment.'
+                    : 'Select one of your own passages before sharing passage access.',
+            );
             return;
         }
 
@@ -1749,6 +1815,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             if (!id) {
                 setPassageStatus(NO_PASSAGE_ACCESS);
                 setPassageStatusLoading(false);
+                setPaintedPassageStatus(null);
                 clearPassagePlan();
                 selectedPassageRef.current = '';
                 setSelectedPassageId('');
@@ -1909,13 +1976,21 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // The stored active passage is navigation state. In the crewing view only
     // a verified passage of THIS skipper counts as selected; your own stays
     // stored (ChatPage and the own-boat view keep it) but reads as unselected.
+    // What the page paints: the verified answer, or while it is on its way
+    // the last one this device verified for this passage (cache-first).
+    const passagePainted =
+        passageStatusLoading &&
+        Boolean(selectedPassageId) &&
+        paintedPassageStatus !== null &&
+        paintedPassageStatus.voyageId === selectedPassageId;
+    const shownPassageStatus = passagePainted && paintedPassageStatus ? paintedPassageStatus : passageStatus;
     const pageSelectedPassageId =
         crewingView &&
         !(
             selectedPassageId &&
-            passageStatus.voyageId === selectedPassageId &&
-            passageStatus.visible &&
-            passageStatus.ownerUserId === crewingOwnerId &&
+            shownPassageStatus.voyageId === selectedPassageId &&
+            shownPassageStatus.visible &&
+            shownPassageStatus.ownerUserId === crewingOwnerId &&
             crewPassages.some((voyage) => voyage.id === selectedPassageId)
         )
             ? ''
@@ -1953,10 +2028,21 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const declinedAge = Date.now() - new Date(m.updated_at).getTime();
         return declinedAge < 7 * 24 * 60 * 60 * 1000;
     });
+    // The crew cards' names (their own float-plan name, else their byline):
+    // names only, for the skipper's own crew.
+    const crewNames = useCrewCardNames(visibleCrew, privateIdentityMatches && !crewingView);
+    // The verified answer gates every action (Cast Off); the page paints
+    // pagePassageStatus, which is the same once verification lands.
     const verifiedPassageStatus =
         pageSelectedPassageId && passageStatus.voyageId === pageSelectedPassageId ? passageStatus : NO_PASSAGE_ACCESS;
-    const isSelectedPassageOwner =
+    const pagePassageStatus =
+        pageSelectedPassageId && shownPassageStatus.voyageId === pageSelectedPassageId
+            ? shownPassageStatus
+            : NO_PASSAGE_ACCESS;
+    const isVerifiedPassageOwner =
         Boolean(pageSelectedPassageId) && verifiedPassageStatus.visible && verifiedPassageStatus.isOwner;
+    const isSelectedPassageOwner =
+        Boolean(pageSelectedPassageId) && pagePassageStatus.visible && pagePassageStatus.isOwner;
     // Classified picker rows: passages carry their trip identity so legs
     // nest beneath them, groups order by their newest activity (Shane
     // 2026-08-27: "passage first. then the first leg, then the second leg.
@@ -2033,7 +2119,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         (selectedPassageIsDomestic || customsCleared) &&
         weatherWindowReady &&
         currentsBriefed &&
-        (!verifiedPassageStatus.canViewMeals || provisioningReady) &&
+        (!pagePassageStatus.canViewMeals || provisioningReady) &&
         vesselProfileReady &&
         reservesReady &&
         navAcknowledged &&
@@ -2117,7 +2203,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     }
 
     return (
-        <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
+        <div className={`crew-page h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
             <PageHeader
                 title="Crew & Float Plan"
                 subtitle={crewingView ? `${crewBoat} · you're crew` : CREW_PAGE_SUBTITLE}
@@ -2146,9 +2232,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     onEditMember={handleEditMember}
                     onAcceptInvite={handleAccept}
                     onDeclineInvite={handleDecline}
-                    onDisbandClick={() => {
-                        if (scopeStillOwnsPage(renderScope)) setShowDisbandConfirm(true);
-                    }}
+                    crewNames={crewNames}
                     onInviteClick={() => {
                         if (!scopeStillOwnsPage(renderScope)) return;
                         setShowInviteModal(true);
@@ -2160,14 +2244,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
                 {/* ── OWN BOAT while crewing: one tap back to the skipper's ── */}
                 {crewing && crewingOwnerId && showOwnBoat && (
-                    <p className="mb-4 rounded-xl border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-[12px] text-emerald-200/80">
+                    <p className="crew-note mb-4">
                         {`You're crew on ${crewBoat} · `}
                         <button
                             type="button"
                             onClick={() => {
                                 if (scopeStillOwnsPage(renderScope)) setShowOwnBoat(false);
                             }}
-                            className="hit-target-44 font-bold text-emerald-300 underline underline-offset-2"
+                            className="hit-target-44 crew-accent font-bold underline underline-offset-2"
                         >
                             Back to {crewBoat}
                         </button>
@@ -2184,7 +2268,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         self={myFloatPlan}
                         stale={crewViewStale}
                         loading={crewViewLoading}
-                        onLeave={(rows) => handleLeaveCrewVessel(rows, crewBoat)}
                         onSwitch={(ownerId) => {
                             if (scopeStillOwnsPage(renderScope)) selectCrewVessel(ownerId);
                         }}
@@ -2224,12 +2307,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         renderScope={renderScope}
                         setShowCastOff={setShowCastOff}
                         allCardsReady={allCardsReady}
+                        verifying={!isVerifiedPassageOwner}
                     />
                 )}
-                {pageSelectedPassageId && verifiedPassageStatus.visible && !verifiedPassageStatus.isOwner && (
-                    <p className="mb-4 rounded-xl border border-sky-500/15 bg-sky-500/5 px-3 py-2 text-[11px] text-sky-200/80">
-                        Shared passage — departure and Cast Off stay with the skipper.
-                    </p>
+                {pageSelectedPassageId && pagePassageStatus.visible && !pagePassageStatus.isOwner && (
+                    <p className="crew-note mb-4">Shared passage — departure and Cast Off stay with the skipper.</p>
                 )}
 
                 {/* CrewRoster moved to the top of the scroll content. */}
@@ -2240,20 +2322,36 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     itself — when no passage is picked, just the headers
                     show (rolled up) with a hint above pointing the user
                     at the passage selector. */}
-                {!loading && passageStatusLoading && (
+                {/* Cache-first: a passage this device verified before paints its
+                    cards at once while the check runs again; only the first
+                    ever visit (or after a denial) shows this line. */}
+                {!loading && passageStatusLoading && !passagePainted && (
                     <div
                         role="status"
                         aria-live="polite"
-                        className="mb-4 rounded-xl border border-white/6 bg-white/2 px-4 py-3 text-center"
+                        className="crew-card mb-4 flex items-center justify-center gap-2.5 px-4 py-3"
                     >
-                        <p className="text-sm text-gray-400">Checking passage access…</p>
+                        <span aria-hidden="true" className="crew-pulse" />
+                        <div className="min-w-0">
+                            <p className="crew-muted text-sm font-semibold">Checking passage access…</p>
+                            {passageCheckSlow && (
+                                <p className="crew-muted mt-0.5 text-[12px]">
+                                    No answer yet. The connection may be slow; this updates when it answers.
+                                </p>
+                            )}
+                        </div>
                     </div>
                 )}
-                {!loading && !passageStatusLoading && (
+                {!loading && (!passageStatusLoading || passagePainted) && (
                     <ReadinessCardStack
                         key={pageSelectedPassageId || 'no-passage'}
                         selectedPassageId={pageSelectedPassageId}
-                        passageStatus={verifiedPassageStatus}
+                        passageStatus={pagePassageStatus}
+                        // Painted access shows the cards but hands over no
+                        // write (departure, delegation, Galley, watch plan)
+                        // until the verified answer lands: the handlers here
+                        // check `passageStatus` and would drop it silently.
+                        canAct={!passagePainted}
                         draftVoyages={pageVoyages}
                         visibleCrew={selectedPassageCrew}
                         planCrewCount={crewingView && crewAboard ? crewAboard : selectedPassageCrewCount}
@@ -2365,19 +2463,42 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             self={myFloatPlan}
                             sharing={floatPlanSharing}
                         />
-                        <p className="mt-2 text-center text-[11px] leading-relaxed text-gray-500">
+                        <p className="crew-muted mt-2 text-center text-[12px] leading-relaxed">
                             {`You're crewing on ${crewBoat}, so ${ownBoatName ? `${ownBoatName}'s` : 'your own'} crew and plans are hidden here. `}
                             <button
                                 type="button"
                                 onClick={() => {
                                     if (scopeStillOwnsPage(renderScope)) setShowOwnBoat(true);
                                 }}
-                                className="hit-target-44 font-bold text-gray-400 underline underline-offset-2"
+                                className="hit-target-44 crew-accent font-bold underline underline-offset-2"
                             >
                                 Show {ownBoatName || 'your own boat'}
                             </button>
                         </p>
                     </>
+                )}
+
+                {/* ── The page's one destructive action, its last row, apart
+                    from every everyday button: Disband (the same confirm
+                    dialog) on your own boat, Leave (the same Undo) while
+                    crewing. ── */}
+                {!crewingView && !loading && visibleCrew.length > 0 && (
+                    <CrewDangerRow
+                        label="Disband Entire Group"
+                        hint={`Removes all ${visibleCrew.length} crew member${visibleCrew.length !== 1 ? 's' : ''} and their access. You'll be asked to confirm.`}
+                        icon={<WarningGlyph />}
+                        onClick={() => {
+                            if (scopeStillOwnsPage(renderScope)) setShowDisbandConfirm(true);
+                        }}
+                    />
+                )}
+                {crewingView && crewing && crewRows.length > 0 && (
+                    <CrewDangerRow
+                        label={`Leave ${crewBoat}`}
+                        hint={`Ends your access to ${crewBoat}'s registers and passages. You can undo it for a few seconds.`}
+                        icon={<LeaveGlyph />}
+                        onClick={() => handleLeaveCrewVessel(crewRows, crewBoat)}
+                    />
                 )}
             </div>
 
@@ -2403,6 +2524,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     }}
                     onInvite={handleInvite}
                     onDone={closeInviteModal}
+                    passageAccessChecking={passageStatusLoading}
                 />
             </ModalSheet>
 
@@ -2427,6 +2549,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     setEditRegisters={setEditRegisters}
                     toggleRegister={toggleRegister}
                     handleSavePermissions={handleSavePermissions}
+                    onRemove={
+                        editTarget
+                            ? () => {
+                                  // The swipe's Remove, with its Undo, for anyone who can't swipe.
+                                  const target = editTarget;
+                                  closeEditMember();
+                                  handleSoftDelete(target, 'captain');
+                              }
+                            : undefined
+                    }
                     scopeStillOwnsPage={scopeStillOwnsPage}
                     renderScope={renderScope}
                 />
@@ -2510,7 +2642,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             </ModalSheet>
 
             {/* ── CAST OFF PANEL ── */}
-            {showCastOff && isSelectedPassageOwner && (
+            {showCastOff && isVerifiedPassageOwner && (
                 <CrewCastOffPanel
                     scopeStillOwnsPage={scopeStillOwnsPage}
                     renderScope={renderScope}
