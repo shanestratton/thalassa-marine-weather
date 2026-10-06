@@ -76,8 +76,9 @@ E2EE in Thalassa**. Nothing is wired into live chat.
 The separate research app now has a native messaging plugin and explicit test
 screens, including an ordinary text-only private-message view over the same
 native account host. The main-app pilot contract remains injected and disabled
-by default. Production import isolation and all-caller plaintext cutover are
-not complete. These are not a shipping private-message port. No shipping app dependency,
+by default. Its native hook and rendering imports are now separated from legacy
+chat; all-caller plaintext cutover is not complete. These are not a shipping
+private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
@@ -109,6 +110,59 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 6 October main app pilot import isolation
+
+`ChatPage` is now a small selector with separate lazy legacy and native children.
+The default remains legacy; there is no plugin discovery, environment flag or
+production activation. Explicit native-unavailable selection, malformed supplied
+runtimes, throwing getters, rejected native imports and native readiness failure
+stay on an unavailable native screen. They never select legacy as a fallback.
+The native page, hook and literal view do not evaluate production Auth, Supabase,
+chat transport, push, recipe rendering or the legacy offline queue. The local
+identity fence still reads its provisional account identifier; it is not native
+account authority or a claim of zero storage side effects.
+
+Native send/attempt/fact/event bounds and scope fences were preserved in the
+dedicated hook. Invalid or failed UUID allocation keeps the draft, releases
+sending admission and performs no native preparation. Explicit refresh scans
+the inbox once, then separately authorizes a local thread read. Failed scans can
+show freshly authorized local history with sending disabled. Sends, retries,
+events and readiness no longer trigger hidden receive scans; stale previews
+become unknown instead. Privacy close cancels subscription admission before
+cleanup, clears local presentation state and refuses late ready/message/read
+callbacks. Returning visible does not reopen history automatically. A late
+rejection from an older action cannot close the explicitly reopened view.
+
+The moved legacy page's 51,202-character component body is byte-for-byte equal
+to the preceding candidate, SHA-256
+`258b93a96501382190f6dd5c40e6668758f95968cef9d1fadf5e18c1de22d48e`.
+The pilot configuration passed **285 tests in 11 suites**, including **26
+import-isolation cases** with forbidden module factories and positive controls.
+The Research configuration passed **1,193 tests in 18 suites**; focused strict
+TypeScript, named lint and formatting checks passed. Counts overlap. These are
+typed/mocked rendering, scope and import fixtures, not a new live encryption or
+physical-device exchange. The existing normal-chat ordering, exact eight-second
+repair deadline, account cancellation and skipper-vessel naming assertions pass.
+The first run had four legacy fixture failures: cold lazy transformation exhausted
+the fixture wait and left queued once-only responses for later cases. The corrected
+fixtures preload the real legacy module under mocks and reset queued responses;
+production behavior and the eight-second budget were not changed.
+
+The entire isolated app compiled in production-mode Vite into a private temporary
+directory. Production-mode compilation is not a deployment. The build receipt
+retains source hashes at build time; only test formatting/setup changed afterward,
+and all compiled app source hashes still match. The [import-isolation manifest](../experiments/scuttlebutt-e2ee/review/import-isolation-2026-10-06.json)
+retains final checks, build/source/artifact hashes and the initial failed run.
+All 31 Swift inputs from the earlier native proof still match; no native rerun,
+signing, installation, sync, hosted update or master push was performed for this
+extraction. The latest recorded human-device candidate remains `0cde17c2`.
+
+Next is a shared fail-closed policy covering all ordinary, structured, Guardian
+and queued legacy DM operations. The selected-screen isolation proves neither
+that global cutover nor server enforcement. Durable cursor/retention, device and
+prekey renewal/replacement/recovery, actual Capacitor/device acceptance, independent
+PostgreSQL races, dependency obligations and external security review remain gates.
 
 ### 6 October ordinary private message integration
 
@@ -167,7 +221,8 @@ unregistered matcher and a redundant narrowed visibility comparison; corrected
 runs passed.
 
 No human Research state, hosted service, production database, primary build/sync
-or master deployment changed. The human devices still carry candidate `0cde17c2`.
+or master deployment changed. The latest recorded installed human-device
+candidate remains `0cde17c2`.
 Next: isolate the main-app pilot import graph and explicit mode selection, then
 cover every legacy send/read/subscription/queue path before activation. Durable
 inbox progress/retention, device/prekey lifecycle and recovery, actual Capacitor
@@ -2528,9 +2583,9 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: extract the main-app native pilot hook and view away from production import
-side effects, preserving explicit native-unavailable mode without a legacy fallback.
-Then implement the all-caller send/read/queue cutover, durable inbox progress and
+Next: implement a shared all-caller send/read/subscription/queue cutover after the
+native pilot import extraction, preserving explicit native-unavailable mode without
+a legacy fallback. Then implement durable inbox progress and
 retention, and an explicit device/prekey lifecycle and recovery policy. The ordinary
 Research port is not the shipping integration or a complete physical acceptance
 pass. The injected-auth SQL proof is not live authenticated transport. The synthetic

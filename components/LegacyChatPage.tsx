@@ -1,0 +1,1324 @@
+/**
+ * @filesize-justified Page orchestrator with shared animation state, lazy imports, and view routing. Sub-views are already lazy-loaded.
+ */
+/**
+ * ChatPage — "Crew Talk"
+ * Best-in-class community chat with channels, PMs, and anti-toxicity design.
+ *
+ * Premium features:
+ * - Dynamic user-seeded color avatars
+ * - Animated message entrance
+ * - Glassmorphism panels
+ * - Question prominence with glow
+ * - Crew rank badges with progression
+ * - Smooth view transitions
+ * - Mod action menus
+ */
+
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createLogger } from '../utils/createLogger';
+import { lazyRetry } from '../utils/lazyRetry';
+import { useAuthStore } from '../stores/authStore';
+
+const log = createLogger('ChatPage');
+import { ChatService, ChatChannel, DEFAULT_CHANNELS, type ChatMessage } from '../services/ChatService';
+import { reportMessage } from '../services/ContentModerationService';
+const LonelyHeartsPage = lazyRetry(
+    () => import('./LonelyHeartsPage').then((m) => ({ default: m.LonelyHeartsPage })),
+    'LonelyHeartsPage',
+);
+
+import { ConfirmDialog } from './ui/ConfirmDialog';
+import { OverlayPortal } from './ui/OverlayPortal';
+import { toast } from './Toast';
+import { LockIcon, MuteIcon } from './Icons';
+import { useSettings } from '../context/SettingsContext';
+const AdminPanel = lazyRetry(() => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })), 'AdminPanel_Chat');
+import { ChannelList } from './chat/ChannelList';
+import { ChatMessageList } from './chat/ChatMessageList';
+import { ChatComposer } from './chat/ChatComposer';
+import { ChatProfileView } from './chat/ChatProfileView';
+import { ChatHeader } from './chat/ChatHeader';
+import { ChatDMInbox, ChatDMThread, ChatDMCompose } from './chat/ChatDMView';
+import {
+    ReportModal,
+    PinDropSheet,
+    PoiPickerSheet,
+    TrackPickerSheet,
+    TrackDisclaimerModal,
+} from './chat/ChatAttachmentSheets';
+import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
+import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+
+import { NO_PASSAGE_ACCESS, type PassageStatus, getPassageStatus } from '../services/PassagePlanService';
+import { WelcomeBanner } from './chat/WelcomeBanner';
+import { AuthBanner } from './chat/AuthBanner';
+import { triggerHaptic } from '../utils/system';
+import { SignInScreen } from './SignInScreen';
+import { TypingIndicator } from './chat/TypingIndicator';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { useChatMessages } from '../hooks/chat/useChatMessages';
+import { useChatDMs } from '../hooks/chat/useChatDMs';
+import { usePinDrop } from '../hooks/chat/usePinDrop';
+import { useTrackSharing } from '../hooks/chat/useTrackSharing';
+import { useChatProfile } from '../hooks/chat/useChatProfile';
+import { useChatProposals } from '../hooks/chat/useChatProposals';
+import { useKeyboardOffset } from '../hooks/useKeyboardOffset';
+
+import {
+    authScopedStorageKey,
+    getAuthIdentityScope,
+    isAuthIdentityScopeCurrent,
+    type AuthIdentityScope,
+} from '../services/authIdentityScope';
+
+// --- TYPES ---
+type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'admin_panel';
+
+// --- CSS KEYFRAMES (injected once) ---
+const STYLE_ID = 'crew-talk-animations';
+const CHAT_LOAD_TIMEOUT_MS = 8000;
+
+async function boundedChatLoad<T>(task: Promise<T>, onTimeout?: () => void, signal?: AbortSignal): Promise<T> {
+    let timer!: ReturnType<typeof setTimeout>;
+    let cancel: (() => void) | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            onTimeout?.();
+            reject(new Error('Chat load timeout'));
+        }, CHAT_LOAD_TIMEOUT_MS);
+    });
+    const aborted = new Promise<never>((_, reject) => {
+        cancel = () => reject(new Error('Chat load cancelled'));
+        if (signal?.aborted) cancel();
+        else signal?.addEventListener('abort', cancel, { once: true });
+    });
+    try {
+        return await Promise.race([task, timeout, aborted]);
+    } finally {
+        clearTimeout(timer);
+        if (cancel) signal?.removeEventListener('abort', cancel);
+    }
+}
+
+/** The skippers' vessel names a crew member's Crew Chat card may show, by skipper id. */
+interface CrewVesselNames {
+    /** The account the names were read for. */
+    viewerId: string;
+    names: ReadonlyMap<string, string>;
+}
+
+/**
+ * How long the crew card waits for the skippers' vessel names before it shows
+ * with the generic wording. A normal link answers well inside this; on a slow
+ * one the card shows and the name lands when the read does.
+ */
+const CREW_VESSEL_NAME_WAIT_MS = 2500;
+/** Accepted memberships are normally one; never fan out without a bound. */
+const MAX_CREW_VESSEL_NAME_READS = 8;
+
+/**
+ * Read the vessel name of every skipper this account is accepted crew for,
+ * BEFORE the Crew Chat card can show, so the card paints once with the right
+ * name instead of swapping "on the vessel" for it a beat later on every visit
+ * (review 2026-10-02). Waits at most CREW_VESSEL_NAME_WAIT_MS; a later answer
+ * is still stored while this init is current. Never throws.
+ */
+async function readCrewVesselNames(
+    memberships: ReadonlyArray<{ owner_id: string }>,
+    viewerId: string,
+    isCurrent: () => boolean,
+    store: (names: CrewVesselNames) => void,
+): Promise<void> {
+    const ownerIds = [...new Set(memberships.map((membership) => membership.owner_id))]
+        .filter((ownerId) => !!ownerId && ownerId !== viewerId)
+        .slice(0, MAX_CREW_VESSEL_NAME_READS);
+    if (ownerIds.length === 0) return;
+    const reads = import('../services/VesselIdentityService')
+        .then(({ fetchVesselNameForOwner }) =>
+            Promise.all(ownerIds.map(async (ownerId) => [ownerId, await fetchVesselNameForOwner(ownerId)] as const)),
+        )
+        .then((entries) => {
+            if (!isCurrent()) return;
+            const names = new Map<string, string>();
+            for (const [ownerId, name] of entries) if (name) names.set(ownerId, name);
+            store({ viewerId, names });
+        })
+        .catch(() => {
+            /* non-critical — the card keeps its generic wording */
+        });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const wait = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, CREW_VESSEL_NAME_WAIT_MS);
+    });
+    try {
+        await Promise.race([reads, wait]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = `
+        @keyframes msgSlideIn {
+            from { opacity: 0; transform: translateY(12px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes fadeSlideDown {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .msg-enter { animation: msgSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
+        .fade-slide-down { animation: fadeSlideDown 0.25s ease-out both; }
+    `;
+    document.head.appendChild(style);
+}
+
+// --- EXISTING MAIN COMPONENT ---
+export const LegacyChatPage: React.FC<{ onBack?: () => void }> = React.memo(({ onBack }) => {
+    const { settings } = useSettings();
+
+    // View state
+    const [view, setView] = useState<ChatView>('channels');
+    const [navDirection, setNavDirection] = useState<'forward' | 'back'>('forward');
+    const [channels, setChannels] = useState<ChatChannel[]>([]);
+
+    // Loading — must be declared before hooks since they receive setLoading
+    const [loading, setLoading] = useState(true);
+    /**
+     * Roles (admin / moderator / muted) are known only once ChatService has
+     * initialised. Channels come back from cache almost instantly, so the list
+     * used to paint before the roles did and the Admin Panel card arrived a
+     * beat later ON TOP of the list — the row under the skipper's thumb moved
+     * (Shane 2026-09-09: "if i go to press the General channel, i end up in
+     * the Crew list channel"). The list waits for both; init is bounded by
+     * the 8 s race below, and a failed init still shows the list.
+     */
+    const [rolesSettled, setRolesSettled] = useState(false);
+    const [hasOwnedCrew, setHasOwnedCrew] = useState(false);
+    const [hasCrewMembership, setHasCrewMembership] = useState(false);
+
+    // Passage Planning visibility
+    const [passageStatus, setPassageStatus] = useState<PassageStatus>(NO_PASSAGE_ACCESS);
+    useEffect(() => {
+        let active = true;
+
+        const refreshPassageStatus = () => {
+            // A locally selected passage is not proof of ownership. Hide the
+            // permissioned surface until the service verifies this user.
+            setPassageStatus(NO_PASSAGE_ACCESS);
+            void getPassageStatus()
+                .then((status) => {
+                    if (active) setPassageStatus(status);
+                })
+                .catch(() => {
+                    if (active) setPassageStatus(NO_PASSAGE_ACCESS);
+                });
+        };
+
+        refreshPassageStatus();
+
+        // Re-check when passage selection changes (from VesselHub dropdown)
+        const handlePassageChange = () => refreshPassageStatus();
+        window.addEventListener('thalassa:passage-changed', handlePassageChange);
+        return () => {
+            active = false;
+            window.removeEventListener('thalassa:passage-changed', handlePassageChange);
+        };
+    }, []);
+
+    const canOpenCrewChat = hasOwnedCrew || (hasCrewMembership && passageStatus.visible && passageStatus.canViewChat);
+
+    // --- Extracted Hooks ---
+    const chatMessages = useChatMessages({ setView: setView as (v: string) => void, setNavDirection, setLoading });
+    const {
+        messages,
+        setMessages,
+        activeChannel,
+        setActiveChannel,
+        messageText,
+        setMessageText,
+        isQuestion,
+        setIsQuestion,
+        filterWarning,
+        setFilterWarning,
+        showModMenu,
+        setShowModMenu,
+        showRankTooltip,
+        setShowRankTooltip,
+        avatarMap,
+        pinnedMessages,
+        likedMessages,
+        messageEndRef,
+        openChannel,
+        sendChannelMessage,
+        handleMarkHelpful,
+        handleDeleteMessage,
+        handlePinMessage,
+        handleMuteUser,
+        cleanup: cleanupMessages,
+    } = chatMessages;
+
+    const chatDMs = useChatDMs({ setView: setView as (v: string) => void, setNavDirection, setLoading });
+    const {
+        dmConversations,
+        dmThread,
+        dmPartner,
+        currentUserId,
+        isSelfConversation,
+        setDmPartner,
+        dmText,
+        setDmText,
+        isUserBlocked,
+        blockedByMe,
+        blockStatusLoading,
+        blockStatusError,
+        blockMutationPending,
+        retryBlockStatus,
+        showBlockConfirm,
+        setShowBlockConfirm,
+        unreadDMs,
+        subscribe: subscribeDMs,
+        openDMInbox,
+        openDMThread,
+        sendDMMessage,
+        handleBlockUser,
+        handleUnblockUser,
+        loadUnreadCount,
+    } = chatDMs;
+
+    // Mod
+    const [isFirstVisit, setIsFirstVisit] = useState(true);
+
+    // Role checks — reactive state that updates after ChatService.initialize()
+    const [isMod, setIsMod] = useState(() => ChatService.isMod());
+    const [isAdmin, setIsAdmin] = useState(() => ChatService.isAdmin());
+    const [isModerator, setIsModerator] = useState(() => ChatService.isModerator());
+    const [isMuted, setIsMuted] = useState(() => ChatService.isMuted());
+    const [mutedUntil, setMutedUntil] = useState(() => ChatService.getMutedUntil());
+
+    /** Re-read roles from ChatService and update state */
+    const refreshRoles = useCallback(() => {
+        setIsMod(ChatService.isMod());
+        setIsAdmin(ChatService.isAdmin());
+        setIsModerator(ChatService.isModerator());
+        setIsMuted(ChatService.isMuted());
+        setMutedUntil(ChatService.getMutedUntil());
+    }, []);
+
+    // --- Extracted Hook: Proposals + Private Channels + Report ---
+    const proposalHook = useChatProposals({ channels, setChannels, isAdmin });
+    const {
+        showProposalForm,
+        setShowProposalForm,
+        proposalName,
+        setProposalName,
+        proposalDesc,
+        setProposalDesc,
+        proposalIcon,
+        setProposalIcon,
+        proposalSent,
+        proposalIsPrivate,
+        setProposalIsPrivate,
+        proposalParentId,
+        setProposalParentId,
+        memberChannelIds,
+        joinRequestChannel,
+        setJoinRequestChannel,
+        joinRequestMessage,
+        setJoinRequestMessage,
+        joinRequestSent,
+        reportingMsg,
+        setReportingMsg,
+        reportReason,
+        setReportReason,
+        reportSent,
+        setReportSent,
+        reportError,
+        setReportError,
+        reportSubmitting,
+        setReportSubmitting,
+        handleProposeChannel,
+        handleRequestAccess,
+        handleSubmitJoinRequest,
+    } = proposalHook;
+
+    // Crew reach the skipper's Crew Chat through the channel they are already a
+    // member of (Shane 2026-10-02: Crew Chat is every crew member's by default,
+    // no tick box). No passage selection or passage-chat grant is needed: the
+    // channel membership is what the database checks to read it.
+    const crewChatChannel = useMemo(
+        () =>
+            hasCrewMembership
+                ? (channels.find(
+                      (ch) =>
+                          ch.is_private &&
+                          ch.icon === '👥' &&
+                          memberChannelIds.has(ch.id) &&
+                          !!ch.owner_id &&
+                          ch.owner_id !== currentUserId,
+                  ) ?? null)
+                : null,
+        [hasCrewMembership, channels, memberChannelIds, currentUserId],
+    );
+    // The card opens the skipper's group, so it names the skipper's vessel,
+    // not the crew member's own boat from settings (Shane 2026-10-02: "it is
+    // the correct group, but it is just saying the wrong vessel"). The names
+    // are read in init, before the card can show (see readCrewVesselNames).
+    // Only a name read for THIS group's owner by THIS account reaches the
+    // card: a stale one from another sign-in never does.
+    const [crewVesselNames, setCrewVesselNames] = useState<CrewVesselNames | null>(null);
+    const crewChatOwnerId = crewChatChannel?.owner_id;
+    const crewChatVesselName =
+        crewChatOwnerId && crewVesselNames && crewVesselNames.viewerId === currentUserId
+            ? crewVesselNames.names.get(crewChatOwnerId)
+            : undefined;
+    // The account's own boat belongs only on a skipper's own card. A crew-only
+    // account's card can show before the skipper's group is known (its
+    // membership check still in flight), and must not name the crew member's
+    // own boat meanwhile: it reads "on the vessel" until the group resolves.
+    const ownCrewChatVesselName = hasOwnedCrew ? settings.vessel?.name : undefined;
+    const joinRequestCancelRef = useRef<HTMLButtonElement>(null);
+    const joinRequestDialogRef = useFocusTrap<HTMLDivElement>(joinRequestChannel !== null, {
+        initialFocusRef: joinRequestCancelRef,
+        onEscape: () => setJoinRequestChannel(null),
+    });
+
+    // Shrinks the fixed compose area above the native/web keyboard.  The
+    // shared hook also drives all ordinary text fields, so chat cannot diverge
+    // from the rest of the app on Safari or in the Capacitor shell.
+    const keyboardOffset = useKeyboardOffset(view === 'messages' || view === 'dm_thread');
+    const [showTyping, setShowTyping] = useState(false);
+
+    // Auth banner state (dismissible)
+    const [chatAuthBanner, setChatAuthBanner] = useState(() => {
+        return !localStorage.getItem(authScopedStorageKey('thalassa_chat_auth_dismissed'));
+    });
+    // Auth state from the global authStore — same source as the AuthGate
+    // at app boot. Previously this page kept its own local chatIsAuthed
+    // with an inline getUser() check, which raced with the global store
+    // on mount and could flash the "Sign in required" banner for
+    // already-signed-in users. Same race we killed in CrewManagement.
+    const chatAuthedUser = useAuthStore((s) => s.user);
+    const chatIsAuthed = !!chatAuthedUser;
+    const [showChatAuth, setShowChatAuth] = useState(false);
+    // One notice at a time on the channel list. 'Welcome aboard' and 'Sign in
+    // to chat' stacked two cards above the channels (UX scorecard run 5), so
+    // while the sign-in card is owed, the welcome waits. Keyed on auth, not on
+    // the list loading, so the welcome never flashes and then swaps out.
+    const signInBannerOwed = !chatIsAuthed && chatAuthBanner;
+
+    // Pull-to-refresh — actual message reload
+    const pullRefresh = usePullToRefresh(async () => {
+        if (activeChannel && view === 'messages') {
+            const identity = getAuthIdentityScope();
+            triggerHaptic('medium');
+            const fresh = await ChatService.getMessages(activeChannel.id);
+            if (isAuthIdentityScopeCurrent(identity)) setMessages(fresh);
+        }
+    });
+
+    // Typing indicator — show briefly after channel switch to add ambient life
+    useEffect(() => {
+        if (!activeChannel || view !== 'messages') return;
+        setShowTyping(true);
+        const timer = setTimeout(() => setShowTyping(false), 2500);
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeChannel?.id]);
+    // --- Extracted Hook: Profile ---
+    const profileHook = useChatProfile({ avatarMap, setView: setView as (v: string) => void });
+    const {
+        myAvatarUrl,
+        uploadProgress,
+        uploadError,
+        fileInputRef,
+        profileDisplayName,
+        setProfileDisplayName,
+        profileVesselName,
+        setProfileVesselName,
+        profileSaving,
+        profileSaved,
+        loadProfile,
+        handleFileSelect,
+        handleRemovePhoto,
+        handleSaveProfile,
+        getAvatar,
+    } = profileHook;
+
+    // --- Extracted Hooks: Pin Drop + Track Sharing ---
+    const pinDrop = usePinDrop({ activeChannel, setMessages, messageEndRef });
+    const {
+        showAttachMenu,
+        setShowAttachMenu,
+        showPinSheet,
+        setShowPinSheet,
+        showPoiSheet,
+        setShowPoiSheet,
+        pinRungLabel,
+        pinLat,
+        pinLng,
+        pinCaption,
+        setPinCaption,
+        pinLoading,
+        pinSource,
+        pinAccuracy,
+        pinTimestamp,
+        locationError,
+        saveToMyPlaces,
+        setSaveToMyPlaces,
+        savedPins,
+        poiMapRef,
+        openPinDrop,
+        retryCurrentLocation,
+        sendPin,
+        openPoiPicker,
+        sendPoi,
+        selectSavedPin,
+        recenterPoiToMyLocation,
+        searchPoiLocation,
+        searchingPoi,
+        sendingKind,
+    } = pinDrop;
+
+    const trackSharingHook = useTrackSharing({ activeChannel, setMessages, messageEndRef, setShowAttachMenu });
+    const {
+        showTrackPicker,
+        setShowTrackPicker,
+        voyageList,
+        trackSharing: isTrackSharing,
+        trackLoadingVoyages,
+        importingTrackId,
+        trackImportStatus,
+        showTrackDisclaimer,
+        setShowTrackDisclaimer,
+        openTrackPicker,
+        sendTrack,
+        handleImportTrack,
+    } = trackSharingHook;
+
+    // Refs
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    // --- INIT ---
+    useEffect(() => {
+        let disposed = false;
+        const repairController = new AbortController();
+        const initialChannelController = new AbortController();
+        const channelController = new AbortController();
+        const identity = getAuthIdentityScope();
+        const isCurrent = () => !disposed && isAuthIdentityScopeCurrent(identity);
+        const init = async () => {
+            try {
+                // Run channel load + auth init in parallel so everything appears together
+                const initWithTimeout = boundedChatLoad(ChatService.initialize(), undefined, repairController.signal)
+                    .then(() => true)
+                    .catch((e) => {
+                        if (isCurrent()) log.warn('Init auth/profile failed:', e);
+                        return false;
+                    });
+
+                const [chs, initialized] = await Promise.all([
+                    loadChannels(isCurrent, identity, initialChannelController),
+                    initWithTimeout,
+                ]);
+                if (!isCurrent()) return;
+
+                // Roles are now loaded — refresh reactive state immediately,
+                // and only now let the channel list paint (one paint, card
+                // and channels together).
+                refreshRoles();
+                setRolesSettled(true);
+                loadUnreadCount();
+
+                // Auto-restore channel if returning from pin-view map
+                const returnKey = authScopedStorageKey('chat_return_to_channel', identity);
+                const returnChannelId = sessionStorage.getItem(returnKey);
+                if (returnChannelId) {
+                    sessionStorage.removeItem(returnKey);
+                    const ch = chs.find((c) => c.id === returnChannelId);
+                    if (ch) openChannel(ch);
+                }
+
+                // Refresh channels from network (bypass cache — auth may unlock new channels)
+                try {
+                    // Invite acceptance's one-shot join can be missed before
+                    // chat initializes, or before the captain creates a channel.
+                    // Reconcile on every authenticated load, not only once per
+                    // owner, then refetch under this exact identity generation.
+                    if (initialized && identity.userId && chatAuthedUser?.id === identity.userId) {
+                        try {
+                            const repair = await boundedChatLoad(
+                                ChatService.reconcileAcceptedCrewChannels(identity, repairController.signal),
+                                () => repairController.abort(),
+                                repairController.signal,
+                            );
+                            if (!isCurrent()) return;
+                            if (repair.status === 'failed')
+                                log.warn('Crew channel repair incomplete; retry on next load.');
+                        } catch (e) {
+                            if (!isCurrent()) return;
+                            log.warn('Crew channel repair incomplete; retry on next load.', e);
+                        }
+                    }
+                    if (!isCurrent()) return;
+                    const fresh = await boundedChatLoad(
+                        ChatService.getChannelsFresh(identity, channelController.signal),
+                        () => channelController.abort(),
+                        channelController.signal,
+                    );
+                    if (!isCurrent()) return;
+                    if (fresh.length > 0) setChannels(fresh);
+                    await loadProfile();
+                    if (!isCurrent()) return;
+                } catch (e) {
+                    console.warn('Suppressed:', e);
+                    /* non-critical */
+                }
+
+                // Check if user has crew (as skipper or crew member) — gates Crew Chat visibility
+                try {
+                    const { getMyCrew, getMyMemberships } = await import('../services/CrewService');
+                    if (!isCurrent()) return;
+                    const [myCrew, myMemberships] = await Promise.all([getMyCrew(), getMyMemberships()]);
+                    if (!isCurrent()) return;
+                    // Crew: name the skippers' vessels before the card can
+                    // show, so it paints once with the right name.
+                    if (myMemberships.length > 0 && identity.userId) {
+                        await readCrewVesselNames(myMemberships, identity.userId, isCurrent, setCrewVesselNames);
+                        if (!isCurrent()) return;
+                    }
+                    setHasOwnedCrew(myCrew.length > 0);
+                    setHasCrewMembership(myMemberships.length > 0);
+                } catch {
+                    /* non-critical — Crew Chat stays hidden */
+                }
+            } catch (e) {
+                if (!isCurrent()) return;
+                // Outer catch — loadChannels() or channel restore failed
+                log.warn('Chat init failed — using defaults:', e);
+                setRolesSettled(true);
+                setChannels(
+                    DEFAULT_CHANNELS.map((c, i) => ({
+                        ...c,
+                        id: `default-${i}`,
+                        created_at: new Date().toISOString(),
+                    })),
+                );
+                setLoading(false);
+            }
+        };
+        init();
+
+        const visited = localStorage.getItem(authScopedStorageKey('crew_talk_visited', identity));
+        setIsFirstVisit(!visited);
+        setChatAuthBanner(!localStorage.getItem(authScopedStorageKey('thalassa_chat_auth_dismissed', identity)));
+
+        const unsub = subscribeDMs();
+
+        return () => {
+            disposed = true;
+            repairController.abort();
+            initialChannelController.abort();
+            channelController.abort();
+            unsub();
+            cleanupMessages();
+            ChatService.destroy();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chatAuthedUser?.id]);
+
+    const loadChannels = async (
+        isCurrent: () => boolean = () => true,
+        scope: AuthIdentityScope = getAuthIdentityScope(),
+        controller?: AbortController,
+    ): Promise<ChatChannel[]> => {
+        // getChannels returns cached data instantly (or fetches if no cache)
+        const chs = await boundedChatLoad(
+            ChatService.getChannels(scope, controller?.signal),
+            () => controller?.abort(),
+            controller?.signal,
+        ).catch((e) => {
+            if (isCurrent()) log.warn('Initial channel load failed; using defaults:', e);
+            return [];
+        });
+        const result =
+            chs.length > 0
+                ? chs
+                : DEFAULT_CHANNELS.map((c, i) => ({
+                      ...c,
+                      id: `default-${i}`,
+                      created_at: new Date().toISOString(),
+                  }));
+        if (!isCurrent()) return [];
+        setChannels(result);
+        setLoading(false); // Channels visible — kill spinner immediately
+        return result;
+    };
+
+    // openChannel and sendChannelMessage now provided by useChatMessages hook
+
+    // getStaticMapUrl imported from chatUtils
+
+    const handleReport = async () => {
+        if (!reportingMsg || reportSubmitting) return;
+        const identity = getAuthIdentityScope();
+        const reportedMessage = reportingMsg;
+        setReportError(null);
+        setReportSubmitting(true);
+        try {
+            const userId = (await ChatService.getCurrentUser())?.id;
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!userId || userId !== identity.userId) {
+                setReportError('Sign in again before submitting this report.');
+                return;
+            }
+            const submitted = await reportMessage(reportedMessage.id, userId, reportReason);
+            if (!isAuthIdentityScopeCurrent(identity)) return;
+            if (!submitted) {
+                setReportError('Report not submitted. It may already be reported; please try again shortly.');
+                return;
+            }
+            setReportSent(true);
+            setTimeout(() => {
+                if (!isAuthIdentityScopeCurrent(identity)) return;
+                setReportingMsg(null);
+                setReportSent(false);
+                setReportError(null);
+            }, 1500);
+        } catch {
+            if (isAuthIdentityScopeCurrent(identity)) {
+                setReportError('Report not submitted. Check your connection and try again.');
+            }
+        } finally {
+            if (isAuthIdentityScopeCurrent(identity)) setReportSubmitting(false);
+        }
+    };
+
+    // Proposals, private channels, and join requests now provided by useChatProposals hook
+
+    // Profile photo upload, getAvatar, and profile save now provided by useChatProfile hook
+
+    // DM actions, block/unblock, and mod actions now provided by useChatMessages + useChatDMs hooks
+
+    // Confirm dialog state for mod actions
+    const [confirmAction, setConfirmAction] = useState<{
+        title: string;
+        message: string;
+        destructive: boolean;
+        /** Verb on the confirm button. `destructive` alone used to pick it,
+            which labelled the Leave Channel dialog's button "Block". */
+        confirmLabel?: string;
+        onConfirm: () => Promise<void>;
+    } | null>(null);
+
+    const handleBlockUserPlatform = useCallback(async (userId: string, name: string) => {
+        setConfirmAction({
+            title: 'Block user',
+            message: `Block ${name} from the platform? This will permanently prevent them from sending messages.`,
+            destructive: true,
+            confirmLabel: 'Block',
+            onConfirm: async () => {
+                const ok = await ChatService.blockUserPlatform(userId);
+                if (ok) toast.success(`${name} has been blocked from the platform`);
+                setShowModMenu(null);
+                setConfirmAction(null);
+            },
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleMakeAdmin = useCallback(async (userId: string, name: string) => {
+        setConfirmAction({
+            title: 'Promote to admin',
+            message: `Make ${name} an Admin? Admins can delete posts, pin messages, mute users, and create channels.`,
+            destructive: false,
+            confirmLabel: 'Promote',
+            onConfirm: async () => {
+                const ok = await ChatService.setRole(userId, 'admin');
+                if (ok) toast.success(`${name} is now an admin`);
+                setShowModMenu(null);
+                setConfirmAction(null);
+            },
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // handleMarkHelpful now provided by useChatMessages hook
+
+    const dismissWelcome = () => {
+        setIsFirstVisit(false);
+        localStorage.setItem(authScopedStorageKey('crew_talk_visited'), 'true');
+    };
+
+    // ── Stable child callbacks ─────────────────────────────────────────
+    // ChatMessageList / ChatHeader are React.memo'd. Inline arrows here gave
+    // them a fresh prop identity on every keystroke in the composer (the
+    // message text lives in this component), so the whole 50-message list
+    // re-rendered per character. Hook setters are stable, so these can hold
+    // empty dependency arrays.
+    const handleReportMsg = useCallback(
+        (msg: ChatMessage) => {
+            setReportingMsg(msg);
+            setReportSent(false);
+            setReportError(null);
+        },
+        [setReportingMsg, setReportSent, setReportError],
+    );
+
+    const handleToggleModMenu = useCallback(
+        (msgId: string) => {
+            setShowModMenu((prev) => (prev === msgId ? null : msgId));
+        },
+        [setShowModMenu],
+    );
+
+    const handleOpenProfile = useCallback(() => {
+        setNavDirection('forward');
+        setView('profile');
+    }, []);
+
+    const handleShowBlockConfirm = useCallback(() => setShowBlockConfirm(true), [setShowBlockConfirm]);
+
+    const handleShowProposalForm = useCallback(() => setShowProposalForm(true), [setShowProposalForm]);
+
+    const handleLeaveChannel = useCallback(() => {
+        if (!activeChannel) return;
+        const { id, name } = activeChannel;
+        setConfirmAction({
+            title: 'Leave channel',
+            message: `Leave "${name}"? You'll need to request access again to rejoin.`,
+            destructive: true,
+            confirmLabel: 'Leave',
+            onConfirm: async () => {
+                const ok = await ChatService.leaveChannel(id);
+                if (ok) {
+                    toast.success(`Left ${name}`);
+                    setActiveChannel(null);
+                    setView('channels');
+                } else {
+                    toast.error('Cannot leave — channel owners must delete the channel instead');
+                }
+                setConfirmAction(null);
+            },
+        });
+    }, [activeChannel, setActiveChannel]);
+
+    const goBack = () => {
+        setShowModMenu(null);
+        setNavDirection('back');
+        if (view === 'messages') {
+            setView('channels');
+            setActiveChannel(null);
+        } else if (view === 'dm_thread') {
+            setView('dm_inbox');
+            setDmPartner(null);
+        } else if (view === 'dm_inbox') {
+            setView('channels');
+        } else if (view === 'profile') {
+            setView('channels');
+        } else if (view === 'find_crew') {
+            setView('channels');
+        } else if (view === 'admin_panel') {
+            setView('channels');
+        }
+    };
+
+    // --- RENDER ---
+    return (
+        <div
+            data-chat-page
+            className="flex min-h-0 flex-col h-full bg-slate-950 text-white overflow-hidden"
+            style={
+                keyboardOffset > 0
+                    ? { height: `calc(100% - ${keyboardOffset}px)`, transition: 'height 0.15s ease-out' }
+                    : undefined
+            }
+        >
+            {/* ═══════════════════ HEADER ═══════════════════ */}
+            <ChatHeader
+                view={view}
+                activeChannel={activeChannel}
+                dmPartnerName={dmPartner?.name}
+                isSelfConversation={isSelfConversation}
+                myAvatarUrl={myAvatarUrl}
+                unreadDMs={unreadDMs}
+                messageCount={messages.length}
+                isUserBlocked={blockedByMe}
+                blockActionDisabled={blockStatusLoading || !!blockStatusError || blockMutationPending}
+                hasDMPartner={!!dmPartner}
+                onGoBack={goBack}
+                onExit={onBack}
+                onOpenProfile={handleOpenProfile}
+                onOpenDMInbox={openDMInbox}
+                onToggleBlock={handleShowBlockConfirm}
+                onLeaveChannel={activeChannel?.is_private ? handleLeaveChannel : undefined}
+                onPropose={handleShowProposalForm}
+            />
+
+            {/* ═══════════ WELCOME BANNER ═══════════ */}
+            {isFirstVisit && view === 'channels' && !signInBannerOwed && <WelcomeBanner onDismiss={dismissWelcome} />}
+
+            {/* Hidden file input */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleFileSelect}
+            />
+
+            {/* ═══════════ STATUS BANNERS ═══════════
+                Offline banner removed 2026-04-28 (consistent with the
+                Glass page change on the same day). The banner pushed
+                the chat content down when offline and disappeared when
+                back online, creating a visible layout jump on a phone
+                that was constantly bouncing between cellular dead-spots
+                at sea. Messages are queued by the chat service either
+                way — the banner was advisory, not functional. Connection
+                diagnostics live in the System Status modal.
+                The "muted" banner stays — it's user-initiated state, not
+                connection state, and shows for fixed durations the user
+                set. */}
+            {isMuted && mutedUntil && (
+                <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-red-500/6 border border-red-500/10 text-red-400/80 text-xs fade-slide-down flex items-center justify-center gap-1.5 text-center">
+                    <MuteIcon className="h-3.5 w-3.5 shrink-0" />
+                    <span>Muted until {mutedUntil.toLocaleTimeString()}. You can still read messages.</span>
+                </div>
+            )}
+
+            {/* ═══════════════════ CONTENT ═══════════════════ */}
+            <ChatErrorBoundary>
+                {/* The channel list runs under the tab bar, which sliced its last
+                    card ('Catches, spots…') at the bar's edge. There the scroller
+                    masks the band under the bar and fades the 14px above it, and
+                    tops ChannelList's own pb-24 up to the bar + 16px so the last
+                    card can still scroll fully clear. Channels only: the message
+                    views end at the composer and their menus/sheets must never be
+                    faded by a mask. */}
+                <div
+                    key={view}
+                    data-chat-scroll
+                    ref={pullRefresh.containerRef}
+                    className={`min-h-0 flex-1 overflow-y-auto overscroll-contain overscroll-glow ${navDirection === 'back' ? 'chat-slide-back' : 'chat-slide-forward'} ${view === 'channels' ? 'thalassa-scroll-fade thalassa-scroll-fade--nav' : ''}`}
+                    style={
+                        view === 'channels'
+                            ? { paddingBottom: 'max(0px, calc(var(--thalassa-tabbar-height) + 16px - 6rem))' }
+                            : undefined
+                    }
+                    {...pullRefresh.handlers}
+                >
+                    {/* Pull-to-refresh indicator */}
+                    {pullRefresh.pullDistance > 0 && (
+                        <div
+                            className="flex items-center justify-center transition-all duration-150"
+                            style={{ height: pullRefresh.pullDistance }}
+                        >
+                            {pullRefresh.isRefreshing ? (
+                                <div className="w-5 h-5 border-2 border-sky-400/30 rounded-full border-t-sky-400 animate-spin" />
+                            ) : (
+                                <span
+                                    className={`text-white/50 text-sm transition-transform ${pullRefresh.pullDistance > 28 ? 'rotate-180' : ''}`}
+                                >
+                                    ↓
+                                </span>
+                            )}
+                        </div>
+                    )}
+                    {(loading || !rolesSettled) && view === 'channels' && (
+                        <div className="pb-24">
+                            <SkeletonChannelList />
+                        </div>
+                    )}
+                    {loading && view === 'messages' && (
+                        <div className="pb-24">
+                            <SkeletonMessageList />
+                        </div>
+                    )}
+
+                    {/* ══════ FIND CREW BOARD ══════ */}
+                    {view === 'find_crew' && !loading && <LonelyHeartsPage />}
+                    {/* ══════ FULL-PAGE PROFILE ══════ */}
+                    {view === 'profile' && !loading && (
+                        <ChatProfileView
+                            myAvatarUrl={myAvatarUrl}
+                            uploadProgress={uploadProgress}
+                            uploadError={uploadError}
+                            profileDisplayName={profileDisplayName}
+                            setProfileDisplayName={setProfileDisplayName}
+                            profileVesselName={profileVesselName}
+                            setProfileVesselName={setProfileVesselName}
+                            profileSaving={profileSaving}
+                            profileSaved={profileSaved}
+                            vesselPlaceholder={settings.vessel?.name || ''}
+                            isObserver={settings.vessel?.type === 'observer'}
+                            fileInputRef={fileInputRef}
+                            onSaveProfile={handleSaveProfile}
+                            onRemovePhoto={handleRemovePhoto}
+                        />
+                    )}
+
+                    {/* ══════ SIGN-IN BANNER (dismissible) ══════ */}
+                    {view === 'channels' && !loading && rolesSettled && !chatIsAuthed && chatAuthBanner && (
+                        <AuthBanner
+                            onSignIn={() => setShowChatAuth(true)}
+                            onDismiss={() => {
+                                setChatAuthBanner(false);
+                                localStorage.setItem(authScopedStorageKey('thalassa_chat_auth_dismissed'), '1');
+                            }}
+                        />
+                    )}
+
+                    {/* ══════ ADMIN PANEL ══════ */}
+                    {view === 'admin_panel' && !loading && (
+                        <AdminPanel
+                            isOpen={true}
+                            onClose={() => setView('channels')}
+                            onChannelDeleted={(id) => {
+                                setChannels((prev) => prev.filter((c) => c.id !== id));
+                            }}
+                            onChannelApproved={async () => {
+                                const fresh = await ChatService.getChannelsFresh();
+                                if (fresh.length > 0) setChannels(fresh);
+                            }}
+                        />
+                    )}
+
+                    {/* ══════ CHANNEL LIST ══════ */}
+                    {view === 'channels' && !loading && rolesSettled && (
+                        <ChannelList
+                            channels={channels}
+                            onOpenChannel={openChannel}
+                            onRequestAccess={handleRequestAccess}
+                            isMod={isMod}
+                            showProposalForm={showProposalForm}
+                            setShowProposalForm={setShowProposalForm}
+                            proposalIcon={proposalIcon}
+                            setProposalIcon={setProposalIcon}
+                            proposalName={proposalName}
+                            setProposalName={setProposalName}
+                            proposalDesc={proposalDesc}
+                            setProposalDesc={setProposalDesc}
+                            proposalIsPrivate={proposalIsPrivate}
+                            setProposalIsPrivate={setProposalIsPrivate}
+                            proposalSent={proposalSent}
+                            onProposeChannel={handleProposeChannel}
+                            isAdmin={isAdmin}
+                            onOpenAdmin={() => {
+                                setNavDirection('forward');
+                                setView('admin_panel');
+                            }}
+                            memberChannelIds={memberChannelIds}
+                            proposalParentId={proposalParentId}
+                            setProposalParentId={setProposalParentId}
+                            hasCrewInvited={canOpenCrewChat || crewChatChannel !== null}
+                            crewChatChannel={crewChatChannel}
+                            vesselName={ownCrewChatVesselName}
+                            crewChatVesselName={crewChatVesselName}
+                        />
+                    )}
+
+                    {/* ══════ JOIN REQUEST MODAL ══════ */}
+                    {joinRequestChannel && (
+                        <OverlayPortal
+                            className="flex items-center justify-center bg-black/70 p-4 pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)] pt-[max(1rem,env(safe-area-inset-top))]"
+                            onClick={() => setJoinRequestChannel(null)}
+                            role="presentation"
+                        >
+                            {/* Centred per the standing modal rule (Shane 2026-09-02: "all modal boxes centered on the punters screen"). */}
+                            <div
+                                ref={joinRequestDialogRef}
+                                className="w-full max-w-lg bg-slate-950 border border-purple-500/20 rounded-3xl shadow-2xl p-5 space-y-4 max-h-full overflow-y-auto"
+                                onClick={(e) => e.stopPropagation()}
+                                role="dialog"
+                                aria-modal="true"
+                                aria-labelledby="join-request-title"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div
+                                        aria-hidden="true"
+                                        className="w-11 h-11 shrink-0 rounded-xl bg-linear-to-br from-purple-500/20 to-indigo-500/10 border border-purple-500/30 flex items-center justify-center text-purple-300"
+                                    >
+                                        <LockIcon className="h-5 w-5" />
+                                    </div>
+                                    <div>
+                                        <h2 id="join-request-title" className="text-base font-bold text-white">
+                                            Request access to {joinRequestChannel.name}
+                                        </h2>
+                                        <p className="text-xs text-purple-300/80">Private channel</p>
+                                    </div>
+                                </div>
+
+                                <p className="text-sm text-white/70">
+                                    Write a message to the channel owner explaining why you&rsquo;d like to join.
+                                </p>
+
+                                <textarea
+                                    value={joinRequestMessage}
+                                    onChange={(e) => setJoinRequestMessage(e.target.value)}
+                                    placeholder="Why do you want to join this channel?"
+                                    aria-label="Join request message"
+                                    rows={3}
+                                    className="w-full px-3.5 py-3 rounded-xl bg-white/6 border border-white/10 text-sm text-white placeholder-white/30 outline-hidden focus:border-purple-500/40 transition-colors resize-none min-h-[80px]"
+                                />
+
+                                <div className="flex gap-2">
+                                    <button
+                                        ref={joinRequestCancelRef}
+                                        onClick={() => setJoinRequestChannel(null)}
+                                        aria-label="Cancel request"
+                                        className="flex-1 py-3 rounded-xl bg-white/4 text-sm text-white/60 font-medium min-h-[48px]"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSubmitJoinRequest}
+                                        disabled={joinRequestSent}
+                                        className="flex-1 py-3 rounded-xl bg-purple-500/20 border border-purple-500/30 text-sm text-purple-400 font-bold active:scale-95 disabled:opacity-50 min-h-[48px]"
+                                    >
+                                        {joinRequestSent ? 'Request sent' : 'Send request'}
+                                    </button>
+                                </div>
+                            </div>
+                        </OverlayPortal>
+                    )}
+
+                    {/* ══════ MESSAGE VIEW ══════ */}
+                    {view === 'messages' && !loading && (
+                        <>
+                            <ChatMessageList
+                                messages={messages}
+                                pinnedMessages={pinnedMessages}
+                                isMod={isMod}
+                                isAdmin={isAdmin}
+                                isModerator={isModerator}
+                                likedMessages={likedMessages}
+                                showModMenu={showModMenu}
+                                showRankTooltip={showRankTooltip}
+                                importingTrackId={importingTrackId}
+                                getAvatar={getAvatar}
+                                onOpenDMThread={openDMThread}
+                                onMarkHelpful={handleMarkHelpful}
+                                onReportMsg={handleReportMsg}
+                                onToggleModMenu={handleToggleModMenu}
+                                onDeleteMessage={handleDeleteMessage}
+                                onPinMessage={handlePinMessage}
+                                onMuteUser={handleMuteUser}
+                                onBlockUser={handleBlockUserPlatform}
+                                onMakeAdmin={handleMakeAdmin}
+                                onSetRankTooltip={setShowRankTooltip}
+                                onShowTrackDisclaimer={setShowTrackDisclaimer}
+                                messageEndRef={messageEndRef}
+                            />
+                            {/* Typing indicator — shown briefly after channel switch */}
+                            {showTyping && <TypingIndicator />}
+                        </>
+                    )}
+
+                    {/* ══════ DM INBOX ══════ */}
+                    {view === 'dm_inbox' && !loading && (
+                        <ChatDMInbox
+                            conversations={dmConversations}
+                            onOpenThread={openDMThread}
+                            currentUserId={currentUserId}
+                        />
+                    )}
+
+                    {/* ══════ DM THREAD ══════ */}
+                    {view === 'dm_thread' && !loading && (
+                        <ChatDMThread
+                            thread={dmThread}
+                            partnerName={dmPartner?.name}
+                            currentUserId={currentUserId}
+                            isSelfConversation={isSelfConversation}
+                        />
+                    )}
+                </div>
+            </ChatErrorBoundary>
+
+            {/* ═══════════ REPORT MODAL ═══════════ */}
+            {reportingMsg && (
+                <ReportModal
+                    reportingMsg={reportingMsg}
+                    reportSent={reportSent}
+                    reportError={reportError}
+                    reportSubmitting={reportSubmitting}
+                    reportReason={reportReason}
+                    setReportReason={setReportReason}
+                    onSubmit={handleReport}
+                    onClose={() => {
+                        if (reportSubmitting) return;
+                        setReportingMsg(null);
+                        setReportError(null);
+                    }}
+                />
+            )}
+
+            {/* ═══════════ SHARE CURRENT LOCATION ═══════════ */}
+            {showPinSheet && view === 'messages' && (
+                <PinDropSheet
+                    pinLat={pinLat}
+                    pinLng={pinLng}
+                    pinCaption={pinCaption}
+                    setPinCaption={setPinCaption}
+                    pinLoading={pinLoading}
+                    pinSource={pinSource}
+                    pinAccuracy={pinAccuracy}
+                    pinTimestamp={pinTimestamp}
+                    pinRungLabel={pinRungLabel}
+                    locationError={locationError}
+                    saveToMyPlaces={saveToMyPlaces}
+                    setSaveToMyPlaces={setSaveToMyPlaces}
+                    sending={sendingKind === 'current'}
+                    onSendPin={sendPin}
+                    onRetryLocation={retryCurrentLocation}
+                    onChoosePlace={openPoiPicker}
+                    onClose={() => setShowPinSheet(false)}
+                />
+            )}
+
+            {/* ═══════════ DROP A PLACE PIN (interactive chart) ═══════════ */}
+            {showPoiSheet && view === 'messages' && (
+                <PoiPickerSheet
+                    pinLat={pinLat}
+                    pinLng={pinLng}
+                    pinCaption={pinCaption}
+                    setPinCaption={setPinCaption}
+                    pinLoading={pinLoading}
+                    pinSource={pinSource}
+                    locationError={locationError}
+                    savedPins={savedPins}
+                    onSelectSavedPin={selectSavedPin}
+                    saveToMyPlaces={saveToMyPlaces}
+                    setSaveToMyPlaces={setSaveToMyPlaces}
+                    sending={sendingKind === 'place'}
+                    poiMapRef={poiMapRef}
+                    onSendPoi={sendPoi}
+                    onClose={() => setShowPoiSheet(false)}
+                    onRecenterToMyLocation={recenterPoiToMyLocation}
+                    onSearch={searchPoiLocation}
+                    searching={searchingPoi}
+                />
+            )}
+
+            {/* ═══════════ SHARE TRACK PICKER ═══════════ */}
+            {showTrackPicker && view === 'messages' && (
+                <TrackPickerSheet
+                    voyageList={voyageList}
+                    trackLoadingVoyages={trackLoadingVoyages}
+                    trackSharing={isTrackSharing}
+                    onSendTrack={sendTrack}
+                    onClose={() => setShowTrackPicker(false)}
+                />
+            )}
+
+            {/* ═══════════════════ COMPOSE BAR ═══════════════════ */}
+            {/* Current-location sharing has its own note/send row. Keeping a
+                second composer below it leaves no editing room in landscape. */}
+            {view === 'messages' && !showPinSheet && (
+                <ChatComposer
+                    messageText={messageText}
+                    setMessageText={setMessageText}
+                    isQuestion={isQuestion}
+                    setIsQuestion={setIsQuestion}
+                    filterWarning={filterWarning}
+                    setFilterWarning={setFilterWarning}
+                    isMuted={isMuted}
+                    mutedUntil={mutedUntil}
+                    showAttachMenu={showAttachMenu}
+                    setShowAttachMenu={setShowAttachMenu}
+                    keyboardOffset={keyboardOffset}
+                    inputRef={inputRef}
+                    onSend={sendChannelMessage}
+                    onOpenPinDrop={openPinDrop}
+                    onOpenPoiPicker={openPoiPicker}
+                    onOpenTrackPicker={openTrackPicker}
+                />
+            )}
+
+            {/* DM compose */}
+            {view === 'dm_thread' && (
+                <ChatDMCompose
+                    dmText={dmText}
+                    setDmText={setDmText}
+                    partnerName={dmPartner?.name}
+                    isSelfConversation={isSelfConversation}
+                    keyboardOffset={keyboardOffset}
+                    isUserBlocked={isUserBlocked}
+                    blockedByMe={blockedByMe}
+                    blockStatusLoading={blockStatusLoading}
+                    blockStatusError={blockStatusError}
+                    blockMutationPending={blockMutationPending}
+                    onRetryBlockStatus={retryBlockStatus}
+                    showBlockConfirm={showBlockConfirm}
+                    setShowBlockConfirm={setShowBlockConfirm}
+                    onSendDM={sendDMMessage}
+                    onBlock={handleBlockUser}
+                    onUnblock={handleUnblockUser}
+                />
+            )}
+
+            {/* ═══════════ TRACK IMPORT DISCLAIMER MODAL ═══════════ */}
+            {showTrackDisclaimer && (
+                <TrackDisclaimerModal
+                    track={showTrackDisclaimer}
+                    onImport={handleImportTrack}
+                    onClose={() => setShowTrackDisclaimer(null)}
+                />
+            )}
+
+            {/* ═══════════ TRACK IMPORT STATUS TOAST ═══════════ */}
+            {trackImportStatus && (
+                <div
+                    className="fixed bottom-28 left-1/2 -translate-x-1/2 z-9998 px-5 py-3 rounded-xl shadow-2xl border max-w-[320px] text-center"
+                    style={{
+                        background: trackImportStatus!.startsWith('✅')
+                            ? 'var(--day-ui-success-surface, rgba(6,78,59,0.95))'
+                            : 'var(--day-ui-danger-surface, rgba(127,29,29,0.95))',
+                        borderColor: trackImportStatus!.startsWith('✅')
+                            ? 'rgba(16,185,129,0.3)'
+                            : 'rgba(239,68,68,0.3)',
+                    }}
+                >
+                    <p
+                        className={`text-sm font-bold ${trackImportStatus!.startsWith('✅') ? 'text-emerald-300' : 'text-red-300'}`}
+                    >
+                        {trackImportStatus}
+                    </p>
+                </div>
+            )}
+            {/* Mod action confirm dialog */}
+            <ConfirmDialog
+                isOpen={!!confirmAction}
+                title={confirmAction?.title || ''}
+                message={confirmAction?.message || ''}
+                destructive={confirmAction?.destructive || false}
+                confirmLabel={confirmAction?.confirmLabel ?? 'Confirm'}
+                onConfirm={confirmAction?.onConfirm || (() => {})}
+                onCancel={() => setConfirmAction(null)}
+            />
+
+            {/* Sign-in surface for the chat sign-in banner — same
+                SignInScreen used everywhere else in the app. */}
+            <SignInScreen
+                isOpen={showChatAuth}
+                onClose={() => {
+                    setShowChatAuth(false);
+                    // Global authStore listens to onAuthStateChange and
+                    // updates automatically when sign-in completes.
+                    // No manual re-poll needed.
+                }}
+                prompt="Sign in to message other sailors and access Scuttlebutt."
+            />
+        </div>
+    );
+});
+
+export default LegacyChatPage;

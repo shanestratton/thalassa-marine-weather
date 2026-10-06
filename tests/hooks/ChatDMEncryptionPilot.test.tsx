@@ -20,38 +20,27 @@ import {
     type PrivateMessagePilotThread,
 } from '../../services/chat/e2ee/privateMessagePilot';
 
-const legacy = vi.hoisted(() => ({
-    status: vi.fn(),
-    thread: vi.fn(),
-    inbox: vi.fn(),
-    send: vi.fn(),
-    block: vi.fn(),
-    unblock: vi.fn(),
-    subscribe: vi.fn(),
-    push: vi.fn(),
-}));
-vi.mock('../../services/ChatService', () => ({
-    ChatService: {
-        getDMBlockStatus: legacy.status,
-        getDMThread: legacy.thread,
-        getDMConversations: legacy.inbox,
-        sendDM: legacy.send,
-        blockUser: legacy.block,
-        unblockUser: legacy.unblock,
-        subscribeToDMs: legacy.subscribe,
-    },
-    parsePinDrop: vi.fn(),
-}));
-vi.mock('../../services/PushNotificationService', () => ({
-    PushNotificationService: { requestPermissionAndRegister: legacy.push },
-}));
-vi.mock('../../services/GalleyRecipeService', () => ({ parseRecipeShareMessage: vi.fn() }));
-vi.mock('../../components/chat/RecipeCard', () => ({ RecipeCard: () => null }));
-vi.mock('../../components/Toast', () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
-vi.mock('../../utils/system', () => ({ triggerHaptic: vi.fn() }));
+const forbiddenImports = vi.hoisted(() => [] as string[]);
+function refuseImport(name: string): never {
+    forbiddenImports.push(name);
+    throw new Error(`Private-message pilot evaluated forbidden module: ${name}`);
+}
+vi.mock('../../services/ChatService', () => refuseImport('ChatService'));
+vi.mock('../../services/PushNotificationService', () => refuseImport('PushNotificationService'));
+vi.mock('../../services/GalleyRecipeService', () => refuseImport('GalleyRecipeService'));
+vi.mock('../../components/chat/RecipeCard', () => refuseImport('RecipeCard'));
+vi.mock('../../components/Toast', () => refuseImport('Toast'));
+vi.mock('../../utils/system', () => refuseImport('system'));
+vi.mock('../../services/supabase', () => refuseImport('supabase'));
+vi.mock('../../stores/authStore', () => refuseImport('authStore'));
 
-import { useChatDMs } from '../../hooks/chat/useChatDMs';
-import { ChatDMCompose, ChatDMInbox, ChatDMThread, PrivateMessagePilotNotice } from '../../components/chat/ChatDMView';
+import { usePrivateMessagePilotDMs } from '../../hooks/chat/usePrivateMessagePilotDMs';
+import {
+    PrivateMessagePilotCompose as ChatDMCompose,
+    PrivateMessagePilotInbox as ChatDMInbox,
+    PrivateMessagePilotThread as ChatDMThread,
+    PrivateMessagePilotNotice,
+} from '../../components/chat/PrivateMessagePilotView';
 
 const account = '11111111-1111-4111-8111-111111111111';
 const peer = '22222222-2222-4222-8222-222222222222';
@@ -156,7 +145,7 @@ function fixture() {
         setLoading: vi.fn(),
         privateMessageRuntime: createPrivateMessagePilotRuntime(port),
     };
-    return { port, ...renderHook(() => useChatDMs(options)) };
+    return { port, ...renderHook(() => usePrivateMessagePilotDMs(options)) };
 }
 const renderedMessage = (overrides: Partial<PrivateMessagePilotMessage> = {}): PrivateMessagePilotMessage => {
     const direction = overrides.direction ?? (overrides.sender_id === account ? 'outgoing' : 'incoming');
@@ -247,23 +236,29 @@ function renderingFixture() {
         ),
     } satisfies PrivateMessagePilotRuntime;
     const options = { setView: vi.fn(), setNavDirection: vi.fn(), setLoading: vi.fn(), privateMessageRuntime: runtime };
-    const hook = renderHook(({ runtime: supplied }) => useChatDMs({ ...options, privateMessageRuntime: supplied }), {
-        initialProps: { runtime: runtime as PrivateMessagePilotRuntime },
-    });
+    const hook = renderHook(
+        ({ runtime: supplied }) => usePrivateMessagePilotDMs({ ...options, privateMessageRuntime: supplied }),
+        {
+            initialProps: { runtime: runtime as PrivateMessagePilotRuntime },
+        },
+    );
     act(() => {
         hook.result.current.subscribe();
     });
     return { ...hook, runtime, emit: (event: PrivateMessagePilotEvent) => receive!(event) };
 }
 function expectNoLegacyPath() {
-    for (const callback of Object.values(legacy)) expect(callback).not.toHaveBeenCalled();
+    expect(forbiddenImports).toEqual([]);
 }
 beforeEach(() => {
     vi.clearAllMocks();
     setAuthIdentityScope(null);
     setAuthIdentityScope(account);
 });
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+});
 
 describe('injected native-only PM hook fixtures', () => {
     it('routes inbox, thread, text send and subscription exclusively through the native port, with block controls unavailable', async () => {
@@ -288,6 +283,38 @@ describe('injected native-only PM hook fixtures', () => {
         });
         expect(port.setBlocked).not.toHaveBeenCalled();
         unsubscribe();
+        expectNoLegacyPath();
+    });
+    it.each(['throws', 'invalid'] as const)(
+        'refuses %s UUID allocation without preparing or stranding a draft',
+        async (mode) => {
+            const { result, port } = fixture();
+            await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+            act(() => result.current.setDmText('Retain allocation-refused draft'));
+            const id = vi.spyOn(crypto, 'randomUUID').mockImplementation(() => {
+                if (mode === 'throws') throw new Error('Fixture UUID unavailable');
+                return 'invalid' as ReturnType<Crypto['randomUUID']>;
+            });
+            await act(async () => result.current.sendDMMessage());
+            expect(port.sendText).not.toHaveBeenCalled();
+            expect(port.retryPending).not.toHaveBeenCalled();
+            expect(result.current.dmText).toBe('Retain allocation-refused draft');
+            expect(result.current.pilotPendingAttemptId).toBeNull();
+            expect(result.current.pilotSendDisabled).toBe(true);
+            expect(result.current.pilotRetryDisabled).toBe(false);
+            id.mockRestore();
+            await act(async () => result.current.retryBlockStatus());
+            await act(async () => result.current.sendDMMessage());
+            expect(port.sendText).toHaveBeenCalledTimes(1);
+            expectNoLegacyPath();
+        },
+    );
+    it('keeps the compatibility row setter inert so caller rows cannot bypass native facts', async () => {
+        const { result } = renderingFixture();
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        act(() => result.current.setDmThread([renderedMessage({ message: 'Caller-inserted fixture' })]));
+        expect(result.current.dmThread).toEqual([]);
+        expect(result.current.pilotSendDisabled).toBe(false);
         expectNoLegacyPath();
     });
     it('preserves a failed draft, blocks sending, and retries with the same message ID', async () => {
@@ -549,7 +576,7 @@ describe('injected native-only PM hook fixtures', () => {
             setLoading: vi.fn(),
             privateMessageRuntime: runtime,
         };
-        const fresh = renderHook(() => useChatDMs(options));
+        const fresh = renderHook(() => usePrivateMessagePilotDMs(options));
         port.subscribe.mockImplementation(async (_request, callback) => {
             receive = callback;
             return vi.fn();
@@ -734,17 +761,30 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         expect(runtime.getInbox).toHaveBeenCalledTimes(inboxReads);
         expectNoLegacyPath();
     });
-    it('never replaces a later event-derived native inbox with an older pending snapshot', async () => {
+    it('invalidates a stale inbox preview without another implicit scan, then refreshes explicitly', async () => {
         const { result, runtime, emit } = renderingFixture();
+        runtime.getInbox.mockResolvedValueOnce(renderedOk(renderedInbox('Earlier native preview')));
+        await act(async () => result.current.openDMInbox());
         const snapshot = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getInbox']>>>();
         runtime.getInbox.mockReturnValueOnce(snapshot.promise);
-        act(() => emit({ status: 'ready' }));
-        runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Incoming fixture')));
+        let opening!: Promise<void>;
+        act(() => {
+            opening = result.current.openDMInbox();
+        });
         await act(async () => emit(renderedOk(renderedMessage())));
-        expect(result.current.dmConversations[0].last_message).toBe('Incoming fixture');
-        await act(async () => snapshot.resolve(renderedOk(renderedInbox())));
-        expect(result.current.dmConversations[0].last_message).toBe('Incoming fixture');
+        expect(result.current.dmConversations[0].last_message).toBeNull();
+        expect(result.current.dmConversations[0].last_at).toBeNull();
+        expect(runtime.getInbox).toHaveBeenCalledTimes(2);
+        await act(async () => {
+            snapshot.resolve(renderedOk(renderedInbox('Older held preview')));
+            await opening;
+        });
+        expect(result.current.dmConversations[0].last_message).toBeNull();
+        runtime.getInbox.mockResolvedValueOnce(renderedOk(renderedInbox('Explicit native preview')));
+        await act(async () => result.current.openDMInbox());
+        expect(result.current.dmConversations[0].last_message).toBe('Explicit native preview');
         expect(result.current.unreadDMs).toBe(0);
+        expect(runtime.getInbox).toHaveBeenCalledTimes(3);
         expectNoLegacyPath();
     });
     it('preserves newer native relay acceptance when an older pending send snapshot resolves', async () => {
@@ -778,6 +818,7 @@ describe('pilot rendering lease and native snapshot races — runtime fixtures o
         const { result, runtime, rerender, emit } = renderingFixture();
         runtime.getThread.mockResolvedValueOnce(renderedOk(renderedThread([renderedMessage()])));
         runtime.getInbox.mockResolvedValue(renderedOk(renderedInbox('Runtime A private preview')));
+        await act(async () => result.current.openDMInbox());
         await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
         act(() => result.current.setDmText('Runtime A private draft'));
         const staleSend = result.current.sendDMMessage;
@@ -977,20 +1018,14 @@ describe('pilot screen rendering fixtures', () => {
         render(
             <>
                 <PrivateMessagePilotNotice />
-                <ChatDMInbox conversations={[]} onOpenThread={vi.fn()} currentUserId={account} pilotActive />
+                <ChatDMInbox conversations={[]} onOpenThread={vi.fn()} />
             </>,
         );
         expect(screen.getByText('Encryption test—not reviewed')).toBeTruthy();
         expect(screen.queryByRole('button', { name: 'Open self-test conversation' })).toBeNull();
     });
     it('renders structured-looking fixture data as text without remote recipe/photo rendering', () => {
-        render(
-            <ChatDMThread
-                thread={[renderedMessage({ message: '🍳RECIPE:fixture' })]}
-                pilotActive
-                currentUserId={account}
-            />,
-        );
+        render(<ChatDMThread thread={[renderedMessage({ message: '🍳RECIPE:fixture' })]} />);
         expect(screen.getByText('🍳RECIPE:fixture')).toBeTruthy();
         expect(screen.queryByRole('img')).toBeNull();
     });
@@ -998,8 +1033,6 @@ describe('pilot screen rendering fixtures', () => {
         render(
             <ChatDMThread
                 thread={[renderedMessage({ message: null, created_at: null, localCreatedAtMillis: null })]}
-                pilotActive
-                currentUserId={account}
             />,
         );
         expect(screen.getByText('Message text unavailable')).toBeTruthy();
@@ -1019,8 +1052,6 @@ describe('pilot screen rendering fixtures', () => {
                     },
                 ]}
                 onOpenThread={vi.fn()}
-                currentUserId={account}
-                pilotActive
             />,
         );
         expect(screen.getByText('Native history unavailable')).toBeTruthy();
@@ -1029,13 +1060,7 @@ describe('pilot screen rendering fixtures', () => {
         expect(screen.queryByText(/\d+ unread/)).toBeNull();
     });
     it('makes the actual pilot message paragraph selectable for copying berth codes', () => {
-        render(
-            <ChatDMThread
-                thread={[renderedMessage({ message: 'Berth B12 · access code 6842' })]}
-                pilotActive
-                currentUserId={account}
-            />,
-        );
+        render(<ChatDMThread thread={[renderedMessage({ message: 'Berth B12 · access code 6842' })]} />);
         const paragraph = screen.getByText('Berth B12 · access code 6842');
         expect(paragraph.tagName).toBe('P');
         expect(paragraph.classList.contains('select-text')).toBe(true);
@@ -1055,19 +1080,20 @@ describe('pilot screen rendering fixtures', () => {
                 dmText="Fixture"
                 setDmText={vi.fn()}
                 partnerName="Paired sailor"
+                {...{
+                    blockedByMe: false,
+                    blockMutationPending: false,
+                    showBlockConfirm: true,
+                    setShowBlockConfirm: vi.fn(),
+                    onBlock: block,
+                    onUnblock: unblock,
+                }}
                 keyboardOffset={0}
                 isUserBlocked={false}
-                blockedByMe={false}
                 blockStatusLoading={false}
                 blockStatusError={null}
-                blockMutationPending={false}
                 onRetryBlockStatus={vi.fn()}
-                showBlockConfirm
-                setShowBlockConfirm={vi.fn()}
                 onSendDM={vi.fn()}
-                onBlock={block}
-                onUnblock={unblock}
-                pilotActive
             />,
         );
         expect(screen.queryByRole('button', { name: /block|unblock/i })).toBeNull();
@@ -1084,17 +1110,10 @@ describe('pilot screen rendering fixtures', () => {
                 partnerName="Peer"
                 keyboardOffset={0}
                 isUserBlocked={false}
-                blockedByMe={false}
                 blockStatusLoading={false}
                 blockStatusError={null}
-                blockMutationPending={false}
                 onRetryBlockStatus={vi.fn()}
-                showBlockConfirm={false}
-                setShowBlockConfirm={vi.fn()}
                 onSendDM={send}
-                onBlock={vi.fn()}
-                onUnblock={vi.fn()}
-                pilotActive
                 pilotSendDisabled
             />,
         );
@@ -1102,5 +1121,168 @@ describe('pilot screen rendering fixtures', () => {
         expect(button.disabled).toBe(true);
         fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
         expect(send).not.toHaveBeenCalled();
+    });
+});
+
+describe('explicit native refresh and local privacy close fixtures', () => {
+    it('discovers a peer reply only after one explicit inbox scan, then reads committed local thread', async () => {
+        const { result, runtime } = renderingFixture();
+        let scanned = false;
+        runtime.getThread.mockImplementation(async () =>
+            renderedOk(renderedThread(scanned ? [renderedMessage()] : [])),
+        );
+        runtime.getInbox.mockImplementation(async () => {
+            scanned = true;
+            return renderedOk(renderedInbox('Incoming fixture'));
+        });
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        expect(result.current.dmThread).toEqual([]);
+        expect(runtime.getInbox).not.toHaveBeenCalled();
+        act(() => result.current.setDmText('Keep refresh draft'));
+        await act(async () => result.current.refreshNativeMessages());
+        expect(runtime.getInbox).toHaveBeenCalledTimes(1);
+        expect(runtime.getThread).toHaveBeenCalledTimes(2);
+        expect(result.current.dmThread).toEqual([renderedMessage()]);
+        expect(result.current.dmConversations[0].last_message).toBe('Incoming fixture');
+        expect(result.current.dmText).toBe('Keep refresh draft');
+        expect(result.current.pilotSendDisabled).toBe(false);
+        expectNoLegacyPath();
+    });
+    it('retains only a freshly authorized local thread after scan refusal, with sending disabled', async () => {
+        const { result, runtime } = renderingFixture();
+        runtime.getThread.mockResolvedValue(renderedOk(renderedThread([renderedMessage()])));
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        act(() => result.current.setDmText('Keep unavailable-refresh draft'));
+        runtime.getInbox.mockResolvedValue({ status: 'unavailable', reason: 'transport_failure' });
+        await act(async () => result.current.refreshNativeMessages());
+        expect(runtime.getInbox).toHaveBeenCalledTimes(1);
+        expect(result.current.dmThread).toEqual([renderedMessage()]);
+        expect(result.current.pilotStatusText).toContain('Showing authenticated local history');
+        expect(result.current.pilotSendDisabled).toBe(true);
+        expect(result.current.blockStatusLoading).toBe(false);
+        expect(result.current.dmText).toBe('Keep unavailable-refresh draft');
+        runtime.getThread.mockResolvedValueOnce({ status: 'unavailable', reason: 'stale_authority' });
+        await act(async () => result.current.refreshNativeMessages());
+        expect(result.current.dmThread).toEqual([]);
+        expect(result.current.dmConversations).toEqual([]);
+        expect(result.current.pilotSendDisabled).toBe(true);
+        expectNoLegacyPath();
+    });
+    it('closes before unsubscribe, ignores late ready/events/held refresh, and reopens only explicitly', async () => {
+        const { result, runtime, emit } = renderingFixture();
+        runtime.getThread.mockResolvedValue(renderedOk(renderedThread([renderedMessage()])));
+        await act(async () => result.current.openDMInbox());
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        act(() => result.current.setDmText('Hide this native draft'));
+        const held = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getThread']>>>();
+        runtime.getThread.mockReturnValueOnce(held.promise);
+        let refresh!: Promise<void>;
+        act(() => {
+            refresh = result.current.refreshNativeMessages();
+        });
+        await vi.waitFor(() => expect(runtime.getThread).toHaveBeenCalledTimes(2));
+        const beforeClose = result.current.getPrivateMessageViewRevision();
+        const scans = runtime.getInbox.mock.calls.length;
+        const reads = runtime.getThread.mock.calls.length;
+        act(() => result.current.closePrivateMessageView());
+        expect(result.current.getPrivateMessageViewRevision()).toBeGreaterThan(beforeClose);
+        expect(result.current.dmThread).toEqual([]);
+        expect(result.current.dmConversations).toEqual([]);
+        expect(result.current.dmPartner).toBeNull();
+        expect(result.current.dmText).toBe('');
+        expect(result.current.pilotPendingAttemptId).toBeNull();
+        expect(result.current.pilotSendDisabled).toBe(true);
+        await act(async () => {
+            emit({ status: 'ready' });
+            emit(renderedOk(renderedMessage({ message: 'Late hidden plaintext' })));
+            held.resolve(renderedOk(renderedThread([renderedMessage({ message: 'Held hidden plaintext' })])));
+            await refresh;
+        });
+        expect(runtime.getInbox).toHaveBeenCalledTimes(scans);
+        expect(runtime.getThread).toHaveBeenCalledTimes(reads);
+        expect(result.current.dmThread).toEqual([]);
+        expect(result.current.blockStatusLoading).toBe(false);
+        const pending = renderedMessage({
+            sender_id: account,
+            recipient_id: peer,
+            message: null,
+            created_at: null,
+            localCreatedAtMillis: null,
+            delivery: 'pending',
+        });
+        runtime.getThread.mockResolvedValueOnce(renderedOk(renderedThread([pending], { pendingAttemptId: fixtureId })));
+        await act(async () => result.current.openDMInbox());
+        act(() => result.current.subscribe());
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        expect(result.current.pilotPendingAttemptId).toBe(fixtureId);
+        expect(runtime.sendText).not.toHaveBeenCalled();
+        expect(runtime.retryPending).not.toHaveBeenCalled();
+        expectNoLegacyPath();
+    });
+    it('cancels each subscription before its native cleanup can replay readiness', async () => {
+        const { result, runtime, emit } = renderingFixture();
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        const stop = vi.fn(() => emit({ status: 'ready' }));
+        runtime.subscribe.mockReturnValueOnce(stop);
+        act(() => result.current.subscribe());
+        const scans = runtime.getInbox.mock.calls.length;
+        const reads = runtime.getThread.mock.calls.length;
+        act(() => result.current.closePrivateMessageView());
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(runtime.getInbox).toHaveBeenCalledTimes(scans);
+        expect(runtime.getThread).toHaveBeenCalledTimes(reads);
+        expect(result.current.dmThread).toEqual([]);
+        expectNoLegacyPath();
+    });
+    it('keeps one unresolved scan admitted across privacy close and explicit reopen', async () => {
+        const { result, runtime } = renderingFixture();
+        await act(async () => result.current.openDMThread(peer, 'Paired sailor'));
+        const held = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getInbox']>>>();
+        runtime.getInbox.mockReturnValueOnce(held.promise);
+        let refresh!: Promise<void>;
+        act(() => {
+            refresh = result.current.refreshNativeMessages();
+        });
+        act(() => result.current.closePrivateMessageView());
+        await act(async () => result.current.openDMInbox());
+        expect(runtime.getInbox).toHaveBeenCalledTimes(1);
+        expect(runtime.getThread).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            held.resolve(renderedOk(renderedInbox('Held hidden scan')));
+            await refresh;
+        });
+        expect(result.current.dmConversations).toEqual([]);
+        await act(async () => result.current.openDMInbox());
+        expect(runtime.getInbox).toHaveBeenCalledTimes(2);
+        expect(result.current.dmConversations[0].last_message).toBeNull();
+        expectNoLegacyPath();
+    });
+    it('does not scan on no-peer readiness until an explicit inbox open', async () => {
+        const { result, runtime, emit } = renderingFixture();
+        act(() => emit({ status: 'ready' }));
+        expect(runtime.getInbox).not.toHaveBeenCalled();
+        expect(runtime.getThread).not.toHaveBeenCalled();
+        expect(result.current.pilotStatusText).toContain('unavailable');
+        await act(async () => result.current.openDMInbox());
+        expect(runtime.getInbox).toHaveBeenCalledTimes(1);
+        expectNoLegacyPath();
+    });
+    it('coalesces initial ready with an explicitly held inbox scan and never starts a second scan', async () => {
+        const { result, runtime, emit } = renderingFixture();
+        const held = deferred<Awaited<ReturnType<PrivateMessagePilotRuntime['getInbox']>>>();
+        runtime.getInbox.mockReturnValueOnce(held.promise);
+        let opening!: Promise<void>;
+        act(() => {
+            opening = result.current.openDMInbox();
+        });
+        act(() => emit({ status: 'ready' }));
+        expect(runtime.getInbox).toHaveBeenCalledTimes(1);
+        await act(async () => {
+            held.resolve(renderedOk(renderedInbox('Only explicit scan')));
+            await opening;
+        });
+        expect(result.current.dmConversations[0].last_message).toBe('Only explicit scan');
+        expect(result.current.pilotStatusText).toBeNull();
+        expectNoLegacyPath();
     });
 });

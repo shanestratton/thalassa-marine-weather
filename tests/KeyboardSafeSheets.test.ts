@@ -111,7 +111,7 @@ describe('keyboard-safe bottom sheets', () => {
 
         // The note/send row still replaces the normal composer while sharing,
         // so two pinned entry bars cannot consume a landscape viewport.
-        expect(read('components/ChatPage.tsx')).toContain("view === 'messages' && !showPinSheet && (");
+        expect(read('components/LegacyChatPage.tsx')).toContain("view === 'messages' && !showPinSheet && (");
     });
 
     it('Sightings dialogs are centred, clear the tab bar and lift above the keyboard', () => {
