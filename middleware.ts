@@ -30,7 +30,18 @@
  * The renderer (logs.html → src/logs-main.tsx) reads the handle from
  * window.location.hostname itself, so we don't need to pass it
  * through — we just point the path at the static logs.html.
+ *
+ * THALASSA'S OWN NAMES (2026-10-06). Not every label is a boat:
+ *   ocean.thalassawx.app/*                    → /ocean.html (the public fleet
+ *                                               page, Thalassa Ocean; indexable)
+ *   ocean.thalassawx.com, watch., sightings.,
+ *   seabed. on either TLD                     → 308 to https://ocean.thalassawx.app
+ *   thalassawx.app/ocean, www…/ocean[/…]      → 308 to https://ocean.thalassawx.app[/…]
+ *   www, api, tiles, app and the rest of
+ *   src/publicHosts.ts RESERVED_HANDLES       → normal routing, like www always was
+ * No boat can hold a reserved name: the voyage_log_configs CHECK refuses it.
  */
+import { classifyPublicHost, OCEAN_CANONICAL, oceanPathRedirect } from './src/publicHosts';
 
 export const config = {
     // Skip any request that already references a file (has a dot in
@@ -45,15 +56,39 @@ export default async function middleware(request: Request) {
     const host = request.headers.get('host') ?? '';
 
     // <handle>.thalassawx.app or .com — exactly one label before the apex.
-    // 'www' is excluded explicitly so a www subdomain stays pointed at the
-    // marketing site, not the voyage log. A port suffix is tolerated because
-    // `host` carries one on non-standard ports and an exact-anchor match
-    // would silently fall through to the catch-all.
+    // Reserved labels (www and the rest of RESERVED_HANDLES) are excluded so
+    // they stay pointed at Thalassa's own sites, not a voyage log. A port
+    // suffix is tolerated because `host` carries one on non-standard ports
+    // and an exact-anchor match would silently fall through to the catch-all.
+    // thalassawx.app/ocean and www.thalassawx.app/ocean → the canonical page
+    // (its data answers on ocean.thalassawx.app only).
+    const oceanHome = oceanPathRedirect(host, new URL(request.url));
+    if (oceanHome) return Response.redirect(oceanHome, 308);
+
     const match = host.match(/^([a-z0-9-]+)\.thalassawx\.(?:app|com)(?::\d+)?$/i);
-    if (!match || match[1].toLowerCase() === 'www') {
-        // Apex / unknown host → let normal Vercel routing handle it
-        // (catch-all rewrite in vercel.json serves /index.html).
+    const kind = match ? classifyPublicHost(host)?.kind : undefined;
+    if (!match || !kind || kind === 'reserved') {
+        // Apex / unknown host / www, api, tiles… → let normal Vercel routing
+        // handle it (catch-all rewrite in vercel.json serves /index.html).
         return; // undefined = pass through
+    }
+
+    if (kind === 'ocean-redirect') {
+        // One canonical address to share, index and cache. 308 keeps the
+        // method, and the path and query ride along (a species deep link
+        // typed with .com still lands on its species).
+        const from = new URL(request.url);
+        return Response.redirect(`${OCEAN_CANONICAL}${from.pathname}${from.search}`, 308);
+    }
+
+    if (kind === 'ocean') {
+        // The public fleet page, Thalassa Ocean. It is MEANT to be found, so
+        // unlike a voyage log it carries no X-Robots-Tag: everything on it is
+        // already delayed and blurred for the public (see the page's Respect
+        // section and 20261006120000_ocean_public_read.sql).
+        const url = new URL(request.url);
+        url.pathname = '/ocean.html';
+        return fetch(url, request);
     }
 
     // Rewrite to the right surface. The standalone renderers read the

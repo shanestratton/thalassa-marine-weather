@@ -354,7 +354,9 @@ describe('web release verification', () => {
     it('fails closed when an edge redirect, security header, or cache rule drifts', () => {
         const config = JSON.parse(read('vercel.json'));
         config.redirects = config.redirects.filter((rule: { source: string }) => rule.source !== '/float/:path*');
-        config.rewrites = config.rewrites.filter((rule: { source: string }) => rule.source !== '/feedback');
+        config.rewrites = config.rewrites.filter(
+            (rule: { source: string }) => rule.source !== '/feedback' && rule.source !== '/ocean/:path*',
+        );
         config.headers = config.headers.filter((rule: { source: string }) => rule.source !== '/feedback.html');
         const globalHeaders = config.headers.find((rule: { source: string }) => rule.source === '/(.*)').headers;
         globalHeaders.find((header: { key: string }) => header.key === 'X-Frame-Options').value = 'SAMEORIGIN';
@@ -365,6 +367,7 @@ describe('web release verification', () => {
             expect.arrayContaining([
                 '/float/:path* must have one temporary redirect to /logs',
                 '/feedback must have one rewrite to /feedback.html',
+                '/ocean/:path* must have one rewrite to /ocean.html',
                 `/feedback.html must use ${DOCUMENT_CACHE_CONTROL}`,
                 'global x-frame-options must equal DENY',
                 `/assets/(.*) must use ${IMMUTABLE_ASSET_CACHE_CONTROL}`,
@@ -399,6 +402,13 @@ describe('web release verification', () => {
             file: 'feedback.html',
             surface: 'feedback',
         });
+        expect(localRouteExpectation('/ocean')).toEqual({ kind: 'document', file: 'ocean.html', surface: 'ocean' });
+        expect(localRouteExpectation('/ocean/species/megaptera-novaeangliae')).toEqual({
+            kind: 'document',
+            file: 'ocean.html',
+            surface: 'ocean',
+        });
+        expect(localRouteExpectation('/ocean-data/context/au-east.v1.json')).toEqual({ kind: 'asset' });
         expect(localRouteExpectation('/float/legacy-plan')).toEqual({ kind: 'redirect', destination: '/logs' });
         expect(localRouteExpectation('/assets/main-hash.js')).toEqual({ kind: 'asset' });
     });
@@ -423,6 +433,18 @@ describe('web release verification', () => {
                 'feedback',
             ),
         ).toEqual([]);
+        expect(
+            validateHtmlSurface(
+                '<title>Thalassa Ocean — wildlife seen from boats</title><div id="root"></div><script type="module" src="/assets/ocean-release123.js"></script>',
+                'ocean',
+            ),
+        ).toEqual([]);
+        expect(
+            validateHtmlSurface(
+                '<title>Thalassa Ocean — wildlife seen from boats</title><div id="root"></div>',
+                'ocean',
+            ),
+        ).toEqual([expect.stringContaining('production JavaScript asset')]);
         expect(validateHtmlSurface('<html><body>Deployment ready</body></html>', 'main')).toEqual(
             expect.arrayContaining([
                 expect.stringContaining('root'),

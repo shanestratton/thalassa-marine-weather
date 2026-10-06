@@ -306,12 +306,17 @@ describe('one tap logs', () => {
         expect(screen.getByRole('radio', { name: 'Public' })).toHaveAttribute('aria-checked', 'true');
         // Group only: the 8 km grid until the species is named, and no log-handle credit there.
         expect(screen.getByText(/blurred to about 8 km until you name the species/)).toBeInTheDocument();
+        // The public ocean page is stricter: area counts only, once 3 boats have logged it there.
+        expect(screen.getByText(/the public ocean map shows it only as an area count/)).toBeInTheDocument();
         expect(screen.queryByRole('checkbox', { name: /Credit my public log handle/ })).toBeNull();
         expect(screen.getByText(/No log-handle credit on the 8 km grid/)).toBeInTheDocument();
         // A humpback is not threatened: 1 km, and credit may be ticked.
         await tap('Humpback whale');
         await screen.findByRole('dialog', { name: 'Humpback whale logged' });
         expect(screen.getByText(/Everyone, 3 hours later, blurred to about 1 km/)).toBeInTheDocument();
+        // What else Public shares, and how long a change takes to reach the public map.
+        expect(screen.getByText(/sea temperature .* in 1 °C bands/)).toBeInTheDocument();
+        expect(screen.getByText(/within about 15 minutes/)).toBeInTheDocument();
         const credit = screen.getByRole('checkbox', { name: /Credit my public log handle/ });
         expect(credit).not.toBeChecked();
         await act(async () => {

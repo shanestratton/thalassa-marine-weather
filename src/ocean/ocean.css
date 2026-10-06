@@ -1,0 +1,1012 @@
+/*
+ * Thalassa Ocean (ocean.html). Scoped to html.ocean-page; every class is oc-.
+ * Night-ocean chart table from the 2026-10-05 concept, plus a light "day
+ * chart" set for viewers who ask for light. The map itself is a dark chart
+ * plate in both, so everything drawn over it uses the fixed --oc-plate-*
+ * colours. Provider logo and attribution controls are never restyled or
+ * covered (tests/MapAttributionContract.test.ts).
+ */
+html.ocean-page {
+    --oc-abyss: #040d17;
+    --oc-hull: #0a1a28;
+    --oc-hull-2: #0f2335;
+    --oc-rule: #1d3549;
+    --oc-ink: #e4eff5;
+    --oc-muted: #8ba3b3;
+    --oc-faint: #7a93a5;
+    --oc-sky: #7dd3fc;
+    --oc-amber: #fbbf24;
+    --oc-ctx: #a8d8ec;
+    --oc-dot-ring: transparent;
+    --oc-plate: #06131f;
+    --oc-plate-glass: rgba(10, 26, 40, 0.82);
+    --oc-plate-rule: #1d3549;
+    --oc-plate-ink: #e4eff5;
+    --oc-plate-muted: #a9bfcd;
+    --oc-plate-sky: #7dd3fc;
+    --oc-display: 'Archivo', 'Arial Narrow', system-ui, sans-serif;
+    --oc-body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --oc-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    color-scheme: dark;
+    font-size: 100%;
+    -webkit-text-size-adjust: 100%;
+}
+@media (prefers-color-scheme: light) {
+    html.ocean-page {
+        --oc-abyss: #f3f6f8;
+        --oc-hull: #ffffff;
+        --oc-hull-2: #eef3f6;
+        --oc-rule: #d3dde4;
+        --oc-ink: #0b1f2e;
+        --oc-muted: #3d5566;
+        /* AA 4.5:1 on the tinted button and layer backgrounds too (axe, 2026-10-06). */
+        --oc-faint: #4a6273;
+        --oc-sky: #035e8f;
+        --oc-amber: #b45309;
+        --oc-ctx: #5b8fa8;
+        --oc-dot-ring: #0b1f2e;
+        color-scheme: light;
+    }
+}
+
+html.ocean-page,
+html.ocean-page body {
+    margin: 0;
+    background: var(--oc-abyss);
+    color: var(--oc-ink);
+}
+html.ocean-page * {
+    box-sizing: border-box;
+}
+html.ocean-page body {
+    font-family: var(--oc-body);
+    font-size: 15px;
+    line-height: 1.55;
+    padding: 0 max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left));
+    overflow-x: hidden;
+}
+.ocean-page a {
+    color: var(--oc-sky);
+}
+.ocean-page button,
+.ocean-page select {
+    font: inherit;
+    color: inherit;
+}
+.ocean-page :focus-visible {
+    outline: 2px solid var(--oc-sky);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+.ocean-page h1,
+.ocean-page h2,
+.ocean-page h3 {
+    margin: 0;
+}
+
+.oc-wrap {
+    max-width: 1320px;
+    margin-inline: auto;
+    display: grid;
+    gap: 28px;
+}
+.oc-wrap main {
+    display: grid;
+    gap: 28px;
+    min-width: 0;
+}
+
+/* Top bar */
+.oc-top {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 10px 14px;
+    flex-wrap: wrap;
+    padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+    margin-inline: -16px;
+    background: color-mix(in srgb, var(--oc-abyss) 90%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--oc-rule);
+}
+.oc-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    color: var(--oc-ink) !important;
+    text-decoration: none;
+}
+.oc-brand svg {
+    flex: none;
+    color: var(--oc-sky);
+}
+.oc-wordmark {
+    font-family: var(--oc-display);
+    font-stretch: 122%;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    font-size: 17px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.oc-wordmark span {
+    color: var(--oc-sky);
+}
+.oc-url {
+    font-family: var(--oc-mono);
+    font-size: 12.5px;
+    color: var(--oc-muted);
+    white-space: nowrap;
+}
+.oc-pill {
+    margin-left: auto;
+    font-family: var(--oc-mono);
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    border: 1px solid var(--oc-rule);
+    border-radius: 999px;
+    padding: 4px 10px;
+    white-space: nowrap;
+    color: var(--oc-muted);
+}
+.oc-pill.is-live {
+    color: var(--oc-sky);
+    border-color: color-mix(in srgb, var(--oc-sky) 55%, transparent);
+}
+.oc-pill.is-off {
+    color: var(--oc-amber);
+    border-color: color-mix(in srgb, var(--oc-amber) 55%, transparent);
+}
+@media (max-width: 520px) {
+    .oc-url {
+        display: none;
+    }
+}
+
+/* Hero */
+.oc-hero-head {
+    display: grid;
+    gap: 10px;
+    padding-top: 10px;
+}
+.oc-eyebrow {
+    font-family: var(--oc-display);
+    font-stretch: 118%;
+    font-weight: 700;
+    font-size: 11.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--oc-sky);
+}
+.oc-hero-head h1 {
+    font-family: var(--oc-display);
+    font-stretch: 112%;
+    font-weight: 800;
+    font-size: clamp(30px, 5.2vw, 58px);
+    line-height: 1.02;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    max-width: 20ch;
+}
+.oc-lede {
+    color: var(--oc-muted);
+    max-width: 64ch;
+    margin: 0;
+    font-size: 16.5px;
+}
+.oc-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 16px;
+    align-items: start;
+}
+@media (max-width: 980px) {
+    .oc-hero {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+.oc-mapcol {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+/* The map plate: dark in both themes */
+.oc-map-wrap {
+    position: relative;
+    height: clamp(440px, 74vh, 880px);
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid var(--oc-rule);
+    background: var(--oc-plate);
+    color: var(--oc-plate-ink);
+}
+@media (max-width: 640px) {
+    .oc-map-wrap {
+        height: clamp(420px, 70vh, 640px);
+    }
+}
+/* Two classes, so mapbox-gl.css's .mapboxgl-map { position: relative }
+   (loaded later, with the map) cannot collapse the map to zero height. */
+.oc-map-wrap > .oc-map {
+    position: absolute;
+    inset: 0;
+}
+.oc-map-loading,
+.oc-map-fallback {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 6px;
+    padding: 24px;
+    text-align: center;
+    color: var(--oc-plate-muted);
+}
+.oc-map-fallback b {
+    color: var(--oc-plate-ink);
+    font-size: 17px;
+}
+/* One row of chips at every width (it scrolls sideways when the map is
+   narrow), so the month readout below it can never sit on top of a chip. */
+.oc-regions {
+    position: absolute;
+    left: 12px;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: calc(100% - 24px);
+}
+.oc-regions::-webkit-scrollbar {
+    display: none;
+}
+.oc-chip {
+    flex: none;
+    border: 1px solid var(--oc-plate-rule);
+    background: var(--oc-plate-glass);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: var(--oc-plate-ink);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    min-height: 44px;
+    white-space: nowrap;
+}
+.oc-chip[aria-pressed='true'] {
+    border-color: var(--oc-plate-sky);
+    color: var(--oc-plate-sky);
+}
+.oc-readout {
+    position: absolute;
+    right: 16px;
+    top: 66px;
+    text-align: right;
+    pointer-events: none;
+    max-width: 46%;
+}
+.oc-mon {
+    font-family: var(--oc-display);
+    font-stretch: 125%;
+    font-weight: 900;
+    font-size: clamp(26px, 4.4vw, 50px);
+    letter-spacing: 0.06em;
+    line-height: 1;
+    text-transform: uppercase;
+    color: var(--oc-plate-ink);
+    text-shadow: 0 2px 18px #000;
+}
+.oc-cap {
+    margin-top: 8px;
+    color: var(--oc-plate-ink);
+    font-size: 13.5px;
+    text-shadow: 0 1px 8px #000;
+    text-wrap: balance;
+}
+.oc-cap.is-layer {
+    margin-top: 4px;
+    color: var(--oc-plate-muted);
+    font-size: 12.5px;
+}
+@media (max-width: 640px) {
+    .oc-readout {
+        left: 14px;
+        right: auto;
+        top: 66px;
+        text-align: left;
+        max-width: 82%;
+    }
+    .oc-mon {
+        font-size: 26px;
+    }
+    .oc-cap {
+        font-size: 12.5px;
+    }
+}
+.oc-tip {
+    position: absolute;
+    z-index: 5;
+    pointer-events: none;
+    display: grid;
+    gap: 2px;
+    background: #0f2335;
+    color: var(--oc-plate-ink);
+    border: 1px solid var(--oc-plate-rule);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    width: max-content;
+    /* Placed and clamped inside the map by placeTip() (mapLayers.ts). */
+    max-width: min(260px, calc(100% - 16px));
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+.oc-tip.is-pinned {
+    pointer-events: auto;
+    padding-right: 34px;
+}
+.oc-tip b {
+    font-weight: 600;
+}
+.oc-tip span {
+    color: var(--oc-plate-muted);
+}
+.oc-tip a {
+    color: var(--oc-plate-sky);
+    padding-block: 4px;
+}
+.oc-tip-close {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    background: transparent;
+    color: var(--oc-plate-ink);
+    font-size: 20px;
+    cursor: pointer;
+}
+.oc-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    font-size: 12.5px;
+    color: var(--oc-muted);
+    padding-inline: 4px;
+}
+.oc-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+.oc-key {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+.oc-key.is-fleet {
+    background: #a5b4fc;
+    box-shadow: 0 0 8px #a5b4fc;
+    outline: 1px solid var(--oc-dot-ring);
+}
+.oc-key.is-blur {
+    background: rgba(253, 164, 175, 0.3);
+    border: 1px solid #fda4af;
+    width: 16px;
+    height: 16px;
+}
+.oc-key.is-ctx {
+    width: 28px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, rgba(226, 232, 240, 0.15), rgba(240, 244, 248, 0.8)), #0b2133;
+    outline: 1px solid var(--oc-rule);
+}
+
+/* Instrument panel */
+.oc-panel {
+    display: grid;
+    gap: 18px;
+    background: var(--oc-hull);
+    border: 1px solid var(--oc-rule);
+    border-radius: 18px;
+    padding: 18px;
+    min-width: 0;
+}
+.oc-group {
+    display: grid;
+    gap: 8px;
+}
+.oc-panel h2 {
+    font-family: var(--oc-display);
+    font-stretch: 118%;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--oc-muted);
+    font-weight: 700;
+}
+.oc-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 12px;
+}
+.oc-stat-n {
+    font-family: var(--oc-display);
+    font-stretch: 108%;
+    font-weight: 800;
+    font-size: 28px;
+    line-height: 1.05;
+    font-variant-numeric: tabular-nums;
+}
+.oc-stat-n.is-words {
+    font-size: 19px;
+    line-height: 1.2;
+    padding-top: 6px;
+}
+.oc-stat-l {
+    color: var(--oc-muted);
+    font-size: 12.5px;
+    margin-top: 4px;
+}
+.oc-empty {
+    margin: 0;
+    color: var(--oc-muted);
+    font-size: 14px;
+}
+.oc-empty.is-strong {
+    color: var(--oc-ink);
+    font-family: var(--oc-display);
+    font-stretch: 108%;
+    font-weight: 700;
+    font-size: 19px;
+    line-height: 1.25;
+}
+.oc-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    cursor: pointer;
+}
+.oc-switch input {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--oc-sky);
+    flex: none;
+}
+.oc-switch small {
+    display: block;
+    color: var(--oc-faint);
+    font-size: 12px;
+}
+.oc-seg {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.oc-seg button {
+    text-align: left;
+    border: 1px solid var(--oc-rule);
+    background: var(--oc-abyss);
+    border-radius: 12px;
+    padding: 9px 11px;
+    cursor: pointer;
+    min-height: 48px;
+    line-height: 1.25;
+}
+.oc-seg button small {
+    display: block;
+    color: var(--oc-faint);
+    font-size: 11.5px;
+    margin-top: 2px;
+}
+.oc-seg button[aria-pressed='true'] {
+    border-color: var(--oc-sky);
+    background: color-mix(in srgb, var(--oc-sky) 10%, var(--oc-abyss));
+}
+.oc-seg button.is-waiting {
+    border-style: dashed;
+    color: var(--oc-muted);
+}
+.oc-note {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--oc-muted);
+}
+.oc-note:empty {
+    display: none;
+}
+.oc-spp {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.oc-sp {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--oc-rule);
+    background: var(--oc-abyss);
+    border-radius: 999px;
+    padding: 6px 12px 6px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    min-height: 44px;
+}
+.oc-sp i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--c);
+    box-shadow: 0 0 8px var(--c);
+    outline: 1px solid var(--oc-dot-ring);
+}
+.oc-sp[aria-pressed='false'] {
+    color: var(--oc-faint);
+}
+.oc-sp[aria-pressed='false'] i {
+    background: transparent;
+    box-shadow: none;
+    outline: 1px solid var(--oc-faint);
+}
+.oc-sp em {
+    font-style: normal;
+    font-size: 11px;
+    color: var(--oc-faint);
+    font-family: var(--oc-mono);
+}
+.oc-months {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 3px;
+}
+/* Two rows of six on a phone, so each month is a full 44 px target. */
+@media (max-width: 640px) {
+    .oc-months {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+}
+.oc-months button {
+    border: 1px solid var(--oc-rule);
+    background: var(--oc-abyss);
+    border-radius: 7px;
+    min-height: 44px;
+    cursor: pointer;
+    font-family: var(--oc-mono);
+    font-size: 12px;
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+}
+.oc-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: color-mix(in srgb, var(--oc-ctx) 40%, transparent);
+}
+.oc-m {
+    position: relative;
+}
+.oc-months button[aria-pressed='true'] {
+    border-color: var(--oc-sky);
+    color: var(--oc-sky);
+}
+.oc-small {
+    margin: 0;
+    font-size: 12px;
+    color: var(--oc-faint);
+}
+.oc-playrow {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.oc-btn {
+    border: 1px solid var(--oc-sky);
+    background: color-mix(in srgb, var(--oc-sky) 14%, var(--oc-abyss));
+    color: var(--oc-sky);
+    border-radius: 12px;
+    padding: 10px 14px;
+    cursor: pointer;
+    font-weight: 600;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    justify-self: start;
+}
+.oc-btn.is-ghost {
+    border-color: var(--oc-rule);
+    background: var(--oc-abyss);
+    color: var(--oc-ink);
+    font-weight: 500;
+}
+.oc-btn.is-ghost[aria-pressed='true'] {
+    border-color: var(--oc-sky);
+}
+.oc-honest {
+    font-size: 12.5px;
+    color: var(--oc-muted);
+    border-left: 2px solid var(--oc-sky);
+    padding-left: 10px;
+    margin: 0;
+}
+
+/* Sheets */
+.oc-sheet {
+    background: var(--oc-hull);
+    border: 1px solid var(--oc-rule);
+    border-radius: 18px;
+    padding: 22px;
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+}
+@media (max-width: 560px) {
+    .oc-sheet {
+        padding: 16px;
+    }
+}
+.oc-sheet-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px 12px;
+    flex-wrap: wrap;
+}
+.oc-sheet h2 {
+    font-family: var(--oc-display);
+    font-stretch: 112%;
+    font-weight: 800;
+    font-size: clamp(22px, 3vw, 30px);
+    line-height: 1.1;
+}
+.oc-sheet-sub {
+    margin: 0;
+    color: var(--oc-muted);
+}
+.oc-sci {
+    font-style: italic;
+    color: var(--oc-muted);
+}
+.oc-tag {
+    font-family: var(--oc-mono);
+    font-size: 11.5px;
+    color: var(--oc-muted);
+    border: 1px solid var(--oc-rule);
+    border-radius: 999px;
+    padding: 2px 9px;
+}
+.oc-picker {
+    margin-left: auto;
+    display: grid;
+    gap: 2px;
+    font-size: 12px;
+    color: var(--oc-muted);
+}
+.oc-picker select {
+    min-height: 44px;
+    border-radius: 10px;
+    border: 1px solid var(--oc-rule);
+    background: var(--oc-abyss);
+    color: var(--oc-ink);
+    padding: 6px 10px;
+    font-size: 15px;
+    max-width: 100%;
+}
+@media (max-width: 640px) {
+    .oc-picker {
+        margin-left: 0;
+        width: 100%;
+    }
+}
+.oc-grid4 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+@media (max-width: 1080px) {
+    .oc-grid4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 560px) {
+    .oc-grid4 {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+/* Day one: one line for everything the fleet will fill in. */
+.oc-grid4 > .oc-fig.is-wide {
+    grid-column: span 3;
+    align-content: center;
+}
+@media (max-width: 1080px) {
+    .oc-grid4 > .oc-fig.is-wide {
+        grid-column: auto;
+    }
+}
+.oc-fig {
+    margin: 0;
+    background: var(--oc-abyss);
+    border: 1px solid var(--oc-rule);
+    border-radius: 14px;
+    padding: 14px;
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    align-content: start;
+}
+.oc-fig h3 {
+    font-size: 12px;
+    font-family: var(--oc-display);
+    font-stretch: 115%;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--oc-muted);
+    font-weight: 700;
+}
+.oc-fig figcaption {
+    color: var(--oc-faint);
+    font-size: 12.5px;
+}
+.oc-chart {
+    width: 100%;
+    height: auto;
+    display: block;
+    max-width: 260px;
+}
+.oc-chart-rule {
+    stroke: var(--oc-rule);
+}
+.oc-chart-tick {
+    fill: var(--oc-muted);
+    font-size: 10px;
+    font-family: var(--oc-mono);
+}
+.oc-chart-centre {
+    fill: var(--oc-ink);
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--oc-display);
+}
+
+.oc-latest {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+.oc-latest li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 14px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--oc-rule);
+    font-size: 14px;
+    color: var(--oc-muted);
+}
+.oc-latest i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    outline: 1px solid var(--oc-dot-ring);
+}
+.oc-latest-name {
+    color: var(--oc-ink);
+    font-weight: 600;
+}
+
+.oc-two {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+}
+@media (max-width: 900px) {
+    .oc-two {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+.oc-card {
+    border-radius: 18px;
+    padding: 20px;
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    border: 1px solid var(--oc-rule);
+    background: linear-gradient(160deg, var(--oc-hull-2), var(--oc-abyss));
+    align-content: start;
+}
+.oc-kicker {
+    font-family: var(--oc-mono);
+    font-size: 12px;
+    color: var(--oc-sky);
+}
+.oc-card-title {
+    font-family: var(--oc-display);
+    font-stretch: 115%;
+    font-weight: 800;
+    font-size: 24px;
+    line-height: 1.1;
+}
+.oc-rows {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+}
+.oc-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px dashed var(--oc-rule);
+    padding-bottom: 7px;
+    font-size: 14px;
+}
+.oc-row dt {
+    color: var(--oc-muted);
+}
+.oc-row dd {
+    margin: 0;
+    text-align: right;
+    font-family: var(--oc-mono);
+    font-variant-numeric: tabular-nums;
+}
+.oc-share {
+    margin: 0;
+    font-size: 12px;
+    color: var(--oc-faint);
+}
+
+.oc-features {
+    display: grid;
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.oc-features li {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 10px;
+    font-size: 14.5px;
+}
+.oc-features b {
+    font-weight: 600;
+}
+.oc-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 7px;
+    background: var(--oc-sky);
+}
+.oc-dot-whale {
+    background: #a5b4fc;
+}
+.oc-dot-dugong {
+    background: #fda4af;
+}
+.oc-dot-turtle {
+    background: #86efac;
+}
+.oc-dot-amber {
+    background: var(--oc-amber);
+}
+.oc-feed {
+    display: grid;
+    gap: 10px;
+    min-width: 0;
+    align-content: start;
+}
+.oc-feed p {
+    margin: 0;
+    font-size: 14px;
+}
+.oc-code {
+    margin: 0;
+    font-family: var(--oc-mono);
+    font-size: 12.5px;
+    background: var(--oc-abyss);
+    border: 1px solid var(--oc-rule);
+    border-radius: 12px;
+    padding: 14px;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.oc-credits {
+    color: var(--oc-faint);
+    font-size: 12.5px;
+    display: grid;
+    gap: 8px;
+    max-width: 92ch;
+}
+.oc-credits p {
+    margin: 0;
+}
+.oc-credits strong {
+    color: var(--oc-muted);
+    font-weight: 600;
+}
+.oc-credits-h {
+    font-family: var(--oc-display);
+    font-stretch: 118%;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--oc-muted);
+}
+.oc-datasets summary {
+    cursor: pointer;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    color: var(--oc-muted);
+}
+.oc-datasets ol {
+    display: grid;
+    gap: 10px;
+    padding-left: 20px;
+}
+.oc-cite {
+    display: block;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ocean-page * {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+/* A busy area at close zoom keeps its 10 km counts (OceanMap). */
+.oc-map-note {
+    position: absolute;
+    left: 50%;
+    bottom: 40px;
+    transform: translateX(-50%);
+    z-index: 4;
+    background: var(--oc-plate-glass);
+    color: var(--oc-plate-ink);
+    border: 1px solid var(--oc-plate-rule);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* Skip link: hidden until focused. */
+.oc-skip {
+    position: absolute;
+    left: 16px;
+    top: -60px;
+    z-index: 10;
+    background: var(--oc-hull);
+    color: var(--oc-ink);
+    border: 2px solid var(--oc-sky);
+    border-radius: 10px;
+    padding: 8px 12px;
+}
+.oc-skip:focus {
+    top: 8px;
+}
+
+.oc-map-fallback .oc-btn {
+    justify-self: center;
+    margin-top: 6px;
+}

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" class="ocean-page">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+        <meta name="theme-color" content="#040d17" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#f3f6f8" media="(prefers-color-scheme: light)" />
+        <title>Thalassa Ocean — wildlife seen from boats</title>
+        <meta
+            name="description"
+            content="A live map of the whales, dolphins, dugongs, turtles and seabirds Thalassa sailors log at sea, shown three hours late and on a grid to protect them, over historical public records."
+        />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href="https://ocean.thalassawx.app/" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Thalassa" />
+        <meta property="og:title" content="Thalassa Ocean — wildlife seen from boats" />
+        <meta
+            property="og:description"
+            content="Whales, dolphins, dugongs, turtles and seabirds logged by Thalassa sailors, three hours late and on a grid to protect them, over historical public records."
+        />
+        <meta property="og:url" content="https://ocean.thalassawx.app/" />
+        <meta property="og:image" content="https://ocean.thalassawx.app/icon-512.png" />
+        <meta name="twitter:card" content="summary" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <!-- No preload of the historical-records file: Safari fetched a preloaded
+             copy twice. src/ocean-main.tsx starts that fetch before React mounts. -->
+        <style>
+            /* First paint, before the module's stylesheet lands: the page's
+               own ground and ink in either scheme, so there is no white or
+               slate flash. */
+            html.ocean-page,
+            html.ocean-page body {
+                margin: 0;
+                background: #040d17;
+                color: #e4eff5;
+                color-scheme: dark;
+            }
+            @media (prefers-color-scheme: light) {
+                html.ocean-page,
+                html.ocean-page body {
+                    background: #f3f6f8;
+                    color: #0b1f2e;
+                    color-scheme: light;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <noscript>
+            Thalassa Ocean is a live map of wildlife logged by Thalassa sailors. It needs JavaScript to draw the map.
+        </noscript>
+        <div id="root"></div>
+        <script type="module" src="/src/ocean-main.tsx"></script>
+    </body>
+</html>

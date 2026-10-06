@@ -39,10 +39,12 @@ describe('public host routing', () => {
         // The apex has no sub-label, so it must not match at all…
         expect(re.test('thalassawx.app')).toBe(false);
         expect(re.test('thalassawx.com')).toBe(false);
-        // …and www matches the shape but the middleware excludes it by name,
-        // which is the behaviour this asserts alongside.
+        // …and www matches the shape but the middleware excludes it by name
+        // (one of Thalassa's reserved names since 2026-10-06), which is the
+        // behaviour this asserts alongside.
         expect('www.thalassawx.com'.match(re)?.[1]).toBe('www');
-        expect(readFileSync('middleware.ts', 'utf8')).toContain("=== 'www'");
+        expect(readFileSync('src/publicHosts.ts', 'utf8')).toMatch(/RESERVED_HANDLES[\s\S]*'www'/);
+        expect(readFileSync('middleware.ts', 'utf8')).toContain("kind === 'reserved'");
     });
 
     it('does not hand a lookalike domain a boat page', () => {

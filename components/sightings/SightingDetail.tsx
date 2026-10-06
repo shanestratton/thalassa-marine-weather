@@ -304,7 +304,7 @@ export const SightingDetail: React.FC<SightingDetailProps> = ({ item, session, c
                         <div className="sg-amber px-3 py-2.5" role="alertdialog" aria-label="Delete this sighting?">
                             <p className="text-[13px] leading-snug">
                                 <b className="sg-amber-strong">Delete this sighting?</b> It goes from your crew’s feed
-                                and the public map too.
+                                and the public map too (the public map can take up to 15 minutes).
                             </p>
                             <div className="mt-2 flex gap-2">
                                 <button

@@ -30,6 +30,7 @@ import {
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
 import { safeExternalHttpUrl } from '../../utils/safeUrl';
+import { isReservedHandle, isReservedHandleRefusal } from '../../src/publicHosts';
 
 // Crew-on-someone-else's-boat surface: each entry represents a boat the
 // current user is crew on (NOT the owner), plus their personal voyage-log
@@ -382,6 +383,13 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
             let attempt = 1;
             while (attempt < 20) {
                 if (!operationIsCurrent(scope) || operationEpochRef.current !== epoch) return;
+                // Thalassa's own names (ocean, www, api…) are never a boat's.
+                // The server refuses them too; skipping here saves the trip.
+                if (isReservedHandle(candidate)) {
+                    attempt += 1;
+                    candidate = `${base}-${attempt}`;
+                    continue;
+                }
                 const { error } = await supabase.from('voyage_log_configs').insert({
                     owner_id: myId,
                     boat_id: immutableBoat.boatId,
@@ -401,7 +409,10 @@ export const VoyageLogTab: React.FC<VoyageLogTabProps> = ({ settings, onSave, on
                     setCrewBusyBoatId(null);
                     return;
                 }
-                if (error.code !== '23505') {
+                // 23505: the handle is taken. 23514 on the reserved-name
+                // CHECK: a name Thalassa keeps for itself (this list can grow
+                // server-side before the app learns it). Either way, next one.
+                if (error.code !== '23505' && !isReservedHandleRefusal(error)) {
                     toast.error('Could not create personal log.');
                     setCrewBusyBoatId(null);
                     return;
