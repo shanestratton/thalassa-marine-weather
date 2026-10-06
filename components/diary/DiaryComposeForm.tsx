@@ -238,7 +238,12 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
             return () => cancelAnimationFrame(raf);
         }, [keyboardHeight]);
 
-        const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
+        // Clear of the tab bar (4rem over the home indicator) by
+        // --diary-nav-clear: 8 px, 4 on a screen under 700 px tall.
+        const bottomPad =
+            keyboardHeight > 0
+                ? `${keyboardHeight}px`
+                : 'calc(4rem + env(safe-area-inset-bottom) + var(--diary-nav-clear, 8px))';
         const canPolish = body.trim().length >= 10;
 
         // The trip choices, in the order the select has always listed them:

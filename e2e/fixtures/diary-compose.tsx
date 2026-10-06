@@ -25,6 +25,11 @@
  *                       page), or a saved clip that cannot be resolved
  *   &gps=acquiring|none no fix yet: still looking, or not looking
  *   &offline=true       the app offline (the header's Saved locally badge)
+ *   &fonts=wide         the app's sans face swapped for Verdana (DejaVu Sans
+ *                       on Linux): the Linux CI runner draws DejaVu Sans, far
+ *                       wider than a Mac's system font, so a Mac run lays out
+ *                       as CI does (CI run 37451031197 failed the fit there
+ *                       while a Mac passed). It stands in for iOS Bold Text.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -56,6 +61,11 @@ const insetBottom = params.has('bottom') ? Number(params.get('bottom')) : (devic
 const gps = params.get('gps');
 const videoParam = params.get('video');
 if (params.get('offline') === 'true') useUIStore.setState({ isOffline: true });
+if (params.get('fonts') === 'wide') {
+    const wide = document.createElement('style');
+    wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+    document.head.append(wide);
+}
 document.documentElement.classList.toggle('display-light', mode === 'light');
 
 /** Fictional "photos": two drawn gradients (raster, as SafeImage takes
@@ -80,7 +90,7 @@ const photo = (top: string, bottom: string) => {
 const SCENARIO = {
     new: {
         isEditing: false,
-        // The real default for this screen: the long form from 390 up, the
+        // The real default for this screen: the long form from 428 up, the
         // short one under it (utils/diaryTitle.ts).
         title: formatEntryTitleDefault(new Date(2026, 9, 6, 14, 32)),
         body: '',
