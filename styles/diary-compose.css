@@ -16,12 +16,23 @@
  * up, on a standard iPhone with Display Zoom (320x693), and in the iPad's
  * split pane (browser-tests/diary-compose-layout.spec.ts measures it inside
  * the real header and tab bar, with the app's 16 px iOS no-zoom rule on every
- * field). A short screen (under 800 px: an SE, an iPad pane, a phone on its
- * side) takes the compact tier, and a 320 pt one the narrow tier below; the
- * column only scrolls while the keyboard is up, on a 320x568 screen or a
- * phone on its side, or by a few px at 320x693 with both long notes wrapped.
- * The tiers key on the screen's height, not the page's, so the keyboard
- * coming up never changes them under a field being typed in.
+ * field, and with WIDE fonts: Verdana, or DejaVu Sans on the Linux CI runner,
+ * which also stand in for iOS Bold Text). A short screen (under 800 px: an
+ * SE, an iPad pane, a phone on its side) takes the compact tier, one under
+ * 700 px (an SE, a zoomed iPhone) the tight tier, and a 320 pt one the narrow
+ * tier below; the column only scrolls while the keyboard is up, on a 320x568
+ * screen or a phone on its side, or by a few px at 320x693 with both long
+ * notes wrapped. The tiers key on the screen's height, not the page's, so the
+ * keyboard coming up never changes them under a field being typed in.
+ *
+ * Wide fonts on an SE (2026-10-06, CI run 37451031197): the app header wraps
+ * THALASSA and its SKIPPER · BETA badge onto two lines at 375 (19 px more),
+ * the polish style's gloss took a second line (12 px) and the Saved locally
+ * badge went under the page title (16 px), so the text box was 44 px and the
+ * column scrolled 15 px offline and 44 px with both long notes. Now the
+ * gloss shows only where the longest one fits on its line, the badge is slim
+ * enough to sit under the title inside the head's 44 px, and the tight tier
+ * takes the air out of the gaps and pads.
  *
  * Light mode takes the Vessel page's surfaces through --vessel-card-* and
  * --vessel-journal-* (index.css scopes them to .diary-compose); dark and
@@ -39,9 +50,17 @@
     --diary-gap: 6px;
     --diary-row: 48px;
     --diary-row-pad: 5px;
-    --diary-text-min: 72px;
+    /* The least the text box gives way to, on every screen that must fit: an
+       SE with no GPS fix and no recent trips, both long notes wrapped. At rest
+       it has 72 px and more; this is the floor before the column would
+       scroll (it was 72 on a tall phone, so a 375x812 mini with both notes
+       wrapped in wide fonts scrolled 5 px rather than give way). */
+    --diary-text-min: 44px;
     --diary-text-pad: 12px 14px 6px;
     --diary-foot-button: 48px;
+    /* Between Save and the tab bar, over the tab bar's 4rem
+       (DiaryComposeForm's bottom pad). */
+    --diary-nav-clear: 8px;
 }
 @media (max-height: 799.98px) {
     .diary-compose {
@@ -49,11 +68,20 @@
         --diary-row: 44px;
         --diary-row-pad: 3px;
         --diary-tile: 44px;
-        /* The least the text box gives way to: an SE with no GPS fix and no
-           recent trips, both long notes wrapped onto two lines. */
-        --diary-text-min: 44px;
         --diary-text-pad: 10px 14px 4px;
         --diary-foot-button: 44px;
+    }
+}
+/* The tight tier, under 700 px (an SE, 375x667; a zoomed iPhone, 320x693):
+   with wide fonts there is no room for air. Every target stays 44 px; what
+   goes is a few px of gap and pad (the gaps 3 px, the head's pads, 1 px
+   round the mood row, 4 px under the tiles and the tools, 3 px round the
+   foot's buttons, 4 px over the tab bar): 22 px on an SE. The rules sit
+   after the compact tier's, below. */
+@media (max-height: 699.98px) {
+    .diary-compose {
+        --diary-gap: 3px;
+        --diary-nav-clear: 4px;
     }
 }
 /* A screen too short to fit at all (320x568, a phone on its side) scrolls
@@ -96,6 +124,36 @@
         padding-top: 4px;
         padding-bottom: 4px;
     }
+}
+/* The tight tier: the app header's own 8 px pad is above the head. */
+@media (max-height: 699.98px) {
+    .diary-compose-head {
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+    .diary-compose-body {
+        padding-top: 1px;
+        padding-bottom: 2px;
+    }
+    .diary-compose-foot {
+        padding-top: 3px;
+        padding-bottom: 3px;
+    }
+}
+/* Offline, the Saved locally badge sits beside the page title where it fits,
+   and under it where it does not (under ~400 pt with wide fonts, at 320
+   always). It is slim, a 16 px line in its border with no pad above or
+   below, so title and badge together (25 + 18 px) stay inside the head's
+   44 px and going offline never moves the page. */
+.diary-compose-title {
+    row-gap: 0;
+}
+.diary-offline > * {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+.diary-offline span {
+    line-height: 16px;
 }
 .diary-foot-button {
     min-height: var(--diary-foot-button);
@@ -234,11 +292,12 @@
 /* The title: 16 px, as every field on a phone (styles/ios-input-zoom.css
    sets it, !important, or iOS zooms the page to the field). Its default is a
    long weekday, the date, the long month, the year and the time
-   ('Wednesday 30 September 2026 · 08:48'), which fits from 390 up; under 390
-   the default is the short form ('Wed 30 Sept 2026 · 08:48',
-   utils/diaryTitle.ts), as the long one did not fit at 375 or 320. Measured
-   over every day of 2026 and every minute. A typed title longer than the
-   field scrolls within it, as any text field. */
+   ('Wednesday 30 September 2026 · 08:48'), which in wide fonts fits with
+   room from 428 up; under 428 the default is the short form ('Wed 30 Sept
+   2026 · 08:48', utils/diaryTitle.ts), as the long one did not fit at 375 or
+   320, nor in wide fonts at 390 to 402 (and at 414 by only 0.2 px).
+   Measured over every day of 2026 and every minute. A typed title longer
+   than the field scrolls within it, as any text field. */
 .diary-field-title {
     font-weight: 800;
 }
@@ -347,6 +406,11 @@
         padding: 2px;
     }
 }
+@media (max-height: 699.98px) {
+    .diary-mood {
+        padding: 1px;
+    }
+}
 .diary-mood-option {
     display: flex;
     align-items: center;
@@ -414,6 +478,11 @@
 @media (max-height: 799.98px) {
     .diary-media {
         padding-bottom: 6px;
+    }
+}
+@media (max-height: 699.98px) {
+    .diary-media {
+        padding-bottom: 4px;
     }
 }
 @container diary-compose (max-width: 339.98px) {
@@ -730,6 +799,11 @@ html[data-keyboard-open='true'] .diary-body {
     gap: 6px;
     padding: 0 6px 6px;
 }
+@media (max-height: 699.98px) {
+    .diary-write-tools {
+        padding-bottom: 4px;
+    }
+}
 .diary-polish {
     display: flex;
     flex-shrink: 0;
@@ -807,11 +881,18 @@ html[data-keyboard-open='true'] .diary-body {
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
 }
-/* 'Shakespearean — maritime grandeur' keeps one line on a 375 pt phone. */
-@container diary-compose (max-width: 351.98px) {
-    .diary-style-value {
-        font-size: 12px;
-        line-height: 16px;
+/* The gloss shows only where the longest label keeps one line in wide
+   fonts, with room: 'Shakespearean — maritime grandeur' is 271 px at 13 px
+   in Verdana, and the chip gives it 273 px on a 414 pt phone (2 px to spare)
+   and 286 on a 428 (15). So a column of 390 px and up: the 428 pt Pro Max
+   and Plus phones, and the iPad. Narrower, the chip shows the style's name
+   alone ('Shakespearean'), and the select still lists every whole label. It
+   took a second line on every phone under 430 with wide fonts, 12-14 px the
+   short screens had no room for, the same width rule as the long default
+   title (utils/diaryTitle.ts). */
+@container diary-compose (max-width: 389.98px) {
+    .diary-style-gloss {
+        display: none;
     }
 }
 .diary-spinner {
@@ -828,26 +909,28 @@ html[data-keyboard-open='true'] .diary-body {
    Display Zoom on a standard iPhone is not the SE: it must fit too. Every
    word still shows; what goes is ornament and air. The Where line's two
    glyphs go, so the saved position keeps one line beside its eyebrow
-   ('Phone · 27.1234°S, 153.1234°E' wrapped to two at 320); a long status
-   that must wrap does so at 14 px a line; the polish style shows its name
-   ('Shakespearean'), its gloss only in the select; the gaps close a little. */
+   ('Phone · 27.1234°S, 153.1234°E' wrapped to two at 320; with a wide
+   eyebrow, SF Mono was still 0.4 px too wide at -0.02em and a 6 px gap, so
+   -0.03em and 4 px: 5 px to spare); a long status that must wrap does so at
+   14 px a line, and the Trip row keeps 2 px under its choice, not 4; the
+   gaps close a little. */
 @container diary-compose (max-width: 339.98px) {
     .diary-row-where .diary-row-head {
-        gap: 6px;
+        gap: 4px;
     }
     .diary-row-where .diary-eyebrow svg,
     .diary-row-where .diary-position svg {
         display: none;
     }
     .diary-position {
-        letter-spacing: -0.02em;
+        letter-spacing: -0.03em;
     }
     .diary-position,
     .diary-trip-status {
         line-height: 14px;
     }
-    .diary-style-gloss {
-        display: none;
+    .diary-row-trip {
+        padding-bottom: 2px;
     }
 }
 @media (max-height: 799.98px) {
@@ -873,17 +956,6 @@ html[data-keyboard-open='true'] .diary-body {
     .diary-compose-body {
         padding-top: 1px;
         padding-bottom: 2px;
-    }
-}
-/* Offline, the Saved locally badge goes under the page title at 320; it
-   comes in tighter there, so the head grows by 6 px, not 14. */
-@media (max-width: 371.98px) {
-    .diary-compose-title {
-        row-gap: 2px;
-    }
-    .diary-offline > * {
-        padding-top: 1px;
-        padding-bottom: 1px;
     }
 }
 

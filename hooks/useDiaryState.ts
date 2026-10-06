@@ -10,7 +10,7 @@ import { useReducer } from 'react';
 import { DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 import { reconcileDiaryEntries } from '../services/diaryEntryIdentity';
 // Default title for a fresh compose: "Monday 14 January 2026 · 14:32", or
-// "Mon 14 Jan 2026 · 14:32" on a screen under 390 pt (utils/diaryTitle.ts).
+// "Mon 14 Jan 2026 · 14:32" on a screen under 428 pt (utils/diaryTitle.ts).
 import { formatEntryTitleDefault } from '../utils/diaryTitle';
 
 // ── State Shape ────────────────────────────────────────────────

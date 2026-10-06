@@ -223,7 +223,7 @@ test('diary new look: one mood row, six photo tiles and 44 px targets at 320', a
         new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
     );
     await page.setViewportSize({ width: 320, height: 568 });
-    await page.goto('/e2e/fixtures/diary-compose.html?scenario=new');
+    await page.goto('/e2e/fixtures/diary-compose.html?scenario=new&fonts=wide');
     await expect(page.getByRole('combobox', { name: 'Diary trip' })).toBeVisible();
     const layout = await page.evaluate(() => {
         const box = (el: Element) => el.getBoundingClientRect();
@@ -375,9 +375,10 @@ test('diary photos with a mouse: the dot shows on hover, a click on the photo ke
 });
 
 // 'Neutral' was cut to 'Neut…' at 375 and 380 (and 370-372 in Chromium).
+// In wide fonts, as the Linux CI runner draws them (see WIDE_FONTS below).
 test('diary mood labels stay whole in one row at every phone width', async ({ page }) => {
     await localOnly(page);
-    await page.goto('/e2e/fixtures/diary-compose.html?scenario=new');
+    await page.goto('/e2e/fixtures/diary-compose.html?scenario=new&fonts=wide');
     await expect(page.getByRole('group', { name: 'Mood' })).toBeVisible();
     for (const width of [320, 340, 360, 368, 370, 372, 375, 380, 383, 385, 390, 414, 430]) {
         await page.setViewportSize({ width, height: 667 });
@@ -402,7 +403,10 @@ test('diary mood labels stay whole in one row at every phone width', async ({ pa
 // Every field is 16 px on the phone (styles/ios-input-zoom.css, which the
 // fixture loads as index.html does; under 16 px iOS zooms the page), and at
 // 16 px the long form ('Wednesday 30 September 2026 · 08:48') did not fit at
-// 375 or 320, so under 390 the default is the short form (utils/diaryTitle.ts).
+// 375 or 320, nor in wide fonts at 390 (354.19 px in a 333 px field on the
+// Linux CI runner, run 37451031197), and at 414 it fit by 0.2 px, so under
+// 428 the default is the short form (utils/diaryTitle.ts). Measured in wide
+// fonts, either side of 428.
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const TITLE_DAYS = (compact: boolean) =>
     Array.from({ length: 365 }, (_, i) =>
@@ -411,11 +415,14 @@ const TITLE_DAYS = (compact: boolean) =>
 const TITLE_TIMES = Array.from({ length: 1440 }, (_, m) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`);
 
 test('diary default title fits its field on the longest day, in the field size the phone draws', async ({ page }) => {
+    const widths = [320, 375, 390, 393, 402, 414, 427, 428, 430, 440];
+    // A page load and 1,805 measures a width: 10.3 s for six in WebKit on CI.
+    test.setTimeout(widths.length * 5_000);
     await localOnly(page);
-    for (const width of [320, 375, 389, 390, 393, 430]) {
+    for (const width of widths) {
         const compact = width < DIARY_LONG_TITLE_MIN_WIDTH;
         await page.setViewportSize({ width, height: 844 });
-        await page.goto('/e2e/fixtures/diary-compose.html?scenario=new');
+        await page.goto('/e2e/fixtures/diary-compose.html?scenario=new&fonts=wide');
         const title = page.getByRole('textbox', { name: 'Title', exact: true });
         // The fixture's own default is the form this screen takes.
         await expect(title).toHaveValue(formatEntryTitleDefault(new Date(2026, 9, 6, 14, 32), compact));
@@ -430,6 +437,7 @@ test('diary default title fits its field on the longest day, in the field size t
                 const longest = `${widest(days)} · ${widest(times)}`;
                 return {
                     fontSize: style.fontSize,
+                    fontFamily: style.fontFamily,
                     longest,
                     width: ctx.measureText(longest).width,
                     field: el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
@@ -438,6 +446,7 @@ test('diary default title fits its field on the longest day, in the field size t
             { days: TITLE_DAYS(compact), times: TITLE_TIMES },
         );
         expect(measured.fontSize, `title size at ${width}`).toBe('16px');
+        expect(measured.fontFamily, `title face at ${width}`).toMatch(/^Verdana/);
         expect(measured.width, `'${measured.longest}' at ${width}`).toBeLessThanOrEqual(measured.field);
     }
 });
@@ -508,11 +517,24 @@ test('diary focus: the row or card carries the ring, not the field inside it', a
 // (234 px of scroll) and 381 of 714 on an SE. A standard iPhone with Display
 // Zoom (320x693) must fit too: before its narrow tier it scrolled 23 px with a
 // GPS fix and 36 px with no recent trips.
+//
+// WIDE FONTS (the house rule for a page that must fit; menu-pages-fit.spec.ts
+// does the same). The Linux CI runner draws the app's sans face as DejaVu
+// Sans, far wider than a Mac's system font, and run 37451031197 failed here
+// while a Mac passed: on an SE the app header wrapped onto two lines, the
+// text box was 44 px and the column scrolled 15 px offline. The fixture's
+// &fonts=wide sets Verdana (DejaVu Sans on Linux), so a Mac lays the page out
+// as CI does, within a fraction of a px; it stands in for iOS Bold Text too.
+// Every page opened on a device is in wide fonts unless a test asks for the
+// default face.
+type Fonts = 'wide' | 'default';
 
-async function openOn(page: Page, device: DiaryDeviceKey, query: string) {
+async function openOn(page: Page, device: DiaryDeviceKey, query: string, fonts: Fonts = 'wide') {
     const { width, height } = DIARY_DEVICES[device];
     await page.setViewportSize({ width, height });
-    await page.goto(`/e2e/fixtures/diary-compose.html?device=${device}&${query}`);
+    await page.goto(
+        `/e2e/fixtures/diary-compose.html?device=${device}&${query}${fonts === 'wide' ? '&fonts=wide' : ''}`,
+    );
     await expect(page.locator('.diary-compose-body')).toBeVisible();
     await page.evaluate(async () => {
         await document.fonts.ready;
@@ -579,6 +601,7 @@ async function fit(page: Page) {
             text: document.querySelector('textarea')!.getBoundingClientRect().height,
             saveClear: (pane ? pane.bottom : nav.top) - save.bottom,
             overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            face: getComputedStyle(column).fontFamily,
         };
     });
 }
@@ -602,6 +625,9 @@ async function reachable(page: Page) {
     });
 }
 
+const WORST_STATE = 'photos=6&video=clip&trips=loading&gps=acquiring&busy=polishing&mode=light&offline=true';
+// The two long notes, wrapped: no fix and not looking, no recent trips.
+const LONG_NOTES_STATE = 'photos=6&video=clip&trips=none&gps=none&offline=true';
 const FIT_STATES = [
     '',
     'photos=0',
@@ -613,46 +639,67 @@ const FIT_STATES = [
     'busy=polishing',
     'mode=light',
     'offline=true',
-    'photos=6&video=clip&trips=loading&gps=acquiring&busy=polishing&mode=light&offline=true',
-    // The two long notes, wrapped: no fix and not looking, no recent trips.
-    'photos=6&video=clip&trips=none&gps=none&offline=true',
+    WORST_STATE,
+    LONG_NOTES_STATE,
 ];
+// The default face as well (a Mac's system font, the narrower one): the
+// resting state, the worst and the long notes. On Linux the default face is
+// DejaVu Sans, the wide font itself, so there it would only repeat the wide
+// pass at a page load each.
+const DEFAULT_FACE_STATES = process.platform === 'linux' ? [] : ['', WORST_STATE, LONG_NOTES_STATE];
+/** The budget for one page load and its measure: about 1.3 s in Chromium and
+ *  2 s in WebKit on the CI runner with two workers, under 1 s on a Mac. */
+const PER_LOAD_MS = 5_000;
 
+// One test per device and scenario: twelve page loads (and three in the
+// default face off Linux), with a time budget sized to them. As one test of
+// 24 loads per device they ran past the 30 s default on the CI runner (run
+// 37451031197), so most devices' fit was never measured there.
 for (const [key, device] of Object.entries(DIARY_DEVICES).filter(([, d]) => d.mustFit)) {
-    test(`diary fits ${device.name} (${device.width}x${device.height}) with no scroll, new and edit, in every state`, async ({
-        page,
-    }) => {
-        await localOnly(page);
-        const misfits: string[] = [];
-        for (const scenario of ['new', 'edit']) {
-            for (const state of FIT_STATES) {
-                await openOn(page, key as DiaryDeviceKey, `scenario=${scenario}&${state}`);
-                const f = await fit(page);
-                const where = `${scenario}${state ? ` + ${state}` : ''}`;
-                // A 320 pt screen with both long notes wrapped may scroll a
-                // little; everything else fits.
-                const longNotes = state.includes('trips=none') && state.includes('gps=none');
-                const allowed = longNotes ? (device.longNotesScroll ?? 0) : 0;
-                if (f.scrollHeight > f.clientHeight + 1 + allowed)
-                    misfits.push(`${where}: scrolls ${f.scrollHeight - f.clientHeight}px`);
-                // Scrolled or not, every control lies inside the column.
-                if (f.outside.length && !allowed) misfits.push(`${where}: outside the column ${f.outside.join(', ')}`);
-                if (allowed) misfits.push(...(await reachable(page)).map((miss) => `${where}: ${miss}`));
-                if (f.small.length) misfits.push(`${where}: under 44 px ${f.small.join(', ')}`);
-                if (f.cut.length) misfits.push(`${where}: cut ${f.cut.join(', ')}`);
-                if (f.tiny.length) misfits.push(`${where}: under 12 px ${f.tiny.join(', ')}`);
-                const scrolls = f.scrollHeight > f.clientHeight + 1;
-                if (!scrolls && Math.abs(f.fillGap) > 1)
-                    misfits.push(`${where}: the text card stops ${f.fillGap}px short`);
-                // A few lines to write in; the least when both long notes wrap.
-                if (f.text < Math.min(device.textMin ?? 72, state.includes('=none') ? 44 : 72))
-                    misfits.push(`${where}: text box only ${f.text}px`);
-                if (f.saveClear < 0) misfits.push(`${where}: Save under the tab bar by ${-f.saveClear}px`);
-                if (f.overflowX > 0) misfits.push(`${where}: ${f.overflowX}px wider than the screen`);
+    for (const scenario of ['new', 'edit'] as const) {
+        test(`diary fits ${device.name} (${device.width}x${device.height}) with no scroll, ${scenario}, in every state`, async ({
+            page,
+        }) => {
+            const passes: [Fonts, string[]][] = [
+                ['wide', FIT_STATES],
+                ['default', DEFAULT_FACE_STATES],
+            ];
+            test.setTimeout((FIT_STATES.length + DEFAULT_FACE_STATES.length) * PER_LOAD_MS);
+            await localOnly(page);
+            const misfits: string[] = [];
+            for (const [fonts, states] of passes) {
+                for (const state of states) {
+                    await openOn(page, key as DiaryDeviceKey, `scenario=${scenario}&${state}`, fonts);
+                    const f = await fit(page);
+                    const where = `${scenario}${state ? ` + ${state}` : ''}${fonts === 'default' ? ' (default face)' : ''}`;
+                    if (fonts === 'wide' && !/^Verdana/.test(f.face))
+                        misfits.push(`${where}: not in wide fonts (${f.face})`);
+                    // A 320 pt screen with both long notes wrapped may scroll a
+                    // little; everything else fits.
+                    const longNotes = state.includes('trips=none') && state.includes('gps=none');
+                    const allowed = longNotes ? (device.longNotesScroll ?? 0) : 0;
+                    if (f.scrollHeight > f.clientHeight + 1 + allowed)
+                        misfits.push(`${where}: scrolls ${f.scrollHeight - f.clientHeight}px`);
+                    // Scrolled or not, every control lies inside the column.
+                    if (f.outside.length && !allowed)
+                        misfits.push(`${where}: outside the column ${f.outside.join(', ')}`);
+                    if (allowed) misfits.push(...(await reachable(page)).map((miss) => `${where}: ${miss}`));
+                    if (f.small.length) misfits.push(`${where}: under 44 px ${f.small.join(', ')}`);
+                    if (f.cut.length) misfits.push(`${where}: cut ${f.cut.join(', ')}`);
+                    if (f.tiny.length) misfits.push(`${where}: under 12 px ${f.tiny.join(', ')}`);
+                    const scrolls = f.scrollHeight > f.clientHeight + 1;
+                    if (!scrolls && Math.abs(f.fillGap) > 1)
+                        misfits.push(`${where}: the text card stops ${f.fillGap}px short`);
+                    // A few lines to write in; the least when both long notes wrap.
+                    if (f.text < Math.min(device.textMin ?? 72, state.includes('=none') ? 44 : 72))
+                        misfits.push(`${where}: text box only ${f.text}px`);
+                    if (f.saveClear < 0) misfits.push(`${where}: Save under the tab bar by ${-f.saveClear}px`);
+                    if (f.overflowX > 0) misfits.push(`${where}: ${f.overflowX}px wider than the screen`);
+                }
             }
-        }
-        expect(misfits).toEqual([]);
-    });
+            expect(misfits).toEqual([]);
+        });
+    }
 }
 
 // 320x568 (a zoomed SE) and a phone on its side may scroll as a last resort;
@@ -846,7 +893,9 @@ for (const [key, keyboardHeight] of [
 }
 
 // The header stand-in is App.tsx's header, measured against the real app at
-// each width it changes at (the 48 px mark under 390, the fluid root font).
+// each width it changes at (the 48 px mark under 390, the fluid root font),
+// in wide fonts, as the fit tests measure (at 375 THALASSA and its badge
+// wrap onto two lines), and off Linux in the default face too.
 test.describe('diary fixture chrome', () => {
     test.use({
         serviceWorkers: 'block',
@@ -863,6 +912,21 @@ test.describe('diary fixture chrome', () => {
         context,
         baseURL,
     }) => {
+        const SIZES_TO_MATCH = [
+            [320, 844],
+            [375, 844],
+            [390, 844],
+            [430, 844],
+            // A phone on its side: the one-row header.
+            [844, 390],
+        ];
+        // The default face first: the wide face's init script stays on the
+        // context once added. On Linux the default face is the wide one.
+        const faces: Fonts[] = process.platform === 'linux' ? ['wide'] : ['default', 'wide'];
+        // Each size loads the whole app and the fixture: about 5 s in
+        // Chromium and over 6 s in WebKit on the CI runner (WebKit ran past
+        // the 30 s default, run 37451031197), more on a cold dev server.
+        test.setTimeout(faces.length * SIZES_TO_MATCH.length * 20_000);
         const origin = new URL(baseURL!).origin;
         await context.route('**/*', (route) =>
             new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
@@ -871,39 +935,55 @@ test.describe('diary fixture chrome', () => {
         // The fixture on a page of its own: early in a cold run the dev server
         // reloads the app once while it optimises the app's dependencies.
         const stand = await context.newPage();
-        for (const [width, height] of [
-            [320, 844],
-            [375, 844],
-            [390, 844],
-            [430, 844],
-            // A phone on its side: the one-row header.
-            [844, 390],
-        ]) {
-            await page.setViewportSize({ width, height });
-            // Every page but the chart wears this header; the diary opens from Vessel.
-            await page.goto('/?view=vessel');
-            const measure = () =>
-                page
-                    .evaluate(async () => {
-                        await document.fonts.ready;
-                        const header = document.querySelector('header')?.getBoundingClientRect();
-                        const main = document.querySelector('#main-content')?.getBoundingClientRect();
-                        return header && main ? { height: header.height, page: main.top } : null;
-                    })
-                    .catch(() => null);
-            await expect.poll(measure).not.toBeNull();
-            const real = (await measure())!;
-            await stand.setViewportSize({ width, height });
-            await stand.goto(
-                `/e2e/fixtures/diary-compose.html?scenario=new&device=${height < 500 ? 'iphone-14-landscape' : 'iphone-14'}&top=0&bottom=0`,
-            );
-            const header = await stand.locator('[data-testid="app-header"]').evaluate(async (element) => {
-                await document.fonts.ready;
-                return element.getBoundingClientRect().height;
-            });
-            expect(Math.abs(header - real.height), `header at ${width}`).toBeLessThanOrEqual(0.5);
-            // Nothing else sits between the header and the page.
-            expect(Math.abs(real.page - real.height), `page top at ${width}`).toBeLessThanOrEqual(0.5);
+        for (const face of faces) {
+            if (face === 'wide')
+                await context.addInitScript(() => {
+                    document.addEventListener('DOMContentLoaded', () => {
+                        const wide = document.createElement('style');
+                        wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+                        document.head.append(wide);
+                    });
+                });
+            for (const [width, height] of SIZES_TO_MATCH) {
+                const where = `${width}x${height} (${face} face)`;
+                await page.setViewportSize({ width, height });
+                // Every page but the chart wears this header; the diary opens from Vessel.
+                await page.goto('/?view=vessel');
+                const measure = () =>
+                    page
+                        .evaluate(async () => {
+                            await document.fonts.ready;
+                            const header = document.querySelector('header');
+                            const main = document.querySelector('#main-content')?.getBoundingClientRect();
+                            return header && main
+                                ? {
+                                      height: header.getBoundingClientRect().height,
+                                      page: main.top,
+                                      face: getComputedStyle(header).fontFamily,
+                                  }
+                                : null;
+                        })
+                        .catch(() => null);
+                await expect.poll(measure).not.toBeNull();
+                const real = (await measure())!;
+                await stand.setViewportSize({ width, height });
+                await stand.goto(
+                    `/e2e/fixtures/diary-compose.html?scenario=new&device=${height < 500 ? 'iphone-14-landscape' : 'iphone-14'}&top=0&bottom=0${face === 'wide' ? '&fonts=wide' : ''}`,
+                );
+                const header = await stand.locator('[data-testid="app-header"]').evaluate(async (element) => {
+                    await document.fonts.ready;
+                    return {
+                        height: element.getBoundingClientRect().height,
+                        face: getComputedStyle(element).fontFamily,
+                    };
+                });
+                // Both in the face this pass is about.
+                expect(/^Verdana/.test(real.face), `the app's face at ${where}: ${real.face}`).toBe(face === 'wide');
+                expect(header.face, `the fixture's face at ${where}`).toBe(real.face);
+                expect(Math.abs(header.height - real.height), `header at ${where}`).toBeLessThanOrEqual(0.5);
+                // Nothing else sits between the header and the page.
+                expect(Math.abs(real.page - real.height), `page top at ${where}`).toBeLessThanOrEqual(0.5);
+            }
         }
     });
 });

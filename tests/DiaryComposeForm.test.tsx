@@ -515,10 +515,11 @@ describe('diary defaults (reducer contract)', () => {
     });
 
     // Every field is 16 px on the phone (iOS zooms to anything smaller), and
-    // at 16 px the long default title was cut at 375 and 320: under 390 the
-    // default is the short form (browser-tests/diary-compose-layout.spec.ts
-    // measures both in the field).
-    it('the default title is the long form from 390 up and the short one under it', async () => {
+    // at 16 px the long default title was cut at 375 and 320, and in wide
+    // fonts (the Linux CI runner's DejaVu Sans, iOS Bold Text) at 390 to 402,
+    // and at 414 by a fraction of a px: under 428 the default is the short form
+    // (browser-tests/diary-compose-layout.spec.ts measures both in the field).
+    it('the default title is the long form from 428 up and the short one under it', async () => {
         const { formatEntryTitleDefault, prefersCompactDiaryTitle } = await import('../utils/diaryTitle');
         const day = new Date(2026, 8, 30, 8, 48);
         expect(formatEntryTitleDefault(day, false)).toBe('Wednesday 30 September 2026 · 08:48');
@@ -529,8 +530,11 @@ describe('diary defaults (reducer contract)', () => {
             for (const [width, compact] of [
                 [320, true],
                 [375, true],
-                [389, true],
-                [390, false],
+                [390, true],
+                [402, true],
+                [414, true],
+                [427, true],
+                [428, false],
                 [430, false],
             ] as const) {
                 window.matchMedia = ((query: string) => ({
