@@ -368,9 +368,13 @@ export function MapWeatherControls({
                     onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
                     onScrubStart = () => weather.setWindPlaying(false);
                     sublabel += ` · ${windValidTime}`;
-                    // Close-in: what the streaks are showing, where.
+                    // Close-in: what the streaks are showing, where. The boat's
+                    // instruments are not a model forecast, nor at the model hour.
                     if (windCloseIn)
-                        sublabel = `${windCloseIn.value} ${windCloseIn.source === 'boat' ? 'at the boat' : 'here'} · ${sublabel}`;
+                        sublabel =
+                            windCloseIn.source === 'boat'
+                                ? `${windCloseIn.value} at the boat · Boat instruments${windCloseIn.stale ? ' · Stale' : ''}`
+                                : `${windCloseIn.value} here · ${sublabel}`;
                 }
             } else if (activeLayer === 'currents' && isCmemsFeatureEnabled('currents')) {
                 frameIndex = weather.currentsHour;

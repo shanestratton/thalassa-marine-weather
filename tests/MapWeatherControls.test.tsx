@@ -777,7 +777,11 @@ describe('MapWeatherControls', () => {
             const view = render(<MapWeatherControls {...controls} weather={weather()} />);
             expect(view.container).toHaveTextContent('8 kt SE here · Model forecast');
             act(() => setCloseInWindReadout({ kt: 14, fromDeg: 200, source: 'boat', stale: false }));
-            expect(view.container).toHaveTextContent('14 kt SSW at the boat · Model forecast');
+            // The instruments are not a model forecast, and their stale flag travels with them.
+            expect(view.container).toHaveTextContent('14 kt SSW at the boat · Boat instruments');
+            expect(view.container).not.toHaveTextContent('Model forecast');
+            act(() => setCloseInWindReadout({ kt: 14, fromDeg: 200, source: 'boat', stale: true }));
+            expect(view.container).toHaveTextContent('14 kt SSW at the boat · Boat instruments · Stale');
             act(() => setCloseInWindReadout(null));
             expect(view.container).not.toHaveTextContent(' here · ');
         } finally {
