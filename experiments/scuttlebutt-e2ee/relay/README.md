@@ -24,8 +24,8 @@ observed results.
 with the exact payload `[]`. The four-field receipt reports durable account policy,
 not encryption or device permission. Existing peer-policy fields and signed-wire
 version/domain are unchanged. No downgrade API exists. Explicit native Research
-controls support both actions. Isolated hosted SQL support is installed; deploying
-the cutover-aware Edge API and positive hosted checks remain separate steps.
+controls support both actions. Isolated hosted SQL/API support and positive
+disposable-actor checks are complete; native hosted acceptance remains separate.
 
 `privateNotifications.sql` and `legacyCutoverFixture.sql` install only into a
 fresh local fixture after `relay.sql`. They are not migrations. The first queues
@@ -106,6 +106,24 @@ replaying DDL. See [7 October evidence](../review/hosted-cutover-2026-10-07.json
 for the actual isolated installation, six local-engine groups and source hashes.
 The older policy-only update/deployment scripts retain their narrower source
 pins and cannot truthfully consume this expanded receipt; do not bypass them.
+
+`../hosted/deployCutover.mjs --deploy /absolute/private/cutover-update-receipt.json`
+validates the expanded receipt and fresh installed state, records a flushed
+immutable attempt before deploying only the pilot function, and compares JWT,
+secrets, unrelated revisions, sources and all six table diagnostics afterward.
+Interruption needs read-only reconciliation; it never automatically redeploys,
+rolls back policy or changes participants. Four negative HTTP checks are not
+positive cutover evidence or independently attested compiled-source provenance.
+
+`../hosted/fixtureRelayProof.mjs HUMAN_ALLOWLIST [SEPARATE_CUTOVER_CREDENTIALS] --cutover`
+selects `cutoverLiveProof.mjs` with a new fixed `.invalid` fixture pair and preserves
+the earlier fixture/human keys/rows. It journals mandatory human-allowlist/secret
+restoration before mutation and verifies restoration after ordinary success or
+failure. A hard termination leaves an explicit recovery obligation, not a claimed
+automatic recovery guarantee. The controls-only proof sends no ciphertext.
+Its permanent fixture selection/revocation prevents a fresh replay; inspect and
+retain incomplete evidence instead of resetting accounts or policy. See the
+[hosted API evidence](../review/hosted-api-2026-10-07.json) for actual results.
 
 `../hosted/updatePolicy.mjs` defaults to read-only inspection of the existing
 approved pilot. Explicit `apply-policy` replaces only three pinned function

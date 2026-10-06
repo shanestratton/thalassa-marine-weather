@@ -81,8 +81,9 @@ chat. An explicit native selection now latches process-local legacy denial acros
 private callers, queues and foreground push. Durable account mode and legacy SQL
 denial now have fresh local fixture evidence. Explicit native account controls
 also have local adapter and real local HTTPS/SQL evidence. Isolated hosted SQL
-support is installed without selecting a human account; its Edge API, production
-cutover and main-app cold-start admission are not integrated. These are not a shipping
+support and the cutover-aware Edge API are installed without selecting a human
+account, with positive disposable-actor hosted checks. Native-to-hosted acceptance,
+production cutover and main-app cold-start admission are not integrated. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
@@ -115,6 +116,57 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 7 October isolated Edge deployment and positive hosted cutover checks
+
+`deployCutover.mjs` deployed the isolated API after a fresh installed SQL
+inspection. Its closed pure contracts validate support receipts, function pins,
+typed management revisions, secret-digest metadata and all six table diagnostics,
+including permanent protection rows. A flushed immutable attempt record precedes
+the CLI; progress updates use flushed temporary files/atomic replacement. An
+uncertain outcome requires read-only reconciliation, not automatic redeployment
+or policy rollback. This is not an independently tested power-loss guarantee.
+
+The deployment interval observed revision **26 → 27**, retained JWT protection,
+unchanged secret fingerprints and all six table/checked authority diagnostics,
+and passed four negative HTTP boundary checks. Those negatives would also pass
+on older code and are not evidence that the new actions work. Local source hashes
+and the server-reported bundle digest are recorded separately; compiled-source
+provenance is not independently attested.
+
+The separate hosted proof then passed **11 positive/negative scenario groups**
+with a new `.invalid` fixture account pair, real Supabase Auth, HTTPS and real
+Ed25519 signatures. Controls cover fresh legacy/protected diagnostics without
+ledger growth, one-way selection, exact signed retry, changed nonce/payload/key/
+principal refusal, revoked-device refusal and lack of an unsigned downgrade path.
+No ciphertext was sent; this is not an Olm/native/physical encrypted exchange.
+Human accounts and the older baseline fixture keys/rows were preserved. The new
+fixture selection and revocation are one-way: rerunning a fresh proof against
+those actors refuses rather than resetting them to manufacture a pass.
+
+The wrapper records an owner-only restoration obligation before temporarily
+changing the Research participant allowlist. Planned fixture credentials remain
+private before Auth creation; partial setup refuses blind replay. Reserved human
+IDs are explicitly rejected in wrapper/proof inputs. Its journal reached
+`verified` with no remaining restoration obligation, and a subsequent management
+read matched every original secret fingerprint. Live checks observed revision
+**28**; the post-restoration read observed ACTIVE revision **29**, JWT enabled and
+the same reported bundle digest as deployment. These are observed metadata, not
+an independently established reason for the later revision increments.
+
+Research checks passed **1,619 tests in 22 suites**, including **99 deployment
+contract cases**, and focused fixture types/lint/formatting. The cached, frozen
+Deno runtime check passed with remote imports denied and no local node_modules
+installation. Retained corrections include explicit AbortSignal globals,
+deterministic byte-order fixture expectations, immutable/atomic receipt handling,
+and the unsupported initial `--cached-only` Deno flag. The [hosted API manifest](../experiments/scuttlebutt-e2ee/review/hosted-api-2026-10-07.json)
+links exact sources, deployment/live receipts and restoration evidence.
+
+Next: native-to-hosted acceptance using explicitly disposable devices/accounts,
+then main-app durable cold-start denial and device/prekey/retention recovery.
+Production legacy/push enforcement, full physical acceptance, provenance/licence
+obligations and the independent security assessment remain release gates. No
+master push, primary sync, production update or human app installation occurred.
 
 ### 7 October native HTTPS account policy and guarded hosted SQL support
 
@@ -164,8 +216,9 @@ not cryptographic data attestation. No Edge deployment, human app update, primar
 sync, production or master mutation accompanied it. The [hosted cutover manifest](../experiments/scuttlebutt-e2ee/review/hosted-cutover-2026-10-07.json)
 retains exact sources/receipts and failed attempts.
 
-Next: cutover-aware isolated Edge deployment preserving JWT/secrets/allowlist,
-then disposable-actor positive hosted checks and native hosted acceptance. The
+At this SQL checkpoint Edge deployment and positive hosted checks were still
+pending; the later evidence above records their completion. Next is native
+hosted acceptance. The
 old policy-only deployment script cannot truthfully accept this table/helper
 receipt. Main-app cold-start denial, real legacy/push enforcement, device/prekey
 recovery, retention, independent concurrency and external review remain release
@@ -2825,8 +2878,8 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: deploy and verify the isolated cutover-aware Edge API without resetting
-human state, then connect native durable selection
+Next: verify native-to-hosted acceptance without resetting human state, then
+connect native durable selection
 to main-app cold-start denial. Native controls alone do not close that boundary.
 Apply actual legacy-table
 and notification-worker enforcement only through separately scoped, reviewed
