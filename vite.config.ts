@@ -18,6 +18,7 @@ import {
 } from './scripts/public-beta-feature-profile.mjs';
 import { MINIFIED_PUBLIC_SCRIPTS, minifyPublicScriptWhitespace } from './scripts/minify-public-scripts.mjs';
 import { parkedPagesInBundle } from './scripts/parked-lazy-pages.mjs';
+import { handleOcean } from './api/ocean/[view]';
 
 // Define __dirname for ESM context
 const __filename = fileURLToPath(import.meta.url);
@@ -233,6 +234,7 @@ function releasePreviewDocumentRoutes() {
                 else if (pathname === '/logs' || pathname.startsWith('/logs/')) destination = '/logs.html';
                 else if (pathname === '/beta') destination = '/beta.html';
                 else if (pathname === '/feedback') destination = '/feedback.html';
+                else if (pathname === '/ocean' || pathname.startsWith('/ocean/')) destination = '/ocean.html';
                 else if (pathname === '/plan' || pathname.startsWith('/plan/')) destination = '/index.html';
                 else if (pathname !== '/' && !pathname.split('/').pop()?.includes('.')) destination = '/index.html';
 
@@ -241,6 +243,39 @@ function releasePreviewDocumentRoutes() {
             });
         },
     };
+}
+
+/**
+ * /api/ocean/* in `vite dev` and `vite preview`: the same edge handler Vercel
+ * runs (api/ocean/[view].ts), so a local preview of /ocean shows the page's
+ * real answer from the database (today: "not-ready" until the migration is
+ * pushed) instead of the SPA shell. Read-only, anon key only, like production.
+ * Registered before the document routes, which would rewrite /api/ocean/* to
+ * index.html.
+ */
+function oceanApiLocal(env: Record<string, string | undefined>): Plugin {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const serve = (server: any) => {
+        server.middlewares.use(async (req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => {
+            if (!req.url?.startsWith('/api/ocean/')) {
+                next();
+                return;
+            }
+            try {
+                const response = await handleOcean(
+                    new Request(`http://127.0.0.1${req.url}`, { method: req.method ?? 'GET' }),
+                    env,
+                );
+                res.statusCode = response.status;
+                response.headers.forEach((value, key) => res.setHeader(key, value));
+                res.end(Buffer.from(await response.arrayBuffer()));
+            } catch {
+                res.statusCode = 502;
+                res.end();
+            }
+        });
+    };
+    return { name: 'ocean-api-local', configureServer: serve, configurePreviewServer: serve };
 }
 
 /** The commit this bundle was built from, or 'unknown' — never a build failure. */
@@ -333,6 +368,7 @@ export default defineConfig(({ mode }) => {
             },
         },
         plugins: [
+            oceanApiLocal({ ...env, ...process.env }),
             releasePreviewDocumentRoutes(),
             mode === 'production' && releasePublicBetaFeatureManifest(publicBetaCredentialPresence),
             // Dev-only mirror of the Vercel rewrite /logs/<handle> → logs.html
@@ -344,6 +380,13 @@ export default defineConfig(({ mode }) => {
                 configureServer(server: any) {
                     server.middlewares.use((req: http.IncomingMessage, _res: http.ServerResponse, next: () => void) => {
                         if (req.url?.startsWith('/logs/')) req.url = '/logs.html';
+                        // Thalassa Ocean: /ocean and its species deep links.
+                        else if (
+                            req.url === '/ocean' ||
+                            req.url?.startsWith('/ocean/') ||
+                            req.url?.startsWith('/ocean?')
+                        )
+                            req.url = '/ocean.html';
                         next();
                     });
                 },
@@ -554,6 +597,8 @@ export default defineConfig(({ mode }) => {
                     logs: path.resolve(__dirname, 'logs.html'),
                     beta: path.resolve(__dirname, 'beta.html'),
                     feedback: path.resolve(__dirname, 'feedback.html'),
+                    // Thalassa Ocean, the public fleet page (ocean.thalassawx.app).
+                    ocean: path.resolve(__dirname, 'ocean.html'),
                 },
                 onwarn(warning, warn) {
                     // Suppress "is dynamically imported by X but also statically imported by Y"
@@ -567,6 +612,18 @@ export default defineConfig(({ mode }) => {
                 output: {
                     manualChunks(id) {
                         const moduleId = id.replaceAll('\\', '/');
+                        // Vite's dynamic-import preload helper and modulepreload
+                        // polyfill ride with React, which every entry loads first.
+                        // Left to Rollup, a fifth entry (ocean, 2026-10-06) split
+                        // them into two tiny chunks, and every one of ~150 chunks
+                        // then carried two extra hoisted side-effect imports
+                        // (+82 B each, ~13 KB of the JS budget for nothing).
+                        if (
+                            moduleId.includes('vite/preload-helper') ||
+                            moduleId.includes('vite/modulepreload-polyfill')
+                        ) {
+                            return 'vendor-react';
+                        }
                         if (!moduleId.includes('/node_modules/')) return undefined;
 
                         // Package-path routing avoids Rollup absorbing React into

@@ -24,7 +24,7 @@ export interface VisibilityPickerProps {
     crewAudience: string;
     /** The server has it: the crew see it now (else once it is sent). */
     sent?: boolean;
-    /** A public copy would sit on the 8 km grid (threatened, once threatened, or no species named yet). */
+    /** A public copy would sit on the 8 km grid (threatened, once threatened, or no species named yet); the public ocean page shows it only as an area count. */
     coarse: boolean;
     /** A species is named (a coarse group-only row is 8 km only until it is). */
     named?: boolean;
@@ -47,6 +47,18 @@ export function visibilityExplainer(
     if (value === 'public') {
         const grid = !coarse ? '1 km' : named ? '8 km (threatened)' : '8 km until you name the species';
         lines.push(`Everyone, 3 hours later, blurred to about ${grid}. Photos and notes stay with the crew.`);
+        // ocean.thalassawx.app shows anyone less than signed-in Thalassa
+        // users see (20261006120000_ocean_public_read.sql).
+        if (coarse) {
+            lines.push(
+                'Anyone else on the web sees less: the public ocean map shows it only as an area count in a 10 km square, once 3 boats have logged it there.',
+            );
+        } else {
+            lines.push(
+                'The sea temperature from your instruments, if any, goes on its species page in 1 °C bands once 3 boats have logged it.',
+            );
+        }
+        lines.push('Deleting it or making it private clears the public map within about 15 minutes.');
     }
     if (group === 'fish') lines.push('Fish stay off the public map. Catch spots are yours.');
     else if (!hasVessel && value !== 'public')

@@ -346,6 +346,7 @@ describe('crew feed', () => {
         const detail = await screen.findByRole('dialog', { name: 'Dolphin' });
         fireEvent.click(within(detail).getByRole('button', { name: 'Delete' }));
         expect(within(detail).getByText(/It goes from your crew’s feed and the public map too/)).toBeInTheDocument();
+        expect(within(detail).getByText(/the public map can take up to 15 minutes/)).toBeInTheDocument();
         await act(async () => {
             fireEvent.click(within(detail).getByRole('button', { name: 'Delete' }));
         });

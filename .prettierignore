@@ -15,3 +15,7 @@ supabase/functions/
 # Generated anchorage data + build cache — data, not code
 public/anchorages/qld/
 scripts/anchorages/.cache/
+
+# Generated Thalassa Ocean context layer (scripts/ocean/build-context.mjs):
+# data, one record per line, rebuilt rather than hand-edited.
+public/ocean-data/

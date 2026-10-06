@@ -45,6 +45,14 @@
             "destination": "/feedback.html"
         },
         {
+            "source": "/ocean",
+            "destination": "/ocean.html"
+        },
+        {
+            "source": "/ocean/:path*",
+            "destination": "/ocean.html"
+        },
+        {
             "source": "/((?!.*\\..*).*)",
             "destination": "/index.html"
         }
@@ -56,6 +64,15 @@
                 {
                     "key": "Cache-Control",
                     "value": "public, max-age=31536000, immutable"
+                }
+            ]
+        },
+        {
+            "source": "/ocean-data/(.*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=86400"
                 }
             ]
         },
@@ -124,6 +141,15 @@
         },
         {
             "source": "/feedback.html",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=0, must-revalidate"
+                }
+            ]
+        },
+        {
+            "source": "/ocean.html",
             "headers": [
                 {
                     "key": "Cache-Control",

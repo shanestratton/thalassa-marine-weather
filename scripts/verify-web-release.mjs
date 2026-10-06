@@ -130,6 +130,7 @@ const DOCUMENT_HEADER_SOURCES = Object.freeze([
     '/logs.html',
     '/beta.html',
     '/feedback.html',
+    '/ocean.html',
     '/terms.html',
     '/voyage-log-api.html',
 ]);
@@ -143,6 +144,8 @@ const REQUIRED_REWRITES = Object.freeze([
     ['/voyage-log-api', '/voyage-log-api.html'],
     ['/beta', '/beta.html'],
     ['/feedback', '/feedback.html'],
+    ['/ocean', '/ocean.html'],
+    ['/ocean/:path*', '/ocean.html'],
     ['/((?!.*\\..*).*)', '/index.html'],
 ]);
 
@@ -156,6 +159,7 @@ const SURFACE_MARKERS = Object.freeze({
     logs: ['<div id="root"></div>', '<title>Voyage Log — Thalassa</title>'],
     beta: ['<div id="root"></div>', '<title>Founding Skippers — Thalassa</title>'],
     feedback: ['<div id="root"></div>', '<title>Feedback — Thalassa</title>'],
+    ocean: ['<div id="root"></div>', '<title>Thalassa Ocean — wildlife seen from boats</title>'],
     terms: ['<title>Thalassa Marine Weather — Terms & Privacy</title>'],
     api: ['<title>Voyage Log API — Thalassa</title>', '<h1>Voyage Log API</h1>'],
 });
@@ -274,7 +278,11 @@ export function validateHtmlSurface(html, surface) {
         if (!html.includes(marker)) failures.push(`${surface} document is missing ${marker}`);
     }
     if (
-        (surface === 'main' || surface === 'logs' || surface === 'beta' || surface === 'feedback') &&
+        (surface === 'main' ||
+            surface === 'logs' ||
+            surface === 'beta' ||
+            surface === 'feedback' ||
+            surface === 'ocean') &&
         !/\bsrc=["']\/assets\/[^"']+\.js["']/.test(html)
     ) {
         failures.push(`${surface} document does not boot a hashed production JavaScript asset`);
@@ -294,6 +302,9 @@ export function localRouteExpectation(pathname) {
     }
     if (normalized === '/beta') return { kind: 'document', file: 'beta.html', surface: 'beta' };
     if (normalized === '/feedback') return { kind: 'document', file: 'feedback.html', surface: 'feedback' };
+    if (normalized === '/ocean' || normalized.startsWith('/ocean/')) {
+        return { kind: 'document', file: 'ocean.html', surface: 'ocean' };
+    }
     if (normalized === '/logs' || normalized.startsWith('/logs/')) {
         return { kind: 'document', file: 'logs.html', surface: 'logs' };
     }
@@ -337,6 +348,7 @@ function validateBuiltArtifacts() {
         ['logs.html', 'logs'],
         ['beta.html', 'beta'],
         ['feedback.html', 'feedback'],
+        ['ocean.html', 'ocean'],
         ['terms.html', 'terms'],
         ['voyage-log-api.html', 'api'],
     ];
@@ -584,6 +596,8 @@ async function verifyLocalPreview(artifacts) {
             '/logs/release-verification',
             '/beta',
             '/feedback',
+            '/ocean',
+            '/ocean/species/release-verification',
             '/terms',
             '/voyage-log-api',
         ];
@@ -981,6 +995,7 @@ async function verifyHostedDeployment(rawOrigin) {
         ['/logs/release-verification', 'logs'],
         ['/beta', 'beta'],
         ['/feedback', 'feedback'],
+        ['/ocean', 'ocean'],
         ['/terms', 'terms'],
         ['/voyage-log-api', 'api'],
     ];

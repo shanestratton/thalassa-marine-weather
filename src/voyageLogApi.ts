@@ -6,6 +6,8 @@
  * services/supabase.ts or the Capacitor stack.
  */
 
+import { isReservedHandle } from './publicHosts';
+
 const SUPABASE_URL: string =
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) || process.env.SUPABASE_URL || '';
 
@@ -307,11 +309,13 @@ export function parseVoyageLogParams(): { handle: string } {
     // Subdomain form: serene-summer.thalassawx.app → "serene-summer".
     const host = window.location.hostname;
     const hostParts = host.split('.');
-    // Anything with a sub-label that isn't www/apex is treated as the handle.
-    // TLD-agnostic on purpose: the page is served from both thalassawx.app
-    // and thalassawx.com (2026-09-02), and a two-label apex never reaches the
-    // >= 3 test anyway.
-    if (hostParts.length >= 3 && hostParts[0] !== 'www' && !/^thalassawx\.(app|com)$/i.test(host)) {
+    // Anything with a sub-label that isn't a reserved name (www, ocean, api…:
+    // src/publicHosts.ts) or the apex is treated as the handle. TLD-agnostic
+    // on purpose: the page is served from both thalassawx.app and
+    // thalassawx.com (2026-09-02), and a two-label apex never reaches the
+    // >= 3 test anyway. The middleware never sends a reserved host here; this
+    // is defence in depth, so a stray route can never fetch "ocean" as a boat.
+    if (hostParts.length >= 3 && !isReservedHandle(hostParts[0]) && !/^thalassawx\.(app|com)$/i.test(host)) {
         return { handle: hostParts[0] };
     }
     // Path form: /logs/<handle>

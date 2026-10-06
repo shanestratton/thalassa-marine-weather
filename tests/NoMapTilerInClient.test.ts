@@ -45,6 +45,7 @@ const SHIPPED_FILES = [
     'logs.html',
     'beta.html',
     'feedback.html',
+    'ocean.html',
     'viewRegistry.tsx',
     'utils.ts',
     'types.ts',
