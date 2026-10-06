@@ -115,8 +115,18 @@ describe('the framing snap (MapHub)', () => {
         expectCentreHeld(camera);
         expect(camera.flyTo).not.toHaveBeenCalled();
         const frame = LAYER_FRAME_ZOOM[layer];
-        if (frame === undefined) expect(camera.easeTo).not.toHaveBeenCalled();
+        // Wind zooms in to its frame but never out: from z14 the zoom holds.
+        if (frame === undefined || layer === 'wind' || layer === 'velocity')
+            expect(camera.easeTo).not.toHaveBeenCalled();
         else expect(camera.easeTo).toHaveBeenCalledExactlyOnceWith({ zoom: frame, duration: 600 });
+    });
+
+    it.each(['wind', 'velocity'] as const)('switching %s on from further out zooms in to its frame', (layer) => {
+        const { map, camera } = cameraMap(5);
+        const view = mountSnap(map);
+        view.rerender({ layers: new Set([layer]), suppressed: false });
+        expectCentreHeld(camera);
+        expect(camera.easeTo).toHaveBeenCalledExactlyOnceWith({ zoom: LAYER_FRAME_ZOOM[layer], duration: 600 });
     });
 
     it('frames a stack at the shared zoom without moving, and switching off does nothing', () => {
@@ -155,9 +165,21 @@ describe('useWeatherLayers toggles', () => {
         act(() => result.current.toggleLayer(layer));
         expectCentreHeld(camera);
         if (layer === 'wind' || layer === 'velocity') {
-            // Wind keeps its z9 frame, about the water on screen.
-            expect(camera.easeTo).toHaveBeenCalledWith({ zoom: LAYER_FRAME_ZOOM.wind, duration: 700 });
+            // Wind zooms in to its frame but never out (2026-10-06): at z14
+            // the close-in wind field shows the breeze, so the zoom holds.
+            expect(camera.easeTo).not.toHaveBeenCalled();
         }
+    });
+
+    it('switching wind on from further out still zooms in to its z9 frame, about the same centre', () => {
+        const { map, camera } = cameraMap(5);
+        const mapRef = { current: map } as MutableRefObject<mapboxgl.Map | null>;
+        const { result } = renderHook(() =>
+            useWeatherLayers(mapRef, true, false, { lat: LOOKING_AT.lat, lon: LOOKING_AT.lng }, false, undefined, true),
+        );
+        act(() => result.current.toggleLayer('wind'));
+        expectCentreHeld(camera);
+        expect(camera.easeTo).toHaveBeenCalledWith({ zoom: LAYER_FRAME_ZOOM.wind, duration: 700 });
     });
 
     it.each(LAYERS)('switching %s on from a synoptic z3 view zooms, at most, about the same centre', (layer) => {

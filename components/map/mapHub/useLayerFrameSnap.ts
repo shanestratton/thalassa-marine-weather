@@ -51,6 +51,12 @@ export function useLayerFrameSnap(
         if (zoom === undefined) return;
         const m = mapRef.current;
         if (!m) return;
+        // Wind zooms IN to its frame, never out (Shane 2026-10-06: the close-in
+        // wind field shows the breeze at z14, so turning wind on in the marina
+        // must not pull the chart out to z9). Shane's 2026-08-22 ask, "If someone
+        // presses wind, it always zooms in to level 9", still holds from further
+        // out. Other layers keep their frames.
+        if ((newlyOn === 'wind' || newlyOn === 'velocity') && m.getZoom() > zoom) return;
         try {
             // Zoom only. No `center`: see the header.
             m.easeTo({ zoom, duration: 600 });
