@@ -9,8 +9,15 @@ enum DmNativeMessageOperation {
     case pairingCard
     case confirmPeer(card: DmPairingCard, confirmedFingerprint: String)
     case pairingState
+    // Native public projection facts; never keys, caller-selected peers or
+    // durable permission. The dispatcher supplies the exact sealed authority.
+    case privateMessagePeer
+    case privateMessagePermissions
     case thread
     case prepareText(clientMessageId: String, text: String)
+    // Ordinary projection refuses replacement while a different native ID is
+    // pending. This admission is sealed-state checked under the dispatcher.
+    case privateMessagePrepareText(clientMessageId: String, text: String)
     case pendingRecords
     // Native transport phases ONLY. Never expose response/record application
     // as JS/plugin operations: parsing is not server authentication.
@@ -37,6 +44,8 @@ enum DmNativeMessageResult {
     case publicIdentity(DmPublicIdentity)
     case pairingCard(DmPairingCard)
     case pairingState(DmNativePairingState)
+    case privateMessagePeer(DmNativePrivateMessagePeer)
+    case privateMessagePermissions(DmNativePrivateMessagePermissions)
     case thread(DmNativeThread)
     case outbox(DmOutboxRecord)
     case pendingRecords([DmOutboxRecord])
@@ -140,6 +149,24 @@ struct DmNativePairingState {
     let outgoingCount: Int
     let incomingCount: Int
     let unresolvedCount: Int
+}
+
+/// Native-only descriptor extracted from the exact sealed full pair. It is not
+/// a replacement identity or a JS authorization input.
+struct DmNativePrivateMessagePeer: Equatable {
+    let accountId: String
+    let deviceId: String
+    let fingerprint: String
+    let generation: Int64
+}
+
+/// A rendering diagnostic from the real current native readiness guard. Even
+/// a true result does not retain a permit or authorize a later send.
+struct DmNativePrivateMessagePermissions: Equatable {
+    let peerAccountId: String
+    let blockedByMe: Bool
+    let blockedEitherDirection: Bool
+    let canSend: Bool
 }
 
 enum DmNativeThreadDirection: String { case outgoing, incoming }

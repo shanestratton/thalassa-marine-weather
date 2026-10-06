@@ -82,6 +82,11 @@ describe('text selection contract', () => {
         expect(source('components/chat/ChatDMView.tsx')).toMatch(
             /<p className="[^"]*\bselect-text\b[^"]*">\s*\{message\}\s*<\/p>/,
         );
+        // The isolated native pilot renders literal text without the legacy
+        // content parser, so its actual paragraph needs its own selection opt-in.
+        expect(source('components/chat/ChatDMView.tsx')).toMatch(
+            /<p className="[^"]*\bselect-text\b[^"]*">\s*\{dm\.message \?\? 'Message text unavailable'\}\s*<\/p>/,
+        );
         expect(source('components/crew-finder/CrewListConversation.tsx')).toMatch(
             /<p className="[^"]*\bselect-text\b[^"]*">\s*\{message\.message\}/,
         );

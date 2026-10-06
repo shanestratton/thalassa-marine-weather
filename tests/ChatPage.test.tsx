@@ -240,9 +240,58 @@ vi.mock('../components/chat/ChatProfileView', () => ({
     ChatProfileView: () => <div data-testid="profile-view">Profile</div>,
 }));
 vi.mock('../components/chat/ChatDMView', () => ({
-    ChatDMInbox: () => <div data-testid="dm-inbox">DM Inbox</div>,
+    ChatDMInbox: ({
+        conversations = [],
+        onOpenThread,
+    }: {
+        conversations?: Array<{ user_id: string; display_name: string }>;
+        onOpenThread: (id: string, name: string) => void;
+    }) => (
+        <div data-testid="dm-inbox">
+            DM Inbox
+            {conversations.map((conversation) => (
+                <button
+                    key={conversation.user_id}
+                    onClick={() => onOpenThread(conversation.user_id, conversation.display_name)}
+                >
+                    Open {conversation.display_name}
+                </button>
+            ))}
+        </div>
+    ),
     ChatDMThread: () => <div data-testid="dm-thread">DM Thread</div>,
-    ChatDMCompose: () => <div data-testid="dm-compose">DM Compose</div>,
+    ChatDMCompose: ({
+        pilotActive,
+        dmText,
+        setDmText,
+        onSendDM,
+        pilotSendDisabled,
+    }: {
+        pilotActive?: boolean;
+        dmText: string;
+        setDmText: (text: string) => void;
+        onSendDM: () => void;
+        pilotSendDisabled?: boolean;
+    }) => (
+        <div data-testid="dm-compose">
+            DM Compose
+            {pilotActive && (
+                <>
+                    <input
+                        aria-label="Private message draft"
+                        value={dmText}
+                        onChange={(event) => setDmText(event.target.value)}
+                    />
+                    <button disabled={pilotSendDisabled || !dmText.trim()} onClick={onSendDM}>
+                        Send direct message
+                    </button>
+                </>
+            )}
+        </div>
+    ),
+    PrivateMessagePilotNotice: ({ statusText }: { statusText?: string | null }) => (
+        <div role="status">Encryption test—not reviewed{statusText && <p>{statusText}</p>}</div>
+    ),
 }));
 vi.mock('../components/chat/TypingIndicator', () => ({
     TypingIndicator: () => null,
@@ -304,6 +353,11 @@ import { fetchVesselNameForOwner } from '../services/VesselIdentityService';
 import { NO_PASSAGE_ACCESS, getPassageStatus } from '../services/PassagePlanService';
 import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 import { useAuthStore } from '../stores/authStore';
+import type {
+    NativePrivateMessageBlockStatus,
+    PrivateMessagePilotMessage,
+    PrivateMessagePilotRuntime,
+} from '../services/chat/e2ee/privateMessagePilot';
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -643,5 +697,89 @@ describe('ChatPage Crew Chat card vessel name', () => {
         expect(list).toHaveAttribute('data-vessel-name', 'Kestrel');
         expect(list).toHaveAttribute('data-crew-chat-vessel-name', '');
         expect(fetchVesselNameForOwner).not.toHaveBeenCalled();
+    });
+});
+
+describe('ChatPage injected pilot rendering fixtures — no live encryption or relay', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('recovers the exact pending native attempt without requiring message plaintext or initializing legacy chat', async () => {
+        const account = '11111111-1111-4111-8111-111111111111';
+        const peer = '22222222-2222-4222-8222-222222222222';
+        const clientMessageId = '44444444-4444-4444-8444-444444444444';
+        signInFixture(account);
+        const permissions: NativePrivateMessageBlockStatus = {
+            peerAccountId: peer,
+            blockedByMe: false,
+            blockedEitherDirection: false,
+            canSend: true,
+            reason: null,
+        };
+        const pending: PrivateMessagePilotMessage = {
+            kind: 'native-pilot',
+            id: `outgoing:${clientMessageId}`,
+            clientMessageId,
+            direction: 'outgoing',
+            sender_id: account,
+            recipient_id: peer,
+            sender_name: 'You',
+            message: null,
+            created_at: null,
+            localCreatedAtMillis: null,
+            read: false,
+            delivery: 'pending',
+            reason: null,
+        };
+        const runtime = {
+            kind: 'native-pilot' as const,
+            getInbox: vi.fn(async () => ({
+                status: 'ok' as const,
+                value: [
+                    {
+                        kind: 'native-pilot' as const,
+                        user_id: peer,
+                        display_name: 'Paired sailor' as const,
+                        last_message: null,
+                        last_at: null,
+                        unread_count: 0 as const,
+                        historyAvailable: false,
+                    },
+                ],
+            })),
+            getThread: vi.fn(async () => ({
+                status: 'ok' as const,
+                value: {
+                    messages: [pending],
+                    permissions,
+                    unresolvedCount: 1,
+                    pendingAttemptId: clientMessageId,
+                },
+            })),
+            sendText: vi.fn(async () => ({ status: 'ok' as const, value: pending })),
+            retryPending: vi.fn(async () => ({
+                status: 'ok' as const,
+                value: { ...pending, delivery: 'server_accepted' as const },
+            })),
+            getBlockStatus: vi.fn(async () => ({ status: 'ok' as const, value: permissions })),
+            setBlocked: vi.fn(async () => ({ status: 'ok' as const, value: permissions })),
+            subscribe: vi.fn(() => vi.fn()),
+        } satisfies PrivateMessagePilotRuntime;
+        render(<ChatPage privateMessageRuntime={runtime} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Open Paired sailor' }));
+        const retry = await screen.findByRole('button', { name: 'Retry pending message' });
+        expect(screen.getByRole('textbox', { name: 'Private message draft' })).toHaveValue('');
+        expect(screen.getByRole('button', { name: 'Send direct message' })).toBeDisabled();
+        expect(retry).not.toBeDisabled();
+        fireEvent.click(retry);
+        await waitFor(() => expect(runtime.retryPending).toHaveBeenCalledTimes(1));
+        expect(runtime.retryPending).toHaveBeenCalledWith(getAuthIdentityScope(), peer, clientMessageId);
+        expect(runtime.getThread).toHaveBeenCalledTimes(2);
+        expect(runtime.sendText).not.toHaveBeenCalled();
+        expect(runtime.setBlocked).not.toHaveBeenCalled();
+        expect(ChatService.initialize).not.toHaveBeenCalled();
+        expect(ChatService.getDMConversations).not.toHaveBeenCalled();
+        expect(ChatService.getDMThread).not.toHaveBeenCalled();
+        expect(ChatService.subscribeToDMs).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry pending message' })).toBeNull());
     });
 });

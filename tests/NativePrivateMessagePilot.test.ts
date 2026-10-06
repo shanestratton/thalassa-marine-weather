@@ -12,6 +12,7 @@ import {
 } from '../services/chat/e2ee/nativePrivateMessagePilot';
 import type {
     NativePrivateMessageAuthority,
+    NativePrivateMessageBlockStatus,
     NativePrivateMessageEvent,
     NativePrivateMessageReadiness,
     NativePrivateMessageResult,
@@ -39,6 +40,7 @@ const ACCOUNT_A = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_B = '22222222-2222-4222-8222-222222222222';
 const DEVICE = '33333333-3333-4333-8333-333333333333';
 const MESSAGE = '44444444-4444-4444-8444-444444444444';
+const LOCAL_CREATED_AT_MILLIS = Date.parse('2026-10-02T00:00:00.000Z');
 // Deliberately nonsecret, non-JWT fixture strings.
 const BEARER_A = 'fixture-bearer-A';
 const BEARER_B = 'fixture-bearer-B';
@@ -76,6 +78,26 @@ function same(a: NativePrivateMessageAuthority, b: NativePrivateMessageAuthority
         b.serverVerified === true
     );
 }
+function outgoingText(
+    authority: NativePrivateMessageAuthority,
+    peerAccountId: string,
+    clientMessageId: string,
+    text: string,
+): NativePrivateTextMessage {
+    return {
+        id: `outgoing:${clientMessageId}`,
+        clientMessageId,
+        direction: 'outgoing',
+        senderAccountId: authority.accountId,
+        recipientAccountId: peerAccountId,
+        senderName: 'You',
+        text,
+        localCreatedAtMillis: LOCAL_CREATED_AT_MILLIS,
+        read: false,
+        delivery: 'server_accepted',
+        reason: null,
+    };
+}
 
 function fixture() {
     let sdkSession: { access_token: string } | null = { access_token: BEARER_A };
@@ -102,12 +124,12 @@ function fixture() {
         nativeAuthority && same(nativeAuthority, expected)
             ? { status: 'ok', authority: { ...nativeAuthority }, value }
             : closed();
-    const permissions = () => ({
+    const permissions = (): NativePrivateMessageBlockStatus => ({
         peerAccountId: peerFor(nativeAuthority!.accountId),
         blockedByMe: blocked,
         blockedEitherDirection: blocked,
         canSend: !blocked,
-        ...(blocked ? { reason: 'blocked' as const } : {}),
+        reason: blocked ? 'unavailable' : null,
     });
     const native = {
         fenceSession: vi.fn(
@@ -142,23 +164,38 @@ function fixture() {
             async (): Promise<NativePrivateMessageReadiness> =>
                 nativeAuthority ? ready({ ...nativeAuthority }) : closed(),
         ),
-        getInbox: vi.fn(async ({ authority }: { authority: NativePrivateMessageAuthority }) =>
-            result(
-                [
-                    {
-                        user_id: peerFor(authority.accountId),
-                        display_name: 'Paired fixture',
-                        last_message: '',
-                        last_at: '2026-10-02T00:00:00.000Z',
-                        unread_count: 0,
-                    },
-                ],
+        getInbox: vi.fn(
+            async ({
                 authority,
-            ),
+            }: {
+                authority: NativePrivateMessageAuthority;
+            }): ReturnType<PrivateMessageNativePlugin['getInbox']> =>
+                result(
+                    [
+                        {
+                            peerAccountId: peerFor(authority.accountId),
+                            displayName: 'Paired sailor',
+                            lastText: null,
+                            lastLocalCreatedAtMillis: null,
+                            unreadCount: 0,
+                            historyAvailable: true,
+                        },
+                    ],
+                    authority,
+                ),
         ),
         getThread: vi.fn(
             async ({ authority, peerAccountId }: { authority: NativePrivateMessageAuthority; peerAccountId: string }) =>
-                result({ ...permissions(), peerAccountId, messages: [] as NativePrivateTextMessage[] }, authority),
+                result(
+                    {
+                        peerAccountId,
+                        messages: [] as NativePrivateTextMessage[],
+                        permissions: { ...permissions(), peerAccountId },
+                        unresolvedCount: 0,
+                        pendingAttemptId: null,
+                    },
+                    authority,
+                ),
         ),
         sendText: vi.fn(
             async ({
@@ -171,20 +208,18 @@ function fixture() {
                 peerAccountId: string;
                 clientMessageId: string;
                 text: string;
-            }) =>
-                result(
-                    {
-                        id: clientMessageId,
-                        senderAccountId: authority.accountId,
-                        recipientAccountId: peerAccountId,
-                        senderName: 'You',
-                        text,
-                        createdAt: '2026-10-02T00:00:00.000Z',
-                        read: true,
-                        delivery: 'server_accepted' as const,
-                    },
-                    authority,
-                ),
+            }) => result(outgoingText(authority, peerAccountId, clientMessageId, text), authority),
+        ),
+        retryPending: vi.fn(
+            async ({
+                authority,
+                peerAccountId,
+                clientMessageId,
+            }: {
+                authority: NativePrivateMessageAuthority;
+                peerAccountId: string;
+                clientMessageId: string;
+            }) => result(outgoingText(authority, peerAccountId, clientMessageId, 'Fixture retry text'), authority),
         ),
         getBlockStatus: vi.fn(async ({ authority }: { authority: NativePrivateMessageAuthority }) =>
             result(permissions(), authority),
@@ -486,14 +521,17 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
         expect(subscriptions[0].close).toHaveBeenCalledTimes(1);
         expect(subscriptions[1].authority.lifecycleVersion).not.toBe(subscriptions[0].authority.lifecycleVersion);
         const text: NativePrivateTextMessage = {
-            id: MESSAGE,
+            id: `incoming:${MESSAGE}`,
+            clientMessageId: MESSAGE,
+            direction: 'incoming',
             senderAccountId: ACCOUNT_B,
             recipientAccountId: ACCOUNT_A,
-            senderName: 'Peer',
+            senderName: 'Paired sailor',
             text: 'Fixture after renewal',
-            createdAt: '2026-10-02T00:00:00.000Z',
+            localCreatedAtMillis: null,
             read: false,
-            delivery: 'server_accepted',
+            delivery: 'received',
+            reason: null,
         };
         receive.mockClear();
         subscriptions[0].receive({ status: 'ok', authority: subscriptions[0].authority, value: text });
@@ -504,7 +542,7 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
         expect(receive).toHaveBeenCalledWith(
             expect.objectContaining({
                 status: 'ok',
-                value: expect.objectContaining({ id: MESSAGE, message: text.text }),
+                value: expect.objectContaining({ id: `incoming:${MESSAGE}`, message: text.text }),
             }),
         );
         stop();
@@ -550,17 +588,81 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
             authority: before,
             value: [
                 {
-                    user_id: ACCOUNT_B,
-                    display_name: 'Paired fixture',
-                    last_message: 'Old lease fixture plaintext',
-                    last_at: '2026-10-02T00:00:00.000Z',
-                    unread_count: 1,
+                    peerAccountId: ACCOUNT_B,
+                    displayName: 'Paired sailor',
+                    lastText: 'Old lease fixture plaintext',
+                    lastLocalCreatedAtMillis: LOCAL_CREATED_AT_MILLIS,
+                    unreadCount: 0,
+                    historyAvailable: true,
                 },
             ],
         });
         expect((await loading).status).toBe('unavailable');
         expect((await session.runtime.getInbox(getAuthIdentityScope())).status).toBe('ok');
         expect(native.getInbox.mock.calls[1][0].authority.lifecycleVersion).toBe(authority()!.lifecycleVersion);
+    });
+    it('retries the exact native attempt without passing plaintext or fabricating a read receipt', async () => {
+        const { session, native, authority } = fixture();
+        session.start();
+        await settle();
+        const retried = await session.runtime.retryPending(getAuthIdentityScope(), ACCOUNT_B, MESSAGE);
+        expect(native.retryPending).toHaveBeenCalledTimes(1);
+        expect(native.retryPending).toHaveBeenCalledWith({
+            authority: authority()!,
+            peerAccountId: ACCOUNT_B,
+            clientMessageId: MESSAGE,
+        });
+        expect(Object.keys(native.retryPending.mock.calls[0][0]).sort()).toEqual([
+            'authority',
+            'clientMessageId',
+            'peerAccountId',
+        ]);
+        expect(retried).toEqual({
+            status: 'ok',
+            value: {
+                kind: 'native-pilot',
+                id: `outgoing:${MESSAGE}`,
+                clientMessageId: MESSAGE,
+                direction: 'outgoing',
+                sender_id: ACCOUNT_A,
+                recipient_id: ACCOUNT_B,
+                sender_name: 'You',
+                message: 'Fixture retry text',
+                created_at: '2026-10-02T00:00:00.000Z',
+                localCreatedAtMillis: LOCAL_CREATED_AT_MILLIS,
+                read: false,
+                delivery: 'server_accepted',
+                reason: null,
+            },
+        });
+        expect(native.sendText).not.toHaveBeenCalled();
+    });
+    it('rejects a retry completion from the old native epoch after same-account SDK refresh', async () => {
+        const { session, native, emitAuth, authority } = fixture();
+        session.start();
+        await settle();
+        const before = { ...authority()! };
+        const pending = deferred<Awaited<ReturnType<PrivateMessageNativePlugin['retryPending']>>>();
+        native.retryPending.mockReturnValueOnce(pending.promise);
+        const retrying = session.runtime.retryPending(getAuthIdentityScope(), ACCOUNT_B, MESSAGE);
+        await settle();
+        expect(native.retryPending).toHaveBeenCalledTimes(1);
+        expect(native.retryPending.mock.calls[0][0].authority).toEqual(before);
+        emitAuth('TOKEN_REFRESHED', RENEWED_BEARER_A);
+        await settle();
+        expect(session.state()).toBe('ready');
+        expect(authority()!.lifecycleVersion).not.toBe(before.lifecycleVersion);
+        pending.resolve({
+            status: 'ok',
+            authority: before,
+            value: outgoingText(before, ACCOUNT_B, MESSAGE, 'Old lease retry fixture plaintext'),
+        });
+        expect(await retrying).toEqual({ status: 'unavailable', reason: 'stale_authority' });
+        const retried = await session.runtime.retryPending(getAuthIdentityScope(), ACCOUNT_B, MESSAGE);
+        expect(retried.status).toBe('ok');
+        expect(native.retryPending).toHaveBeenCalledTimes(2);
+        expect(native.retryPending.mock.calls[1][0].authority.lifecycleVersion).toBe(authority()!.lifecycleVersion);
+        expect(native.sendText).not.toHaveBeenCalled();
     });
     it('never falls back to legacy chat after native refusal or transport failure', async () => {
         const { session, native } = fixture();
@@ -570,6 +672,11 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
         expect((await session.runtime.getInbox(getAuthIdentityScope())).status).toBe('unavailable');
         native.sendText.mockResolvedValueOnce({ status: 'unavailable', reason: 'peer_changed' });
         expect(await session.runtime.sendText(getAuthIdentityScope(), ACCOUNT_B, MESSAGE, 'Fixture text')).toEqual({
+            status: 'unavailable',
+            reason: 'peer_changed',
+        });
+        native.retryPending.mockResolvedValueOnce({ status: 'unavailable', reason: 'peer_changed' });
+        expect(await session.runtime.retryPending(getAuthIdentityScope(), ACCOUNT_B, MESSAGE)).toEqual({
             status: 'unavailable',
             reason: 'peer_changed',
         });
@@ -595,7 +702,7 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
                 blockedByMe: true,
                 blockedEitherDirection: true,
                 canSend: false,
-                reason: 'blocked',
+                reason: 'unavailable',
             },
         });
         expect((await changing).status).toBe('unavailable');
@@ -625,14 +732,17 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
             status: 'ok',
             authority: authority()!,
             value: {
-                id: MESSAGE,
+                id: `incoming:${MESSAGE}`,
+                clientMessageId: MESSAGE,
+                direction: 'incoming',
                 senderAccountId: ACCOUNT_B,
                 recipientAccountId: ACCOUNT_A,
-                senderName: 'Peer',
+                senderName: 'Paired sailor',
                 text: 'Fixture after unsubscribe',
-                createdAt: '2026-10-02T00:00:00.000Z',
+                localCreatedAtMillis: null,
                 read: false,
-                delivery: 'server_accepted',
+                delivery: 'received',
+                reason: null,
             },
         });
         await settle();

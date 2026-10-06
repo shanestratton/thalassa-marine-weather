@@ -297,6 +297,7 @@ export function createNativePrivateMessagePilotSession(options: {
         getInbox: (request) => operation(request.authority, () => native.getInbox(request)),
         getThread: (request) => operation(request.authority, () => native.getThread(request)),
         sendText: (request) => operation(request.authority, () => native.sendText(request)),
+        retryPending: (request) => operation(request.authority, () => native.retryPending(request)),
         getBlockStatus: (request) => operation(request.authority, () => native.getBlockStatus(request)),
         async setBlocked(request) {
             const before = captured();

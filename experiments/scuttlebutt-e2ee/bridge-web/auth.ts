@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { createClient } from '@supabase/supabase-js';
+import type { ResearchPrivateMessagePluginBindings } from './privateMessagePort';
 
 // This research port authenticates an account only. It grants no permission to
 // send/read messages and must never be adapted into PM readiness by a Boolean.
@@ -76,7 +77,9 @@ export type ResearchAuthUnavailableReason = 'verification_failed' | 'verificatio
 
 // One Capacitor proxy for the one native host. Messaging projects its own
 // research-only method interface onto this proxy, never registers a second one.
-export const researchNativePlugin = registerPlugin<ResearchAuthNativePlugin>(RESEARCH_PLUGIN_NAME);
+export const researchNativePlugin = registerPlugin<ResearchAuthNativePlugin & ResearchPrivateMessagePluginBindings>(
+    RESEARCH_PLUGIN_NAME,
+);
 
 const runtime: ResearchAuthDependencies = {
     native: researchNativePlugin,

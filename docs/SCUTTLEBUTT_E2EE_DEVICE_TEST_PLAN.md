@@ -6,6 +6,15 @@ Two independent physical endpoints can expose custody, lifecycle and transport f
 
 ## Prerequisites and current blocks
 
+The 6 October ordinary-PM integration candidate is on
+`codex/scuttlebutt-e2ee-integration-2026-10-06`, not installed on either human
+device. Its separate physical-iOS build is unsigned, and its native adapter
+checks use a disposable simulator with synthetic Auth/relay responses. The
+explicit Research PM screen and new synchronous UIKit inactive-scene cover
+still need actual Capacitor/device execution. Static cover assertions do not
+pass D11; the older owner-operated captures remain tied to their installed
+candidate. Preserve existing device accounts, registrations and sealed history.
+
 The table below preserves the 4 October prerequisite snapshot. On 5 October,
 actual sign-ins and registration preceded the owner-operated pairing and
 two-way exchange. The latest checkpoint supersedes the snapshot's unverified

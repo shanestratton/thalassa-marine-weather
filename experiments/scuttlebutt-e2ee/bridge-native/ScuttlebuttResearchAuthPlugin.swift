@@ -23,11 +23,20 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "messagePrepareText", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageSendPending", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageSyncInbox", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "privateMessageIssue", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "privateMessageReadiness", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "privateMessagePermissions", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "privateMessageInbox", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "privateMessageThread", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "privateMessageSendText", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "privateMessageRetryPending", returnType: CAPPluginReturnPromise),
     ]
     private let hostLock = NSLock()
     private var host: ResearchAuthHost?
     private var trusted: ResearchAuthConfiguration?
     private var messaging: ResearchMessagingAdapter?
+    private var privateMessaging: ResearchPrivateMessageAdapter?
+    private var messageTransport: VodozemacRelayTransport?
     private static let unavailable: [String: Any] = ["status": "unavailable", "reason": "unavailable"]
 
     public override func load() {
@@ -52,11 +61,30 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         let opened: ResearchAuthHost
         if let host { opened = host }
         else { opened = try ResearchAuthHost(configuration: configuration); host = opened }
-        let transport = try VodozemacRelayTransport(serviceOrigin: ResearchAuthConfiguration.origin,
-            serviceBasePath: "/functions/v1/scuttlebutt-e2ee-pilot")
+        let transport = try transportWhileLocked()
         let adapter = ResearchMessagingAdapter(facade: opened.facade, transport: transport,
             projectOrigin: ResearchAuthConfiguration.origin, conversationId: ResearchAuthConfiguration.conversation)
         messaging = adapter
+        return adapter
+    }
+
+    private func transportWhileLocked() throws -> VodozemacRelayTransport {
+        if let messageTransport { return messageTransport }
+        let transport = try VodozemacRelayTransport(serviceOrigin: ResearchAuthConfiguration.origin,
+            serviceBasePath: "/functions/v1/scuttlebutt-e2ee-pilot")
+        messageTransport = transport
+        return transport
+    }
+
+    private func privateMessageAdapter() throws -> ResearchPrivateMessageAdapter {
+        hostLock.lock(); defer { hostLock.unlock() }
+        guard let configuration = trusted else { throw ResearchAuthHostError.unavailable }
+        if let privateMessaging { return privateMessaging }
+        let opened: ResearchAuthHost
+        if let host { opened = host }
+        else { opened = try ResearchAuthHost(configuration: configuration); host = opened }
+        let adapter = ResearchPrivateMessageAdapter(facade: opened.facade, transport: try transportWhileLocked())
+        privateMessaging = adapter
         return adapter
     }
 
@@ -159,6 +187,69 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     @objc public func messageSyncInbox(_ call: CAPPluginCall) {
         messageAsync(call, names: []) { try await $0.syncInbox(credentialBinding: $1) }
+    }
+
+    @objc public func privateMessageIssue(_ call: CAPPluginCall) {
+        guard exactOptions(call, ["credentialBinding"]), let binding = call.getString("credentialBinding") else {
+            call.resolve(Self.unavailable); return
+        }
+        do { call.resolve(try privateMessageAdapter().issue(credentialBinding: binding).publish()) }
+        catch { call.resolve(Self.unavailable) }
+    }
+    @objc public func privateMessageReadiness(_ call: CAPPluginCall) {
+        privateMessage(call, names: []) { try $0.readiness(lifecycleVersion: $1) }
+    }
+    @objc public func privateMessageThread(_ call: CAPPluginCall) {
+        privateMessage(call, names: ["peerAccountId"]) { adapter, version in
+            guard let peer = call.getString("peerAccountId") else { throw ResearchPrivateMessageAdapterError.unavailable }
+            return try adapter.thread(lifecycleVersion: version, peerAccountId: peer)
+        }
+    }
+    @objc public func privateMessagePermissions(_ call: CAPPluginCall) {
+        guard let peer = call.getString("peerAccountId") else { call.resolve(Self.unavailable); return }
+        privateMessageAsync(call, names: ["peerAccountId"]) {
+            try await $0.permissions(lifecycleVersion: $1, peerAccountId: peer)
+        }
+    }
+    @objc public func privateMessageInbox(_ call: CAPPluginCall) {
+        privateMessageAsync(call, names: []) { try await $0.inbox(lifecycleVersion: $1) }
+    }
+    @objc public func privateMessageSendText(_ call: CAPPluginCall) {
+        guard let peer = call.getString("peerAccountId"), let id = call.getString("clientMessageId"),
+              let text = call.getString("text") else { call.resolve(Self.unavailable); return }
+        privateMessageAsync(call, names: ["peerAccountId", "clientMessageId", "text"]) {
+            try await $0.sendText(lifecycleVersion: $1, peerAccountId: peer, clientMessageId: id, text: text)
+        }
+    }
+    @objc public func privateMessageRetryPending(_ call: CAPPluginCall) {
+        guard let peer = call.getString("peerAccountId"), let id = call.getString("clientMessageId") else {
+            call.resolve(Self.unavailable); return
+        }
+        privateMessageAsync(call, names: ["peerAccountId", "clientMessageId"]) {
+            try await $0.retryPending(lifecycleVersion: $1, peerAccountId: peer, clientMessageId: id)
+        }
+    }
+
+    private func privateMessage(_ call: CAPPluginCall, names: Set<String>,
+        operation: (ResearchPrivateMessageAdapter, String) throws -> ResearchPrivateMessageResult) {
+        guard exactOptions(call, names.union(["lifecycleVersion"])),
+              let version = call.getString("lifecycleVersion"), version.utf8.count == 36 else {
+            call.resolve(Self.unavailable); return
+        }
+        do { call.resolve(try operation(privateMessageAdapter(), version).publish()) }
+        catch { call.resolve(Self.unavailable) }
+    }
+    private func privateMessageAsync(_ call: CAPPluginCall, names: Set<String>,
+        operation: @escaping (ResearchPrivateMessageAdapter, String) async throws -> ResearchPrivateMessageResult) {
+        guard exactOptions(call, names.union(["lifecycleVersion"])),
+              let version = call.getString("lifecycleVersion"), version.utf8.count == 36,
+              let adapter = try? privateMessageAdapter() else { call.resolve(Self.unavailable); return }
+        Task {
+            do {
+                let result = try await operation(adapter, version)
+                call.resolve(try result.publish())
+            } catch { call.resolve(Self.unavailable) }
+        }
     }
 
     private func message(_ call: CAPPluginCall, names: Set<String>,

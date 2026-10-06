@@ -103,6 +103,7 @@ final class VodozemacDmCoordinator {
         let check: () throws -> Void
         var policy: DmNativeRelayPolicyPermit?
         var initialClaimRequired = false
+        var privateMessagePreparation = false
     }
     private var messageAuthority: MessageAuthority?
     // Permission is short-lived native MEMORY, not a durable enrollment fact.
@@ -267,6 +268,36 @@ final class VodozemacDmCoordinator {
                     return .pairingState(Self.pairingState(state))
                 }
             case .pairingState: return try withState { _, state in .pairingState(Self.pairingState(state)) }
+            case .privateMessagePeer:
+                return try withState { _, state in
+                    let generation = try Self.requireFullPair(context, state)
+                    guard let peer = state.peer, let identity = state.peerIdentity,
+                          let fingerprint = state.peerFingerprint,
+                          identity.userId == peer.userId, identity.deviceId == peer.deviceId else {
+                        throw DmCoordinatorError.unavailable
+                    }
+                    return .privateMessagePeer(DmNativePrivateMessagePeer(accountId: peer.userId,
+                        deviceId: peer.deviceId, fingerprint: fingerprint, generation: generation))
+                }
+            case .privateMessagePermissions:
+                // Missing/expired/denied readiness is a diagnostic refusal,
+                // never an opportunity to accept cached clear policy flags.
+                var canSend = false
+                do { try armReadiness(context, initialClaim: true); canSend = true }
+                catch { /* Final withState still enforces the original owner. */ }
+                return try withState { _, state in
+                    guard let peer = state.peer else { throw DmCoordinatorError.unavailable }
+                    let flags: DmNativeRelayPolicyState?
+                    if let permit = policyPermit,
+                       (try? requirePolicyFacts(permit, context: context, state: state)) != nil {
+                        flags = policyState
+                    } else { flags = nil }
+                    let blockedByMe = peer.status == .blocked || flags?.blockedByMe == true
+                    let blocked = blockedByMe || flags?.blockedByPeer == true
+                    return .privateMessagePermissions(DmNativePrivateMessagePermissions(peerAccountId: peer.userId,
+                        blockedByMe: blockedByMe, blockedEitherDirection: blocked,
+                        canSend: canSend && !blocked))
+                }
             case .relayEnrollmentState:
                 return try withState { _, state in .enrollmentState(try Self.enrollmentState(state)) }
             case .invalidateRelayPolicy:
@@ -420,12 +451,15 @@ final class VodozemacDmCoordinator {
                     let generation = try Self.requireFullPair(context, state)
                     return .thread(Self.thread(state, peerGeneration: generation))
                 }
-            case .prepareText(let id, let text):
+            case .prepareText(let id, let text), .privateMessagePrepareText(let id, let text):
                 // Native text-only/nonblank policy; JS checks are not authority.
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       text.utf8.count <= DmContentCodec.maxTextBytes else { throw DmCoordinatorError.invalidInput }
                 try armReadiness(context, initialClaim: true)
                 let generation = try withState { _, state in try Self.requireFullPair(context, state) }
+                if case .privateMessagePrepareText = operation {
+                    messageAuthority?.privateMessagePreparation = true
+                }
                 let millis = Date().timeIntervalSince1970 * 1000
                 guard millis.isFinite, (1...Double(Self.generationMax)).contains(millis) else {
                     throw DmCoordinatorError.unavailable
@@ -972,6 +1006,15 @@ final class VodozemacDmCoordinator {
         try withState { revision, state in
             let peer = try Self.requirePeer(owner, peerGeneration, state)
             try DmContentCodec.validateIdentifier(clientMessageId)
+            if messageAuthority?.privateMessagePreparation == true {
+                // Check the SAME sealed snapshot used for encryption and CAS.
+                // Another coordinator cannot insert a different pending ID
+                // between a separate preliminary read and this preparation.
+                guard state.outbox.filter({ $0.status == .pending }).allSatisfy({
+                    $0.messageId == clientMessageId && $0.record.ownerSessionGeneration == owner.generation &&
+                    $0.record.recipientIdentityGeneration == peerGeneration
+                }) else { throw DmCoordinatorError.unavailable }
+            }
             guard text.utf8.count <= DmContentCodec.maxTextBytes else { throw DmCoordinatorError.invalidInput }
             if let timestamp = localCreatedAtMillis, !(1...Self.generationMax).contains(timestamp) {
                 throw DmCoordinatorError.invalidInput

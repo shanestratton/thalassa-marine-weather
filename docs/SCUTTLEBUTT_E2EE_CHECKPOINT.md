@@ -1,6 +1,10 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 6 October 2026. Branch: `codex/scuttlebutt-e2ee-foundation`.
+Updated: 6 October 2026. Active branch:
+`codex/scuttlebutt-e2ee-integration-2026-10-06`.
+The published foundation branch remains at `3c30f47c`; it was not rewritten.
+The integration branch was rebased onto master `7e0b27a4`, retaining the newer
+legacy chat initialization, accepted-crew repair and text-selection fixes.
 
 ## Shared-Mac workflow — owner's 1 October rules
 
@@ -38,8 +42,9 @@ a substitute for those checks or a way around a bundled dependency's licence.
 On 6 October, Shane authorized continued E2EE implementation without routine
 questions while away for a week. The heartbeat
 `advance-scuttlebutt-e2ee-while-shane-is-away` resumes this chat every four hours
-through 13 October 2026, Australia/Brisbane. It uses only this isolated worktree
-and branch, with named-file commits and verified coherent pushes. Unchanged
+through 13 October 2026, Australia/Brisbane. Its prompt now names the integration
+branch above and the same isolated worktree. It must not switch back to or rewrite
+the published foundation branch. Use named-file commits and verified coherent pushes. Unchanged
 state does not justify repeating the same tests or status messages.
 
 The order is controlled real-provider crash recovery, an explicit isolated-test
@@ -47,9 +52,9 @@ private-message integration, fail-closed cutover, device/prekey lifecycle and
 recovery policy, then integration evidence and the review packet. Conservative
 implementation choices should be recorded. If a step needs human devices or
 expired account access, continue unrelated unblocked work and retain the gate.
-Before the ordinary private-message port, fetch and rebase this isolated branch
-onto current master, preserving Claude's newer app fixes. Do not merge or push
-master as part of that branch update.
+The integration branch has been rebased onto current master for this slice,
+preserving Claude's newer app fixes. Fetch and reconcile later master changes
+before an eventual merge; this branch update does not merge or push master.
 
 This permission does not authorize master merges/pushes, primary build/sync,
 production deployments, yacht or Shore Watch changes, human Research resets,
@@ -69,7 +74,10 @@ This is an isolated framing/delivery prototype, a real-provider native message
 coordinator, and an isolated device-directory/hosted-relay experiment, **not functioning
 E2EE in Thalassa**. Nothing is wired into live chat.
 The separate research app now has a native messaging plugin and explicit test
-screens. These are not a shipping private-message port. No shipping app dependency,
+screens, including an ordinary text-only private-message view over the same
+native account host. The main-app pilot contract remains injected and disabled
+by default. Production import isolation and all-caller plaintext cutover are
+not complete. These are not a shipping private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
 outside the repository; no third-party library binaries are committed.
@@ -101,6 +109,70 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 6 October ordinary private message integration
+
+The native adapter now issues an opaque, memory-only lifecycle descriptor only
+after actual native account authority and a complete confirmed peer snapshot.
+Account login alone is insufficient. Inbox, local history, current permissions,
+send and exact pending-ID retry all retain the original native owner/full-pair
+checks, including immediately before plugin publication. Native preparation
+enforces one pending outgoing attempt atomically. Exact retries accept no caller
+plaintext and never prepare replacement ciphertext. Known content comparisons
+use exact UTF-8 bytes, not Swift's canonical Unicode equality.
+
+The isolated TypeScript port checks closed DTOs and native readiness before and
+after awaits. It fences stale scopes, reentrant callbacks, mutable request aliases
+and subscriber results. An explicit Research screen uses that port and the existing
+single account host; it imports no production chat, persisted SDK or offline queue.
+Explicit thread refresh performs one native inbox scan, then reads authenticated
+local history. A refused scan retains local history with the visible notice
+“Local history shown. New replies could not be checked.” Sends, retries and local
+events do not implicitly scan. Hidden/closed views clear displayed text and drafts.
+The native scene also adds an opaque non-sensitive cover synchronously while
+inactive. Static source tests and compilation do not establish actual device
+snapshot ordering or memory erasure.
+
+Pilot DTOs preserve unavailable text, unknown incoming times, direction-scoped
+message IDs, pending native attempts and accurate terminal outcomes. Mixed incoming
+and outgoing native history has no trustworthy cross-lane chronology, so its inbox
+preview/time is null rather than fabricated. The legacy DM types remain unchanged.
+The app hook still has production imports outside its selected pilot branch; the
+next extraction must separate both its hook and rendering dependency graph.
+
+The full Research configuration passed **1,193 tests in 18 suites**, including
+five static scene-cover contracts. The separate app pilot configuration passed
+**240 tests in eight suites**; focused strict TypeScript passed. Configurations
+overlap, and screen/SDK/native-binding fixtures do not prove a live encrypted app
+exchange. The new native adapter passed **363 assertions** using real provider,
+Keychain and sealed SQLite with synthetic Auth and scoped relay responses.
+All ten disposable-simulator phases completed. The separate legacy client also
+committed four encrypted HTTPS/local-SQL messages and four terminal decisions
+across processes; that is not the new ordinary adapter against hosted accounts.
+All 31 native proof inputs still match their receipt hashes, and the owned
+simulator was removed.
+
+The exact Research web assets and an **unsigned physical-iOS application** with
+18 Swift inputs compiled. No signing, installation, launch or physical execution
+occurred. Cached provider/framework artifacts were matched to a prior completed
+unsigned build; there was no fresh Rust build or independent binary attestation.
+The [integration manifest](../experiments/scuttlebutt-e2ee/review/private-message-integration-2026-10-06.json)
+records source, artifacts, receipts, logs, evidence categories and failed attempts.
+Native harness compilation initially failed after a return-tuple change. Two later
+runs exceeded the harness prepare deadline; PM fixtures were split into their own
+phase and the existing regression phase received a 600-second harness bound.
+Native Auth, five-second policy permission and transport bounds were not relaxed.
+The retained TypeScript failures concern union narrowing, missing jsdom setup, an
+unregistered matcher and a redundant narrowed visibility comparison; corrected
+runs passed.
+
+No human Research state, hosted service, production database, primary build/sync
+or master deployment changed. The human devices still carry candidate `0cde17c2`.
+Next: isolate the main-app pilot import graph and explicit mode selection, then
+cover every legacy send/read/subscription/queue path before activation. Durable
+inbox progress/retention, device/prekey lifecycle and recovery, actual Capacitor
+PM exchange, physical acceptance, independent PostgreSQL concurrency, dependency
+obligations and independent external review remain open release gates.
 
 ### 6 October controlled native process death at sealed store boundaries
 
@@ -156,8 +228,9 @@ All 18 fixture namespaces, the owned simulator and the exact build slot were
 cleaned up. No human device, hosted database, network operation, primary sync
 or production change occurred. Physical lock/background, power loss, backup
 rollback, actual account lifecycle, independent PostgreSQL concurrency and
-external security review remain separate gates. Next is updating the branch
-against master and implementing the isolated-test private-message integration.
+external security review remain separate gates. The ordinary-PM integration
+above is a later source candidate; it does not retroactively extend this crash
+receipt to every new UI/plugin path.
 
 ### 5 October isolated native regression and recorded source hashes
 
@@ -2455,12 +2528,13 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: connect the native coordinator and this relay experiment through a reviewed
-authenticated account/device lifecycle, including native public bundle signing
-and request-origin binding. Then test the off-by-default adapter and lock/crash
-behaviour on real phones. The injected-auth SQL proof is not live authenticated
-transport. The synthetic single-prekey fixture is not
-a production registration or replenishment design. No new
+Next: extract the main-app native pilot hook and view away from production import
+side effects, preserving explicit native-unavailable mode without a legacy fallback.
+Then implement the all-caller send/read/queue cutover, durable inbox progress and
+retention, and an explicit device/prekey lifecycle and recovery policy. The ordinary
+Research port is not the shipping integration or a complete physical acceptance
+pass. The injected-auth SQL proof is not live authenticated transport. The synthetic
+single-prekey fixture is not a production registration or replenishment design. No new
 Supabase schema should inherit Signal/Kyber bundle fields from the earlier relay
 notes. Single-device pilot first; existing app messages remain untouched. Use
 the reproduction instructions in `experiments/scuttlebutt-e2ee/vodozemac-probe/README.md`.

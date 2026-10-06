@@ -67,11 +67,15 @@ struct DmScopedEnrollmentScript {
     let gate: DmScopedEnrollmentGate?
     let policyState: DmNativeRelayPolicyState?
     let policyFault: DmScopedEnrollmentPolicyFault?
+    let echoSendAccepted: Bool?
+    let sendSigningKey: String?
     init(path: String, result: Data = Data(), loseAfterBody: Bool = false, gate: DmScopedEnrollmentGate? = nil,
-         policyState: DmNativeRelayPolicyState? = nil, policyFault: DmScopedEnrollmentPolicyFault? = nil) {
+         policyState: DmNativeRelayPolicyState? = nil, policyFault: DmScopedEnrollmentPolicyFault? = nil,
+         echoSendAccepted: Bool? = nil, sendSigningKey: String? = nil) {
         self.path = path; self.result = result; self.loseAfterBody = loseAfterBody; self.gate = gate
         self.policyState = policyState
         self.policyFault = policyFault
+        self.echoSendAccepted = echoSendAccepted; self.sendSigningKey = sendSigningKey
     }
 }
 struct DmScopedEnrollmentCapture {
@@ -179,6 +183,18 @@ final class DmScopedEnrollmentProtocol: URLProtocol, @unchecked Sendable {
                         duplicate.append(contentsOf: encoded.dropFirst())
                         result = duplicate // Same value twice; no unrelated echo mismatch.
                     } else { result = encoded }
+                } else if let accepted = script.echoSendAccepted {
+                    // Synthetic relay receipt derives ONLY from the submitted
+                    // canonical signed request. No fixture coordinator or
+                    // native record/capability callback enters URLProtocol.
+                    let record = try dmScopedEnrollmentSendRecord(capturedBody,
+                        authenticatedUserId: user, signingKey: script.sendSigningKey)
+                    guard var fields = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any] else {
+                        fail(); return
+                    }
+                    fields["accepted"] = accepted
+                    if !accepted { fields["reason"] = "blocked" }
+                    result = try dmScopedEnrollmentJSON(fields)
                 } else { result = script.result }
                 respond(result, url: url, loseAfterBody: script.loseAfterBody)
             } catch { fail() }
@@ -220,6 +236,34 @@ struct DmScopedEnrollmentFrame: Decodable {
         case version, userId, deviceId, action, requestId, expiresAt, payload, signature
         case protocolName = "protocol"
     }
+}
+
+/// Fixture verification of the exact captured wire, independent of native
+/// receipt application. Public signing keys are optional synthetic inputs.
+func dmScopedEnrollmentSendRecord(_ body: Data, authenticatedUserId: String,
+                                  signingKey: String? = nil) throws -> DmOutboxRecord {
+    let frame = try JSONDecoder().decode(DmScopedEnrollmentFrame.self, from: body)
+    let record = try JSONDecoder().decode(DmOutboxRecord.self, from: Data(frame.payload.utf8))
+    let envelope = try DmEnvelope.decode(record.serializedEnvelope)
+    let owner = DmOwnerContext(userId: frame.userId, deviceId: frame.deviceId, generation: record.ownerSessionGeneration)
+    guard frame.version == 1, frame.protocolName == "olm-v1", frame.action == "send",
+          frame.userId == authenticatedUserId, record.ownerUserId == authenticatedUserId,
+          record.ownerUserId != record.recipientUserId, envelope.senderDeviceId == frame.deviceId,
+          envelope.recipientDeviceId != frame.deviceId,
+          try DmRelayCodec.outboxWire(record).utf8.elementsEqual(frame.payload.utf8),
+          try DmRelayCodec.requestWire(owner: owner, action: frame.action, requestId: frame.requestId,
+            expiresAt: frame.expiresAt, payload: frame.payload, signature: frame.signature).utf8.elementsEqual(body) else {
+        throw DmScopedEnrollmentProbeError.assertion("synthetic send receipt requires exact canonical signed owned record")
+    }
+    if let signingKey {
+        let key = try Curve25519.Signing.PublicKey(rawRepresentation: DmRelayCodec.keyBytes(signingKey))
+        guard key.isValidSignature(try DmRelayCodec.keyBytes(frame.signature, count: 64),
+            for: try DmRelayCodec.requestSigningBytes(owner: owner, action: frame.action,
+                requestId: frame.requestId, expiresAt: frame.expiresAt, payload: frame.payload)) else {
+            throw DmScopedEnrollmentProbeError.assertion("synthetic send receipt independently verifies public-key signature")
+        }
+    }
+    return record
 }
 
 private func dmScopedEnrollmentConfiguration() -> URLSessionConfiguration {

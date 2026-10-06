@@ -7,6 +7,7 @@ import {
     type NativePrivateMessageAuthority,
     type NativePrivateMessageEvent,
     type NativePrivateMessageResult,
+    type NativePrivateMessageThread,
     type NativePrivateTextMessage,
     type PrivateMessageNativePort,
 } from '../services/chat/e2ee/privateMessagePilot';
@@ -22,16 +23,36 @@ const authority: NativePrivateMessageAuthority = {
     serverVerified: true,
 };
 const message: NativePrivateTextMessage = {
-    id,
+    id: `outgoing:${id}`,
+    clientMessageId: id,
+    direction: 'outgoing',
     senderAccountId: account,
     recipientAccountId: peer,
     senderName: 'You',
     text: 'Fixture text',
-    createdAt: '2026-10-02T00:00:00.000Z',
-    read: true,
+    localCreatedAtMillis: 1790899200000,
+    read: false,
     delivery: 'server_accepted',
+    reason: null,
 };
-const permissions = { peerAccountId: peer, blockedByMe: false, blockedEitherDirection: false, canSend: true };
+const permissions = {
+    peerAccountId: peer,
+    blockedByMe: false,
+    blockedEitherDirection: false,
+    canSend: true,
+    reason: null,
+};
+const nativeThread = (
+    messages: NativePrivateTextMessage[] = [],
+    overrides: Partial<NativePrivateMessageThread> = {},
+): NativePrivateMessageThread => ({
+    peerAccountId: peer,
+    messages,
+    permissions,
+    unresolvedCount: 0,
+    pendingAttemptId: null,
+    ...overrides,
+});
 const ok = <T>(value: T): NativePrivateMessageResult<T> => ({ status: 'ok', authority, value });
 function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -51,16 +72,18 @@ function fixturePort() {
         getInbox: vi.fn(async () =>
             ok([
                 {
-                    user_id: peer,
-                    display_name: 'Paired fixture',
-                    last_message: '',
-                    last_at: message.createdAt,
-                    unread_count: 0,
+                    peerAccountId: peer,
+                    displayName: 'Paired sailor' as const,
+                    lastText: null,
+                    lastLocalCreatedAtMillis: null,
+                    unreadCount: 0 as const,
+                    historyAvailable: true,
                 },
             ]),
         ),
-        getThread: vi.fn(async () => ok({ messages: [message], ...permissions })),
+        getThread: vi.fn(async () => ok(nativeThread([message]))),
         sendText: vi.fn(async () => ok(message)),
+        retryPending: vi.fn(async () => ok(message)),
         getBlockStatus: vi.fn(async () => ok(permissions)),
         setBlocked: vi.fn(async () => ok(permissions)),
         subscribe: vi.fn(
@@ -89,6 +112,132 @@ describe('private message screen adapter — explicit native port fixtures, not 
         expect(port.readiness).toHaveBeenCalledTimes(2);
         expect((await runtime.getInbox(getAuthIdentityScope())).status).toBe('ok');
     });
+    it('preserves unknown native text, local time and read status without inventing legacy metadata', async () => {
+        const port = fixturePort();
+        port.getThread.mockResolvedValue(ok(nativeThread([{ ...message, text: null, localCreatedAtMillis: null }])));
+        const runtime = createPrivateMessagePilotRuntime(port);
+        const thread = await runtime.getThread(getAuthIdentityScope(), peer);
+        expect(thread.status).toBe('ok');
+        if (thread.status === 'ok') {
+            expect(thread.value.messages[0]).toEqual({
+                kind: 'native-pilot',
+                id: `outgoing:${id}`,
+                clientMessageId: id,
+                direction: 'outgoing',
+                sender_id: account,
+                recipient_id: peer,
+                sender_name: 'You',
+                message: null,
+                created_at: null,
+                localCreatedAtMillis: null,
+                read: false,
+                delivery: 'server_accepted',
+                reason: null,
+            });
+            expect(thread.value.unresolvedCount).toBe(0);
+            expect(thread.value.pendingAttemptId).toBeNull();
+        }
+        const inbox = await runtime.getInbox(getAuthIdentityScope());
+        expect(inbox.status).toBe('ok');
+        if (inbox.status === 'ok') {
+            expect(inbox.value[0]).toEqual({
+                kind: 'native-pilot',
+                user_id: peer,
+                display_name: 'Paired sailor',
+                last_message: null,
+                last_at: null,
+                unread_count: 0,
+                historyAvailable: true,
+            });
+        }
+    });
+    it.each([
+        { ...message, read: true },
+        { ...message, localCreatedAtMillis: '2026-10-02T00:00:00.000Z' },
+        { ...message, createdAt: '2026-10-02T00:00:00.000Z' },
+        { ...message, senderName: 'Unverified profile name' },
+        { ...message, id },
+        { ...message, direction: 'incoming' },
+    ])('refuses fabricated or legacy message metadata (%j)', async (unsupported) => {
+        const port = fixturePort();
+        port.getThread.mockResolvedValue(ok(nativeThread([unsupported as NativePrivateTextMessage])));
+        expect(await createPrivateMessagePilotRuntime(port).getThread(getAuthIdentityScope(), peer)).toEqual({
+            status: 'unavailable',
+            reason: 'unavailable',
+        });
+    });
+    it('keeps incoming and outgoing messages with the same client UUID as distinct directional records', async () => {
+        const port = fixturePort();
+        const incoming: NativePrivateTextMessage = {
+            ...message,
+            id: `incoming:${id}`,
+            direction: 'incoming',
+            senderAccountId: peer,
+            recipientAccountId: account,
+            senderName: 'Paired sailor',
+            text: 'Incoming with colliding client UUID',
+            localCreatedAtMillis: null,
+            delivery: 'received',
+        };
+        port.getThread.mockResolvedValue(ok(nativeThread([message, incoming])));
+        const result = await createPrivateMessagePilotRuntime(port).getThread(getAuthIdentityScope(), peer);
+        expect(result.status).toBe('ok');
+        if (result.status === 'ok') {
+            expect(result.value.messages.map((item) => item.id)).toEqual([`outgoing:${id}`, `incoming:${id}`]);
+            expect(result.value.messages.map((item) => item.clientMessageId)).toEqual([id, id]);
+        }
+    });
+    it.each([0, Number.MAX_SAFE_INTEGER])(
+        'preserves native local milliseconds %s and only renders representable dates',
+        async (millis) => {
+            const port = fixturePort();
+            port.getThread.mockResolvedValue(ok(nativeThread([{ ...message, localCreatedAtMillis: millis }])));
+            const result = await createPrivateMessagePilotRuntime(port).getThread(getAuthIdentityScope(), peer);
+            expect(result.status).toBe('ok');
+            if (result.status === 'ok') {
+                expect(result.value.messages[0].localCreatedAtMillis).toBe(millis);
+                expect(result.value.messages[0].created_at).toBe(millis === 0 ? '1970-01-01T00:00:00.000Z' : null);
+            }
+        },
+    );
+    it('refuses multiple native pending slots rather than choosing a retry target', async () => {
+        const port = fixturePort();
+        port.getThread.mockResolvedValue(
+            ok(
+                nativeThread(
+                    [
+                        { ...message, delivery: 'pending' },
+                        { ...message, id: `outgoing:${device}`, clientMessageId: device, delivery: 'pending' },
+                    ],
+                    { pendingAttemptId: id },
+                ),
+            ),
+        );
+        expect(await createPrivateMessagePilotRuntime(port).getThread(getAuthIdentityScope(), peer)).toEqual({
+            status: 'unavailable',
+            reason: 'unavailable',
+        });
+        expect(port.retryPending).not.toHaveBeenCalled();
+    });
+    it('refuses a fabricated native unread count', async () => {
+        const port = fixturePort();
+        port.getInbox.mockResolvedValue(
+            ok([
+                {
+                    peerAccountId: peer,
+                    displayName: 'Paired sailor',
+                    lastText: null,
+                    lastLocalCreatedAtMillis: null,
+                    unreadCount: 1,
+                    historyAvailable: false,
+                },
+            ]) as never,
+        );
+        expect(await createPrivateMessagePilotRuntime(port).getInbox(getAuthIdentityScope())).toEqual({
+            status: 'unavailable',
+            reason: 'unavailable',
+        });
+    });
     it.each([
         { ...authority, serverVerified: false },
         { ...authority, accountId: peer },
@@ -113,7 +262,7 @@ describe('private message screen adapter — explicit native port fixtures, not 
         const port = fixturePort();
         port.getThread.mockResolvedValue({
             status: 'ok',
-            value: { messages: [message], ...permissions },
+            value: nativeThread([message]),
             authority: { ...authority, lifecycleVersion: 'old-epoch' },
         });
         expect(await createPrivateMessagePilotRuntime(port).getThread(getAuthIdentityScope(), peer)).toEqual({
@@ -178,7 +327,7 @@ describe('private message screen adapter — explicit native port fixtures, not 
                     blockedByMe: true,
                     blockedEitherDirection: true,
                     canSend: false,
-                    reason: 'blocked',
+                    reason: 'unavailable',
                 },
             } as never;
         });
@@ -212,7 +361,7 @@ describe('private message screen adapter — explicit native port fixtures, not 
             getAuthIdentityScope(),
             peer,
             id,
-            message.text,
+            message.text!,
         );
         expect(port.sendText).toHaveBeenCalledWith({
             authority,
@@ -221,12 +370,41 @@ describe('private message screen adapter — explicit native port fixtures, not 
             text: message.text,
         });
         expect(result.status).toBe('ok');
-        if (result.status === 'ok') expect(result.value.delivery_status).toBe('sending');
-        port.sendText.mockResolvedValue(ok({ ...message, id: device }));
+        if (result.status === 'ok') expect(result.value.delivery).toBe('pending');
+        port.sendText.mockResolvedValue(ok({ ...message, id: `outgoing:${device}`, clientMessageId: device }));
         expect(
-            (await createPrivateMessagePilotRuntime(port).sendText(getAuthIdentityScope(), peer, id, message.text))
+            (await createPrivateMessagePilotRuntime(port).sendText(getAuthIdentityScope(), peer, id, message.text!))
                 .status,
         ).toBe('unavailable');
+        port.sendText.mockResolvedValue(ok({ ...message, text: null }));
+        expect(
+            (await createPrivateMessagePilotRuntime(port).sendText(getAuthIdentityScope(), peer, id, message.text!))
+                .status,
+        ).toBe('unavailable');
+    });
+    it('retries only the exact native pending ID without a plaintext argument or a fabricated echo', async () => {
+        const port = fixturePort();
+        port.retryPending.mockResolvedValue(ok({ ...message, text: null, localCreatedAtMillis: null }));
+        const runtime = createPrivateMessagePilotRuntime(port);
+        const result = await runtime.retryPending(getAuthIdentityScope(), peer, id);
+        expect(port.retryPending).toHaveBeenCalledExactlyOnceWith({
+            authority,
+            peerAccountId: peer,
+            clientMessageId: id,
+        });
+        expect(port.sendText).not.toHaveBeenCalled();
+        expect(result.status).toBe('ok');
+        if (result.status === 'ok')
+            expect(result.value).toMatchObject({
+                id: `outgoing:${id}`,
+                clientMessageId: id,
+                message: null,
+                created_at: null,
+                read: false,
+                delivery: 'server_accepted',
+            });
+        port.retryPending.mockResolvedValue(ok({ ...message, id: `outgoing:${device}`, clientMessageId: device }));
+        expect((await runtime.retryPending(getAuthIdentityScope(), peer, id)).status).toBe('unavailable');
     });
     it('stops a late native subscription handle after disposal without delivering queued events', async () => {
         const port = fixturePort();
@@ -285,8 +463,10 @@ describe('private message screen adapter — explicit native port fixtures, not 
         newer.resolve({ status: 'ready', authority, supportedContent: ['text'] });
         await flushMicrotasks();
         expect(listener).toHaveBeenCalledTimes(1);
-        expect(listener.mock.calls[0][0]).toMatchObject({ status: 'ok', value: { id, read: true } });
-        expect(listener.mock.calls[0][0].value.delivery_status).toBeUndefined();
+        expect(listener.mock.calls[0][0]).toMatchObject({
+            status: 'ok',
+            value: { id: `outgoing:${id}`, read: false, delivery: 'server_accepted' },
+        });
         older.resolve({ status: 'ready', authority, supportedContent: ['text'] });
         await flushMicrotasks();
         expect(listener).toHaveBeenCalledTimes(1);
@@ -307,13 +487,51 @@ describe('private message screen adapter — explicit native port fixtures, not 
         const second = deferred<Awaited<ReturnType<typeof port.readiness>>>();
         port.readiness.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
         nativeListener(ok(message));
-        nativeListener(ok({ ...message, id: device, text: 'Second fixture message' }));
+        nativeListener(
+            ok({ ...message, id: `outgoing:${device}`, clientMessageId: device, text: 'Second fixture message' }),
+        );
         second.resolve({ status: 'ready', authority, supportedContent: ['text'] });
         await flushMicrotasks();
         first.resolve({ status: 'ready', authority, supportedContent: ['text'] });
         await flushMicrotasks();
         expect(listener).toHaveBeenCalledTimes(2);
-        expect(listener.mock.calls.map(([event]) => event.value.id)).toEqual([device, id]);
+        expect(listener.mock.calls.map(([event]) => event.value.id)).toEqual([`outgoing:${device}`, `outgoing:${id}`]);
+        stop();
+    });
+    it('does not conflate opposite directions sharing a client UUID when event checks complete backwards', async () => {
+        const port = fixturePort();
+        const listener = vi.fn();
+        let nativeListener!: (event: NativePrivateMessageEvent) => void;
+        port.subscribe.mockImplementation(async (_request, receive) => {
+            nativeListener = receive;
+            return vi.fn<() => void>();
+        });
+        const stop = createPrivateMessagePilotRuntime(port).subscribe(getAuthIdentityScope(), listener);
+        await vi.waitFor(() => expect(listener).toHaveBeenCalledWith({ status: 'ready' }));
+        listener.mockClear();
+        const outgoing = deferred<Awaited<ReturnType<typeof port.readiness>>>();
+        const incoming = deferred<Awaited<ReturnType<typeof port.readiness>>>();
+        port.readiness.mockReturnValueOnce(outgoing.promise).mockReturnValueOnce(incoming.promise);
+        nativeListener(ok(message));
+        nativeListener(
+            ok({
+                ...message,
+                id: `incoming:${id}`,
+                direction: 'incoming',
+                senderAccountId: peer,
+                recipientAccountId: account,
+                senderName: 'Paired sailor',
+                text: 'Opposite direction fixture',
+                localCreatedAtMillis: null,
+                delivery: 'received',
+            }),
+        );
+        incoming.resolve({ status: 'ready', authority, supportedContent: ['text'] });
+        await flushMicrotasks();
+        outgoing.resolve({ status: 'ready', authority, supportedContent: ['text'] });
+        await flushMicrotasks();
+        expect(listener).toHaveBeenCalledTimes(2);
+        expect(listener.mock.calls.map(([event]) => event.value.id)).toEqual([`incoming:${id}`, `outgoing:${id}`]);
         stop();
     });
     it('still fences a superseded event check when it discovers current native authority is unavailable', async () => {
@@ -382,6 +600,55 @@ describe('private message screen adapter — explicit native port fixtures, not 
         expect(listener).toHaveBeenCalledTimes(1);
         stop();
     });
+    it.each([
+        {
+            field: 'text',
+            known: message,
+            unknown: { ...message, text: null },
+            conflict: { ...message, text: 'Conflicting plaintext after an unknown echo' },
+        },
+        {
+            field: 'local timestamp',
+            known: message,
+            unknown: { ...message, localCreatedAtMillis: null },
+            conflict: { ...message, localCreatedAtMillis: message.localCreatedAtMillis! + 1000 },
+        },
+        {
+            field: 'raw timestamp outside the Date range',
+            known: { ...message, localCreatedAtMillis: Number.MAX_SAFE_INTEGER },
+            unknown: { ...message, localCreatedAtMillis: null },
+            conflict: { ...message, localCreatedAtMillis: Number.MAX_SAFE_INTEGER - 1 },
+        },
+    ])(
+        'remembers known $field through an unknown echo and refuses conflicting same-ID metadata',
+        async ({ known, unknown, conflict }) => {
+            const port = fixturePort();
+            const listener = vi.fn();
+            let nativeListener!: (event: NativePrivateMessageEvent) => void;
+            port.subscribe.mockImplementation(async (_request, receive) => {
+                nativeListener = receive;
+                return vi.fn<() => void>();
+            });
+            const stop = createPrivateMessagePilotRuntime(port).subscribe(getAuthIdentityScope(), listener);
+            await vi.waitFor(() => expect(listener).toHaveBeenCalledWith({ status: 'ready' }));
+            listener.mockClear();
+            nativeListener(ok(known));
+            await flushMicrotasks();
+            nativeListener(ok(unknown));
+            await flushMicrotasks();
+            expect(listener).toHaveBeenCalledTimes(2);
+            expect(listener.mock.lastCall?.[0]).toMatchObject({
+                status: 'ok',
+                value: { message: unknown.text, localCreatedAtMillis: unknown.localCreatedAtMillis },
+            });
+            if (unknown.localCreatedAtMillis === null) expect(listener.mock.lastCall?.[0].value.created_at).toBeNull();
+            nativeListener(ok(conflict));
+            await flushMicrotasks();
+            expect(listener).toHaveBeenCalledTimes(3);
+            expect(listener.mock.lastCall?.[0]).toEqual({ status: 'unavailable', reason: 'unavailable' });
+            stop();
+        },
+    );
     it('bounds outstanding readiness work and closes overload rather than queueing more plaintext', async () => {
         const port = fixturePort();
         const listener = vi.fn();

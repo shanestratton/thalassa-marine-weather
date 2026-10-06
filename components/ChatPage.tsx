@@ -192,18 +192,7 @@ const PrivateMessagePilotPage: React.FC<{ runtime: PrivateMessagePilotRuntime; o
                 <p className="text-base font-bold">
                     {view === 'dm_thread' ? dm.dmPartner?.name : 'Private message test'}
                 </p>
-                {view === 'dm_thread' ? (
-                    <button
-                        type="button"
-                        className="min-h-[44px] text-white/70"
-                        disabled={dm.blockStatusLoading || dm.blockMutationPending}
-                        onClick={() => dm.setShowBlockConfirm(true)}
-                    >
-                        {dm.blockedByMe ? 'Unblock' : 'Block'}
-                    </button>
-                ) : (
-                    <span />
-                )}
+                <span />
             </div>
             <PrivateMessagePilotNotice statusText={dm.pilotStatusText} />
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -240,6 +229,21 @@ const PrivateMessagePilotPage: React.FC<{ runtime: PrivateMessagePilotRuntime; o
             </div>
             {view === 'dm_thread' && (
                 <>
+                    {dm.pilotUnresolvedCount > 0 && !loading && (
+                        <p className="mx-4 text-sm text-white/60" role="status">
+                            {dm.pilotUnresolvedCount} native message records are unavailable.
+                        </p>
+                    )}
+                    {dm.pilotPendingAttemptId && !loading && (
+                        <button
+                            type="button"
+                            onClick={() => void dm.retryPilotPendingMessage()}
+                            disabled={dm.pilotRetryDisabled}
+                            className="mx-4 min-h-[44px] text-sky-200 disabled:text-white/40"
+                        >
+                            Retry pending message
+                        </button>
+                    )}
                     {dm.pilotStatusText && !loading && (
                         <button
                             type="button"
@@ -260,7 +264,7 @@ const PrivateMessagePilotPage: React.FC<{ runtime: PrivateMessagePilotRuntime; o
                         blockStatusError={dm.blockStatusError}
                         blockMutationPending={dm.blockMutationPending}
                         onRetryBlockStatus={dm.retryBlockStatus}
-                        showBlockConfirm={dm.showBlockConfirm}
+                        showBlockConfirm={false}
                         setShowBlockConfirm={dm.setShowBlockConfirm}
                         onSendDM={dm.sendDMMessage}
                         onBlock={dm.handleBlockUser}

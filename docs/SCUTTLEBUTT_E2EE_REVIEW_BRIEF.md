@@ -49,6 +49,36 @@ failure and the exact build/signing/update receipts. No private data contents
 were inspected, no reset or re-enrollment occurred, and no primary build/sync,
 production or server changes accompanied the update.
 
+## Current integration candidate
+
+The active development branch is `codex/scuttlebutt-e2ee-integration-2026-10-06`,
+rebased onto master `7e0b27a4` without rewriting the published foundation branch.
+The new ordinary text-only native port shares the existing Research Auth host,
+requires a complete confirmed native peer snapshot, and preserves original-owner
+publication checks. Its explicit screen performs one bounded scan on Refresh,
+retains authenticated local history with a clear notice when the scan refuses,
+and retries exact native pending IDs without caller plaintext or replacement
+ciphertext. Unknown content/time and terminal decisions remain honest. No new
+code was installed on the human devices.
+
+The [integration manifest](../experiments/scuttlebutt-e2ee/review/private-message-integration-2026-10-06.json)
+records 363 new native adapter fixture assertions, ten completed simulator phases,
+1,193 Research tests in 18 suites, 240 overlapping app-pilot tests in eight suites,
+focused strict TypeScript and the separate web/unsigned physical-iOS build. Native
+adapter fixtures use real provider/Keychain/sealed storage with synthetic Auth
+and relay; the four-message real HTTPS/local-SQL exchange remains a separate
+legacy-client path. Five privacy-cover tests inspect Swift source only. Native
+cover compilation is not actual app-switcher/device-snapshot evidence. Retained
+compiler, harness-deadline and TypeScript failures remain in the manifest.
+
+The main-app pilot still has production import side effects in its shared hook
+and view. Both must be extracted before a native-selected failure can be treated
+as an isolated app mode. Every other plaintext DM caller and queued replay must
+then share an explicit cutover policy. The fixed 16-outgoing/16-incoming budgets,
+scan-from-zero cursor and immutable one-device/prekey registration are research
+limits, not production retention, renewal or recovery policies. No review or
+release gate is completed by this integration slice.
+
 ## User problem and intended pilot
 
 Private DM content should be readable only at the intended endpoints, with ciphertext and public device material relayed by the service. An uncertain send must retry the same committed ciphertext; authentication, identity, storage or delivery failures must stop protected messaging visibly. Existing server-readable history must retain its accurate status.
@@ -168,6 +198,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.
 - [5 October regression manifest](../experiments/scuttlebutt-e2ee/review/regression-2026-10-05.json), with exact source and cached-input hashes and separately labelled fixture, local HTTPS/SQL and mocked-screen results. It contains no credentials or private message content. Local temporary receipts are references, not a portable complete audit packet; reproduce or preserve them in the assessor's restricted environment.
 - [6 October crash regression manifest](../experiments/scuttlebutt-e2ee/review/crash-regression-2026-10-06.json) and [local runner](../experiments/scuttlebutt-e2ee/sealedCrashProof.mjs), covering 18 direct-provider/store process-death cases with the test-only callback and sealed baseline ledger. Keys, pickles, plaintext baselines and original envelopes never enter its public receipts.
+- [6 October private-message integration manifest](../experiments/scuttlebutt-e2ee/review/private-message-integration-2026-10-06.json), [native adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift), [port](../experiments/scuttlebutt-e2ee/bridge-web/privateMessagePort.ts) and [literal view](../experiments/scuttlebutt-e2ee/bridge-web/privateMessageView.ts). Review native issuance/publication, JS reentrancy/alias fences, exact-ID recovery, explicit receive refresh and the inactive-scene cover separately from the older device candidate.
 
 Retain machine-readable run receipts, sanitized assertion summaries and reproducible failure instructions. Record each evidence item's exact source/build hash and fixture/live/device category. The simulator cleanup and recorded hashes establish only the stated run; they do not independently attest binary provenance. Never replace a failed attempt with a later pass without retaining its outcome and understood limits.
 
