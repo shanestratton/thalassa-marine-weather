@@ -41,6 +41,16 @@ export interface BoatFix {
     /** Speed and course when the lane carries them (the cloud row does). */
     sogKts?: number | null;
     cogDeg?: number | null;
+    /**
+     * When the receiver sampled the position, when the lane says (the cloud
+     * row's position_at). `timestamp` stays the row's report time, which every
+     * existing gate reads; a Pi republishing an old fix keeps reporting, so a
+     * display that calls a position live should date it by this instead.
+     */
+    positionAt?: number | null;
+    /** The boat's qualified true heading and its own sample time, when the lane carries them. */
+    headingTrueDeg?: number | null;
+    headingTrueAt?: number | null;
 }
 
 /** Rung a: the bus, straight off the gateway. */
@@ -152,6 +162,9 @@ export async function cloudFix(now = Date.now(), owner?: 'self' | string): Promi
             source: 'pi-cloud',
             sogKts: t.snapshot.sogKts,
             cogDeg: t.snapshot.cogDeg,
+            positionAt: t.snapshot.positionSampleAt ?? null,
+            headingTrueDeg: t.snapshot.headingTrueDeg ?? null,
+            headingTrueAt: t.snapshot.headingTrueAt ?? null,
         };
     } catch {
         return null;

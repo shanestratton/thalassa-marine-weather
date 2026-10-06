@@ -2502,6 +2502,13 @@ body,
     box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
 }
 
+/* The phone's last known position, not a live one: grey and still. */
+.loc-dot.loc-dot--last {
+    background: #94a3b8;
+    animation: none;
+    box-shadow: none;
+}
+
 /* Vessel Tracker — GPS position layer */
 @keyframes vesselPulse {
     0%,

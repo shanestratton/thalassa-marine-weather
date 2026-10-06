@@ -40,7 +40,8 @@ import { MapBaseSelector, mapBaseVisibility, type MapBaseKind } from './MapBaseS
 import { seaBaseLayers, setReliefPalette } from './reliefBase';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
-import { OBS_VESSEL_ZOOM, obsStartTarget, useObsStartupCamera } from './useObsStartupCamera';
+import { OBS_VESSEL_ZOOM, obsStartTarget, useObsStartupCamera, useWeatherFollowKey } from './useObsStartupCamera';
+import { phoneDotWanted } from './useLocationDot';
 import { locateOnObs, obsLocateSubject, useObsCentreNoticeWatch, type ObsBoatNames } from './obsCentre';
 import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
 import { useCrewingBoat } from '../../hooks/useCrewingBoat';
@@ -2724,9 +2725,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         onMapLongPress: createTracerMapLongPressHandler(tracerMapGestureDeps),
     });
 
-    // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
-    useLocationDot(mapRef, locationDotRef, mapReady && !planningSurface && !effectiveVesselTrackingVisible);
-
     // Centre where the location box points: a chosen place, else what the
     // box follows (Shane 2026-10-06): the boat from her own chain, never the
     // phone; the phone from its GPS, never the boat. Once per box; the first
@@ -2750,8 +2748,28 @@ export const MapHub: React.FC<MapHubProps> = ({
     // components/map/usePiTileAutoCache.ts.
     usePiTileAutoCache({ weatherCoords, embedded, pickerMode, isPinView });
 
-    // ── GPS Vessel Tracker Layer ──
-    useVesselTracker(mapRef, mapReady, effectiveVesselTrackingVisible && !planningSurface);
+    // ── Own ship: the boat, from the chain the camera centres on (ownshipBoatFix) ──
+    // It asks her Pi and her cloud row only while Obs is on screen.
+    const ownship = useVesselTracker(mapRef, mapReady, effectiveVesselTrackingVisible && !planningSurface, {
+        names: obsBoatNames,
+        lookUp: obsShowing,
+    });
+
+    // ── The phone's own dot: Current Location only, while the marker is a boat ──
+    // The marker never stands in for the phone, so the box's phone needs a
+    // mark of its own where the chart centres; hidden while it is aboard her.
+    const followKey = useWeatherFollowKey();
+    useLocationDot(
+        mapRef,
+        locationDotRef,
+        mapReady,
+        phoneDotWanted({
+            obsShowing: obsShowing && !planningSurface,
+            boxFollows: obsStart.kind === 'follow',
+            followTarget: followKey === 'phone' ? 'phone' : followKey.startsWith('crew') ? 'crew' : 'boat',
+            markerSubject: ownship.subject,
+        }),
+    );
 
     // ── Picker Mode ──
     usePickerMode(mapRef, pinMarkerRef, pickerMode, onLocationSelect);

@@ -80,15 +80,30 @@ function isFreshMetric(metric: OwnshipMetric | undefined, now: number, maxAgeMs:
     return age >= -MAX_FUTURE_SKEW_MS && age <= maxAgeMs;
 }
 
+/**
+ * A movement reading (SOG, COG) while it is fresh and in range, else null:
+ * unknown, which a display must say as unknown. `resolveOwnshipPosition`'s
+ * `sog`/`cog` turn that into 0 for its existing callers; a badge that reads
+ * them as 'Stopped' would invent a speed.
+ */
+export function freshMovementMetric(
+    metric: OwnshipMetric | undefined,
+    now = Date.now(),
+    maxAgeMs = DEFAULT_MAX_NMEA_AGE_MS,
+    upperExclusive?: number,
+): number | null {
+    if (!isFreshMetric(metric, now, maxAgeMs) || metric.value! < 0) return null;
+    if (upperExclusive !== undefined && metric.value! >= upperExclusive) return null;
+    return metric.value!;
+}
+
 function safeMovementMetric(
     metric: OwnshipMetric | undefined,
     now: number,
     maxAgeMs: number,
     upperExclusive?: number,
 ): number {
-    if (!isFreshMetric(metric, now, maxAgeMs) || metric.value! < 0) return 0;
-    if (upperExclusive !== undefined && metric.value! >= upperExclusive) return 0;
-    return metric.value!;
+    return freshMovementMetric(metric, now, maxAgeMs, upperExclusive) ?? 0;
 }
 
 export function resolveOwnshipPosition(

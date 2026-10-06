@@ -80,10 +80,19 @@ const phoneReceiver: GpsReceiverStatus = {
 const ownship = (fix: GpsFixState, viaVessel = false) =>
     ownshipStatusLabel(
         { latitude: -27.2, longitude: 153.1, speed: 0 },
-        viaVessel,
-        { state: 'idle', gpsSource: null },
-        { role: 'vessel', sessionCode: null },
-        { sessionCode: null, position: null, stale: true, cause: null },
+        viaVessel ? { owner: 'own', lane: 'bus' } : { owner: 'phone', lane: 'phone' },
+        {
+            local: {
+                state: 'idle',
+                gpsSource: null,
+                distanceFromAnchor: 0,
+                swingRadius: 0,
+                alarmTriggeredAt: null,
+                alarmCause: null,
+            },
+            shore: { sessionCode: null, position: null, stale: true, cause: null, lastContactAt: null },
+            piSessionCode: null,
+        },
         NOW,
         fix,
     );
