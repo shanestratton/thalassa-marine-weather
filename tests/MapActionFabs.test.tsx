@@ -163,6 +163,88 @@ describe('MapActionFabs locate feedback', () => {
         release();
     });
 
+    // Locate on Obs answers with what it did (obsCentre.locateOnObs).
+    it('ends the search on the handler’s answer and says its words', async () => {
+        vi.useFakeTimers();
+        let mapRef: ReturnType<typeof fakeMap> | null = null;
+        let answer!: (result: { centred: boolean; announcement: string }) => void;
+        const { map, release } = renderBesideMap({
+            onLocateMe: () =>
+                new Promise((resolve) => {
+                    answer = resolve;
+                }),
+        });
+        mapRef = map;
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        expect(screen.getByText('Finding position…')).toBeInTheDocument();
+        // The flight starts before the answer lands: its words, not the phone's.
+        act(() => mapRef?.emit('movestart', {}));
+        expect(screen.getByRole('status')).toHaveTextContent('Finding your position…');
+        await act(async () => answer({ centred: true, announcement: 'Chart centred on Serene Summer.' }));
+        expect(screen.queryByText('Finding position…')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('Chart centred on Serene Summer.');
+        expect(screen.getByRole('button', { name: 'Locate me' })).toHaveAttribute('aria-busy', 'false');
+        // Answered: the 11 s no-fix notice never comes.
+        act(() => vi.advanceTimersByTime(12_000));
+        expect(screen.queryByText('No position fix')).not.toBeInTheDocument();
+        release();
+    });
+
+    it('a "no boat position" answer leaves the speaking to the chart’s message', async () => {
+        vi.useFakeTimers();
+        const { release } = renderBesideMap({
+            onLocateMe: () => Promise.resolve({ centred: false, announcement: '' }),
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        await act(async () => {});
+        expect(screen.queryByText('Finding position…')).not.toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent('');
+        act(() => vi.advanceTimersByTime(12_000));
+        expect(screen.queryByText('No position fix')).not.toBeInTheDocument();
+        release();
+    });
+
+    // Nothing found while the chart's message is about something else
+    // (review 2026-10-06): the button says so itself, on screen too.
+    it('a "no fix" answer shows and says its own words, then goes', async () => {
+        vi.useFakeTimers();
+        const { release } = renderBesideMap({
+            onLocateMe: () =>
+                Promise.resolve({
+                    centred: false,
+                    announcement: 'No position from Serene Summer yet. The chart has not moved.',
+                    noFix: true,
+                }),
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Locate me' }));
+        await act(async () => {});
+        expect(screen.queryByText('Finding position…')).not.toBeInTheDocument();
+        expect(screen.getByText('No position fix')).toBeInTheDocument();
+        expect(screen.getByRole('status')).toHaveTextContent(
+            'No position from Serene Summer yet. The chart has not moved.',
+        );
+        act(() => vi.advanceTimersByTime(5_000));
+        expect(screen.queryByText('No position fix')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Locate me' })).toHaveAttribute('aria-busy', 'false');
+        release();
+    });
+
+    it('a superseded tap’s answer changes nothing', async () => {
+        vi.useFakeTimers();
+        const answers: Array<(result: { centred: boolean; announcement: string } | null) => void> = [];
+        const { release } = renderBesideMap({
+            onLocateMe: () => new Promise((resolve) => answers.push(resolve)),
+        });
+        const button = screen.getByRole('button', { name: 'Locate me' });
+        fireEvent.click(button);
+        fireEvent.click(button);
+        await act(async () => answers[0](null));
+        expect(screen.getByText('Finding position…')).toBeInTheDocument();
+        await act(async () => answers[1]({ centred: true, announcement: 'Chart centred on your boat.' }));
+        expect(screen.getByRole('status')).toHaveTextContent('Chart centred on your boat.');
+        release();
+    });
+
     it('still calls onLocateMe when no map is registered', () => {
         const onLocateMe = vi.fn();
         render(<MapActionFabs onLocateMe={onLocateMe} onRecenter={vi.fn()} recenterDisabled={false} />);

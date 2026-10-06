@@ -14,9 +14,11 @@
  * 0.25 deg reference, the chart's finest fetch tier (about z10 on a phone,
  * whatever lattice is cached; closeInWind.ts), the geo field hands over to
  * CloseInWindLayer: the local wind as one screen-space flow, from the boat's
- * true-wind instruments when they are usable, the boat is on screen and the
- * scrubber is at now, else the selected model at the screen centre for the
- * scrubbed hour. The two cross-fade, with hysteresis, and the leaflet engine
+ * true-wind instruments when they are usable, the boat is on screen, the
+ * scrubber is at now and the location box follows her (Shane 2026-10-06:
+ * the phone's Current Location or a chosen place never borrows the boat's
+ * gear), else the selected model at the screen centre for the scrubbed hour.
+ * The two cross-fade, with hysteresis, and the leaflet engine
  * is torn down rather than left animating underneath.
  *
  * Usage:
@@ -30,6 +32,8 @@ import { particleScale } from '../../utils/deviceTier';
 import { NmeaStore } from '../../services/NmeaStore';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
+import { WEATHER_FOLLOW_TARGET_EVENT } from '../../services/weatherPosition';
+import { boatInstrumentsFollowed } from './obsBoatInstruments';
 import { WIND_MAX_MS, WIND_PARTICLE_COLORS } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 import { CloseInWindLayer } from './CloseInWindLayer';
@@ -61,6 +65,12 @@ interface MapboxVelocityOverlayProps {
     windGrid?: WindGrid;
     /** The scrubber frame labelled Near now: the boat's instruments speak only there. */
     windNowIdx?: number;
+    /**
+     * The location box follows a receiver (Current Location). The boat's
+     * instruments speak only then, and only when the box follows her
+     * (obsBoatInstruments). A chosen place, or false: the model, always.
+     */
+    boatInstruments?: boolean;
 }
 
 // Speed-graded wind particle scale — blue → cyan → green → orange → red →
@@ -359,6 +369,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windHour = 0,
     windGrid,
     windNowIdx,
+    boatInstruments = false,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -381,9 +392,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const windHourRef = useRef(windHour);
     const windGridPropRef = useRef(windGrid);
     const windNowIdxRef = useRef(windNowIdx);
+    const boatInstrumentsRef = useRef(boatInstruments);
     windHourRef.current = windHour;
     windGridPropRef.current = windGrid;
     windNowIdxRef.current = windNowIdx;
+    boatInstrumentsRef.current = boatInstruments;
 
     // The OBS wind read is directional at every supported zoom. Wait for the
     // camera to settle before mounting/unmounting the second map so a z3
@@ -469,7 +482,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             return;
         }
         const vector = sampleWindGridAt(windGridPropRef.current, windHourRef.current, centre.lat, centre.lng);
-        const boat = pickBoatTrueWind(NmeaStore.getState());
+        // Shane 2026-10-06: the vessel's wind gear when the box is her and
+        // there is a reading; the phone's Current Location or a place, the model.
+        const boat =
+            boatInstrumentsRef.current && boatInstrumentsFollowed() ? pickBoatTrueWind(NmeaStore.getState()) : null;
         const position = boat ? boatPosition() : null;
         const wind = resolveCloseInWind({
             boat,
@@ -507,6 +523,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         // the instruments arrive every few seconds.
         mapboxMap.on('moveend', refresh);
         const unsubscribe = NmeaStore.subscribe(refresh);
+        // A new follow target (Switch boat included) changes whose wind it is.
+        window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, refresh);
         const recheck = setInterval(() => {
             if (closeInSourceRef.current === 'boat') refresh();
         }, BOAT_RECHECK_MS);
@@ -514,6 +532,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         return () => {
             mapboxMap.off('moveend', refresh);
             unsubscribe();
+            window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, refresh);
             clearInterval(recheck);
             closeInSourceRef.current = null;
             setCloseInWindReadout(null);
@@ -534,7 +553,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // A new hour, a new grid, or the scrubber leaving now: re-read the local wind.
     useEffect(() => {
         if (closeInWanted) refreshCloseInRef.current();
-    }, [closeInWanted, windHour, windGrid, windNowIdx]);
+    }, [closeInWanted, windHour, windGrid, windNowIdx, boatInstruments]);
 
     // The selected WindStore grid is the sole particle source. This effect
     // covers grid/hour updates after Leaflet setup, including the first frame.

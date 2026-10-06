@@ -6,6 +6,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { canUseForegroundHighAccuracy, GpsService } from '../services/GpsService';
+import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { __resetPhoneLastFixForTests, storedPhoneFix } from '../services/phoneLastFix';
 
 describe('GpsService', () => {
     beforeEach(() => {
@@ -216,6 +218,81 @@ describe('GpsService', () => {
                     value: originalPermissions,
                 });
             }
+        });
+    });
+
+    /**
+     * Obs (Shane 2026-10-06: "If there is no gps from their phone then the
+     * last known location with a clear message telling them that"): the
+     * permission only chooses the message's words, and a watched fix is kept
+     * for the launch that has none.
+     */
+    describe('for Obs: the permission, read silently, and the phone’s last fix', () => {
+        async function withPermissions(permissions: unknown, run: () => Promise<void>) {
+            const originalPermissions = navigator.permissions;
+            Object.defineProperty(navigator, 'permissions', { configurable: true, value: permissions });
+            try {
+                await run();
+            } finally {
+                Object.defineProperty(navigator, 'permissions', { configurable: true, value: originalPermissions });
+            }
+        }
+
+        it.each(['granted', 'denied', 'prompt'] as const)('reads %s without asking for anything', async (state) => {
+            await withPermissions({ query: vi.fn(async () => ({ state })) }, async () => {
+                await expect(GpsService.locationPermission()).resolves.toBe(state);
+                expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+                expect(navigator.geolocation.watchPosition).not.toHaveBeenCalled();
+            });
+        });
+
+        it('is unknown where the browser will not say, and never throws', async () => {
+            await withPermissions(undefined, async () => {
+                await expect(GpsService.locationPermission()).resolves.toBe('unknown');
+            });
+            await withPermissions(
+                {
+                    query: vi.fn(async () => {
+                        throw new Error('unsupported');
+                    }),
+                },
+                async () => {
+                    await expect(GpsService.locationPermission()).resolves.toBe('unknown');
+                },
+            );
+            expect(navigator.geolocation.getCurrentPosition).not.toHaveBeenCalled();
+        });
+
+        it('keeps a watched fix for the next launch, for this account only', async () => {
+            localStorage.clear();
+            setAuthIdentityScope('owner-ss');
+            __resetPhoneLastFixForTests();
+            const timestamp = Date.now();
+            await withPermissions({ query: vi.fn(async () => ({ state: 'granted' })) }, async () => {
+                const callback = vi.fn();
+                const unsub = GpsService.watchPosition(callback);
+                await vi.waitFor(() => expect(navigator.geolocation.watchPosition).toHaveBeenCalledOnce());
+                const deliver = vi.mocked(navigator.geolocation.watchPosition).mock.calls[0][0];
+                deliver({
+                    coords: {
+                        latitude: -27.5,
+                        longitude: 153.1,
+                        accuracy: 6,
+                        altitude: null,
+                        altitudeAccuracy: null,
+                        heading: null,
+                        speed: null,
+                    },
+                    timestamp,
+                } as GeolocationPosition);
+                unsub();
+                expect(callback).toHaveBeenCalledOnce();
+                expect(GpsService.getLastKnownPosition()).toMatchObject({ latitude: -27.5, longitude: 153.1 });
+            });
+            expect(storedPhoneFix()).toEqual({ lat: -27.5, lon: 153.1, timestamp });
+            setAuthIdentityScope('someone-else');
+            expect(storedPhoneFix()).toBeNull();
+            setAuthIdentityScope(null);
         });
     });
 });

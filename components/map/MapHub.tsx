@@ -29,7 +29,6 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 
 import { useLocationStore } from '../../stores/LocationStore';
 import { useWeather } from '../../context/WeatherContext';
-import { LocationStore } from '../../stores/LocationStore';
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
@@ -42,11 +41,11 @@ import { seaBaseLayers, setReliefPalette } from './reliefBase';
 import { PlannerVesselLocator } from './PlannerVesselLocator';
 import { useMapBase } from './useMapBase';
 import { OBS_VESSEL_ZOOM, obsStartTarget, useObsStartupCamera } from './useObsStartupCamera';
+import { locateOnObs, obsLocateSubject, useObsCentreNoticeWatch, type ObsBoatNames } from './obsCentre';
+import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
+import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
-import { GpsService } from '../../services/GpsService';
-import { NmeaStore } from '../../services/NmeaStore';
-import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 
 import {
     type MapHubProps,
@@ -2728,10 +2727,24 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
     useLocationDot(mapRef, locationDotRef, mapReady && !planningSurface && !effectiveVesselTrackingVisible);
 
-    // Centre where the location box points: a chosen place, else the vessel
-    // on a real fix (never a weather/home coordinate standing in for her).
-    // Once per box; passive late GPS is allowed until the skipper takes over.
-    useObsStartupCamera(mapRef, mapReady, ownshipStartup && currentView === 'map', obsStart);
+    // Centre where the location box points: a chosen place, else what the
+    // box follows (Shane 2026-10-06): the boat from her own chain, never the
+    // phone; the phone from its GPS, never the boat. Once per box; the first
+    // live fix is taken until the skipper takes over. No live fix: the last
+    // known one, or the broad view, with one message (obsCentre).
+    const obsShowing = ownshipStartup && currentView === 'map';
+    useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart);
+    useObsCentreNoticeWatch(obsShowing);
+    const ownBoatName = settings.vessel?.name?.trim() || null;
+    const crewingBoat = useCrewingBoat();
+    const crewingOwnerId = crewingBoat?.ownerId ?? null;
+    const crewingName = crewingBoat?.name ?? null;
+    const obsBoatNames = useMemo<ObsBoatNames>(
+        () => ({ own: ownBoatName, crew: crewingOwnerId ? { ownerId: crewingOwnerId, name: crewingName } : null }),
+        [ownBoatName, crewingOwnerId, crewingName],
+    );
+    // The threat banner sits where the message would; the message drops below it.
+    const [threatBannerShowing, setThreatBannerShowing] = useState(false);
 
     // Silent Pi-backed tile pre-cache around the boat —
     // components/map/usePiTileAutoCache.ts.
@@ -3314,6 +3327,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                     App.tsx). Visible in pin-view too. */}
                 {!pickerMode && <ZoomLevelFab mapRef={mapRef} mapReady={mapReady} />}
 
+                {/* What the location box follows has no live fix: one calm
+                    line naming whose position is shown, and how old it is. */}
+                <ObsCentreNoticeChip
+                    visible={obsShowing && !mobActive && !(deviceMode === 'deck' && showConsensus && consensusData)}
+                    names={obsBoatNames}
+                    belowRouteButton={passageOverviewAvailable && !overviewLocked}
+                    belowThreatBanner={threatBannerShowing}
+                    belowTideBadge={tideDepthMode}
+                />
+
                 {passageOverviewAvailable && !overviewLocked && (
                     <button
                         type="button"
@@ -3374,6 +3397,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windNowIdx={weather.windNowIdx}
                         windGrid={weather.windState.grid ?? undefined}
+                        boatInstruments={obsStart.kind === 'follow'}
                     />
                 )}
 
@@ -4705,6 +4729,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     userLon={location.lon}
                     cyclones={allCyclones}
                     lightningActive={browseLightningVisible}
+                    onShowingChange={setThreatBannerShowing}
                     flyTo={(lat, lon, zoom) => {
                         const map = mapRef.current;
                         if (!map) return;
@@ -5047,41 +5072,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // Exit full-screen overlay layers so user returns to base map
                             if (squallVisible) setSquallVisible(false);
                             if (cycloneVisible) setCycloneVisible(false);
-                            // "Locate me" on a boat means the BOAT: fresh NMEA
-                            // wins, the phone fetch is the shoreside fallback.
-                            // Same arbiter as the dot, Guardian, AIS and the Log.
-                            {
-                                const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState());
-                                if (own && own.source === 'nmea') {
-                                    const map = mapRef.current;
-                                    if (map) {
-                                        map.flyTo({
-                                            center: [own.lon, own.lat],
-                                            zoom: LOCATE_BOAT_ZOOM,
-                                            duration: 1200,
-                                        });
-                                    }
-                                    if (pickerMode) onLocationSelect?.(own.lat, own.lon);
-                                    return;
-                                }
-                            }
-                            GpsService.requestCurrentForegroundPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(
-                                (pos) => {
-                                    if (!pos) return;
-                                    const { latitude, longitude } = pos;
-                                    const map = mapRef.current;
-                                    if (map) {
-                                        map.flyTo({
-                                            center: [longitude, latitude],
-                                            zoom: LOCATE_BOAT_ZOOM,
-                                            duration: 1200,
-                                        });
-                                    }
-                                    LocationStore.setFromGPS(latitude, longitude);
-                                    if (pickerMode) {
-                                        onLocationSelect?.(latitude, longitude);
-                                    }
-                                },
+                            // Locate follows the location box (Shane
+                            // 2026-10-06): the boat for her row (or the boat
+                            // crewed on), never the phone on a bus; the phone
+                            // for Current Location, never the boat; for a
+                            // chosen place the boat, or the phone for an
+                            // account with no boat. No live fix: the last
+                            // known one with the message (obsCentre).
+                            const map = mapRef.current;
+                            if (!map) return;
+                            return locateOnObs(
+                                map,
+                                obsLocateSubject(obsStart.kind === 'follow', Boolean(ownBoatName)),
+                                obsBoatNames,
+                                LOCATE_BOAT_ZOOM,
                             );
                         }}
                         onRecenter={() => {

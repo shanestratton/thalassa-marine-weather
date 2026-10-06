@@ -23,6 +23,7 @@
 import { createLogger } from '../utils/createLogger';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation, type Position } from '@capacitor/geolocation';
+import { rememberPhoneFix } from './phoneLastFix';
 const log = createLogger('GPS');
 const MAX_STALE_LIMIT_MS = 0xffff_ffff; // Web IDL unsigned-long maximum.
 const NATIVE_REACQUIRE_DELAY_MS = 250;
@@ -132,6 +133,33 @@ class GpsServiceClass {
         } catch (error) {
             log.info('[GpsService] passive native location unavailable:', error);
             return null;
+        }
+    }
+
+    /**
+     * Location permission as it stands, asking nothing: 'granted' (precise or
+     * approximate), 'denied', 'prompt' (never asked), or 'unknown' where the
+     * platform will not say. Never raises permission UI. For copy only (Obs's
+     * "allow location" versus "no fix yet"); every read still checks itself.
+     */
+    async locationPermission(): Promise<'granted' | 'denied' | 'prompt' | 'unknown'> {
+        try {
+            if (!this.isNative) {
+                if (typeof window !== 'undefined' && window.isSecureContext === false) return 'unknown';
+                if (!navigator.permissions?.query) return 'unknown';
+                const permission = await navigator.permissions.query({ name: 'geolocation' });
+                return permission.state === 'granted' || permission.state === 'denied' || permission.state === 'prompt'
+                    ? permission.state
+                    : 'unknown';
+            }
+            const permission = await Geolocation.checkPermissions();
+            if (permission.location === 'granted' || permission.coarseLocation === 'granted') return 'granted';
+            if (permission.location === 'denied') return 'denied';
+            return permission.location === 'prompt' || permission.location === 'prompt-with-rationale'
+                ? 'prompt'
+                : 'unknown';
+        } catch {
+            return 'unknown';
         }
     }
 
@@ -306,6 +334,8 @@ class GpsServiceClass {
         const retaining: GpsCallback = (pos) => {
             if (Number.isFinite(pos?.latitude) && Number.isFinite(pos?.longitude)) {
                 this._lastKnownFix = { ...pos };
+                // And across a relaunch, for Obs's last-known phone position.
+                rememberPhoneFix(pos);
             }
             callback(pos);
         };

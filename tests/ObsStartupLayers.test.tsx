@@ -94,9 +94,8 @@ describe('clean OBS startup', () => {
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(hub).toContain('const [weatherInspectMode, setWeatherInspectMode] = useState(false)');
         expect(hub).toContain('const [encVisible, setEncVisible] = useState(false)');
-        expect(hub).toContain(
-            "useObsStartupCamera(mapRef, mapReady, ownshipStartup && currentView === 'map', obsStart)",
-        );
+        expect(hub).toContain("const obsShowing = ownshipStartup && currentView === 'map';");
+        expect(hub).toContain('useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart)');
         expect(hub).not.toContain('lastFlownCoordsRef');
         expect(hub).toContain('encSafetyDepthM, encHazardDepthM, coordCaptureMode)');
         expect(hub).toContain('useAnchorSwingLayer(mapRef, mapReady)');

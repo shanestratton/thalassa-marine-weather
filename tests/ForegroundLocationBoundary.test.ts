@@ -59,7 +59,12 @@ describe('foreground location privacy boundary', () => {
             // would only make the boundary fail on a file that no longer runs.
             'components/AddEntryModal.tsx',
             'components/map/useVesselTracker.ts',
-            'components/map/MapHub.tsx',
+            // components/map/MapHub.tsx came off this list on 2026-10-06: its
+            // Locate me fix moved to obsCentre's locatePhone, asked only when
+            // the location box follows the phone (or for an account with no
+            // boat). The boat's row never asks the phone (Shane: the punter on
+            // a bus "should make no difference").
+            'components/map/obsCentre.ts',
             // components/map/usePinViewMode.ts came off this list on
             // 2026-09-05. Its only foreground fix belonged to the pin-view
             // "Get Directions" CTA, removed that day — driving directions from

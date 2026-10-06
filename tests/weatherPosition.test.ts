@@ -37,8 +37,10 @@ import {
     CLOUD_POLL_MS,
     PI_POLL_MS,
     __resetWeatherPositionForTests,
+    boatFixNow,
     boatOrHeldFix,
     describeWeatherFix,
+    followedBoatOwnsInstruments,
     formatFixAge,
     getHeldChoice,
     getWeatherFollowCrewOwner,
@@ -733,5 +735,90 @@ describe('crew: the boat this account crews on has her own chain', () => {
         expect(getWeatherFollowCrewOwner()).toBe(WIND_DANCER);
         await resolveWeatherPosition(noPhone(), { now: T0 });
         expect(chain.cloudFix).toHaveBeenCalledWith(T0, WIND_DANCER);
+    });
+});
+
+/**
+ * Obs (Shane 2026-10-06): the boat's position without a lookup, for the first
+ * frame, and whose instruments the store holds, for close-in wind ("if the
+ * punter selects wind and their is a metric for it, it should show the
+ * vessels wind equipment").
+ */
+describe('Obs: the boat as known now, and whose instruments these are', () => {
+    const OWNER = 'owner-ss';
+    const SKIPPER = 'skipper-wd';
+    const socket = { connectionStatus: 'connected', remote: null };
+    const lan = { connectionStatus: 'remote', remote: { via: 'lan' as const } };
+    const cloudFeed = { connectionStatus: 'remote', remote: { via: 'cloud' as const } };
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(T0);
+        localStorage.clear();
+        setAuthIdentityScope(OWNER);
+        reloadSharedBindersFromStorage();
+        vi.clearAllMocks();
+        chain.busFix.mockImplementation(() => null);
+        chain.piFix.mockImplementation(async () => null);
+        chain.cloudFix.mockImplementation(async () => null);
+        chain.deviceRungOwner.mockImplementation(() => null);
+        __resetWeatherPositionForTests();
+    });
+    afterEach(() => {
+        setAuthIdentityScope(null);
+        vi.useRealTimers();
+    });
+
+    it('boatFixNow: her live bus, else the lanes’ last answers, else her held fix; never asks', async () => {
+        expect(boatFixNow(T0)).toBeNull();
+        chain.busFix.mockImplementation(() => bus());
+        expect(boatFixNow(T0)).toMatchObject({ kind: 'bus', lat: SCARBOROUGH.latitude });
+        chain.busFix.mockImplementation(() => null);
+        // The cloud lane answered a lookup a moment ago: that answer is used, not asked again.
+        chain.cloudFix.mockImplementation(async () => cloud(T0));
+        await boatOrHeldFix(T0);
+        chain.cloudFix.mockClear();
+        expect(boatFixNow(T0 + 1_000)).toMatchObject({ kind: 'cloud' });
+        expect(chain.cloudFix).not.toHaveBeenCalled();
+        expect(chain.piFix).toHaveBeenCalledTimes(1);
+        // Once those answers age out: her held fix, or nothing with held: false.
+        rememberBoatFix(bus(T0), T0);
+        expect(boatFixNow(T0 + 3_600_000)).toMatchObject({ kind: 'held' });
+        expect(boatFixNow(T0 + 3_600_000, null, { held: false })).toBeNull();
+    });
+
+    it('boatFixNow for a crewed boat: never the own boat’s unnamed socket or held fix', () => {
+        chain.busFix.mockImplementation(() => bus());
+        rememberBoatFix(bus(T0), T0);
+        expect(boatFixNow(T0, SKIPPER)).toBeNull();
+        // Paired to her Pi; a gateway socket still names no boat.
+        chain.deviceRungOwner.mockImplementation((rung) => (rung === 'pi' ? SKIPPER : null));
+        expect(boatFixNow(T0, SKIPPER)).toBeNull();
+    });
+
+    it('following the phone, no boat’s instruments ever speak', () => {
+        setWeatherFollowTarget('phone');
+        for (const feed of [socket, lan, cloudFeed]) expect(followedBoatOwnsInstruments(feed, OWNER)).toBe(false);
+    });
+
+    it('following the own boat: her socket, her Pi over the LAN, her own cloud row', () => {
+        setWeatherFollowTarget('boat');
+        expect(followedBoatOwnsInstruments(socket, null)).toBe(true);
+        expect(followedBoatOwnsInstruments(lan, null)).toBe(true);
+        expect(followedBoatOwnsInstruments(cloudFeed, OWNER)).toBe(true);
+        // The store prefers the own row; a crewed boat's row is not hers.
+        expect(followedBoatOwnsInstruments(cloudFeed, SKIPPER)).toBe(false);
+        expect(followedBoatOwnsInstruments(cloudFeed, null)).toBe(false);
+        expect(followedBoatOwnsInstruments({ connectionStatus: 'disconnected', remote: null }, OWNER)).toBe(false);
+    });
+
+    it('following the boat crewed on: only what is known to be hers', () => {
+        setWeatherFollowTarget('crew', { ownerId: SKIPPER, fallback: 'boat' });
+        expect(followedBoatOwnsInstruments(socket, null)).toBe(false); // names no boat
+        expect(followedBoatOwnsInstruments(lan, null)).toBe(false);
+        expect(followedBoatOwnsInstruments(cloudFeed, OWNER)).toBe(false); // the own boat's row
+        expect(followedBoatOwnsInstruments(cloudFeed, SKIPPER)).toBe(true);
+        chain.deviceRungOwner.mockImplementation(() => SKIPPER); // paired to her Pi
+        expect(followedBoatOwnsInstruments(lan, null)).toBe(true);
     });
 });

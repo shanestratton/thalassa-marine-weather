@@ -153,6 +153,14 @@ const nmea = vi.hoisted(() => {
 
 vi.mock('../services/NmeaStore', () => ({ NmeaStore: nmea.NmeaStore }));
 
+// Whether the location box follows the boat whose instruments the store holds
+// (obsBoatInstruments, Shane 2026-10-06). The boat cases below follow her.
+const instruments = vi.hoisted(() => ({ followed: true }));
+vi.mock('../components/map/obsBoatInstruments', () => ({ boatInstrumentsFollowed: () => instruments.followed }));
+vi.mock('../services/weatherPosition', () => ({
+    WEATHER_FOLLOW_TARGET_EVENT: 'thalassa:weather-follow-target-changed',
+}));
+
 interface MapboxHarness {
     container: HTMLDivElement;
     emit: (event: string) => void;
@@ -626,6 +634,7 @@ function settleAt(mapbox: MapboxHarness, zoom: number): void {
 describe('MapboxVelocityOverlay close-in mode', () => {
     afterEach(() => {
         nmea.reset();
+        instruments.followed = true;
         vi.restoreAllMocks();
     });
 
@@ -742,7 +751,12 @@ describe('MapboxVelocityOverlay close-in mode', () => {
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
         const mapbox = phoneHarness(14);
         nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
-        const props = { mapboxMap: mapbox.map as never, visible: true, windGrid: airlieGrid(8, 135, 20) };
+        const props = {
+            mapboxMap: mapbox.map as never,
+            visible: true,
+            windGrid: airlieGrid(8, 135, 20),
+            boatInstruments: true,
+        };
         const view = render(<MapboxVelocityOverlay {...props} windHour={0} windNowIdx={0} />);
         expect(getCloseInWindReadout()).toEqual({ kt: 14, fromDeg: 200, source: 'boat', stale: false });
         // A fresh sample is picked up from the store's own notifications.
@@ -778,8 +792,87 @@ describe('MapboxVelocityOverlay close-in mode', () => {
                 windGrid={airlieGrid()}
                 windHour={0}
                 windNowIdx={0}
+                boatInstruments
             />,
         );
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        view.unmount();
+    });
+
+    // Shane 2026-10-06: "if the punter selects wind and their is a metric for
+    // it, it should show the vessels wind equipment" — when the box is her.
+    it('Current Location (the phone) never reads the boat’s instruments, even with her on screen', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        instruments.followed = false;
+        nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid(8, 135)}
+                windHour={0}
+                windNowIdx={0}
+                boatInstruments
+            />,
+        );
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
+        view.unmount();
+    });
+
+    it('a place chosen in the box never reads them either', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid(8, 135)}
+                windHour={0}
+                windNowIdx={0}
+                boatInstruments={false}
+            />,
+        );
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        // Back to Current Location following her: her instruments at once.
+        view.rerender(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid(8, 135)}
+                windHour={0}
+                windNowIdx={0}
+                boatInstruments
+            />,
+        );
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat', kt: 14 });
+        view.unmount();
+    });
+
+    it('re-reads at once when the follow target changes', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const view = render(
+            <MapboxVelocityOverlay
+                mapboxMap={mapbox.map as never}
+                visible
+                windGrid={airlieGrid(8, 135)}
+                windHour={0}
+                windNowIdx={0}
+                boatInstruments
+            />,
+        );
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
+        instruments.followed = false;
+        act(() => {
+            window.dispatchEvent(new CustomEvent('thalassa:weather-follow-target-changed'));
+        });
         expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
         view.unmount();
     });
@@ -963,6 +1056,7 @@ describe('MapboxVelocityOverlay close-in: the camera decides, not the cached lat
                     windGrid={airlieGrid()}
                     windHour={0}
                     windNowIdx={0}
+                    boatInstruments
                 />,
             );
             expect(getCloseInWindReadout()).toMatchObject({ source: 'boat', stale: false });
