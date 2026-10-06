@@ -71,10 +71,19 @@ legacy-client path. Five privacy-cover tests inspect Swift source only. Native
 cover compilation is not actual app-switcher/device-snapshot evidence. Retained
 compiler, harness-deadline and TypeScript failures remain in the manifest.
 
-The main-app pilot still has production import side effects in its shared hook
-and view. Both must be extracted before a native-selected failure can be treated
-as an isolated app mode. Every other plaintext DM caller and queued replay must
-then share an explicit cutover policy. The fixed 16-outgoing/16-incoming budgets,
+The later main-app extraction separates the native hook/page/literal view from
+the lazy legacy page. Explicit selected-native failures never load legacy. Its
+26 import-isolation cases passed inside 285 pilot tests in 11 suites; 1,193
+Research tests, focused types, named lint and isolated full-app Vite compilation
+also passed. These are overlapping fixture/compile results, not new device or
+encryption evidence. The [import-isolation manifest](../experiments/scuttlebutt-e2ee/review/import-isolation-2026-10-06.json)
+preserves exact checks, source/build hashes and the initially failed legacy fixture
+run. The legacy component body remains byte-for-byte unchanged. Native inputs
+still match the previous proof and were not rebuilt by this extraction.
+
+Every other plaintext DM caller and queued replay must now share an explicit
+cutover policy; screen import isolation is not global client/server enforcement.
+The fixed 16-outgoing/16-incoming budgets,
 scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or
 release gate is completed by this integration slice.

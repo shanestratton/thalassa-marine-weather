@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { User } from '@supabase/supabase-js';
 
 const keyboardMocks = vi.hoisted(() => {
@@ -376,6 +376,12 @@ function signInFixture(id = 'crew-a') {
     setAuthIdentityScope(id);
     useAuthStore.setState({ user: { id } as User });
 }
+beforeAll(async () => {
+    // These cases measure legacy initialization ordering, not cold module
+    // transformation latency. Preload under the existing fixture mocks; the
+    // production selector remains lazy and import isolation is tested separately.
+    await import('../components/LegacyChatPage');
+});
 afterEach(() => {
     cleanup();
     localStorage.clear();
@@ -400,13 +406,15 @@ const renderSettledChatPage = async () => {
 describe('ChatPage', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(ChatService.initialize).mockResolvedValue(undefined);
-        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockResolvedValue({ status: 'ok', joinedCount: 0 });
-        vi.mocked(ChatService.getChannelsFresh).mockResolvedValue([]);
-        vi.mocked(ChatService.isChannelMember).mockResolvedValue(false);
-        vi.mocked(readCrewChatRows).mockResolvedValue(noCrew);
-        vi.mocked(readCrewChatChannelMemberships).mockResolvedValue(inNoGroups);
-        vi.mocked(fetchVesselNameForOwner).mockResolvedValue(null);
+        vi.mocked(ChatService.initialize).mockReset().mockResolvedValue(undefined);
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels)
+            .mockReset()
+            .mockResolvedValue({ status: 'ok', joinedCount: 0 });
+        vi.mocked(ChatService.getChannelsFresh).mockReset().mockResolvedValue([]);
+        vi.mocked(ChatService.isChannelMember).mockReset().mockResolvedValue(false);
+        vi.mocked(readCrewChatRows).mockReset().mockResolvedValue(noCrew);
+        vi.mocked(readCrewChatChannelMemberships).mockReset().mockResolvedValue(inNoGroups);
+        vi.mocked(fetchVesselNameForOwner).mockReset().mockResolvedValue(null);
     });
 
     it('reconciles only after initialization and before the authenticated fresh channel read', async () => {
@@ -580,13 +588,16 @@ describe('ChatPage Crew Chat card vessel name', () => {
         }) as ChatChannel;
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(ChatService.initialize).mockResolvedValue(undefined);
-        vi.mocked(ChatService.reconcileAcceptedCrewChannels).mockResolvedValue({ status: 'ok', joinedCount: 0 });
-        vi.mocked(ChatService.isChannelMember).mockResolvedValue(true);
-        vi.mocked(readCrewChatRows).mockResolvedValue(noCrew);
-        vi.mocked(readCrewChatChannelMemberships).mockResolvedValue(inNoGroups);
-        vi.mocked(fetchVesselNameForOwner).mockResolvedValue(null);
-        vi.mocked(getPassageStatus).mockResolvedValue(NO_PASSAGE_ACCESS);
+        vi.mocked(ChatService.initialize).mockReset().mockResolvedValue(undefined);
+        vi.mocked(ChatService.reconcileAcceptedCrewChannels)
+            .mockReset()
+            .mockResolvedValue({ status: 'ok', joinedCount: 0 });
+        vi.mocked(ChatService.getChannelsFresh).mockReset().mockResolvedValue([]);
+        vi.mocked(ChatService.isChannelMember).mockReset().mockResolvedValue(true);
+        vi.mocked(readCrewChatRows).mockReset().mockResolvedValue(noCrew);
+        vi.mocked(readCrewChatChannelMemberships).mockReset().mockResolvedValue(inNoGroups);
+        vi.mocked(fetchVesselNameForOwner).mockReset().mockResolvedValue(null);
+        vi.mocked(getPassageStatus).mockReset().mockResolvedValue(NO_PASSAGE_ACCESS);
         crewCardPaints.length = 0;
     });
 
@@ -765,9 +776,9 @@ describe('ChatPage injected pilot rendering fixtures — no live encryption or r
             subscribe: vi.fn(() => vi.fn()),
         } satisfies PrivateMessagePilotRuntime;
         render(<ChatPage privateMessageRuntime={runtime} />);
-        fireEvent.click(await screen.findByRole('button', { name: 'Open Paired sailor' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Message Paired sailor' }));
         const retry = await screen.findByRole('button', { name: 'Retry pending message' });
-        expect(screen.getByRole('textbox', { name: 'Private message draft' })).toHaveValue('');
+        expect(screen.getByRole('textbox', { name: 'Message Paired sailor' })).toHaveValue('');
         expect(screen.getByRole('button', { name: 'Send direct message' })).toBeDisabled();
         expect(retry).not.toBeDisabled();
         fireEvent.click(retry);

@@ -15,7 +15,7 @@ describe('chat moderation privacy boundary', () => {
     });
 
     it('keeps user reports on the moderator-review path rather than re-exporting reported text', () => {
-        const source = readFileSync(resolve(process.cwd(), 'components/ChatPage.tsx'), 'utf8');
+        const source = readFileSync(resolve(process.cwd(), 'components/LegacyChatPage.tsx'), 'utf8');
         const start = source.indexOf('const handleReport');
         const end = source.indexOf('// Proposals, private channels', start);
         const reportPath = source.slice(start, end);
