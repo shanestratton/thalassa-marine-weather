@@ -16,7 +16,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
-import { WIND_COLORS, WIND_MAX_MS, windColorForKt } from './windRamp';
+import { WIND_MAX_MS, WIND_PARTICLE_COLORS, windColorForKt } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 
 const log = createLogger('MapboxVelocityOverlay');
@@ -75,18 +75,17 @@ const PARTICLE_LINE_WIDTH = 1;
 const PARTICLE_FADE = 0.98;
 
 /**
- * A thin dark edge on every streak, drawn by the browser over the whole
- * overlay. Without it the wind vanished on the Relief seas (Shane 2026-10-06:
- * "i cannot see it at all on the relief + sat layer"): the 5-15 kt blues
- * (#1583ec, #00a6cc) sit almost exactly on Relief's shallow-to-30 m blues
- * (#52a6cc..#246698), contrast about 1.0-1.5. Darker streak colours only move
- * the problem to deeper water and the satellite sea; a dark edge reads on
- * light water and the colour itself on dark water, and the colours still match
- * the legend. The overlay stays above every base layer (z-index 400). Two
- * passes, a crisp 1 px rim and a softer 1.5 px one, picked from a side-by-side
- * over Relief 2-60 m and satellite (one 1 px rim was still faint at 30-60 m).
+ * A light dark edge on every streak, drawn by the browser over the whole
+ * overlay. The overlay stays above every base layer (z-index 400); the wind
+ * vanished on the Relief seas only because the 5-15 kt blues sat on Relief's
+ * blues (contrast about 1.0-1.5; Shane 2026-10-06: "i cannot see it at all on
+ * the relief + sat layer"). The streaks are now white below 20 kt (windRamp's
+ * WIND_PARTICLE_COLORS), which reads on every Relief depth and on satellite;
+ * this faint rim keeps them visible on the ENC chart's white deep water too.
+ * Picked from side-by-sides over Relief 2-60 m, satellite and ENC white: a
+ * heavier double rim made white streaks look muddy in the shallows.
  */
-const PARTICLE_HALO = 'drop-shadow(0 0 1px rgba(0, 0, 0, 1)) drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.7))';
+const PARTICLE_HALO = 'drop-shadow(0 0 0.75px rgba(0, 0, 0, 0.55))';
 // Direction is essential even in the broad synoptic view, so Wind begins at
 // z3 rather than falling back to a speed-only heatmap. The startup guard below
 // protects the third-party renderer from the old delayed-start zoom race.
@@ -161,7 +160,8 @@ function createVelocityLayer(data: VelocityGribRecord[], velocityScale: number, 
         // motion. Still throttled: full-rate RAF measurably warms phones.
         frameRate: 30,
         particlelineWidth: PARTICLE_LINE_WIDTH,
-        colorScale: WIND_COLORS,
+        // White below 20 kt, warning hues from the reef line up (windRamp).
+        colorScale: WIND_PARTICLE_COLORS,
     });
     // Keep the third-party delayed-start guard attached to every creation
     // path, including a replacement after an unsupported data update.

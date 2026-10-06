@@ -17,7 +17,7 @@ import { triggerHaptic } from '../../utils/system';
 import { daylightUiColor } from '../../utils/daylightUiColor';
 import { PauseIcon, PlayIcon } from '../Icons';
 import { CHL_GRADIENT, CURRENT_WAVE_GRADIENT, MLD_GRADIENT, SST_GRADIENT } from './marineLayerRamps';
-import { WIND_GRADIENT } from './windRamp';
+import { WIND_PARTICLE_GRADIENT } from './windRamp';
 import { usePassageHudEnabled, usePassageHudOpen } from '../../stores/passageHudStore';
 
 // ── Layer definitions for the generic legend ──
@@ -58,7 +58,7 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         label: 'Wind',
         lowLabel: '0 kt',
         highLabel: '60+ kt',
-        gradient: WIND_GRADIENT,
+        gradient: WIND_PARTICLE_GRADIENT,
         accentColor: '#38bdf8',
     },
     // 'velocity' is a legacy ALIAS for the wind layer — MapHub drives the same
@@ -70,7 +70,7 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         label: 'Wind',
         lowLabel: '0 kt',
         highLabel: '60+ kt',
-        gradient: WIND_GRADIENT,
+        gradient: WIND_PARTICLE_GRADIENT,
         accentColor: '#38bdf8',
     },
     currents: {

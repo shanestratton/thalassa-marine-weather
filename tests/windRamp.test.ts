@@ -126,3 +126,26 @@ describe('legend gradient is derived, so it cannot drift from the renderer', () 
         expect(WIND_GRADIENT).toContain(`${WIND_BANDS[0].hex} 0.00%`);
     });
 });
+
+describe('the streak palette (white below the reef line)', () => {
+    it('is white below 20 kt and the band colours from 20 kt up, bucket for bucket', async () => {
+        const { WIND_PARTICLE_COLORS, WIND_PARTICLE_WHITE, WIND_PARTICLE_WHITE_BELOW_KT } =
+            await import('../components/map/windRamp');
+        expect(WIND_PARTICLE_COLORS).toHaveLength(WIND_COLORS.length);
+        WIND_PARTICLE_COLORS.forEach((hex, k) => {
+            expect(hex).toBe(k < WIND_PARTICLE_WHITE_BELOW_KT ? WIND_PARTICLE_WHITE : WIND_COLORS[k]);
+        });
+        // The reef band opens the warm colours.
+        expect(WIND_PARTICLE_COLORS[20]).toBe(WIND_BANDS.find((b) => b.toKt === 25)!.hex);
+    });
+
+    it('gives the legend the same white span and the warm bands in order', async () => {
+        const { WIND_PARTICLE_GRADIENT } = await import('../components/map/windRamp');
+        expect(WIND_PARTICLE_GRADIENT.startsWith('linear-gradient(to top, #ffffff 0.00%')).toBe(true);
+        const warm = WIND_BANDS.filter((b) => b.toKt > 20);
+        const positions = warm.map((b) => WIND_PARTICLE_GRADIENT.indexOf(b.hex));
+        expect(positions.every((p) => p > 0)).toBe(true);
+        expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+        for (const b of WIND_BANDS.filter((x) => x.toKt <= 20)) expect(WIND_PARTICLE_GRADIENT).not.toContain(b.hex);
+    });
+});
