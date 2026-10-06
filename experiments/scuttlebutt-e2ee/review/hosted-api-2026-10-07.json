@@ -1,0 +1,331 @@
+{
+    "schemaVersion": 1,
+    "recordedAtUTC": "2026-10-06T21:28:05.896Z",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "baseCommit": "49f3b75f80bd3c5f4ea03188a25faaf432bbe17a",
+    "dirtyTreeAtExecution": true,
+    "status": "passed",
+    "shippingApproved": false,
+    "productionActivated": false,
+    "masterPushed": false,
+    "primaryBuildOrSync": false,
+    "humanDeviceChanged": false,
+    "humanAccountModeSelected": false,
+    "hostedEdgeChanged": true,
+    "sourceHashes": {
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md": "0c152917f8d5fc88c5f4a666a030c92dc6450ddf5444397622de60eeff8e5cd0",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md": "02e15080f168a6d07efb8276be4f0505075fa0f2a98c012854652ff161a72a47",
+        "experiments/scuttlebutt-e2ee/hosted/cutover.tsconfig.json": "936c7bd17ec78664574939d384478283979da191b7c6c5f997231d190ca1f655",
+        "experiments/scuttlebutt-e2ee/hosted/fixtureRelayProof.mjs": "9127e358928393bcf8254de3a35bf722e9b44d28906230bd93aeca7e0498d3a3",
+        "experiments/scuttlebutt-e2ee/relay/README.md": "2f0253de922843de3ea313cae20eff7e3e877206c4b70fd86053ab523a3f98f4",
+        "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs": "97ddd9d1471ed75f3c53880bce125390557cfa5d1d812e022abcde51a6e54627",
+        "experiments/scuttlebutt-e2ee/hosted/cutoverDeployment.mjs": "cc9089b6e65d9d7cb97f7e86373cfbca5a70178e6a875ffaf9f0d49db138115a",
+        "experiments/scuttlebutt-e2ee/hosted/cutoverLiveProof.mjs": "f1fecd798cea9f95543e4b7705a1e69b92fcdff41d7216f75c0b3e87cb674b19",
+        "experiments/scuttlebutt-e2ee/hosted/deployCutover.mjs": "0a214eab964b442ac28b6d78c799fe5dd529572eb5e1a60dab08ca9f68e756e0",
+        "tests/E2eeCutoverDeployment.test.ts": "413daf578170d6b7f87da4dfe717a859b7c744940372c5121b345acb77215b2d"
+    },
+    "deployment": {
+        "receipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-deploy-iZXLCC/deployment-receipt.json",
+            "sha256": "f790f8a2dadf5b7fbead29d00bfa2bb2a3b1ce05654d95c354847aec7377a412"
+        },
+        "immutableAttempt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-deploy-iZXLCC/immutable-attempt.json",
+            "sha256": "51e5a30ced61915f3e8309f4851c67431eb3a55163ca60da910e5d2b9b408b94"
+        },
+        "log": {
+            "path": "/private/tmp/thalassa-cutover-api-deploy.k8H8He",
+            "sha256": "f5d68d2923f7cf76f50b78bb19d81faac99a3d6035954fbb5e17dcac268c3696"
+        },
+        "status": "passed",
+        "beforeRevision": {
+            "slug": "scuttlebutt-e2ee-pilot",
+            "id": "216b6be1-0d2f-46c7-b70b-79dbb573128d",
+            "version": 26,
+            "status": "ACTIVE",
+            "verifyJwt": true,
+            "bundleSha256": "17e7d6d4185737ef0f25f331b24391d74c3630538860fb267ca00aaeb512eddf"
+        },
+        "afterRevision": {
+            "slug": "scuttlebutt-e2ee-pilot",
+            "id": "216b6be1-0d2f-46c7-b70b-79dbb573128d",
+            "version": 27,
+            "status": "ACTIVE",
+            "verifyJwt": true,
+            "bundleSha256": "76e5f15426709dbab2426450c91a44c250173fe32f6d98859ee8cf127c384a25"
+        },
+        "localSourceHashes": {
+            "experiments/scuttlebutt-e2ee/hosted/deployCutover.mjs": "0a214eab964b442ac28b6d78c799fe5dd529572eb5e1a60dab08ca9f68e756e0",
+            "experiments/scuttlebutt-e2ee/hosted/cutoverDeployment.mjs": "cc9089b6e65d9d7cb97f7e86373cfbca5a70178e6a875ffaf9f0d49db138115a",
+            "experiments/scuttlebutt-e2ee/hosted/updateCutover.mjs": "08521e2fa9e72d61f2bb598bc535614b3b630e1942bab216600acdb5c866c40e",
+            "experiments/scuttlebutt-e2ee/hosted/cutoverMigration.mjs": "b079ae3a244d7566e8dd9b5ba4639a6385ffea685fba14598ce8080449e0bed5",
+            "experiments/scuttlebutt-e2ee/hosted/supabase/config.toml": "1adfedd20ad0029e5d73ea608cb6870deafbed9de0b4ad4066a3d77b64506bb3",
+            "experiments/scuttlebutt-e2ee/hosted/supabase/functions/scuttlebutt-e2ee-pilot/index.ts": "1381d22b7cfee9de9e1d236ce5a6a81bc1367c5d8ed8e47ef0103b101cf31d8b",
+            "experiments/scuttlebutt-e2ee/hosted/supabase/functions/scuttlebutt-e2ee-pilot/deno.json": "dc7a4e466c9d298b2c753f6d446e6aaf449f4e28e6ab1d4d12b756e1b19c5dc9",
+            "experiments/scuttlebutt-e2ee/hosted/supabase/functions/scuttlebutt-e2ee-pilot/deno.lock": "6400ef177373e9e9a25851dd1d8cd60aa4559e292c8e7bb88143be5abeb05064",
+            "experiments/scuttlebutt-e2ee/relay/hostedGateway.ts": "911d198d7c8326adc860d9b3c536f8bc64ea919a7fcfddf2568c227c1f818e57",
+            "experiments/scuttlebutt-e2ee/relay/httpGateway.ts": "2a51131e6be97638d11580011eae89b4a994e251d4a53a4da7ee9dd8389de722",
+            "experiments/scuttlebutt-e2ee/relay/gateway.ts": "3f7e546ad5a49a220b4af7a0dc56209c3460f31f290cc5f0e307c770a745a64a",
+            "experiments/scuttlebutt-e2ee/relay/supabaseAuth.ts": "4d5e3378e8ad7b0c63b5565cc36a1cfb8338a27d3d353db32429c56523c17b1b",
+            "experiments/scuttlebutt-e2ee/relay/signedGateway.ts": "4f00091333257d90208db3757857ec4e3e6867f81fccd355f538e18beb1e29d6",
+            "experiments/scuttlebutt-e2ee/relay/deviceBundle.ts": "37f529632bbd364860a926ea8253517bd3a56bac37d21d3623b2013b4fedbd0f",
+            "experiments/scuttlebutt-e2ee/relay/signedRequest.ts": "ff297d8502f53067821a93e8deeda07cd9ec22ca460ee1670c98535337140e84",
+            "experiments/scuttlebutt-e2ee/relay/relay.sql": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01",
+            "services/chat/e2ee/directMessageEnvelope.ts": "0261897560058dd36830e0b5a1bfd7d40aeded64aa638ed2e8a2bc528a164fdf",
+            "services/chat/e2ee/encryptedDmDelivery.ts": "cc138ba7d91983057205ee68c523ff73e67aba4a24ee52eb0664dedfb85bbfe2"
+        },
+        "httpChecks": [
+            {
+                "name": "missing-authorization",
+                "status": 401,
+                "genericRuntimeBodyChecked": false
+            },
+            {
+                "name": "unknown-route",
+                "status": 404,
+                "genericRuntimeBodyChecked": true
+            },
+            {
+                "name": "wrong-method",
+                "status": 405,
+                "genericRuntimeBodyChecked": true
+            },
+            {
+                "name": "anon-is-not-user",
+                "status": 503,
+                "genericRuntimeBodyChecked": true
+            }
+        ],
+        "beforeSqlInspection": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-update-Zli5Ug/cutover-update-receipt.json",
+        "afterSqlInspection": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-update-mXY69N/cutover-update-receipt.json",
+        "secretsFingerprintBefore": "1dfbe331dba5fbace17ea61f457d44611938f464a63bc2320a6d2dcc34701ed7",
+        "secretsFingerprintAfter": "1dfbe331dba5fbace17ea61f457d44611938f464a63bc2320a6d2dcc34701ed7",
+        "sixTableDataAndCheckedAuthorityPreserved": true,
+        "deployedSourceIndependentlyAttested": false,
+        "category": "Single isolated API deploy with JWT, unchanged secret fingerprints, all six table diagnostics and checked authority/catalog invariants. Four negative HTTP checks do not establish new action success. Local source hashes and reported compiled bundle digest are separate."
+    },
+    "live": {
+        "receipt": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-hosted-cutover-fixtures-B9iTtl/hosted-cutover-live-receipt-19a5da02-f9e8-413d-8dd4-e3ee469670bb.json",
+            "sha256": "a1957994a142f4ac82d6990733ea5161c4ea3a0fe9611957dd342362ec7dc63a"
+        },
+        "log": {
+            "path": "/private/tmp/thalassa-cutover-api-live.L6aJF3",
+            "sha256": "b74a049428dc47e9721331bd4350d3627bd438d46d61722e905199332fa40140"
+        },
+        "groups": [
+            "cutover approved project and deployment pins",
+            "cutover private policy table helper and signed ACL",
+            "cutover two fresh Auth tokens and authoritative users",
+            "cutover real signed registration preserves immutable fixture keys",
+            "cutover fresh legacy diagnostics do not consume ledger",
+            "cutover wrong Auth signing key and mutation signature refuse",
+            "cutover one-way selection and byte-exact signed retry",
+            "cutover original diagnostic reads current mode without ledger budget",
+            "cutover fresh revoked device cannot select protection",
+            "cutover downgrade payload nonce relabel and unsigned mode access refuse",
+            "cutover old human baseline rows keys and deployment stay unchanged"
+        ],
+        "groupCount": 11,
+        "deployment": {
+            "id": "216b6be1-0d2f-46c7-b70b-79dbb573128d",
+            "version": 28,
+            "bundleSha256": "76e5f15426709dbab2426450c91a44c250173fe32f6d98859ee8cf127c384a25",
+            "verifyJwt": true
+        },
+        "localSourceHashes": {
+            "hosted/cutoverLiveProof.mjs": "f1fecd798cea9f95543e4b7705a1e69b92fcdff41d7216f75c0b3e87cb674b19",
+            "hosted/fixtureRelayProof.mjs": "9127e358928393bcf8254de3a35bf722e9b44d28906230bd93aeca7e0498d3a3",
+            "relay/relay.sql": "15236d599574be3a087859b4ff60ba4acb2b0ed89559def4de6aa9cc5c933c01",
+            "relay/signedRequest.ts": "ff297d8502f53067821a93e8deeda07cd9ec22ca460ee1670c98535337140e84",
+            "relay/signedGateway.ts": "4f00091333257d90208db3757857ec4e3e6867f81fccd355f538e18beb1e29d6",
+            "relay/hostedGateway.ts": "911d198d7c8326adc860d9b3c536f8bc64ea919a7fcfddf2568c227c1f818e57",
+            "relay/httpGateway.ts": "2a51131e6be97638d11580011eae89b4a994e251d4a53a4da7ee9dd8389de722",
+            "relay/deviceBundle.ts": "37f529632bbd364860a926ea8253517bd3a56bac37d21d3623b2013b4fedbd0f",
+            "relay/supabaseAuth.ts": "4d5e3378e8ad7b0c63b5565cc36a1cfb8338a27d3d353db32429c56523c17b1b",
+            "hosted/supabase/functions/scuttlebutt-e2ee-pilot/index.ts": "1381d22b7cfee9de9e1d236ce5a6a81bc1367c5d8ed8e47ef0103b101cf31d8b"
+        },
+        "oldDataPreservation": {
+            "algorithm": "MD5/counts change diagnostics, not cryptographic attestation",
+            "before": {
+                "blocks": {
+                    "count": 0,
+                    "md5": "d751713988987e9331980363e24189ce"
+                },
+                "claims": {
+                    "count": 3,
+                    "md5": "eefd4c655e56f67aa7c845ce86084336"
+                },
+                "decisions": {
+                    "count": 14,
+                    "md5": "9550349dcf38716ac85ad265bf5a5619"
+                },
+                "devices": {
+                    "count": 4,
+                    "md5": "2ae0dfac24880c74b5a990b956266242"
+                },
+                "protected_accounts": {
+                    "count": 0,
+                    "md5": "d751713988987e9331980363e24189ce"
+                },
+                "requests": {
+                    "count": 69,
+                    "md5": "8f89168e6ac9352c373c5a5bf80f7c47"
+                }
+            },
+            "after": {
+                "blocks": {
+                    "count": 0,
+                    "md5": "d751713988987e9331980363e24189ce"
+                },
+                "claims": {
+                    "count": 3,
+                    "md5": "eefd4c655e56f67aa7c845ce86084336"
+                },
+                "decisions": {
+                    "count": 14,
+                    "md5": "9550349dcf38716ac85ad265bf5a5619"
+                },
+                "devices": {
+                    "count": 4,
+                    "md5": "2ae0dfac24880c74b5a990b956266242"
+                },
+                "protected_accounts": {
+                    "count": 0,
+                    "md5": "d751713988987e9331980363e24189ce"
+                },
+                "requests": {
+                    "count": 69,
+                    "md5": "8f89168e6ac9352c373c5a5bf80f7c47"
+                }
+            }
+        },
+        "evidence": {
+            "liveSupabaseAuth": true,
+            "hostedHttps": true,
+            "realEd25519FixtureSignatures": true,
+            "durableHostedAccountMode": true,
+            "diagnosticsDoNotConsumeMutationLedger": true,
+            "actualOlmEncryption": false,
+            "ciphertextSent": false,
+            "nativeClientsExecuted": false,
+            "physicalDevicesExecuted": false,
+            "productionLegacyTableEnforcement": false,
+            "notificationsDispatched": false,
+            "humanAccountModeSelected": false,
+            "originalHumanAndBaselineRowsPreserved": true,
+            "fixtureDeviceRevoked": true,
+            "productionTouched": false,
+            "independentSecurityAuditPerformed": false,
+            "deployedSourceIndependentlyAttested": false
+        },
+        "category": "Real Supabase Auth/HTTPS/Ed25519/SQL with separate fixed disposable actors. No ciphertext, native client, physical phone, production legacy/push or independent audit evidence. Fixture selection/revocation are irreversible; do not reset for fresh replay."
+    },
+    "restoration": {
+        "journal": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-hosted-cutover-fixtures-B9iTtl/fixture-restore-journal-5b7703cd-9c37-41d0-9760-47c821aa3c7e.json",
+            "sha256": "fa304ef6ddc88d859773ef70d3393bea44f1663a90a9875e15a4ded29a314478"
+        },
+        "stage": "verified",
+        "restoreObligation": false,
+        "restoredAndVerified": true,
+        "temporarySelectionAttempted": true,
+        "restoreAttempted": true,
+        "postRestorationObservation": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-e2ee-cutover-deploy-iZXLCC/post-restoration-observation.json",
+            "sha256": "e3422d5981cf97e5f5d16a3b1b41375d8feefb6ae305bc145d21c393d93ce982"
+        },
+        "observedAtUTC": "2026-10-06T21:28:05.914Z",
+        "revision": {
+            "slug": "scuttlebutt-e2ee-pilot",
+            "id": "216b6be1-0d2f-46c7-b70b-79dbb573128d",
+            "version": 29,
+            "status": "ACTIVE",
+            "verifyJwt": true,
+            "bundleSha256": "76e5f15426709dbab2426450c91a44c250173fe32f6d98859ee8cf127c384a25"
+        },
+        "currentSecretFingerprint": "1dfbe331dba5fbace17ea61f457d44611938f464a63bc2320a6d2dcc34701ed7",
+        "reportedBundleEqualsDeployment": true,
+        "allOriginalSecretMetadataRestored": true,
+        "category": "Actual successful finally restoration and subsequent management read; no hard-termination, directory-fsync or power-loss durability guarantee. Revisions27/28/29 are observed metadata, not an independently established increment cause."
+    },
+    "checks": {
+        "tests": 1619,
+        "suites": 22,
+        "newDeploymentContractCases": 99,
+        "testsLog": {
+            "path": "/private/tmp/thalassa-cutover-api-tests.sSdqmL",
+            "sha256": "b376b83f1f063006cfa977da6f96a923311abce603364f8acc650af85716aaff"
+        },
+        "focusedFixtureTypesPassed": true,
+        "javaScriptBodiesStaticallyChecked": false,
+        "typesLog": {
+            "path": "/private/tmp/thalassa-cutover-api-types.uHghXf",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "namedLintPassed": true,
+        "lintLog": {
+            "path": "/private/tmp/thalassa-cutover-api-lint-verified-2026-10-07.log",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "namedFormatPassed": true,
+        "formatLog": {
+            "path": "/private/tmp/thalassa-cutover-api-format-2026-10-07.log",
+            "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+        },
+        "denoRuntimeCheckPassed": true,
+        "denoLog": {
+            "path": "/private/tmp/thalassa-cutover-api-deno.REHJoJ",
+            "sha256": "254cc4e6e44f5c32bb94dd319e0546a57f918859ac2502dba85329055c3b92d4"
+        },
+        "denoCommand": "deno check --no-remote --deny-import --node-modules-dir=none --frozen --config experiments/scuttlebutt-e2ee/hosted/supabase/functions/scuttlebutt-e2ee-pilot/deno.json experiments/scuttlebutt-e2ee/hosted/supabase/functions/scuttlebutt-e2ee-pilot/index.ts",
+        "category": "Pure synthetic deployment contracts plus overlapping Research suites and local type/lint/runtime compile checks, not encrypted deliveries.",
+        "preCommitHook": "HUSKY=0 skips automatic npx wrapper; scoped checks executed directly without installation or shared dependency writes."
+    },
+    "retainedAttempts": [
+        {
+            "status": "failed",
+            "category": "Initial named JS lint",
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-api-lint-2026-10-07.log",
+                "sha256": "d234f27bb49357d1e886c8fe74868bb083916ae036b03cbd669f336ad8c0c374"
+            },
+            "cause": "Unqualified AbortSignal not in ESLint globals; explicit globalThis.AbortSignal preserves runtime behavior."
+        },
+        {
+            "status": "failed",
+            "category": "New synthetic normalized-order expectations",
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-api-tests.O24tDP",
+                "sha256": "45720fc38a9859fd94fe3819a6fd33deb1ccb894d0bec7a98cc5dbc7bdb67d7c"
+            },
+            "passed": 1617,
+            "failed": 2,
+            "cause": "Fixture localeCompare differed from contract byte ordering for function signatures; tests changed to explicit ASCII comparator, contracts unchanged."
+        },
+        {
+            "status": "failed",
+            "category": "Initial Deno CLI invocation",
+            "log": {
+                "path": "/private/tmp/thalassa-cutover-api-deno.p2JKah",
+                "sha256": "7eab595100a4e2e8fbc95cda77c27338b0ee168657d49a2aa5190f786b8aafa8"
+            },
+            "cause": "Installed deno check rejects --cached-only; local help verified supported no-remote/deny-import/frozen/node-modules-dir=none flags."
+        }
+    ],
+    "internalReview": {
+        "independentAudit": false,
+        "fixes": [
+            "Immutable flushed attempt before deployment and atomic/flushed progress receipts; catch persistence failures are sanitized.",
+            "Explicit reserved-human-ID denial before fixture scope, order-independent ACL booleans, persistent allowlist restoration obligation and private precreation credential plans.",
+            "Full six-table permanent policy data and current runtime import graph checks; remote compiled-source attestation is explicitly not claimed."
+        ]
+    },
+    "remainingGates": [
+        "Native-to-hosted disposable-device/account acceptance and actual encrypted PM integration; hosted account control is not encrypted message evidence.",
+        "Main-app durable native cold-start legacy denial and production legacy/push cutover enforcement.",
+        "Expired/historical cutover selection reconciliation, device/prekey renewal/replacement and inbox retention.",
+        "Full physical device lifecycle/lock/restart/network matrix and independent PostgreSQL concurrency.",
+        "Dependency/licence/provenance obligations, independent security assessment and separate owner release decision."
+    ]
+}

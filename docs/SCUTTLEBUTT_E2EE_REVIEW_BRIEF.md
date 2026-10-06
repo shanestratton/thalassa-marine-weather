@@ -160,6 +160,24 @@ or production migration occurred. The old policy-only deployment tool needs a
 separate expanded receipt contract before deploying the new API. Full hosted
 native exchange, cold-start/legacy enforcement and external review remain gates.
 
+The subsequent [hosted API evidence](../experiments/scuttlebutt-e2ee/review/hosted-api-2026-10-07.json)
+records the isolated Edge deployment, four negative boundary checks and eleven
+hosted cutover groups using real Auth/HTTPS/Ed25519 with a separate fixture pair.
+All six deployment table diagnostics, permanent policy rows and secret metadata
+were checked; the temporary Research allowlist was restored and verified through
+its private recovery journal and a later management read. No human policy was
+selected, ciphertext sent, primary app installed or production changed.
+
+The contract suite passed 1,619 cases in 22 suites with focused fixture types,
+lint and a frozen/cache-only Deno runtime check. Initial fixture ordering and
+CLI-flag failures are retained. Local sources and reported remote bundle hashes
+remain separate evidence; revisions 27 at deployment, 28 during live checks and
+29 after restoration were observed with the same reported bundle digest. Neither
+metadata nor these account-control checks establishes native hosted encryption,
+compiled-source attestation, concurrency or an independent security audit.
+Review the immutable attempt/progress records and partial/irreversible fixture
+recovery limits; do not reset permanent selections to rerun a fresh-state proof.
+
 The fixed 16-outgoing/16-incoming budgets,
 scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or
@@ -282,6 +300,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Local cutover runner](../experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs), `privateNotifications.sql`, `legacyCutoverFixture.sql` and the [server cutover evidence](../experiments/scuttlebutt-e2ee/review/server-cutover-2026-10-06.json). Fresh fixture overlays are not production migrations; retained previews and spoofable GUC identity are deliberate test controls.
 - [Native account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeProbe.swift) and [native cutover evidence](../experiments/scuttlebutt-e2ee/review/native-cutover-2026-10-06.json). The native runner's explicit `--account-mode-only` mode uses synthetic Auth/relay and skips its SQL/HTTPS/CA setup; keep this evidence distinct from the older exchange path.
 - [Native HTTPS account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeExchangeProbe.swift), [guarded migration contract](../experiments/scuttlebutt-e2ee/hosted/cutoverMigration.mjs), [real-engine migration runner](../experiments/scuttlebutt-e2ee/hosted/cutoverMigrationProof.mjs) and [hosted cutover manifest](../experiments/scuttlebutt-e2ee/review/hosted-cutover-2026-10-07.json). Account-control transport, local migration tests and real hosted support installation are separate evidence categories.
+- [Deployment contracts](../experiments/scuttlebutt-e2ee/hosted/cutoverDeployment.mjs), [cutover deployer](../experiments/scuttlebutt-e2ee/hosted/deployCutover.mjs), [positive hosted controls](../experiments/scuttlebutt-e2ee/hosted/cutoverLiveProof.mjs) and [hosted API manifest](../experiments/scuttlebutt-e2ee/review/hosted-api-2026-10-07.json). Restoration journals/credentials stay in private artifacts; only hashes and sanitized evidence belong in the assessment packet.
 - [Research adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift), [plugin](../experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift), [web controller and literal renderer](../experiments/scuttlebutt-e2ee/bridge-web/messaging.ts), native bridge fixtures and `tests/E2eePilotBridgeMessaging.test.ts`. These are separate from the shipping private-message port; include both native and JavaScript publication fences in the assessment.
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.
