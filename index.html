@@ -91,13 +91,6 @@
                 -webkit-tap-highlight-color: transparent;
             }
 
-            /* Prevent iOS input zoom */
-            input,
-            select,
-            textarea {
-                font-size: 16px !important;
-            }
-
             /* Leaflet dark mode overrides */
             .leaflet-container {
                 background: #0f172a;
@@ -187,6 +180,8 @@
                 box-shadow: 0 0 16px rgba(239, 68, 68, 0.25);
             }
         </style>
+        <!-- Prevent iOS input zoom: a file of its own, so the layout fixtures load it too. -->
+        <link rel="stylesheet" href="/styles/ios-input-zoom.css" />
         <link rel="stylesheet" href="/index.css" />
     </head>
 

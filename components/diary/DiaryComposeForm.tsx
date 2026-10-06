@@ -9,24 +9,39 @@
  *
  * The new look since 2026-10-06 (Shane: "can you update the diary entry page
  * to make it more in line with our new look"): the Vessel and Plan pages'
- * glass cards, one sky accent and the emerald primary. Title, Trip (the Plan
- * page's Trip tile), Mood (one segmented row), Where, the polish tile and its
- * style, Photos and the text box, then the video; Cancel and Save at the
- * foot. Every field, state and label of the old form is still here.
- * styles/diary-compose.css draws it.
+ * glass, one sky accent and the emerald primary.
+ *
+ * It fits its screen (Shane 2026-10-06: "could we make the diary page just
+ * fit the area. I hate scrolling it looks terrible. Use your banging new
+ * boxes"). Under the header, top to bottom: ONE box of three rows (Title,
+ * Where with the saved position on its label line, Trip), the Vessel page's
+ * rows-in-one-box; the one-row Mood; the media box (Photos and their count,
+ * the video pill on the same line, the six tiles); and the writing card,
+ * whose text box takes all the height that is left, with the ✨ polish and
+ * its style at its foot. Cancel and Save at the foot. Every field, state and
+ * label of the old form is still here. styles/diary-compose.css draws it,
+ * with a compact tier for a short screen.
+ *
+ * The video (Shane 2026-10-06: "there was no where for the 1min video" — it
+ * sat under the text box, off the bottom of a phone) is the pill on the
+ * Photos line: "Add video · 1 min", and once a clip is on, "Your video",
+ * which opens the clip in a centred sheet. Attaching one only changes the
+ * pill's words, so the text box never moves (the 2026-09-09 rule). A saved
+ * entry's video cannot be changed yet: updateEntry carries no video_url, so
+ * an edit offers no add or remove that the save would silently drop, and
+ * says so instead.
  */
 
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
 import { keepEditableAboveKeyboard, scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
 import { DiaryPhoto } from './DiaryPhoto';
 import { DiaryVideo } from './DiaryVideo';
 import { OfflineBadge } from '../ui/OfflineBadge';
+import { ModalSheet } from '../ui/ModalSheet';
 import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
 import { AnchorIcon, CalendarIcon, DeviceIcon, EditIcon, FlagIcon, MapPinIcon, SparklesIcon } from '../Icons';
-import { PLAN_ACCENT, PLAN_TILE_CLASS, PLAN_TILE_STYLE } from '../passage/PlanTile';
-import { JOURNAL_CHIP } from '../vesselHub/JournalCard';
 import { CONTOUR_BG } from '../vesselHub/glass';
 import { ACTION_BAR_THEMES } from '../ui/actionBarThemes';
 
@@ -120,6 +135,20 @@ const ChevronDown: React.FC<{ className: string }> = ({ className }) => (
     </svg>
 );
 
+/** A polish style's name, then its gloss ('Shakespearean', ' — maritime
+ *  grandeur'), so the narrowest screen can show the name alone on one line.
+ *  The select itself keeps every option's whole label. */
+const StyleName: React.FC<{ label: string }> = ({ label }) => {
+    const cut = label.indexOf(' — ');
+    if (cut < 0) return <>{label}</>;
+    return (
+        <>
+            <span className="diary-style-name">{label.slice(0, cut)}</span>
+            <span className="diary-style-gloss">{label.slice(cut)}</span>
+        </>
+    );
+};
+
 const PlusGlyph: React.FC = () => (
     <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m7-7H5" />
@@ -192,10 +221,14 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         const videoRef = useRef<HTMLInputElement>(null);
         const bodyRef = useRef<HTMLTextAreaElement>(null);
         const id = useId();
+        const [videoOpen, setVideoOpen] = useState(false);
+
+        // The sheet shows the clip; with no clip there is nothing to show.
+        useEffect(() => {
+            if (!videoUrl) setVideoOpen(false);
+        }, [videoUrl]);
 
         // Re-check the focused editor after keyboard padding has painted.
-        // The video now follows the editor, so scrolling to the column's tail
-        // would expose the video and hide the very field the skipper is typing.
         useEffect(() => {
             const body = bodyRef.current;
             if (!body || document.activeElement !== body) return;
@@ -242,11 +275,12 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                 className="diary-compose flex flex-col h-full bg-slate-950 text-white"
                 style={{ paddingBottom: bottomPad, backgroundImage: CONTOUR_BG, backgroundSize: '400px 400px' }}
             >
-                {/* Header — the PageHeader recipe (44 px back, the title, its
-                    status under it). Back cancels the entry, so it is not the
+                {/* Header — the PageHeader recipe (44 px back, the title, and
+                    the offline badge beside it, so going offline never pushes
+                    the page down). Back cancels the entry, so it is not the
                     edge swipe's data-page-back. */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="diary-compose-column flex items-start gap-3">
+                <div className="diary-compose-head shrink-0 px-4">
+                    <div className="diary-compose-column flex items-center gap-3">
                         <button
                             type="button"
                             aria-label="Cancel this action"
@@ -265,102 +299,141 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                             </svg>
                         </button>
-                        <div className="flex min-h-[44px] min-w-0 flex-1 flex-col justify-center">
+                        <div className="diary-compose-title flex min-h-[44px] min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
                             <h1 className="ui-page-title text-xl font-extrabold leading-tight text-white uppercase tracking-wider">
                                 {isEditing ? 'Edit Entry' : 'New Entry'}
                             </h1>
-                            <div className="mt-1.5 flex empty:hidden">
+                            <div className="diary-offline flex empty:hidden">
                                 <OfflineBadge />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Compose body */}
-                <div className="diary-compose-body flex-1 flex flex-col px-4 pt-1 pb-4 min-h-0 overflow-auto no-scrollbar">
-                    <div className="diary-compose-column flex flex-1 flex-col gap-2">
-                        {/* Title — prefilled with today's date/time so the keyboard
-                            doesn't pop up; the skipper edits only if they tap in. */}
-                        <div className="diary-card">
-                            <label htmlFor={`${id}-title`} className="diary-eyebrow">
-                                <CalendarIcon />
-                                Title
-                            </label>
-                            <input
-                                id={`${id}-title`}
-                                type="text"
-                                placeholder="Entry title (optional)"
-                                value={title}
-                                onChange={(e) => onSetTitle(e.target.value)}
-                                onFocus={(e) => {
-                                    // First tap selects the prefilled text so a single
-                                    // keystroke replaces it; otherwise editing in place works.
-                                    e.currentTarget.select();
-                                    scrollInputAboveKeyboard(e);
-                                }}
-                                className="diary-field diary-field-title text-white placeholder-gray-500"
-                            />
-                        </div>
+                {/* Compose body — fits the screen; it scrolls only while the
+                    keyboard is up, or on the smallest screens. */}
+                <div className="diary-compose-body flex-1 flex flex-col px-4 min-h-0 overflow-auto no-scrollbar">
+                    <div className="diary-compose-column diary-stack flex flex-1 flex-col">
+                        {/* One box, three rows: Title, Where and Trip. Each row
+                            is its field: the label line sits inside the field's
+                            own 44 px box, so a tap anywhere on the row lands in
+                            it. */}
+                        <div className="diary-group">
+                            {/* Title — prefilled with today's date/time so the
+                                keyboard doesn't pop up; the skipper edits only if
+                                they tap in. */}
+                            <div className="diary-row diary-row-field">
+                                <div className="diary-row-head">
+                                    <label htmlFor={`${id}-title`} className="diary-eyebrow">
+                                        <CalendarIcon />
+                                        Title
+                                    </label>
+                                </div>
+                                <input
+                                    id={`${id}-title`}
+                                    type="text"
+                                    placeholder="Entry title (optional)"
+                                    value={title}
+                                    onChange={(e) => onSetTitle(e.target.value)}
+                                    onFocus={(e) => {
+                                        // First tap selects the prefilled text so a single
+                                        // keystroke replaces it; otherwise editing in place works.
+                                        e.currentTarget.select();
+                                        scrollInputAboveKeyboard(e);
+                                    }}
+                                    className="diary-field diary-field-title text-white placeholder-gray-500"
+                                />
+                            </div>
 
-                        {/* Trip — the Plan page's Trip tile: the face shows the
-                            choice, and the native select is laid invisibly over
-                            the whole tile, so a tap anywhere opens it. */}
-                        {tripPicker && (
-                            <div
-                                className={`${PLAN_TILE_CLASS} plan-tile-trip diary-trip`}
-                                style={PLAN_TILE_STYLE}
-                                data-disabled={tripDisabled || undefined}
-                            >
-                                <span className="plan-tile-body">
-                                    <span
-                                        aria-hidden="true"
-                                        className="plan-tile-icon"
-                                        style={{ ...JOURNAL_CHIP, color: PLAN_ACCENT }}
+                            {/* Where — the place name, and on its label line the
+                                position that will be saved with the entry. */}
+                            <div className="diary-row diary-row-field diary-row-where">
+                                <div className="diary-row-head">
+                                    <label htmlFor={`${id}-place`} className="diary-eyebrow">
+                                        <MapPinIcon />
+                                        Where
+                                    </label>
+                                    {/* GPS coords — always on the entry by default
+                                        (Shane 2026-08-25). Shown so the punter can SEE
+                                        what will be saved; honesty when there is no
+                                        fix yet. It wraps rather than cuts. */}
+                                    <p
+                                        className={`diary-position font-mono${
+                                            !position && !gpsLoading ? ' diary-position-warn' : ''
+                                        }`}
                                     >
-                                        <FlagIcon />
-                                    </span>
-                                    <span className="flex min-w-0 flex-1 flex-col">
-                                        <span aria-hidden="true" className="diary-trip-label">
+                                        <PositionIcon />
+                                        {position ? (
+                                            <span className="min-w-0">
+                                                {position.source && (
+                                                    <>
+                                                        <span className="diary-position-source">{position.source}</span>
+                                                        {' · '}
+                                                    </>
+                                                )}
+                                                <span>{position.coords}</span>
+                                            </span>
+                                        ) : (
+                                            <span className="min-w-0">
+                                                {gpsLoading
+                                                    ? 'Acquiring GPS fix…'
+                                                    : 'No GPS fix — will retry when you save'}
+                                            </span>
+                                        )}
+                                    </p>
+                                </div>
+                                {/* Location name input — overrides the auto-detected
+                                    place name. Useful for back-dated entries where
+                                    the current GPS reading doesn't match where the
+                                    skipper actually was when the event happened. */}
+                                <input
+                                    id={`${id}-place`}
+                                    type="text"
+                                    placeholder="Location (override e.g. Moreton Bay)"
+                                    value={locationName}
+                                    onChange={(e) => onSetLocationName(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
+                                    className="diary-field text-white placeholder-gray-500"
+                                />
+                            </div>
+
+                            {/* Trip — the face shows the choice, and the native
+                                select is laid invisibly over the whole row, so a
+                                tap anywhere opens it (the Plan page's Trip tile). */}
+                            {tripPicker && (
+                                <div className="diary-row diary-row-trip" data-disabled={tripDisabled || undefined}>
+                                    <div className="diary-row-head">
+                                        <span aria-hidden="true" className="diary-eyebrow">
+                                            <FlagIcon />
                                             Trip
-                                        </span>
-                                        <span aria-hidden="true" className="diary-trip-value text-white">
-                                            {tripLabel}
                                         </span>
                                         {tripStatus && (
                                             <span id={`${id}-trip-status`} className="diary-trip-status" role="status">
                                                 {tripStatus}
                                             </span>
                                         )}
+                                    </div>
+                                    <span aria-hidden="true" className="diary-trip-value text-white">
+                                        {tripLabel}
                                     </span>
-                                    <svg
-                                        aria-hidden="true"
-                                        className="plan-tile-go"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke={PLAN_ACCENT}
-                                        strokeWidth={2}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
+                                    <ChevronDown className="diary-select-chevron" />
+                                    <select
+                                        aria-label="Diary trip"
+                                        aria-describedby={tripStatus ? `${id}-trip-status` : undefined}
+                                        value={tripPicker.value}
+                                        onChange={(event) => tripPicker.onChange(event.target.value)}
+                                        disabled={tripDisabled}
+                                        className="plan-tile-select scheme-dark [.display-light_&]:scheme-light"
                                     >
-                                        <path d="M6 9l6 6 6-6" />
-                                    </svg>
-                                </span>
-                                <select
-                                    aria-label="Diary trip"
-                                    aria-describedby={tripStatus ? `${id}-trip-status` : undefined}
-                                    value={tripPicker.value}
-                                    onChange={(event) => tripPicker.onChange(event.target.value)}
-                                    disabled={tripDisabled}
-                                    className="plan-tile-select scheme-dark [.display-light_&]:scheme-light"
-                                >
-                                    {tripOptions.map((option) => (
-                                        <option key={option.value || 'none'} value={option.value}>
-                                            {option.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
+                                        {tripOptions.map((option) => (
+                                            <option key={option.value || 'none'} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                        </div>
 
                         {/* Mood — one segmented row; the chosen one wears the
                             sky accent. */}
@@ -388,109 +461,59 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             })}
                         </div>
 
-                        {/* Where — the place name, then the position that will
-                            be saved with the entry. */}
-                        <div className="diary-card">
-                            <label htmlFor={`${id}-place`} className="diary-eyebrow">
-                                <MapPinIcon />
-                                Where
-                            </label>
-                            {/* Location name input — overrides the auto-detected
-                                place name. Useful for back-dated entries where
-                                the current GPS reading doesn't match where the
-                                skipper actually was when the event happened. */}
-                            <input
-                                id={`${id}-place`}
-                                type="text"
-                                placeholder="Location (override e.g. Moreton Bay)"
-                                value={locationName}
-                                onChange={(e) => onSetLocationName(e.target.value)}
-                                onFocus={scrollInputAboveKeyboard}
-                                className="diary-field text-white placeholder-gray-500"
-                            />
-                            <div aria-hidden="true" className="diary-rule" />
-                            {/* GPS coords — always on the entry by default (Shane
-                                2026-08-25). Shown so the punter can SEE what will
-                                be saved; honesty when there is no fix yet. */}
-                            <p
-                                className={`diary-position font-mono${
-                                    !position && !gpsLoading ? ' diary-position-warn' : ''
-                                }`}
-                            >
-                                <PositionIcon />
-                                {position ? (
-                                    <span className="min-w-0">
-                                        {position.source && (
-                                            <>
-                                                <span className="diary-position-source">{position.source}</span>
-                                                {' · '}
-                                            </>
-                                        )}
-                                        <span>{position.coords}</span>
+                        {/* Media — Photos and their count, the video pill on the
+                            same line, then six dashed glass tiles in one row. */}
+                        <div className="diary-media">
+                            <div className="diary-media-head">
+                                <span className="diary-media-label">
+                                    <span className="diary-eyebrow">
+                                        <CameraGlyph />
+                                        Photos
+                                    </span>
+                                    <span className="diary-count">
+                                        {photos.length === 0
+                                            ? `Up to ${MAX_PHOTOS}`
+                                            : `${photos.length} of ${MAX_PHOTOS}`}
+                                    </span>
+                                </span>
+                                {/* The video pill: its words are its name. The
+                                    clip's player opens in a sheet, so a clip going
+                                    on or off never moves the text box. */}
+                                {videoUrl ? (
+                                    <button
+                                        type="button"
+                                        aria-haspopup="dialog"
+                                        aria-expanded={videoOpen}
+                                        onClick={() => setVideoOpen(true)}
+                                        className="diary-video-pill"
+                                        data-state="on"
+                                    >
+                                        <span className="diary-video-pill-face">
+                                            <VideoGlyph />
+                                            <span className="diary-video-pill-text">Your video</span>
+                                        </span>
+                                    </button>
+                                ) : isEditing ? (
+                                    <span className="diary-video-pill" data-state="note">
+                                        <span className="diary-video-pill-face">
+                                            <VideoGlyph />
+                                            <span className="diary-video-pill-text">Video: new entries</span>
+                                        </span>
                                     </span>
                                 ) : (
-                                    <span className="min-w-0">
-                                        {gpsLoading ? 'Acquiring GPS fix…' : 'No GPS fix — will retry when you save'}
-                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => videoRef.current?.click()}
+                                        disabled={saving || uploading}
+                                        className="diary-video-pill"
+                                        data-state="add"
+                                    >
+                                        <span className="diary-video-pill-face">
+                                            <VideoGlyph />
+                                            <span className="diary-video-pill-text">Add video · 1 min</span>
+                                        </span>
+                                    </button>
                                 )}
-                            </p>
-                        </div>
-
-                        {/* Polish style — the ✨ polish tile, dimmed until the
-                            body has enough text to polish, and the style it will
-                            apply. The style's native select is laid invisibly
-                            over its tile, as on the Trip tile; the choice
-                            persists via settings.polishStyle. The eyebrow says
-                            the select's name, so Voice Control finds it. */}
-                        <div className="flex shrink-0 items-stretch gap-2">
-                            <button
-                                aria-label="Polish entry text"
-                                type="button"
-                                onClick={onPolish}
-                                disabled={polishing || !canPolish}
-                                data-ready={canPolish || polishing}
-                                className={`diary-polish min-h-[56px]${polishing ? ' animate-pulse' : ''}`}
-                            >
-                                {polishing ? (
-                                    <span aria-hidden="true" className="diary-spinner animate-spin" />
-                                ) : (
-                                    <SparklesIcon />
-                                )}
-                            </button>
-                            <div className="diary-card diary-style flex-1">
-                                <span aria-hidden="true" className="diary-eyebrow">
-                                    <EditIcon />
-                                    Polish style
-                                </span>
-                                <span aria-hidden="true" className="diary-style-value text-white">
-                                    {POLISH_LABEL[polishStyle]}
-                                </span>
-                                <ChevronDown className="diary-select-chevron" />
-                                <select
-                                    value={polishStyle}
-                                    onChange={(e) => onSetPolishStyle(e.target.value as PolishStyle)}
-                                    aria-label="Polish style"
-                                    className="plan-tile-select scheme-dark [.display-light_&]:scheme-light"
-                                >
-                                    {(Object.entries(POLISH_LABEL) as [PolishStyle, string][]).map(([value, label]) => (
-                                        <option key={value} value={value}>
-                                            {label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* Photos — six dashed glass tiles in one row. */}
-                        <div className="shrink-0">
-                            <div className="diary-eyebrow-row">
-                                <span className="diary-eyebrow">
-                                    <CameraGlyph />
-                                    Photos
-                                </span>
-                                <span className="diary-count">
-                                    {photos.length === 0 ? `Up to ${MAX_PHOTOS}` : `${photos.length} of ${MAX_PHOTOS}`}
-                                </span>
                             </div>
                             <div className="diary-photos">
                                 {photos.map((url, i) => (
@@ -536,18 +559,11 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             </div>
                         </div>
 
-                        {/* Polishing indicator */}
-                        {polishing && (
-                            <div className="diary-polishing">
-                                <SparklesIcon className="animate-pulse" />
-                                <span>Styling your entry…</span>
-                            </div>
-                        )}
-
-                        {/* Writing comes before video. Keep real height in the
-                            flex column so a preview cannot collapse or overlap the
-                            editor on a short phone; overflow stays in this panel. */}
-                        <div className="flex-1 min-h-40">
+                        {/* The writing card: the text box takes every pixel that
+                            is left, and the ✨ polish and its style sit at its
+                            foot. While a polish runs, its note lies over the
+                            card's corner, so nothing moves. */}
+                        <div className="diary-write">
                             <textarea
                                 ref={bodyRef}
                                 aria-label="Diary entry text"
@@ -556,51 +572,73 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 onChange={(e) => onSetBody(e.target.value)}
                                 onFocus={scrollInputAboveKeyboard}
                                 disabled={polishing}
-                                className="diary-body min-h-40 text-gray-200 placeholder-gray-500"
+                                className="diary-body text-gray-200 placeholder-gray-500"
                             />
-                        </div>
-                        {/* Video follows the content box, including its Add button,
-                            so attaching a clip never moves the writing field down.
-                            Preview stays local; upload still happens on save. */}
-                        <div className="shrink-0">
-                            {videoUrl ? (
-                                <div className="diary-video">
-                                    <DiaryVideo src={videoUrl} className="w-full max-h-48 bg-black" />
-                                    <button
-                                        type="button"
-                                        aria-label="Remove the video"
-                                        onClick={onVideoRemove}
-                                        disabled={saving}
-                                        className="hit-target-44 absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-[12px] text-white disabled:cursor-not-allowed"
-                                    >
-                                        ✕
-                                    </button>
+                            {polishing && (
+                                <div className="diary-polishing">
+                                    <SparklesIcon className="animate-pulse" />
+                                    <span>Styling your entry…</span>
                                 </div>
-                            ) : (
-                                <button
-                                    type="button"
-                                    aria-label="Add a video clip"
-                                    onClick={() => videoRef.current?.click()}
-                                    disabled={saving || uploading}
-                                    className="diary-video-add min-h-[48px]"
-                                >
-                                    <VideoGlyph />
-                                    <span>Add a video — up to 1 minute</span>
-                                </button>
                             )}
+                            {/* Polish — the ✨ button, dimmed until the body has
+                                enough text to polish, and the style it will apply.
+                                The style's native select is laid invisibly over
+                                its chip, as on the Trip row; the choice persists
+                                via settings.polishStyle. The eyebrow says the
+                                select's name, so Voice Control finds it. */}
+                            <div className="diary-write-tools">
+                                <button
+                                    aria-label="Polish entry text"
+                                    type="button"
+                                    onClick={onPolish}
+                                    disabled={polishing || !canPolish}
+                                    data-ready={canPolish || polishing}
+                                    className={`diary-polish${polishing ? ' animate-pulse' : ''}`}
+                                >
+                                    {polishing ? (
+                                        <span aria-hidden="true" className="diary-spinner animate-spin" />
+                                    ) : (
+                                        <SparklesIcon />
+                                    )}
+                                </button>
+                                <div className="diary-style">
+                                    <span aria-hidden="true" className="diary-eyebrow">
+                                        <EditIcon />
+                                        Polish style
+                                    </span>
+                                    <span aria-hidden="true" className="diary-style-value text-white">
+                                        <StyleName label={POLISH_LABEL[polishStyle]} />
+                                    </span>
+                                    <ChevronDown className="diary-select-chevron" />
+                                    <select
+                                        value={polishStyle}
+                                        onChange={(e) => onSetPolishStyle(e.target.value as PolishStyle)}
+                                        aria-label="Polish style"
+                                        className="plan-tile-select scheme-dark [.display-light_&]:scheme-light"
+                                    >
+                                        {(Object.entries(POLISH_LABEL) as [PolishStyle, string][]).map(
+                                            ([value, label]) => (
+                                                <option key={value} value={value}>
+                                                    {label}
+                                                </option>
+                                            ),
+                                        )}
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 {/* ═══ SAVE + CANCEL — fixed at bottom ═══ */}
-                <div className="shrink-0 px-4 py-3 border-t border-white/5 bg-slate-950">
+                <div className="diary-compose-foot shrink-0 px-4 border-t border-white/5 bg-slate-950">
                     <div className="diary-compose-column flex gap-3">
                         <button
                             type="button"
                             aria-label="Cancel this action"
                             onClick={onCancel}
                             disabled={saving}
-                            className="diary-cancel press flex min-h-[52px] flex-1 items-center justify-center rounded-full px-4 text-[15px] font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="diary-cancel diary-foot-button press flex flex-1 items-center justify-center rounded-full px-4 text-[15px] font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                             Cancel
                         </button>
@@ -610,7 +648,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             onClick={onSave}
                             disabled={saving || polishing || (!body.trim() && !title.trim() && !audioUrl)}
                             style={SAVE_STYLE}
-                            className={`diary-save press flex min-h-[52px] flex-2 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-bold disabled:cursor-not-allowed ${
+                            className={`diary-save diary-foot-button press flex flex-2 items-center justify-center gap-2 rounded-full px-5 text-[15px] font-bold disabled:cursor-not-allowed ${
                                 saving ? 'disabled:opacity-80' : 'disabled:opacity-40'
                             } ${SAVE_DAYLIGHT}`}
                         >
@@ -622,6 +660,36 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
 
                 <input ref={fileRef} type="file" accept="image/*" onChange={onPhotoSelect} className="hidden" />
                 <input ref={videoRef} type="file" accept="video/*" onChange={onVideoSelect} className="hidden" />
+
+                {/* The clip, in the app's centred sheet: the player, and for a
+                    new entry the way to take it off again. */}
+                <ModalSheet
+                    isOpen={videoOpen && !!videoUrl}
+                    onClose={() => setVideoOpen(false)}
+                    title="Your video"
+                    maxWidth="max-w-md"
+                >
+                    {videoUrl && (
+                        <div className="diary-video-sheet">
+                            <DiaryVideo src={videoUrl} className="diary-video-player w-full rounded-xl bg-black" />
+                            {isEditing ? (
+                                <p className="diary-video-caption">A saved entry's video can't be changed yet.</p>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onVideoRemove();
+                                        setVideoOpen(false);
+                                    }}
+                                    disabled={saving}
+                                    className="diary-video-remove"
+                                >
+                                    Remove the video
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </ModalSheet>
             </div>
         );
     },

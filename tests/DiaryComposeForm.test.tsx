@@ -134,55 +134,156 @@ describe('DiaryComposeForm — text-first entry', () => {
         cancelButtons.forEach((button) => expect(button).toBeDisabled());
     });
 
-    it.each([
-        { isEditing: false, mode: 'new' },
-        { isEditing: true, mode: 'edit' },
-    ])('keeps $mode entry text before video controls without losing typed content', ({ isEditing }) => {
-        const onVideoRemove = vi.fn();
-        const props = makeProps({ isEditing, onVideoRemove });
-        function ControlledForm({ videoUrl }: { videoUrl: string | null }) {
-            const [title, setTitle] = useState(props.title);
-            const [body, setBody] = useState(props.body);
-            return (
-                <DiaryComposeForm
-                    {...props}
-                    title={title}
-                    body={body}
-                    videoUrl={videoUrl}
-                    onSetTitle={setTitle}
-                    onSetBody={setBody}
-                />
-            );
-        }
+    // Shane 2026-10-06: "there was no where for the 1min video" (it sat
+    // under the text box, off the bottom of a phone), then "could we make the
+    // diary page just fit the area". The video is the pill on the Photos
+    // line, ahead of the text; its words are its name; the clip plays in a
+    // sheet, so attaching one never moves the writing (the 2026-09-09 rule):
+    // nothing is added to the page but the pill's new words.
+    function ControlledForm({ videoUrl, props }: { videoUrl: string | null; props: ReturnType<typeof makeProps> }) {
+        const [title, setTitle] = useState(props.title);
+        const [body, setBody] = useState(props.body);
+        return (
+            <DiaryComposeForm
+                {...props}
+                title={title}
+                body={body}
+                videoUrl={videoUrl}
+                onSetTitle={setTitle}
+                onSetBody={setBody}
+            />
+        );
+    }
+    const precedes = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-        const { container, rerender } = render(<ControlledForm videoUrl={null} />);
+    it('a new entry offers the video on the Photos line, ahead of the text, and plays it in a sheet', () => {
+        const onVideoRemove = vi.fn();
+        const props = makeProps({ onVideoRemove });
+        const { container, rerender } = render(<ControlledForm videoUrl={null} props={props} />);
         const body = screen.getByRole('textbox', { name: 'Diary entry text' });
         const title = screen.getByPlaceholderText('Entry title (optional)');
-        const addVideo = screen.getByRole('button', { name: 'Add a video clip' });
-        expect(body.compareDocumentPosition(addVideo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        const addVideo = screen.getByRole('button', { name: 'Add video · 1 min' });
+        // Its visible words are its whole name (WCAG 2.5.3): no aria-label.
+        expect(addVideo).not.toHaveAttribute('aria-label');
+        expect(addVideo).toHaveTextContent(/^Add video · 1 min$/);
+        // With the photos, in the media box, ahead of the text box.
+        const media = addVideo.closest('.diary-media')!;
+        expect(media).not.toBeNull();
+        expect(within(media as HTMLElement).getAllByRole('button', { name: /^Add diary photo/ })).toHaveLength(6);
+        expect(precedes(addVideo, body)).toBe(true);
 
         fireEvent.change(title, { target: { value: 'Dolphins at Cape Moreton' } });
         fireEvent.change(body, { target: { value: 'A pod stayed alongside while we crossed the bay.' } });
 
-        rerender(<ControlledForm videoUrl="blob:diary-compose-video" />);
-        const preview = container.querySelector('video');
-        expect(preview).toHaveAttribute('src', 'blob:diary-compose-video');
-        expect(body.compareDocumentPosition(preview!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // A clip on: the pill's words change and nothing joins the page.
+        rerender(<ControlledForm videoUrl="blob:diary-compose-video" props={props} />);
+        expect(container.querySelector('video')).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Add video · 1 min' })).not.toBeInTheDocument();
+        const show = screen.getByRole('button', { name: 'Your video' });
+        expect(show).not.toHaveAttribute('aria-label');
+        expect(show).toHaveAttribute('aria-haspopup', 'dialog');
+        expect(show).toHaveAttribute('aria-expanded', 'false');
+        expect(precedes(show, body)).toBe(true);
+
+        fireEvent.click(show);
+        const sheet = screen.getByRole('dialog', { name: 'Your video' });
+        expect(sheet.querySelector('video')).toHaveAttribute('src', 'blob:diary-compose-video');
+        expect(show).toHaveAttribute('aria-expanded', 'true');
         expect(title).toHaveValue('Dolphins at Cape Moreton');
         expect(body).toHaveValue('A pod stayed alongside while we crossed the bay.');
-        expect(screen.queryByRole('button', { name: 'Add a video clip' })).not.toBeInTheDocument();
 
-        fireEvent.click(screen.getByRole('button', { name: 'Remove the video' }));
+        fireEvent.click(within(sheet).getByRole('button', { name: 'Remove the video' }));
         expect(onVideoRemove).toHaveBeenCalledTimes(1);
-        rerender(<ControlledForm videoUrl={null} />);
-
+        expect(screen.queryByRole('dialog')).toBeNull();
+        rerender(<ControlledForm videoUrl={null} props={props} />);
         expect(container.querySelector('video')).toBeNull();
         expect(title).toHaveValue('Dolphins at Cape Moreton');
         expect(body).toHaveValue('A pod stayed alongside while we crossed the bay.');
-        expect(
-            body.compareDocumentPosition(screen.getByRole('button', { name: 'Add a video clip' })) &
-                Node.DOCUMENT_POSITION_FOLLOWING,
-        ).toBeTruthy();
+        expect(precedes(screen.getByRole('button', { name: 'Add video · 1 min' }), body)).toBe(true);
+    });
+
+    it('the video sheet closes itself when the clip goes, and Remove waits for a save', () => {
+        const props = makeProps();
+        const { rerender } = render(<ControlledForm videoUrl="blob:diary-compose-video" props={props} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Your video' }));
+        expect(screen.getByRole('dialog', { name: 'Your video' })).toBeInTheDocument();
+        rerender(<ControlledForm videoUrl={null} props={props} />);
+        expect(screen.queryByRole('dialog')).toBeNull();
+
+        render(<DiaryComposeForm {...makeProps({ saving: true, videoUrl: 'blob:diary-saving-video' })} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Your video' }));
+        expect(screen.getByRole('button', { name: 'Remove the video' })).toBeDisabled();
+    });
+
+    it('an edit offers no video add or remove the save would drop, and says so', () => {
+        // updateEntry carries no video_url: a clip added or removed in an
+        // edit used to vanish silently on save.
+        const props = makeProps({ isEditing: true });
+        const { container, rerender } = render(<ControlledForm videoUrl={null} props={props} />);
+        const body = screen.getByRole('textbox', { name: 'Diary entry text' });
+        expect(screen.queryByRole('button', { name: /video/i })).toBeNull();
+        // A label, not a control, in the pill's place.
+        const note = screen.getByText('Video: new entries');
+        expect(note.closest('button')).toBeNull();
+        expect(precedes(note, body)).toBe(true);
+
+        rerender(<ControlledForm videoUrl="blob:diary-saved-video" props={props} />);
+        expect(container.querySelector('video')).toBeNull();
+        expect(screen.queryByText('Video: new entries')).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: 'Your video' }));
+        const sheet = screen.getByRole('dialog', { name: 'Your video' });
+        expect(sheet.querySelector('video')).toHaveAttribute('src', 'blob:diary-saved-video');
+        expect(within(sheet).queryByRole('button', { name: 'Remove the video' })).toBeNull();
+        expect(within(sheet).getByText("A saved entry's video can't be changed yet.")).toBeInTheDocument();
+    });
+
+    it('fits its screen: one box of three rows, the mood, the media box, the writing card with its polish', () => {
+        const { container } = render(
+            <DiaryComposeForm {...makeProps({ tripPicker: tripPicker({ loading: true, choices: [] }) })} />,
+        );
+        const stack = container.querySelector('.diary-stack')!;
+        expect([...stack.children].map((child) => child.className.split(' ')[0])).toEqual([
+            'diary-group',
+            'diary-mood',
+            'diary-media',
+            'diary-write',
+        ]);
+        const group = stack.children[0] as HTMLElement;
+        expect([...group.children].map((row) => row.className)).toEqual([
+            'diary-row diary-row-field',
+            'diary-row diary-row-field diary-row-where',
+            'diary-row diary-row-trip',
+        ]);
+        // Each row keeps its visible label: Title, Where, Trip.
+        expect([...group.querySelectorAll('.diary-row-head > .diary-eyebrow')].map((e) => e.textContent)).toEqual([
+            'Title',
+            'Where',
+            'Trip',
+        ]);
+        expect(within(group).getByRole('textbox', { name: 'Title' })).toBeInTheDocument();
+        expect(within(group).getByRole('textbox', { name: 'Where' })).toBeInTheDocument();
+        expect(within(group).getByRole('combobox', { name: 'Diary trip' })).toBeInTheDocument();
+        // The position rides on the Where label line; the trip status on Trip's.
+        expect(group.children[1].querySelector('.diary-row-head .diary-position')).toHaveTextContent(
+            '27.2081°S, 153.0995°E',
+        );
+        expect(group.children[2].querySelector('.diary-row-head [role="status"]')).toHaveTextContent(
+            'Loading recent trips…',
+        );
+        // The writing card holds the text box, then the polish row at its foot.
+        const write = stack.children[3] as HTMLElement;
+        const text = within(write).getByRole('textbox', { name: 'Diary entry text' });
+        const polish = within(write).getByRole('button', { name: 'Polish entry text' });
+        const style = within(write).getByRole('combobox', { name: 'Polish style' });
+        expect(precedes(text, polish)).toBe(true);
+        expect(precedes(polish, style)).toBe(true);
+    });
+
+    it('the polishing note lives inside the writing card', () => {
+        const { container } = render(<DiaryComposeForm {...makeProps({ polishing: true })} />);
+        const note = container.querySelector('.diary-polishing')!;
+        expect(note).toHaveTextContent('Styling your entry…');
+        expect(note.parentElement).toHaveClass('diary-write');
     });
 });
 
@@ -332,6 +433,11 @@ describe('DiaryComposeForm — the new look keeps every field and state', () => 
         expect(style.parentElement!.querySelector('.diary-style-value')).toHaveTextContent(
             'Shakespearean — maritime grandeur',
         );
+        // The name and its gloss apart, so the narrowest screen shows the name
+        // alone on one line; every option keeps its whole label.
+        expect(style.parentElement!.querySelector('.diary-style-name')).toHaveTextContent(/^Shakespearean$/);
+        expect(style.parentElement!.querySelector('.diary-style-gloss')).toHaveTextContent('— maritime grandeur');
+        expect(style.querySelector('option[value="poetic"]')).toHaveTextContent('Shakespearean — maritime grandeur');
         fireEvent.change(style, { target: { value: 'tidy' } });
         expect(onSetPolishStyle).toHaveBeenCalledWith('tidy');
 
@@ -363,7 +469,7 @@ describe('DiaryComposeForm — the new look keeps every field and state', () => 
         screen
             .getAllByRole('button', { name: /^Add diary photo \d$/ })
             .forEach((button) => expect(button).toBeDisabled());
-        expect(screen.getByRole('button', { name: 'Add a video clip' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Add video · 1 min' })).toBeDisabled();
     });
 
     it('a tap on a photo keeps it: the image takes the tap, only the corner control removes', () => {
@@ -406,5 +512,41 @@ describe('diary defaults (reducer contract)', () => {
         expect(initialDiaryState.mood).toBe('epic');
         const opened = diaryReducer(initialDiaryState, { type: 'OPEN_COMPOSE', weatherSummary: '' });
         expect(opened.mood).toBe('epic');
+    });
+
+    // Every field is 16 px on the phone (iOS zooms to anything smaller), and
+    // at 16 px the long default title was cut at 375 and 320: under 390 the
+    // default is the short form (browser-tests/diary-compose-layout.spec.ts
+    // measures both in the field).
+    it('the default title is the long form from 390 up and the short one under it', async () => {
+        const { formatEntryTitleDefault, prefersCompactDiaryTitle } = await import('../utils/diaryTitle');
+        const day = new Date(2026, 8, 30, 8, 48);
+        expect(formatEntryTitleDefault(day, false)).toBe('Wednesday 30 September 2026 · 08:48');
+        expect(formatEntryTitleDefault(day, true)).toMatch(/^Wed 30 Sept? 2026 · 08:48$/);
+
+        const matchMedia = window.matchMedia;
+        try {
+            for (const [width, compact] of [
+                [320, true],
+                [375, true],
+                [389, true],
+                [390, false],
+                [430, false],
+            ] as const) {
+                window.matchMedia = ((query: string) => ({
+                    matches: Number(/max-width: ([\d.]+)px/.exec(query)?.[1]) >= width,
+                })) as unknown as typeof window.matchMedia;
+                expect(prefersCompactDiaryTitle(), `at ${width}`).toBe(compact);
+            }
+            const { diaryReducer, initialDiaryState } = await import('../hooks/useDiaryState');
+            window.matchMedia = (() => ({ matches: true })) as unknown as typeof window.matchMedia;
+            const narrow = diaryReducer(initialDiaryState, { type: 'OPEN_COMPOSE', weatherSummary: '' });
+            expect(narrow.title).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2,3} \d{4} · \d\d:\d\d$/);
+            window.matchMedia = (() => ({ matches: false })) as unknown as typeof window.matchMedia;
+            const wide = diaryReducer(initialDiaryState, { type: 'OPEN_COMPOSE', weatherSummary: '' });
+            expect(wide.title).toMatch(/^[A-Z][a-z]+day \d{1,2} [A-Z][a-z]+ \d{4} · \d\d:\d\d$/);
+        } finally {
+            window.matchMedia = matchMedia;
+        }
     });
 });

@@ -124,6 +124,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     latestEntriesRef.current = entries;
     const latestSelectedEntryRef = useRef(selectedEntry);
     latestSelectedEntryRef.current = selectedEntry;
+    // The video pipeline's awaits outlive renders, so they read the live
+    // edit state here rather than the snapshot they started with.
+    const latestEditingIdRef = useRef(editingId);
+    latestEditingIdRef.current = editingId;
     // Setter shims — same API surface, backed by dispatch
     const setEntries = useCallback(
         (v: DiaryEntry[] | ((prev: DiaryEntry[]) => DiaryEntry[])) => {
@@ -288,7 +292,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const unsavedPhotoRefs = useRef<Set<string>>(new Set());
     /** The one compose-owned clip, if any. Replaced or discarded, never leaked. */
     const unsavedVideoRef = useRef<string | null>(null);
-    const [trimRequest, setTrimRequest] = useState<{ file: File; durationSec: number } | null>(null);
+    /** A long movie waiting in the trimmer, with the compose it was picked in. */
+    const [trimRequest, setTrimRequest] = useState<{
+        file: File;
+        durationSec: number;
+        operationIsCurrent: () => boolean;
+    } | null>(null);
     /** Set only when vessel and phone GPS disagree — the pub-vs-passage question. */
     const [gpsConflict, setGpsConflict] = useState<{
         vessel: { lat: number; lon: number };
@@ -303,6 +312,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // A Save snapshots only the refs it is adopting. Account B can therefore
     // begin a clean compose after an A→B switch without Cancel racing A's bytes.
     const savingPhotoRefsRef = useRef<Set<string> | null>(null);
+    /** The clip an in-flight Save is adopting, kept from abandon as its photos are. */
+    const savingVideoRefRef = useRef<string | null>(null);
     const abandonedComposeSessionsRef = useRef<Set<number>>(new Set());
     const composeSaveInFlightRef = useRef(false);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -325,6 +336,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 setTranscribing(false);
                 setPolishing(false);
                 if (!composeSaveInFlightRef.current) setSaving(false);
+                // A movie waiting in the trimmer belongs to the compose being
+                // left. Kept, it popped over the NEXT one — even an Edit,
+                // which cannot hold a clip. Cancel, New Entry, Edit and an
+                // account switch all come through here.
+                setTrimRequest(null);
             }
         },
         [setPolishing, setSaving, setTranscribing],
@@ -352,9 +368,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         for (const ref of refs) {
             if (!savingRefs.has(ref)) void DiaryService.discardUnsavedPhoto(ref);
         }
+        // The Save's clip as well: freed here, a Save that then committed its
+        // entry left it pointing at a clip already deleted from IndexedDB.
+        // The Save's own finally frees it if the entry never lands.
         const videoRef = unsavedVideoRef.current;
         unsavedVideoRef.current = null;
-        if (videoRef) void DiaryService.discardUnsavedVideo(videoRef);
+        if (videoRef && videoRef !== savingVideoRefRef.current) void DiaryService.discardUnsavedVideo(videoRef);
     }, []);
 
     // Keep the compose reducer in sync with the shared native/web keyboard
@@ -798,6 +817,24 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         if (fileRef.current) fileRef.current.value = '';
     };
     /**
+     * A video pick's claim on the compose it was made in. The pipeline (a
+     * metadata probe of up to 5 s, the remux, the trimmer, the IndexedDB park)
+     * can outlive that compose — Cancel stays live while uploading — and a clip
+     * that finished late used to land in the NEXT one. In an Edit it could not
+     * be removed, Update dropped it (updateEntry carries no video_url) and the
+     * parked blob, up to ~200MB, was orphaned for good. Every step re-checks
+     * this; a stale clip is discarded, never adopted.
+     */
+    const beginVideoOperation = (): (() => boolean) => {
+        const scope = getAuthIdentityScope();
+        const composeSession = composeSessionRef.current;
+        return () =>
+            pageActiveRef.current &&
+            isAuthIdentityScopeCurrent(scope) &&
+            composeSessionRef.current === composeSession &&
+            !latestEditingIdRef.current;
+    };
+    /**
      * One clip per entry, a minute at most. The duration gate reads metadata
      * from a temporary object URL rather than trusting the picker, because the
      * Photos app will happily hand over a nine-minute 4K file — and at ~200MB a
@@ -808,6 +845,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         const file = e.target.files?.[0];
         if (e.target) e.target.value = '';
         if (!file) return;
+        // An edit cannot carry a clip. The form offers no Add there; a stray
+        // change event from the hidden input is refused here as well.
+        if (latestEditingIdRef.current) return;
+        const operationIsCurrent = beginVideoOperation();
         const probeUrl = URL.createObjectURL(file);
         setUploading(true);
         try {
@@ -833,9 +874,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 probe.src = probeUrl;
                 probe.load();
             });
+            // Cancelled during the probe: no words, no trimmer, no clip.
+            if (!operationIsCurrent()) return;
             if (!Number.isFinite(duration) || duration <= 0) {
                 const { probeVideoDurationSeconds } = await import('../services/videoTrim');
                 duration = (await probeVideoDurationSeconds(file)) ?? NaN;
+                if (!operationIsCurrent()) return;
             }
             if (!Number.isFinite(duration) || duration <= 0) {
                 toast.error('That file could not be read as a video.');
@@ -856,7 +900,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 }
                 // Not a rejection any more — the trimmer opens with the whole
                 // movie and a one-minute window to drag to the best bit.
-                setTrimRequest({ file, durationSec: duration });
+                setTrimRequest({ file, durationSec: duration, operationIsCurrent });
                 return;
             }
             if (file.size > 550 * 1048576) {
@@ -867,9 +911,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             }
         } finally {
             URL.revokeObjectURL(probeUrl);
-            setUploading(false);
+            // A stale pick leaves the spinner to the compose that owns it now.
+            if (operationIsCurrent()) setUploading(false);
         }
-        await adoptCameraVideo(file);
+        await adoptCameraVideo(file, operationIsCurrent);
     };
     /**
      * Camera files are QuickTime containers even when the codecs inside are
@@ -880,7 +925,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
      * GPS. If the remux chokes on an exotic file the original still goes
      * through — a clip that only plays in the app beats one silently lost.
      */
-    const adoptCameraVideo = async (file: File) => {
+    const adoptCameraVideo = async (file: File, operationIsCurrent: () => boolean) => {
+        if (!operationIsCurrent()) return;
         setUploading(true);
         let accepted: Blob = file;
         try {
@@ -903,12 +949,22 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         } catch (err) {
             log.warn('Video remux failed — adopting the original container', err);
         }
-        await adoptVideoBlob(accepted);
+        // Nothing is parked yet: a stale remux is only memory, dropped here.
+        if (!operationIsCurrent()) return;
+        await adoptVideoBlob(accepted, operationIsCurrent);
     };
     /** Park an accepted clip (picked short, or freshly cut) as the entry's video. */
-    const adoptVideoBlob = async (blob: Blob) => {
+    const adoptVideoBlob = async (blob: Blob, operationIsCurrent: () => boolean) => {
+        if (!operationIsCurrent()) return;
         setUploading(true);
         const ref = await DiaryService.saveVideoForEntry(blob);
+        if (!operationIsCurrent()) {
+            // The compose this clip was picked in is gone (Cancel, another
+            // entry, an account switch). Its parked bytes have no owner: free
+            // them, and leave the current compose's clip and spinner alone.
+            if (ref) void DiaryService.discardUnsavedVideo(ref);
+            return;
+        }
         if (ref) {
             const previous = unsavedVideoRef.current;
             unsavedVideoRef.current = ref;
@@ -937,13 +993,28 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Gemini polish ──────────────────────────────────────────
     const handlePolish = async () => {
         if (!body.trim() || polishing) return;
+        // The polished words belong to the entry they were written in. Cancel
+        // stays live while Gemini works, and its answer used to land in
+        // whichever compose was open when it came back: another entry's Edit,
+        // whose Update would then save the wrong words over it.
+        const scope = getAuthIdentityScope();
+        const composeSession = composeSessionRef.current;
+        const operationIsCurrent = () =>
+            pageActiveRef.current && isAuthIdentityScopeCurrent(scope) && composeSessionRef.current === composeSession;
         setPolishing(true);
         triggerHaptic('light');
-        const enhanced = await DiaryService.enhanceWithGemini(body, {
-            mood,
-            location: locationName,
-            intensity: POLISH_INTENSITY[polishStyle],
-        });
+        let enhanced: string | null = null;
+        try {
+            enhanced = await DiaryService.enhanceWithGemini(body, {
+                mood,
+                location: locationName,
+                intensity: POLISH_INTENSITY[polishStyle],
+            });
+        } catch (error) {
+            log.warn('Diary polish failed:', error);
+        }
+        // A compose that was left has already reset its own polishing state.
+        if (!operationIsCurrent()) return;
         if (enhanced) setBody(enhanced);
         setPolishing(false);
     };
@@ -960,6 +1031,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         let mediaAdopted = false;
         const savePhotoRefs = new Set([...unsavedPhotoRefs.current].filter((ref) => photos.includes(ref)));
         savingPhotoRefsRef.current = savePhotoRefs;
+        // The compose-owned clip this Save sees. An edit never adopts it; a
+        // later compose's clip is never this Save's to free.
+        const saveVideoRef = unsavedVideoRef.current;
+        savingVideoRefRef.current = saveVideoRef;
         composeSaveInFlightRef.current = true;
         setSaving(true);
         triggerHaptic('medium');
@@ -1049,7 +1124,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 if (updateResult.ok) {
                     mediaAdopted = true;
                     for (const ref of savePhotoRefs) unsavedPhotoRefs.current.delete(ref);
-                    if (videoUrl && unsavedVideoRef.current === videoUrl) unsavedVideoRef.current = null;
+                    // updateEntry carries no video_url, so an edit adopts no
+                    // clip. Marking one adopted here orphaned its parked blob
+                    // (up to ~200MB) in IndexedDB for good — free it instead.
+                    if (saveVideoRef && unsavedVideoRef.current === saveVideoRef) {
+                        unsavedVideoRef.current = null;
+                        void DiaryService.discardUnsavedVideo(saveVideoRef);
+                    }
                 }
                 if (!operationIsCurrent()) return;
                 if (updateResult.ok) {
@@ -1149,8 +1230,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             const abandoned = abandonedComposeSessionsRef.current.delete(composeSession);
             if (!mediaAdopted && (abandoned || !pageActiveRef.current)) {
                 for (const ref of savePhotoRefs) void DiaryService.discardUnsavedPhoto(ref);
+                // Abandon left the Save's clip to the Save; nothing adopted it.
+                if (saveVideoRef && unsavedVideoRef.current !== saveVideoRef) {
+                    void DiaryService.discardUnsavedVideo(saveVideoRef);
+                }
             }
             if (savingPhotoRefsRef.current === savePhotoRefs) savingPhotoRefsRef.current = null;
+            if (savingVideoRefRef.current === saveVideoRef) savingVideoRefRef.current = null;
             composeSaveInFlightRef.current = false;
             if (pageActiveRef.current) setSaving(false);
         }
@@ -1414,8 +1500,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         durationSec={trimRequest.durationSec}
                         onCancel={() => setTrimRequest(null)}
                         onDone={(blob) => {
-                            setTrimRequest(null);
-                            void adoptVideoBlob(blob);
+                            // The cut can finish after its compose is gone;
+                            // it then clears nothing newer and adopts nothing.
+                            const request = trimRequest;
+                            setTrimRequest((current) => (current === request ? null : current));
+                            void adoptVideoBlob(blob, request.operationIsCurrent);
                         }}
                     />
                 )}
