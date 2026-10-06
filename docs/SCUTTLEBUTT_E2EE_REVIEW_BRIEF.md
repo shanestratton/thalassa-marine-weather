@@ -81,8 +81,25 @@ preserves exact checks, source/build hashes and the initially failed legacy fixt
 run. The legacy component body remains byte-for-byte unchanged. Native inputs
 still match the previous proof and were not rebuilt by this extraction.
 
-Every other plaintext DM caller and queued replay must now share an explicit
-cutover policy; screen import isolation is not global client/server enforcement.
+The later process-local client cutover guards cover ChatService private operations,
+Guardian hails, old queue replay, unread polling and recognized private foreground
+push/taps. Explicit native selection denies legacy for that account for the process
+lifetime; aggregate private operations are conservatively denied after any latch.
+Owned request cancellation and the actual Supabase fetch-dispatch gate close the
+SDK token-wait gap. Native private SDK traffic uses Capacitor's preserved browser
+fetch directly, because patched HTTP ignores abort signals; missing transport
+refuses without fallback. Physical browser/CORS/lock/network evidence is required.
+The [client cutover manifest](../experiments/scuttlebutt-e2ee/review/client-cutover-2026-10-06.json)
+records 576 fixture tests in 29 suites, strict types, named lint and isolated app
+compilation, plus corrections and exact source hashes. No native/provider/hosted
+rerun or human-device update accompanied that slice.
+
+This is not durable server enforcement. A cold process can still start in legacy
+mode, old clients can still submit, existing server push previews remain plaintext,
+and dispatched writes/APNs cannot be recalled. Old queued plaintext is held, not
+encrypted or deleted; mixed public queue maintenance may rewrite its container
+without changing private object fields. No shipping switch or security claim is
+authorized by these local cancellation results.
 The fixed 16-outgoing/16-incoming budgets,
 scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or

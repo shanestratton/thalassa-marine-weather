@@ -77,7 +77,8 @@ The separate research app now has a native messaging plugin and explicit test
 screens, including an ordinary text-only private-message view over the same
 native account host. The main-app pilot contract remains injected and disabled
 by default. Its native hook and rendering imports are now separated from legacy
-chat; all-caller plaintext cutover is not complete. These are not a shipping
+chat. An explicit native selection now latches process-local legacy denial across
+private callers, queues and foreground push. Durable/server cutover is not complete. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
@@ -110,6 +111,75 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 6 October client legacy cutover and fetch dispatch guard
+
+Explicit native or native-unavailable selection now installs the local identity
+listener before latching legacy denial. Denial survives unavailable views, unmount
+and same-account return within this process; there is no reset/downgrade API.
+The latch grants neither Auth nor encryption. Opaque legacy cancellation hints
+copy original scope/peer scalars and are owned by a WeakMap. Sixteen denied
+accounts are retained; overflow closes the whole legacy lane. Once any account
+is denied, aggregate private inbox/unread/subscription/push and queue maintenance
+are conservatively unavailable, even for another account. Known unlatched pairs
+may still send online; they cannot enqueue a new private item while aggregate
+replay is held. This is an explicit research availability tradeoff, not final UX.
+
+ChatService private queries, structured-DM helpers, block/read mutations, realtime,
+client push and offline admission/replay now retain original cancellation hints.
+Guardian's separate private hail INSERT and push have the same guards. Old private
+queue objects stay held without deletion, relabelling or replacement encryption;
+public queue processing continues. Mixed containers may be rewritten to remove
+completed public items while retaining raw private object fields. A storage write
+already submitted can still settle or leave duplicate held migration copies.
+No rollback or secure-erasure claim follows from cancellation.
+
+Source review found an additional dispatch race: PostgREST builders are lazy,
+and the SDK awaits a token before calling fetch. Owned request scopes now abort
+on denial/identity changes, before arbitrary UI signals, with a 32-request bound
+and fail-closed admission. The final configured Supabase fetch gate checks the
+original owned signal after SDK token lookup. Capacitor's HTTP patch ignores
+AbortSignal and can await body conversion before native dispatch, so private
+requests instead use the preserved unpatched browser fetch directly to the
+configured Supabase origin. Missing browser transport refuses and cancels its
+owned scope; it never falls back to native HTTP/proxy or public transport.
+Public, Auth and safety requests retain their ordinary transport. This internal
+Capacitor alias is source-verified in the installed dependency, not a completed
+physical WebView/CORS/lock/network acceptance result.
+
+Legacy UI, unread polling, recognized `dm`/`hail` foreground bodies and tap routing
+retain original hints and clear/drop stale private state on denial. Anchor and
+safety handling remains separate. A stale Guardian hail completion cannot overwrite
+newer same-account safety feedback; a best-effort push failure after a confirmed
+hail row does not turn it into an unsent message. Client cancellation cannot
+retract already dispatched SQL/RPC/storage, server-triggered push or OS/APNs
+banners. Existing server `queue_dm_push` still creates plaintext previews, and
+old clients/cold starts are not controlled by this memory-only latch.
+
+The expanded pilot configuration passed **576 tests in 29 suites** and focused
+strict TypeScript; named lint and isolated full-app production-mode compilation
+passed. These are deterministic policy, mocked SDK/SQL/Preferences/UI/push and
+local dispatch fixtures, not live server/device encryption. Lazy token-gate
+fixtures call the actual final fetch guard and record synthetic dispatch only
+at transport entry. Native code, provider and hosted services were not changed;
+the earlier 31 native source hashes still match. The [client cutover manifest](../experiments/scuttlebutt-e2ee/review/client-cutover-2026-10-06.json)
+records exact source/artifact/check hashes and prior failures.
+
+Retained corrections include a nullable cleanup closure, faithful fluent
+`abortSignal` adapters, signal-before-`single` placement, and explicit fixture
+return types. One stale-thread fixture retained an unconsumed inbox plan after
+pre-dispatch cancellation; it now clears only that prior-stage plan and waits
+for its own lazy query stage. Five legacy identity-cancellation expectations
+now require fixed refusal rather than empty/null results for aborted private
+queries; no-mark-read/no-insert/no-queue and positive legacy assertions remain.
+The original stale identity fixture also used an obsolete table name; it now
+targets `chat_direct_messages` and actually reaches the intended stage.
+
+Next: design and test authoritative durable/server cutover and content-free
+private notifications in isolated fixtures, then cursor/retention and device/
+prekey recovery. No production activation, primary sync, human-device reset,
+master push or independent review occurred. Device acceptance, independent
+PostgreSQL concurrency, dependency obligations and external review remain gates.
 
 ### 6 October main app pilot import isolation
 
@@ -2583,8 +2653,8 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: implement a shared all-caller send/read/subscription/queue cutover after the
-native pilot import extraction, preserving explicit native-unavailable mode without
+Next: implement authoritative durable/server cutover and content-free private
+notifications after the process-local client guards, preserving explicit native-unavailable mode without
 a legacy fallback. Then implement durable inbox progress and
 retention, and an explicit device/prekey lifecycle and recovery policy. The ordinary
 Research port is not the shipping integration or a complete physical acceptance

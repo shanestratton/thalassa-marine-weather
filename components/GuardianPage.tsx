@@ -37,6 +37,12 @@ import {
 } from '../services/authIdentityScope';
 import { acquireFreshOwnshipPosition } from '../services/ownshipPosition';
 import {
+    captureLegacyPrivateMessagePermit,
+    isLegacyPrivateMessagePermitCurrent,
+    isPrivateMessageLegacyUnavailable,
+    subscribePrivateMessageCutover,
+} from '../services/chat/e2ee/privateMessageCutover';
+import {
     SosIcon,
     AlertTriangleIcon,
     AnchorIcon,
@@ -126,14 +132,24 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const [loadFailure, setLoadFailure] = useState<string | null>(null);
     const [initAttempt, setInitAttempt] = useState(0);
     const [coverageStatus, setCoverageStatus] = useState<GuardianCoverageStatus>('checking');
-    const [feedback, setFeedback] = useState<GuardianFeedback | null>(null);
+    const [feedback, setFeedbackState] = useState<GuardianFeedback | null>(null);
+    const feedbackRevisionRef = useRef(0);
+    const setFeedback = useCallback((value: GuardianFeedback | null) => {
+        feedbackRevisionRef.current += 1;
+        setFeedbackState(value);
+    }, []);
 
     // Modals
     const [showSignIn, setShowSignIn] = useState(false);
     const [showSetup, setShowSetup] = useState(false);
     const [showReport, setShowReport] = useState(false);
     const [showWeather, setShowWeather] = useState(false);
-    const [showHail, setShowHail] = useState<NearbyUser | null>(null);
+    const [showHail, setShowHailState] = useState<NearbyUser | null>(null);
+    const hailRevisionRef = useRef(0);
+    const setShowHail = useCallback((value: NearbyUser | null) => {
+        hailRevisionRef.current += 1;
+        setShowHailState(value);
+    }, []);
 
     // Setup form
     const [vesselName, setVesselName] = useState('');
@@ -514,26 +530,64 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     }, [authUserId, reportText]);
 
     // ── Hail ──
+    useEffect(() => subscribePrivateMessageCutover(() => setShowHail(null)), [setShowHail]);
     const handleHail = useCallback(
         async (user: NearbyUser, message: string) => {
             const scope = getAuthIdentityScope();
             const ownerId = authUserId;
             const targetUserId = user.user_id;
             if (!ownerId || !identityIsCurrent(scope, ownerId)) return;
+            const hailTicket = ++hailRevisionRef.current;
+            const feedbackTicket = feedbackRevisionRef.current;
+            const current = () =>
+                mountedRef.current &&
+                identityIsCurrent(scope, ownerId) &&
+                hailTicket === hailRevisionRef.current &&
+                feedbackTicket === feedbackRevisionRef.current;
+            const privatePermit = captureLegacyPrivateMessagePermit(scope, targetUserId);
+            const unavailable = () => {
+                if (current())
+                    setFeedback({
+                        tone: 'error',
+                        message: 'Legacy hails are unavailable in protected mode. No automatic retry was made.',
+                    });
+            };
+            if (!privatePermit) {
+                unavailable();
+                return;
+            }
             triggerHaptic('light');
-            const sent = await GuardianService.sendHail(targetUserId, message);
-            if (!identityIsCurrent(scope, ownerId)) return;
+            let sent: boolean;
+            try {
+                sent = await GuardianService.sendHail(targetUserId, message);
+            } catch (error) {
+                if (isPrivateMessageLegacyUnavailable(error) || !isLegacyPrivateMessagePermitCurrent(privatePermit)) {
+                    unavailable();
+                    return;
+                }
+                if (current())
+                    setFeedback({
+                        tone: 'error',
+                        message: 'The hail status could not be confirmed. Check before sending again.',
+                    });
+                return;
+            }
+            if (!current()) return;
+            if (!isLegacyPrivateMessagePermitCurrent(privatePermit)) {
+                unavailable();
+                return;
+            }
             if (sent) {
                 setShowHail(null);
                 setFeedback({ tone: 'success', message: `Hail sent to ${user.vessel_name || 'the nearby vessel'}.` });
             } else {
                 setFeedback({
                     tone: 'error',
-                    message: 'The hail could not be sent. Check your connection and try again.',
+                    message: 'The hail status could not be confirmed. Check before sending again.',
                 });
             }
         },
-        [authUserId],
+        [authUserId, setShowHail, setFeedback],
     );
 
     // ── Weather broadcast ──

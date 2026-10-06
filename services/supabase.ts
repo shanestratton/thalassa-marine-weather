@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { Preferences } from '@capacitor/preferences';
+import { Capacitor } from '@capacitor/core';
+import { createLegacyPrivateMessageFetchGate } from './chat/e2ee/legacyPrivateMessageFetchGate';
 
 import { createLogger } from '../utils/createLogger';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent, type AuthIdentityScope } from './authIdentityScope';
@@ -295,6 +297,20 @@ void migrateAuthSessionToCapacitor().catch((error) => {
 export const supabase =
     URL && KEY
         ? createClient(URL, KEY, {
+              global: {
+                  fetch: createLegacyPrivateMessageFetchGate({
+                      supabaseUrl: URL,
+                      isNative: () => Capacitor.isNativePlatform(),
+                      publicFetch: (input, init) => globalThis.fetch(input, init),
+                      getPrivateBrowserFetch: () => {
+                          if (typeof window === 'undefined') return null;
+                          const original = (window as unknown as { CapacitorWebFetch?: unknown }).CapacitorWebFetch;
+                          // Never silently fall back to patched native fetch/HTTP.
+                          if (typeof original !== 'function' || original === window.fetch) return null;
+                          return original.bind(window) as typeof fetch;
+                      },
+                  }),
+              },
               auth: {
                   persistSession: true,
                   storageKey: 'thalassa-auth-session', // stable key survives rebuilds

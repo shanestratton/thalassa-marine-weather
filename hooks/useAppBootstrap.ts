@@ -16,6 +16,11 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+import {
+    captureLegacyPrivateMessagePermit,
+    isLegacyPrivateMessagePermitCurrent,
+    subscribePrivateMessageCutover,
+} from '../services/chat/e2ee/privateMessageCutover';
 import { PI_INTEGRATION_ENABLED } from '../services/piPublicBetaBoundary';
 import { PiNightWatchStatus } from '../services/piNightWatchStatus';
 import { seabedLocallyEnabled } from '../services/seabed/seabedSink';
@@ -39,6 +44,8 @@ export function useAppBootstrap() {
     }>(() => ({ scope: identityScope, count: 0 }));
     const chatUnread =
         activeUserId &&
+        !!captureLegacyPrivateMessagePermit(identityScope) &&
+        chatUnreadState.scope.userId === identityScope.userId &&
         chatUnreadState.scope.key === identityScope.key &&
         chatUnreadState.scope.generation === identityScope.generation &&
         isAuthIdentityScopeCurrent(chatUnreadState.scope)
@@ -51,18 +58,38 @@ export function useAppBootstrap() {
         let timer: ReturnType<typeof setInterval> | null = null;
         let requestEpoch = 0;
         setChatUnreadState({ scope: actionScope, count: 0 });
-        if (!authChecked || !activeUserId || !isAuthIdentityScopeCurrent(actionScope)) {
+        const stopCutover = subscribePrivateMessageCutover(() => {
+            requestEpoch += 1;
+            if (timer) clearInterval(timer);
+            timer = null;
+            setChatUnreadState({ scope: actionScope, count: 0 });
+        });
+        if (
+            !authChecked ||
+            !activeUserId ||
+            !isAuthIdentityScopeCurrent(actionScope) ||
+            !captureLegacyPrivateMessagePermit(actionScope)
+        ) {
             return () => {
                 active = false;
+                stopCutover();
             };
         }
         import('../services/ChatService').then(({ ChatService }) => {
-            if (!active || !isAuthIdentityScopeCurrent(actionScope)) return;
+            if (!active || !isAuthIdentityScopeCurrent(actionScope) || !captureLegacyPrivateMessagePermit(actionScope))
+                return;
             const poll = () => {
                 const pollEpoch = ++requestEpoch;
+                const permit = captureLegacyPrivateMessagePermit(actionScope);
+                if (!permit) return Promise.resolve();
                 return ChatService.getUnreadDMCount()
                     .then((n) => {
-                        if (active && pollEpoch === requestEpoch && isAuthIdentityScopeCurrent(actionScope)) {
+                        if (
+                            active &&
+                            pollEpoch === requestEpoch &&
+                            isAuthIdentityScopeCurrent(actionScope) &&
+                            isLegacyPrivateMessagePermitCurrent(permit)
+                        ) {
                             setChatUnreadState({ scope: actionScope, count: n });
                         }
                     })
@@ -75,6 +102,7 @@ export function useAppBootstrap() {
             active = false;
             requestEpoch++;
             if (timer) clearInterval(timer);
+            stopCutover();
         };
     }, [activeUserId, authChecked, identityScope]);
 
@@ -571,6 +599,7 @@ export function useAppBootstrap() {
         const actionScope = identityScope;
         let active = true;
         let unbind: (() => void) | null = null;
+        const privatePermit = captureLegacyPrivateMessagePermit(actionScope);
         // The Pi's alarm (126-04b): a card 'from the Pi', and its acknowledgement reaches the cloud.
         const receivePiAlarm = (data: Readonly<Record<string, unknown>>) => {
             const got = PiNightWatchStatus.receivePush({ ...data });
@@ -582,15 +611,20 @@ export function useAppBootstrap() {
         const foregroundHandler = (notification: Parameters<typeof pushForegroundToast>[0]) => {
             const data = notification.data;
             const type = data?.notification_type;
+            const privateMessage = type === 'dm' || type === 'hail';
+            if (privateMessage && (!active || !isLegacyPrivateMessagePermitCurrent(privatePermit))) return;
             if (data && type === 'anchor_alarm') {
                 ShoreWatchAlarmService.receivePush(data);
             }
             // No toast over a card this phone already shows for her.
             if (data && (type === 'collision_alarm' || type === 'distress_alarm') && receivePiAlarm(data)) return;
-            pushForegroundToast(notification);
+            if (privateMessage) pushForegroundToast(notification, actionScope);
+            else pushForegroundToast(notification);
         };
         const tapHandler = (data: Readonly<Record<string, unknown>>) => {
             const type = data.notification_type as string;
+            if ((type === 'dm' || type === 'hail') && (!active || !isLegacyPrivateMessagePermitCurrent(privatePermit)))
+                return;
             switch (type) {
                 case 'dm':
                     setPage('chat');

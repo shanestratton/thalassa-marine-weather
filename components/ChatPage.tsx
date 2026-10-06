@@ -1,5 +1,7 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useLayoutEffect } from 'react';
 import type { PrivateMessagePilotRuntime, PrivateMessageRuntime } from '../services/chat/e2ee/privateMessagePilot';
+import { getAuthIdentityScope, subscribeAuthIdentityScope } from '../services/authIdentityScope';
+import { requireNativePrivateMessagesForScope } from '../services/chat/e2ee/privateMessageCutover';
 
 /** Explicit selection, not plugin detection, environment state or a rollout flag. */
 export type ChatPageSelection =
@@ -106,6 +108,19 @@ class NativePageBoundary extends React.Component<
 export const ChatPage: React.FC<ChatPageProps> = React.memo((props) => {
     const { onBack } = props;
     const selected = selectedPage(props);
+    const requiresNative = selected.kind !== 'legacy';
+    useLayoutEffect(() => {
+        if (!requiresNative) return;
+        // This is a one-way denial latch, not proof of native authentication or
+        // encryption. Never release it on unavailable, unmount or legacy render.
+        const stop = subscribeAuthIdentityScope((scope) => {
+            requireNativePrivateMessagesForScope(scope);
+        });
+        // Subscribe first: an arbitrary cutover observer may synchronously
+        // change the active account during the initial denial notification.
+        requireNativePrivateMessagesForScope(getAuthIdentityScope());
+        return stop;
+    }, [requiresNative]);
     if (selected.kind === 'legacy')
         return (
             <Suspense fallback={<p role="status">Loading chat…</p>}>

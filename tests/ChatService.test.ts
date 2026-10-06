@@ -29,6 +29,43 @@ const {
     mockOrderedQuery,
     mockOrder,
 } = vi.hoisted(() => {
+    // Preserve the original reply spies/plans while modelling a fluent lazy SDK
+    // terminal. This is a local adapter, not HTTP/Capacitor dispatch evidence.
+    const abortable = <T>(value: T, state: { signal?: AbortSignal } = {}): T => {
+        if (!value || (typeof value !== 'object' && typeof value !== 'function')) return value;
+        let completion: Promise<unknown> | undefined;
+        const check = () => {
+            if (state.signal?.aborted) throw new DOMException('Synthetic request aborted', 'AbortError');
+        };
+        const proxy = new Proxy(value as object, {
+            get(target, property) {
+                if (property === 'abortSignal')
+                    return (signal: AbortSignal) => {
+                        state.signal = signal;
+                        return proxy;
+                    };
+                if (property === 'signal') return state.signal;
+                if (property === 'then')
+                    return (resolve: (reply: unknown) => unknown, reject: (error: unknown) => unknown) => {
+                        completion ??= Promise.resolve()
+                            .then(() => {
+                                check();
+                                return value;
+                            })
+                            .then((reply) => {
+                                check();
+                                return reply;
+                            });
+                        return completion.then(resolve, reject);
+                    };
+                const member = Reflect.get(target, property, target);
+                return typeof member === 'function'
+                    ? (...args: unknown[]) => abortable(Reflect.apply(member, target, args), state)
+                    : member;
+            },
+        });
+        return proxy as T;
+    };
     const mockSingle = vi.fn().mockResolvedValue({ data: null, error: null });
     const orderedQuery = {
         data: [],
@@ -77,19 +114,19 @@ const {
     const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
     const mockSubscribe = vi.fn();
     const mockOn = vi.fn();
-    const mockChannelObj = { on: mockOn };
+    const mockChannelObj = { on: mockOn, subscribe: mockSubscribe };
     // subscribe() returns the channel object (so activeSubscriptions stores a truthy value)
     mockSubscribe.mockReturnValue(mockChannelObj);
-    mockOn.mockReturnValue({ subscribe: mockSubscribe });
-    const mockChannel = vi.fn().mockReturnValue({ on: mockOn });
+    mockOn.mockReturnValue(mockChannelObj);
+    const mockChannel = vi.fn().mockReturnValue(mockChannelObj);
     const mockRemoveChannel = vi.fn();
     const mockPreferencesGet = vi.fn().mockResolvedValue({ value: null });
     const mockPreferencesSet = vi.fn().mockResolvedValue(undefined);
 
     const mockSupabase = {
-        from: mockFrom,
+        from: (...args: unknown[]) => abortable(mockFrom(...args)),
         auth: { getUser: mockGetUser, getSession: mockGetSession },
-        rpc: mockRpc,
+        rpc: (...args: unknown[]) => abortable(mockRpc(...args)),
         channel: mockChannel,
         removeChannel: mockRemoveChannel,
     };

@@ -15,6 +15,14 @@ import {
     subscribeAuthIdentityScope,
 } from '../../services/authIdentityScope';
 
+import {
+    captureLegacyPrivateMessagePermit,
+    isLegacyPrivateMessagePermitCurrent,
+    isPrivateMessageLegacyUnavailable,
+    PrivateMessageLegacyUnavailableError,
+    subscribePrivateMessageCutover,
+} from '../../services/chat/e2ee/privateMessageCutover';
+
 export interface UseChatDMsOptions {
     setView: (view: string) => void;
     setNavDirection: (dir: 'forward' | 'back') => void;
@@ -52,18 +60,55 @@ export function useChatDMs(options: UseChatDMsOptions) {
     const partnerVersionRef = useRef(0);
     const inboxRequestRef = useRef(0);
     const aliveRef = useRef(true);
+    const cutoverEpochRef = useRef(0);
+    const renderedCutoverEpoch = cutoverEpochRef.current;
     useEffect(() => {
         aliveRef.current = true;
         return () => {
             aliveRef.current = false;
             partnerVersionRef.current += 1;
             inboxRequestRef.current += 1;
+            for (const stop of [...subscriptionStopsRef.current]) stop();
+            subscriptionStopsRef.current.clear();
         };
     }, []);
     const blockRequestRef = useRef(0);
     const blockMutationRef = useRef(false);
     const pendingSendIdsRef = useRef(new Set<string>());
     const deferredSelfEchoesRef = useRef(new Map<string, DirectMessage>());
+    const subscriptionStopsRef = useRef(new Set<() => void>());
+    const refusalText = new PrivateMessageLegacyUnavailableError().message;
+    const refusePrivateView = useCallback(() => {
+        partnerVersionRef.current += 1;
+        inboxRequestRef.current += 1;
+        blockRequestRef.current += 1;
+        blockMutationRef.current = false;
+        pendingSendIdsRef.current.clear();
+        deferredSelfEchoesRef.current.clear();
+        dmPartnerRef.current = null;
+        for (const stop of [...subscriptionStopsRef.current]) stop();
+        subscriptionStopsRef.current.clear();
+        setDmPartnerState(null);
+        setDmConversations([]);
+        setDmThread([]);
+        setDmText('');
+        setUnreadDMs(0);
+        setIsUserBlocked(false);
+        setBlockedByMe(false);
+        setBlockStatusLoading(false);
+        setBlockMutationPending(false);
+        setShowBlockConfirm(false);
+        setBlockStatusError(refusalText);
+        setLoading(false);
+    }, [refusalText, setLoading]);
+    useEffect(
+        () =>
+            subscribePrivateMessageCutover(() => {
+                cutoverEpochRef.current += 1;
+                refusePrivateView();
+            }),
+        [refusePrivateView],
+    );
 
     const setDmPartner = useCallback((partner: { id: string; name: string } | null) => {
         partnerVersionRef.current += 1;
@@ -82,15 +127,22 @@ export function useChatDMs(options: UseChatDMsOptions) {
     }, []);
 
     const retryBlockStatus = useCallback(async () => {
+        if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope)) return;
         const partner = dmPartnerRef.current;
         if (!partner || blockMutationRef.current) return;
         const identity = getAuthIdentityScope();
+        const permit = captureLegacyPrivateMessagePermit(identity, partner.id);
+        if (!permit) {
+            refusePrivateView();
+            return;
+        }
         const version = partnerVersionRef.current;
         const request = ++blockRequestRef.current;
 
         const current = () =>
             aliveRef.current &&
             isAuthIdentityScopeCurrent(identity) &&
+            isLegacyPrivateMessagePermitCurrent(permit) &&
             version === partnerVersionRef.current &&
             request === blockRequestRef.current;
         setBlockStatusLoading(true);
@@ -101,16 +153,22 @@ export function useChatDMs(options: UseChatDMsOptions) {
             if (!current()) return;
             setBlockedByMe(status.blockedByMe);
             setIsUserBlocked(status.blockedEitherDirection);
-        } catch {
+        } catch (error) {
+            if (!current()) return;
+            if (isPrivateMessageLegacyUnavailable(error)) {
+                refusePrivateView();
+                return;
+            }
             if (current()) setBlockStatusError('Unable to verify blocking. Retry before sending a message.');
         } finally {
             if (current()) setBlockStatusLoading(false);
         }
-    }, []);
+    }, [refusePrivateView, identityScope, renderedCutoverEpoch]);
 
     const ensureDirectMessagePushRegistration = useCallback(() => {
         const scope = getAuthIdentityScope();
-        if (!scope.userId || !isAuthIdentityScopeCurrent(scope)) return;
+        const permit = captureLegacyPrivateMessagePermit(scope);
+        if (!permit || !isAuthIdentityScopeCurrent(scope)) return;
         if (registeredPushScopeRef.current === scope.key || registeringPushScopeRef.current === scope.key) return;
 
         registeringPushScopeRef.current = scope.key;
@@ -119,7 +177,12 @@ export function useChatDMs(options: UseChatDMsOptions) {
                 // A token is useful only for the identity that initiated the
                 // request.  A delayed result from a signed-out account must
                 // not suppress registration for the next sailor.
-                if (!isAuthIdentityScopeCurrent(scope) || registeringPushScopeRef.current !== scope.key) return;
+                if (
+                    !isAuthIdentityScopeCurrent(scope) ||
+                    !isLegacyPrivateMessagePermitCurrent(permit) ||
+                    registeringPushScopeRef.current !== scope.key
+                )
+                    return;
                 if (token) registeredPushScopeRef.current = scope.key;
             })
             .catch(() => {
@@ -134,6 +197,9 @@ export function useChatDMs(options: UseChatDMsOptions) {
     useEffect(
         () =>
             subscribeAuthIdentityScope(() => {
+                cutoverEpochRef.current += 1;
+                for (const stop of [...subscriptionStopsRef.current]) stop();
+                subscriptionStopsRef.current.clear();
                 setDmConversations([]);
                 setDmThread([]);
                 setDmPartner(null);
@@ -147,12 +213,19 @@ export function useChatDMs(options: UseChatDMsOptions) {
     );
 
     useEffect(() => {
+        const origin = identityScope;
+        const originPermit = captureLegacyPrivateMessagePermit(origin);
         const handleQueuedDmSent = (event: Event) => {
+            if (!isAuthIdentityScopeCurrent(origin) || !isLegacyPrivateMessagePermitCurrent(originPermit)) return;
             const detail = (event as CustomEvent<{ ownerUserId: string; message: DirectMessage }>).detail;
             const identity = getAuthIdentityScope();
             if (!detail || detail.ownerUserId !== identity.userId || !isAuthIdentityScopeCurrent(identity)) return;
             const confirmed = detail.message;
+            const peer = confirmed.sender_id === identity.userId ? confirmed.recipient_id : confirmed.sender_id;
+            const permit = captureLegacyPrivateMessagePermit(identity, peer);
+            if (!permit || !isLegacyPrivateMessagePermitCurrent(permit)) return;
             setDmThread((prev) => {
+                if (!isLegacyPrivateMessagePermitCurrent(permit)) return prev;
                 const queuedIndex = prev.findIndex(
                     (message) =>
                         message.delivery_status === 'queued' &&
@@ -166,45 +239,104 @@ export function useChatDMs(options: UseChatDMsOptions) {
         };
         window.addEventListener(QUEUED_DM_SENT_EVENT, handleQueuedDmSent);
         return () => window.removeEventListener(QUEUED_DM_SENT_EVENT, handleQueuedDmSent);
-    }, []);
+    }, [identityScope]);
 
     // --- DM Subscription (lives for component lifetime) ---
     const subscribe = useCallback(() => {
+        if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope))
+            return () => undefined;
         const identity = getAuthIdentityScope();
-
-        return ChatService.subscribeToDMs((dm) => {
-            if (!isAuthIdentityScopeCurrent(identity)) return;
-            if (dm.sender_id !== identity.userId) setUnreadDMs((prev) => prev + 1);
-            const partner = dmPartnerRef.current;
-            if (
-                partner &&
-                dm.sender_id === partner.id &&
-                dm.sender_id === identity.userId &&
-                pendingSendIdsRef.current.size > 0
-            ) {
-                // Delay the self echo until the matching insert returns its ID.
-                // Do not guess identity from equal message text or timestamps.
-                deferredSelfEchoesRef.current.set(dm.id, dm);
-                return;
+        const permit = captureLegacyPrivateMessagePermit(identity);
+        if (!permit) {
+            if (identity.userId) refusePrivateView();
+            return () => undefined;
+        }
+        if (subscriptionStopsRef.current.size >= 32) {
+            refusePrivateView();
+            return () => undefined;
+        }
+        let cancelled = false;
+        let nativeStop: (() => void) | undefined;
+        const stop = () => {
+            if (cancelled) return;
+            cancelled = true;
+            subscriptionStopsRef.current.delete(stop);
+            try {
+                nativeStop?.();
+            } catch {
+                /* Publication stays locally cancelled. */
             }
-            setDmThread((prev) => {
-                if (partner && dm.sender_id === partner.id && !prev.some((message) => message.id === dm.id)) {
-                    return [...prev, dm];
+        };
+        subscriptionStopsRef.current.add(stop);
+        try {
+            nativeStop = ChatService.subscribeToDMs((dm) => {
+                if (
+                    cancelled ||
+                    !aliveRef.current ||
+                    !isAuthIdentityScopeCurrent(identity) ||
+                    !isLegacyPrivateMessagePermitCurrent(permit)
+                )
+                    return;
+                if (dm.sender_id !== identity.userId) setUnreadDMs((prev) => prev + 1);
+                const partner = dmPartnerRef.current;
+                if (
+                    partner &&
+                    dm.sender_id === partner.id &&
+                    dm.sender_id === identity.userId &&
+                    pendingSendIdsRef.current.size > 0
+                ) {
+                    // Delay the self echo until the matching insert returns its ID.
+                    // Do not guess identity from equal message text or timestamps.
+                    deferredSelfEchoesRef.current.set(dm.id, dm);
+                    return;
                 }
-                return prev;
+                setDmThread((prev) => {
+                    if (cancelled || !isLegacyPrivateMessagePermitCurrent(permit)) return prev;
+                    if (partner && dm.sender_id === partner.id && !prev.some((message) => message.id === dm.id)) {
+                        return [...prev, dm];
+                    }
+                    return prev;
+                });
             });
-        });
-    }, []);
+        } catch (error) {
+            stop();
+            if (isPrivateMessageLegacyUnavailable(error)) refusePrivateView();
+        }
+        if (cancelled) {
+            try {
+                nativeStop?.();
+            } catch {
+                /* No stale callback admission. */
+            }
+        }
+        return stop;
+    }, [refusePrivateView, identityScope, renderedCutoverEpoch]);
 
     const openDMInbox = useCallback(async () => {
+        if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope)) return;
         ensureDirectMessagePushRegistration();
         const identity = getAuthIdentityScope();
+        const permit = captureLegacyPrivateMessagePermit(identity);
+        if (!permit) {
+            refusePrivateView();
+            return;
+        }
+        const request = ++inboxRequestRef.current;
         setNavDirection('forward');
         setView('dm_inbox');
         setLoading(true);
 
-        const convs = await ChatService.getDMConversations().catch(() => null);
-        if (!isAuthIdentityScopeCurrent(identity)) return;
+        let refused = false;
+        const convs = await ChatService.getDMConversations().catch((error) => {
+            refused = isPrivateMessageLegacyUnavailable(error);
+            return null;
+        });
+        if (!aliveRef.current || !isAuthIdentityScopeCurrent(identity) || request !== inboxRequestRef.current) return;
+        if (refused) {
+            refusePrivateView();
+            return;
+        }
+        if (!isLegacyPrivateMessagePermitCurrent(permit)) return;
         if (!convs) {
             setLoading(false);
             toast.error("Direct messages couldn't be loaded. Check your connection and try again.");
@@ -212,11 +344,25 @@ export function useChatDMs(options: UseChatDMsOptions) {
         }
         setDmConversations(convs);
         setLoading(false);
-    }, [ensureDirectMessagePushRegistration, setView, setNavDirection, setLoading]);
+    }, [
+        ensureDirectMessagePushRegistration,
+        setView,
+        setNavDirection,
+        setLoading,
+        refusePrivateView,
+        identityScope,
+        renderedCutoverEpoch,
+    ]);
 
     const openDMThread = useCallback(
         async (userId: string, name: string) => {
+            if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope)) return;
             const identity = getAuthIdentityScope();
+            const permit = captureLegacyPrivateMessagePermit(identity, userId);
+            if (!permit) {
+                refusePrivateView();
+                return;
+            }
             if (userId !== identity.userId) ensureDirectMessagePushRegistration();
             setDmPartner({ id: userId, name: userId === identity.userId ? 'Self test' : name });
             const version = partnerVersionRef.current;
@@ -229,9 +375,19 @@ export function useChatDMs(options: UseChatDMsOptions) {
             setLoading(true);
 
             const blockStatus = retryBlockStatus();
-            const thread = await ChatService.getDMThread(userId).catch(() => null);
+            let refused = false;
+            const thread = await ChatService.getDMThread(userId).catch((error) => {
+                refused = isPrivateMessageLegacyUnavailable(error);
+                return null;
+            });
             await blockStatus;
-            if (!isAuthIdentityScopeCurrent(identity) || version !== partnerVersionRef.current) return;
+            if (!aliveRef.current || !isAuthIdentityScopeCurrent(identity) || version !== partnerVersionRef.current)
+                return;
+            if (refused) {
+                refusePrivateView();
+                return;
+            }
+            if (!isLegacyPrivateMessagePermitCurrent(permit)) return;
             if (!thread) {
                 setLoading(false);
                 toast.error("This conversation couldn't be loaded. Check your connection and try again.");
@@ -242,13 +398,29 @@ export function useChatDMs(options: UseChatDMsOptions) {
             if (userId !== identity.userId) setUnreadDMs((prev) => Math.max(0, prev - 1));
         },
 
-        [ensureDirectMessagePushRegistration, setView, setNavDirection, setLoading, setDmPartner, retryBlockStatus],
+        [
+            ensureDirectMessagePushRegistration,
+            setView,
+            setNavDirection,
+            setLoading,
+            setDmPartner,
+            retryBlockStatus,
+            refusePrivateView,
+            identityScope,
+            renderedCutoverEpoch,
+        ],
     );
 
     const sendDMMessage = useCallback(async () => {
+        if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope)) return;
         if (!dmText.trim() || !dmPartner) return;
         if (isUserBlocked || blockStatusLoading || blockStatusError || blockMutationRef.current) return;
         const identity = getAuthIdentityScope();
+        const permit = captureLegacyPrivateMessagePermit(identity, dmPartner.id);
+        if (!permit) {
+            refusePrivateView();
+            return;
+        }
         const version = partnerVersionRef.current;
         const text = dmText.trim();
 
@@ -267,13 +439,23 @@ export function useChatDMs(options: UseChatDMsOptions) {
         pendingSendIdsRef.current.add(optimistic.id);
         setDmThread((prev) => [...prev, optimistic]);
 
-        const result = await ChatService.sendDM(dmPartner.id, text).catch(() => null);
-        if (!isAuthIdentityScopeCurrent(identity) || version !== partnerVersionRef.current) return;
+        let refused = false;
+        const result = await ChatService.sendDM(dmPartner.id, text).catch((error) => {
+            refused = isPrivateMessageLegacyUnavailable(error);
+            return null;
+        });
+        if (!aliveRef.current || !isAuthIdentityScopeCurrent(identity) || version !== partnerVersionRef.current) return;
+        if (refused) {
+            refusePrivateView();
+            return;
+        }
+        if (!isLegacyPrivateMessagePermitCurrent(permit)) return;
         pendingSendIdsRef.current.delete(optimistic.id);
         const echoes = pendingSendIdsRef.current.size === 0 ? [...deferredSelfEchoesRef.current.values()] : [];
         if (pendingSendIdsRef.current.size === 0) deferredSelfEchoesRef.current.clear();
         const settle = (update: (previous: DirectMessage[]) => DirectMessage[]) => {
             setDmThread((previous) => {
+                if (!isLegacyPrivateMessagePermitCurrent(permit)) return previous;
                 const next = update(previous);
                 return [...next, ...echoes.filter((echo) => !next.some((message) => message.id === echo.id))];
             });
@@ -299,18 +481,35 @@ export function useChatDMs(options: UseChatDMsOptions) {
         }
         settle((prev) => reconcileOptimisticMessage(prev, optimistic.id, result));
         triggerHaptic('light');
-    }, [dmText, dmPartner, isUserBlocked, blockStatusLoading, blockStatusError, retryBlockStatus]);
+    }, [
+        dmText,
+        dmPartner,
+        isUserBlocked,
+        blockStatusLoading,
+        blockStatusError,
+        retryBlockStatus,
+        refusePrivateView,
+        identityScope,
+        renderedCutoverEpoch,
+    ]);
 
     const updateBlock = useCallback(
         async (blocked: boolean) => {
+            if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope)) return;
             const partner = dmPartnerRef.current;
             if (!partner || blockMutationRef.current) return;
             const identity = getAuthIdentityScope();
+            const permit = captureLegacyPrivateMessagePermit(identity, partner.id);
+            if (!permit) {
+                refusePrivateView();
+                return;
+            }
             const version = partnerVersionRef.current;
             const request = ++blockRequestRef.current;
             const current = () =>
                 aliveRef.current &&
                 isAuthIdentityScopeCurrent(identity) &&
+                isLegacyPrivateMessagePermitCurrent(permit) &&
                 version === partnerVersionRef.current &&
                 request === blockRequestRef.current;
             blockMutationRef.current = true;
@@ -333,8 +532,12 @@ export function useChatDMs(options: UseChatDMsOptions) {
                 if (!current()) return;
                 setBlockedByMe(status.blockedByMe);
                 setIsUserBlocked(status.blockedEitherDirection);
-            } catch {
+            } catch (error) {
                 if (!current()) return;
+                if (isPrivateMessageLegacyUnavailable(error)) {
+                    refusePrivateView();
+                    return;
+                }
                 setBlockStatusError('Unable to confirm blocking changes. Retry to check the current status.');
                 toast.error(
                     blocked
@@ -349,32 +552,85 @@ export function useChatDMs(options: UseChatDMsOptions) {
             }
         },
 
-        [],
+        [refusePrivateView, identityScope, renderedCutoverEpoch],
     );
 
     const handleBlockUser = useCallback(() => updateBlock(true), [updateBlock]);
     const handleUnblockUser = useCallback(() => updateBlock(false), [updateBlock]);
 
     const loadUnreadCount = useCallback(async () => {
+        if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope)) return;
         const identity = getAuthIdentityScope();
+        const permit = captureLegacyPrivateMessagePermit(identity);
+        if (!permit) {
+            setUnreadDMs(0);
+            return;
+        }
+        try {
+            const convs = await ChatService.getDMConversations();
+            if (
+                !aliveRef.current ||
+                !isAuthIdentityScopeCurrent(identity) ||
+                !isLegacyPrivateMessagePermitCurrent(permit)
+            )
+                return;
+            setUnreadDMs(convs.reduce((sum, c) => sum + c.unread_count, 0));
+        } catch (error) {
+            if (
+                aliveRef.current &&
+                isAuthIdentityScopeCurrent(identity) &&
+                isLegacyPrivateMessagePermitCurrent(permit) &&
+                isPrivateMessageLegacyUnavailable(error)
+            )
+                refusePrivateView();
+        }
+    }, [refusePrivateView, identityScope, renderedCutoverEpoch]);
 
-        const convs = await ChatService.getDMConversations();
-        if (!isAuthIdentityScopeCurrent(identity)) return;
-        const total = convs.reduce((sum, c) => sum + c.unread_count, 0);
-        setUnreadDMs(total);
-    }, []);
+    const renderPeerPermit = captureLegacyPrivateMessagePermit(identityScope, dmPartner?.id);
+    const renderAggregatePermit = captureLegacyPrivateMessagePermit(identityScope);
+    const publishPrivate = isLegacyPrivateMessagePermitCurrent(renderPeerPermit);
+    const guardedSetDmThread = useCallback<typeof setDmThread>(
+        (update) => {
+            if (!isLegacyPrivateMessagePermitCurrent(renderPeerPermit)) return;
+            setDmThread((previous) => {
+                if (!isLegacyPrivateMessagePermitCurrent(renderPeerPermit)) return previous;
+                const value = typeof update === 'function' ? update(previous) : update;
+                return isLegacyPrivateMessagePermitCurrent(renderPeerPermit) ? value : [];
+            });
+        },
+        [renderPeerPermit],
+    );
+    const guardedSetDmText = useCallback<typeof setDmText>(
+        (value) => {
+            if (!isLegacyPrivateMessagePermitCurrent(renderPeerPermit)) return;
+            setDmText((previous) => {
+                if (!isLegacyPrivateMessagePermitCurrent(renderPeerPermit)) return previous;
+                const text = typeof value === 'function' ? value(previous) : value;
+                return isLegacyPrivateMessagePermitCurrent(renderPeerPermit) ? text : '';
+            });
+        },
+        [renderPeerPermit],
+    );
+    const guardedSetDmPartner = useCallback<typeof setDmPartner>(
+        (partner) => {
+            if (renderedCutoverEpoch !== cutoverEpochRef.current || !isAuthIdentityScopeCurrent(identityScope)) return;
+            if (partner && !captureLegacyPrivateMessagePermit(identityScope, partner.id)) return;
+            setDmPartner(partner);
+        },
+        [identityScope, renderedCutoverEpoch, setDmPartner],
+    );
 
     return {
         currentUserId: identityScope.userId,
         identityGeneration: identityScope.generation,
         isSelfConversation: !!identityScope.userId && dmPartner?.id === identityScope.userId,
-        dmConversations,
-        dmThread,
-        setDmThread,
-        dmPartner,
-        setDmPartner,
-        dmText,
-        setDmText,
+        dmConversations: isLegacyPrivateMessagePermitCurrent(renderAggregatePermit) ? dmConversations : [],
+        dmThread: publishPrivate ? dmThread : [],
+        setDmThread: guardedSetDmThread,
+        dmPartner: publishPrivate ? dmPartner : null,
+        setDmPartner: guardedSetDmPartner,
+        dmText: publishPrivate ? dmText : '',
+        setDmText: guardedSetDmText,
         isUserBlocked,
         blockedByMe,
         blockStatusLoading,
@@ -382,7 +638,7 @@ export function useChatDMs(options: UseChatDMsOptions) {
         blockMutationPending,
         showBlockConfirm,
         setShowBlockConfirm,
-        unreadDMs,
+        unreadDMs: isLegacyPrivateMessagePermitCurrent(renderAggregatePermit) ? unreadDMs : 0,
         subscribe,
         openDMInbox,
         openDMThread,

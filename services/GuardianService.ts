@@ -17,8 +17,40 @@ import {
 import { supabase } from './supabase';
 import { acquireFreshOwnshipPosition, type OwnshipPosition } from './ownshipPosition';
 import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
+import {
+    captureLegacyPrivateMessagePermit,
+    captureLegacyPrivateMessageAbortScope,
+    isLegacyPrivateMessageAbortSignalCurrent,
+    isLegacyPrivateMessagePermitCurrent,
+    isPrivateMessageLegacyUnavailable,
+    PrivateMessageLegacyUnavailableError,
+    type LegacyPrivateMessagePermit,
+} from './chat/e2ee/privateMessageCutover';
 
 const log = createLogger('GuardianService');
+
+/** SDK builders may await a token before HTTP dispatch. The shared final fetch
+ * gate also verifies this ORIGINAL owned signal before direct browser transport. */
+async function privateHailRequest<T>(
+    permit: LegacyPrivateMessagePermit,
+    build: (signal: AbortSignal) => PromiseLike<T>,
+): Promise<T> {
+    const request = captureLegacyPrivateMessageAbortScope(permit);
+    if (!request) throw new PrivateMessageLegacyUnavailableError();
+    try {
+        if (!isLegacyPrivateMessageAbortSignalCurrent(request.signal)) throw new PrivateMessageLegacyUnavailableError();
+        const query = build(request.signal);
+        if (!isLegacyPrivateMessageAbortSignalCurrent(request.signal)) throw new PrivateMessageLegacyUnavailableError();
+        const result = await query;
+        if (!isLegacyPrivateMessageAbortSignalCurrent(request.signal)) throw new PrivateMessageLegacyUnavailableError();
+        return result;
+    } catch (error) {
+        if (!isLegacyPrivateMessageAbortSignalCurrent(request.signal)) throw new PrivateMessageLegacyUnavailableError();
+        throw error;
+    } finally {
+        request.dispose();
+    }
+}
 
 /** Unit suites exercise the dormant implementation; production builds do not. */
 const guardianRuntimeEnabled = (): boolean => FEATURE_VISIBILITY.guardian || import.meta.env.MODE === 'test';
@@ -544,8 +576,14 @@ class GuardianServiceClass {
     async sendHail(targetUserId: string, message: string): Promise<boolean> {
         const targetId = targetUserId.trim();
         const text = normaliseText(message, MAX_HAIL_TEXT);
+        if (!text || !SAFE_USER_ID.test(targetId)) return false;
+        const initialScope = getAuthIdentityScope();
+        if (!initialScope.userId) return false;
+        const privatePermit = captureLegacyPrivateMessagePermit(initialScope, targetId);
+        if (!privatePermit) throw new PrivateMessageLegacyUnavailableError();
         const operation = await this.captureVerifiedOperation();
-        if (!text || !SAFE_USER_ID.test(targetId) || !operation || !supabase) return false;
+        if (!isLegacyPrivateMessagePermitCurrent(privatePermit)) throw new PrivateMessageLegacyUnavailableError();
+        if (!operation || !supabase) return false;
         const { scope, ownerId, version } = operation;
         if (targetId === ownerId) return false;
 
@@ -555,25 +593,47 @@ class GuardianServiceClass {
         const fullMessage = `${ownerName} on ${vesselName} says: ${text}`;
 
         try {
-            const { data: sentMessage, error } = await supabase
-                .from('chat_direct_messages')
-                .insert({
-                    sender_id: ownerId,
-                    recipient_id: targetId,
-                    sender_name: ownerName,
-                    message: `🏴‍☠️ ${fullMessage}`,
-                })
-                .select('id')
-                .single();
+            if (!isLegacyPrivateMessagePermitCurrent(privatePermit)) throw new PrivateMessageLegacyUnavailableError();
+            const { data: sentMessage, error } = await privateHailRequest(privatePermit, (signal) =>
+                supabase!
+                    .from('chat_direct_messages')
+                    .insert({
+                        sender_id: ownerId,
+                        recipient_id: targetId,
+                        sender_name: ownerName,
+                        message: `🏴‍☠️ ${fullMessage}`,
+                    })
+                    .select('id')
+                    .abortSignal(signal)
+                    .single(),
+            );
+            // A dispatched legacy insert may already have committed. Refusal
+            // suppresses stale publication/push; it is not proof of an unsent hail.
+            if (!isLegacyPrivateMessagePermitCurrent(privatePermit)) throw new PrivateMessageLegacyUnavailableError();
             if (error || !this.operationIsCurrent(scope, version)) {
                 if (error) log.error('[Guardian] Hail error:', error.message);
                 return false;
             }
             if (sentMessage?.id) {
-                await supabase.rpc('queue_dm_push', { p_message_id: sentMessage.id });
+                if (!isLegacyPrivateMessagePermitCurrent(privatePermit))
+                    throw new PrivateMessageLegacyUnavailableError();
+                try {
+                    await privateHailRequest(privatePermit, (signal) =>
+                        supabase!.rpc('queue_dm_push', { p_message_id: sentMessage.id }).abortSignal(signal),
+                    );
+                } catch (error) {
+                    if (isPrivateMessageLegacyUnavailable(error) || !isLegacyPrivateMessagePermitCurrent(privatePermit))
+                        throw new PrivateMessageLegacyUnavailableError();
+                    // The row is already confirmed. Push transport failure does
+                    // not turn it into an unsent message or authorize a resend.
+                    log.warn('[Guardian] Hail notification status unconfirmed');
+                }
             }
+            if (!isLegacyPrivateMessagePermitCurrent(privatePermit)) throw new PrivateMessageLegacyUnavailableError();
             return this.operationIsCurrent(scope, version);
         } catch (error) {
+            if (isPrivateMessageLegacyUnavailable(error) || !isLegacyPrivateMessagePermitCurrent(privatePermit))
+                throw new PrivateMessageLegacyUnavailableError();
             log.error('[Guardian] Hail exception:', error);
             return false;
         }

@@ -613,4 +613,57 @@ describe('GuardianPage', () => {
         );
         expect(screen.queryByText('Sent by you')).not.toBeInTheDocument();
     });
+
+    it('does not let a disposed old hail overwrite newer same-account safety feedback after cutover', async () => {
+        const armedProfile = { ...existingProfile, armed: true, armed_at: '2026-07-23T00:00:00.000Z' };
+        const nearbyUser = {
+            user_id: 'nearby-user',
+            vessel_name: 'Sea Biscuit',
+            distance_nm: 0.8,
+            last_known_at: '2026-07-23T00:00:00.000Z',
+        };
+        guardianState.current = {
+            profile: armedProfile,
+            nearbyUsers: [nearbyUser],
+            alerts: [],
+            loading: false,
+            armed: true,
+            nearbyCount: 1,
+        };
+        vi.mocked(GuardianService.fetchProfile).mockResolvedValue(armedProfile);
+        vi.mocked(GuardianService.subscribe).mockImplementation((listener) => {
+            listener(guardianState.current);
+            return vi.fn();
+        });
+        let resolveHail!: (value: boolean) => void;
+        const heldHail = new Promise<boolean>((done) => {
+            resolveHail = done;
+        });
+        vi.mocked(GuardianService.sendHail).mockReturnValueOnce(heldHail);
+        render(<GuardianPage onBack={vi.fn()} />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Hail nearby vessel' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Send "Ahoy!" to Sea Biscuit' }));
+        await waitFor(() => expect(GuardianService.sendHail).toHaveBeenCalledOnce());
+        const identity = await import('../services/authIdentityScope');
+        const cutover = await import('../services/chat/e2ee/privateMessageCutover');
+        act(() => {
+            cutover.requireNativePrivateMessagesForScope(identity.getAuthIdentityScope());
+        });
+        expect(screen.queryByRole('dialog', { name: 'Hail Sea Biscuit' })).toBeNull();
+        vi.mocked(GuardianService.broadcastWeatherSpike).mockResolvedValueOnce({
+            success: true,
+            notified: 0,
+            feedConfirmed: true,
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Weather alert: broadcast to nearby boats' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Send weather alert: Strong winds expected' }));
+        await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved to your alert feed.'));
+        await act(async () => {
+            resolveHail(true);
+            await heldHail;
+        });
+        expect(screen.getByRole('status')).toHaveTextContent('Saved to your alert feed.');
+        expect(screen.queryByText(/Hail sent|Legacy hails are unavailable/)).toBeNull();
+        expect(GuardianService.sendHail).toHaveBeenCalledOnce();
+    });
 });
