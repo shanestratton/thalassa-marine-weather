@@ -158,7 +158,7 @@ class PublisherSourceGateTests(unittest.TestCase):
         self.assertNotIn("functions", config)
         self.assertEqual(
             config["rewrites"][-1],
-            {"source": "/((?!.*\\..*).*)", "destination": "/index.html"},
+            {"source": "/((?!api/)(?!.*\\..*).*)", "destination": "/index.html"},
         )
         spa_pattern = re.compile(config["rewrites"][-1]["source"])
         for dataset, filename in (
