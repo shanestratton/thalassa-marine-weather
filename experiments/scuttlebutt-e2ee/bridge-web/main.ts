@@ -175,6 +175,8 @@ const actionIds = [
     'confirm-peer',
     'claim-peer',
     'refresh-policy',
+    'require-protected',
+    'check-account-mode',
     'read-thread',
     'receive',
     'retry-pending',
@@ -210,6 +212,12 @@ messaging.subscribe((state) => {
     element('policy-facts').textContent = state.policy
         ? `At last check — owner revoked: ${state.policy.ownerRevoked}; peer revoked: ${state.policy.peerRevoked}; blocked by you: ${state.policy.blockedByMe}; blocked by peer: ${state.policy.blockedByPeer}. Not a durable send permission.`
         : 'Relay policy unknown or expired. Send and Receive request a fresh native check.';
+    element('account-mode-facts').textContent =
+        state.accountMode === 'protected-required'
+            ? 'Last explicit check: protected private messages are required on the isolated relay.'
+            : state.accountMode === 'legacy-permitted'
+              ? 'Last explicit check: the isolated relay permits legacy private messages. Local protection stays in place.'
+              : 'Account mode unknown. Use an explicit check; no mode is inferred from sign-in or pairing.';
     if (draft.value !== state.draft) draft.value = state.draft;
     if (peerInput.value !== state.peerCardInput) peerInput.value = state.peerCardInput;
     ownCard.value = state.ownCard?.card ?? '';
@@ -258,6 +266,8 @@ buttons['inspect-peer'].addEventListener('click', () => void messaging.inspectPe
 buttons['confirm-peer'].addEventListener('click', () => void messaging.confirmPeer());
 buttons['claim-peer'].addEventListener('click', () => void messaging.claimPeer());
 buttons['refresh-policy'].addEventListener('click', () => void messaging.refreshPolicy());
+buttons['require-protected'].addEventListener('click', () => void messaging.requireProtected());
+buttons['check-account-mode'].addEventListener('click', () => void messaging.refreshAccountMode());
 buttons['read-thread'].addEventListener('click', () => void messaging.readThread());
 buttons.receive.addEventListener('click', () => void messaging.receive());
 buttons['retry-pending'].addEventListener('click', () => void messaging.retryPending());

@@ -23,8 +23,8 @@ observed results.
 `relay.sql` now supports signed `require-protected` and fresh `account-mode`, both
 with the exact payload `[]`. The four-field receipt reports durable account policy,
 not encryption or device permission. Existing peer-policy fields and signed-wire
-version/domain are unchanged. No downgrade API exists. New native actions have
-not been integrated or deployed to the hosted pilot.
+version/domain are unchanged. No downgrade API exists. Explicit native Research
+controls now support both actions; they have not been deployed to the hosted pilot.
 
 `privateNotifications.sql` and `legacyCutoverFixture.sql` install only into a
 fresh local fixture after `relay.sql`. They are not migrations. The first queues
@@ -53,6 +53,21 @@ No external sink, worker enumeration or claim expiry/reclaim is installed.
 Repeated same-token projections require sink deduplication; post-claim block or
 revocation cannot retract an already dispatched notification. No delivery/read
 or exactly-once push claim follows from a unique SQL row.
+
+The existing native runner has an explicit focused mode:
+
+```sh
+pgrep -fl "vite build|tsc|vitest"
+node --experimental-strip-types experiments/scuttlebutt-e2ee/relay/nativeExchangeProof.mjs /absolute/native-cache /absolute/pglite.tgz --native-exchange-receipt /absolute/prior-exchange-run.json --account-mode-only
+```
+
+It compiles/installs only a new disposable simulator app, runs native account-mode
+and private-message adapter fixtures, then deletes that simulator. The cached
+provider must match a prior completed exchange receipt. This mode does not open
+the SQL/HTTPS relay, add a CA or test live Auth; fixture URLProtocol intercepts all
+requests. The archive argument is retained for the existing runner contract and
+is not executed in this mode. See [native cutover evidence](../review/native-cutover-2026-10-06.json).
+No phone/iPad update, primary sync, hosted change or release authorization follows.
 
 ## Isolated hosted pilot — not app encryption
 

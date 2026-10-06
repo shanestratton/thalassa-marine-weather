@@ -32,6 +32,12 @@ enum DmNativeMessageOperation {
     case relayPolicyResponse(request: DmNativeRelayPolicyRequest, response: Data)
     case relayPolicyState
     case relayPolicyGuard(DmNativeRelayPolicyPermit)
+    // Explicit OWNER-only account policy control. No peer/enrollment fallback.
+    case relayRequireProtectedWire
+    case relayAccountModeWire
+    case relayAccountModeResponse(request: DmNativeRelayAccountModeRequest, response: Data)
+    // Publication-time fact consistency only, never a send/read permission.
+    case relayAccountModeGuard(DmNativeRelayAccountModeState)
     case invalidateRelayPolicy
     case relayEnrollmentState
     case relayRegistrationWire
@@ -59,6 +65,35 @@ enum DmNativeMessageResult {
     case policyRequest(DmNativeRelayPolicyRequest)
     case policyState(DmNativeRelayPolicyState)
     case inboxRequest(DmNativeRelayInboxRequest)
+    case accountModeRequest(DmNativeRelayAccountModeRequest)
+    case accountModeState(DmNativeRelayAccountModeState)
+}
+
+/// A server account-policy diagnostic/fact, NEVER a native send/read permit or
+/// proof of encryption, device authority, peer trust or production enforcement.
+enum DmNativeRelayAccountModeState: String {
+    case legacyPermitted = "legacy-permitted"
+    case protectedRequired = "protected-required"
+}
+enum DmNativeRelayAccountModeAction: String {
+    case requireProtected = "require-protected"
+    case accountMode = "account-mode"
+}
+/// Native-only original transport intent. Its signature/IDs never cross to JS.
+/// Retaining it cannot extend the originating native owner lease or deadline.
+struct DmNativeRelayAccountModeRequest: Equatable, CustomStringConvertible, CustomDebugStringConvertible {
+    // Native attempt capability, distinct from the durable server nonce. Even
+    // exact-wire retries under frozen clocks cannot revive an old completion.
+    let attemptID: UUID
+    let wire: String
+    let context: DmRelayNetworkContext
+    let action: DmNativeRelayAccountModeAction
+    let requestId: String
+    let expiresAt: Int64
+    let startedAtSeconds: Int64
+    let startedAt: ContinuousClock.Instant
+    var description: String { "NativeRelayAccountModeRequest(<native-only>)" }
+    var debugDescription: String { description }
 }
 
 // Historical control-plane facts ONLY. An acknowledgement is not current

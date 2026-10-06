@@ -59,6 +59,12 @@ final class ResearchMessagingAdapter {
     func refreshPolicy(credentialBinding: String) async throws -> ResearchMessagingResult {
         try await guardedAsync { try await refreshPolicyImpl(credentialBinding: credentialBinding) }
     }
+    func requireProtected(credentialBinding: String) async throws -> ResearchMessagingResult {
+        try await guardedAsync { try await requireProtectedImpl(credentialBinding: credentialBinding) }
+    }
+    func refreshAccountMode(credentialBinding: String) async throws -> ResearchMessagingResult {
+        try await guardedAsync { try await refreshAccountModeImpl(credentialBinding: credentialBinding) }
+    }
     func thread(credentialBinding: String) throws -> ResearchMessagingResult {
         try guarded { try threadImpl(credentialBinding: credentialBinding) }
     }
@@ -129,6 +135,36 @@ final class ResearchMessagingAdapter {
                 try self.requirePairing(peer, snapshot: snapshot)
                 guard case .policyState(let current) = try self.facade.executeMessageOperation(snapshot: snapshot,
                     operation: .relayPolicyState), current == flags else { throw self.unavailable }
+            })
+    }
+
+    /// Account-wide selection is explicit and owner-only. It never creates peer
+    /// trust, enrolls a device, scans history or prepares a private message.
+    /// Native owns any durable pending intent and exact-wire reconciliation.
+    private func requireProtectedImpl(credentialBinding: String) async throws -> ResearchMessagingResult {
+        let snapshot = try owner(credentialBinding)
+        let mode = try await client.requireProtected(snapshot: snapshot)
+        guard mode.rawValue == "protected-required" else { throw unavailable }
+        return try accountModeResult(snapshot: snapshot, binding: credentialBinding, mode: mode)
+    }
+
+    /// Fresh diagnostic only. A legacy result cannot release a local protection
+    /// latch or silently discard a native pending protected-selection intent.
+    private func refreshAccountModeImpl(credentialBinding: String) async throws -> ResearchMessagingResult {
+        let snapshot = try owner(credentialBinding)
+        let mode = try await client.refreshAccountMode(snapshot: snapshot)
+        return try accountModeResult(snapshot: snapshot, binding: credentialBinding, mode: mode)
+    }
+
+    private func accountModeResult(snapshot: DmNativeMessageSnapshot, binding: String,
+                                   mode: DmNativeRelayAccountModeState) throws -> ResearchMessagingResult {
+        guard mode.rawValue == "legacy-permitted" || mode.rawValue == "protected-required" else { throw unavailable }
+        // result() captures and publish() checks the ORIGINAL owner snapshot,
+        // even if the server commit succeeded before the native lease changed.
+        return try result(snapshot: snapshot, binding: binding, status: "account_mode", fields: ["mode": mode.rawValue],
+            additionalGuard: {
+                guard case .accountModeState(let current) = try self.facade.executeMessageOperation(snapshot: snapshot,
+                    operation: .relayAccountModeGuard(mode)), current == mode else { throw self.unavailable }
             })
     }
 

@@ -21,6 +21,7 @@ export interface ResearchPolicy {
     readonly blockedByMe: boolean;
     readonly blockedByPeer: boolean;
 }
+export type ResearchAccountMode = 'legacy-permitted' | 'protected-required';
 export interface ResearchMessageFacts {
     readonly status: 'state';
     readonly credentialBinding: string;
@@ -76,6 +77,7 @@ export type ResearchMessagingResult =
     | { readonly status: 'unavailable'; readonly reason: 'unavailable' }
     | (ResearchCard & { readonly status: 'pairing_card' | 'peer_card'; readonly credentialBinding: string })
     | { readonly status: 'policy'; readonly credentialBinding: string; readonly policy: ResearchPolicy }
+    | { readonly status: 'account_mode'; readonly credentialBinding: string; readonly mode: ResearchAccountMode }
     | { readonly status: 'prepared'; readonly credentialBinding: string; readonly clientMessageId: string }
     | {
           readonly status: 'send_result';
@@ -95,6 +97,8 @@ export interface ResearchMessagingNativePlugin {
     messageRegisterDevice(options: Bound): Promise<unknown>;
     messageClaimPeer(options: Bound): Promise<unknown>;
     messageRefreshPolicy(options: Bound): Promise<unknown>;
+    messageRequireProtected(options: Bound): Promise<unknown>;
+    messageAccountMode(options: Bound): Promise<unknown>;
     messageThread(options: Bound): Promise<unknown>;
     messagePrepareText(options: Bound & { clientMessageId: string; text: string }): Promise<unknown>;
     messageSendPending(options: Bound & { clientMessageId: string }): Promise<unknown>;
@@ -122,6 +126,7 @@ export interface ResearchMessagingState {
     readonly notice: string;
     readonly facts: ResearchMessageFacts | null;
     readonly policy: ResearchPolicy | null;
+    readonly accountMode: ResearchAccountMode | null;
     readonly ownCard: ResearchCard | null;
     readonly peerCardInput: string;
     readonly inspectedPeer: ResearchCard | null;
@@ -170,6 +175,29 @@ function policy(value: unknown): ResearchPolicy {
 }
 function clearPolicy(value: ResearchPolicy): boolean {
     return !value.ownerRevoked && !value.peerRevoked && !value.blockedByMe && !value.blockedByPeer;
+}
+function accountMode(value: unknown, ticket: Ticket, requireProtected: boolean): ResearchAccountMode {
+    // This new account-policy projection is a closed data object. Inspect own
+    // descriptors rather than invoking caller/native-adapter accessors.
+    if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) throw unavailable();
+    const names = ['status', 'credentialBinding', 'mode'];
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== names.length || keys.some((key) => typeof key !== 'string' || !names.includes(key)))
+        throw unavailable();
+    const fields: Record<string, unknown> = {};
+    for (const name of names) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, name);
+        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) throw unavailable();
+        fields[name] = descriptor.value;
+    }
+    if (
+        fields.status !== 'account_mode' ||
+        fields.credentialBinding !== ticket.credentialBinding ||
+        !choice(fields.mode, ['legacy-permitted', 'protected-required']) ||
+        (requireProtected && fields.mode !== 'protected-required')
+    )
+        throw unavailable();
+    return fields.mode;
 }
 function bound(value: unknown, ticket: Ticket, status: string, fields: readonly string[]): Record<string, unknown> {
     if (
@@ -406,6 +434,7 @@ export class ResearchMessagingController {
             notice: busy ? MESSAGING_NOTICES.waiting : available ? MESSAGING_NOTICES.idle : MESSAGING_NOTICES.inactive,
             facts: null,
             policy: null,
+            accountMode: null,
             ownCard,
             peerCardInput,
             inspectedPeer: null,
@@ -524,6 +553,7 @@ export class ResearchMessagingController {
             if (ticket && this.current(ticket))
                 this.update({
                     policy: null,
+                    accountMode: null,
                     facts: null,
                     thread: null,
                     inboxReport: null,
@@ -681,6 +711,68 @@ export class ResearchMessagingController {
                 notice: clearPolicy(flags)
                     ? 'Native policy flags clear at this check—not a durable permission.'
                     : 'Native policy refuses messaging.',
+            });
+        });
+    }
+    private accountModeTicket(): Ticket | null {
+        try {
+            if (!this.available() || this.activeAction !== null) return null;
+            const credentialBinding = this.dependencies.auth.getState().account?.credentialBinding;
+            return match(credentialBinding, UUID)
+                ? Object.freeze({ revision: this.revision, credentialBinding })
+                : null;
+        } catch {
+            return null;
+        }
+    }
+    /** One explicit owner-only selection; JS never signs or retries its wire. */
+    async requireProtected(): Promise<void> {
+        const original = this.accountModeTicket();
+        if (!original) return;
+        await this.action(async (ticket) => {
+            // Capture before action() publishes busy: an observer's same-owner
+            // renewal must not rebind this original user action to new Auth.
+            if (
+                !this.current(original) ||
+                ticket.revision !== original.revision ||
+                ticket.credentialBinding !== original.credentialBinding
+            )
+                return;
+            this.commit(ticket, { accountMode: null });
+            const mode = accountMode(
+                await this.call(ticket, () => this.dependencies.native.messageRequireProtected(ticketOptions(ticket))),
+                ticket,
+                true,
+            );
+            this.commit(ticket, {
+                accountMode: mode,
+                notice: 'Protected private messages are required for this isolated relay account. This one-way policy is not an encryption or delivery check.',
+            });
+        });
+    }
+    /** Explicit fresh diagnostic; a legacy observation never releases a latch. */
+    async refreshAccountMode(): Promise<void> {
+        const original = this.accountModeTicket();
+        if (!original) return;
+        await this.action(async (ticket) => {
+            if (
+                !this.current(original) ||
+                ticket.revision !== original.revision ||
+                ticket.credentialBinding !== original.credentialBinding
+            )
+                return;
+            this.commit(ticket, { accountMode: null });
+            const mode = accountMode(
+                await this.call(ticket, () => this.dependencies.native.messageAccountMode(ticketOptions(ticket))),
+                ticket,
+                false,
+            );
+            this.commit(ticket, {
+                accountMode: mode,
+                notice:
+                    mode === 'protected-required'
+                        ? 'Isolated relay reports protected private messages are required. This is not a messaging readiness check.'
+                        : 'Isolated relay still permits legacy private messages. A local protection latch is not cleared by this check.',
             });
         });
     }

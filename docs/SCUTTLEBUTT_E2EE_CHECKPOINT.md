@@ -79,8 +79,9 @@ native account host. The main-app pilot contract remains injected and disabled
 by default. Its native hook and rendering imports are now separated from legacy
 chat. An explicit native selection now latches process-local legacy denial across
 private callers, queues and foreground push. Durable account mode and legacy SQL
-denial now have fresh local fixture evidence, but native/hosted/production cutover
-is not integrated. These are not a shipping
+denial now have fresh local fixture evidence. Explicit native account controls
+also have local adapter evidence, but hosted/production cutover and main-app
+cold-start admission are not integrated. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
@@ -113,6 +114,60 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 6 October native durable account policy controls
+
+The native owner-only dispatcher now supports explicit `require-protected` and
+fresh `account-mode`, using the existing registered device and pinned project.
+JavaScript supplies only the original native credential binding. The coordinator
+derives IDs, expiry, canonical payload and signature; neither operation registers,
+claims, pairs, refreshes peer permission or changes ratchet/message state.
+The exact four-field response is bounded to 2 KiB and checked for duplicates,
+escaped-key aliases, extra/missing fields and original request/account/device
+binding. Mutation success requires `protected-required`.
+
+The first selection seals its original signed intent before returning a wire.
+While its original generation/epoch and expiry remain valid, explicit retry uses
+the same server nonce/signature/bytes. Each transport attempt has a separate
+native UUID, so equal server bytes or clocks cannot admit a superseded completion.
+Expired or historically bound mutation intents refuse without replacement signing;
+a fresh diagnostic remains available. This conservative availability limit needs
+a recovery policy before shipping. Protected observations seal a true-only fact;
+legacy observations never clear pending/confirmed selection. Sealed facts grant
+no current Auth, peer trust, encryption, send, delivery or read permission.
+
+The separate Research plugin exposes two owner-only controls and projects only
+status, original credential binding and mode. Creation/publication runs the closed
+native mode guard, so a captured legacy result cannot publish after same-owner
+selection. Controller tickets, a single-operation barrier and privacy/Auth resets
+keep unknown state honest. Startup, sign-in, renewal, preview, send and receive
+do not choose protection or query mode implicitly. Ordinary Thalassa and its
+private-message port/view are unchanged.
+
+The focused disposable-simulator run passed **78 native account-mode assertions**
+and **363 existing private-message adapter assertions** across two phases. It
+uses real provider signatures, Keychain, sealed SQLite, Directory/facade and
+adapter, with synthetic URLProtocol Auth/relay. Controls include an independent
+signature-domain check, missing enrollment, malformed results, exact retry after
+lost response, superseded queries, contradictory/delayed legacy results,
+renewal/logout races and same-process close/reopen. An already-expired signed
+intent is seeded deliberately; it is not elapsed-clock, SIGKILL or physical-device
+evidence. The simulator and its fixture keys were removed. No SQL server, custom
+CA, actual network exchange or human app was involved in this focused mode.
+
+Research checks passed **1,359 tests in 20 suites**, focused strict TypeScript,
+named lint and code formatting. The Research web bundle and separate unsigned
+physical-iOS target compiled, including the plugin registry; neither was installed
+or launched on a human device. The [native cutover manifest](../experiments/scuttlebutt-e2ee/review/native-cutover-2026-10-06.json)
+retains source/artifact hashes, the initial fixture compile failure, two internal
+review corrections and the exact evidence categories. Cached provider/framework
+inputs were hash-checked, not freshly rebuilt or independently attested.
+
+Next: scoped hosted cutover migration/reproduction without resetting human state,
+main-app native cold-start legacy denial, and durable inbox/device/prekey lifecycle
+and recovery. Actual legacy production tables/private push remain outside these
+local controls. Full device acceptance, independent PostgreSQL concurrency,
+dependency obligations and the external security assessment still gate release.
 
 ### 6 October durable server cutover and generic notification fixtures
 
@@ -166,8 +221,9 @@ There is no external notification sink, enumeration worker, claim expiry/reclaim
 or exactly-once APNs result. A crashed consumer can strand a claim; the same token
 can obtain its generic projection again. Future sink delivery needs deduplication
 and fresh dispatch checks. A later suppression/failed acknowledgement cannot
-retract a notification already dispatched. Native codecs still refuse the new
-actions, and the existing hosted project has not received this slice. Independent
+retract a notification already dispatched. At this SQL checkpoint native codecs
+still refused the new actions; the later native evidence above is separate.
+The existing hosted project has not received this slice. Independent
 PostgreSQL connections, production legacy paths, physical acceptance, dependency
 review and the independent security assessment remain release gates.
 
@@ -2712,8 +2768,10 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: integrate the locally verified durable account mode into native authority
-and the isolated relay without resetting human state. Apply actual legacy-table
+Next: migrate and reproduce the locally verified account mode on the isolated
+hosted relay without resetting human state, then connect native durable selection
+to main-app cold-start denial. Native controls alone do not close that boundary.
+Apply actual legacy-table
 and notification-worker enforcement only through separately scoped, reviewed
 deployment; local stand-ins do not complete that boundary. Preserve explicit
 native-unavailable mode without a legacy fallback. Then implement durable inbox progress and

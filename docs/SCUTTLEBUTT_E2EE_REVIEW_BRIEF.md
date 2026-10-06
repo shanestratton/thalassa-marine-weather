@@ -119,9 +119,29 @@ separation before adapting these overlays to real tables. There is no external
 push sink or claim expiry/reclaim. Same-token claims can repeat projections;
 sink deduplication, dispatch-time freshness and lost-response handling remain
 required. An acknowledgement cannot retract an already emitted notification.
-Native codecs intentionally still reject these new actions. Existing hosted and
-human-device candidates are unchanged; internal agent review is not independent
-assessment.
+At that SQL checkpoint native codecs still rejected the new actions; the later
+native slice below supplies separate evidence. Existing hosted and human-device
+candidates are unchanged; internal agent review is not independent assessment.
+
+Explicit native owner-only account controls now derive their own signed wires
+and validate bounded four-field results. The original one-way selection intent
+is sealed before publication and retried byte-for-byte under its original
+generation/epoch/expiry. Native attempt UUIDs fence superseded retries separately
+from the durable server nonce. Expired/historical mutation intents refuse; fresh
+diagnostics can confirm protection but cannot clear a local latch. These facts
+never arm peer/message permission. A closed mode guard refuses delayed legacy
+projection after same-owner selection. Research UI/plugin inputs contain only
+the native credential binding; no automatic selection/query was added.
+
+The [native cutover manifest](../experiments/scuttlebutt-e2ee/review/native-cutover-2026-10-06.json)
+records 78 new native assertions and 363 existing adapter assertions in two
+fresh-simulator phases, 1,359 Research tests in 20 suites, strict types/lint and
+separate web/unsigned physical-iOS compilation. Native fixtures use the real
+provider/Keychain/sealed SQLite with synthetic URLProtocol Auth/relay; the expiry
+case seeds historical signed bytes. This is not a hosted, controlled process-death,
+physical-device or actual Capacitor invocation result. The new controls have not
+been installed on the human devices or deployed to the hosted service. Assess the
+conservative historical-intent refusal and cold-start/rollout gap explicitly.
 The fixed 16-outgoing/16-incoming budgets,
 scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or
@@ -242,6 +262,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Native provider and licence inventory](../experiments/scuttlebutt-e2ee/vodozemac-native/README.md), `VodozemacSealedStore.swift`, `VodozemacDmCoordinator.swift`, `VodozemacDmFrame.swift`, `VodozemacSupabaseAuth.swift` and `VodozemacAuthSession.swift` in `experiments/scuttlebutt-e2ee/`.
 - [Relay contract and reproduction](../experiments/scuttlebutt-e2ee/relay/README.md), including `relay.sql`, `signedGateway.ts`, `supabaseAuth.ts`, `hostedGateway.ts`, `nativeExchangeProof.mjs`, `hosted/` deployment/fixture runners and their source/artifact receipts.
 - [Local cutover runner](../experiments/scuttlebutt-e2ee/relay/cutoverProof.mjs), `privateNotifications.sql`, `legacyCutoverFixture.sql` and the [server cutover evidence](../experiments/scuttlebutt-e2ee/review/server-cutover-2026-10-06.json). Fresh fixture overlays are not production migrations; retained previews and spoofable GUC identity are deliberate test controls.
+- [Native account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeProbe.swift) and [native cutover evidence](../experiments/scuttlebutt-e2ee/review/native-cutover-2026-10-06.json). The native runner's explicit `--account-mode-only` mode uses synthetic Auth/relay and skips its SQL/HTTPS/CA setup; keep this evidence distinct from the older exchange path.
 - [Research adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift), [plugin](../experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift), [web controller and literal renderer](../experiments/scuttlebutt-e2ee/bridge-web/messaging.ts), native bridge fixtures and `tests/E2eePilotBridgeMessaging.test.ts`. These are separate from the shipping private-message port; include both native and JavaScript publication fences in the assessment.
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.

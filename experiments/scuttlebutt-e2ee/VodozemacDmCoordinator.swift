@@ -112,6 +112,9 @@ final class VodozemacDmCoordinator {
     private var policyQuery: DmNativeRelayPolicyRequest?
     private var policyPermit: DmNativeRelayPolicyPermit?
     private var policyState: DmNativeRelayPolicyState?
+    // One ORIGINAL owner-only mode completion in native memory. Unlike peer
+    // policy, its result never creates/updates a message-authority permit.
+    private var accountModeQuery: DmNativeRelayAccountModeRequest?
     // Test-only interference hook, not a guard or a production/plugin argument.
     // Lets the probe commit a competing lifecycle change before our sealed CAS.
     private let beforeCommitForResearch: (() throws -> Void)?
@@ -124,6 +127,27 @@ final class VodozemacDmCoordinator {
     // evidence that a used account/prekey may be registered or claimed afresh.
     private struct RegistrationIntent: Codable {
         let signedBundle: String
+    }
+    // One-way local selection is row/intent existence, not a default legacy
+    // mode. Expiry, renewal/logout or uncertainty never clears/rebinds it.
+    private struct ProtectedAccountIntent: Codable {
+        let owner: DmOwnerContext
+        let credentialEpoch: UUID
+        let wire: String
+        let requestId: String
+        let issuedAtSeconds: Int64
+        let expiresAt: Int64
+    }
+    private struct ProtectedAccountWire: Codable {
+        let version: Int
+        let `protocol`: String
+        let userId: String
+        let deviceId: String
+        let action: String
+        let requestId: String
+        let expiresAt: Int64
+        let payload: String
+        let signature: String
     }
     private struct ClaimIntent: Codable {
         let owner: DmOwnerContext
@@ -184,6 +208,11 @@ final class VodozemacDmCoordinator {
         // Optional v5 research additions. Missing fields are UNKNOWN, never
         // promoted to acknowledged/verified or used to recreate old keys.
         var registrationAcknowledgement: Data?
+        // Optional v5 cutover additions. Missing is UNKNOWN, never permission.
+        // A protected diagnostic may confirm the durable server fact even if
+        // a former mutation's original epoch has become historical/unusable.
+        var protectedAccountIntent: ProtectedAccountIntent?
+        var protectedAccountConfirmed: Bool?
         var claimIntent: ClaimIntent?
         var claimConfirmation: ClaimConfirmation?
         var outbox: [OutboxItem]
@@ -215,6 +244,7 @@ final class VodozemacDmCoordinator {
             identityKeyId: identityKeyId, signingKey: account.signingKey, curve: account.identityCurve, prekey: account.oneTimeKey,
             account: account.accountPickle, peer: nil, peerIdentity: nil, peerFingerprint: nil,
             session: nil, registrationIntent: nil, registrationAcknowledgement: nil,
+            protectedAccountIntent: nil, protectedAccountConfirmed: nil,
             claimIntent: nil, claimConfirmation: nil,
             outbox: [], inbox: [], unresolved: [])
         try validate(state)
@@ -303,6 +333,113 @@ final class VodozemacDmCoordinator {
             case .invalidateRelayPolicy:
                 policyQuery = nil; policyPermit = nil; policyState = nil
                 return try withState { _, state in .enrollmentState(try Self.enrollmentState(state)) }
+            case .relayRequireProtectedWire, .relayAccountModeWire:
+                accountModeQuery = nil
+                return try withState { revision, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil,
+                          state.registrationAcknowledgement != nil else { throw DmCoordinatorError.unavailable }
+                    let now = try Self.nativeRelayTime(), startedAt = policyClock()
+                    guard now <= DmRelayCodec.maxSafeInteger - 240 else { throw DmCoordinatorError.unavailable }
+                    let action: DmNativeRelayAccountModeAction
+                    let requestId: String, expiresAt: Int64, wire: String
+                    switch operation {
+                    case .relayRequireProtectedWire:
+                        action = .requireProtected
+                        if let intent = state.protectedAccountIntent {
+                            // Conservative availability: even acknowledged intent
+                            // replay keeps its original epoch/ID/expiry. Refresh or
+                            // restart Auth may make it historical; diagnose mode
+                            // explicitly instead of replacing/re-signing the intent.
+                            guard intent.owner == owner, intent.credentialEpoch == context.credentialEpoch,
+                                  now >= intent.issuedAtSeconds, now < intent.expiresAt else {
+                                throw DmCoordinatorError.unavailable
+                            }
+                            requestId = intent.requestId; expiresAt = intent.expiresAt; wire = intent.wire
+                        } else {
+                            requestId = UUID().uuidString.lowercased(); expiresAt = now + 240
+                            wire = try signRelay(state: state, revision: revision, owner: owner,
+                                action: action.rawValue, payload: "[]", requestId: requestId,
+                                expiresAt: expiresAt, now: now, persistState: false)
+                            guard wire.utf8.count <= 2048 else { throw DmCoordinatorError.unavailable }
+                            state.protectedAccountIntent = ProtectedAccountIntent(owner: owner,
+                                credentialEpoch: context.credentialEpoch, wire: wire, requestId: requestId,
+                                issuedAtSeconds: now, expiresAt: expiresAt)
+                            // Seal selection + exact native signature before any
+                            // observable wire. Does not advance crypto/outbox/peer.
+                            try persist(state, revision: revision)
+                        }
+                    case .relayAccountModeWire:
+                        action = .accountMode
+                        requestId = UUID().uuidString.lowercased(); expiresAt = now + 240
+                        wire = try signRelay(state: state, revision: revision, owner: owner,
+                            action: action.rawValue, payload: "[]", requestId: requestId,
+                            expiresAt: expiresAt, now: now, persistState: false)
+                        guard wire.utf8.count <= 2048 else { throw DmCoordinatorError.unavailable }
+                    default: throw DmCoordinatorError.unavailable
+                    }
+                    let request = DmNativeRelayAccountModeRequest(attemptID: UUID(), wire: wire, context: context,
+                        action: action, requestId: requestId, expiresAt: expiresAt,
+                        startedAtSeconds: now, startedAt: startedAt)
+                    accountModeQuery = request
+                    return .accountModeRequest(request)
+                }
+            case .relayAccountModeResponse(let request, let response):
+                let result = try withState { revision, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil,
+                          state.registrationAcknowledgement != nil,
+                          accountModeQuery == request, request.context == context,
+                          try accountModeCompletionTime(request) < request.expiresAt else {
+                        throw DmCoordinatorError.unavailable
+                    }
+                    if request.action == .requireProtected {
+                        guard let intent = state.protectedAccountIntent, intent.owner == owner,
+                              intent.credentialEpoch == context.credentialEpoch,
+                              intent.requestId == request.requestId, intent.expiresAt == request.expiresAt,
+                              intent.wire.utf8.elementsEqual(request.wire.utf8) else {
+                            throw DmCoordinatorError.unavailable
+                        }
+                    }
+                    let mode = try DmRelayResultCodec.accountMode(response, request: request)
+                    if mode == .legacyPermitted {
+                        // A diagnostic is not a downgrade or a permission. An
+                        // inconsistent legacy result cannot erase local selection.
+                        guard state.protectedAccountIntent == nil, state.protectedAccountConfirmed == nil else {
+                            throw DmCoordinatorError.unavailable
+                        }
+                    } else if state.protectedAccountConfirmed == nil {
+                        state.protectedAccountConfirmed = true
+                        try persist(state, revision: revision)
+                    }
+                    accountModeQuery = nil
+                    return DmNativeMessageResult.accountModeState(mode)
+                }
+                if case .accountModeState(.legacyPermitted) = result {
+                    // Another raw research writer can select protection without
+                    // changing the owner lifecycle. Read sealed mode afresh,
+                    // not only withState's final lifecycle reread. This remains
+                    // a snapshot fact, never admission for a later operation.
+                    return try withState { _, state in
+                        guard state.protectedAccountIntent == nil, state.protectedAccountConfirmed == nil else {
+                            throw DmCoordinatorError.unavailable
+                        }
+                        return result
+                    }
+                }
+                return result
+            case .relayAccountModeGuard(let mode):
+                return try withState { _, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil,
+                          state.registrationAcknowledgement != nil else { throw DmCoordinatorError.unavailable }
+                    switch mode {
+                    case .legacyPermitted:
+                        guard state.protectedAccountIntent == nil, state.protectedAccountConfirmed == nil else {
+                            throw DmCoordinatorError.unavailable
+                        }
+                    case .protectedRequired:
+                        guard state.protectedAccountConfirmed == true else { throw DmCoordinatorError.unavailable }
+                    }
+                    return .accountModeState(mode)
+                }
             case .relayPolicyWire:
                 // Fail closed immediately, including failed refresh/signing.
                 policyQuery = nil; policyPermit = nil; policyState = nil
@@ -575,6 +712,19 @@ final class VodozemacDmCoordinator {
         guard seconds.isFinite, seconds >= 1,
               seconds <= Double(DmRelayCodec.maxSafeInteger - 240) else { throw DmCoordinatorError.unavailable }
         return Int64(seconds)
+    }
+
+    private func accountModeCompletionTime(_ request: DmNativeRelayAccountModeRequest) throws -> Int64 {
+        let elapsed = request.startedAt.duration(to: policyClock()).components
+        guard elapsed.seconds >= 0, elapsed.attoseconds >= 0,
+              request.startedAtSeconds > 0, request.startedAtSeconds <= DmRelayCodec.maxSafeInteger else {
+            throw DmCoordinatorError.unavailable
+        }
+        let ceiling = elapsed.seconds.addingReportingOverflow(elapsed.attoseconds == 0 ? 0 : 1)
+        guard !ceiling.overflow, ceiling.partialValue <= DmRelayCodec.maxSafeInteger - request.startedAtSeconds else {
+            throw DmCoordinatorError.unavailable
+        }
+        return max(try Self.nativeRelayTime(), request.startedAtSeconds + ceiling.partialValue)
     }
 
     private static func claimCompletionTime(_ request: DmNativeRelayClaimRequest) throws -> Int64 {
@@ -1482,6 +1632,37 @@ final class VodozemacDmCoordinator {
         return bundle
     }
 
+    // Stored expired/historical selections remain consistency-checked facts.
+    // Validation NEVER re-signs or treats their old epoch as current authority.
+    private static func validateProtectedAccountIntent(_ intent: ProtectedAccountIntent, state: State) throws {
+        try validateOwner(intent.owner)
+        try DmContentCodec.validateIdentifier(intent.requestId)
+        guard state.authProjectOrigin != nil, state.registrationAcknowledgement != nil,
+              intent.owner.userId.utf8.elementsEqual(state.owner.userId.utf8),
+              intent.owner.deviceId.utf8.elementsEqual(state.owner.deviceId.utf8),
+              intent.owner.generation <= state.owner.generation,
+              intent.issuedAtSeconds > 0, intent.issuedAtSeconds <= generationMax - 240,
+              intent.expiresAt == intent.issuedAtSeconds + 240,
+              !intent.wire.isEmpty, intent.wire.utf8.count <= 2048,
+              intent.wire.utf8.allSatisfy({ (32...126).contains($0) }),
+              let frame = try? JSONDecoder().decode(ProtectedAccountWire.self, from: Data(intent.wire.utf8)),
+              frame.version == 1, frame.protocol == "olm-v1", frame.action == "require-protected",
+              frame.payload == "[]", frame.userId.utf8.elementsEqual(intent.owner.userId.utf8),
+              frame.deviceId.utf8.elementsEqual(intent.owner.deviceId.utf8),
+              frame.requestId.utf8.elementsEqual(intent.requestId.utf8), frame.expiresAt == intent.expiresAt else {
+            throw DmCoordinatorError.unsupportedState
+        }
+        let canonical = try DmRelayCodec.requestWire(owner: intent.owner, action: frame.action,
+            requestId: intent.requestId, expiresAt: intent.expiresAt, payload: "[]", signature: frame.signature)
+        guard canonical.utf8.elementsEqual(intent.wire.utf8) else { throw DmCoordinatorError.unsupportedState }
+        let key = try Curve25519.Signing.PublicKey(rawRepresentation: DmRelayCodec.keyBytes(state.signingKey))
+        guard key.isValidSignature(try DmRelayCodec.keyBytes(frame.signature, count: 64),
+            for: try DmRelayCodec.requestSigningBytes(owner: intent.owner, action: frame.action,
+                requestId: intent.requestId, expiresAt: intent.expiresAt, payload: "[]")) else {
+            throw DmCoordinatorError.unsupportedState
+        }
+    }
+
     private static func validatePeer(_ peer: DmPeerContext, owner: DmOwnerContext) throws {
         try validateOwner(DmOwnerContext(userId: peer.userId, deviceId: peer.deviceId, generation: peer.generation))
         try DmContentCodec.validateIdentifier(peer.identityKeyId)
@@ -1530,6 +1711,12 @@ final class VodozemacDmCoordinator {
             guard state.authProjectOrigin != nil, let intent = state.registrationIntent,
                   acknowledgement.count == 32,
                   acknowledgement == Data(SHA256.hash(data: Data(intent.signedBundle.utf8))) else {
+                throw DmCoordinatorError.unsupportedState
+            }
+        }
+        if let intent = state.protectedAccountIntent { try validateProtectedAccountIntent(intent, state: state) }
+        if let confirmed = state.protectedAccountConfirmed {
+            guard confirmed, state.authProjectOrigin != nil, state.registrationAcknowledgement != nil else {
                 throw DmCoordinatorError.unsupportedState
             }
         }

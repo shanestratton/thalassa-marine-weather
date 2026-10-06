@@ -104,6 +104,40 @@ final class VodozemacScopedRelayClient {
         } catch { throw DmRelayTransportError.unresolved }
     }
 
+    /// Explicit one-way selection ONLY. It never registers/claims, renews a
+    /// lease, invents a retry nonce or turns its durable fact into a permission.
+    func requireProtected(snapshot: DmNativeMessageSnapshot) async throws -> DmNativeRelayAccountModeState {
+        try await accountMode(snapshot: snapshot, operation: .relayRequireProtectedWire)
+    }
+
+    /// Fresh diagnostic ONLY. A pending/confirmed local selection cannot be
+    /// cleared by legacy-permitted; failure never grants legacy fallback.
+    func refreshAccountMode(snapshot: DmNativeMessageSnapshot) async throws -> DmNativeRelayAccountModeState {
+        try await accountMode(snapshot: snapshot, operation: .relayAccountModeWire)
+    }
+
+    private func accountMode(snapshot: DmNativeMessageSnapshot,
+                             operation: DmNativeMessageOperation) async throws -> DmNativeRelayAccountModeState {
+        do {
+            try requireCurrent(snapshot)
+            guard snapshot.context.peerGeneration == nil,
+                  case .accountModeRequest(let request) = try facade.executeMessageOperation(snapshot: snapshot,
+                    operation: operation), request.context == snapshot.context else {
+                throw DmRelayTransportError.unresolved
+            }
+            try requireCurrent(snapshot)
+            let response = try await transport.dispatch(request: request.wire, credential: snapshot.credential,
+                currentContext: { self.facade.currentMessageContext(snapshot: snapshot) })
+            try requireCurrent(snapshot)
+            guard case .accountModeState(let state) = try facade.executeMessageOperation(snapshot: snapshot,
+                operation: .relayAccountModeResponse(request: request, response: response)) else {
+                throw DmRelayTransportError.unresolved
+            }
+            try requireCurrent(snapshot)
+            return state
+        } catch { throw DmRelayTransportError.unresolved }
+    }
+
     /// Dispatch ONE durable native outbox record. An already-terminal exact ID
     /// is reconciled locally without sending anything. An uncertain response
     /// remains unresolved; no automatic retry, replacement encryption or new

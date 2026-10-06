@@ -100,6 +100,24 @@
                             </p>
                         </div>
                     </div>
+                    <div class="divider"></div>
+                    <h4>Private-message policy test</h4>
+                    <p class="section-detail">
+                        After explicit device registration, require protected private messages for this isolated relay
+                        account. This is a one-way selection with no undo control. It does not verify encryption or
+                        message delivery.
+                    </p>
+                    <button id="require-protected" class="wide" type="button" disabled>
+                        Require protected private messages · one-way test
+                    </button>
+                    <button id="check-account-mode" class="wide" type="button" disabled>Check account mode</button>
+                    <p id="account-mode-facts" class="section-detail" role="status" aria-live="polite">
+                        Account mode unknown. Use an explicit check; no mode is inferred from sign-in or pairing.
+                    </p>
+                    <p class="footnote">
+                        Fresh local fixtures support this policy. The hosted pilot has not been updated for these
+                        controls; unavailable is not a successful selection. A check never removes local protection.
+                    </p>
                 </section>
             </div>
             <section class="research-limits" aria-label="Research limitations">

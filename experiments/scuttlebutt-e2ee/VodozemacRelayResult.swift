@@ -63,6 +63,21 @@ enum DmRelayResultCodec {
             blockedByPeer: boolean(fields, "blockedByPeer"))
     }
 
+    /// Original owner-only HTTPS response, not a permission or a caller result
+    /// application API. This deliberately small contract has its own 2 KiB cap.
+    static func accountMode(_ data: Data, request: DmNativeRelayAccountModeRequest) throws -> DmNativeRelayAccountModeState {
+        guard !data.isEmpty, data.count <= 2048, request.context.peerGeneration == nil,
+              uint(request.context.ownerGeneration) else { throw invalid }
+        for id in [request.context.userId, request.context.deviceId, request.requestId] { try validateId(id) }
+        let fields = try object(parse(data), keys: ["requestId", "ownerUserId", "ownerDeviceId", "mode"])
+        guard same(try string(fields, "requestId"), request.requestId),
+              same(try string(fields, "ownerUserId"), request.context.userId),
+              same(try string(fields, "ownerDeviceId"), request.context.deviceId),
+              let mode = DmNativeRelayAccountModeState(rawValue: try string(fields, "mode")),
+              request.action != .requireProtected || mode == .protectedRequired else { throw invalid }
+        return mode
+    }
+
     /// Match every immutable outbox field, including ciphertext bytes. Malformed
     /// results are unresolved failures, never converted into terminal refusals.
     static func receipt(_ data: Data, expected: DmOutboxRecord) throws -> DmRelayReceipt {
