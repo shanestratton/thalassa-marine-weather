@@ -49,4 +49,24 @@ describe('decideInitTrackingAction — voyage continuity across iOS suspend/resu
     it('does nothing when the voyage is intentionally paused', () => {
         expect(decideInitTrackingAction({ ...base, persistedIsPaused: true })).toEqual({ action: 'none' });
     });
+
+    // Build 123 review: a boat-only voyage from ashore with no location grant
+    // runs without the native lease, so "the engine is off" proves nothing
+    // about it. Ending it on every WebView reload stamped an end time on a
+    // passage still under way.
+    it('RESUMES a leaseless voyage even though the native engine is off', () => {
+        expect(decideInitTrackingAction({ ...base, nativeTrackingEnabled: false, leaselessVoyage: true })).toEqual({
+            action: 'resume',
+            voyageId: 'voyage_123',
+        });
+    });
+
+    it('a leaseless flag never resurrects a voyage with no id, a paused one, or one not tracking', () => {
+        const leaseless = { ...base, nativeTrackingEnabled: false, leaselessVoyage: true };
+        expect(decideInitTrackingAction({ ...leaseless, currentVoyageId: undefined })).toEqual({
+            action: 'mark-stopped',
+        });
+        expect(decideInitTrackingAction({ ...leaseless, persistedIsPaused: true })).toEqual({ action: 'none' });
+        expect(decideInitTrackingAction({ ...leaseless, persistedIsTracking: false })).toEqual({ action: 'none' });
+    });
 });

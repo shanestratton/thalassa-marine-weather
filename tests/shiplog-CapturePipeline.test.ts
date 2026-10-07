@@ -617,3 +617,56 @@ describe('recordedSpeedKts — what the log carries as speed (Shane 2026-09-06: 
         expect(recordedSpeedKts(Number.NaN, 6.2, false)).toBe(0);
     });
 });
+
+// ── Build 123, package VL: every entry says whose fix it carries ────────────
+describe('positionSource — every entry says whose fix it carries', () => {
+    it('a buffered track point keeps its lane tag through the replay', async () => {
+        const buffer = new GpsTrackBuffer();
+        // The Solent: the bus, then a phone stand-in after her GPS died.
+        buffer.push({ ...makeFix(50.7712, -1.3005), fixSource: 'vessel' });
+        buffer.push({ ...makeFix(50.7722, -1.3005), timestamp: Date.now() + 5_000, fixSource: 'phone' });
+        await flushBufferedTrack(makeCtx({ trackBuffer: buffer }));
+        const saved = saveEntry.mock.calls.map((call) => call[0] as Record<string, unknown>);
+        expect(saved.map((entry) => entry.positionSource)).toEqual(['vessel', 'phone']);
+    });
+
+    it('Voyage Start and End carry the tag of the fix that anchored them', async () => {
+        const ctx = makeCtx({
+            getCachedFix: () => ({ ...makeFix(38.9784, -76.4922), fixSource: 'vessel-relay' }),
+        });
+        await captureImmediate(ctx, 'test-voyage', 'Voyage End');
+        const saved = saveEntry.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+        expect(saved.positionSource).toBe('vessel-relay');
+    });
+
+    it('an old fix with no tag (written before this build) says nothing rather than guessing', async () => {
+        await captureLog(makeCtx(), { skipDedup: true, fixOverride: makeFix(-22.2796, 166.4389) });
+        const saved = saveEntry.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+        expect(saved.positionSource).toBeUndefined();
+    });
+
+    it('a Voyage End never falls back to a raw phone fix while the phone is held', async () => {
+        const ctx = makeCtx({
+            // The raw cache is this phone, refused for the track; the buffer is empty.
+            getCachedFix: () => ({ ...makeFix(-22.0146, 166.2129), fixSource: 'phone' }),
+            phoneMayStandIn: () => false,
+        });
+        const promise = captureImmediate(ctx, 'test-voyage', 'Voyage End');
+        await vi.advanceTimersByTimeAsync(6_000);
+        const entry = await promise;
+        expect(entry?.latitude).toBe(0);
+        expect(entry?.positionSource).toBeUndefined();
+    });
+
+    it('a manual entry asks the resolver with the phone hold', async () => {
+        bestPosition.mockImplementationOnce(async () => ({ ...makeFix(-20.2701, 148.7232), fixSource: 'vessel' }));
+        const ctx = makeCtx({ phoneMayStandIn: () => false });
+        const entry = await addManual(ctx, { notes: 'Reefed', voyageId: 'test-voyage' });
+        expect(bestPosition).toHaveBeenLastCalledWith(expect.anything(), false, {
+            phoneAllowed: expect.any(Function),
+        });
+        const phoneAllowed = (bestPosition.mock.calls.at(-1)?.[2] as { phoneAllowed: () => boolean }).phoneAllowed;
+        expect(phoneAllowed()).toBe(false);
+        expect(entry?.positionSource).toBe('vessel');
+    });
+});

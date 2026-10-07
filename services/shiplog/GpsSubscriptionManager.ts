@@ -43,6 +43,7 @@ import {
     type PlottingProfile,
     type SpeedTier,
 } from './helpers';
+import type { FixSource, StandInPolicy } from './trackSourcePlan';
 
 const log = createLogger('ShipLog.GpsSub');
 
@@ -154,6 +155,14 @@ const REMOTE_BOAT_MAX_AGE_MS = 60_000;
 const PHONE_ABOARD_MAX_M = 300;
 /** How recent a boat fix must be to judge the phone aboard or not. */
 const PHONE_ABOARD_REFERENCE_MAX_MS = 10 * 60_000;
+/**
+ * Past that, her fix is where she WAS: the phone must be where she could have
+ * got to since — her last speed over ground, with this much margin, for at
+ * most this long (build 123, package VL review). A boat on the hard (SOG 0)
+ * cannot have carried this phone 3 km; one making 6 kn may have.
+ */
+const STALE_REFERENCE_SPEED_MARGIN = 1.25;
+const STALE_REFERENCE_REACH_MAX_MS = 30 * 60_000;
 /** Nominal accuracy for a fix the boat's receivers produced and a lane relayed. */
 const REMOTE_FIX_ACCURACY_M = 10;
 // Five minutes is a useful offshore storage baseline, but a single 5-minute
@@ -165,8 +174,19 @@ const TURN_CAPTURE_MIN_SPEED_MS = 0.5; // ≈1 kt
 
 export type TrackSource = 'phone' | 'nmea' | 'remote';
 
-/** Why the phone's fixes are being refused for the track right now. */
-export type PhoneHoldReason = 'vessel-alive' | 'not-aboard';
+/**
+ * Why the phone's fixes are being refused for the track right now.
+ *   vessel-alive — a boat lane reports her (or has not been dead for the dwell)
+ *   not-aboard   — her recent fix is more than 300 m from this phone
+ *   no-boat-fix  — a boat is configured but never heard this session, and the
+ *                  skipper did not say "Log from this phone" (build 123)
+ *   boat-only    — this voyage is hers alone: "Wait for the boat", or a Start
+ *                  from ashore (build 123)
+ */
+export type PhoneHoldReason = 'vessel-alive' | 'not-aboard' | 'no-boat-fix' | 'boat-only';
+
+/** Legacy callers (no plan): the pre-123 aboard rule, minus the ref-null hole. */
+const DEFAULT_STAND_IN: StandInPolicy = { standIn: 'allowed', optedIn: false };
 export interface PhoneHold {
     reason: PhoneHoldReason;
     /** Which lane last reported the boat. */
@@ -234,6 +254,29 @@ export interface GpsSubscriptionOptions {
      * instead of looking broken.
      */
     onPhoneHeld?: (hold: PhoneHold | null) => void;
+    /**
+     * May this phone stand in for her (build 123, package VL)? From the plan
+     * decided at Start: 'never' for a boat-only voyage; `optedIn` when the
+     * skipper said "Log from this phone" with her GPS silent. Absent = the
+     * default aboard rule.
+     */
+    standIn?: () => StandInPolicy;
+    /**
+     * Tag for one of this phone's fixes: 'phone-accessory' when a Bad Elf /
+     * MFi receiver is confirmed feeding Core Location for THAT fix, else
+     * 'phone'. Asked per fix: an accessory can die mid-passage.
+     */
+    classifyPhoneFix?: (pos: CachedPosition) => 'phone' | 'phone-accessory';
+    /** Tag for bus fixes: 'vessel-relay' when her LAN is reached over a private network from elsewhere. */
+    classifyBusFix?: () => 'vessel' | 'vessel-relay';
+    /**
+     * gwstate's answer to "is this phone with her" when this session has no
+     * fix of hers to compare against (BoatLinkService.phoneStandsInForBoat:
+     * aboard by position against her kept fix, or — on a bus with wind but
+     * no GPS — a live direct lane on her own Wi-Fi with no VPN up). Never
+     * decided by which address answered.
+     */
+    phoneWithBoat?: () => boolean;
 }
 
 export class GpsSubscriptionManager {
@@ -274,7 +317,21 @@ export class GpsSubscriptionManager {
     private lastRemoteAcceptedAt = 0;
 
     /** The boat's latest fix from ANY lane — the reference for "is the phone aboard her". */
-    private lastBoatFix: { lat: number; lon: number; at: number; lane: 'nmea' | 'pi' | 'cloud' } | null = null;
+    private lastBoatFix: {
+        lat: number;
+        lon: number;
+        at: number;
+        lane: 'nmea' | 'pi' | 'cloud';
+        /** Her speed over ground with that fix (m/s), when the lane said. */
+        sogMs?: number | null;
+    } | null = null;
+    /**
+     * The phone has been judged aboard her since her GPS last went quiet
+     * (build 123 review): it passed the aboard test, or the skipper opted in.
+     * Only such a phone keeps the track once her last fix is too old to test
+     * it against. Cleared the moment any lane hears her again.
+     */
+    private phoneAboardThisDeadStretch = false;
     private remotePollTimer: ReturnType<typeof setInterval> | null = null;
     private remotePollInFlight = false;
     /** A Pi is paired on this phone: there IS a vessel GPS to wait for, gateway or not. */
@@ -290,6 +347,13 @@ export class GpsSubscriptionManager {
     private lastBufferedFix: CachedPosition | null = null;
     private lastBufferedZone: LoggingZone | null = null;
     private activeOptions: GpsSubscriptionOptions | null = null;
+    /**
+     * The voyage's stand-in rule, kept past stop() (build 123 review): End
+     * Voyage stops the subscriptions before it writes the Voyage End entry,
+     * and that entry must be judged by the voyage's own rule — an opted-in
+     * phone, or gwstate's "with her" — not by a default. Replaced on start().
+     */
+    private standInRule: Pick<GpsSubscriptionOptions, 'standIn' | 'phoneWithBoat'> | null = null;
 
     /**
      * First-fix consistency gate (phone path). The Layer-0 timestamp
@@ -334,17 +398,20 @@ export class GpsSubscriptionManager {
         this.lastRemoteAcceptedAt = 0;
         this.lastBoatFix = null;
         this.phoneHold = null;
+        this.phoneAboardThisDeadStretch = false;
         this.piPaired = false;
         this.lastBufferedAt = 0;
         this.lastBufferedFix = null;
         this.lastBufferedZone = null;
         this.activeOptions = opts;
+        this.standInRule = { standIn: opts.standIn, phoneWithBoat: opts.phoneWithBoat };
         this.pendingFirstFix = null;
         this.firstFixNonMonotonicCount = 0;
         this.hasBufferedThisSession = false;
         this.trackOpenedNotified = false;
 
-        const onAnyFix = (pos: CachedPosition) => this.handleIncomingFix(pos, opts);
+        const onAnyFix = (pos: CachedPosition) =>
+            this.handleIncomingFix({ ...pos, fixSource: opts.classifyPhoneFix?.(pos) ?? 'phone' }, opts);
 
         // ── 1. Phone GPS — native or web ──
         if (opts.isNative) {
@@ -388,12 +455,19 @@ export class GpsSubscriptionManager {
                 timestamp: nmeaPos.timestamp,
                 receivedAt: Date.now(),
                 altitude: null,
+                fixSource: opts.classifyBusFix?.() ?? 'vessel',
             } as CachedPosition;
 
             // Always publish for the UI (precision tracker + lastBgLocation).
             opts.onFix(cached);
             GpsPrecision.feed(nmeaPos.accuracy);
-            this.lastBoatFix = { lat: nmeaPos.latitude, lon: nmeaPos.longitude, at: nmeaPos.timestamp, lane: 'nmea' };
+            this.lastBoatFix = {
+                lat: nmeaPos.latitude,
+                lon: nmeaPos.longitude,
+                at: nmeaPos.timestamp,
+                lane: 'nmea',
+                sogMs: Number.isFinite(cached.speed) ? cached.speed : null,
+            };
 
             // Apply the same fix-acceptance gate as phone GPS.
             // (Previously NMEA bypassed all filters — historical biggest
@@ -463,7 +537,11 @@ export class GpsSubscriptionManager {
         }
     }
 
-    /** Tear down every subscription and reset internal state. */
+    /**
+     * Tear down every subscription. The voyage's stand-in rule and what the
+     * manager last knew of her stay answerable (phoneMayStandIn) until the
+     * next start(): End Voyage writes its last entry after this.
+     */
     stop(): void {
         for (const unsub of this.unsubscribers) {
             try {
@@ -646,7 +724,13 @@ export class GpsSubscriptionManager {
             const fix = (await piFix()) ?? (await cloudFix(now));
             if (!fix || now - fix.timestamp > REMOTE_BOAT_MAX_AGE_MS) return;
             const lane: 'pi' | 'cloud' = fix.rung === 'cloud' ? 'cloud' : 'pi';
-            this.lastBoatFix = { lat: fix.latitude, lon: fix.longitude, at: fix.timestamp, lane };
+            this.lastBoatFix = {
+                lat: fix.latitude,
+                lon: fix.longitude,
+                at: fix.timestamp,
+                lane,
+                sogMs: fix.sogKts != null && Number.isFinite(fix.sogKts) ? fix.sogKts / MS_TO_KTS : null,
+            };
             const cached: CachedPosition = {
                 latitude: fix.latitude,
                 longitude: fix.longitude,
@@ -656,6 +740,7 @@ export class GpsSubscriptionManager {
                 speed: fix.sogKts != null ? fix.sogKts / MS_TO_KTS : 0,
                 timestamp: fix.timestamp,
                 receivedAt: now,
+                fixSource: 'vessel-relay' satisfies FixSource,
             };
             // Publish for the UI like any receiver, then offer it to the track
             // through the same gate as the bus.
@@ -702,8 +787,10 @@ export class GpsSubscriptionManager {
         if (!changed) return;
         if (next) {
             log.warn(
-                `GPS phone held (${next.reason}): the boat via ${next.boatLane} ${Math.round(next.boatFixAgeMs / 1000)} s ago` +
-                    (next.distanceM !== null ? `, phone ${Math.round(next.distanceM)} m from her` : ''),
+                ref
+                    ? `GPS phone held (${next.reason}): the boat via ${next.boatLane} ${Math.round(next.boatFixAgeMs / 1000)} s ago` +
+                          (next.distanceM !== null ? `, phone ${Math.round(next.distanceM)} m from her` : '')
+                    : `GPS phone held (${next.reason}): the boat has not been heard this session`,
             );
         }
         try {
@@ -739,12 +826,28 @@ export class GpsSubscriptionManager {
 
         // From here down, `source` is the phone.
         //
+        // THE SKIPPER'S CHOICE FIRST (build 123, package VL). A boat-only
+        // voyage — "Wait for the boat", or a Start from ashore — never takes
+        // this phone, not even after the dwell: from ashore its position is
+        // irrelevant to her track, and her Pi fills any gap.
+        const policy = opts.standIn?.() ?? DEFAULT_STAND_IN;
+        const boatConfigured = this.boatConfigured();
+        if (boatConfigured && policy.standIn === 'never') {
+            this.holdPhone('boat-only', pos);
+            return false;
+        }
+
         // ASYMMETRY IS THE POINT. The old rule was the same in both
         // directions: after a 15-second silence, whoever spoke next took the
         // track. That is right for two receivers on one boat and wrong for the
         // only receiver that can walk off it — a gateway hiccup was all it took
         // to hand the voyage to a phone in a car park.
-        if (!this.isVesselGpsDead()) {
+        //
+        // One exception: the skipper said "Log from this phone" because her
+        // GPS was silent at Start. Until she is heard there is no dwell to
+        // serve — the question was the dwell.
+        const optedInUnheard = boatConfigured && policy.optedIn && this.lastBoatFix === null;
+        if (!this.isVesselGpsDead(Date.now(), optedInUnheard)) {
             this.holdPhone('vessel-alive', pos);
             return false;
         }
@@ -754,14 +857,46 @@ export class GpsSubscriptionManager {
         // left her — and a phone that left cannot stand in for her (Shane
         // 2026-09-07: the car in the log while she sat on the hard).
         const ref = this.lastBoatFix;
-        if (ref && Date.now() - ref.at <= PHONE_ABOARD_REFERENCE_MAX_MS) {
+        const withBoat = () => opts.phoneWithBoat?.() ?? false;
+        if (ref) {
+            const refAgeMs = Date.now() - ref.at;
             const apartM = haversineMeters(ref.lat, ref.lon, pos.latitude, pos.longitude);
-            if (apartM > PHONE_ABOARD_MAX_M) {
-                this.holdPhone('not-aboard', pos, apartM);
-                return false;
+            if (refAgeMs <= PHONE_ABOARD_REFERENCE_MAX_MS) {
+                if (apartM > PHONE_ABOARD_MAX_M) {
+                    this.holdPhone('not-aboard', pos, apartM);
+                    return false;
+                }
+            } else if (!this.phoneAboardThisDeadStretch && !policy.optedIn && !withBoat()) {
+                // HER FIX IS TOO OLD TO VOUCH FOR THE PHONE (build 123 review).
+                // It used to be skipped here, so ten minutes after the Pi went
+                // quiet a phone anywhere took the log: the boat on the hard at
+                // Scarborough, the phone at Newport. Now a phone that was not
+                // already judged aboard in this silence must be where she could
+                // have got to since — her last speed, with a margin.
+                const reachM =
+                    PHONE_ABOARD_MAX_M +
+                    Math.max(0, ref.sogMs ?? 0) *
+                        (Math.min(refAgeMs, STALE_REFERENCE_REACH_MAX_MS) / 1000) *
+                        STALE_REFERENCE_SPEED_MARGIN;
+                if (apartM > reachM) {
+                    this.holdPhone('not-aboard', pos, apartM);
+                    return false;
+                }
             }
+        } else if (boatConfigured && !policy.optedIn && !withBoat()) {
+            // THE REF-NULL HOLE, closed. A boat configured but never heard
+            // this session left nothing to test the phone against, so the
+            // aboard test used to be skipped entirely: ashore, no VPN, the Pi
+            // offline, slide Start — and three minutes later the phone owned
+            // the log (the car track again, voyagelog.md whyWrong 3c). With
+            // no fix of hers there is no proof this phone is with her; only
+            // gwstate's WHERE (by position, or her own Wi-Fi on a bus with no
+            // GPS) or the skipper's own "Log from this phone" says so.
+            this.holdPhone('no-boat-fix', pos);
+            return false;
         }
         this.holdPhone(null);
+        this.phoneAboardThisDeadStretch = true;
 
         // The vessel's GPS is dead and the phone is aboard her, or she was
         // never seen. The phone may open the track, or take it over — but a
@@ -791,7 +926,7 @@ export class GpsSubscriptionManager {
      * never be made to serve out a dwell before it can log its own trip. Every
      * punter without a boat lives in that branch.
      */
-    private isVesselGpsDead(now = Date.now()): boolean {
+    private isVesselGpsDead(now = Date.now(), skipDwell = false): boolean {
         // No gateway configured AND no Pi paired: no vessel GPS to wait for.
         if (!NmeaListenerService.getSavedConfig() && !this.piPaired) return true;
 
@@ -804,10 +939,36 @@ export class GpsSubscriptionManager {
             now - this.lastBoatFix.at <= REMOTE_BOAT_MAX_AGE_MS;
         if (busAlive || remoteAlive) {
             this.vesselGpsDeadSince = null;
+            this.phoneAboardThisDeadStretch = false;
             return false;
         }
         if (this.vesselGpsDeadSince === null) this.vesselGpsDeadSince = now;
-        return now - this.vesselGpsDeadSince >= VESSEL_GPS_DEAD_DWELL_MS;
+        return skipDwell || now - this.vesselGpsDeadSince >= VESSEL_GPS_DEAD_DWELL_MS;
+    }
+
+    /** A gateway saved or a Pi paired: there is a vessel GPS to wait for. */
+    private boatConfigured(): boolean {
+        return !!NmeaListenerService.getSavedConfig() || this.piPaired;
+    }
+
+    /**
+     * May an ENTRY (Voyage Start/End, a manual note) take this phone's
+     * position right now (build 123, package VL)? The same rule as the
+     * track: never for a boat-only voyage, never while she is alive or the
+     * phone is held, and never for a boat this session has not heard unless
+     * the skipper opted in. A phone with no boat to wait for always may.
+     */
+    phoneMayStandIn(now = Date.now()): boolean {
+        if (!this.boatConfigured()) return true;
+        // The voyage's own rule, also after stop(): the Voyage End entry is
+        // written once the subscriptions are down (build 123 review).
+        const rule = this.activeOptions ?? this.standInRule;
+        const policy = rule?.standIn?.() ?? DEFAULT_STAND_IN;
+        if (policy.standIn === 'never') return false;
+        if (this.phoneHold) return false;
+        const unheard = this.lastBoatFix === null;
+        if (unheard && !policy.optedIn && !(rule?.phoneWithBoat?.() ?? false)) return false;
+        return this.isVesselGpsDead(now, unheard && policy.optedIn);
     }
 
     /** Record an accepted-source handover only after the common GPS gate passes. */

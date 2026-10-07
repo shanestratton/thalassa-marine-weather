@@ -131,6 +131,28 @@ describe('NmeaGpsProvider write gate', () => {
         expect(NmeaGpsProvider.getPosition()?.timestamp).toBe(NOW - 9_000);
     });
 
+    it('never fans a cloud-row ingest out to position listeners as if it were the bus', () => {
+        // Build 123, package VL. The Ship's Log subscribes here and tags what
+        // it hears 'nmea' — the bus. The Pi's cloud row is the boat seen from
+        // a distance, stamped with the phone's read time: fanned out here it
+        // entered the track as a bus point, interleaved with the 'remote'
+        // poll's own points for the same row (voyagelog.md, whyWrong 3b).
+        const heard: number[] = [];
+        const unsubscribe = NmeaGpsProvider.onPosition((pos) => heard.push(pos.timestamp));
+        try {
+            push({ ...snapshot(1_000), connectionStatus: 'remote', remote: { via: 'cloud' } });
+            expect(heard).toHaveLength(0);
+            // The Pi on her LAN is the boat's own receiver at bus latency: it still speaks.
+            push({ ...snapshot(1_000), connectionStatus: 'remote', remote: { via: 'lan' } });
+            expect(heard).toHaveLength(1);
+            // And the gateway socket, of course.
+            push(snapshot(500));
+            expect(heard).toHaveLength(2);
+        } finally {
+            unsubscribe();
+        }
+    });
+
     it('ignores a snapshot missing either coordinate', () => {
         const s = snapshot(1_000);
         push({ ...s, longitude: { ...s.longitude, value: null as unknown as number } });

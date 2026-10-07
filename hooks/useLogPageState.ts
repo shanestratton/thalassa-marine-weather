@@ -17,6 +17,7 @@ const log = createLogger('useLogPageState');
 
 import type { ShipLogEntry } from '../types';
 import { ShipLogService } from '../services/ShipLogService';
+import type { TrackSourcePlan } from '../services/shiplog/trackSourcePlan';
 import { activeVoyageIdFromTrackingState, loadTrackingState } from '../services/shiplog/TrackingStateStore';
 import { voyageSummariesSessionReadable } from '../services/shiplog/VoyageSummary';
 import { withTimeout } from '../utils/deadline';
@@ -45,6 +46,17 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../services/authIdentityScope';
+
+/** What the Log page hands a verified Start: its source plan (build 123, package VL). */
+export interface StartTrackingOptions {
+    sourcePlan?: TrackSourcePlan;
+    /**
+     * The page's own handler for a start that failed: true when it said so
+     * itself (a location refusal goes in its start card, never a toast —
+     * build 123 review). False or absent: the toast, as before.
+     */
+    onFailed?: (error: unknown) => boolean;
+}
 
 // ─── STATE SHAPE ──────────────────────────────────────────────────────────────
 
@@ -1079,70 +1091,97 @@ export function useLogPageState(onTrackingStarted?: (voyageId: string) => void) 
         await loadData();
     }, [identityScope, loadData, onTrackingStarted]);
 
-    const handleStartTracking = useCallback(async () => {
-        const actionScope = identityScope;
-        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        // Offer to continue the most recent REAL voyage (device-tracked, not
-        // suggested/imported). Sourced from summaries (newest-first) so it
-        // works without the full history resident in `entries`.
-        const recentVoyageId = state.summaries.find((s) => !s.isPlannedRoute && !s.isImported)?.voyageId;
-        if (recentVoyageId) {
-            dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
-            return;
-        }
-        // Instant UI response — dispatch first, service call is fire-and-forget.
-        // startingRef pins the optimistic state through the native init.
-        startingRef.current = true;
-        dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
-        ShipLogService.startTracking()
-            .then(finishTrackingStart)
-            .then(() => {
-                if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
-            })
-            .catch((error: unknown) => {
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                startingRef.current = false;
-                dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-                toast.error(getErrorMessage(error) || 'Failed to start tracking');
-            });
-    }, [dispatch, identityScope, state.summaries, finishTrackingStart, toast]);
+    /**
+     * Start with the Log page's source plan (build 123, package VL), or —
+     * with none — let the service resolve one; without a plan the call is
+     * exactly the one it always was.
+     */
+    const startWithPlan = useCallback(
+        (options: StartTrackingOptions | undefined, continueVoyageId?: string) =>
+            options?.sourcePlan
+                ? ShipLogService.startTracking(false, continueVoyageId, undefined, false, {
+                      sourcePlan: options.sourcePlan,
+                  })
+                : ShipLogService.startTracking(false, continueVoyageId),
+        [],
+    );
 
-    const startTrackingWithNewVoyage = useCallback(async () => {
-        const actionScope = identityScope;
-        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        startingRef.current = true;
-        dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
-        ShipLogService.startTracking()
-            .then(finishTrackingStart)
-            .then(() => {
-                if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
-            })
-            .catch((error: unknown) => {
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                startingRef.current = false;
-                dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-                toast.error(getErrorMessage(error) || 'Failed to start tracking');
-            });
-    }, [dispatch, identityScope, finishTrackingStart, toast]);
+    const handleStartTracking = useCallback(
+        async (options?: StartTrackingOptions) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            // Offer to continue the most recent REAL voyage (device-tracked, not
+            // suggested/imported). Sourced from summaries (newest-first) so it
+            // works without the full history resident in `entries`.
+            const recentVoyageId = state.summaries.find((s) => !s.isPlannedRoute && !s.isImported)?.voyageId;
+            if (recentVoyageId) {
+                dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
+                return;
+            }
+            // Instant UI response — dispatch first, service call is fire-and-forget.
+            // startingRef pins the optimistic state through the native init.
+            startingRef.current = true;
+            dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
+            startWithPlan(options)
+                .then(finishTrackingStart)
+                .then(() => {
+                    if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
+                })
+                .catch((error: unknown) => {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    startingRef.current = false;
+                    dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+                    if (options?.onFailed?.(error)) return;
+                    toast.error(getErrorMessage(error) || 'Failed to start tracking');
+                });
+        },
+        [dispatch, identityScope, state.summaries, finishTrackingStart, startWithPlan, toast],
+    );
 
-    const continueLastVoyage = useCallback(async () => {
-        const actionScope = identityScope;
-        if (!isAuthIdentityScopeCurrent(actionScope)) return;
-        startingRef.current = true;
-        dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
-        dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
-        ShipLogService.startTracking(false, state.lastVoyageId || undefined)
-            .then(finishTrackingStart)
-            .then(() => {
-                if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
-            })
-            .catch((error: unknown) => {
-                if (!isAuthIdentityScopeCurrent(actionScope)) return;
-                startingRef.current = false;
-                dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
-                toast.error(getErrorMessage(error) || 'Failed to continue tracking');
-            });
-    }, [dispatch, identityScope, state.lastVoyageId, finishTrackingStart, toast]);
+    const startTrackingWithNewVoyage = useCallback(
+        async (options?: StartTrackingOptions) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            startingRef.current = true;
+            dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
+            startWithPlan(options)
+                .then(finishTrackingStart)
+                .then(() => {
+                    if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
+                })
+                .catch((error: unknown) => {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    startingRef.current = false;
+                    dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+                    if (options?.onFailed?.(error)) return;
+                    toast.error(getErrorMessage(error) || 'Failed to start tracking');
+                });
+        },
+        [dispatch, identityScope, finishTrackingStart, startWithPlan, toast],
+    );
+
+    const continueLastVoyage = useCallback(
+        async (options?: StartTrackingOptions) => {
+            const actionScope = identityScope;
+            if (!isAuthIdentityScopeCurrent(actionScope)) return;
+            startingRef.current = true;
+            dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
+            dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
+            startWithPlan(options, state.lastVoyageId || undefined)
+                .then(finishTrackingStart)
+                .then(() => {
+                    if (isAuthIdentityScopeCurrent(actionScope)) startingRef.current = false;
+                })
+                .catch((error: unknown) => {
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    startingRef.current = false;
+                    dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
+                    if (options?.onFailed?.(error)) return;
+                    toast.error(getErrorMessage(error) || 'Failed to continue tracking');
+                });
+        },
+        [dispatch, identityScope, state.lastVoyageId, finishTrackingStart, startWithPlan, toast],
+    );
 
     const handlePauseTracking = useCallback(async () => {
         const actionScope = identityScope;

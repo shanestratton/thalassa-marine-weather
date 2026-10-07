@@ -31,6 +31,7 @@ import {
 } from '@transistorsoft/background-geolocation-types';
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
+import type { FixSource, KeepAlive } from './shiplog/trackSourcePlan';
 
 const log = createLogger('BgGeo');
 
@@ -51,6 +52,50 @@ export interface CachedPosition {
     speed: number;
     timestamp: number; // epoch-ms
     receivedAt: number; // epoch-ms — when WE received it (for staleness checks)
+    /**
+     * Which receiver produced it, stamped by the Ship's Log at each lane
+     * (services/shiplog/trackSourcePlan.ts FixSource). Absent on fixes the
+     * engine emits itself and on anything captured before build 123.
+     */
+    fixSource?: FixSource;
+}
+
+/** What a voyage's location preflight settled: take the keep-alive lease or not, and one honest advisory line. */
+export interface VoyageLocationResult {
+    lease: boolean;
+    advisory: string | null;
+}
+
+/** The one advisory line for a phone-only log at While Using (cautions, not blocks — 2026-08-26). */
+export const PHONE_LOG_ALWAYS_ADVISORY =
+    "Logging from this phone's GPS. To keep recording if iOS closes Thalassa, set Location to Always: Settings › Privacy & Security › Location Services › Thalassa › Always.";
+
+/** A boat-only voyage from ashore with no location grant: it records only while Thalassa is open. */
+export const LEASELESS_VOYAGE_ADVISORY =
+    'Recording only while Thalassa is open. To keep logging with the screen locked, allow Location for Thalassa — While Using is enough.';
+
+/** Shared wording: castOffHandoff waits for the foreground on exactly this phrase. */
+export const VOYAGE_FOREGROUND_DEFERRAL =
+    'Voyage logging will start when Thalassa is open: iOS only starts While Using location in the foreground.';
+
+/**
+ * Why a voyage's location preflight refused (build 123 review): the Log page
+ * shows these in its own start card, never as a toast. `kind` says which
+ * card: a permission to grant, Location Services to switch on, or a start
+ * that waits for Thalassa to be in front.
+ */
+export class VoyageLocationError extends Error {
+    readonly kind: 'permission' | 'services-off' | 'deferred';
+    constructor(message: string, kind: 'permission' | 'services-off' | 'deferred') {
+        super(message);
+        this.name = 'VoyageLocationError';
+        this.kind = kind;
+    }
+}
+
+/** A VoyageLocationError, by name (module mocks and bundling may split the class). */
+export function isVoyageLocationError(error: unknown): error is VoyageLocationError {
+    return error instanceof Error && error.name === 'VoyageLocationError';
 }
 
 /**
@@ -189,6 +234,153 @@ class BgGeoManagerClass {
             throw new Error('Background location returned an unverifiable native engine state.');
         }
         return state.enabled;
+    }
+
+    /**
+     * Voyage logging asks iOS only for what its track source needs (build
+     * 123, package VL; Shane 2026-10-07: "we need it to use the vessel gps if
+     * and when available").
+     *
+     * With allowsBackgroundLocationUpdates and updates started in the
+     * foreground, Core Location keeps the app running under When In Use,
+     * blue indicator showing (Apple, "Handling location updates in the
+     * background"; Transistorsoft's FAQ says the same of its SDK, with
+     * changePace(true) in the foreground, which requestStart does). What
+     * Always adds is a restart from the background and a relaunch after iOS
+     * ends the app. So:
+     *
+     *   none-needed     a Start from ashore: ask for nothing; any existing
+     *                   grant takes the lease silently as a keep-alive; no
+     *                   grant records only while open, and says so.
+     *   when-in-use     this phone is the only thing reading her bus: While
+     *                   Using is required, and enough. Never asks for Always.
+     *   always-advised  the phone is the receiver: Always is asked for once
+     *                   (iOS shows its own upgrade sheet at most once) and
+     *                   While Using is accepted with one honest advisory line.
+     *   always-required delegates to the Anchor Watch gate below.
+     *
+     * A start from the background (the cast-off retry ladder, a launch iOS
+     * made on its own) cannot start While Using location: without Always it
+     * defers to the foreground — unless the engine is already running, as
+     * after a WebView reload, when there is nothing to start. That holds for
+     * none-needed too (build 123 review): a lease it could have had is never
+     * silently dropped, because nothing re-takes it later. The one exception
+     * is `resumeLeaseless`: a voyage that was already recording without a
+     * lease carries on as it was.
+     *
+     * Anchor Watch is untouched: it needs geofences, which need Always.
+     */
+    async requireVoyageBackgroundLocation(
+        mode: KeepAlive,
+        options: { background?: boolean; resumeLeaseless?: boolean } = {},
+    ): Promise<VoyageLocationResult> {
+        if (Capacitor.getPlatform() !== 'ios') return { lease: true, advisory: null };
+        if (mode === 'always-required') {
+            await this.requireAlwaysLocationAuthorization('voyage-log');
+            return { lease: true, advisory: null };
+        }
+        await this.ensureReady();
+        const current = await BackgroundGeolocation.getProviderState();
+        const granted =
+            current.enabled &&
+            (current.status === AuthorizationStatus.Always || current.status === AuthorizationStatus.WhenInUse);
+        const deferToForeground = async (status: number): Promise<boolean> =>
+            options.background === true &&
+            status !== AuthorizationStatus.Always &&
+            !(await this.readNativeTrackingEnabled());
+
+        if (mode === 'none-needed') {
+            // Ask for nothing. No grant: record while open, and say so in the
+            // page's card. A grant: take the lease — from the foreground, or
+            // wait for it rather than run a voyage iOS will suspend at the
+            // first screen lock with nothing to take the lease later.
+            if (!granted) return { lease: false, advisory: LEASELESS_VOYAGE_ADVISORY };
+            if (await deferToForeground(current.status)) {
+                if (options.resumeLeaseless) return { lease: false, advisory: LEASELESS_VOYAGE_ADVISORY };
+                throw new VoyageLocationError(VOYAGE_FOREGROUND_DEFERRAL, 'deferred');
+            }
+            return { lease: true, advisory: null };
+        }
+
+        const phone = mode === 'always-advised';
+        if (!current.enabled) {
+            throw new VoyageLocationError(
+                phone
+                    ? 'Location Services are off. Turn them on for Thalassa to log from this phone.'
+                    : "Location Services are off. To keep logging your boat's GPS with the screen locked, Thalassa needs Location — While Using is enough.",
+                'services-off',
+            );
+        }
+        if (current.status === AuthorizationStatus.Denied || current.status === AuthorizationStatus.Restricted) {
+            throw new VoyageLocationError(
+                phone
+                    ? 'Logging from this phone needs Location access. Open iOS Settings › Privacy & Security › Location Services › Thalassa.'
+                    : "To keep logging your boat's GPS with the screen locked, Thalassa needs Location — While Using is enough. The track comes from your boat; this phone's position is only a backup. Open iOS Settings › Privacy & Security › Location Services › Thalassa.",
+                'permission',
+            );
+        }
+
+        // From the background iOS can neither start While Using location nor
+        // show a permission sheet: wait for the foreground before asking.
+        if (await deferToForeground(current.status)) {
+            throw new VoyageLocationError(VOYAGE_FOREGROUND_DEFERRAL, 'deferred');
+        }
+
+        let status = current.status;
+        // Never prompt from the background (a reload re-arming a running
+        // engine): iOS would not show the sheet, and the grant in hand is enough.
+        const ask =
+            options.background !== true &&
+            (phone ? status !== AuthorizationStatus.Always : status === AuthorizationStatus.NotDetermined);
+        if (ask) {
+            if (phone) {
+                await BackgroundGeolocation.setConfig({ geolocation: { locationAuthorizationRequest: 'Always' } });
+            }
+            try {
+                try {
+                    await BackgroundGeolocation.requestPermission();
+                } catch (refused) {
+                    log.warn('voyage location request was not granted:', refused);
+                }
+                status = (await BackgroundGeolocation.getProviderState()).status;
+            } finally {
+                // Never leave the shared manager asking for Always: a later
+                // dashboard warm-up must not re-raise the prompt.
+                if (phone) {
+                    await BackgroundGeolocation.setConfig({
+                        geolocation: { locationAuthorizationRequest: 'WhenInUse' },
+                    });
+                }
+            }
+        }
+
+        if (status !== AuthorizationStatus.Always && status !== AuthorizationStatus.WhenInUse) {
+            throw new VoyageLocationError(
+                phone
+                    ? 'Logging from this phone needs Location access. Open iOS Settings › Privacy & Security › Location Services › Thalassa.'
+                    : "To keep logging your boat's GPS with the screen locked, Thalassa needs Location — While Using is enough. Open iOS Settings › Privacy & Security › Location Services › Thalassa.",
+                'permission',
+            );
+        }
+        return {
+            lease: true,
+            advisory: phone && status !== AuthorizationStatus.Always ? PHONE_LOG_ALWAYS_ADVISORY : null,
+        };
+    }
+
+    /**
+     * Is Location set to Always for Thalassa (iOS)? A read-only provider
+     * query, never a prompt: the phone notice's Always line is shown only
+     * when it would tell the skipper something (build 123 review).
+     */
+    async hasAlwaysLocation(): Promise<boolean> {
+        if (Capacitor.getPlatform() !== 'ios') return false;
+        try {
+            const state = await BackgroundGeolocation.getProviderState();
+            return state.enabled && state.status === AuthorizationStatus.Always;
+        } catch {
+            return false;
+        }
     }
 
     /**

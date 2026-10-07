@@ -53,6 +53,19 @@ const mocks = vi.hoisted(() => {
             active: true,
         })),
         requireAlwaysLocation: vi.fn(async () => undefined),
+        requireVoyageLocation: vi.fn<
+            (mode: string, opts?: { background?: boolean }) => Promise<{ lease: boolean; advisory: string | null }>
+        >(async () => ({ lease: true, advisory: null })),
+        resolvePlan: vi.fn(async () => ({
+            source: 'phone',
+            lane: 'none',
+            where: 'unknown',
+            keepAlive: 'always-advised',
+            showPhoneNotice: true,
+            standIn: 'allowed',
+            standInOptIn: false,
+            phoneAccessory: false,
+        })),
         nativeTrackingEnabled: vi.fn(async () => false),
         strictNativeTrackingEnabled: vi.fn(async () => false),
         setSamplingMode: vi.fn(async () => undefined),
@@ -152,6 +165,7 @@ vi.mock('../services/BgGeoManager', () => ({
     BgGeoManager: {
         ensureReady: vi.fn(async () => undefined),
         requireAlwaysLocationAuthorization: mocks.requireAlwaysLocation,
+        requireVoyageBackgroundLocation: mocks.requireVoyageLocation,
         requestStart: mocks.nativeStart,
         requestStop: mocks.nativeStop,
         getLeaseState: mocks.getLeaseState,
@@ -188,6 +202,10 @@ vi.mock('../services/shiplog/AdaptiveScheduler', () => ({
 
 vi.mock('../services/shiplog/GpsSubscriptionManager', () => ({
     GpsSubscriptionManager: class {
+        private rule: {
+            standIn?: () => { standIn: string; optedIn: boolean };
+            phoneWithBoat?: () => boolean;
+        } | null = null;
         start(options: typeof mocks.state.gpsOptions) {
             if (mocks.state.gpsStartError) {
                 const error = mocks.state.gpsStartError;
@@ -195,12 +213,22 @@ vi.mock('../services/shiplog/GpsSubscriptionManager', () => ({
                 throw error;
             }
             mocks.state.gpsOptions = options;
+            this.rule = options as unknown as typeof this.rule;
         }
         stop() {
             mocks.gpsStop();
         }
         bufferFinalPoint() {
             return false;
+        }
+        // The real manager's answer for a boat configured but never heard,
+        // from the voyage's own rule — which it keeps past stop() (its own
+        // tests pin that: ShipLogFollowsTheBoat). Here it proves the rule
+        // ShipLogService hands it is still the voyage's when End is written.
+        phoneMayStandIn() {
+            const policy = this.rule?.standIn?.() ?? { standIn: 'allowed', optedIn: false };
+            if (policy.standIn === 'never') return false;
+            return policy.optedIn || (this.rule?.phoneWithBoat?.() ?? false);
         }
     },
 }));
@@ -309,6 +337,12 @@ vi.mock('../services/shiplog/VoyageSummary', async (importOriginal) => {
         getVoyageEntries: mocks.completeEntries,
     };
 });
+
+// The plan gatherer reads live link state; these tests hand ShipLogService
+// the plan instead (the plan itself has tests/TrackSourcePlan.test.ts).
+vi.mock('../services/shiplog/trackSourceInputs', () => ({
+    resolveTrackSourcePlan: mocks.resolvePlan,
+}));
 
 vi.mock('../services/shiplog/PassagePlanSave', () => ({
     savePassagePlanToLogbook: vi.fn(async () => null),
@@ -932,20 +966,278 @@ describe('ShipLogService tracking owner fence', () => {
         expect(mocks.nativeStop).toHaveBeenCalledTimes(nativeStopsBefore + 2);
     });
 
-    it('cannot claim background voyage logging while iOS location is only When In Use', async () => {
+    it('a refusal from the voyage location preflight still fails closed before the lease', async () => {
         if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
         const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
-        mocks.requireAlwaysLocation.mockRejectedValueOnce(
-            new Error('Voyage logging needs Always Location access for locked-screen operation.'),
+        mocks.requireVoyageLocation.mockRejectedValueOnce(
+            new Error('Logging from this phone needs Location access. Open iOS Settings.'),
         );
 
-        await expect(ShipLogService.startTracking(false)).rejects.toThrow(
-            'Voyage logging needs Always Location access',
-        );
+        await expect(ShipLogService.startTracking(false)).rejects.toThrow('Logging from this phone needs Location');
 
-        expect(mocks.requireAlwaysLocation).toHaveBeenCalledWith('voyage-log');
+        expect(mocks.requireVoyageLocation).toHaveBeenCalledWith('always-advised', expect.anything());
+        expect(mocks.requireAlwaysLocation).not.toHaveBeenCalledWith('voyage-log');
         expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore);
         expect(ShipLogService.getTrackingStatus().isTracking).toBe(false);
+    });
+
+    describe('voyage logging uses the vessel GPS (build 123, package VL)', () => {
+        const vesselPlan = (over: Record<string, unknown> = {}) => ({
+            source: 'vessel' as const,
+            lane: 'bus' as const,
+            where: 'aboard' as const,
+            keepAlive: 'when-in-use' as const,
+            showPhoneNotice: false,
+            standIn: 'allowed' as const,
+            standInOptIn: false,
+            phoneAccessory: false,
+            ...over,
+        });
+
+        it('(a) her GPS feeds the log and iOS says While Using: starts, takes the keep-alive lease, never asks for Always', async () => {
+            if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+            mocks.requireAlwaysLocation.mockClear();
+            mocks.requireVoyageLocation.mockClear();
+            const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+
+            await ShipLogService.startTracking(false, undefined, undefined, false, { sourcePlan: vesselPlan() });
+
+            expect(ShipLogService.getTrackingStatus().isTracking).toBe(true);
+            expect(mocks.requireVoyageLocation).toHaveBeenCalledWith('when-in-use', expect.anything());
+            expect(mocks.requireAlwaysLocation).not.toHaveBeenCalled();
+            expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore + 1);
+            expect(ShipLogService.getTrackSourcePlan()).toMatchObject({ source: 'vessel', standIn: 'allowed' });
+            await ShipLogService.stopTracking();
+        });
+
+        it('(b) a boat-only Start from ashore with location denied: still starts, no lease, nothing asked, and says it records only while open', async () => {
+            if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+            mocks.requireVoyageLocation.mockClear();
+            const leaseless =
+                'Recording only while Thalassa is open. To keep logging with the screen locked, allow Location for Thalassa — While Using is enough.';
+            mocks.requireVoyageLocation.mockResolvedValueOnce({ lease: false, advisory: leaseless });
+            const nativeStartsBefore = mocks.nativeStart.mock.calls.length;
+
+            await ShipLogService.startTracking(false, undefined, undefined, false, {
+                sourcePlan: vesselPlan({ keepAlive: 'none-needed', where: 'ashore', standIn: 'never', lane: 'cloud' }),
+            });
+
+            expect(ShipLogService.getTrackingStatus()).toMatchObject({ isTracking: true, keepAliveLease: false });
+            expect(mocks.requireVoyageLocation).toHaveBeenCalledWith('none-needed', expect.anything());
+            expect(mocks.nativeStart).toHaveBeenCalledTimes(nativeStartsBefore);
+            expect(mocks.requireAlwaysLocation).not.toHaveBeenCalled();
+            expect(ShipLogService.getLocationAdvisory()).toBe(leaseless);
+            await ShipLogService.stopTracking();
+        });
+
+        it('a leaseless voyage survives a WebView reload: resumed in place, not ended for want of a native engine it never had', async () => {
+            const userId = 'ship-owner-leaseless-reload';
+            const ashorePlan = vesselPlan({
+                keepAlive: 'none-needed',
+                where: 'ashore',
+                standIn: 'never',
+                lane: 'cloud',
+            });
+            seedPersistedTrackingState(userId, {
+                isTracking: true,
+                isPaused: false,
+                isRapidMode: false,
+                currentVoyageId: 'leaseless-voyage',
+                voyageStartTime: new Date().toISOString(),
+                sourcePlan: ashorePlan,
+                keepAliveLease: false,
+            });
+            mocks.nativeTrackingEnabled.mockResolvedValue(false);
+            mocks.strictNativeTrackingEnabled.mockResolvedValue(false);
+            mocks.requireVoyageLocation.mockClear();
+            mocks.resolvePlan.mockClear();
+            mocks.requireVoyageLocation.mockResolvedValueOnce({ lease: false, advisory: null });
+
+            setAuthIdentityScope(userId);
+            await ShipLogService.initialize();
+
+            expect(ShipLogService.getTrackingStatus()).toMatchObject({
+                isTracking: true,
+                currentVoyageId: 'leaseless-voyage',
+                keepAliveLease: false,
+            });
+            expect(ShipLogService.getTrackingStatus().voyageEndTime).toBeUndefined();
+            expect(mocks.resolvePlan).not.toHaveBeenCalled();
+            expect(mocks.requireVoyageLocation).toHaveBeenCalledWith(
+                'none-needed',
+                expect.objectContaining({ resumeLeaseless: true }),
+            );
+            await ShipLogService.stopTracking();
+        });
+
+        it('(c) a phone-only log at While Using starts with the honest advisory, not a refusal', async () => {
+            if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+            const advisory =
+                "Logging from this phone's GPS. To keep recording if iOS closes Thalassa, set Location to Always: Settings › Privacy & Security › Location Services › Thalassa › Always.";
+            mocks.requireVoyageLocation.mockResolvedValueOnce({ lease: true, advisory });
+
+            await ShipLogService.startTracking(false);
+
+            expect(ShipLogService.getTrackingStatus().isTracking).toBe(true);
+            expect(mocks.resolvePlan).toHaveBeenCalled();
+            expect(mocks.requireVoyageLocation).toHaveBeenLastCalledWith('always-advised', expect.anything());
+            expect(ShipLogService.getLocationAdvisory()).toBe(advisory);
+            await ShipLogService.stopTracking();
+            expect(ShipLogService.getLocationAdvisory()).toBeNull();
+        });
+
+        it('the stand-in decision travels with the voyage: "Wait for the boat" is persisted as never', async () => {
+            if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+            await ShipLogService.startTracking(false, undefined, undefined, false, {
+                sourcePlan: vesselPlan({
+                    source: 'vessel-silent',
+                    lane: 'none',
+                    standIn: 'never',
+                    keepAlive: 'none-needed',
+                }),
+            });
+            expect(ShipLogService.getTrackingStatus()).toMatchObject({
+                isTracking: true,
+                sourcePlan: expect.objectContaining({ standIn: 'never' }),
+            });
+            await ShipLogService.stopTracking();
+        });
+
+        it("the Voyage End entry, written after the GPS subscriptions stop, is judged by the voyage's own stand-in rule", async () => {
+            // "Log from this phone" with her GPS silent: the phone logged the
+            // passage. Its Voyage End must be allowed the phone's fix too.
+            const answers: Array<boolean | undefined> = [];
+            mocks.captureImmediate.mockImplementation(async (ctx, _voyageId, label) => {
+                if (label === 'Voyage End') answers.push(ctx.phoneMayStandIn?.());
+                return null;
+            });
+            try {
+                if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+                await ShipLogService.startTracking(false, undefined, undefined, false, {
+                    sourcePlan: vesselPlan({
+                        source: 'phone',
+                        lane: 'none',
+                        where: 'unknown',
+                        keepAlive: 'always-advised',
+                        standIn: 'allowed',
+                        standInOptIn: true,
+                    }),
+                });
+                await ShipLogService.stopTracking();
+                expect(mocks.gpsStop).toHaveBeenCalled();
+                expect(answers).toEqual([true]);
+
+                // …and a boat-only voyage's End never takes the phone.
+                await ShipLogService.startTracking(false, undefined, undefined, false, {
+                    sourcePlan: vesselPlan({ source: 'vessel-silent', lane: 'none', standIn: 'never' }),
+                });
+                await ShipLogService.stopTracking();
+                expect(answers).toEqual([true, false]);
+            } finally {
+                mocks.captureImmediate.mockImplementation(async () => null);
+            }
+        });
+
+        it('a manual note while paused: a boat-only voyage never takes the phone; any other may', async () => {
+            const answers: Array<boolean | undefined> = [];
+            mocks.addManual.mockImplementation((async (ctx: CaptureContext) => {
+                answers.push(ctx.phoneMayStandIn?.());
+                return null;
+            }) as unknown as () => Promise<null>);
+            try {
+                if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+                await ShipLogService.startTracking(false, undefined, undefined, false, {
+                    sourcePlan: vesselPlan({ where: 'ashore', standIn: 'never', keepAlive: 'none-needed' }),
+                });
+                await ShipLogService.pauseTracking();
+                await ShipLogService.addManualEntry('Reefed');
+                await ShipLogService.stopTracking();
+
+                await ShipLogService.startTracking(false, undefined, undefined, false, { sourcePlan: vesselPlan() });
+                await ShipLogService.pauseTracking();
+                await ShipLogService.addManualEntry('Reefed');
+                await ShipLogService.stopTracking();
+                expect(answers).toEqual([false, true]);
+            } finally {
+                mocks.addManual.mockImplementation(async () => null);
+            }
+        });
+
+        it('a voyage started without the Log page (Cast Off) whose boat is never heard asks the skipper once the phone is held', async () => {
+            if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+            mocks.resolvePlan.mockResolvedValueOnce(
+                vesselPlan({ source: 'vessel-silent', lane: 'none', where: 'unknown', standIn: 'ask' }),
+            );
+            const heard = vi.fn();
+            const unsubscribe = ShipLogService.subscribeStandInQuestion(heard);
+            try {
+                // The handoff's call: no plan supplied.
+                await ShipLogService.startTracking(false, 'cast-off-silent-boat');
+                expect(ShipLogService.isStandInQuestionPending()).toBe(false);
+
+                const options = mocks.state.gpsOptions as unknown as {
+                    onPhoneHeld: (hold: unknown) => void;
+                    standIn: () => { standIn: string; optedIn: boolean };
+                };
+                // Past the dead dwell, her GPS never heard, the phone held.
+                options.onPhoneHeld({ reason: 'no-boat-fix', boatLane: 'nmea', boatFixAgeMs: 0, distanceM: null });
+                expect(ShipLogService.isStandInQuestionPending()).toBe(true);
+                expect(heard).toHaveBeenCalledTimes(1);
+
+                await ShipLogService.answerStandInQuestion('phone');
+                expect(ShipLogService.isStandInQuestionPending()).toBe(false);
+                expect(options.standIn()).toEqual({ standIn: 'allowed', optedIn: true });
+                expect(ShipLogService.getTrackingStatus().sourcePlan).toMatchObject({
+                    source: 'phone',
+                    standInOptIn: true,
+                });
+                expect(heard).toHaveBeenCalledTimes(2);
+                await ShipLogService.stopTracking();
+
+                // "Wait for the boat" makes it hers alone, and is not asked again.
+                mocks.resolvePlan.mockResolvedValueOnce(
+                    vesselPlan({ source: 'vessel-silent', lane: 'none', where: 'unknown', standIn: 'ask' }),
+                );
+                await ShipLogService.startTracking(false, 'cast-off-silent-boat-2');
+                const second = mocks.state.gpsOptions as unknown as typeof options;
+                second.onPhoneHeld({ reason: 'no-boat-fix', boatLane: 'nmea', boatFixAgeMs: 0, distanceM: null });
+                await ShipLogService.answerStandInQuestion('wait');
+                expect(second.standIn()).toEqual({ standIn: 'never', optedIn: false });
+                expect(ShipLogService.isStandInQuestionPending()).toBe(false);
+                await ShipLogService.stopTracking();
+            } finally {
+                unsubscribe();
+            }
+        });
+
+        it('a hold for any other reason (she is alive, or the phone is not with her) asks nothing', async () => {
+            if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+            await ShipLogService.startTracking(false, undefined, undefined, false, { sourcePlan: vesselPlan() });
+            const options = mocks.state.gpsOptions as unknown as { onPhoneHeld: (hold: unknown) => void };
+            options.onPhoneHeld({ reason: 'vessel-alive', boatLane: 'nmea', boatFixAgeMs: 2_000, distanceM: 20 });
+            expect(ShipLogService.isStandInQuestionPending()).toBe(false);
+            options.onPhoneHeld({ reason: 'not-aboard', boatLane: 'cloud', boatFixAgeMs: 90_000, distanceM: 3_000 });
+            expect(ShipLogService.isStandInQuestionPending()).toBe(false);
+            await ShipLogService.stopTracking();
+        });
+
+        it('a resume of the same voyage keeps its plan and asks the network nothing', async () => {
+            if (ShipLogService.getTrackingStatus().isTracking) await ShipLogService.stopTracking();
+            await ShipLogService.startTracking(false, undefined, undefined, false, {
+                sourcePlan: vesselPlan({ keepAlive: 'none-needed', standIn: 'never', where: 'ashore', lane: 'cloud' }),
+            });
+            const id = ShipLogService.getTrackingStatus().currentVoyageId!;
+            await ShipLogService.pauseTracking();
+            mocks.resolvePlan.mockClear();
+            mocks.requireVoyageLocation.mockClear();
+
+            await ShipLogService.startTracking(true, id);
+
+            expect(mocks.resolvePlan).not.toHaveBeenCalled();
+            expect(mocks.requireVoyageLocation).toHaveBeenCalledWith('none-needed', expect.anything());
+            expect(ShipLogService.getTrackSourcePlan()).toMatchObject({ standIn: 'never', where: 'ashore' });
+            await ShipLogService.stopTracking();
+        });
     });
 
     it('reclaims one persisted pending-stop lease after a WebView reload and verifies release before finalizing', async () => {
