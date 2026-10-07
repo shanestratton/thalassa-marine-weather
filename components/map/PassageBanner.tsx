@@ -25,6 +25,8 @@ interface PassageBannerProps {
         routeActionsAvailable: boolean;
         /** What the drawn route itself must say (usePassagePlanner routeCaveats). */
         routeCaveats?: readonly string[];
+        /** Which polar the ETA was sailed on (services/routingPolar label); null when none was. */
+        routingPolarLabel?: string | null;
         departureTime: string | null;
         setShowPassage: (v: boolean) => void;
         clearRoute: () => void;
@@ -370,6 +372,22 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                         </svg>
                     </button>
                 </div>
+
+                {/* ── Which polar the ETA was sailed on (W1-03) ──
+                    Said plainly — the skipper's own, a database shape scaled
+                    to her cruising speed, learned, or the generic one — so an
+                    ETA is never a mystery number. Not on routes no polar
+                    sailed (inshore, short hops: the label is null). An
+                    imported polar is named after its file: a long name with
+                    no spaces wraps rather than running off the card. */}
+                {passage.routeAnalysis && !isoProgress && passage.routingPolarLabel && (
+                    <div
+                        className="min-w-0 border-t border-white/6 px-3.5 py-1.5 text-[11px] leading-snug text-slate-300 [overflow-wrap:anywhere]"
+                        data-testid="passage-routing-polar"
+                    >
+                        <span className="font-bold text-slate-200">Polar:</span> {passage.routingPolarLabel}
+                    </div>
+                )}
 
                 {/* ── Cooking indicator ──
                     Big, obvious, animated. Earlier the progress was a

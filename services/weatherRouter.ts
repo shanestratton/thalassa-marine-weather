@@ -14,6 +14,8 @@ import { mToFt } from '../utils/units';
 import { VoyagePlan, VesselProfile, PolarData, Waypoint } from '../types';
 import { supabase } from './supabase';
 import { vesselDraftMetres, vesselMaxWaveHeightMetres } from './units';
+import { resolveRoutingPolar, toEdgePolar } from './routingPolar';
+import { validateWeatherRouteRequest } from '../supabase/functions/_shared/route-weather-safety';
 import type { SpatiotemporalPayload } from '../types/spatiotemporal';
 const log = createLogger('WxRouter');
 
@@ -236,27 +238,30 @@ function validateWeatherRoutePayload(
 }
 
 /**
- * Fetch the user's polar data from Supabase (if available).
+ * The request as sent, minus a polar the shared edge contract
+ * (validateWeatherRouteRequest) would refuse: a 400 would lose the whole
+ * weather route, while without the polar the edge still routes on its own
+ * cruise-scaled curve. A request refused for any other reason goes as it is.
  */
-async function fetchUserPolarData(): Promise<PolarData | null> {
-    if (!supabase) return null;
+function withContractSafePolar(body: WeatherRouteRequest): WeatherRouteRequest {
+    if (!body.vessel.polar_data) return body;
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
-        if (!user) return null;
-        const { data, error } = await supabase
-            .from('vessel_polars')
-            .select('polar_data')
-            .eq('user_id', user.id)
-            .single();
-        if (data && !error && data.polar_data) {
-            return data.polar_data as PolarData;
+        validateWeatherRouteRequest(body);
+        return body;
+    } catch (withPolar) {
+        const without = { ...body, vessel: { ...body.vessel, polar_data: null } };
+        try {
+            validateWeatherRouteRequest(without);
+        } catch {
+            return body; // not the polar's fault
         }
-    } catch (e) {
-        log.warn('[weather] No polar data:', e);
+        log.warn(
+            `[WeatherRouter] Boat polar not accepted by the route-weather contract (${
+                withPolar instanceof Error ? withPolar.message : String(withPolar)
+            }); sending none, so the edge routes on its own cruise-scaled polar`,
+        );
+        return without;
     }
-    return null;
 }
 
 // ── Core Fetch ────────────────────────────────────────────────────
@@ -289,7 +294,7 @@ export async function fetchWeatherRoute(
             log.warn('[weather] Could not read the current session; using the public route quota:', error);
         }
     }
-    const body: WeatherRouteRequest = {
+    const body: WeatherRouteRequest = withContractSafePolar({
         centerline,
         departure_time: departureTime,
         vessel: {
@@ -303,7 +308,7 @@ export async function fetchWeatherRoute(
         },
         corridor_width_nm: 30,
         lateral_steps: 2,
-    };
+    });
 
     try {
         const resp = await fetch(url, {
@@ -474,11 +479,13 @@ export async function enhanceVoyagePlanWithWeather(
         return voyagePlan;
     }
 
-    // Polar data for sail vessels
+    // The boat's own polar for sail vessels — the same one the isochrone
+    // routers sail by (services/routingPolar). Null for the generic polar, so
+    // the edge keeps its own cruise-scaled fallback.
     let polarData: PolarData | null = null;
     if (vessel.type === 'sail') {
         try {
-            polarData = await fetchUserPolarData();
+            polarData = toEdgePolar(await resolveRoutingPolar({ vessel }));
         } catch (e) {
             log.warn('[weather] Non-critical:', e);
         }

@@ -1283,9 +1283,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             if (!operationIsCurrent()) return;
             const { createWindFieldFromGrid } = await import('../services/weather/WindFieldAdapter');
             if (!operationIsCurrent()) return;
-            const { SmartPolarStore } = await import('../services/SmartPolarStore');
-            if (!operationIsCurrent()) return;
-            const { DEFAULT_CRUISING_POLAR } = await import('../services/defaultPolar');
+            const { resolveRoutingPolar } = await import('../services/routingPolar');
             if (!operationIsCurrent()) return;
             const { preloadBathymetry } = await import('../services/BathymetryCache');
             if (!operationIsCurrent()) return;
@@ -1339,7 +1337,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 throw new Error('Wind data unavailable for this route.');
             }
             const windField = createWindFieldFromGrid(windGrid);
-            const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
+            const { polar } = await resolveRoutingPolar({ vessel });
+            if (!operationIsCurrent()) return;
             const bathyGrid = await preloadBathymetry(o, d);
             if (!operationIsCurrent()) return;
 

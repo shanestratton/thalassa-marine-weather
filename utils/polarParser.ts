@@ -18,6 +18,27 @@ export function parsePolarFile(content: string, filename: string): PolarData {
 }
 
 /**
+ * The header's wind-speed columns: each one's index in the line, and its
+ * speed. A 0 kn (or unreadable) column is left out WITH its figures — rows
+ * are read at these same indices, never re-counted from the second cell, so
+ * dropping a 0 kn column cannot slide every row one column left.
+ */
+function headerColumns(parts: string[]): { col: number; tws: number }[] {
+    return parts
+        .map((part, col) => ({ col, tws: Number(part) }))
+        .slice(1)
+        .filter(({ tws }) => !isNaN(tws) && tws > 0);
+}
+
+/** A row's figures under the header's columns (missing or unreadable cells read 0). */
+function rowFigures(parts: string[], columns: { col: number }[]): number[] {
+    return columns.map(({ col }) => {
+        const n = parseFloat(parts[col] ?? '');
+        return isNaN(n) ? 0 : clampSpeed(n);
+    });
+}
+
+/**
  * Parse Expedition .pol format:
  * First line: TWA\t6\t8\t10\t12\t15\t20\t25
  * Subsequent: 45\t5.2\t6.1\t6.8\t7.2\t7.5\t7.6\t7.4
@@ -31,10 +52,8 @@ function parseExpeditionPol(content: string): PolarData {
 
     const headerParts = lines[0].split(/\t+/).map((s) => s.trim());
     // First column is the label (TWA or similar), rest are wind speeds
-    const windSpeeds = headerParts
-        .slice(1)
-        .map(Number)
-        .filter((n) => !isNaN(n) && n > 0);
+    const columns = headerColumns(headerParts);
+    const windSpeeds = columns.map((c) => c.tws);
     if (windSpeeds.length === 0) throw new Error('No valid wind speeds found in header');
 
     const angles: number[] = [];
@@ -46,13 +65,7 @@ function parseExpeditionPol(content: string): PolarData {
         if (isNaN(angle) || angle < 0 || angle > 180) continue;
 
         angles.push(angle);
-        const row = parts.slice(1, windSpeeds.length + 1).map((v) => {
-            const n = parseFloat(v);
-            return isNaN(n) ? 0 : clampSpeed(n);
-        });
-        // Pad with zeros if row is shorter than wind speeds
-        while (row.length < windSpeeds.length) row.push(0);
-        matrix.push(row);
+        matrix.push(rowFigures(parts, columns));
     }
 
     if (angles.length === 0) throw new Error('No valid wind angle rows found');
@@ -74,10 +87,8 @@ function parseCSVPolar(content: string): PolarData {
     // Handle both comma and semicolon delimiters
     const delimiter = lines[0].includes(';') ? ';' : ',';
     const headerParts = lines[0].split(delimiter).map((s) => s.trim());
-    const windSpeeds = headerParts
-        .slice(1)
-        .map(Number)
-        .filter((n) => !isNaN(n) && n > 0);
+    const columns = headerColumns(headerParts);
+    const windSpeeds = columns.map((c) => c.tws);
     if (windSpeeds.length === 0) throw new Error('No valid wind speeds found in header');
 
     const angles: number[] = [];
@@ -89,12 +100,7 @@ function parseCSVPolar(content: string): PolarData {
         if (isNaN(angle) || angle < 0 || angle > 180) continue;
 
         angles.push(angle);
-        const row = parts.slice(1, windSpeeds.length + 1).map((v) => {
-            const n = parseFloat(v);
-            return isNaN(n) ? 0 : clampSpeed(n);
-        });
-        while (row.length < windSpeeds.length) row.push(0);
-        matrix.push(row);
+        matrix.push(rowFigures(parts, columns));
     }
 
     if (angles.length === 0) throw new Error('No valid wind angle rows found');
