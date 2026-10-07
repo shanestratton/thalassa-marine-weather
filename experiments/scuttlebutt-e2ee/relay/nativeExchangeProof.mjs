@@ -2,6 +2,8 @@
  * Isolated simulator-native Olm → ordinary URLSession HTTPS → on-disk SQL proof.
  * Usage: node --experimental-strip-types nativeExchangeProof.mjs NATIVE_CACHE PGLITE_ARCHIVE
  * Focused real-local mode exchange: append --account-mode-exchange-only.
+ * Actual hosted-native PM: append --hosted-native-pm; wait for the private input
+ * READY handshake. No local server, fixture CA or mocked Auth in that mode.
  * Creates and removes ONE disposable simulator; never uses an existing device.
  * Its fresh localhost CA is trusted only in that disposable simulator, after a
  * negative untrusted-TLS check. No system CA, physical phone or app is changed.
@@ -11,6 +13,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+    chmodSync,
     existsSync,
     lstatSync,
     mkdirSync,
@@ -39,7 +42,12 @@ if (accountModeOnly) options.pop();
 // Independent of historical encrypted-message phases; Auth remains synthetic.
 const accountModeExchangeOnly = options.at(-1) === '--account-mode-exchange-only';
 if (accountModeExchangeOnly) options.pop();
-assert(!(accountModeOnly && accountModeExchangeOnly), 'Choose exactly one focused account-mode runner');
+const hostedNativePm = options.at(-1) === '--hosted-native-pm';
+if (hostedNativePm) options.pop();
+assert(
+    [accountModeOnly, accountModeExchangeOnly, hostedNativePm].filter(Boolean).length <= 1,
+    'Choose exactly one focused native runner',
+);
 assert(
     cacheArg &&
         archiveArg &&
@@ -158,8 +166,10 @@ assert(statfsSync(scratch).bavail * statfsSync(scratch).bsize > 3 * 1024 ** 3, '
 
 process.title = 'thalassa native exchange waiting';
 let announced = false;
+const slotDeadline = Date.now() + 600_000;
 for (;;) {
-    const check = spawnSync('/usr/bin/pgrep', ['-fl', 'vite build|tsc|vitest'], { encoding: 'utf8' });
+    assert(Date.now() < slotDeadline, 'Shared-Mac build slot remained busy; no simulator was created');
+    const check = spawnSync('/usr/bin/pgrep', ['-fl', 'vite build|tsc|vitest'], { encoding: 'utf8', timeout: 10000 });
     assert(!check.error && [0, 1].includes(check.status));
     const others = check.stdout
         .trim()
@@ -171,15 +181,15 @@ for (;;) {
                 !/^\d+\s+(?:\/\S*\/)?(?:sh|bash|zsh|fish|tail|grep|rg|pgrep)\s/.test(line),
         );
     if (!others.length) break;
-    if (!announced) console.log('Waiting for shared-Mac build slot (native HTTPS exchange).');
+    if (!announced) console.info('Waiting for shared-Mac build slot (native HTTPS exchange).');
     announced = true;
     await delay(5000);
 }
 process.title = 'vite build slot: isolated native HTTPS exchange';
-const run = (args, { timeout = 120_000, quiet = false } = {}) => {
+const run = (args, { timeout = 120_000, quiet = false, privateDiagnostics = false } = {}) => {
     const result = spawnSync('/usr/bin/xcrun', args, { encoding: 'utf8', timeout, maxBuffer: 1024 * 1024 });
-    if (!quiet && result.stdout) process.stdout.write(result.stdout);
-    if (result.stderr) process.stderr.write(result.stderr);
+    if (!privateDiagnostics && !quiet && result.stdout) process.stdout.write(result.stdout);
+    if (!privateDiagnostics && result.stderr) process.stderr.write(result.stderr);
     assert(!result.error && result.status === 0, 'Research simulator command failed; no production changes');
     return result.stdout.trim();
 };
@@ -200,18 +210,21 @@ const receipt = {
     priorExchangeEvidenceSha256,
     providerManifestSha256: nativePin.manifestSha256,
     providerLockSha256: nativePin.lockfileSha256,
-    fixtureAuth: true,
+    fixtureAuth: !hostedNativePm,
     cachedArtifactProvenanceIndependentlyVerified: false,
     physicalPhoneExecution: false,
-    tlsPolicy: accountModeOnly
-        ? 'synthetic-urlprotocol-no-ca-or-server'
-        : 'ordinary-urlsession-disposable-simulator-root',
+    tlsPolicy: hostedNativePm
+        ? 'ordinary-urlsession-system-trust-hosted-pilot'
+        : accountModeOnly
+          ? 'synthetic-urlprotocol-no-ca-or-server'
+          : 'ordinary-urlsession-disposable-simulator-root',
     accountModeOnly,
     accountModeExchangeOnly,
+    hostedNativePm,
 };
 const saveReceipt = () => writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
 saveReceipt();
-console.log(`Nonsecret native exchange receipt: ${receiptPath}`);
+console.info(`Nonsecret native exchange receipt: ${receiptPath}`);
 let simulator;
 let relay;
 let failure;
@@ -251,6 +264,7 @@ try {
             'VodozemacResearchBridgeProbe.swift',
             'VodozemacAccountModeProbe.swift',
             'VodozemacAccountModeExchangeProbe.swift',
+            'VodozemacHostedPmProbe.swift',
             'VodozemacRelayPolicy.swift',
             'VodozemacRelayResult.swift',
             'VodozemacRelayResultProbe.swift',
@@ -384,16 +398,61 @@ try {
         });
     });
     run(['simctl', 'install', simulator, app], { timeout: 180_000, quiet: true });
-    if (!accountModeOnly)
+    if (!accountModeOnly && !hostedNativePm)
         relay = await createNativeExchangeServer({
             archivePath,
             scratch,
             loseFirstProtectedResponse: accountModeExchangeOnly,
         });
-    receipt.origin = relay?.origin ?? 'https://account-mode-fixture.invalid';
+    receipt.origin = hostedNativePm
+        ? 'https://kmtupdvwdgbhtssqqova.supabase.co'
+        : (relay?.origin ?? 'https://account-mode-fixture.invalid');
     saveReceipt();
     const container = run(['simctl', 'get_app_container', simulator, bundle, 'data'], { quiet: true });
     assert(isAbsolute(container));
+    if (hostedNativePm) {
+        const documents = join(container, 'Documents');
+        if (!existsSync(documents)) mkdirSync(documents, { mode: 0o700 });
+        const directoryMetadata = lstatSync(documents);
+        assert(
+            !directoryMetadata.isSymbolicLink() &&
+                directoryMetadata.isDirectory() &&
+                directoryMetadata.uid === process.getuid(),
+        );
+        chmodSync(documents, 0o700);
+        const inputPath = join(documents, `native-hosted-input-${runID.toLowerCase()}.json`);
+        assert(!existsSync(inputPath), 'A fresh owned sandbox must not contain a previous hosted credential input');
+        receipt.container = container;
+        receipt.hostedInputPath = inputPath;
+        receipt.hostedSummaryPath = join(documents, `native-hosted-summary-${runID.toLowerCase()}.json`);
+        receipt.hostedRecoveryPath = join(documents, `native-hosted-recovery-${runID.toLowerCase()}.json`);
+        receipt.nativeHostedReady = true;
+        receipt.hostedInputDeadlineUnixMs = Date.now() + 300_000;
+        receipt.phase = 'native-hosted-awaiting-input';
+        receipt.observation = 'compiled-booted-installed-owned-simulator-awaiting-private-input';
+        saveReceipt();
+        console.info(`READY native hosted fixture input: ${inputPath}`);
+        const deadline = receipt.hostedInputDeadlineUnixMs;
+        while (!existsSync(inputPath) && Date.now() < deadline) await delay(250);
+        assert(existsSync(inputPath), 'Private hosted input did not arrive within the bounded ready interval');
+        receipt.hostedInputObserved = true;
+        receipt.hostedEnrollmentMayHaveCommitted = true;
+        receipt.hostedRecoveryRequired = true;
+        receipt.recoveryGate = 'inspect-owned-simulator-native-stores-and-hosted-state-before-retry';
+        saveReceipt();
+        const metadata = lstatSync(inputPath);
+        assert(
+            metadata.isFile() &&
+                !metadata.isSymbolicLink() &&
+                metadata.uid === process.getuid() &&
+                (metadata.mode & 0o777) === 0o600 &&
+                metadata.size > 0 &&
+                metadata.size <= 64 * 1024,
+            'Hosted input must be one bounded owner-only regular file',
+        );
+        // From this point a launched native operation may enroll immutable
+        // hosted keys. Any failure conservatively retains this exact simulator.
+    }
     const statusPath = join(container, 'Documents', `exchange-status-${runID.toLowerCase()}.json`);
     const launch = async (phase) => {
         ownDevice();
@@ -415,7 +474,7 @@ try {
                 bobID,
                 receipt.origin,
             ],
-            { timeout: 180_000, quiet: true },
+            { timeout: 180_000, quiet: true, privateDiagnostics: hostedNativePm },
         );
         const pid = Number(output.match(/: (\d+)\s*$/)?.[1]);
         assert(Number.isSafeInteger(pid) && pid > 0);
@@ -432,7 +491,9 @@ try {
             Date.now() +
             (phase === 'prepare'
                 ? 600_000
-                : ['private-messages', 'account-mode', 'account-mode-exchange'].includes(phase)
+                : ['private-messages', 'account-mode', 'account-mode-exchange', 'hosted-private-messages'].includes(
+                        phase,
+                    )
                   ? 180_000
                   : 60_000);
         let status;
@@ -458,7 +519,7 @@ try {
             } catch {
                 receipt.nativeProcessAliveAtDeadline = false;
             }
-            if (receipt.nativeProcessAliveAtDeadline) {
+            if (receipt.nativeProcessAliveAtDeadline && !hostedNativePm) {
                 const samplePath = join(scratch, `native-timeout-${phase}.sample`);
                 const sampled = spawnSync('/usr/bin/sample', [String(pid), '1', '1', '-file', samplePath], {
                     encoding: 'utf8',
@@ -531,6 +592,50 @@ try {
             );
             receipt.nativeAccountModeExchangeAssertions = status.accountModeExchangeAssertions;
         }
+        if (phase === 'hosted-private-messages') {
+            assert(Number.isSafeInteger(status.hostedPmAssertions) && status.hostedPmAssertions > 0);
+            assert(status.hostedSummaryPath === receipt.hostedSummaryPath && existsSync(receipt.hostedSummaryPath));
+            assert(!existsSync(receipt.hostedInputPath), 'Native consumes its private credential input immediately');
+            receipt.nativeHostedPmAssertions = status.hostedPmAssertions;
+            const metadata = lstatSync(receipt.hostedSummaryPath);
+            assert(metadata.isFile() && !metadata.isSymbolicLink() && metadata.size > 0 && metadata.size <= 64 * 1024);
+            const summary = JSON.parse(readFileSync(receipt.hostedSummaryPath, 'utf8'));
+            const fields = (value, names) =>
+                value &&
+                typeof value === 'object' &&
+                !Array.isArray(value) &&
+                Object.keys(value).sort().join(',') === [...names].sort().join(',');
+            const sha = (value) => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+            assert(
+                fields(summary, ['version', 'runID', 'status', 'assertions', 'accounts', 'messages']) &&
+                    summary.version === 1 &&
+                    summary.runID === runID.toLowerCase() &&
+                    summary.status === 'passed' &&
+                    summary.assertions === status.hostedPmAssertions &&
+                    Array.isArray(summary.accounts) &&
+                    summary.accounts.length === 2 &&
+                    Array.isArray(summary.messages) &&
+                    summary.messages.length === 3,
+            );
+            assert(
+                summary.accounts.every(
+                    (value) =>
+                        fields(value, ['userId', 'deviceId', 'identityKeyId', 'bundleSha256']) &&
+                        sha(value.bundleSha256),
+                ),
+            );
+            assert(
+                summary.messages.every(
+                    (value) =>
+                        fields(value, ['senderUserId', 'recipientUserId', 'clientMessageId', 'envelopeSha256']) &&
+                        sha(value.envelopeSha256),
+                ),
+            );
+            const retained = join(scratch, `native-hosted-summary-${runID.toLowerCase()}.json`);
+            writeFileSync(retained, JSON.stringify(summary, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+            receipt.hostedSummaryRetainedPath = retained;
+            saveReceipt();
+        }
         receipt.completedPhases.push({
             phase,
             pid,
@@ -541,11 +646,17 @@ try {
         });
         receipt.observation = 'app-reported-pass';
         saveReceipt();
-        console.log(
+        console.info(
             `PASS native ${accountModeOnly ? 'synthetic Auth/relay fixture' : 'HTTPS exchange'} phase: ${phase}`,
         );
     };
-    if (accountModeOnly) {
+    if (hostedNativePm) {
+        await launch('hosted-private-messages');
+        receipt.status = 'passed';
+        receipt.observation = 'native-real-auth-https-hosted-pm-assertions-passed-awaiting-parent-sql-verification';
+        receipt.hostedRecoveryRequired = false;
+        receipt.recoveryGate = 'parent-hosted-sql-verification-and-allowlist-restoration-required';
+    } else if (accountModeOnly) {
         await launch('account-mode');
         await launch('private-messages');
         receipt.status = 'passed';
@@ -612,7 +723,20 @@ try {
 } finally {
     // The fresh simulator is solely owned by this runner. Removing it also
     // removes the deliberately added fixture CA. No existing device is reset.
-    if (simulator) {
+    if (simulator && hostedNativePm && failure && receipt.hostedInputObserved) {
+        receipt.disposableSimulatorRemoved = false;
+        receipt.ownedSimulatorPreservedForRecovery = true;
+        receipt.hostedRecoveryRequired = true;
+        receipt.recoveryGate = 'inspect-owned-simulator-native-stores-and-hosted-state-before-retry';
+        // Stop only this newly owned app; keep its native sealed stores and
+        // Keychain. Never capture raw process samples containing live bearers.
+        const stopped = spawnSync('/usr/bin/xcrun', ['simctl', 'terminate', simulator, bundle], {
+            encoding: 'utf8',
+            timeout: 30000,
+            maxBuffer: 1024 * 1024,
+        });
+        receipt.ownedNativeProcessStopObserved = stopped.status === 0;
+    } else if (simulator) {
         try {
             const devices = JSON.parse(run(['simctl', 'list', 'devices', '--json'], { quiet: true })).devices;
             const target = Object.values(devices)
@@ -639,13 +763,19 @@ try {
     }
     saveReceipt();
 }
-console.log(`Research artifacts retained: ${scratch}`);
+console.info(`Research artifacts retained: ${scratch}`);
 if (failure) throw failure;
-console.log(
-    accountModeOnly
-        ? 'PASS native account mode and private-message synthetic fixtures; no SQL/network/CA proof.'
-        : accountModeExchangeOnly
-          ? 'PASS native-issued account mode -> ordinary TLS -> signed local SQL, exact uncertain retry and SQL reopen.'
-          : 'PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.',
+console.info(
+    hostedNativePm
+        ? 'PASS actual native Auth and Olm PM over ordinary hosted HTTPS; parent SQL verification remains separate.'
+        : accountModeOnly
+          ? 'PASS native account mode and private-message synthetic fixtures; no SQL/network/CA proof.'
+          : accountModeExchangeOnly
+            ? 'PASS native-issued account mode -> ordinary TLS -> signed local SQL, exact uncertain retry and SQL reopen.'
+            : 'PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.',
 );
-console.log('Disposable simulator removed. NOT two phones, live Auth or independent security review.');
+console.info(
+    hostedNativePm
+        ? 'Owned simulator cleanup recorded. NOT two phones, production activation or independent security review.'
+        : 'Disposable simulator removed. NOT two phones, live Auth or independent security review.',
+);

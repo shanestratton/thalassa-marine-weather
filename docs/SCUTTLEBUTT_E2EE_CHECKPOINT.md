@@ -82,8 +82,10 @@ private callers, queues and foreground push. Durable account mode and legacy SQL
 denial now have fresh local fixture evidence. Explicit native account controls
 also have local adapter and real local HTTPS/SQL evidence. Isolated hosted SQL
 support and the cutover-aware Edge API are installed without selecting a human
-account, with positive disposable-actor hosted checks. Native-to-hosted acceptance,
-production cutover and main-app cold-start admission are not integrated. These are not a shipping
+account, with positive disposable-actor hosted checks. A bounded native private-message
+adapter exchange now passes actual Auth verification and hosted HTTPS with two fresh
+fixture principals in one disposable simulator. Production cutover and main-app
+cold-start admission are not integrated. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
@@ -116,6 +118,61 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 7 October native messages over the hosted relay
+
+The new hosted mode compiled, booted and installed its newly owned simulator
+before creating two fixed `.invalid` Auth actors. Both native directories used
+real Supabase `/auth/v1/user` verification and ordinary URLSession HTTPS/system
+trust, with no URLProtocol, local relay, custom CA or mocked Auth. Explicit
+registration, full public-card pairing, native prekey claim and signed permanent
+protection were followed by opening/reply messages through the ordinary native
+private-message adapter. Pairing was controlled by the fixture, not a human
+out-of-band identity check.
+
+**45 native assertions passed**. A third real-provider message was committed by
+the hosted relay and its successful receipt deliberately discarded before native
+application. The ordinary adapter then retried the same saved native ID/envelope;
+the recipient decrypted that exact envelope. This is deliberate receipt discard,
+not a network-drop or process-death experiment. All three messages appeared once
+in each bounded native history with no pending records. Read-only hosted checks
+matched two device/bundle bindings, two protected accounts, one prekey claim and
+three accepted decisions to the native envelope hashes. Synthetic plaintext
+canaries were absent from their stored envelopes and decoded provider bytes.
+
+The existing six actors' Auth diagnostics and all six relay-table row diagnostics
+were preserved; the installed catalog matched its preflight. The exact original
+Research participant allowlist and all secret fingerprints were restored and
+verified. Observed function revisions were **29 before selection, 30 during the
+proof and 31 after restoration**, with JWT enabled and the same reported bundle
+digest. Those observations are not independently attested compiled-source
+provenance. The two new Auth actors and immutable hosted rows remain deliberately
+consumed; neither these nor the earlier cutover pair may be reset or blindly
+reused. The successful owned native stores/Keychain fixtures and simulator were
+removed. Human apps/devices/keys and production were untouched.
+
+The orchestration uses a persisted 300-second READY deadline with a 30-second
+preparation margin, flushed immutable creation/restoration records and atomic
+no-replace publication of complete private input. Native consumes that input
+immediately. A failed observed handoff retains the owned native keys/simulator;
+unknown participant state refuses blind restoration. These code paths do not
+establish a tested power-loss or failed-hosted-enrollment recovery guarantee.
+Internal review corrected deadline, filename, revision and partial-file handoff
+risks before the first live attempt. Named lint/formatting, focused fixture types,
+**111 new pure metadata cases**, and the complete **1,730-case Research suite in
+23 suites** pass. The initial lint warnings and inferred-null fixture parameter
+type errors are retained in the [native hosted manifest](../experiments/scuttlebutt-e2ee/review/native-hosted-2026-10-07.json).
+JavaScript bodies are not statically checked by that focused TypeScript config.
+
+This is one disposable simulator process with two directories, cached unchanged
+provider artifacts and a native adapter—not two physical devices, Capacitor/main-app
+UI acceptance, fresh provider provenance, adversarial database concurrency or an
+independent audit. No main-app build/sync or Edge/schema deployment accompanied
+this run. Next is durable native account selection at main-app cold start, then
+explicit device/prekey, inbox retention and recovery policies. Actual legacy/push
+enforcement, the physical matrix, dependency obligations and external assessment
+remain release gates. The live runner is fresh-only and now refuses the consumed
+eight-actor inventory; retain its evidence rather than rerunning setup.
 
 ### 7 October isolated Edge deployment and positive hosted cutover checks
 
@@ -2878,8 +2935,8 @@ attachments or uploads.
    owner previously allowed test-message deletion, do not delete anything in
    this checkpoint; confirm exact cleanup scope at migration time.
 
-Next: verify native-to-hosted acceptance without resetting human state, then
-connect native durable selection
+Next: extend the bounded native-to-hosted acceptance above into the actual app,
+and connect native durable selection
 to main-app cold-start denial. Native controls alone do not close that boundary.
 Apply actual legacy-table
 and notification-worker enforcement only through separately scoped, reviewed

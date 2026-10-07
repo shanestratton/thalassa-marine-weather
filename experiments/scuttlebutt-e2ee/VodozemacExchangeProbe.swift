@@ -24,7 +24,7 @@ private struct ExchangeArguments {
     static func read() throws -> ExchangeArguments {
         let args = CommandLine.arguments
         guard args.count == 7, args[1] == "--exchange",
-              ["tls-refuse", "prepare", "private-messages", "account-mode", "account-mode-exchange", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
+              ["tls-refuse", "prepare", "private-messages", "account-mode", "account-mode-exchange", "hosted-private-messages", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
               let run = UUID(uuidString: args[3]), let alice = UUID(uuidString: args[4]), let bob = UUID(uuidString: args[5]),
               alice != bob else { throw ExchangeFailure.configuration }
         return ExchangeArguments(phase: args[2], run: run, alice: alice, bob: bob, origin: args[6])
@@ -48,9 +48,12 @@ private struct ExchangeArguments {
             "scopedEnrollmentFixtureAssertions": scopedEnrollmentFixtureAssertions,
             "readinessFixtureAssertions": readinessFixtureAssertions,
             "bridgeFixtureAssertions": bridgeFixtureAssertions,
-            "privateMessageFixtureAssertions": ["account-mode", "account-mode-exchange"].contains(phase) ? 0 : privateMessageFixtureAssertions,
+            "privateMessageFixtureAssertions": ["account-mode", "account-mode-exchange", "hosted-private-messages"].contains(phase) ? 0 : privateMessageFixtureAssertions,
             "accountModeFixtureAssertions": phase == "account-mode" ? privateMessageFixtureAssertions : 0,
-            "accountModeExchangeAssertions": phase == "account-mode-exchange" ? privateMessageFixtureAssertions : 0]
+            "accountModeExchangeAssertions": phase == "account-mode-exchange" ? privateMessageFixtureAssertions : 0,
+            "hostedPmAssertions": phase == "hosted-private-messages" ? privateMessageFixtureAssertions : 0,
+            "hostedSummaryPath": phase == "hosted-private-messages"
+                ? documents.appendingPathComponent("native-hosted-summary-" + run.uuidString.lowercased() + ".json").path : ""]
         let path = documents.appendingPathComponent("exchange-status-" + run.uuidString.lowercased() + ".json")
         try JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]).write(to: path, options: [.atomic])
     }
@@ -113,6 +116,15 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
     var readinessFixtureAssertions = 0
     var bridgeFixtureAssertions = 0
     var privateMessageFixtureAssertions = 0
+    if args.phase == "hosted-private-messages" {
+        try exchangeRequire(args.origin == "https://kmtupdvwdgbhtssqqova.supabase.co", "hosted-project-origin")
+        let input = args.documents.appendingPathComponent("native-hosted-input-" + args.run.uuidString.lowercased() + ".json")
+        let count = try await runDmHostedPmProbe(runID: args.run, inputURL: input, progressForResearch: { label in
+            try? args.status("running", stage: "hosted-pm-" + label)
+        })
+        print("PASS native actual Auth HTTPS hosted PM assertions: \(count)")
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0, count)
+    }
     if args.phase == "account-mode-exchange" {
         let count = try await runDmAccountModeExchangeProbe(origin: args.origin, progressForResearch: { label in
             try? args.status("running", stage: "account-mode-exchange-" + label)
@@ -448,6 +460,7 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
                 else if case DmResearchBridgeProbeError.assertion(let label) = error { stage = "bridge-check-" + label }
                 else if case DmAccountModeProbeError.assertion(let label) = error { stage = "account-mode-check-" + label }
                 else if case DmAccountModeExchangeProbeError.assertion(let label) = error { stage = "account-mode-exchange-check-" + label }
+                else if case DmHostedPmProbeError.assertion(let label) = error { stage = "hosted-pm-check-" + label }
                 else if error is DmCoordinatorError { stage = "native-state-or-result-refused" }
                 else if error is DmRelayTransportError { stage = "network-unresolved" }
                 else if error is VodozemacSealedStoreError { stage = "sealed-store-refused" }

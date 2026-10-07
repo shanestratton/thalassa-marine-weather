@@ -178,6 +178,25 @@ compiled-source attestation, concurrency or an independent security audit.
 Review the immutable attempt/progress records and partial/irreversible fixture
 recovery limits; do not reset permanent selections to rerun a fresh-state proof.
 
+The later [native hosted evidence](../experiments/scuttlebutt-e2ee/review/native-hosted-2026-10-07.json)
+records 45 native assertions and three actual Olm messages with real native Auth
+verification and ordinary HTTPS to the isolated relay. Opening/reply use the
+ordinary private-message adapter. The third message's successful hosted receipt
+is deliberately discarded before native application, then retried and decrypted
+with the exact saved ID/envelope. This is not a network-drop or crash test. Hosted
+bindings and three accepted decisions match native hashes; old six-actor data and
+catalog diagnostics are preserved and the original allowlist/secrets restored.
+
+Both endpoints share one fresh simulator/process; controlled public-card pairing
+is not human identity verification. Native keys are removed only on success;
+immutable fixture actors/hosted rows remain consumed. Preparation has a persisted
+deadline, no-replace complete-file handoff and private restoration journal, but
+unexecuted failure branches are not power-loss recovery evidence. The full
+Research suite passed 1,730 cases in 23 suites, including 111 pure metadata tests.
+Focused types/lint/formatting pass after retained initial corrections. Cached
+provider provenance, actual SDK/Capacitor/main-app cold-start admission, physical
+acceptance, lifecycle/retention policy and independent assessment remain open.
+
 The fixed 16-outgoing/16-incoming budgets,
 scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or
@@ -301,6 +320,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Native account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeProbe.swift) and [native cutover evidence](../experiments/scuttlebutt-e2ee/review/native-cutover-2026-10-06.json). The native runner's explicit `--account-mode-only` mode uses synthetic Auth/relay and skips its SQL/HTTPS/CA setup; keep this evidence distinct from the older exchange path.
 - [Native HTTPS account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeExchangeProbe.swift), [guarded migration contract](../experiments/scuttlebutt-e2ee/hosted/cutoverMigration.mjs), [real-engine migration runner](../experiments/scuttlebutt-e2ee/hosted/cutoverMigrationProof.mjs) and [hosted cutover manifest](../experiments/scuttlebutt-e2ee/review/hosted-cutover-2026-10-07.json). Account-control transport, local migration tests and real hosted support installation are separate evidence categories.
 - [Deployment contracts](../experiments/scuttlebutt-e2ee/hosted/cutoverDeployment.mjs), [cutover deployer](../experiments/scuttlebutt-e2ee/hosted/deployCutover.mjs), [positive hosted controls](../experiments/scuttlebutt-e2ee/hosted/cutoverLiveProof.mjs) and [hosted API manifest](../experiments/scuttlebutt-e2ee/review/hosted-api-2026-10-07.json). Restoration journals/credentials stay in private artifacts; only hashes and sanitized evidence belong in the assessment packet.
+- [Native hosted runner](../experiments/scuttlebutt-e2ee/hosted/nativePmProof.mjs), [one-lifetime fixture controls](../experiments/scuttlebutt-e2ee/hosted/nativePmFixture.mjs), [native probe](../experiments/scuttlebutt-e2ee/VodozemacHostedPmProbe.swift) and [native hosted manifest](../experiments/scuttlebutt-e2ee/review/native-hosted-2026-10-07.json). The runner is deliberately fresh-only; do not reset consumed actors to manufacture reproducibility.
 - [Research adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift), [plugin](../experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift), [web controller and literal renderer](../experiments/scuttlebutt-e2ee/bridge-web/messaging.ts), native bridge fixtures and `tests/E2eePilotBridgeMessaging.test.ts`. These are separate from the shipping private-message port; include both native and JavaScript publication fences in the assessment.
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.
