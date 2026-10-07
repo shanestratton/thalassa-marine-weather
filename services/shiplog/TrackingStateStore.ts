@@ -22,6 +22,7 @@ import {
     isAuthIdentityScopeCurrent,
     type AuthIdentityScope,
 } from '../authIdentityScope';
+import type { TrackSourcePlan } from './trackSourcePlan';
 
 const log = createLogger('ShipLog.Store');
 
@@ -143,6 +144,22 @@ export interface TrackingState {
      * sets this — only the live "engine on/off" control does.
      */
     engineRunning?: boolean;
+    /**
+     * Which receiver feeds this voyage, decided at Start (build 123, package
+     * VL): her source, the phone's keep-alive need, and whether this phone may
+     * stand in ('never' for a boat-only voyage — "Wait for the boat", or a
+     * Start from ashore). Kept for the voyage, so a resume or a reload keeps
+     * the skipper's answer without asking the network again. Absent on older
+     * states = the default aboard rule.
+     */
+    sourcePlan?: TrackSourcePlan;
+    /**
+     * false: this voyage runs without the native keep-alive lease (a
+     * boat-only Start from ashore with no location grant — build 123 review).
+     * It has no native engine to prove it alive after a WebView reload, so a
+     * reload resumes it instead of ending it. Absent = it holds the lease.
+     */
+    keepAliveLease?: boolean;
 }
 
 /**
@@ -228,12 +245,16 @@ export function decideInitTrackingAction(opts: {
     schedulerRunning: boolean;
     nativeTrackingEnabled: boolean;
     currentVoyageId?: string | null;
+    /** The voyage never held the native lease (TrackingState.keepAliveLease === false). */
+    leaselessVoyage?: boolean;
 }): InitTrackingAction {
     const { persistedIsTracking, persistedIsPaused, schedulerRunning, nativeTrackingEnabled, currentVoyageId } = opts;
     if (!persistedIsTracking || persistedIsPaused || schedulerRunning) {
         return { action: 'none' };
     }
-    if (nativeTrackingEnabled && currentVoyageId) {
+    // A leaseless voyage never had a native engine to keep alive: "the engine
+    // is off" proves nothing about it, so it is resumed, not ended.
+    if ((nativeTrackingEnabled || opts.leaselessVoyage === true) && currentVoyageId) {
         return { action: 'resume', voyageId: currentVoyageId };
     }
     return { action: 'mark-stopped' };

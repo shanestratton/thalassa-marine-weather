@@ -336,9 +336,18 @@ async function runHandoffGps(retry: boolean): Promise<void> {
  * open (Shane's 9:15pm "GPS LOG OFF" panel, an hour after departure).
  */
 let autoRetryTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Build 123 (package VL): voyage logging no longer demands Always, and
+ * without Always iOS will not START location from the background. Such a
+ * start says so (BgGeoManager.requireVoyageBackgroundLocation's message) and
+ * waits for Thalassa to come to the front, where it starts at once — no
+ * ladder rungs spent knocking on a door iOS keeps shut.
+ */
+const FOREGROUND_DEFERRAL = 'when Thalassa is open';
 function scheduleAutoRetry(): void {
     const handoff = current;
     if (!handoff || handoff.gps !== 'failed') return;
+    if (handoff.gpsError?.includes(FOREGROUND_DEFERRAL)) return;
     if (handoff.retryCount >= 2) return;
     if (autoRetryTimer) clearTimeout(autoRetryTimer);
     const delayMs = handoff.retryCount === 0 ? 8_000 : 30_000;
@@ -354,6 +363,23 @@ function scheduleAutoRetry(): void {
 // A handoff restored as 'failed' (the app died mid-start) begins its retry
 // ladder immediately — recovery must not wait for a page visit.
 if (current?.gps === 'failed') scheduleAutoRetry();
+
+/** A start deferred to the foreground runs the moment Thalassa is in front. */
+function retryDeferredStartIfVisible(): void {
+    if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+    const latest = current;
+    if (latest?.gps === 'failed' && latest.gpsError?.includes(FOREGROUND_DEFERRAL)) void startHandoffGps(true);
+}
+if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', retryDeferredStartIfVisible);
+    // Restored deferred into an app that opened straight to the front (iOS
+    // ended Thalassa in the background, the skipper reopened it): no
+    // visibilitychange will come. Give it the ladder's first rung, so the
+    // Ship's Log has hydrated its state first (build 123 review).
+    if (current?.gps === 'failed' && current.gpsError?.includes(FOREGROUND_DEFERRAL)) {
+        setTimeout(retryDeferredStartIfVisible, 8_000);
+    }
+}
 
 /** The saved trace's planned-route mirror voyage id — what voyage_plan_links
  *  must point at for the public page to draw the plan line. Null when the

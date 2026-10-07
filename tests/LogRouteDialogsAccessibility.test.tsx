@@ -89,8 +89,8 @@ describe('log and route dialog accessibility', () => {
         );
 
         const checkbox = screen.getByRole('checkbox', { name: "Don't show this again" });
-        const dismiss = screen.getByRole('button', { name: 'Dismiss GPS disclaimer' });
-        const dialog = screen.getByRole('dialog', { name: 'GPS Accuracy Notice' });
+        const dismiss = screen.getByRole('button', { name: 'Start tracking' });
+        const dialog = screen.getByRole('dialog', { name: 'Logging from this phone' });
         const overlay = dialog.closest<HTMLElement>('[data-overlay-layer="modal"]');
         expect(dialog).toContainElement(checkbox);
         expect(overlay?.parentElement).toBe(document.body);

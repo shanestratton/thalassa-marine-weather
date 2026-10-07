@@ -12,6 +12,11 @@
 import { supabase, getCurrentUser } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { toDbFormat, fromDbFormat, formatPositionDMS, SHIP_LOGS_TABLE } from './helpers';
+import {
+    positionSourceColumnKnownPresent,
+    positionSourceColumnPresent,
+    withPositionSource,
+} from './positionSourceColumn';
 import { queueOfflineEntry, demoteLatestPositionInQueue, runVoyageCloudMutation } from './OfflineQueue';
 import { BgGeoManager, CachedPosition } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
@@ -160,6 +165,9 @@ export async function saveEntryOnlineOrOffline(
                         const row = toDbFormat({ ...entry, userId: user.id });
                         delete row.id;
                         row.client_operation_id = operationId;
+                        // Whose fix (build 123): only once the column has been
+                        // seen — this 5 s save never spends its budget probing.
+                        withPositionSource(row, entry.positionSource, positionSourceColumnKnownPresent());
                         const { data, error } = await database
                             .from(SHIP_LOGS_TABLE)
                             .upsert(row, {
@@ -192,7 +200,8 @@ export async function saveEntryOnlineOrOffline(
 
 /**
  * Background GPS retry — attempts to get GPS position and update a saved entry.
- * Retries every 5 seconds for up to 30 seconds total.
+ * Retries every 5 seconds for up to 30 seconds total. The position it writes
+ * is this phone's, and says so where the column exists (build 123 review).
  */
 export async function retryGpsAndUpdateEntry(
     entryId: string,
@@ -226,6 +235,8 @@ export async function retryGpsAndUpdateEntry(
                 if (typeof heading === 'number' && Number.isFinite(heading)) {
                     updateData.course_deg = Math.round(heading);
                 }
+                withPositionSource(updateData, 'phone', await positionSourceColumnPresent(database));
+                if (!operationIsCurrent(scope, sessionGuard)) return;
 
                 const response = await boundedRequest(
                     (signal) =>

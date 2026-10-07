@@ -17,6 +17,7 @@ import type { CachedPosition } from '../BgGeoManager';
 import { BgGeoManager } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
 import { NmeaGpsProvider } from '../NmeaGpsProvider';
+import { isPhoneFixSource } from './trackSourcePlan';
 
 // Exported: these are THE app-wide GPS-age tiers (<60s locked, <5min
 // stale, beyond = lost) — consumers (vessel marker staleness, GPS chips)
@@ -60,10 +61,23 @@ export type GpsStatus = 'locked' | 'stale' | 'none';
  *
  * `cachedFix` is the orchestrator's `lastBgLocation`. It changes as new
  * GPS fixes stream in. Pass null if no cached fix is available yet.
+ *
+ * `phoneAllowed` (build 123, package VL) is the track's own stand-in rule
+ * (GpsSubscriptionManager.phoneMayStandIn). When it says no, every phone rung
+ * is skipped and an entry with no boat lane gets no position — never the
+ * phone the track is refusing (a Voyage End pinned at a car park while her
+ * track sat on her mooring). Absent = allowed, as before.
+ *
+ * Every answer carries `fixSource`: the bus as the track tags it
+ * (`classifyBusFix`: 'vessel' on her own Wi-Fi, 'vessel-relay' when her LAN
+ * is reached over a private network from elsewhere — 'vessel' when absent);
+ * the Pi direct and her cloud row 'vessel-relay'; the phone 'phone' (or the
+ * cached fix's own tag).
  */
 export async function getBestPosition(
     cachedFix: CachedPosition | null,
     isNative: boolean,
+    options: { phoneAllowed?: () => boolean; classifyBusFix?: () => 'vessel' | 'vessel-relay' } = {},
 ): Promise<CachedPosition | null> {
     // 1. NMEA / external GPS (the precision tracker prefers it)
     const nmeaPos = NmeaGpsProvider.getPosition();
@@ -77,6 +91,7 @@ export async function getBestPosition(
             timestamp: nmeaPos.timestamp,
             receivedAt: Date.now(),
             altitude: null,
+            fixSource: options.classifyBusFix?.() ?? 'vessel',
         } as CachedPosition;
     }
 
@@ -95,20 +110,27 @@ export async function getBestPosition(
                 timestamp: boat.timestamp,
                 receivedAt: Date.now(),
                 altitude: null,
+                fixSource: 'vessel-relay',
             } as CachedPosition;
         }
     } catch {
         /* the phone rungs below */
     }
 
-    // 2. Cached phone GPS (battery-friendly; the onLocation stream keeps
-    //    this fresh while tracking is on).
+    // The phone rungs obey the track's hold.
+    const phoneAllowed = !options.phoneAllowed || options.phoneAllowed();
+
+    // 2. The cached fix (battery-friendly; the onLocation stream keeps this
+    //    fresh while tracking is on). Untagged means the phone's engine. A
+    //    cached fix of HER receivers is still hers while the phone is held.
     if (cachedFix && isPlausibleLatLon(cachedFix.latitude, cachedFix.longitude)) {
         const age = Date.now() - cachedFix.receivedAt;
         if (age < GPS_STALE_LIMIT_MS) {
-            return cachedFix;
+            const tagged: CachedPosition = cachedFix.fixSource ? cachedFix : { ...cachedFix, fixSource: 'phone' };
+            if (phoneAllowed || !isPhoneFixSource(tagged.fixSource)) return tagged;
         }
     }
+    if (!phoneAllowed) return null;
 
     // 3. Cache stale or empty — fetch fresh. Native goes through
     //    BgGeoManager (the Transistorsoft plugin); web uses the helper
@@ -116,7 +138,7 @@ export async function getBestPosition(
     //    the navigator.geolocation prompt path.
     if (isNative) {
         const fresh = await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 15);
-        return fresh && isPlausibleLatLon(fresh.latitude, fresh.longitude) ? fresh : null;
+        return fresh && isPlausibleLatLon(fresh.latitude, fresh.longitude) ? { ...fresh, fixSource: 'phone' } : null;
     }
     const webPos = await GpsService.getCurrentPosition({
         staleLimitMs: GPS_STALE_LIMIT_MS,
@@ -132,6 +154,7 @@ export async function getBestPosition(
         speed: webPos.speed,
         timestamp: webPos.timestamp,
         receivedAt: Date.now(),
+        fixSource: 'phone',
     } as CachedPosition;
 }
 
