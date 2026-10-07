@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 7 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
+Updated 8 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -315,6 +315,21 @@ supersedes those blocks. Inspect the checkpoint's precise receipts
 and remaining Keychain/install, account/device and prekey recovery gaps.
 
 ## Review scope
+
+The [8 October lifecycle evidence](../experiments/scuttlebutt-e2ee/review/ui-lifecycle-2026-10-08.json)
+adds effect-owned Research compositions, BFCache suspension and action-owned busy
+state. An idempotent terminal verify fence uses a same-native-proxy FIFO so an old
+window cannot fence after replacement verification. Terminal failure is not
+successful credential revocation. Hidden SDK events and canceled first login do
+not establish an owner; resume needs explicit fresh verification.
+
+Eighteen new DOM integration cases exercise the real React page and JS adapters
+with synthetic SDK/native replies. Focused UI/Auth passed 97 tests, Research
+passed 1,765 in 24 suites, and overlapping app/pilot passed 689 in 32 suites.
+Types/lint and the separate web/unsigned 18-source iOS build pass. Actual SDK
+network, Capacitor/native lifecycle, browser visual QA and device execution remain
+unperformed. Retained initial type failures and obsolete fence-order assertions
+are linked to corrected evidence; no hosted state or human device changed.
 
 | Boundary                             | Questions the assessor should answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

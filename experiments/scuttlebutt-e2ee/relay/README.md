@@ -196,6 +196,13 @@ live run. Pure metadata tests can be rerun without hosted writes.
 
 ## Explicit private entry and native startup denial
 
+The later [UI lifecycle evidence](../review/ui-lifecycle-2026-10-08.json) executes
+the real React page/JS composition with synthetic SDK/native replies, including
+BFCache, StrictMode/remount, hidden work, canceled sign-in and queued fence races.
+It supplies no actual SDK network/Capacitor/native/device execution. A private
+same-proxy FIFO orders verify/sign-out/terminal fences; disposal is idempotent,
+and a failed terminal attempt never implies successful credential revocation.
+
 `../app-pilot/entry.ts` installs a global private legacy denial synchronously
 before dynamically loading its isolated UI. Ordinary `index.tsx` does not import
 it. The build's closed graph substitutes a refusing legacy page and rejects

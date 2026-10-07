@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 7 October 2026. Active branch:
+Updated: 8 October 2026. Active branch:
 `codex/scuttlebutt-e2ee-integration-2026-10-06`.
 The published foundation branch remains at `3c30f47c`; it was not rewritten.
 The integration branch was rebased onto master `7e0b27a4`, retaining the newer
@@ -120,6 +120,55 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 8 October isolated message page lifecycle fixtures
+
+The dedicated page now creates one effect-owned composition per mount instead
+of disposing module singletons that a restored/remounted window cannot restart.
+Persisted pagehide/BFCache suspension closes the view, clears its password and
+blocks native renewal from hidden SDK events. A previously verified owner can
+continue only through explicit fresh verification. SDK memory from a canceled
+first sign-in does not establish an owner on resume. Nonpersisted termination
+stays closed with a reload notice; it never silently reopens or reenrolls.
+
+Each action owns its busy ticket. Hidden or duplicate submissions refuse at
+dispatch; logout can supersede an older open, and its older completion cannot
+clear a newer busy state. The same native proxy has a private FIFO fence queue.
+Revision checks occur at queued dispatch, and idempotent disposal queues one
+terminal verify-only fence before replacement initialization. This fixes the
+previous suspend-then-dispose path that skipped its queued fence. Cleanup failure
+cannot suppress the terminal attempt. A failed fence is not successful native
+revocation, and JS FIFO is not independent evidence of native bridge ordering.
+
+**18 new UI integration cases** execute the real React page and JS controller,
+admission source, native port and rendering runtime with synthetic SDK/native
+replies. Unexpected fetch, enrollment, claim, protected selection and sends are
+forbidden. Cases cover startup denial, password clearing, hidden/canceled work,
+original bindings, unknown admission, honest null text/time and received status,
+BFCache, StrictMode/remount, logout/busy races, delayed and failed terminal fences,
+and SDK cleanup failure. The focused UI/Auth run passed **97 tests**. Full
+Research passed **1,765 tests in 24 suites**; the overlapping app/pilot suite
+passed **689 in 32 suites**. Focused types and named lint pass.
+
+Retained failures include circular/widened fixture types and three old Auth
+assertions that assumed fences could bypass an unresolved predecessor or that
+disposal made no terminal call. Updated assertions still forbid stale token
+acquisition/renewal, but release the held predecessor before awaiting serialized
+logout. The [lifecycle manifest](../experiments/scuttlebutt-e2ee/review/ui-lifecycle-2026-10-08.json)
+links sources, complete regression logs and the separate web/unsigned iOS build.
+The web build transformed 88 modules; the matching 18-source unsigned Research
+package compiled. Native Swift/provider sources are unchanged from the preceding
+startup candidate. No signing, installation, launch, live login, backend actor
+change, primary sync, production update or master mutation occurred.
+
+This is local DOM integration, not actual Supabase SDK network, Capacitor bridge,
+provider/Keychain execution, browser visual QA or physical-device acceptance.
+Next remains actual dedicated-entry SDK/Capacitor/UI execution with an explicit
+fresh owned fixture plan, without resetting the consumed hosted actors. Full
+router integration, legacy/push enforcement, lifecycle/recovery/retention,
+independent concurrency, dependency obligations and external review still gate
+release. The review package separates this fixture slice from earlier native and
+hosted evidence rather than transferring those passes automatically.
 
 ### 7 October explicit private entry and native admission facts
 

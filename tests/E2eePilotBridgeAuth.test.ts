@@ -637,9 +637,9 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         h.native.fenceSession.mockReturnValueOnce(fence.promise);
         const stale = h.controller.reverify();
         await settle();
-        await h.controller.signOut();
+        const ending = h.controller.signOut();
         fence.resolve({ status: 'fenced', authFence: 'fixture-stale-fence' });
-        await stale;
+        await Promise.all([stale, ending]);
         expect(h.sdk.getSession).not.toHaveBeenCalled();
     });
 
@@ -766,6 +766,8 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         expect(h.native.fenceSession).not.toHaveBeenCalled();
         await h.controller.signIn('a@example.test', 'fixture-password');
         h.controller.dispose();
+        await settle();
+        expect(h.native.fenceSession.mock.calls.at(-1)?.[0].mode).toBe('verify');
         h.native.fenceSession.mockClear();
         expect(await h.controller.reverifyForPairing()).toBeNull();
         expect(h.sdk.getSession).not.toHaveBeenCalled();
@@ -1048,9 +1050,9 @@ describe('isolated auth-only research bridge with mocked SDK/native ports', () =
         h.native.fenceSession.mockReturnValueOnce(fence.promise);
         h.emit('SIGNED_OUT');
         await settle();
-        await h.controller.signOut();
+        const ending = h.controller.signOut();
         fence.resolve({ status: 'fenced', authFence: 'fixture-stale-suspension' });
-        await settle();
+        await ending;
         expect(h.native.fenceSession.mock.calls.at(-1)?.[0]).toEqual({ mode: 'sign_out' });
         expect(h.sdk.signOut).toHaveBeenCalledTimes(1);
         expect(h.controller.getState()).toEqual({ status: 'signed_out', account: null });
