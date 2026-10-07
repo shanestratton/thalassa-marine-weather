@@ -9,7 +9,7 @@
  * it has no handler). Fictional people only.
  */
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CrewMember } from '../services/CrewService';
 import type { PassageStatus } from '../services/PassagePlanService';
@@ -23,6 +23,9 @@ const ROLLED_DEPARTURE = '2026-12-01T21:00:00.000Z';
 const mocks = vi.hoisted(() => ({
     getPassageStatus: vi.fn(),
     getMyMemberships: vi.fn(),
+    getMyInvites: vi.fn(),
+    acceptInvite: vi.fn(),
+    declineInvite: vi.fn(),
     updateVoyage: vi.fn(),
     galley: vi.fn(),
     watch: vi.fn(),
@@ -84,12 +87,27 @@ vi.mock('../services/CrewService', () => ({
     removeCrew: vi.fn(),
     disbandGroup: vi.fn(),
     updateCrewPermissions: vi.fn(),
-    getMyInvites: vi.fn(async () => []),
+    getMyInvites: mocks.getMyInvites,
     getMyMemberships: mocks.getMyMemberships,
-    acceptInvite: vi.fn(),
-    declineInvite: vi.fn(),
+    acceptInvite: mocks.acceptInvite,
+    declineInvite: mocks.declineInvite,
     leaveVessel: vi.fn(),
 }));
+
+/** Another skipper (fictional) asks this skipper to crew on their boat. */
+const ANA_INVITE: CrewMember = {
+    ...MIA,
+    id: 'invite-ana',
+    owner_id: 'skipper-ana',
+    crew_user_id: 'skipper-1',
+    crew_email: 'skipper@example.com',
+    owner_email: 'ana.reyes@example.com',
+    shared_registers: ['stores'],
+    status: 'pending',
+    role: 'deckhand',
+};
+/** The same row once accepted: this skipper crews on Ana's boat. */
+const ANA_BOAT: CrewMember = { ...ANA_INVITE, status: 'accepted', updated_at: '2026-10-07T00:00:00.000Z' };
 vi.mock('../services/crew/crewCardNames', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/crew/crewCardNames')>()),
     loadCrewCardNames: vi.fn(async () => ({ 'u-mia': 'Mia Chen' })),
@@ -348,6 +366,18 @@ async function noAnswerForSixSecondsThenLate(release: ReturnType<typeof holdPass
     await waitFor(() => expect(departureWrites()).toHaveLength(1));
 }
 
+/** From the painted card (fake timers on): 6 s with no answer drops the paint. */
+async function sixSecondsWithNoAnswer() {
+    // Let the page finish what painting the card started (see above).
+    await act(async () => {});
+    await act(async () => {
+        vi.advanceTimersByTime(6000);
+    });
+    expect(screen.queryByTestId('summary-card')).not.toBeInTheDocument();
+    expect(screen.getByText('Checking passage access…')).toBeInTheDocument();
+    expect(screen.getByText(/No answer yet/)).toBeInTheDocument();
+}
+
 describe('Crew & Float Plan: painted passage access hands the cards no write', () => {
     beforeEach(() => {
         clearStaleWindowEvent();
@@ -357,6 +387,9 @@ describe('Crew & Float Plan: painted passage access hands the cards no write', (
         vi.clearAllMocks();
         mocks.summaryRenderMs = 0;
         mocks.getMyMemberships.mockImplementation(async () => []);
+        mocks.getMyInvites.mockImplementation(async () => []);
+        mocks.acceptInvite.mockResolvedValue(true);
+        mocks.declineInvite.mockResolvedValue(true);
         mocks.updateVoyage.mockResolvedValue({ voyage: null });
     });
 
@@ -429,8 +462,11 @@ describe('Crew & Float Plan: painted passage access hands the cards no write', (
         // (with its own 6 s) runs a turn after the card is on screen.
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
         mocks.summaryRenderMs = 25;
+        // A boat this skipper crews on: memberships that differ from the
+        // empty list the page starts with, so they do start a re-check (a
+        // reload with the same rows no longer does).
         mocks.getMyMemberships.mockImplementation(
-            () => new Promise<CrewMember[]>((resolve) => setTimeout(() => resolve([]), 60)),
+            () => new Promise<CrewMember[]>((resolve) => setTimeout(() => resolve([ANA_BOAT]), 60)),
         );
         const key = rememberOwnerGrant();
         const release = holdPassageStatus();
@@ -438,6 +474,107 @@ describe('Crew & Float Plan: painted passage access hands the cards no write', (
         expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'false');
 
         await noAnswerForSixSecondsThenLate(release, key);
+    });
+
+    it('a reload that brings back the same memberships starts no new check, so a timed-out paint stays down', async () => {
+        // Every accept, decline, invite and permission save reloads your
+        // memberships. The same rows again are not a reason to check access
+        // again, and must not paint a grant whose 6 s already ran out.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+        mocks.getMyInvites.mockImplementation(async () => [ANA_INVITE]);
+        rememberOwnerGrant();
+        const release = holdPassageStatus();
+        render(<CrewManagement onBack={vi.fn()} />);
+        expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'false');
+        await sixSecondsWithNoAnswer();
+        const checks = mocks.getPassageStatus.mock.calls.length;
+
+        // Decline Ana's invite: the page reloads, and your memberships come
+        // back exactly as they were.
+        mocks.getMyInvites.mockImplementation(async () => []);
+        fireEvent.click(screen.getByRole('button', { name: 'Decline crew invite request' }));
+        await waitFor(() => expect(mocks.getMyMemberships).toHaveBeenCalledTimes(2));
+        await waitFor(() =>
+            expect(screen.queryByRole('button', { name: 'Decline crew invite request' })).not.toBeInTheDocument(),
+        );
+        await act(async () => {});
+
+        expect(mocks.getPassageStatus).toHaveBeenCalledTimes(checks);
+        expect(screen.queryByTestId('summary-card')).not.toBeInTheDocument();
+        expect(screen.getByText('Checking passage access…')).toBeInTheDocument();
+        expect(screen.getByText(/No answer yet/)).toBeInTheDocument();
+
+        // The check that is still out answers, and the page follows it.
+        await release(OWNER);
+        await waitFor(() => expect(screen.getByTestId('summary-card')).toHaveAttribute('data-can-edit', 'true'));
+    });
+
+    it('memberships that really change check again, but a timed-out grant waits for a verified answer', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+        mocks.getMyInvites.mockImplementation(async () => [ANA_INVITE]);
+        const key = rememberOwnerGrant();
+        const release = holdPassageStatus();
+        render(<CrewManagement onBack={vi.fn()} />);
+        expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'false');
+        await sixSecondsWithNoAnswer();
+        const checks = mocks.getPassageStatus.mock.calls.length;
+
+        // Accept Ana's invite: you are now crew on her boat, which can change
+        // what you may see, so the page checks access again.
+        mocks.getMyInvites.mockImplementation(async () => []);
+        mocks.getMyMemberships.mockImplementation(async () => [ANA_BOAT]);
+        fireEvent.click(screen.getByRole('button', { name: 'Accept crew invite request' }));
+        await waitFor(() => expect(mocks.getPassageStatus).toHaveBeenCalledTimes(checks + 1));
+        await act(async () => {});
+
+        // The new check stalls too: the grant that already ran out of time is
+        // not painted again, now or later.
+        expect(screen.queryByTestId('summary-card')).not.toBeInTheDocument();
+        expect(screen.getByText('Checking passage access…')).toBeInTheDocument();
+        await act(async () => {
+            vi.advanceTimersByTime(6000);
+        });
+        expect(screen.queryByTestId('summary-card')).not.toBeInTheDocument();
+        expect(screen.getByText(/No answer yet/)).toBeInTheDocument();
+        // Still no answer is still not a denial.
+        expect(localStorage.getItem(key)).not.toBeNull();
+        expect(departureWrites()).toHaveLength(0);
+
+        await release(OWNER);
+        await waitFor(() => expect(screen.getByTestId('summary-card')).toHaveAttribute('data-can-edit', 'true'));
+        await waitFor(() => expect(departureWrites()).toHaveLength(1));
+    });
+
+    it('a re-check while the grant is painted keeps the first check’s 6 s, not a fresh 6 s', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+        mocks.getMyInvites.mockImplementation(async () => [ANA_INVITE]);
+        rememberOwnerGrant();
+        const release = holdPassageStatus();
+        render(<CrewManagement onBack={vi.fn()} />);
+        expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'false');
+        await act(async () => {});
+        const checks = mocks.getPassageStatus.mock.calls.length;
+
+        await act(async () => {
+            vi.advanceTimersByTime(2000);
+        });
+        mocks.getMyInvites.mockImplementation(async () => []);
+        mocks.getMyMemberships.mockImplementation(async () => [ANA_BOAT]);
+        fireEvent.click(screen.getByRole('button', { name: 'Accept crew invite request' }));
+        await waitFor(() => expect(mocks.getPassageStatus).toHaveBeenCalledTimes(checks + 1));
+        await act(async () => {});
+        // Still inside the first 6 s: still painted, still read-only.
+        expect(screen.getByTestId('summary-card')).toHaveAttribute('data-can-edit', 'false');
+
+        // 6 s after the first paint, not 6 s after the re-check.
+        await act(async () => {
+            vi.advanceTimersByTime(4000);
+        });
+        expect(screen.queryByTestId('summary-card')).not.toBeInTheDocument();
+        expect(screen.getByText(/No answer yet/)).toBeInTheDocument();
+
+        await release(OWNER);
+        await waitFor(() => expect(screen.getByTestId('summary-card')).toHaveAttribute('data-can-edit', 'true'));
     });
 
     it('an answered denial forgets the grant; the same "no access" while offline does not', async () => {

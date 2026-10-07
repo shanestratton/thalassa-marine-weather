@@ -132,6 +132,13 @@ import { shareMyFloatPlanDetails } from '../services/crew/crewFloatPlanDetails';
 // ── The page's tier-1 look (Shane 2026-10-06) ──
 import { useCrewCardNames } from '../hooks/useCrewCardNames';
 import { readLastPassageStatus, rememberPassageStatus } from '../services/crew/lastPassageStatus';
+// ── The 2026-10-07 tidy-up: re-checks and paints only when something changed ──
+import {
+    appendRowsNotListed,
+    keepMembershipsIfUnchanged,
+    membershipsContentKey,
+} from './crewManagement/membershipsContent';
+import { createPassagePaintWindows } from './crewManagement/passagePaintWindows';
 
 /** Re-exported here so every existing importer of this module is unchanged. */
 export type { VoyageRow } from './crewManagement/types';
@@ -211,6 +218,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     /** Boats left (confirmed) on this mount, hidden until the snapshot drops them. */
     const [leftOwnerIds, setLeftOwnerIds] = useState<string[]>([]);
     const [sharedVoyagesChecked, setSharedVoyagesChecked] = useState(false);
+    // The last shared-passage lookup came back incomplete (a lookup failed):
+    // that is not "nothing shared", so the crewing view must not say it is.
+    const [sharedCheckIncomplete, setSharedCheckIncomplete] = useState(false);
     const acceptedOwnerRef = useRef<string | null>(null);
 
     // Auth + Cast Off
@@ -264,6 +274,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // dropped (a stalled link must not keep a possibly-revoked grant on
     // screen) and the loading line says the connection is slow.
     const [passageCheckSlow, setPassageCheckSlow] = useState(false);
+    // One 6 s paint per account + passage between verified answers, however
+    // many re-checks start meanwhile (components/crewManagement/passagePaintWindows).
+    const [paintWindows] = useState(() => createPassagePaintWindows(PASSAGE_CHECK_PAINT_MS));
+    // The account + passage whose access the page is showing right now.
+    const paintKeyRef = useRef<string | null>(null);
+    // Choosing the passage that is already selected checks its access again
+    // (and is how a "no access" from a dropped link is retried). The id alone
+    // does not change, and the access effect no longer re-runs on every
+    // memberships reload, which was the only thing that ever cleared the
+    // "Checking passage access…" that choice left behind.
+    const [passageRecheck, setPassageRecheck] = useState(0);
     const passageSelectionVersion = useRef(0);
     const dropdownReloadVersion = useRef(0);
     // ETA-backfill writes are capped at one attempt per row per mount: the
@@ -277,6 +298,18 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const inviteOperationVersion = useRef(0);
     const inviteSuccessTimer = useRef<number | null>(null);
     const dataLoadTimeouts = useRef(new Map<number, () => void>());
+    // Edits this page makes to its own lists: Remove, Leave, Undo, a failed
+    // removal put back, Disband. Each moves its list's count on, and a load
+    // that asked before the edit does not overwrite it (loadData).
+    const localListEdits = useRef({ crew: 0, memberships: 0 });
+    const noteLocalListEdit = (mode: 'captain' | 'crew') => {
+        if (mode === 'captain') localListEdits.current.crew += 1;
+        else localListEdits.current.memberships += 1;
+    };
+    // Bumped each time your memberships are answered, so the shared-passage
+    // lookup runs for every answer, even one React folds into a single render
+    // with the "not loaded" that came before it.
+    const [membershipsAnswers, setMembershipsAnswers] = useState(0);
 
     // ── Readiness card states ──
     const [customsCleared, setCustomsCleared] = useState(false);
@@ -415,6 +448,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setPassageStatus(NO_PASSAGE_ACCESS);
             setPassageStatusLoading(Boolean(next.userId));
             setPaintedPassageStatus(null);
+            paintWindows.clear();
+            paintKeyRef.current = null;
             setLoading(Boolean(next.userId));
             setDeletedMember(null);
             setActiveVoyageName(null);
@@ -422,6 +457,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setShowOwnBoat(false);
             setLeftOwnerIds([]);
             setSharedVoyagesChecked(false);
+            setSharedCheckIncomplete(false);
             acceptedOwnerRef.current = null;
 
             setShowInviteModal(false);
@@ -449,7 +485,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             });
             resetReadinessState();
         },
-        [resetReadinessState],
+        [paintWindows, resetReadinessState],
     );
 
     useEffect(
@@ -513,12 +549,31 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // UI gate ALWAYS clears, and a 6 s timeout race so even a true
     // hang surrenders instead of leaving the page partially-rendered
     // forever.
+    //
+    // Surrendering is not forgetting (2026-10-07): an answer that lands after
+    // the 6 s still fills its list, so memberships on a slow satellite link
+    // still load the skipper's shared passages. Until they do, the crewing
+    // view says it couldn't check rather than that nothing was shared.
+    //
+    // An answer is older than the list on screen once you have changed that
+    // list here (Remove, Leave, Undo…) after this load asked: it would bring a
+    // removed person back, or add an undone one twice. It is dropped, and the
+    // next load reads the list afresh.
     const loadData = useCallback(async () => {
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
         const requestVersion = ++dataLoadVersion.current;
+        // A newer load, unmount or another account each move the version on.
+        const stillCurrent = () => requestVersion === dataLoadVersion.current && scopeStillOwnsPage(scope);
+        const editsWhenAsked = { ...localListEdits.current };
+        const crewUnedited = () => localListEdits.current.crew === editsWhenAsked.crew;
+        const membershipsUnedited = () => localListEdits.current.memberships === editsWhenAsked.memberships;
         setLoading(true);
         setMembershipsLoaded(false);
+        // What the skipper has shared is known again only once these
+        // memberships are: a boat you just accepted is not in the last answer.
+        setSharedVoyagesChecked(false);
+        setSharedCheckIncomplete(false);
         let timeoutId: number | null = null;
         const timeout = new Promise<'timeout'>((resolve) => {
             timeoutId = window.setTimeout(() => {
@@ -527,27 +582,50 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             }, 6000);
             dataLoadTimeouts.current.set(timeoutId, () => resolve('timeout'));
         });
-        const work = Promise.allSettled([getMyCrew(), getMyInvites(), getMyMemberships()]);
+        const crewWork = getMyCrew();
+        const invitesWork = getMyInvites();
+        const shipsWork = getMyMemberships();
+        // The same rows again keep the same array, so the passage access
+        // check (keyed on their content) does not start over for nothing.
+        const applyCrew = (rows: CrewMember[]) => {
+            if (crewUnedited()) setMyCrew(rows);
+        };
+        const applyMemberships = (rows: CrewMember[]) => {
+            if (!membershipsUnedited()) return;
+            setMemberships((previous) => keepMembershipsIfUnchanged(previous, rows));
+            setMembershipsLoaded(true);
+            setMembershipsAnswers((count) => count + 1);
+        };
+        const work = Promise.allSettled([crewWork, invitesWork, shipsWork]);
         try {
             const result = await Promise.race([work, timeout]);
-            if (requestVersion !== dataLoadVersion.current || !scopeStillOwnsPage(scope)) return;
+            if (!stillCurrent()) return;
             if (result === 'timeout') {
-                console.warn('[CrewManagement] loadData: timed out after 6s — leaving lists empty for now');
+                console.warn('[CrewManagement] loadData: no answer after 6s — the lists fill in if it comes late');
+                // Each list lands on its own when it answers, unless this
+                // load has been superseded. A failure leaves it as it is.
+                const ignore = () => undefined;
+                void crewWork.then((rows) => {
+                    if (stillCurrent()) applyCrew(rows);
+                }, ignore);
+                void invitesWork.then((rows) => {
+                    if (stillCurrent()) setPendingInvites(rows);
+                }, ignore);
+                void shipsWork.then((rows) => {
+                    if (stillCurrent()) applyMemberships(rows);
+                }, ignore);
             } else {
                 const [crewRes, invitesRes, shipsRes] = result;
-                if (crewRes.status === 'fulfilled') setMyCrew(crewRes.value);
+                if (crewRes.status === 'fulfilled') applyCrew(crewRes.value);
                 if (invitesRes.status === 'fulfilled') setPendingInvites(invitesRes.value);
-                if (shipsRes.status === 'fulfilled') {
-                    setMemberships(shipsRes.value);
-                    setMembershipsLoaded(true);
-                }
+                if (shipsRes.status === 'fulfilled') applyMemberships(shipsRes.value);
             }
         } finally {
             if (timeoutId !== null) {
                 window.clearTimeout(timeoutId);
                 dataLoadTimeouts.current.delete(timeoutId);
             }
-            if (requestVersion === dataLoadVersion.current && scopeStillOwnsPage(scope)) setLoading(false);
+            if (stillCurrent()) setLoading(false);
         }
     }, [scopeStillOwnsPage]);
 
@@ -571,9 +649,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             if (inviteSuccessTimer.current !== null) {
                 window.clearTimeout(inviteSuccessTimer.current);
             }
+            paintWindows.clear();
         },
-        [],
+        [paintWindows],
     );
+
+    // Re-check passage access when your memberships really change, not on
+    // every new array: loadData hands back a fresh array on each reload.
+    const membershipsKey = useMemo(() => membershipsContentKey(memberships), [memberships]);
 
     // Resolve owner/crew passage permissions independently from the roster
     // load. The selected localStorage ID is only navigation state; it is not
@@ -583,6 +666,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     useEffect(() => {
         const scope = getAuthIdentityScope();
         if (!authUserId || !scopeStillOwnsPage(scope)) {
+            paintKeyRef.current = null;
             setPassageStatus(NO_PASSAGE_ACCESS);
             setPassageStatusLoading(false);
             setPaintedPassageStatus(null);
@@ -591,14 +675,30 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         }
 
         let active = true;
+        const passageId = selectedPassageId || null;
+        const paintKey = passageId ? `${scope.key}::${passageId}` : null;
+        paintKeyRef.current = paintKey;
         setPassageStatus(NO_PASSAGE_ACCESS);
         setPassageStatusLoading(true);
         setPassageCheckSlow(false);
-        setPaintedPassageStatus(readLastPassageStatus(scope, selectedPassageId || null));
+        // The remembered grant paints within its one 6 s window for this
+        // account + passage. A re-check inside it carries on painting without
+        // extending it; once it has closed with no answer, the grant waits for
+        // a check to verify it (passagePaintWindows).
+        const remembered = readLastPassageStatus(scope, passageId);
+        const paint =
+            remembered !== null &&
+            paintKey !== null &&
+            paintWindows.claim(paintKey, () => {
+                if (paintKeyRef.current !== paintKey || !scopeStillOwnsPage(scope)) return;
+                setPaintedPassageStatus(null);
+                setPassageCheckSlow(true);
+            });
+        setPaintedPassageStatus(paint ? remembered : null);
 
-        // The paint lives no longer than this. The check carries on, and its
-        // answer, however late, still lands; the memory is left alone, since
-        // no answer is not a denial.
+        // No check paints for longer than this either. The check carries on,
+        // and its answer, however late, still lands; the memory is left
+        // alone, since no answer is not a denial.
         const slowTimer = window.setTimeout(() => {
             if (!active || !scopeStillOwnsPage(scope)) return;
             setPaintedPassageStatus(null);
@@ -616,18 +716,28 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             rememberPassageStatus(scope, selectedPassageId, status);
         };
 
-        void getPassageStatus(selectedPassageId || null)
+        // Only a verified grant lets this passage's remembered grant paint
+        // again; any other answer leaves it waiting for one.
+        const settleWindow = (status: PassageStatus) => {
+            if (!paintKey) return;
+            if (status.visible && status.voyageId === passageId) paintWindows.verified(paintKey);
+            else paintWindows.notGranted(paintKey);
+        };
+
+        void getPassageStatus(passageId)
             .then((status) => {
                 if (!active || !scopeStillOwnsPage(scope)) return;
                 setPassageStatus(status);
                 // A grant is remembered for the next visit's first paint; an
                 // answered denial (revoked) forgets it.
                 remember(status);
+                settleWindow(status);
             })
             .catch(() => {
                 if (!active || !scopeStillOwnsPage(scope)) return;
                 setPassageStatus(NO_PASSAGE_ACCESS);
                 remember(NO_PASSAGE_ACCESS);
+                settleWindow(NO_PASSAGE_ACCESS);
             })
             .finally(() => {
                 window.clearTimeout(slowTimer);
@@ -641,7 +751,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             active = false;
             window.clearTimeout(slowTimer);
         };
-    }, [authUserId, memberships, scopeStillOwnsPage, selectedPassageId]);
+    }, [authUserId, membershipsKey, paintWindows, passageRecheck, scopeStillOwnsPage, selectedPassageId]);
 
     useEffect(() => {
         const onPassageChanged = (event: Event) => {
@@ -752,6 +862,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // Do not force a refresh here. A cache or in-flight request is already
         // fresh enough to enrich the list, and force=true caused a second full
         // history download when crew membership finished loading.
+        const membershipsLoadAsked = dataLoadVersion.current;
         const [routesAndTracks, sharedResult, canonicalTraces] = await Promise.all([
             fetchRoutesAndTracks(),
             membershipsLoaded ? getAuthorizedSharedVoyages() : Promise.resolve({ voyages: [], complete: false }),
@@ -760,7 +871,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 .catch(() => loadSavedTraces(scope)),
         ]);
         if (requestVersion !== dropdownReloadVersion.current || !scopeStillOwnsPage(scope)) return;
-        if (membershipsLoaded) setSharedVoyagesChecked(true);
+        // Only a whole answer says what the skipper has shared; a lookup that
+        // failed part-way is "couldn't check", never "none". Nor does an
+        // answer from before a memberships reload began (an Accept, a Retry):
+        // it never asked about a boat that reload may add, so the lookup that
+        // follows those memberships decides.
+        if (membershipsLoaded && membershipsLoadAsked === dataLoadVersion.current) {
+            if (sharedResult.complete) setSharedVoyagesChecked(true);
+            setSharedCheckIncomplete(!sharedResult.complete);
+        }
         const canonicalById = new Map(canonicalTraces.map((trace) => [trace.id, trace] as const));
         const canonicalIds = new Set(canonicalById.keys());
         const exactPassageVoyageIds = canonicalPassageVoyageIds(canonicalTraces);
@@ -1319,7 +1438,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             };
         }
         return undefined;
-    }, [authUserId, privateScopeKey, reloadDropdown, scopeStillOwnsPage]);
+        // membershipsAnswers: every memberships answer gets its own shared-
+        // passage lookup (see where it is declared).
+    }, [authUserId, membershipsAnswers, privateScopeKey, reloadDropdown, scopeStillOwnsPage]);
 
     // ── Handlers ──
 
@@ -1424,6 +1545,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
         triggerHaptic('medium');
+        noteLocalListEdit(mode);
         if (mode === 'captain') {
             setMyCrew((prev) => prev.filter((m) => m.id !== member.id));
         } else {
@@ -1438,6 +1560,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (!scopeStillOwnsPage(scope) || rows.length === 0) return;
         triggerHaptic('medium');
         const ids = new Set(rows.map((row) => row.id));
+        noteLocalListEdit('crew');
         setMemberships((prev) => prev.filter((m) => !ids.has(m.id)));
         setDeletedMember({ member: rows[0], mode: 'crew', group: rows, label });
     };
@@ -1448,6 +1571,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (!scopeStillOwnsPage(scope)) return;
         const { member, mode, group, label } = deletedMember;
         setDeletedMember(null);
+        // The server's list changes from here: a load that asked before it
+        // would bring the row back.
+        noteLocalListEdit(mode);
         if (group) {
             const results = await Promise.all(group.map((row) => leaveVessel(row.id).catch(() => false)));
             if (!scopeStillOwnsPage(scope)) return;
@@ -1459,7 +1585,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             }
             toast.error(`Could not leave ${label ?? 'the boat'}`);
             const failed = group.filter((_row, index) => !results[index]);
-            setMemberships((prev) => [...prev, ...failed]);
+            noteLocalListEdit('crew');
+            setMemberships((prev) => appendRowsNotListed(prev, failed));
             return;
         }
         try {
@@ -1480,10 +1607,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         } catch {
             if (!scopeStillOwnsPage(scope)) return;
             toast.error(mode === 'captain' ? 'Could not remove crew' : 'Could not leave vessel');
+            noteLocalListEdit(mode);
             if (mode === 'captain') {
-                setMyCrew((prev) => [...prev, member]);
+                setMyCrew((prev) => appendRowsNotListed(prev, [member]));
             } else {
-                setMemberships((prev) => [...prev, member]);
+                setMemberships((prev) => appendRowsNotListed(prev, [member]));
             }
         }
     };
@@ -1499,6 +1627,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 ? selectedPassageId
                 : null;
         setDisbanding(true);
+        noteLocalListEdit('captain');
         const result = await disbandGroup();
         if (!scopeStillOwnsPage(scope)) return;
         setDisbanding(false);
@@ -1514,6 +1643,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             toast.success(
                 `Group disbanded — ${result.removedCount} member${result.removedCount !== 1 ? 's' : ''} removed`,
             );
+            noteLocalListEdit('captain');
             setMyCrew([]);
         } else {
             toast.error('Could not disband group');
@@ -1524,10 +1654,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const scope = getAuthIdentityScope();
         if (!scopeStillOwnsPage(scope)) return;
         if (deletedMember) {
+            noteLocalListEdit(deletedMember.mode);
             if (deletedMember.mode === 'captain') {
-                setMyCrew((prev) => [...prev, deletedMember.member]);
+                setMyCrew((prev) => appendRowsNotListed(prev, [deletedMember.member]));
             } else {
-                setMemberships((prev) => [...prev, ...(deletedMember.group ?? [deletedMember.member])]);
+                setMemberships((prev) => appendRowsNotListed(prev, deletedMember.group ?? [deletedMember.member]));
             }
             toast.success('Restored');
         }
@@ -1895,6 +2026,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
             setPassageStatus(NO_PASSAGE_ACCESS);
             setPassageStatusLoading(true);
+            setPassageRecheck((count) => count + 1);
             resetReadinessState();
             setActivePassage(realId);
             selectedPassageRef.current = realId;
@@ -1973,6 +2105,21 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const crewRows = crewingOwnerId
         ? memberships.filter((member) => member.owner_id === crewingOwnerId && member.status === 'accepted')
         : [];
+    // What the crewing view knows of the skipper's shared passages. "None" is
+    // said only after a whole answer. While your memberships or the lookup are
+    // still on their way it is loading; once they have stopped without one (a
+    // slow or dropped link) it says it couldn't check, with Retry. Your
+    // memberships answering late still moves it on (loadData keeps listening).
+    const sharedPassagesState: 'known' | 'checking' | 'unknown' = sharedVoyagesChecked
+        ? 'known'
+        : loading || (membershipsLoaded && !sharedCheckIncomplete)
+          ? 'checking'
+          : 'unknown';
+    const retryCrewData = () => {
+        if (!scopeStillOwnsPage(renderScope)) return;
+        triggerHaptic('light');
+        void loadData();
+    };
     // The stored active passage is navigation state. In the crewing view only
     // a verified passage of THIS skipper counts as selected; your own stays
     // stored (ChatPage and the own-boat view keep it) but reads as unselected.
@@ -2280,20 +2427,30 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     savedRoutePickerRows={savedRoutePickerRows}
                     selectedPassageId={pageSelectedPassageId}
                     handlePassageSelection={handlePassageSelection}
-                    // Crewing: wait for the shared passages, but only while
-                    // memberships can still arrive. A loadData that timed out
-                    // or failed (slow satellite link) settles to the empty
-                    // state; a later reload still fills it.
-                    savedRoutesLoading={
-                        crewingView ? !sharedVoyagesChecked && (loading || membershipsLoaded) : savedRoutesLoading
-                    }
+                    // Crewing: wait for the shared passages while they can
+                    // still arrive. A load that stopped without them (slow
+                    // satellite link) settles on "couldn't check" with Retry,
+                    // never on "nothing shared"; a late answer still fills it.
+                    savedRoutesLoading={crewingView ? sharedPassagesState === 'checking' : savedRoutesLoading}
                     ownVoyageCount={ownVoyageCount}
                     sharedVoyageCount={sharedVoyageCount}
                     {...(crewingView
                         ? {
-                              countLabel: `${crewPassages.length} shared from ${crewBoat}`,
-                              emptyTitle: 'No passage shared right now',
-                              emptyHint: `${crewBoat}'s skipper hasn't shared a passage with you right now.`,
+                              // "0 shared" is the same claim in numbers: only once known.
+                              countLabel:
+                                  sharedPassagesState === 'known' || crewPassages.length > 0
+                                      ? `${crewPassages.length} shared from ${crewBoat}`
+                                      : null,
+                              ...(sharedPassagesState === 'unknown'
+                                  ? {
+                                        emptyTitle: "Couldn't check the skipper's shared passages yet",
+                                        emptyHint: 'The connection may be slow. Tap Retry to check again.',
+                                        emptyAction: { label: 'Retry', onClick: retryCrewData },
+                                    }
+                                  : {
+                                        emptyTitle: 'No passage shared right now',
+                                        emptyHint: `${crewBoat}'s skipper hasn't shared a passage with you right now.`,
+                                    }),
                           }
                         : {})}
                 />
