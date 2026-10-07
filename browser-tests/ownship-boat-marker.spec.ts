@@ -29,9 +29,17 @@ interface Open {
     route?: boolean;
     bearing?: number;
     name?: string;
+    /** Her own wind on her icon (W1-WC): '<kt>[@<from>][~]', '~' the stale tier. */
+    wind?: string;
+    unit?: string;
+    /** The real right-rail zoom control and Locate row. */
+    furniture?: boolean;
 }
 
-async function open(page: Page, { width, height, state, base = 'plain', theme = 'dark', route, bearing, name }: Open) {
+async function open(
+    page: Page,
+    { width, height, state, base = 'plain', theme = 'dark', route, bearing, name, wind, unit, furniture }: Open,
+) {
     await page.setViewportSize({ width, height });
     await page.route('**/*', (r) => (new URL(r.request().url()).hostname === '127.0.0.1' ? r.continue() : r.abort()));
     await page.addInitScript(() => {
@@ -50,6 +58,9 @@ async function open(page: Page, { width, height, state, base = 'plain', theme = 
     if (route) query.set('route', '1');
     if (bearing) query.set('bearing', String(bearing));
     if (name) query.set('name', name);
+    if (wind) query.set('wind', wind);
+    if (unit) query.set('unit', unit);
+    if (furniture) query.set('furniture', '1');
     await page.goto(`/e2e/fixtures/ownship-boat-marker.html?${query}`);
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true', { timeout: 30_000 });
     await page.evaluate(async () => {
@@ -105,9 +116,9 @@ async function measure(page: Page) {
     });
 }
 
-/** WCAG contrast of the badge's text on its own chip, composited over the worst of black and white. */
-async function badgeContrast(page: Page) {
-    return page.locator('.vessel-sog-badge').evaluate((badge) => {
+/** WCAG contrast of a chip's text on its own fill (the badge by default), over the worst of black and white. */
+async function badgeContrast(page: Page, selector = '.vessel-sog-badge') {
+    return page.locator(selector).evaluate((badge) => {
         // Any CSS colour (Tailwind 4 speaks oklch) to sRGB and alpha, through a canvas.
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = 1;
@@ -286,4 +297,126 @@ test.describe('her last known position, with its message under Whole route', () 
             await shot(page, `after-held-route-${size.width}`);
         });
     }
+});
+
+/**
+ * Build 123, W1-WC. Shane 2026-10-07: "what about if it is just the highest
+ * zoom (14) as soon as the punter zooms out from there, then the wind models
+ * kick in??" — and her own reading moves onto her icon as a small arrow and
+ * number. Under the boat, centred on her fix: beside the badge it ran under
+ * the right-rail zoom control, which on a 320 px phone sits level with the
+ * centred boat. Wide fonts, real furniture, fictional values.
+ */
+async function measureWind(page: Page) {
+    return page.locator('.vessel-tracker-marker').evaluate((root) => {
+        const rect = (el: Element | null) => {
+            if (!el) return null;
+            const b = el.getBoundingClientRect();
+            return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height };
+        };
+        const shown = (el: Element | null) => !!el && getComputedStyle(el).display !== 'none';
+        const wind = root.querySelector<HTMLElement>('.vessel-wind-chip')!;
+        const arrow = root.querySelector<HTMLElement>('.vessel-wind-arrow')!;
+        const age = root.querySelector('.vessel-age-chip');
+        const boat = root.querySelector<HTMLElement>('.vessel-arrow')!;
+        const box = root.getBoundingClientRect();
+        const fix = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+        // The boat's box, unturned: a bow at any heading stays inside it.
+        const half = boat.offsetWidth / 2;
+        const style = getComputedStyle(wind);
+        const furniture = [...document.querySelectorAll('.thalassa-map-zoom, .thalassa-map-action-fabs')].map(rect);
+        return {
+            fix,
+            shown: shown(wind),
+            wind: rect(wind)!,
+            text: wind.querySelector('.vessel-wind-text')?.textContent ?? null,
+            fontPx: parseFloat(style.fontSize),
+            font: style.fontFamily,
+            arrowShown: shown(arrow),
+            arrowTransform: arrow.style.transform,
+            badge: rect(root.querySelector('.vessel-sog-badge'))!,
+            age: shown(age) ? rect(age) : null,
+            boat: { left: fix.x - half, top: fix.y - half, right: fix.x + half, bottom: fix.y + half },
+            furniture,
+            aria: root.getAttribute('aria-label'),
+            windAria: wind.getAttribute('aria-label'),
+            tone: wind.dataset.tone ?? null,
+        };
+    });
+}
+
+type Box = { left: number; top: number; right: number; bottom: number };
+const overlaps = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+const WIND_SCENES = [
+    { state: 'stopped', wind: '14@200', unit: 'kts', text: /^14 kt SSW$/, arrow: 'rotate(20deg)' },
+    // The age chip is up over an anchor word: clear of it too.
+    { state: 'anchored-stale', wind: '14@200', unit: 'kmh', text: /^26 km\/h SSW$/, arrow: 'rotate(20deg)' },
+    // A bow heading south-south-west reaches down toward the chip.
+    { state: 'heading', wind: '18@112', unit: 'kts', text: /^18 kt ESE$/, arrow: 'rotate(290deg)' },
+    // The widest everyday words, in the stale tier.
+    { state: 'underway', wind: '23@247~', unit: 'mph', text: /^27 mph WSW$/, arrow: 'rotate(65deg)' },
+    { state: 'held', wind: '0.4', unit: 'kts', text: /^Calm$/, arrow: null },
+] as const;
+
+test.describe('her own wind on her own icon, under the boat', () => {
+    for (const size of SIZES) {
+        for (const scene of WIND_SCENES) {
+            test(`${scene.state} with ${scene.wind} ${scene.unit} at ${size.width}x${size.height}`, async ({
+                page,
+            }) => {
+                await open(page, { ...size, state: scene.state, wind: scene.wind, unit: scene.unit, furniture: true });
+                const m = await measureWind(page);
+                expect(m.shown).toBe(true);
+                expect(m.text).toMatch(scene.text);
+                expect(m.font, 'the house wide-font rule').toMatch(/^(Verdana|"DejaVu Sans"|DejaVu Sans)/);
+                expect(m.fontPx, "the app's 12 px floor").toBeGreaterThanOrEqual(12);
+                // Centred under her fix, whole on screen.
+                expect(Math.abs((m.wind.left + m.wind.right) / 2 - m.fix.x)).toBeLessThan(1);
+                expect(m.wind.top).toBeGreaterThanOrEqual(m.boat.bottom);
+                expect(m.wind.left).toBeGreaterThanOrEqual(8);
+                expect(m.wind.right).toBeLessThanOrEqual(size.width - 8);
+                expect(m.wind.height).toBeLessThanOrEqual(22);
+                // Clear of the boat, the badge, the age chip and Obs's right rail.
+                expect(overlaps(m.wind, m.boat), 'the boat').toBe(false);
+                expect(overlaps(m.wind, m.badge), 'the badge').toBe(false);
+                if (m.age) expect(overlaps(m.wind, m.age), 'the age chip').toBe(false);
+                expect(m.furniture.length).toBe(2);
+                for (const part of m.furniture)
+                    expect(overlaps(m.wind, part!), 'the zoom control and Locate row').toBe(false);
+                // The arrow flies with the wind, as the streaks do; Calm has none.
+                if (scene.arrow) {
+                    expect(m.arrowShown).toBe(true);
+                    expect(m.arrowTransform).toBe(scene.arrow);
+                } else {
+                    expect(m.arrowShown).toBe(false);
+                }
+                expect(m.tone).toBe(scene.wind.endsWith('~') ? 'stale' : 'live');
+                // Its own name, and the marker's one spoken name ends with it.
+                expect(m.windAria).toMatch(/^Boat wind /);
+                expect(m.aria).toMatch(/^Kittiwake, .*; boat wind /);
+                await shot(page, `wind-${scene.state}-${size.width}`);
+            });
+        }
+    }
+
+    for (const theme of ['dark', 'light', 'night'] as const) {
+        for (const base of ['plain', 'relief', 'sat'] as const) {
+            for (const wind of ['14@200', '14@200~'] as const) {
+                test(`legible: ${wind.endsWith('~') ? 'stale' : 'live'} · ${base} · ${theme}`, async ({ page }) => {
+                    await open(page, { width: 390, height: 844, state: 'stopped', base, theme, wind });
+                    // 12 px bold is not large text: 4.5:1 whatever is under the chip.
+                    expect(await badgeContrast(page, '.vessel-wind-chip')).toBeGreaterThanOrEqual(4.5);
+                    await shot(page, `wind-${wind.endsWith('~') ? 'stale' : 'live'}-${base}-${theme}`);
+                });
+            }
+        }
+    }
+
+    test('with no reading of hers, the marker is exactly as before', async ({ page }) => {
+        await open(page, { width: 320, height: 568, state: 'stopped', furniture: true });
+        const m = await measureWind(page);
+        expect(m.shown).toBe(false);
+        expect(m.aria).toBe('Kittiwake, stopped; heading unavailable');
+    });
 });

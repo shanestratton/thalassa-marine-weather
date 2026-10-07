@@ -9,7 +9,9 @@ import {
 } from '../components/map/MapboxVelocityOverlay';
 import type { VelocityGribRecord } from '../components/map/windVelocityFrame';
 import type { WindGrid } from '../services/weather/windGridEncoding';
-import { getCloseInWindReadout, viewportGridCells } from '../components/map/closeInWind';
+import { getCloseInWindReadout, subscribeCloseInWindReadout, viewportGridCells } from '../components/map/closeInWind';
+import { boatWindChipFor, getBoatWindReadout, subscribeBoatWindReadout } from '../components/map/boatWindReadout';
+import { CloseInWindLayer } from '../components/map/CloseInWindLayer';
 
 type MapHandler = () => void;
 
@@ -159,13 +161,16 @@ vi.mock('../services/NmeaStore', () => ({ NmeaStore: nmea.NmeaStore }));
 // Ashore the store is empty on Obs, and the followed boat's wind comes from her
 // cloud row through the boat chain (followedBoatCloudWind), looked up on the
 // chain's own throttle (lookUpFollowedBoatWind) only while Obs is on screen.
+// `boat`: the boat the box follows (null crewOwnerId: the own boat; null: the phone).
 const instruments = vi.hoisted(() => ({
     followed: true,
+    boat: { crewOwnerId: null } as { crewOwnerId: string | null } | null,
     cloud: null as null | { wind: { kt: number; fromDeg: number | null; stale: boolean }; lat: number; lon: number },
     lookUp: vi.fn(async () => {}),
 }));
 vi.mock('../components/map/obsBoatInstruments', () => ({
     boatInstrumentsFollowed: () => instruments.followed,
+    followedBoatSubject: () => instruments.boat,
     followedBoatCloudWind: () => instruments.cloud,
     lookUpFollowedBoatWind: instruments.lookUp,
 }));
@@ -1272,7 +1277,8 @@ describe('MapboxVelocityOverlay close-in: the followed boat’s wind ashore', ()
             view.rerender(<MapboxVelocityOverlay {...all} boatLookUp={false} />);
             act(() => vi.advanceTimersByTime(10_000));
             expect(instruments.lookUp).toHaveBeenCalledTimes(3);
-            // Wind off, or zoomed out of close-in: nothing either.
+            // Wind off: nothing either. (Zoomed out of close-in it still asks: her
+            // wind then rides on her icon, W1-WC.)
             view.rerender(<MapboxVelocityOverlay {...all} boatLookUp visible={false} />);
             const before = instruments.lookUp.mock.calls.length;
             act(() => vi.advanceTimersByTime(10_000));
@@ -1342,5 +1348,353 @@ describe('MapboxVelocityOverlay close-in: the followed boat’s wind ashore', ()
             await Promise.resolve();
         });
         expect(getCloseInWindReadout()).toBeNull();
+        expect(getBoatWindReadout()).toBeNull();
+    });
+});
+
+/**
+ * Build 123, W1-WC. Shane 2026-10-07: "what about if it is just the highest
+ * zoom (14) as soon as the punter zooms out from there, then the wind models
+ * kick in??", then "go do it", on the recommendation that her reading moves
+ * onto her own boat icon once the models take over. The overlay publishes her
+ * wind with the field's own reading (boatWindReadout), and her marker shows it
+ * wherever the field does not: below 14 in close-in, and in the leaflet field
+ * further out. The two must never both claim her wind. Fictional values.
+ */
+describe('MapboxVelocityOverlay: her wind rides on her icon wherever the field is not showing it', () => {
+    const OWN = { kind: 'boat', crewOwnerId: null } as const;
+    /** What her marker would show now (the marker's own decision over the published readout). */
+    const chip = () => boatWindChipFor(getBoatWindReadout(), OWN, 'kts');
+    const fieldIsHers = () => getCloseInWindReadout()?.source === 'boat';
+
+    afterEach(() => {
+        nmea.reset();
+        instruments.followed = true;
+        instruments.boat = { crewOwnerId: null };
+        instruments.cloud = null;
+        instruments.lookUp.mockReset();
+        instruments.lookUp.mockImplementation(async () => {});
+        vi.restoreAllMocks();
+    });
+
+    function renderAt(zoom: number, props: Partial<ComponentProps<typeof MapboxVelocityOverlay>> = {}) {
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(zoom);
+        const all = {
+            mapboxMap: mapbox.map as never,
+            visible: true,
+            windGrid: airlieGrid(8, 135, 20),
+            windHour: 0,
+            windNowIdx: 0,
+            boatInstruments: true,
+            ...props,
+        };
+        const view = render(<MapboxVelocityOverlay {...all} />);
+        return { mapbox, view, all };
+    }
+
+    const herLive = () => nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+
+    it('zoom 14 with her live: the field is hers, and her icon carries nothing', () => {
+        herLive();
+        const { view } = renderAt(14);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat', kt: 14 });
+        expect(getBoatWindReadout()).toEqual({
+            wind: { kt: 14, fromDeg: 200, stale: false },
+            boat: { crewOwnerId: null },
+            fieldShowsHers: true,
+        });
+        expect(chip()).toBeNull();
+        view.unmount();
+    });
+
+    it('zoom 13 with her live: the model paints the field, her reading rides on her icon', () => {
+        herLive();
+        const { view } = renderAt(13);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(chip()).toEqual({
+            text: '14 kt SSW',
+            arrowDeg: 20,
+            stale: false,
+            label: 'Boat wind 14 knots from south-south-west',
+        });
+        view.unmount();
+    });
+
+    it('zoom 8, the leaflet field: her reading rides on her icon, and keeps up with her instruments', () => {
+        herLive();
+        const { view } = renderAt(8);
+        expect(getCloseInWindReadout()).toBeNull();
+        expect(chip()).toMatchObject({ text: '14 kt SSW', arrowDeg: 20 });
+        act(() => nmea.live({ tws: 16, twd: 210 }));
+        expect(chip()).toMatchObject({ text: '16 kt SSW', arrowDeg: 30 });
+        view.unmount();
+        expect(getBoatWindReadout()).toBeNull();
+        expect(nmea.listenerCount()).toBe(0);
+    });
+
+    it('scrubbed away from now: nothing on her icon, in close-in or out; back at now, at once', () => {
+        herLive();
+        const a = renderAt(13);
+        a.view.rerender(<MapboxVelocityOverlay {...a.all} windHour={1} />);
+        expect(getBoatWindReadout()).toBeNull();
+        a.view.rerender(<MapboxVelocityOverlay {...a.all} windHour={0} />);
+        expect(chip()).toMatchObject({ text: '14 kt SSW' });
+        a.view.unmount();
+
+        const b = renderAt(8, { windHour: 1 });
+        expect(getBoatWindReadout()).toBeNull();
+        b.view.rerender(<MapboxVelocityOverlay {...b.all} windHour={0} />);
+        expect(chip()).toMatchObject({ text: '14 kt SSW' });
+        b.view.unmount();
+    });
+
+    it('the box on Current Location or on a chosen place: nothing on any icon', () => {
+        herLive();
+        instruments.followed = false;
+        instruments.boat = null;
+        const a = renderAt(8);
+        expect(getBoatWindReadout()).toBeNull();
+        a.view.unmount();
+
+        instruments.followed = true;
+        instruments.boat = { crewOwnerId: null };
+        const b = renderAt(8, { boatInstruments: false });
+        expect(getBoatWindReadout()).toBeNull();
+        b.view.rerender(<MapboxVelocityOverlay {...b.all} boatInstruments />);
+        expect(chip()).toMatchObject({ text: '14 kt SSW' });
+        // The box moves to the phone: her icon lets go at once.
+        instruments.followed = false;
+        instruments.boat = null;
+        act(() => {
+            window.dispatchEvent(new CustomEvent('thalassa:weather-follow-target-changed'));
+        });
+        expect(getBoatWindReadout()).toBeNull();
+        b.view.unmount();
+    });
+
+    it('the boat crewed on: her own row’s wind, published as hers, never on the own boat’s icon', () => {
+        // The store holds the own boat's wind; the box follows the boat crewed on.
+        instruments.followed = false;
+        herLive();
+        instruments.boat = { crewOwnerId: 'skipper-wind-dancer' };
+        instruments.cloud = { wind: { kt: 22, fromDeg: 90, stale: false }, lat: AIRLIE.lat, lon: AIRLIE.lng };
+        const { view } = renderAt(8);
+        expect(getBoatWindReadout()).toMatchObject({
+            wind: { kt: 22, fromDeg: 90 },
+            boat: { crewOwnerId: 'skipper-wind-dancer' },
+        });
+        expect(chip()).toBeNull();
+        expect(
+            boatWindChipFor(getBoatWindReadout(), { kind: 'boat', crewOwnerId: 'skipper-wind-dancer' }, 'kts'),
+        ).toMatchObject({ text: '22 kt E' });
+        view.unmount();
+    });
+
+    it('her cloud row past its 60 s gate: off her icon at the next re-check', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+        try {
+            instruments.followed = false;
+            instruments.cloud = { wind: { kt: 12, fromDeg: 45, stale: false }, lat: AIRLIE.lat, lon: AIRLIE.lng };
+            const { view } = renderAt(8);
+            expect(chip()).toMatchObject({ text: '12 kt NE' });
+            // The chain says her row's wind is no longer hers to speak for.
+            instruments.cloud = null;
+            act(() => vi.advanceTimersByTime(2_000));
+            expect(getBoatWindReadout()).toBeNull();
+            view.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('the stale tier is shown, marked stale; dead is gone, with no store notification needed', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+        try {
+            herLive();
+            const { view } = renderAt(8);
+            expect(chip()).toMatchObject({ text: '14 kt SSW', stale: false });
+            act(() => vi.advanceTimersByTime(9_000));
+            expect(chip()).toMatchObject({ text: '14 kt SSW', stale: true });
+            expect(chip()!.label).toMatch(/\bstale\b/i);
+            act(() => vi.advanceTimersByTime(5_000));
+            expect(getBoatWindReadout()).toBeNull();
+            view.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('in close-in below 14, too, her reading ages off her icon on the re-check', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+        try {
+            herLive();
+            const { view } = renderAt(13);
+            expect(chip()).toMatchObject({ stale: false });
+            act(() => vi.advanceTimersByTime(9_000));
+            expect(chip()).toMatchObject({ stale: true });
+            act(() => vi.advanceTimersByTime(5_000));
+            expect(getBoatWindReadout()).toBeNull();
+            expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+            view.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('calm: Calm, with no arrow', () => {
+        nmea.live({ tws: 0.4, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const { view } = renderAt(8);
+        expect(chip()).toMatchObject({ text: 'Calm', arrowDeg: null, label: 'Boat wind calm' });
+        view.unmount();
+    });
+
+    it('no direction: a breeze the pickers cannot place is on neither the field nor her icon', () => {
+        // TWS with no TWD and no true heading: the close-in field's own pickers
+        // refuse it (an arrowless 6 kt would be a guess), so the field shows the
+        // model at 14 and her icon shows nothing anywhere: the two agree.
+        nmea.live({ tws: 6, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const a = renderAt(14);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getBoatWindReadout()).toBeNull();
+        a.view.unmount();
+        const b = renderAt(8);
+        expect(getBoatWindReadout()).toBeNull();
+        b.view.unmount();
+    });
+
+    it('wind off (or MOB): gone from her icon at once, and back when it returns', () => {
+        herLive();
+        const { view, all } = renderAt(8);
+        expect(chip()).not.toBeNull();
+        view.rerender(<MapboxVelocityOverlay {...all} visible={false} />);
+        expect(getBoatWindReadout()).toBeNull();
+        view.rerender(<MapboxVelocityOverlay {...all} visible />);
+        expect(chip()).toMatchObject({ text: '14 kt SSW' });
+        view.unmount();
+    });
+
+    it('asks for her row in the leaflet field too while Obs is showing, on the shared throttle; never off Obs', () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+        try {
+            instruments.followed = false;
+            const { view, all } = renderAt(8, { boatLookUp: false });
+            act(() => vi.advanceTimersByTime(6_000));
+            expect(instruments.lookUp).not.toHaveBeenCalled();
+            view.rerender(<MapboxVelocityOverlay {...all} boatLookUp />);
+            expect(instruments.lookUp).toHaveBeenCalledTimes(1);
+            act(() => vi.advanceTimersByTime(4_000));
+            expect(instruments.lookUp).toHaveBeenCalledTimes(3);
+            view.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a pinch 14 → 13 → 14 (and out to the leaflet field): the field and her icon never both claim her wind', () => {
+        herLive();
+        const seen: string[] = [];
+        const look = () => {
+            const field = fieldIsHers();
+            const icon = chip() !== null;
+            seen.push(field && icon ? 'BOTH' : field ? 'field' : icon ? 'icon' : 'neither');
+        };
+        const unsubscribeField = subscribeCloseInWindReadout(look);
+        const unsubscribeIcon = subscribeBoatWindReadout(look);
+        const { mapbox, view } = renderAt(14);
+        expect(fieldIsHers()).toBe(true);
+        expect(chip()).toBeNull();
+
+        // Mid-pinch the camera passes under 14: nothing is judged until it settles.
+        const map = mapbox.map as unknown as { isMoving?: () => boolean };
+        map.isMoving = () => true;
+        mapbox.map.getZoom.mockReturnValue(13.4);
+        act(() => nmea.live({ tws: 15, twd: 205 }));
+        expect(fieldIsHers()).toBe(true);
+        expect(chip()).toBeNull();
+
+        // Settled at 13: the model paints the field; her reading is on her icon.
+        map.isMoving = () => false;
+        settleAt(mapbox, 13);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(chip()).toMatchObject({ text: '15 kt SSW' });
+
+        // Back in to 14: the field takes her wind, and her icon lets go.
+        settleAt(mapbox, 14);
+        expect(fieldIsHers()).toBe(true);
+        expect(chip()).toBeNull();
+
+        // Out to the leaflet field and back in.
+        settleAt(mapbox, 8);
+        expect(getCloseInWindReadout()).toBeNull();
+        expect(chip()).toMatchObject({ text: '15 kt SSW' });
+        settleAt(mapbox, 14);
+        expect(fieldIsHers()).toBe(true);
+        expect(chip()).toBeNull();
+
+        expect(seen).not.toContain('BOTH');
+        expect(seen).toContain('field');
+        expect(seen).toContain('icon');
+        unsubscribeField();
+        unsubscribeIcon();
+        view.unmount();
+    });
+
+    it('a flick out of close-in: the fading field lets go of her wind before her icon takes it', () => {
+        herLive();
+        // What the close-in canvas is drawing, call by call (the real layer, spied through).
+        const setWind = vi.spyOn(CloseInWindLayer.prototype, 'setWind');
+        const painted = () => (setWind.mock.calls.at(-1)?.[0] ?? null) as { kt: number; source?: string } | null;
+        const { mapbox, view } = renderAt(14);
+        expect(painted()).toMatchObject({ source: 'boat', kt: 14 });
+        expect(chip()).toBeNull();
+        const seen: string[] = [];
+        const unsubscribe = subscribeBoatWindReadout(() => {
+            if (chip() !== null && painted()?.source === 'boat') seen.push('BOTH');
+        });
+
+        // A flick out to the leaflet field: Mapbox ends the zoom while the
+        // inertia still carries the camera, so zoomend lands with the map
+        // still moving and moveend comes later.
+        const map = mapbox.map as unknown as { isMoving?: () => boolean };
+        map.isMoving = () => true;
+        act(() => {
+            mapbox.map.getZoom.mockReturnValue(8);
+            mapbox.emit('zoomend');
+        });
+        // Close-in let go: its field fades out over the leaflet model, and her
+        // reading is on her icon.
+        expect(closeInElement(mapbox)).not.toBeNull();
+        expect(getCloseInWindReadout()).toBeNull();
+        expect(chip()).toMatchObject({ text: '14 kt SSW' });
+        // The fading field paints the model at the centre, never her reading a second time.
+        expect(painted()?.source).not.toBe('boat');
+        expect(painted()!.kt).toBeCloseTo(8, 3);
+        expect(seen).not.toContain('BOTH');
+
+        map.isMoving = () => false;
+        act(() => mapbox.emit('moveend'));
+        expect(chip()).toMatchObject({ text: '14 kt SSW' });
+        unsubscribe();
+        view.unmount();
+    });
+
+    it('a flick out while the field shows the model leaves the fading field alone', () => {
+        // Her reading is out on her icon at 13; the field there is already the model's.
+        herLive();
+        const setWind = vi.spyOn(CloseInWindLayer.prototype, 'setWind');
+        const { mapbox, view } = renderAt(13);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        const calls = setWind.mock.calls.length;
+        const map = mapbox.map as unknown as { isMoving?: () => boolean };
+        map.isMoving = () => true;
+        act(() => {
+            mapbox.map.getZoom.mockReturnValue(8);
+            mapbox.emit('zoomend');
+        });
+        expect(closeInElement(mapbox)).not.toBeNull();
+        expect(setWind.mock.calls.length).toBe(calls);
+        expect(chip()).toMatchObject({ text: '14 kt SSW' });
+        view.unmount();
     });
 });

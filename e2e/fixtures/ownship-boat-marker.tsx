@@ -11,7 +11,9 @@
 // Query: base=plain|relief|sat, theme=dark|light|night, state (see STATES, or
 // 'current': the box on Current Location, the phone's dot at the centre),
 // route=1 (the 'Whole route' button and the held-position message under it),
-// bearing=<deg>, name=<boat>.
+// bearing=<deg>, name=<boat>, wind=<kt>[@<from deg>][~] (her own wind on her
+// icon, W1-WC; '~' = the stale tier), unit=kts|kmh|mph|mps, furniture=1 (the
+// real right-rail zoom control and Locate row, MapActionFabs).
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import '../../index.css';
@@ -21,7 +23,10 @@ import {
     createVesselElement,
     presentOwnshipDirection,
     presentOwnshipStatus,
+    presentOwnshipWind,
 } from '../../components/map/useVesselTracker';
+import { boatWindChipFor } from '../../components/map/boatWindReadout';
+import { MapActionFabs } from '../../components/map/MapActionFabs';
 import {
     ownshipStatus,
     type OwnshipAnchorSources,
@@ -39,6 +44,9 @@ const stateName = params.get('state') ?? 'stopped';
 const route = params.get('route') === '1';
 const bearing = Number(params.get('bearing') ?? 0) || 0;
 const boatName = params.get('name') ?? 'Kittiwake';
+const windParam = params.get('wind');
+const windUnit = params.get('unit') ?? 'kts';
+const furniture = params.get('furniture') === '1';
 
 /** A fictional boat in a fictional marina, and the skipper's phone far from her. */
 const BOAT: [number, number] = [148.72, -20.27];
@@ -283,8 +291,22 @@ el.dataset.source = 'vessel';
 el.dataset.lane = scene.lane;
 const spokenStatus = presentOwnshipStatus(el, status, fix);
 const spokenDirection = presentOwnshipDirection(el, direction, map.getBearing());
+// Her own wind, as the overlay publishes it while the field shows the model.
+let spokenWind = '';
+if (windParam) {
+    const [kt, from] = windParam.replace(/~$/, '').split('@');
+    const wind = { kt: Number(kt), fromDeg: from === undefined ? null : Number(from), stale: windParam.endsWith('~') };
+    spokenWind = presentOwnshipWind(
+        el,
+        boatWindChipFor(
+            { wind, boat: { crewOwnerId: null }, fieldShowsHers: false },
+            { kind: 'boat', crewOwnerId: null },
+            windUnit,
+        ),
+    );
+}
 el.setAttribute('role', 'img');
-el.setAttribute('aria-label', `${boatName}, ${spokenStatus}; ${spokenDirection}`);
+el.setAttribute('aria-label', `${boatName}, ${spokenStatus}; ${spokenDirection}${spokenWind ? `; ${spokenWind}` : ''}`);
 new mapboxgl.Marker({ element: el, anchor: 'center', rotationAlignment: 'map', pitchAlignment: 'map' })
     .setLngLat(BOAT)
     .addTo(map);
@@ -312,6 +334,13 @@ if (route) {
 }
 if (route || scene.lane === 'held') {
     showObsCentreNotice({ subject: { kind: 'boat', crewOwnerId: null }, state: 'held', at: fixAt });
+}
+if (furniture) {
+    // The real right-rail zoom control and Locate row, where Obs puts them.
+    const fabHost = document.createElement('div');
+    fabHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
+    overlay.appendChild(fabHost);
+    createRoot(fabHost).render(<MapActionFabs onLocateMe={() => {}} onRecenter={() => {}} recenterDisabled />);
 }
 const chipHost = document.createElement('div');
 chipHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;';
