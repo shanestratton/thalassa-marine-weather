@@ -1415,7 +1415,8 @@ describe('changing the model', () => {
         expect(dialog.getAttribute('aria-label')).toBe('Forecast model and ghost speed');
         expect(dialog.parentElement?.className).toContain('items-center');
         expect(dialog.parentElement?.className).toContain('pb-[calc(4rem+env(safe-area-inset-bottom)+1rem)]');
-        expect(dialog.textContent).toContain('(CC-BY-4.0)');
+        expect(dialog.textContent).toContain('(CC BY 4.0)');
+        expect(dialog.textContent).toContain('UKMO (CC BY-SA 4.0)');
         fireEvent.click(screen.getByTestId('passage-model-icon'));
         expect(WindStore.getState().model).toBe('icon');
         expect(screen.queryByRole('dialog')).toBeNull();

@@ -49,6 +49,10 @@ describe('committed public-beta feature profile', () => {
             VITE_ACCOUNT_DELETION_ENABLED: true,
             VITE_GRANT_ALL_FEATURES: false,
             VITE_ENABLE_ENC_DEMO_SAMPLES: false,
+            // Build 123: Blitzortung's terms (free apps only, no storm warning,
+            // never straight from their servers) forbid our use. Off until
+            // written permission; see services/weather/api/lightningLicence.ts.
+            VITE_BLITZORTUNG_ENABLED: false,
         });
         expect(profile.publicEndpoints).toEqual({
             VITE_DEEPGRAM_PROXY_URL: 'https://thalassa-deepgram-proxy.thalassacalypso.workers.dev',

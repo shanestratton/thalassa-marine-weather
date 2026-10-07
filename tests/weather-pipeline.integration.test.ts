@@ -5,7 +5,7 @@
  * and ModelSource[] → createEnsembleWindField → ensemble metrics.
  */
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import type { WindGrid } from '../services/weather/windField';
 import {
     createWindFieldFromGrid,
@@ -180,6 +180,16 @@ describe('createEnsembleWindField', () => {
 // ── Model Recommendation Pipeline ────────────────────────────
 
 describe('Model recommendation → lookup pipeline', () => {
+    // recommendModels may start a background liveness probe (ACCESS-G); it
+    // must never reach the network from a test.
+    let fetchSpy: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+        fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+    });
+    afterEach(() => {
+        fetchSpy.mockRestore();
+    });
+
     it('recommended models resolve to valid entries', () => {
         const ids = recommendModels(-33.868, 151.209);
         for (const id of ids) {
@@ -189,9 +199,12 @@ describe('Model recommendation → lookup pipeline', () => {
         }
     });
 
-    it('Australian waters include ACCESS-G', () => {
+    it('SW Pacific midpoints leave ACCESS-G out until its feed is proven live', () => {
+        // BOM's open-data feed for ACCESS-G has been suspended since June 2025
+        // (all-null everywhere). A background probe decides; nothing waits on it.
         const ids = recommendModels(-33.868, 151.209);
-        expect(ids).toContain('access_g');
+        expect(ids).not.toContain('access_g');
+        expect(ids).toEqual(expect.arrayContaining(['gfs', 'ecmwf']));
     });
 
     it('all model IDs are unique', () => {

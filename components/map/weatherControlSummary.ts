@@ -49,11 +49,12 @@ const LABELS: Record<SummaryLayer, string> = {
     seaice: 'Sea ice',
     mld: 'Mixed-layer depth',
 };
+// No ACCESS-G: the chart never draws it, and BOM's feed for it has been
+// suspended (all-null) since June 2025.
 const MODELS: Record<string, string> = {
     gfs: 'GFS',
     ecmwf: 'ECMWF',
     icon: 'ICON',
-    access_g: 'ACCESS-G',
     gem: 'GEM',
     aifs: 'AIFS',
     ukmo: 'UKMO',

@@ -8,8 +8,11 @@
  * list serves the picker, the point fetch, and the spread chart regardless
  * of which host answers.
  *
- * Source data is CC-BY-4.0. Anything user-visible that shows these models'
- * numbers must carry attribution — use MODEL_ATTRIBUTION_LINE.
+ * Source data is CC BY 4.0, except the UK Met Office's, which is CC BY-SA 4.0
+ * (share-alike: showing it with credit is fine; keep it out of any blend we
+ * redistribute). Anything user-visible that shows these models' numbers must
+ * carry attribution — use MODEL_ATTRIBUTION_LINE, or forecastDataCredit() for
+ * the providers actually on screen.
  */
 import type { OffshoreModel, WeatherModel } from '../../types';
 
@@ -151,8 +154,41 @@ export const WAVE_SPREAD_MODELS: { id: string; label: string; provider: string; 
     { id: 'ncep_gfswave025', label: 'GFS Wave', provider: 'NOAA', hex: '#fbbf24' },
 ];
 
-/** CC-BY-4.0 licence condition — shown wherever model output is displayed. */
-export const MODEL_ATTRIBUTION_LINE = 'Forecast data: ECMWF, DWD, UKMO, JMA, Météo-France, NOAA (CC-BY-4.0)';
+export type ForecastDataLicence = 'CC BY 4.0' | 'CC BY-SA 4.0';
+
+/** UK Met Office open data, under either name the app uses for it. */
+const SHARE_ALIKE_PROVIDERS = new Set(['UK Met Office', 'UKMO']);
+
+/** The licence a provider's open model data carries. */
+export function providerLicence(provider: string): ForecastDataLicence {
+    return SHARE_ALIKE_PROVIDERS.has(provider.trim()) ? 'CC BY-SA 4.0' : 'CC BY 4.0';
+}
+
+/**
+ * The one credit format for model output: each provider once, in the order
+ * given, grouped under its licence — "Forecast data: DWD, ECMWF (CC BY 4.0);
+ * UK Met Office (CC BY-SA 4.0)". `lead` replaces "Forecast data" where the
+ * line must also name the distributor ("Data via Open-Meteo"). Null when there
+ * is nobody to credit.
+ */
+export function forecastDataCredit(providers: readonly string[], lead = 'Forecast data'): string | null {
+    const groups = new Map<ForecastDataLicence, string[]>();
+    for (const raw of providers) {
+        const p = raw.trim();
+        if (!p) continue;
+        const licence = providerLicence(p);
+        const names = groups.get(licence) ?? [];
+        if (!names.includes(p)) names.push(p);
+        groups.set(licence, names);
+    }
+    const parts = (['CC BY 4.0', 'CC BY-SA 4.0'] as const)
+        .filter((licence) => groups.has(licence))
+        .map((licence) => `${groups.get(licence)!.join(', ')} (${licence})`);
+    return parts.length ? `${lead}: ${parts.join('; ')}` : null;
+}
+
+/** The licence condition — shown wherever model output is displayed. */
+export const MODEL_ATTRIBUTION_LINE = forecastDataCredit(['ECMWF', 'DWD', 'UKMO', 'JMA', 'Météo-France', 'NOAA'])!;
 
 /** Sentinel for the SPITFIRE consensus. Not an Open-Meteo model id — it must
  *  never reach a `&models=` parameter; see services/weather/spitfire.ts. */

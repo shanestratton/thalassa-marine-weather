@@ -1,9 +1,12 @@
 /**
  * OceanCurrentsCard — Surface current briefing for passage planning.
  *
- * Shows NOAA CoastWatch surface-current data along the planned route.
- * Segments rated: favourable ↗️ / adverse ↙️ / cross ↔️.
- * "Enhance" button downloads the requested route-corridor data from NOAA ERDDAP.
+ * Shows live surface-current data along the planned route (Copernicus Marine,
+ * else NOAA CoastWatch). Segments rated: favourable ↗️ / adverse ↙️ / cross ↔️.
+ * "Refresh currents" fetches the field again now, skipping the cache; the
+ * Preferences switch only sets how long a fetched field is reused. The
+ * heading says "Live data" only for a field fetched now and under a day old;
+ * a saved copy or an older field says so, with its age.
  * Red → Green when skipper acknowledges the briefing.
  */
 
@@ -45,6 +48,25 @@ interface OceanCurrentsCardProps {
 }
 
 const STORAGE_KEY = 'thalassa_currents_ack';
+const HOUR_MS = 3_600_000;
+/** Past a day old, a field is not today's water, whoever fetched it. */
+const LIVE_FIELD_MAX_AGE_HOURS = 24;
+
+const fieldAgeText = (hours: number) => (hours < 48 ? `${Math.round(hours)} h` : `${Math.floor(hours / 24)} days`);
+
+/**
+ * "Live data" only when the field was fetched now and is under a day old. A
+ * weekly-kept copy can be six days old and the provider's own guard allows a
+ * fortnight, so anything else names itself and its age.
+ */
+function currentsHeading(briefing: Pick<CurrentBriefing, 'retrieval' | 'dataTime'>, now: number): string {
+    const fieldMs = briefing.dataTime ? Date.parse(briefing.dataTime) : NaN;
+    const ageHours = Number.isFinite(fieldMs) ? (now - fieldMs) / HOUR_MS : null;
+    const old = ageHours !== null && ageHours > LIVE_FIELD_MAX_AGE_HOURS;
+    if (briefing.retrieval === 'live' && !old) return 'Surface Currents — Live data';
+    const kind = briefing.retrieval === 'cached' ? 'Saved copy' : 'Live source';
+    return `Surface Currents — ${kind}${old ? ` · field ${fieldAgeText(ageHours!)} old` : ''}`;
+}
 
 export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     voyageId,
@@ -59,7 +81,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     const [briefing, setBriefing] = useState<CurrentBriefing | null>(null);
     const [briefingInputFingerprint, setBriefingInputFingerprint] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
-    const [enhancing, setEnhancing] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const requestGenerationRef = useRef(0);
     const acknowledgementMutationRef = useRef(0);
@@ -133,7 +155,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
         setBriefing(null);
         setBriefingInputFingerprint(null);
         setLoading(false);
-        setEnhancing(false);
+        setRefreshing(false);
         setError(null);
     }, [identityScope, voyageId]);
 
@@ -180,14 +202,16 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
         onReviewedChange?.(acknowledged);
     }, [acknowledged, onReviewedChange]);
 
+    // Preferences → Daily ocean currents: reuse a fetched field for a day, not a week.
+    const daily = settings.currentNrtEnabled === true;
     const fetchCurrents = useCallback(
-        async (enhance = false) => {
+        async (refresh = false) => {
             if (!hasCoords) return;
             const operationScope = identityScope;
             const operationGeneration = ++requestGenerationRef.current;
             const isOperationCurrent = () =>
                 isAuthIdentityScopeCurrent(operationScope) && requestGenerationRef.current === operationGeneration;
-            enhance ? setEnhancing(true) : setLoading(true);
+            refresh ? setRefreshing(true) : setLoading(true);
             setError(null);
 
             try {
@@ -197,7 +221,14 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                     west: Math.min(depLon!, destLon!),
                     east: Math.max(depLon!, destLon!),
                 };
-                const data = await OceanCurrentService.fetchCurrents(bbox, courseBearing, dist, speed, enhance);
+                const data = await OceanCurrentService.fetchCurrents(
+                    bbox,
+                    courseBearing,
+                    dist,
+                    speed,
+                    daily,
+                    refresh ? { refresh: true } : undefined,
+                );
                 if (!isOperationCurrent()) return;
                 setBriefing(data);
                 setBriefingInputFingerprint(currentInputFingerprint);
@@ -206,12 +237,13 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
             } finally {
                 if (isOperationCurrent()) {
                     setLoading(false);
-                    setEnhancing(false);
+                    setRefreshing(false);
                 }
             }
         },
         [
             identityScope,
+            daily,
             hasCoords,
             depLat,
             depLon,
@@ -288,7 +320,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
             {loading && (
                 <div className="bg-white/3 border border-white/6 rounded-xl p-6 text-center">
                     <div className="w-8 h-8 border-2 border-cyan-400/20 border-t-cyan-400 rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-xs text-gray-400">Fetching NOAA CoastWatch surface currents...</p>
+                    <p className="text-xs text-gray-400">Fetching surface currents...</p>
                 </div>
             )}
 
@@ -338,11 +370,14 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                             <span className="text-xl">🌊</span>
                             <div className="flex-1">
                                 <h4 className="text-xs font-bold text-white uppercase tracking-widest">
-                                    Surface Currents — {briefing.source === 'nrt' ? 'Near Real-Time' : 'Standard'}
+                                    {currentsHeading(briefing, Date.now())}
                                 </h4>
                                 <p className="text-[11px] text-gray-500 mt-0.5">
-                                    {briefing.provider} · {briefing.providerDataset ?? 'provider field'} ·{' '}
-                                    {briefing.retrieval === 'cached' ? 'cached' : 'downloaded'}{' '}
+                                    {briefing.provider} · {briefing.providerDataset ?? 'provider field'}
+                                    {briefing.dataTime
+                                        ? ` · field ${new Date(briefing.dataTime).toLocaleString()}`
+                                        : ''}{' '}
+                                    · {briefing.retrieval === 'cached' ? 'cached' : 'downloaded'}{' '}
                                     {new Date(briefing.fetchedAt).toLocaleString()}
                                 </p>
                             </div>
@@ -407,8 +442,8 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                         <div className="bg-white/3 border border-white/6 rounded-xl p-4 text-center">
                             <p className="text-xs font-bold text-cyan-200">Provider returned an empty current field</p>
                             <p className="text-[11px] text-gray-400 mt-1">
-                                This is the authoritative NOAA response for the route, not a substituted 0-current
-                                result.
+                                This is the authoritative {briefing.provider} response for the route, not a substituted
+                                0-current result.
                             </p>
                         </div>
                     )}
@@ -416,28 +451,28 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                     {briefing.coverage === 'calm' && (
                         <div className="bg-cyan-500/5 border border-cyan-500/15 rounded-xl p-3 text-center">
                             <p className="text-xs text-cyan-200">
-                                NOAA returned current vectors and they are calm at this field&apos;s resolution.
+                                {briefing.provider} returned current vectors and they are calm at this field&apos;s
+                                resolution.
                             </p>
                         </div>
                     )}
 
-                    {/* Enhance button (NRT) */}
-                    {briefing.source === 'climatology' && (
-                        <button
-                            onClick={() => fetchCurrents(true)}
-                            disabled={enhancing}
-                            className="w-full py-2.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs font-bold rounded-xl hover:bg-cyan-500/20 transition-all active:scale-[0.98] disabled:opacity-50"
-                        >
-                            {enhancing ? (
-                                <span className="flex items-center justify-center gap-2">
-                                    <span className="w-3 h-3 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
-                                    Downloading real-time data...
-                                </span>
-                            ) : (
-                                '🛰️ Enhance — Download Real-Time Currents'
-                            )}
-                        </button>
-                    )}
+                    {/* Fetch the same live field again now, past the cache. */}
+                    <button
+                        onClick={() => fetchCurrents(true)}
+                        disabled={refreshing}
+                        aria-label="Refresh currents"
+                        className="w-full py-2.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 text-xs font-bold rounded-xl hover:bg-cyan-500/20 transition-all active:scale-[0.98] disabled:opacity-50"
+                    >
+                        {refreshing ? (
+                            <span className="flex items-center justify-center gap-2">
+                                <span className="w-3 h-3 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
+                                Refreshing currents...
+                            </span>
+                        ) : (
+                            'Refresh currents'
+                        )}
+                    </button>
                 </>
             )}
 

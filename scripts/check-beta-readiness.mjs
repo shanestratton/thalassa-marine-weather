@@ -1580,6 +1580,8 @@ const intendedPublicBetaFeatureFlags = {
     VITE_ACCOUNT_DELETION_ENABLED: true,
     VITE_GRANT_ALL_FEATURES: false,
     VITE_ENABLE_ENC_DEMO_SAMPLES: false,
+    // Off since build 123: Blitzortung's terms forbid our use of their feed.
+    VITE_BLITZORTUNG_ENABLED: false,
 };
 const releaseOwnedEnvironmentKeys = [
     ...PUBLIC_BETA_FEATURE_FLAG_KEYS,

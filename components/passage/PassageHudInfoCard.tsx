@@ -1,6 +1,7 @@
 import React from 'react';
 import { usePassageHudInfo, usePassageSquallInfoVisible } from '../../stores/passageHudInfoStore';
 import { SquallLegend } from '../map/SquallLegend';
+import { providerLicence } from '../../services/weather/forecastModels';
 
 /** Explanations belong in the existing blue ℹ panel, not below the chart slider. */
 export const PassageHudInfoCard: React.FC = () => {
@@ -73,6 +74,20 @@ export const PassageHudInfoCard: React.FC = () => {
                             >
                                 CC BY 4.0
                             </a>
+                            {/* UK Met Office data is share-alike: named under its own licence. */}
+                            {info.credited.some((p) => providerLicence(p) === 'CC BY-SA 4.0') && (
+                                <>
+                                    {' · UK Met Office: '}
+                                    <a
+                                        className="text-sky-300 underline"
+                                        href="https://creativecommons.org/licenses/by-sa/4.0/"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        CC BY-SA 4.0
+                                    </a>
+                                </>
+                            )}
                             . Route samples and the displayed model-spread band are processed by Thalassa.
                         </p>
                     </div>

@@ -17,6 +17,9 @@
  *   - Lightning: subscribeLightningStrikes (live WebSocket feed)
  *               Counts strikes within RADIUS_NM in the last 5 min;
  *               banner shows nearest strike's bearing + distance.
+ *               OFF behind the Blitzortung licence flag (default since
+ *               build 123): their terms forbid storm-warning use, so with
+ *               the flag off the banner never counts a strike.
  *   - Cyclones:  ActiveCyclone[] passed in from MapHub.
  *               Banner shows nearest cyclone if within 600 NM.
  *
@@ -28,6 +31,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { subscribeLightningStrikes, type LightningStrike } from '../../services/weather/api/blitzortungLightning';
+import { isBlitzortungEnabled } from '../../services/weather/api/lightningLicence';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
 import { calculateBearing, calculateDistance } from '../../utils/navigationCalculations';
@@ -82,10 +86,11 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
     userLat,
     userLon,
     cyclones,
-    lightningActive,
+    lightningActive: lightningRequested,
     flyTo,
     onShowingChange,
 }) => {
+    const lightningActive = lightningRequested && isBlitzortungEnabled();
     const [threat, setThreat] = useState<Threat | null>(null);
     const showing = visible && threat !== null;
     useEffect(() => {

@@ -1,6 +1,13 @@
 /**
  * ConsensusMatrix — Visual multi-model weather agreement timeline.
  *
+ * Models are named, scattered and graded AGREE / MIXED / SPLIT only where two
+ * or more real models answered. When none did, the panel says so — "Model
+ * comparison unavailable — one grid shown" — and lists the chart grid's wind
+ * with no model name and no badge (services/ConsensusMatrixEngine.ts). The
+ * header claims "multi-model" only when two or more models answered, and in a
+ * live panel any row that fell back to the grid is labelled on the row.
+ *
  * Features:
  *   A. Scatter Bar — horizontal bar with colored model dots showing agreement/disagreement
  *   B. Outlier Flagging — worst-case model enlarged and bolded
@@ -11,6 +18,16 @@
 
 import React, { useRef, useEffect, useCallback } from 'react';
 import type { ConsensusMatrixData, ConsensusRow, ModelPoint } from '../../services/ConsensusMatrixEngine';
+
+export const SINGLE_GRID_NOTICE = 'Model comparison unavailable — one grid shown';
+/** Nothing to show at all: no models, and the grid could not be placed either. */
+export const NO_COMPARISON_NOTICE = 'Model comparison unavailable';
+/** A row in a live panel where no model answered and the grid stood in. */
+export const GRID_ROW_TAG = 'One grid · no comparison';
+const EMPTY_LINE: Record<NonNullable<ConsensusMatrixData['emptyReason']>, string> = {
+    'no-clock': 'This wind file carries no forecast time, so it can’t be placed on your passage.',
+    'no-coverage': 'No forecast covers this route’s places and times.',
+};
 
 /** Header colour key — one table, not a fresh literal per model per render. */
 const MODEL_COLORS: Record<string, string> = {
@@ -74,7 +91,7 @@ const ScatterBar: React.FC<{ models: ModelPoint[]; maxScale?: number }> = ({ mod
 
 // ── Row Component ─────────────────────────────────────────────
 
-const ConsensusRowView: React.FC<{ row: ConsensusRow }> = ({ row }) => {
+const ConsensusRowView: React.FC<{ row: ConsensusRow; labelGrid: boolean }> = ({ row, labelGrid }) => {
     const bgClass = row.exceedsComfort
         ? 'bg-red-500/6 border-red-500/20'
         : row.confidence === 'low'
@@ -94,18 +111,24 @@ const ConsensusRowView: React.FC<{ row: ConsensusRow }> = ({ row }) => {
                     {/* Time — LARGE for cockpit readability */}
                     <span className="text-base font-black text-white tabular-nums tracking-tight">{row.timeLabel}</span>
 
-                    {/* Confidence badge */}
-                    <span
-                        className={`px-1.5 py-0.5 rounded text-[11px] font-black uppercase tracking-widest ${
-                            row.confidence === 'high'
-                                ? 'bg-emerald-500/15 text-emerald-400'
+                    {/* Confidence badge — only where two or more models answered */}
+                    {row.confidence && (
+                        <span
+                            className={`px-1.5 py-0.5 rounded text-[11px] font-black uppercase tracking-widest ${
+                                row.confidence === 'high'
+                                    ? 'bg-emerald-500/15 text-emerald-400'
+                                    : row.confidence === 'medium'
+                                      ? 'bg-amber-500/15 text-amber-400'
+                                      : 'bg-red-500/15 text-red-400'
+                            }`}
+                        >
+                            {row.confidence === 'high'
+                                ? '✓ AGREE'
                                 : row.confidence === 'medium'
-                                  ? 'bg-amber-500/15 text-amber-400'
-                                  : 'bg-red-500/15 text-red-400'
-                        }`}
-                    >
-                        {row.confidence === 'high' ? '✓ AGREE' : row.confidence === 'medium' ? '~ MIXED' : '⚠ SPLIT'}
-                    </span>
+                                  ? '~ MIXED'
+                                  : '⚠ SPLIT'}
+                        </span>
+                    )}
 
                     {/* No-Go flag */}
                     {row.exceedsComfort && (
@@ -121,56 +144,84 @@ const ConsensusRowView: React.FC<{ row: ConsensusRow }> = ({ row }) => {
                 </span>
             </div>
 
+            {/* One grid: its wind, nothing to scatter or compare */}
+            {row.models.length === 0 && row.grid && (
+                <div className="flex items-baseline gap-1.5" data-testid="consensus-grid-row">
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Wind</span>
+                    <span className="text-sm font-black text-white tabular-nums">{row.grid.windKts.toFixed(0)}</span>
+                    <span className="text-[11px] text-gray-400">kts</span>
+                    {row.grid.gustKts !== null && (
+                        <span className="text-[11px] text-gray-500 ml-1.5">G{row.grid.gustKts.toFixed(0)}</span>
+                    )}
+                    {/* Among model rows, say this one is not a comparison. */}
+                    {labelGrid && (
+                        <span className="ml-auto text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                            {GRID_ROW_TAG}
+                        </span>
+                    )}
+                </div>
+            )}
+
             {/* Scatter Bar */}
-            <ScatterBar models={row.models} />
+            {row.models.length > 0 && <ScatterBar models={row.models} />}
 
             {/* Bottom row: model legend + worst case */}
-            <div className="flex items-center justify-between mt-2">
-                {/* Model dots legend */}
-                <div className="flex items-center gap-3">
-                    {row.models.map((m) => (
-                        <div key={m.model} className="flex items-center gap-1">
-                            <div
-                                className="rounded-full"
-                                style={{
-                                    width: m.isOutlier ? 8 : 6,
-                                    height: m.isOutlier ? 8 : 6,
-                                    backgroundColor: m.color,
-                                }}
-                            />
-                            {/* The model NAME rides with the number. Sky and
+            {row.models.length > 0 && (
+                <div className="flex items-center justify-between mt-2">
+                    {/* Model dots legend */}
+                    <div className="flex items-center gap-3">
+                        {row.models.map((m) => (
+                            <div key={m.model} className="flex items-center gap-1">
+                                <div
+                                    className="rounded-full"
+                                    style={{
+                                        width: m.isOutlier ? 8 : 6,
+                                        height: m.isOutlier ? 8 : 6,
+                                        backgroundColor: m.color,
+                                    }}
+                                />
+                                {/* The model NAME rides with the number. Sky and
                                 emerald are hard to tell apart through a
                                 polarised lens, and `title` never opens on iOS,
                                 so the dot alone left the reading unattributed. */}
-                            <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                                {m.model}
-                            </span>
-                            <span
-                                className={`tabular-nums ${
-                                    m.isOutlier
-                                        ? 'text-sm font-black text-white'
-                                        : 'text-[11px] font-bold text-gray-400'
-                                }`}
-                            >
-                                {m.windKts.toFixed(0)}
-                            </span>
-                        </div>
-                    ))}
-                </div>
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                                    {m.model}
+                                </span>
+                                <span
+                                    className={`tabular-nums ${
+                                        m.isOutlier
+                                            ? 'text-sm font-black text-white'
+                                            : 'text-[11px] font-bold text-gray-400'
+                                    }`}
+                                >
+                                    {m.windKts.toFixed(0)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
 
-                {/* Worst case callout */}
-                <div className="text-right">
-                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Worst: </span>
-                    <span className="text-sm font-black text-white tabular-nums">
-                        {row.worstCase.windKts.toFixed(0)}
-                    </span>
-                    <span className="text-[11px] text-gray-400 ml-0.5">kts</span>
-                    <span className="text-[11px] text-gray-500 ml-1.5">G{row.worstCase.gustKts.toFixed(0)}</span>
+                    {/* Worst case callout — needs two models to be "worst" of */}
+                    {row.models.length >= 2 && (
+                        <div className="text-right">
+                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                                Worst:{' '}
+                            </span>
+                            <span className="text-sm font-black text-white tabular-nums">
+                                {row.worstCase.windKts.toFixed(0)}
+                            </span>
+                            <span className="text-[11px] text-gray-400 ml-0.5">kts</span>
+                            {row.worstCase.gustKts !== null && (
+                                <span className="text-[11px] text-gray-500 ml-1.5">
+                                    G{row.worstCase.gustKts.toFixed(0)}
+                                </span>
+                            )}
+                        </div>
+                    )}
                 </div>
-            </div>
+            )}
 
             {/* Spread indicator — visual bar showing model disagreement */}
-            {row.spreadKts > 3 && (
+            {row.spreadKts !== null && row.spreadKts > 3 && (
                 <div className="mt-1.5 flex items-center gap-2">
                     <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Spread</span>
                     <div className="flex-1 h-1 rounded-full bg-white/4 overflow-hidden">
@@ -269,15 +320,21 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
 
                 {/* Data source + model legend */}
                 <div className="flex items-center gap-3 mb-2">
-                    <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-widest ${
-                            data.dataSource === 'live'
-                                ? 'bg-emerald-500/15 text-emerald-400'
-                                : 'bg-amber-500/15 text-amber-400'
-                        }`}
-                    >
-                        {data.dataSource === 'live' ? '● LIVE MULTI-MODEL' : '○ GRID ESTIMATE'}
-                    </span>
+                    {data.rows.length === 0 ? (
+                        <p className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-300">
+                            {NO_COMPARISON_NOTICE}
+                        </p>
+                    ) : data.dataSource === 'live' ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase tracking-widest bg-emerald-500/15 text-emerald-400">
+                            {/* One model answering is live, but it is not a comparison. */}
+                            {data.modelsUsed.length >= 2 ? '● LIVE MULTI-MODEL' : '● LIVE · ONE MODEL'}
+                        </span>
+                    ) : (
+                        // Sentence case and free to wrap: it is a statement, not a tag.
+                        <p className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-300">
+                            {SINGLE_GRID_NOTICE}
+                        </p>
+                    )}
                     {data.modelsUsed.map((model) => (
                         <div key={model} className="flex items-center gap-1">
                             <div
@@ -291,12 +348,14 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
 
                 {/* Summary stats */}
                 <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1">
-                        <span className="text-[11px] font-bold text-gray-500 uppercase">Avg Spread</span>
-                        <span className="text-[11px] font-black text-white tabular-nums">
-                            {data.summary.avgSpreadKts} kts
-                        </span>
-                    </div>
+                    {data.summary.avgSpreadKts !== null && (
+                        <div className="flex items-center gap-1">
+                            <span className="text-[11px] font-bold text-gray-500 uppercase">Avg Spread</span>
+                            <span className="text-[11px] font-black text-white tabular-nums">
+                                {data.summary.avgSpreadKts} kts
+                            </span>
+                        </div>
+                    )}
                     {data.summary.lowConfidenceCount > 0 && (
                         <div className="flex items-center gap-1">
                             <span className="text-[11px] font-bold text-amber-500 uppercase">⚠ Low Conf</span>
@@ -330,6 +389,9 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                     </div>
                 </div>
 
+                {data.rows.length === 0 && (
+                    <p className="px-4 py-3 text-xs text-gray-400">{EMPTY_LINE[data.emptyReason ?? 'no-coverage']}</p>
+                )}
                 {data.rows.map((row, i) => (
                     <div
                         key={i}
@@ -338,7 +400,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                             else rowRefs.current.delete(i);
                         }}
                     >
-                        <ConsensusRowView row={row} />
+                        <ConsensusRowView row={row} labelGrid={data.dataSource === 'live'} />
                     </div>
                 ))}
 

@@ -93,6 +93,20 @@ describe('weatherControlSummary', () => {
         }
     });
 
+    it('names only models the chart can draw — never the suspended ACCESS-G feed', () => {
+        // BOM's ACCESS-G open data has been all-null since June 2025 and the
+        // chart offers no ACCESS-G wind; its label is gone from the summary.
+        expect(summary({}, { windModel: 'access_g' }).primary).not.toContain('ACCESS-G');
+        for (const [model, label] of [
+            ['icon', 'ICON'],
+            ['aifs', 'AIFS'],
+            ['ukmo', 'UKMO'],
+            ['jma', 'JMA'],
+        ]) {
+            expect(summary({}, { windModel: model }).primary).toBe(`Wind · ${label} · Paused`);
+        }
+    });
+
     it('normalizes the velocity alias, deduplicates layers and exposes the playing state', () => {
         const result = summary(
             { activeLayer: 'velocity', activeWeatherLayers: ['wind', 'velocity', 'rain'], extraLegendCount: 2 },

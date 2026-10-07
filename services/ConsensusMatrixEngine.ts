@@ -1,19 +1,20 @@
 /**
- * ConsensusMatrixEngine — Real multi-model weather consensus along a route.
+ * ConsensusMatrixEngine — multi-model wind consensus along a route.
  *
  * Architecture:
  *   1. Samples route waypoints at 6-hour intervals
- *   2. Fetches wind data from Open-Meteo for ALL models in a single API call
- *      using the `&models=` parameter (GFS, ECMWF IFS, ICON, GEM)
- *   3. Falls back to WindStore grid sampling with perturbation if API fails
- *   4. Generates ConsensusRow objects with scatter data, outlier detection,
- *      confidence levels, and Comfort Zone integration
- *
- * Supported Models (via Open-Meteo):
- *   - GFS (NOAA) — 0.25° global, runs every 6h
- *   - ECMWF IFS — 0.1° global, runs every 6h
- *   - DWD ICON — 0.125° global, runs every 6h
- *   - GEM (Canada) — 0.25° global, runs every 12h
+ *   2. Fetches wind from Open-Meteo for GFS, ECMWF IFS, ICON and GEM in one
+ *      call per point, using the `&models=` parameter and a unix clock
+ *   3. A model joins a row only if it gave a real value at that hour: a null
+ *      is never a 0-knot calm, and a missing gust is never invented as wind
+ *      × 1.4. Only model-suffixed keys are read, so a degraded unsuffixed
+ *      reply cannot pose as four models agreeing.
+ *   4. When no model answered at a row, the chart's ONE wind grid is shown as
+ *      what it is — one grid at the hour the boat is there, no model name, no
+ *      spread, no agreement grade. (Until build 123 it was multiplied by
+ *      sin-noise into fake "ECMWF", "ICON" and "GEM" members.)
+ *   5. Builds ConsensusRow objects with spread, confidence (two or more
+ *      models only) and Comfort Zone checks.
  */
 
 import type { WindGrid } from '../services/weather/windField';
@@ -21,6 +22,7 @@ import type { ComfortParams } from '../types/settings';
 import type { IsochroneResult } from '../services/IsochroneRouter';
 import { fetchOpenMeteoPoints } from '../services/weather/openMeteoProxy';
 import { continuousEastForLongitudeRange, continuousLongitudeInGrid } from '../services/weather/windLongitude';
+import { windForecastHoursForGrid, windFrameForForecastHour } from '../components/map/windTimeAxis';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('ConsensusMatrix');
@@ -31,10 +33,19 @@ export interface ModelPoint {
     model: string;
     color: string;
     windKts: number;
-    directionDeg: number;
-    gustKts: number;
+    /** Null when the model gave no direction at that hour. */
+    directionDeg: number | null;
+    /** Null when the model publishes no gust there — never estimated. */
+    gustKts: number | null;
     waveHeightM?: number;
     isOutlier?: boolean;
+}
+
+/** The chart's single wind grid at one point and hour — no model name. */
+export interface GridSample {
+    windKts: number;
+    directionDeg: number;
+    gustKts: number | null;
 }
 
 export interface ConsensusRow {
@@ -44,21 +55,33 @@ export interface ConsensusRow {
     lat: number;
     lon: number;
     distanceNM: number;
+    /** Models that gave a value at this hour; empty when only the grid did. */
     models: ModelPoint[];
-    spreadKts: number;
-    confidence: 'high' | 'medium' | 'low';
+    /** The one grid's value, when no model answered for this row. */
+    grid?: GridSample;
+    /** Max − min wind across models; null with fewer than two. */
+    spreadKts: number | null;
+    /** Null with fewer than two models: one source cannot agree or split. */
+    confidence: 'high' | 'medium' | 'low' | null;
     exceedsComfort: boolean;
-    worstCase: { model: string; windKts: number; gustKts: number };
+    worstCase: { model: string | null; windKts: number; gustKts: number | null };
 }
 
 export interface ConsensusMatrixData {
     rows: ConsensusRow[];
     routeCoords: [number, number][];
+    /** Models that answered somewhere on the route; empty for a single grid. */
     modelsUsed: string[];
-    dataSource: 'live' | 'grid-fallback';
+    dataSource: 'live' | 'single-grid';
+    /**
+     * Why there are no rows (null when there are some): the wind grid carries
+     * no forecast time to place it on the passage (an offline .wind.bin, a
+     * fallback fetch), or no forecast covers the route's places and times.
+     */
+    emptyReason: 'no-clock' | 'no-coverage' | null;
     summary: {
-        avgSpreadKts: number;
-        maxSpreadKts: number;
+        avgSpreadKts: number | null;
+        maxSpreadKts: number | null;
         lowConfidenceCount: number;
         comfortBreachCount: number;
     };
@@ -74,6 +97,9 @@ const MODELS = [
 ];
 
 const KMH_TO_KTS = 0.539957;
+const HOUR_MS = 3_600_000;
+/** A model hour further than this from the boat's ETA is not that hour's forecast. */
+const MAX_HOUR_GAP_MS = 1.5 * HOUR_MS;
 
 // ── Live Multi-Model Fetch ────────────────────────────────────
 
@@ -83,6 +109,9 @@ interface RoutePoint {
     hoursFromDep: number;
     distanceNM: number;
 }
+
+const finite = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const toKts = (kmh: number) => Math.round(kmh * KMH_TO_KTS * 10) / 10;
 
 /**
  * Fetch real multi-model wind forecasts from Open-Meteo for route waypoints.
@@ -100,56 +129,49 @@ async function fetchMultiModelWind(
             hourly: 'wind_speed_10m,wind_direction_10m,wind_gusts_10m',
             models: modelIds,
             forecast_days: 7,
-            timezone: 'auto',
+            // Unix seconds: an ISO string from timezone=auto carries no offset,
+            // and parsing it on the phone shifted every ETA by the time zone.
+            timeformat: 'unixtime',
+            timezone: 'UTC',
         });
 
         const pointModels = new Map<number, ModelPoint[]>();
 
         for (let pi = 0; pi < points.length; pi++) {
             const point = points[pi];
-            const result = results[pi];
-            if (!(result as Record<string, unknown>)?.hourly) continue;
+            const hourly = (results[pi] as { hourly?: Record<string, unknown[]> } | undefined)?.hourly;
+            if (!hourly) continue;
 
-            // Find the hourly index closest to this point's ETA
-            const pointEta = new Date(departureTime.getTime() + point.hoursFromDep * 3600000);
-            const hourly = (result as Record<string, Record<string, unknown[]>>).hourly;
-            const timestamps: string[] = (hourly.time as string[]) || [];
-            let bestIdx = 0;
+            // The hourly index closest to this point's ETA — and only if it is
+            // within the hour: past the forecast's end there is no answer.
+            const pointEta = departureTime.getTime() + point.hoursFromDep * HOUR_MS;
+            const timestamps = Array.isArray(hourly.time) ? hourly.time : [];
+            let bestIdx = -1;
             let bestDiff = Infinity;
             for (let t = 0; t < timestamps.length; t++) {
-                const diff = Math.abs(new Date(timestamps[t]).getTime() - pointEta.getTime());
+                const at = finite(timestamps[t]);
+                if (at === null) continue;
+                const diff = Math.abs(at * 1000 - pointEta);
                 if (diff < bestDiff) {
                     bestDiff = diff;
                     bestIdx = t;
                 }
             }
+            if (bestIdx < 0 || bestDiff > MAX_HOUR_GAP_MS) continue;
 
             const models: ModelPoint[] = [];
-
             for (const modelDef of MODELS) {
-                // Open-Meteo returns model-prefixed keys like:
-                //   wind_speed_10m_gfs_seamless, wind_speed_10m_ecmwf_ifs025, etc.
-                const speedKey = `wind_speed_10m_${modelDef.id}`;
-                const dirKey = `wind_direction_10m_${modelDef.id}`;
-                const gustKey = `wind_gusts_10m_${modelDef.id}`;
-
-                // Also try unprefixed (single-model response)
-                const speedArr = hourly[speedKey] || hourly.wind_speed_10m;
-                const dirArr = hourly[dirKey] || hourly.wind_direction_10m;
-                const gustArr = hourly[gustKey] || hourly.wind_gusts_10m;
-
-                if (!speedArr) continue;
-
-                const speedKmh = Number(speedArr[bestIdx] ?? 0);
-                const dirDeg = Number(dirArr?.[bestIdx] ?? 0);
-                const gustKmh = Number(gustArr?.[bestIdx] ?? speedKmh * 1.4);
-
+                // Model-suffixed keys only (wind_speed_10m_gfs_seamless, …).
+                const speedKmh = finite(hourly[`wind_speed_10m_${modelDef.id}`]?.[bestIdx]);
+                if (speedKmh === null) continue; // this model sits this hour out
+                const gustKmh = finite(hourly[`wind_gusts_10m_${modelDef.id}`]?.[bestIdx]);
+                const dirDeg = finite(hourly[`wind_direction_10m_${modelDef.id}`]?.[bestIdx]);
                 models.push({
                     model: modelDef.label,
                     color: modelDef.color,
-                    windKts: Math.round(speedKmh * KMH_TO_KTS * 10) / 10,
-                    directionDeg: Math.round(dirDeg),
-                    gustKts: Math.round(gustKmh * KMH_TO_KTS * 10) / 10,
+                    windKts: toKts(speedKmh),
+                    directionDeg: dirDeg === null ? null : Math.round(dirDeg),
+                    gustKts: gustKmh === null ? null : toKts(gustKmh),
                 });
             }
 
@@ -166,21 +188,43 @@ async function fetchMultiModelWind(
     }
 }
 
-// ── Grid Fallback: Sampling + Perturbation ────────────────────
+// ── The one chart grid, at the boat's real hour ────────────────
 
 const M_PER_S_TO_KTS = 1.94384;
 
-function sampleWindGrid(
-    grid: WindGrid,
-    lat: number,
-    lon: number,
-    hour: number,
-): { speedMs: number; dirDeg: number } | null {
-    const h = Math.min(Math.max(0, Math.round(hour)), grid.totalHours - 1);
-    const speedData = grid.speed[h];
+function bilinear(plane: Float32Array, grid: WindGrid, r: number, c: number): number {
+    const r0 = Math.floor(r),
+        r1 = Math.min(r0 + 1, grid.height - 1);
+    const c0 = Math.floor(c),
+        c1 = Math.min(c0 + 1, grid.width - 1);
+    const dr = r - r0,
+        dc = c - c0;
+    return (
+        plane[r0 * grid.width + c0] * (1 - dr) * (1 - dc) +
+        plane[r0 * grid.width + c1] * (1 - dr) * dc +
+        plane[r1 * grid.width + c0] * dr * (1 - dc) +
+        plane[r1 * grid.width + c1] * dr * dc
+    );
+}
+
+/**
+ * The grid's wind at a point and absolute time, or null when the grid cannot
+ * say: outside its box, before or past its forecast hours, or with no clock
+ * (refTime) to place the time on its axis. Never the last hour stood in for a
+ * later one.
+ */
+const gridClockMs = (grid: WindGrid): number => (grid.refTime ? Date.parse(grid.refTime) : NaN);
+
+function sampleGridAt(grid: WindGrid, lat: number, lon: number, atMs: number): GridSample | null {
+    const refMs = gridClockMs(grid);
+    const axis = windForecastHoursForGrid(grid);
+    if (!Number.isFinite(refMs) || axis.length === 0) return null;
+    const target = windFrameForForecastHour(axis, (atMs - refMs) / HOUR_MS);
+    if (!target || target.beyond) return null;
+    const h = Math.round(target.frame);
     const uData = grid.u[h];
     const vData = grid.v[h];
-    if (!speedData || !uData || !vData) return null;
+    if (!uData || !vData) return null;
 
     const latIdx = ((lat - grid.south) / (grid.north - grid.south)) * (grid.height - 1);
     const gridEast = continuousEastForLongitudeRange(grid.west, grid.east);
@@ -188,58 +232,16 @@ function sampleWindGrid(
     const lonIdx = ((gridLon - grid.west) / (gridEast - grid.west)) * (grid.width - 1);
     if (latIdx < 0 || latIdx >= grid.height || lonIdx < 0 || lonIdx >= grid.width) return null;
 
-    const r0 = Math.floor(latIdx),
-        r1 = Math.min(r0 + 1, grid.height - 1);
-    const c0 = Math.floor(lonIdx),
-        c1 = Math.min(c0 + 1, grid.width - 1);
-    const dr = latIdx - r0,
-        dc = lonIdx - c0;
-
-    const u =
-        uData[r0 * grid.width + c0] * (1 - dr) * (1 - dc) +
-        uData[r0 * grid.width + c1] * (1 - dr) * dc +
-        uData[r1 * grid.width + c0] * dr * (1 - dc) +
-        uData[r1 * grid.width + c1] * dr * dc;
-    const v =
-        vData[r0 * grid.width + c0] * (1 - dr) * (1 - dc) +
-        vData[r0 * grid.width + c1] * (1 - dr) * dc +
-        vData[r1 * grid.width + c0] * dr * (1 - dc) +
-        vData[r1 * grid.width + c1] * dr * dc;
-
-    return { speedMs: Math.sqrt(u * u + v * v), dirDeg: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360 };
-}
-
-function perturb(value: number, factor: number, lat: number, lon: number, hour: number): number {
-    const seed = Math.sin(lat * 127.1 + lon * 269.5 + hour * 43.7) * 43758.5453;
-    const noise = (seed - Math.floor(seed)) * 2 - 1;
-    return value * (1 + noise * factor);
-}
-
-const FALLBACK_MODELS = [
-    { label: 'GFS', color: '#38bdf8', gustFactor: 1.4, perturbation: 0 },
-    { label: 'ECMWF', color: '#a78bfa', gustFactor: 1.35, perturbation: 0.12 },
-    { label: 'ICON', color: '#34d399', gustFactor: 1.45, perturbation: 0.18 },
-    { label: 'GEM', color: '#fb923c', gustFactor: 1.38, perturbation: 0.15 },
-];
-
-function generateFallbackModels(grid: WindGrid, lat: number, lon: number, hour: number): ModelPoint[] {
-    const sample = sampleWindGrid(grid, lat, lon, hour);
-    if (!sample) return [];
-
-    return FALLBACK_MODELS.map((def) => {
-        const speedMs =
-            def.perturbation === 0
-                ? sample.speedMs
-                : Math.max(0, perturb(sample.speedMs, def.perturbation, lat, lon, hour));
-        const windKts = speedMs * M_PER_S_TO_KTS;
-        return {
-            model: def.label,
-            color: def.color,
-            windKts: Math.round(windKts * 10) / 10,
-            directionDeg: Math.round(sample.dirDeg),
-            gustKts: Math.round(windKts * def.gustFactor * 10) / 10,
-        };
-    });
+    const u = bilinear(uData, grid, latIdx, lonIdx);
+    const v = bilinear(vData, grid, latIdx, lonIdx);
+    const gustPlane = grid.gust?.[h];
+    const gust = gustPlane ? bilinear(gustPlane, grid, latIdx, lonIdx) : NaN;
+    const round = (ms: number) => Math.round(ms * M_PER_S_TO_KTS * 10) / 10;
+    return {
+        windKts: round(Math.sqrt(u * u + v * v)),
+        directionDeg: Math.round(((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360),
+        gustKts: Number.isFinite(gust) ? round(gust) : null,
+    };
 }
 
 // ── Main Generator ────────────────────────────────────────────
@@ -248,8 +250,8 @@ function generateFallbackModels(grid: WindGrid, lat: number, lon: number, hour: 
  * Generate consensus matrix data from isochrone result.
  *
  * Strategy:
- *   1. Try live multi-model fetch from Open-Meteo (real ECMWF, ICON, GEM data)
- *   2. Fall back to WindStore grid sampling with perturbation if API unavailable
+ *   1. Try live multi-model fetch from Open-Meteo (real GFS, ECMWF, ICON, GEM data)
+ *   2. A row no model answered shows the chart's one wind grid, labelled as such
  */
 export async function generateConsensusMatrix(
     isoResult: IsochroneResult,
@@ -274,47 +276,59 @@ export async function generateConsensusMatrix(
             lat: node.lat,
             lon: node.lon,
             hoursFromDep: h,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            distanceNM: Math.round((node as any).distanceNM ?? progress * isoResult.totalDistanceNM),
+            distanceNM: Math.round(
+                Number.isFinite(node.distance) ? node.distance : progress * isoResult.totalDistanceNM,
+            ),
         });
     }
 
     // Try live multi-model fetch
     const liveData = await fetchMultiModelWind(samplePoints, depTime);
-    const dataSource = liveData ? 'live' : ('grid-fallback' as const);
 
     // Build rows
     const rows: ConsensusRow[] = [];
 
     for (let i = 0; i < samplePoints.length; i++) {
         const pt = samplePoints[i];
-        const blockTime = new Date(depTime.getTime() + pt.hoursFromDep * 3600000);
+        const blockTime = new Date(depTime.getTime() + pt.hoursFromDep * HOUR_MS);
         const timeLabel =
             blockTime.toLocaleDateString('en-AU', { weekday: 'short' }) +
             ' ' +
             blockTime.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-        // Get models — live or fallback
-        let models: ModelPoint[] = liveData?.get(i) ?? [];
-        if (models.length === 0) {
-            const gridHour = Math.min(pt.hoursFromDep, windGrid.totalHours - 1);
-            models = generateFallbackModels(windGrid, pt.lat, pt.lon, gridHour);
+        const models: ModelPoint[] = liveData?.get(i) ?? [];
+        const grid = models.length === 0 ? sampleGridAt(windGrid, pt.lat, pt.lon, blockTime.getTime()) : null;
+        if (models.length === 0 && !grid) continue;
+
+        let spreadKts: number | null = null;
+        let confidence: ConsensusRow['confidence'] = null;
+        let worstCase: ConsensusRow['worstCase'];
+        if (models.length > 0) {
+            // The strongest model is the worst case; with two or more it is
+            // also flagged as the outlier on the scatter bar.
+            const maxModel = models.reduce((max, m) => (m.windKts > max.windKts ? m : max), models[0]);
+            worstCase = { model: maxModel.model, windKts: maxModel.windKts, gustKts: maxModel.gustKts };
+            if (models.length >= 2) {
+                maxModel.isOutlier = true;
+                const winds = models.map((m) => m.windKts);
+                spreadKts = Math.round((Math.max(...winds) - Math.min(...winds)) * 10) / 10;
+                confidence = spreadKts < 5 ? 'high' : spreadKts < 12 ? 'medium' : 'low';
+            }
+        } else {
+            worstCase = { model: null, windKts: grid!.windKts, gustKts: grid!.gustKts };
         }
-        if (models.length === 0) continue;
-
-        // Find outlier
-        const maxModel = models.reduce((max, m) => (m.windKts > max.windKts ? m : max), models[0]);
-        maxModel.isOutlier = true;
-
-        const winds = models.map((m) => m.windKts);
-        const spreadKts = Math.round((Math.max(...winds) - Math.min(...winds)) * 10) / 10;
-        const confidence: 'high' | 'medium' | 'low' = spreadKts < 5 ? 'high' : spreadKts < 12 ? 'medium' : 'low';
 
         let exceedsComfort = false;
         if (comfortParams) {
-            exceedsComfort = models.some((m) => {
+            const readings = models.length > 0 ? models : [grid!];
+            exceedsComfort = readings.some((m) => {
                 if (comfortParams.maxWindKts !== undefined && m.windKts > comfortParams.maxWindKts) return true;
-                if (comfortParams.maxGustKts !== undefined && m.gustKts > comfortParams.maxGustKts) return true;
+                if (
+                    comfortParams.maxGustKts !== undefined &&
+                    m.gustKts !== null &&
+                    m.gustKts > comfortParams.maxGustKts
+                )
+                    return true;
                 return false;
             });
         }
@@ -327,26 +341,30 @@ export async function generateConsensusMatrix(
             lon: pt.lon,
             distanceNM: pt.distanceNM,
             models,
+            ...(grid ? { grid } : {}),
             spreadKts,
             confidence,
             exceedsComfort,
-            worstCase: { model: maxModel.model, windKts: maxModel.windKts, gustKts: maxModel.gustKts },
+            worstCase,
         });
     }
 
-    const avgSpread = rows.length > 0 ? rows.reduce((s, r) => s + r.spreadKts, 0) / rows.length : 0;
-    const modelsUsed = liveData
-        ? [...new Set([...liveData.values()].flat().map((m) => m.model))]
-        : FALLBACK_MODELS.map((m) => m.label);
+    const spreads = rows.map((r) => r.spreadKts).filter((v): v is number => v !== null);
+    const modelsUsed = MODELS.map((m) => m.label).filter((label) =>
+        rows.some((r) => r.models.some((m) => m.model === label)),
+    );
 
     return {
         rows,
         routeCoords: isoResult.routeCoordinates,
         modelsUsed,
-        dataSource,
+        dataSource: liveData ? 'live' : 'single-grid',
+        emptyReason: rows.length > 0 ? null : Number.isFinite(gridClockMs(windGrid)) ? 'no-coverage' : 'no-clock',
         summary: {
-            avgSpreadKts: Math.round(avgSpread * 10) / 10,
-            maxSpreadKts: rows.length > 0 ? Math.round(Math.max(...rows.map((r) => r.spreadKts)) * 10) / 10 : 0,
+            avgSpreadKts: spreads.length
+                ? Math.round((spreads.reduce((s, v) => s + v, 0) / spreads.length) * 10) / 10
+                : null,
+            maxSpreadKts: spreads.length ? Math.round(Math.max(...spreads) * 10) / 10 : null,
             lowConfidenceCount: rows.filter((r) => r.confidence === 'low').length,
             comfortBreachCount: rows.filter((r) => r.exceedsComfort).length,
         },
