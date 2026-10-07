@@ -789,6 +789,41 @@ describe('MapboxVelocityOverlay close-in mode', () => {
         expect(nmea.listenerCount()).toBe(0);
     });
 
+    it('her wind paints the field only in at 14; a pinch out hands it to the model (Shane 2026-10-07)', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        nmea.live({ tws: 14, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const props = {
+            mapboxMap: mapbox.map as never,
+            visible: true,
+            windGrid: airlieGrid(8, 135, 20),
+            boatInstruments: true,
+        };
+        const view = render(<MapboxVelocityOverlay {...props} windHour={0} windNowIdx={0} />);
+        expect(getCloseInWindReadout()).toEqual({ kt: 14, fromDeg: 200, source: 'boat', stale: false });
+
+        // Out to 13: still close-in, but one marina reading no longer speaks for the screen.
+        settleAt(mapbox, 13);
+        expect(closeInElement(mapbox)).not.toBeNull();
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        expect(getCloseInWindReadout()!.kt).toBeCloseTo(8, 3);
+        // A fresh sample does not pull her back while the camera is out.
+        act(() => nmea.live({ tws: 15, twd: 210 }));
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+
+        // Back in to a camera that eased to 13.98: hers again.
+        settleAt(mapbox, 13.98);
+        expect(getCloseInWindReadout()).toMatchObject({ kt: 15, fromDeg: 210, source: 'boat' });
+        // A settle a hair under the line does not flick her off...
+        settleAt(mapbox, 13.92);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
+        // ...and past 14, in at the pens, she holds.
+        settleAt(mapbox, 17);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
+        view.unmount();
+    });
+
     it('a boat off screen does not speak for the water on screen', async () => {
         mocks.releasePlugin();
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);

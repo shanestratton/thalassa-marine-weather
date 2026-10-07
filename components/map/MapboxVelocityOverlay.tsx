@@ -41,6 +41,7 @@ import { WIND_MAX_MS, WIND_PARTICLE_COLORS } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 import { CloseInWindLayer } from './CloseInWindLayer';
 import {
+    boatWindZoomFor,
     closeInModeFor,
     isWindScrubAtNow,
     pickBoatTrueWind,
@@ -520,9 +521,18 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const cloud = !storeBoat && boatInstrumentsRef.current ? followedBoatCloudWind() : null;
         const boat = storeBoat ?? cloud?.wind ?? null;
         const position = storeBoat ? boatPosition() : cloud ? { lat: cloud.lat, lon: cloud.lon } : null;
+        let zoom = Number.NaN;
+        try {
+            zoom = mapboxMap.getZoom();
+        } catch {
+            // A torn-down map: no zoom, so no boat wind.
+        }
         const wind = resolveCloseInWind({
             boat,
             boatInView: !!position && onScreen(mapboxMap, position.lat, position.lon),
+            // Her wind paints the field only in at the boat view's zoom (14);
+            // further out the model takes over (Shane 2026-10-07).
+            boatZoom: boatWindZoomFor(closeInSourceRef.current === 'boat', zoom),
             scrubAtNow: isWindScrubAtNow(windHourRef.current, windNowIdxRef.current),
             model: vector ? windFromVector(vector.u, vector.v) : null,
         });
