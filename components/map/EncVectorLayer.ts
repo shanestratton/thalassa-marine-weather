@@ -407,6 +407,11 @@ function mountPointMarkLayers(
     // yields") inverts in this case: occlusion CONCEALS the danger. What
     // survives a collision is chosen by hazardSortKey below, so the mark left
     // standing is the shallowest one present, not an arbitrary one.
+    //
+    // Within ONE class only (build 123 HM review, measured): symbol-sort-key
+    // orders a single layer, and Mapbox places these three layers whole, rocks
+    // then wrecks then obstructions, so a deep rock still beats a shallow
+    // obstruction touching it. Known gap; the fix is one layer for all three.
     const hazardAllowOverlap = false;
 
     // Shallowest first, so the mark that survives a collision at low zoom is
@@ -968,8 +973,28 @@ function mountTrackAidLayers(
     // tide-station idiom. Light halo — labels sit over the pale day
     // chart, not the dark shell. text-allow-overlap stays false so
     // Mapbox auto-decimates dense clusters.
-    const labelLayer = (layerId: string, sourceId: string) => {
-        if (map.getLayer(layerId)) return;
+    //
+    // HAZARD NAMES (build 123, HM) hang 2 em under their point, not 1.4. They
+    // are placed AFTER the marks (POINTS_LABEL sits below the hazard layers in
+    // ALL_LAYER_IDS), so a name gives way to any mark its box touches, its own
+    // included. A hazard glyph's box is the whole 48 px image plus 2 px
+    // padding; at 1.4 em a name's box started inside it at every zoom, so even
+    // a lone wreck lost its name (measured: 1.8 em still touched at z13 and
+    // z15). 2 em clears it by a pixel or more from z13 up (pinned in
+    // tests/enc/encHazardNamesNeverCullMarks.test.ts).
+    // Known limitation: a named mark that loses the hazard declutter keeps its
+    // name, which prints if it has room, beside the mark that won.
+    const labelLayer = (layerId: string, sourceId: string, offsetEm: number) => {
+        if (map.getLayer(layerId)) {
+            // Heal a label an older bundle built at another offset (the order
+            // heal below moves it under the marks). Read first: no write once
+            // it matches.
+            const want: [number, number] = [0, offsetEm];
+            if (JSON.stringify(map.getLayoutProperty(layerId, 'text-offset')) !== JSON.stringify(want)) {
+                map.setLayoutProperty(layerId, 'text-offset', want);
+            }
+            return;
+        }
         map.addLayer(
             {
                 id: layerId,
@@ -989,7 +1014,7 @@ function mountTrackAidLayers(
                     ],
                     'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 16, 11],
-                    'text-offset': [0, 1.4],
+                    'text-offset': [0, offsetEm],
                     'text-anchor': 'top',
                     'text-max-width': 9,
                     'text-allow-overlap': false,
@@ -1005,8 +1030,8 @@ function mountTrackAidLayers(
         );
     };
 
-    labelLayer(ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_SRC.NAVAIDS);
-    labelLayer(ENC_VEC_LAYERS.POINTS_LABEL, ENC_VEC_SRC.POINTS);
+    labelLayer(ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_SRC.NAVAIDS, 1.4);
+    labelLayer(ENC_VEC_LAYERS.POINTS_LABEL, ENC_VEC_SRC.POINTS, 2);
 
     // Z-ORDER HEAL: idempotent-additive mounting only positions layers
     // at ADD time — layers surviving from an earlier bundle keep the
