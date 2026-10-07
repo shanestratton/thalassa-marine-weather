@@ -434,6 +434,9 @@ test.describe('Trip · Legs keeps the way home within reach', () => {
                 .selectOption({ label: 'Harbour - Sandy Cove (2 legs)' });
             const dialog = page.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
             await expect(dialog).toBeVisible();
+            // The cyclone-season card (W1-12) loads below the legs: measure with it in place.
+            const season = dialog.getByRole('list', { name: 'Tropical cyclones near this route by month' });
+            await expect(season).toBeAttached({ timeout: 15_000 });
             await dialog.getByRole('button', { name: /^Plan the return trip/ }).scrollIntoViewIfNeeded();
             const m = await dialog.evaluate((box) => {
                 const frame = box.getBoundingClientRect();
@@ -476,6 +479,23 @@ test.describe('Trip · Legs keeps the way home within reach', () => {
             }
             const returnRow = m.targets.find((t) => t.name?.startsWith('⇄Plan the return trip'));
             expect(returnRow?.hit, 'the return-trip row is not covered').toBe(true);
+
+            // Scrolled to, the season strip sits inside the dialog with every month's count in its cell.
+            await season.scrollIntoViewIfNeeded();
+            await expect(season).toBeVisible();
+            const strip = await season.evaluate((list) => {
+                const frame = list.closest('[role="dialog"]')!.getBoundingClientRect();
+                const r = list.getBoundingClientRect();
+                const cells = [...list.querySelectorAll<HTMLElement>('li')];
+                return {
+                    cells: cells.length,
+                    inside: r.left >= frame.left - 0.5 && r.right <= frame.right + 0.5,
+                    clipped: cells.some((li) => li.scrollWidth > li.clientWidth + 1),
+                };
+            });
+            expect(strip.cells, 'twelve months').toBe(12);
+            expect(strip.inside, 'the season strip stays inside the dialog').toBe(true);
+            expect(strip.clipped, 'no month cell is clipped').toBe(false);
         });
     }
 });

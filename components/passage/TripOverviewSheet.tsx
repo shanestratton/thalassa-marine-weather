@@ -13,7 +13,7 @@
  * out to crew + family before departure.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
@@ -31,6 +31,13 @@ import { useSettings } from '../../context/SettingsContext';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { OverlayPortal } from '../ui/OverlayPortal';
 import { vesselCrewAboard } from '../../services/units';
+import { ErrorBoundary } from '../ErrorBoundary';
+
+/** Cyclone season along the route (W1-12): the card and its IBTrACS JSON load only when the sheet opens. */
+const SeasonRiskCard = lazy(() => import('./SeasonRiskCard'));
+/** The card is optional: if its chunk 404s after a web deploy, show nothing rather than
+ *  crash the Route Planner. (ErrorBoundary treats a null fallback as "show the crash card".) */
+const RENDER_NOTHING = <></>;
 
 interface TripOverviewSheetProps {
     isOpen: boolean;
@@ -418,6 +425,12 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                             })}
                         </div>
                     </Section>
+
+                    <ErrorBoundary boundaryName="SeasonRiskCard" fallback={RENDER_NOTHING}>
+                        <Suspense fallback={null}>
+                            <SeasonRiskCard legs={stableLegs} />
+                        </Suspense>
+                    </ErrorBoundary>
 
                     {/* Country / visa snippets */}
                     {countrySnippets.length > 0 && (
