@@ -20,6 +20,8 @@ const log = createLogger('IsoCache');
 
 interface PrecomputedRoute {
     scope: AuthIdentityScope;
+    /** The routing polar it was sailed on (services/routingPolar signature). */
+    polarSignature: string;
     depLat: number;
     depLon: number;
     arrLat: number;
@@ -44,13 +46,16 @@ subscribeAuthIdentityScope(() => {
 
 /**
  * Check if a pre-computed route matches the requested departure/arrival.
- * Returns the cached result if within 0.01° and fresher than 5 minutes.
+ * Returns the cached result if within 0.01°, fresher than 5 minutes, and
+ * sailed on the same routing polar (`polarSignature`, from resolveRoutingPolar):
+ * a polar changed inside the five minutes must not serve the old route.
  */
 export function getPrecomputedRoute(
     depLat: number,
     depLon: number,
     arrLat: number,
     arrLon: number,
+    polarSignature: string,
     expectedScope: AuthIdentityScope = getAuthIdentityScope(),
 ): IsochroneResult | null {
     if (!isAuthIdentityScopeCurrent(expectedScope)) return null;
@@ -66,6 +71,7 @@ export function getPrecomputedRoute(
     }
     const close = (a: number, b: number) => Math.abs(a - b) < 0.01;
     if (
+        _cache.polarSignature === polarSignature &&
         close(_cache.depLat, depLat) &&
         close(_cache.depLon, depLon) &&
         close(_cache.arrLat, arrLat) &&
@@ -75,7 +81,7 @@ export function getPrecomputedRoute(
         _cache = null; // consume once
         return result;
     }
-    _cache = null; // stale coords
+    _cache = null; // stale coords or polar
     return null;
 }
 
@@ -103,8 +109,7 @@ export async function precomputeIsochrone(
         // 1. Load wind data
         const { WindStore } = await import('../stores/WindStore');
         const { createWindFieldFromGrid } = await import('./weather/WindFieldAdapter');
-        const { SmartPolarStore } = await import('./SmartPolarStore');
-        const { DEFAULT_CRUISING_POLAR } = await import('./defaultPolar');
+        const { resolveRoutingPolar } = await import('./routingPolar');
         const { preloadBathymetry } = await import('./BathymetryCache');
         const { computeIsochrones } = await import('./IsochroneRouter');
 
@@ -117,7 +122,9 @@ export async function precomputeIsochrone(
         }
 
         const windField = createWindFieldFromGrid(windGrid);
-        const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
+        const routingPolar = await resolveRoutingPolar();
+        if (!isCurrent()) return;
+        const polar = routingPolar.polar;
 
         // Use original coordinates directly (sea buoy gate finding removed)
         const R_NM = 3440.065;
@@ -155,6 +162,7 @@ export async function precomputeIsochrone(
         if (isoResult && isoResult.routeCoordinates.length >= 2) {
             _cache = {
                 scope: expectedScope,
+                polarSignature: routingPolar.signature,
                 depLat: depGate.lat,
                 depLon: depGate.lon,
                 arrLat: arrGate.lat,

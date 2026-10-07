@@ -15,11 +15,21 @@ const TWS_MIN = 0;
 const TWS_MAX = 30;
 const TWA_MIN = 40;
 const TWA_MAX = 180;
+/** A bucket shows on the Polars page chart from this many samples. */
+const DISPLAY_MIN_SAMPLES = 3;
+/**
+ * From this many samples a bucket rejects >3σ outliers — and only buckets
+ * this full count as learned for ROUTING (services/routingPolar): three
+ * samples are ~15 s of sailing, one surf or paddlewheel spike away from a
+ * cell 1.7× her speed.
+ */
+export const ROUTING_MIN_BUCKET_SAMPLES = 10;
 
 class SmartPolarStoreClass {
     private grid: SmartPolarBucketGrid | null = null;
     private dirty = false;
     private saveTimer: ReturnType<typeof setTimeout> | null = null;
+    private loading: Promise<void> | null = null;
 
     /** Initialize — load existing data from disk */
     async initialize(): Promise<void> {
@@ -29,6 +39,29 @@ class SmartPolarStoreClass {
         } else {
             this.grid = this.createEmptyGrid();
         }
+    }
+
+    /**
+     * Load from disk only if nothing is loaded yet (one read, however many
+     * callers ask at once). Unlike initialize() it never replaces a live grid,
+     * so samples recorded but not yet saved survive — the routing resolver
+     * (services/routingPolar.ts) reads the learned polar through this.
+     */
+    ensureLoaded(): Promise<void> {
+        if (this.grid) return Promise.resolve();
+        this.loading ??= this.initialize().finally(() => {
+            this.loading = null;
+        });
+        return this.loading;
+    }
+
+    /** How many of the 42 exported cells hold learned figures (from buckets of `minSamples`+). */
+    filledCellCount(minSamples = DISPLAY_MIN_SAMPLES): number {
+        return (
+            this.exportToPolarData(minSamples)
+                ?.matrix.flat()
+                .filter((v) => v > 0).length ?? 0
+        );
     }
 
     /** Record a clean sailing sample into the appropriate bucket */
@@ -47,7 +80,7 @@ class SmartPolarStoreClass {
         }
 
         // Outlier rejection: if we have enough samples, reject >3σ outliers
-        if (bucket.count >= 10) {
+        if (bucket.count >= ROUTING_MIN_BUCKET_SAMPLES) {
             const mean = bucket.sumSTW / bucket.count;
             const variance = bucket.sumSTW2 / bucket.count - mean * mean;
             const stdDev = Math.sqrt(Math.max(0, variance));
@@ -70,8 +103,12 @@ class SmartPolarStoreClass {
         this.scheduleSave();
     }
 
-    /** Export bucket grid to standard PolarData format for chart rendering */
-    exportToPolarData(): PolarData | null {
+    /**
+     * Export bucket grid to standard PolarData format for chart rendering.
+     * Only buckets of `minSamples`+ contribute; routing asks for
+     * ROUTING_MIN_BUCKET_SAMPLES.
+     */
+    exportToPolarData(minSamples = DISPLAY_MIN_SAMPLES): PolarData | null {
         if (!this.grid) return null;
 
         // Standard output wind speeds and angles (match factory polar format)
@@ -81,7 +118,7 @@ class SmartPolarStoreClass {
         const matrix = angles.map((targetAngle) => {
             return windSpeeds.map((targetTws) => {
                 // Find closest bucket(s) and interpolate
-                return this.interpolateBucket(targetTws, targetAngle);
+                return this.interpolateBucket(targetTws, targetAngle, minSamples);
             });
         });
 
@@ -138,7 +175,7 @@ class SmartPolarStoreClass {
     // ── Private ──
 
     /** Interpolate the average STW for a target TWS/TWA from nearby buckets */
-    private interpolateBucket(targetTws: number, targetTwa: number): number {
+    private interpolateBucket(targetTws: number, targetTwa: number, minSamples: number): number {
         if (!this.grid) return 0;
 
         // Look at the primary bucket and its neighbors for weighted average
@@ -153,8 +190,8 @@ class SmartPolarStoreClass {
             for (let da = -TWA_BUCKET_SIZE; da <= TWA_BUCKET_SIZE; da += TWA_BUCKET_SIZE) {
                 const key = `tws_${twsBucket + dw}_twa_${twaBucket + da}`;
                 const bucket = this.grid.buckets[key];
-                if (bucket && bucket.count >= 3) {
-                    // Minimum 3 samples for reliability
+                if (bucket && bucket.count >= minSamples) {
+                    // Minimum samples for reliability
                     const avg = bucket.sumSTW / bucket.count;
                     // Weight by distance (closer = heavier) and sample count
                     const dist = Math.sqrt((dw / TWS_BUCKET_SIZE) ** 2 + (da / TWA_BUCKET_SIZE) ** 2) + 0.1;
