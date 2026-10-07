@@ -204,7 +204,7 @@ input[type='range'] {
 /* No text selection outside the opt-ins above (Shane 2026-09-29: "can we
    block all messages from apple that are not necessary"). Every paragraph,
    article, .prose block and dd used to be selectable, so a long press on the
-   header's "THE SAILOR'S ASSISTANT" raised Copy / Look Up / Translate, and a
+   header's tagline under the wordmark raised Copy / Look Up / Translate, and a
    long press on a tile's words could too. What a skipper genuinely copies
    opts in by itself: fields, and codes and links marked select-all /
    select-text / .allow-text-select (crew invite code, Pi setup, radio text,

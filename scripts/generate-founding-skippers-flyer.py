@@ -181,7 +181,7 @@ def draw_brand(pdf: canvas.Canvas) -> None:
     )
     draw_tracked_text(
         pdf,
-        "THE SAILOR'S ASSISTANT",
+        "KEEPS WATCH WITH YOU",
         text_x,
         logo_y + 2.4 * mm,
         font="Helvetica-Bold",

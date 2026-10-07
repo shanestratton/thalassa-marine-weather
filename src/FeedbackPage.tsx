@@ -296,7 +296,7 @@ export function FeedbackPage({ submitFeedback = submitProductFeedback }: Feedbac
                     <img src={markDark} alt="" draggable={false} />
                     <span>
                         <strong>THALASSA</strong>
-                        <small>THE SAILOR'S ASSISTANT</small>
+                        <small>KEEPS WATCH WITH YOU</small>
                     </span>
                 </a>
                 <span className="feedback-status-pill">

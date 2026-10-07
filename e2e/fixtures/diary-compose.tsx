@@ -177,7 +177,7 @@ const AppHeader: React.FC<{ landscape: boolean }> = ({ landscape }) => (
                     <p
                         className={`flex min-w-0 items-center gap-1.5 whitespace-nowrap text-[11px] uppercase tracking-widest text-sky-200 shadow-black drop-shadow-md ${landscape ? 'hidden' : ''}`}
                     >
-                        <span className="min-w-0 flex-1 truncate">The Sailor&apos;s Assistant</span>
+                        <span className="min-w-0 flex-1 truncate">Keeps watch with you</span>
                     </p>
                 </div>
             </div>
