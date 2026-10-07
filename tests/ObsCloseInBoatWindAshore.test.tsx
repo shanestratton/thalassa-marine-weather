@@ -94,6 +94,7 @@ vi.mock('../utils/createLogger', () => ({
 
 import { MapboxVelocityOverlay } from '../components/map/MapboxVelocityOverlay';
 import { getCloseInWindReadout } from '../components/map/closeInWind';
+import { boatWindChipFor, getBoatWindReadout } from '../components/map/boatWindReadout';
 import { NmeaStore } from '../services/NmeaStore';
 import { CloudTelemetryService } from '../services/CloudTelemetryService';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
@@ -181,8 +182,8 @@ function modelGrid(): WindGrid {
     };
 }
 
-/** A 390x844 phone at z14 centred on `centre`; anything within a few hundred metres is on screen. */
-function phoneMap(centre: { lat: number; lng: number }) {
+/** A 390x844 phone at `zoom` (z14 by default) centred on `centre`; anything within a few hundred metres is on screen. */
+function phoneMap(centre: { lat: number; lng: number }, zoom = 14) {
     const container = document.createElement('div');
     container.dataset.testObsWind = 'true';
     Object.defineProperty(container, 'clientWidth', { configurable: true, get: () => 390 });
@@ -197,7 +198,7 @@ function phoneMap(centre: { lat: number; lng: number }) {
         getLayer: vi.fn(),
         getSource: vi.fn(),
         getStyle: () => ({ layers: [{ id: 'place-label', type: 'symbol' }] }),
-        getZoom: () => 14,
+        getZoom: () => zoom,
         on: (event: string, handler: () => void) => {
             const set = listeners.get(event) ?? new Set();
             set.add(handler);
@@ -218,11 +219,11 @@ function phoneMap(centre: { lat: number; lng: number }) {
     return map;
 }
 
-function renderObs(centre: { lat: number; lng: number }, props: { boatInstruments?: boolean } = {}) {
+function renderObs(centre: { lat: number; lng: number }, props: { boatInstruments?: boolean } = {}, zoom = 14) {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     return render(
         <MapboxVelocityOverlay
-            mapboxMap={phoneMap(centre) as never}
+            mapboxMap={phoneMap(centre, zoom) as never}
             visible
             windGrid={modelGrid()}
             windHour={0}
@@ -431,6 +432,72 @@ describe('Obs close-in wind: the followed boat’s own wind, from whichever lane
         expect(await settled()).toMatchObject({ kt: 9, fromDeg: 170, source: 'boat' });
         // Her wind is already here: no cloud read for a row that cannot show.
         expect(db.reads).toBe(0);
+    });
+
+    // ── Build 123, W1-WC: out where the model paints the field, her reading rides on her icon ──
+
+    it('ashore at z8 (the leaflet field), box on her: her own row’s wind is published for her icon', async () => {
+        renderObs(MARINA, {}, 8);
+        await waitFor(() =>
+            expect(getBoatWindReadout()).toEqual({
+                wind: { kt: 14, fromDeg: 200, stale: false },
+                boat: { crewOwnerId: null },
+                fieldShowsHers: false,
+            }),
+        );
+        // No close-in at z8: the field is the model's, and her icon carries her reading.
+        expect(readout()).toBeNull();
+        expect(boatWindChipFor(getBoatWindReadout(), { kind: 'boat', crewOwnerId: null }, 'kts')).toMatchObject({
+            text: '14 kt SSW',
+        });
+        // Read through the chain, as in close-in: the store is left alone.
+        expect(NmeaStore.getState().remote).toBeNull();
+    });
+
+    it('at z14 the same row paints the field, and her icon carries nothing', async () => {
+        renderObs(MARINA);
+        await waitFor(() => expect(readout()).toMatchObject({ source: 'boat', kt: 14 }));
+        expect(getBoatWindReadout()).toMatchObject({ fieldShowsHers: true });
+        expect(boatWindChipFor(getBoatWindReadout(), { kind: 'boat', crewOwnerId: null }, 'kts')).toBeNull();
+    });
+
+    it('ashore at z8, box on the boat crewed on: her skipper’s row, published as that boat’s', async () => {
+        setWeatherFollowTarget('crew', { ownerId: SKIPPER, fallback: 'boat' });
+        renderObs(OFFSHORE, {}, 8);
+        await waitFor(() =>
+            expect(getBoatWindReadout()).toMatchObject({
+                wind: { kt: 22, fromDeg: 90 },
+                boat: { crewOwnerId: SKIPPER },
+            }),
+        );
+        expect(boatWindChipFor(getBoatWindReadout(), { kind: 'boat', crewOwnerId: null }, 'kts')).toBeNull();
+    });
+
+    it('ashore at z8, her row’s wind sample past the cloud lane’s 60 s gate: nothing for her icon', async () => {
+        db.rows = [piRow(OWNER, MARINA, { tws: 14, twd: 200, windAt: Date.now() - 61_000 })];
+        renderObs(MARINA, {}, 8);
+        await waitFor(() => expect(db.reads).toBeGreaterThan(0));
+        await settled();
+        expect(getBoatWindReadout()).toBeNull();
+    });
+
+    it('ashore at z8, box on Current Location: nothing for any icon, and no row is read', async () => {
+        setWeatherFollowTarget('phone');
+        renderObs(MARINA, {}, 8);
+        await settled();
+        expect(getBoatWindReadout()).toBeNull();
+        expect(db.reads).toBe(0);
+    });
+
+    it('a boat in the Solent, west of Greenwich (fictional): her row’s wind on her icon, in the user’s unit', async () => {
+        const SOLENT = { lat: 50.77, lng: -1.3 };
+        db.rows = [piRow(OWNER, SOLENT, { tws: 10, twd: 292 })];
+        renderObs(SOLENT, {}, 8);
+        await waitFor(() => expect(getBoatWindReadout()).toMatchObject({ wind: { kt: 10, fromDeg: 292 } }));
+        expect(boatWindChipFor(getBoatWindReadout(), { kind: 'boat', crewOwnerId: null }, 'kmh')).toMatchObject({
+            text: '19 km/h WNW',
+            label: 'Boat wind 19 kilometres per hour from west-north-west',
+        });
     });
 
     it('aboard, a gateway socket: the bus’s wind', async () => {

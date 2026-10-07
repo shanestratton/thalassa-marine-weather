@@ -28,15 +28,36 @@ import { NmeaStore } from '../../services/NmeaStore';
 import {
     followedBoatCloudRowNow,
     followedBoatOwnsInstruments,
+    getWeatherFollowCrewOwner,
+    getWeatherFollowTarget,
     lookUpFollowedBoatCloudRow,
 } from '../../services/weatherPosition';
 import { pickCloudTrueWind, type BoatWind } from './closeInWind';
+import type { FollowedBoat } from './boatWindReadout';
 
 export function boatInstrumentsFollowed(): boolean {
     try {
         return followedBoatOwnsInstruments(NmeaStore.getState(), CloudTelemetryService.getLatest()?.ownerId ?? null);
     } catch {
         return false;
+    }
+}
+
+/**
+ * The boat the location box follows, whose wind boatInstrumentsFollowed and
+ * followedBoatCloudWind speak for: the own boat (crewOwnerId null) or the boat
+ * crewed on; null while it follows the phone, or 'crew' with no boat named
+ * (the chain's own rule, weatherPosition followedBoat). Her own-ship marker
+ * wears her wind only when it draws this boat (W1-WC).
+ */
+export function followedBoatSubject(): FollowedBoat | null {
+    try {
+        const target = getWeatherFollowTarget();
+        if (target === 'boat') return { crewOwnerId: null };
+        const crewOwnerId = target === 'crew' ? getWeatherFollowCrewOwner() : null;
+        return crewOwnerId ? { crewOwnerId } : null;
+    } catch {
+        return null;
     }
 }
 

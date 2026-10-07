@@ -18,6 +18,10 @@
  * once it is not. The bow follows a fresh true heading, or the course over
  * ground only while she is moving; without either, an upright side-on boat
  * never invents a bow bearing.
+ *
+ * Under the boat, her own wind as a small arrow and number wherever Obs's wind
+ * field is not showing it (build 123, W1-WC): the overlay publishes it
+ * (boatWindReadout), and the marker wears it only when it draws that boat.
  */
 import mapboxgl from 'mapbox-gl';
 import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
@@ -49,6 +53,7 @@ import { WEATHER_FOLLOW_TARGET_EVENT } from '../../services/weatherPosition';
 import { SKIPPER_BOAT_FALLBACK } from '../vessel/skipperBoatFallback';
 import type { ObsBoatNames } from './obsCentre';
 import { ownshipStatus, type OwnshipMarkerIdentity, type OwnshipStatusPresentation } from './ownshipStatus';
+import { boatWindChipFor, getBoatWindReadout, subscribeBoatWindReadout, type BoatWindChip } from './boatWindReadout';
 import { resolveOwnshipDirection, type DirectionInstruments, type OwnshipDirection } from './ownshipDirection';
 import {
     REMOTE_LANE_LIVE_MAX_AGE_MS,
@@ -123,6 +128,23 @@ const GLOW_BORDER_LIVE = 'rgba(56, 189, 248, 0.35)';
 const GLOW_FILL_LIVE = 'rgba(56, 189, 248, 0.22)';
 /** Badge's left edge from the fix: glow radius (12) + 6 px air. */
 const BADGE_OFFSET_PX = 18;
+/**
+ * Her wind chip's top edge below the fix: the 28 px boat's half (14), which a
+ * bow heading south reaches with its halo, + 4 px air. Its 21 px then end 43 px
+ * below the fix, under the badge's foot (10.5 px) and the boat.
+ */
+const WIND_CHIP_TOP_PX = 18;
+/**
+ * Her wind chip wears the badge's own chip classes, so daylight turns both
+ * light together (styles/daylight.css). Each tone holds 4.5:1 on that chip
+ * (12 px bold is not large text): slate-100 live, which daylight inks
+ * slate-900; the stale tier dimmed to slate-400 (slate-600 in daylight) on a
+ * dashed edge (browser-tests/ownship-boat-marker.spec.ts).
+ */
+const WIND_CHIP_TONE_CLASS = {
+    live: ['text-slate-100', 'border-sky-400/30'],
+    stale: ['text-slate-400', 'border-slate-400/50', 'border-dashed'],
+} as const;
 /**
  * Theme text classes: .display-light darkens each for a light chip. Each
  * holds 4.5:1 on the badge's own chip (12 px bold is not large text): red-500
@@ -270,7 +292,77 @@ export function createVesselElement(): HTMLDivElement {
     `;
     el.appendChild(ageChip);
 
+    // Her own wind (build 123, W1-WC) — hidden until the overlay publishes a
+    // reading the field is not showing (below zoom 14, or the leaflet field
+    // further out). Its own chip, never part of the badge, so the badge's
+    // words, colours and precedence stay exactly theirs. Under the boat,
+    // centred on her fix: beside the badge it ran under the right-rail zoom
+    // control, which on a 320 px phone sits level with the centred boat. Only
+    // the chip is offset; Mapbox keeps the root's exact GPS anchor.
+    const windChip = document.createElement('div');
+    windChip.className = `vessel-wind-chip rounded-lg border bg-slate-900/94 ${WIND_CHIP_TONE_CLASS.live.join(' ')}`;
+    windChip.dataset.tone = 'live';
+    windChip.style.cssText = `
+        position: absolute; top: calc(50% + ${WIND_CHIP_TOP_PX}px); left: 50%;
+        transform: translateX(-50%);
+        align-items: center; gap: 3px;
+        padding: 1px 6px;
+        font-size: 12px; font-weight: 800;
+        line-height: 1.25;
+        white-space: nowrap;
+        letter-spacing: 0.03em;
+        z-index: 3;
+        display: none;
+    `;
+    // The arrow points north at rest and turns to where the wind blows TO, the
+    // way the streaks fly. It turns with the chart, as the marker does.
+    windChip.innerHTML =
+        '<span class="vessel-wind-arrow" aria-hidden="true" style="display:block;width:12px;height:12px;flex:none">' +
+        '<svg viewBox="0 0 12 12" width="12" height="12" fill="currentColor" style="display:block">' +
+        '<path d="M6 0.6 10.4 6.4H7.3V11.4H4.7V6.4H1.6Z"/></svg></span>' +
+        '<span class="vessel-wind-text"></span>';
+    el.appendChild(windChip);
+
     return el;
+}
+
+/**
+ * Paint her wind chip, or hide it (null), and return the marker's spoken words
+ * for it ('' when hidden). Touches the DOM only when its words, its arrow's
+ * 5 degree step or its tone change: the overlay re-reads her instruments every
+ * tick, and a marker repainting per tick is the WebContent memory history this
+ * app has. Exported for the layout spec.
+ */
+export function presentOwnshipWind(el: HTMLElement, chip: BoatWindChip | null): string {
+    const node = el.querySelector<HTMLElement>('.vessel-wind-chip');
+    if (!node) return '';
+    const spoken = chip ? chip.label.charAt(0).toLowerCase() + chip.label.slice(1) : '';
+    const signature = chip ? `${chip.text}|${chip.arrowDeg ?? '-'}|${chip.stale ? 'stale' : 'live'}` : '';
+    if ((node.dataset.signature ?? '') === signature) return spoken;
+    node.dataset.signature = signature;
+    if (!chip) {
+        node.style.display = 'none';
+        node.removeAttribute('role');
+        node.removeAttribute('aria-label');
+        return '';
+    }
+    const arrow = node.querySelector<HTMLElement>('.vessel-wind-arrow');
+    const text = node.querySelector<HTMLElement>('.vessel-wind-text');
+    if (text && text.textContent !== chip.text) text.textContent = chip.text;
+    if (arrow) {
+        arrow.style.display = chip.arrowDeg === null ? 'none' : 'block';
+        arrow.style.transform = chip.arrowDeg === null ? '' : `rotate(${chip.arrowDeg}deg)`;
+    }
+    const tone = chip.stale ? 'stale' : 'live';
+    if (node.dataset.tone !== tone) {
+        node.dataset.tone = tone;
+        node.classList.remove(...WIND_CHIP_TONE_CLASS.live, ...WIND_CHIP_TONE_CLASS.stale);
+        node.classList.add(...WIND_CHIP_TONE_CLASS[tone]);
+    }
+    node.setAttribute('role', 'img');
+    node.setAttribute('aria-label', chip.label);
+    node.style.display = 'flex';
+    return spoken;
 }
 
 type GpsAgeTier = 'locked' | 'stale' | 'lost';
@@ -788,12 +880,15 @@ export function ownshipPlaceLabelWasReset(map: mapboxgl.Map): boolean {
 export function ownshipChipSignature(el: HTMLElement): string {
     const badge = el.querySelector<HTMLElement>('.vessel-sog-badge');
     const chip = el.querySelector<HTMLElement>('.vessel-age-chip');
+    const wind = el.querySelector<HTMLElement>('.vessel-wind-chip');
     const words = (text: string | null | undefined) => (text ?? '').replace(/\d/g, '0');
-    return `${words(badge?.textContent)}|${chip?.style.display ?? ''}|${words(chip?.textContent)}`;
+    // Her wind chip (W1-WC) is part of what a town name must clear too.
+    const windWords = wind && wind.style.display !== 'none' ? words(wind.textContent) : '-';
+    return `${words(badge?.textContent)}|${chip?.style.display ?? ''}|${words(chip?.textContent)}|${windWords}`;
 }
 
 /**
- * The badge and a showing age chip, as rects relative to the marker's centre
+ * The badge, a showing age chip and her showing wind chip, as rects relative to the marker's centre
  * (which is the drawn fix). Measured only when what the chips say changes, or
  * the camera settles, never per fix: that is a forced layout.
  */
@@ -802,7 +897,7 @@ function measureChipOffsets(el: HTMLElement): ScreenRect[] {
     const cx = origin.left + origin.width / 2;
     const cy = origin.top + origin.height / 2;
     const out: ScreenRect[] = [];
-    for (const part of el.querySelectorAll<HTMLElement>('.vessel-sog-badge, .vessel-age-chip')) {
+    for (const part of el.querySelectorAll<HTMLElement>('.vessel-sog-badge, .vessel-age-chip, .vessel-wind-chip')) {
         const box = part.getBoundingClientRect();
         if (box.width <= 0 || box.height <= 0) continue;
         out.push({ left: box.left - cx, top: box.top - cy, right: box.right - cx, bottom: box.bottom - cy });
@@ -1052,6 +1147,8 @@ export interface VesselTrackerOptions {
      * this device already holds and asks no one.
      */
     lookUp?: boolean;
+    /** The user's speed unit (settings.units.speed) for her wind chip (W1-WC); knots when unset. */
+    windSpeedUnit?: string;
 }
 
 /** How often the marker asks her chain while her bus is not here; the chain throttles each lane to 30 s. */
@@ -1150,6 +1247,10 @@ export function useVesselTracker(
     namesRef.current = options.names;
     const lookUpRef = useRef(options.lookUp === true);
     lookUpRef.current = options.lookUp === true;
+    const windUnitRef = useRef(options.windSpeedUnit);
+    windUnitRef.current = options.windSpeedUnit;
+    /** Her wind chip's spoken words (W1-WC), '' while it is hidden. */
+    const spokenWindRef = useRef('');
     /** For MapHub: the phone gets a dot of its own only while the marker is a boat. */
     const [subjectKind, setSubjectKind] = useState<OwnshipSubject['kind']>('phone');
 
@@ -1169,11 +1270,14 @@ export function useVesselTracker(
     // VoiceOver never hears 'Stopped' or that the fix is 54 s old (UX scorecard
     // run 10). 'Kittiwake, last fix 54 seconds ago; heading unavailable': the
     // chip's own words and nothing more, so the name can never say something
-    // the chip and gpsFixState do not.
+    // the chip and gpsFixState do not. Her wind chip, when it shows, follows
+    // after them ('; boat wind 14 knots from south-south-west'): it never
+    // takes the badge's place in the name.
     const nameMarker = useCallback(
         (el: HTMLElement) => {
             const status = spokenStatusRef.current;
-            const label = `${markerName()}${status ? `, ${status}` : ''}; ${spokenDirectionRef.current}`;
+            const wind = spokenWindRef.current;
+            const label = `${markerName()}${status ? `, ${status}` : ''}; ${spokenDirectionRef.current}${wind ? `; ${wind}` : ''}`;
             if (el.getAttribute('aria-label') === label) return;
             el.setAttribute('role', 'img');
             el.setAttribute('aria-label', label);
@@ -1244,6 +1348,19 @@ export function useVesselTracker(
         nameMarker(el);
     }, [nameMarker]);
 
+    // Her own wind (W1-WC), as the overlay publishes it, only on the boat it
+    // is for and only where the field is not showing it (boatWindChipFor).
+    // The painter writes the DOM only when what the chip says changes.
+    const updateWindChip = useCallback(() => {
+        const el = elementRef.current;
+        if (!el) return;
+        spokenWindRef.current = presentOwnshipWind(
+            el,
+            boatWindChipFor(getBoatWindReadout(), subjectRef.current, windUnitRef.current),
+        );
+        nameMarker(el);
+    }, [nameMarker]);
+
     const updateMarker = useCallback(
         (
             pos: TrackerPosition,
@@ -1287,6 +1404,8 @@ export function useVesselTracker(
                     .setLngLat([longitude, latitude])
                     .addTo(map);
                 log.info('Vessel marker created');
+                // A new marker wears her wind at once, not at the next reading.
+                updateWindChip();
             } else {
                 markerRef.current.setLngLat([longitude, latitude]);
             }
@@ -1383,7 +1502,7 @@ export function useVesselTracker(
             ensureTrailLayers(map);
             updateTrailData(map, trail);
         },
-        [mapRef, visible, updateStatusBadge, updateDirection],
+        [mapRef, visible, updateStatusBadge, updateDirection, updateWindChip],
     );
 
     useEffect(() => {
@@ -1784,6 +1903,8 @@ export function useVesselTracker(
             }
             setSubjectKind(next.kind);
             syncPhoneWatch();
+            // Whose marker this is decides whose wind it may wear.
+            updateWindChip();
         };
         resolveSubject();
 
@@ -1835,6 +1956,7 @@ export function useVesselTracker(
         const unsubAnchor = AnchorWatchService.subscribe(updateStatusBadge);
         const unsubSync = AnchorWatchSyncService.onStateChange(updateStatusBadge);
         const unsubShore = ShoreWatchAlarmService.subscribe(updateStatusBadge);
+        const unsubWind = subscribeBoatWindReadout(updateWindChip);
         paint();
         askChain();
         const lookUpTimer = window.setInterval(askChain, OWNSHIP_LOOKUP_EVERY_MS);
@@ -1898,6 +2020,7 @@ export function useVesselTracker(
             unsubAnchor();
             unsubSync();
             unsubShore();
+            unsubWind();
             if (markerRef.current) {
                 markerRef.current.remove();
                 markerRef.current = null;
@@ -1910,7 +2033,12 @@ export function useVesselTracker(
                 syncOwnshipPlaceLabel(map, null);
             }
         };
-    }, [mapReady, visible, updateMarker, updateStatusBadge, updateDirection, mapRef, mapBearing]);
+    }, [mapReady, visible, updateMarker, updateStatusBadge, updateDirection, updateWindChip, mapRef, mapBearing]);
+
+    // A new speed unit repaints her wind chip at once.
+    useEffect(() => {
+        updateWindChip();
+    }, [options.windSpeedUnit, updateWindChip]);
 
     // Fly to the vessel: where the marker is, and for a punter whose phone is
     // all the boat has, the arbiter's answer or the phone.
