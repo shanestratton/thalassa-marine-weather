@@ -1,0 +1,151 @@
+{
+    "version": 1,
+    "date": "2026-10-08",
+    "baseCommit": "419442de3c792f94ea82530130a2cc2baaf345fd",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "status": "local-ui-lifecycle-fixtures-passed-not-capacitor-or-release-acceptance",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/app-pilot/main.tsx": "55d81db6eeba3ce3215d9b3c11b66ce256b528b40b90c7868969770ef3cab159",
+        "experiments/scuttlebutt-e2ee/app-pilot/runtime.ts": "31ba62ac837237d325ac795b5e57d49e3157a5689bc2bb2c0d72f3cea726e64b",
+        "experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx": "42861a1266a3b701cce423d886cebf1971da8ec9589ee5aeddc867c408dd781c",
+        "experiments/scuttlebutt-e2ee/bridge-web/auth.ts": "6bf86f1e00a8c76cf15550aa70b430b16bf8ab8fa19854f529a61e48c5e07d6c",
+        "tests/PrivateMessageResearchApp.test.tsx": "e150392f41e33791bbc039eabb52eba4cef4b51c2268b2aeb0a1211a74a808da",
+        "tests/E2eePilotBridgeAuth.test.ts": "dea86a55c30bbd99c2e661b1d04a4d8a34edbad60e16be0f1fdc239dcbbb9ffb",
+        "experiments/scuttlebutt-e2ee/pilot/tsconfig.json": "743678a804db7bb21f511bdbb78dfa36efeaa50f84c4d52a217a0f839289e3d3",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs": "ab54861749d94fc01835fd5b26d74023c8be0ef9f3bab1dd0125c9e7ccf83209"
+    },
+    "artifacts": {
+        "checks": {
+            "path": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/checks.json",
+            "sha256": "fbe4e942967937ea8f2fa7969e7ccc71fd41d2f1ae30964653aa378fcbd4375c"
+        },
+        "logs": [
+            {
+                "name": "research",
+                "exitCode": 0,
+                "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/research.log",
+                "logSha256": "d8559b69bcb96e9f198ee4e36fb490a09d1bf577b178fed4cafe6acb915d3d83"
+            },
+            {
+                "name": "app-pilot",
+                "exitCode": 0,
+                "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/app-pilot.log",
+                "logSha256": "a62bf9e5a4b893911fecb1aac7072c9eb96de95b75e1a9215dc9465cfdaeda8f"
+            },
+            {
+                "name": "web",
+                "exitCode": 0,
+                "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/web.log",
+                "logSha256": "47d40d12db9863f0f7cf76fecf8a36153e821639115a9ee27bb1782085fd85a5"
+            },
+            {
+                "name": "unsigned-ios",
+                "exitCode": 0,
+                "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/unsigned-ios.log",
+                "logSha256": "19d192221d88d2077a59e311196de821cf64bca26c61073fcb67c2efff5b3ae3"
+            }
+        ],
+        "nativeBuild": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-lC1JgU/build-receipt.json",
+            "sha256": "c80dffc6696c235ff246c824975155916d59c566820461604c3be349ef7c7567"
+        },
+        "unsignedApplication": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-lC1JgU/DerivedData/Build/Products/Debug-iphoneos/ScuttlebuttResearchAuth.app",
+        "executableSha256": "4806e687265ca730c63f75406a111fdc7dc82f82b3865c0e0212e1f647cfcd48",
+        "webRoot": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/web",
+        "packagedWebHashes": {
+            "assets/PrivateMessagePilotPage-_M_8yUuF.js": "85a167471f8cb3e6ef41438aa435f09db2289a9e8537ae5f1ec50abcb0ed1b1b",
+            "assets/_thalassa-private-pilot-legacy-denied-uuUY_5R-.js": "79a00a67a84267aa8decff41eb752b6678e63e9c78a2b7ccf4e7de59923cea30",
+            "assets/index-BKP0fqz3.js": "c0f8016c7e9306b6e3efd2d9479e1ff01540dc1e8b9af61a80a4d17b5126cea9",
+            "assets/index-C00TXFhj.js": "53eab233f899f56d31188eae5c6cf21e2c68a8dfbf2208c63f7151e5b77a907c",
+            "assets/main-Ctbuh57S.css": "345b5ded06b2d8a59525d0cbb21827da5414a2a386f4ae265e1b5a27aea74322",
+            "assets/main-dM7R9jFf.js": "152d57cd59c5c18198d6fcf9098ee628dc3a6b404d17603f899228b49939fe4f",
+            "index.html": "06365e9eb6aff12b8f052adc9f470fc0aaa04aab47c619106acdcf07e372d9b4"
+        }
+    },
+    "evidence": {
+        "newUiIntegrationCases": 18,
+        "focusedUiAndAuthTests": 97,
+        "researchTests": 1765,
+        "researchSuites": 24,
+        "appPilotTests": 689,
+        "appPilotSuites": 32,
+        "suitesOverlap": true,
+        "strictFocusedTypesPassed": true,
+        "namedLintPassed": true,
+        "webModulesTransformed": 88,
+        "unsignedIosSourceCount": 18,
+        "realReactPageAndJsAdapters": true,
+        "sdkAndNativeReplies": "synthetic",
+        "allUnexpectedFetchSetupAndSendCallsForbidden": true,
+        "tested": [
+            "Startup private legacy denial and no automatic enrollment/claim/protection/send.",
+            "Password clearing and duplicate/hidden submission refusal.",
+            "Unknown/mismatched admission blocks native issue.",
+            "Actual native-only inbox/thread rendering preserves null text/time and received/read-unknown state.",
+            "Hidden SDK events and canceled first sign-in do not revive an owner.",
+            "BFCache suspension preserves known owner continuity but needs explicit fresh reverify.",
+            "Action-owned busy state, logout interruption and stale completion refusal.",
+            "Fresh effect-owned runtime on remount and StrictMode without render-time subscriptions.",
+            "Idempotent terminal verify fence before replacement initialization on the same native proxy.",
+            "Delayed fence, terminal refusal and SDK cleanup failure cases."
+        ],
+        "actualSupabaseSdkNetworkExecuted": false,
+        "actualCapacitorBridgeExecuted": false,
+        "realProviderOrKeychainRerun": false,
+        "physicalDeviceExecuted": false,
+        "browserVisualQa": false,
+        "independentSecurityReview": false
+    },
+    "designLimits": [
+        "FIFO orders JS fence dispatch on one exact native proxy, not independent native completion/revocation proof.",
+        "Terminal fencing is best effort; failure cannot be reported as successful credential revocation.",
+        "No full app/router integration, production cutover, prekey lifecycle or recovery policy is completed."
+    ],
+    "retainedFailures": [
+        "Initial fixture types failed circular ReturnType inference and widened configuration literals; corrected.",
+        "Adding FIFO fencing exposed two old tests waiting for logout before releasing its predecessor fence; assertions now retain stale-token refusal under explicit serialized ordering.",
+        "Old pairing-after-disposal assertion omitted the newly intentional terminal verify fence; it now separates that fence from forbidden renewal.",
+        "An invalid patch with duplicate same-file operations refused before writes; corrected named update applied."
+    ],
+    "verification": {
+        "research": {
+            "name": "research",
+            "exitCode": 0,
+            "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/research.log",
+            "logSha256": "d8559b69bcb96e9f198ee4e36fb490a09d1bf577b178fed4cafe6acb915d3d83"
+        },
+        "appPilot": {
+            "name": "app-pilot",
+            "exitCode": 0,
+            "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/app-pilot.log",
+            "logSha256": "a62bf9e5a4b893911fecb1aac7072c9eb96de95b75e1a9215dc9465cfdaeda8f"
+        },
+        "web": {
+            "name": "web",
+            "exitCode": 0,
+            "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/web.log",
+            "logSha256": "47d40d12db9863f0f7cf76fecf8a36153e821639115a9ee27bb1782085fd85a5"
+        },
+        "unsignedIos": {
+            "name": "unsigned-ios",
+            "exitCode": 0,
+            "log": "/private/tmp/thalassa-ui-lifecycle.zuXYYA/unsigned-ios.log",
+            "logSha256": "19d192221d88d2077a59e311196de821cf64bca26c61073fcb67c2efff5b3ae3"
+        },
+        "nativeSwiftSourcesUnchangedFromStartupCandidate": true,
+        "compileOnly": true,
+        "signingInstalledOrLaunched": false
+    },
+    "remainingGates": [
+        "Actual SDK/Capacitor/UI lifecycle execution, separately labelled fixture-vs-live and with fresh owned state.",
+        "Full app/router admission and production legacy/push enforcement.",
+        "Device/prekey lifecycle, inbox progress/retention and explicit recovery policy.",
+        "Final physical-device matrix, independent PostgreSQL concurrency, provenance/licensing and external security review."
+    ],
+    "masterMergedOrPushed": false,
+    "primaryCheckoutEditedOrSynced": false,
+    "humanDevicesAccountsKeysChanged": false,
+    "hostedActorsOrStateChanged": false,
+    "productionTouched": false,
+    "externalReviewerContacted": false
+}

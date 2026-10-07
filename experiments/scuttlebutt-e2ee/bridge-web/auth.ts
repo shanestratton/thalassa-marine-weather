@@ -34,6 +34,28 @@ export interface ResearchAuthNativePlugin {
     currentAccount(): Promise<NativeAccountResult>;
 }
 
+// A single Research native host may outlive a React window/composition. All
+// credential fences on that exact proxy are FIFO: terminal disposal of an old
+// controller must finish before a replacement controller issues its new lease.
+// This is JS dispatch ordering, not proof of native completion or revocation.
+const nativeFenceTails = new WeakMap<ResearchAuthNativePlugin, Promise<void>>();
+function queuedNativeFence(
+    native: ResearchAuthNativePlugin,
+    eligible: () => boolean,
+    mode: 'verify' | 'sign_out',
+): Promise<NativeFenceResult> {
+    const previous = nativeFenceTails.get(native) ?? Promise.resolve();
+    const next = previous.then(() => (eligible() ? native.fenceSession({ mode }) : { status: 'unavailable' as const }));
+    nativeFenceTails.set(
+        native,
+        next.then(
+            () => {},
+            () => {},
+        ),
+    );
+    return next;
+}
+
 interface SdkSession {
     access_token: string;
 }
@@ -187,6 +209,8 @@ export class ResearchAuthController {
     private owner: Pick<ResearchAccount, 'accountId' | 'deviceId'> | null = null;
     private sdkTail: Promise<unknown> = Promise.resolve();
     private sdkDispatch: { revision: number; kind: 'acquire' | 'sign_out' } | null = null;
+    private suspended = false;
+    private suspension: Promise<void> = Promise.resolve();
 
     constructor(private readonly dependencies: ResearchAuthDependencies = runtime) {}
 
@@ -242,7 +266,7 @@ export class ResearchAuthController {
             // Cold launch has no bearer or displayed authority. Native verify
             // suspends credentials while retaining only a strictly reopened
             // selected owner; fresh same-account Auth is still mandatory.
-            const fenced = await this.dependencies.native.fenceSession({ mode: 'verify' });
+            const fenced = await queuedNativeFence(this.dependencies.native, () => this.current(ticket), 'verify');
             if (!this.current(ticket)) return;
             if (!validFence(fenced)) throw new Error('Unavailable');
             this.createSdk(sdkConfiguration);
@@ -268,6 +292,7 @@ export class ResearchAuthController {
 
     async signIn(email: string, password: string): Promise<void> {
         if (!this.initialized || !this.sdk || this.disposed) return;
+        this.suspended = false;
         const ticket = this.begin('verifying');
         if (!this.current(ticket)) return;
         this.intent = 'signed_in';
@@ -280,6 +305,13 @@ export class ResearchAuthController {
 
     async reverify(): Promise<void> {
         if (!this.initialized || !this.sdk || this.disposed) return;
+        // A canceled first sign-in may have populated SDK memory, but never
+        // established a verified owner. Require explicit credentials again.
+        if (this.suspended && !this.owner) {
+            this.publish('unavailable');
+            return;
+        }
+        this.suspended = false;
         const ticket = this.begin('verifying');
         if (!this.current(ticket)) return;
         this.intent = 'signed_in';
@@ -303,6 +335,7 @@ export class ResearchAuthController {
             return null;
         }
         const expectedOwner = this.owner;
+        this.suspended = false;
         const ticket = this.begin('verifying');
         if (!this.current(ticket)) return null;
         this.intent = 'signed_in';
@@ -322,7 +355,9 @@ export class ResearchAuthController {
     ): Promise<void> {
         if (!this.current(ticket)) return;
         try {
-            const fenced = await this.dependencies.native.fenceSession({ mode: 'verify' });
+            await this.suspension;
+            if (!this.current(ticket)) return;
+            const fenced = await queuedNativeFence(this.dependencies.native, () => this.current(ticket), 'verify');
             if (!this.current(ticket)) return;
             if (!validFence(fenced)) throw new Error('Unavailable');
             // Serial SDK work also checks the ticket at actual dispatch. A
@@ -374,8 +409,31 @@ export class ResearchAuthController {
     }
 
     /** Clear displayed authority before either native or SDK asynchronous work. */
+    suspend(): void {
+        if (this.disposed || !this.initialized) return;
+        this.suspended = true;
+        this.intent = 'signed_out';
+        const ticket = this.begin('unavailable');
+        // Cancel queued/held token work synchronously, preserving sealed owner
+        // continuity. A stale suspension must never fence a newer verification.
+        this.suspension = this.suspension.then(async () => {
+            if (this.disposed || !this.suspended || ticket !== this.revision) return;
+            try {
+                await queuedNativeFence(
+                    this.dependencies.native,
+                    () => !this.disposed && this.suspended && ticket === this.revision,
+                    'verify',
+                );
+            } catch {
+                /* Access remains unavailable. */
+            }
+        });
+    }
+
+    /** Explicit logout alone discards the selected native owner continuity. */
     async signOut(): Promise<void> {
         if (!this.canSignOut()) return;
+        this.suspended = false;
         this.intent = 'signed_out';
         this.owner = null;
         const ticket = this.begin('verifying');
@@ -384,13 +442,15 @@ export class ResearchAuthController {
 
     private async close(ticket: number, clearSdk: boolean, mode: 'verify' | 'sign_out'): Promise<void> {
         if (!this.current(ticket)) return;
+        await this.suspension;
+        if (!this.current(ticket)) return;
         this.intent = 'signed_out';
         // Expiry/absent tokens must revoke credentials, not destroy a ratchet.
         // Only the explicit sign-out action discards owner continuity.
         if (mode === 'sign_out') this.owner = null;
         let nativeClosed = false;
         try {
-            const fenced = await this.dependencies.native.fenceSession({ mode });
+            const fenced = await queuedNativeFence(this.dependencies.native, () => this.current(ticket), mode);
             if (!this.current(ticket)) return;
             nativeClosed = validFence(fenced);
         } catch {
@@ -443,7 +503,7 @@ export class ResearchAuthController {
     }
 
     private authChanged(event: string, _session: SdkSession | null): void {
-        if (this.disposed || !this.initialized || event === 'INITIAL_SESSION') return;
+        if (this.disposed || this.suspended || !this.initialized || event === 'INITIAL_SESSION') return;
         // Supabase calls listeners while holding its Auth lock. This callback
         // returns synchronously: no SDK method is awaited or called here.
         if (this.sdkDispatch) {
@@ -484,7 +544,7 @@ export class ResearchAuthController {
     }
 
     private current(ticket: number): boolean {
-        return !this.disposed && ticket === this.revision;
+        return !this.disposed && !this.suspended && ticket === this.revision;
     }
 
     private begin(status: ResearchAuthState['status']): number {
@@ -529,12 +589,32 @@ export class ResearchAuthController {
     }
 
     dispose(): void {
+        if (this.disposed) return;
         this.disposed = true;
         this.revision += 1;
+        const terminal = this.revision;
         this.intent = 'signed_out';
         this.owner = null;
-        this.subscription?.unsubscribe();
-        this.sdk?.stopAutoRefresh?.();
+        if (this.configuration) {
+            this.suspension = queuedNativeFence(
+                this.dependencies.native,
+                () => this.disposed && this.revision === terminal,
+                'verify',
+            ).then(
+                () => {},
+                () => {},
+            );
+        }
+        try {
+            this.subscription?.unsubscribe();
+        } catch {
+            /* Credential denial is already queued. */
+        }
+        try {
+            this.sdk?.stopAutoRefresh?.();
+        } catch {
+            /* Do not expose SDK diagnostics or skip the terminal fence. */
+        }
         this.publish('unavailable');
         this.listeners.clear();
     }
