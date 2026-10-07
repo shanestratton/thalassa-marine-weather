@@ -6,7 +6,11 @@ import type { WeatherModelId } from '../../services/weather/MultiModelWeatherSer
 import { ObsLayerKey, obsLayerKeyCount, type ObsLayerKeyProps } from '../../components/map/ObsLayerKey';
 import type { MooringColourFilter } from '../../services/anchorages/cruisingReference';
 import { startPassageLookAhead, stopPassageLookAhead, usePassageLookAheadOn } from '../../stores/passageHudStore';
+import { setWeatherFollowTarget } from '../../services/weatherPosition';
 import '../../index.css';
+
+// ?follow=boat: Current Location follows her, so the Wind panel offers "Her wind vs the models".
+if (new URLSearchParams(location.search).get('follow') === 'boat') setWeatherFollowTarget('boat');
 
 const reference = Date.parse('2026-09-27T06:00:00Z');
 const hours = [0, 1, 3, 6, 9];
