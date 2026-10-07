@@ -9,7 +9,7 @@ import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistanceKm } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
 import { piCache } from '../../PiCacheService';
-import { getSolarTimes, getMoonData } from '../../../utils/celestial';
+import { getSolarTimes, getSolarTimesForDate, getMoonData } from '../../../utils/celestial';
 import { resolveTimeZone } from '../../../utils/timezone';
 
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../../utils/advisory';
@@ -426,12 +426,14 @@ const doFetchOpenMeteo = async (
     // (timezone missing, empty string) still give us a valid IANA zone.
     const tz = resolveTimeZone(safeLat, safeLon, wData.timezone);
     const dailies = (dailyArr.time || []).map((t: string, i: number) => {
-        // SunCalc: compute sunrise/sunset mathematically (works offline)
-        const dayDate = new Date(t + 'T12:00:00');
-        const solar = getSolarTimes(dayDate, safeLat, safeLon, tz);
+        // SunCalc: compute sunrise/sunset mathematically (works offline).
+        // `t` is the location's date: anchor at ITS noon, not the phone's.
+        const solar = getSolarTimesForDate(t, safeLat, safeLon, tz);
         return {
-            day: new Date(t).toLocaleDateString('en-US', { weekday: 'long' }),
-            date: new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            // `t` is a bare date, parsed as UTC midnight: label it in UTC or a
+            // phone west of Greenwich names every row a day early.
+            day: new Date(t).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }),
+            date: new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
             isoDate: t,
             highTemp: dailyArr.temperature_2m_max[i],
             lowTemp: dailyArr.temperature_2m_min[i],
@@ -473,7 +475,7 @@ const doFetchOpenMeteo = async (
         currentMetrics.lowTemp = dailies[0].lowTemp;
     }
 
-    // SunCalc: compute moon phase + rise/set offline
+    // Moon phase + rise/set offline, for the location's own day (W1-06)
     const moonData = getMoonData(now, safeLat, safeLon, tz);
     currentMetrics.moonPhase = moonData.phaseName;
     currentMetrics.moonIllumination = moonData.illumination;
@@ -481,7 +483,8 @@ const doFetchOpenMeteo = async (
     currentMetrics.moonrise = moonData.moonrise;
     currentMetrics.moonset = moonData.moonset;
 
-    // SunCalc: compute dawn/dusk for current day
+    // SunCalc: dawn/dusk for the location's current day ("Sun stays up",
+    // "No true night" etc. where the event never happens)
     const todaySolar = getSolarTimes(now, safeLat, safeLon, tz);
     currentMetrics.dawn = todaySolar.dawn;
     currentMetrics.dusk = todaySolar.dusk;
