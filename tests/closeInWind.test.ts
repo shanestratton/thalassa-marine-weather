@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+    BOAT_WIND_ENTER_ZOOM,
+    BOAT_WIND_EXIT_ZOOM,
+    BOAT_WIND_MIN_ZOOM,
+    boatWindZoomFor,
     CLOSE_IN_CALM_KT,
     CLOSE_IN_ENTER_CELLS,
     CLOSE_IN_EXIT_CELLS,
@@ -25,6 +29,7 @@ import {
     windFromVector,
     windGridSpacingDeg,
 } from '../components/map/closeInWind';
+import { OBS_VESSEL_ZOOM } from '../components/map/useObsStartupCamera';
 import type { WindGrid } from '../services/weather/windGridEncoding';
 import type { TimestampedMetric } from '../services/NmeaStore';
 
@@ -294,30 +299,80 @@ describe('close-in source arbitration', () => {
 
     it('prefers the boat only when it is live, in view and the scrubber is at now', () => {
         const boat = { kt: 8, fromDeg: 135, stale: false };
-        expect(resolveCloseInWind({ boat, boatInView: true, scrubAtNow: true, model })).toEqual({
+        expect(resolveCloseInWind({ boat, boatInView: true, boatZoom: true, scrubAtNow: true, model })).toEqual({
             kt: 8,
             fromDeg: 135,
             source: 'boat',
             stale: false,
         });
         // Scrubbed away from now: the model for that hour, never a blend.
-        expect(resolveCloseInWind({ boat, boatInView: true, scrubAtNow: false, model })).toEqual({
+        expect(resolveCloseInWind({ boat, boatInView: true, boatZoom: true, scrubAtNow: false, model })).toEqual({
             ...model,
             source: 'model',
             stale: false,
         });
         // Boat off screen: its wind is not the wind here.
-        expect(resolveCloseInWind({ boat, boatInView: false, scrubAtNow: true, model })?.source).toBe('model');
+        expect(resolveCloseInWind({ boat, boatInView: false, boatZoom: true, scrubAtNow: true, model })?.source).toBe(
+            'model',
+        );
         // No instruments (or dead ones).
-        expect(resolveCloseInWind({ boat: null, boatInView: true, scrubAtNow: true, model })?.source).toBe('model');
+        expect(
+            resolveCloseInWind({ boat: null, boatInView: true, boatZoom: true, scrubAtNow: true, model })?.source,
+        ).toBe('model');
         // Stale instruments still win, flagged.
         expect(
-            resolveCloseInWind({ boat: { ...boat, stale: true }, boatInView: true, scrubAtNow: true, model }),
+            resolveCloseInWind({
+                boat: { ...boat, stale: true },
+                boatInView: true,
+                boatZoom: true,
+                scrubAtNow: true,
+                model,
+            }),
         ).toMatchObject({
             source: 'boat',
             stale: true,
         });
-        expect(resolveCloseInWind({ boat: null, boatInView: false, scrubAtNow: true, model: null })).toBeNull();
+        expect(
+            resolveCloseInWind({ boat: null, boatInView: false, boatZoom: true, scrubAtNow: true, model: null }),
+        ).toBeNull();
+    });
+
+    it('paints her wind only in at the boat view zoom (Shane 2026-10-07: "just the highest zoom (14)")', () => {
+        const boat = { kt: 8, fromDeg: 135, stale: false };
+        // The rule is the zoom the boat view lands at, so tapping her shows her wind.
+        expect(BOAT_WIND_MIN_ZOOM).toBe(OBS_VESSEL_ZOOM);
+        expect(BOAT_WIND_MIN_ZOOM).toBe(14);
+        // Zoomed out from 14: the model, even with her live, in view and at now.
+        expect(resolveCloseInWind({ boat, boatInView: true, boatZoom: false, scrubAtNow: true, model })).toEqual({
+            ...model,
+            source: 'model',
+            stale: false,
+        });
+        // No model to fall back on: nothing, never her wind painted too wide.
+        expect(
+            resolveCloseInWind({ boat, boatInView: true, boatZoom: false, scrubAtNow: true, model: null }),
+        ).toBeNull();
+    });
+
+    it('counts 14 and closer as her zoom, with a hair of slack and no flicker at the edge', () => {
+        // In at 14, and anywhere past it (the map zooms to 22).
+        for (const zoom of [14, 14.5, 16, 22]) {
+            expect(boatWindZoomFor(false, zoom)).toBe(true);
+            expect(boatWindZoomFor(true, zoom)).toBe(true);
+        }
+        // A camera that eases to 13.98 is still at 14.
+        expect(boatWindZoomFor(false, 13.98)).toBe(true);
+        expect(boatWindZoomFor(false, BOAT_WIND_ENTER_ZOOM)).toBe(true);
+        // A real pinch out hands over to the model.
+        for (const zoom of [13.9, 13.5, 13, 12, 10]) expect(boatWindZoomFor(false, zoom)).toBe(false);
+        // Hysteresis: once hers, she lets go only past the exit line.
+        expect(BOAT_WIND_EXIT_ZOOM).toBeLessThan(BOAT_WIND_ENTER_ZOOM);
+        expect(boatWindZoomFor(true, 13.92)).toBe(true);
+        expect(boatWindZoomFor(false, 13.92)).toBe(false);
+        expect(boatWindZoomFor(true, 13.89)).toBe(false);
+        // No zoom (a torn-down map): never hers.
+        expect(boatWindZoomFor(true, Number.NaN)).toBe(false);
+        expect(boatWindZoomFor(false, Number.POSITIVE_INFINITY)).toBe(false);
     });
 
     it('is at now exactly when the scrubber would label the frame Near now', () => {
