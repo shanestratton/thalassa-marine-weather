@@ -1056,15 +1056,15 @@ const HeroSlideComponent = ({
                                                         headingColor: 'text-amber-400',
                                                         labelColor: 'text-amber-300',
                                                     },
+                                                    // No arrow on SWELL 2 or PER. 2: the one they drew was
+                                                    // swellDirection, the TOTAL sea's, and this feed has no
+                                                    // secondary-swell direction (W1-07; W1-13 brings one).
                                                     {
                                                         id: 'secondarySwellHeight',
                                                         label: 'SWELL 2',
                                                         icon: <WaveIcon className="w-3 h-3" />,
                                                         headingColor: 'text-cyan-400',
                                                         labelColor: 'text-cyan-300',
-                                                        dirDeg: cardData.swellDirection
-                                                            ? cardinalToDegrees(cardData.swellDirection)
-                                                            : null,
                                                     },
                                                     {
                                                         id: 'secondarySwellPeriod',
@@ -1072,9 +1072,6 @@ const HeroSlideComponent = ({
                                                         icon: <GaugeIcon className="w-3 h-3" />,
                                                         headingColor: 'text-cyan-400',
                                                         labelColor: 'text-cyan-300',
-                                                        dirDeg: cardData.swellDirection
-                                                            ? cardinalToDegrees(cardData.swellDirection)
-                                                            : null,
                                                     },
                                                 ];
                                                 const INLAND_WIDGETS = [
@@ -1182,7 +1179,7 @@ const HeroSlideComponent = ({
                                                         case 'currentSpeed':
                                                             return 'kts';
                                                         case 'secondarySwellHeight':
-                                                            return 'ft';
+                                                            return cardDisplayValues.secondarySwellUnit;
                                                         case 'secondarySwellPeriod':
                                                             return 's';
                                                         default:

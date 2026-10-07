@@ -16,7 +16,7 @@ import {
     StarIcon,
     TideCurveIcon,
 } from '../Icons';
-import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
+import { WeatherMetrics, SourcedWeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
 import {
     convertTemp,
     convertDistance,
@@ -303,7 +303,8 @@ export const DetailedMetricsWidget = ({
     current,
     units,
     hourly,
-    locationType,
+    // Total sea reads 'Waves' everywhere now, offshore too (W1-07).
+    locationType: _locationType,
 }: {
     current: WeatherMetrics;
     units: UnitPreferences;
@@ -334,6 +335,12 @@ export const DetailedMetricsWidget = ({
     // null = the source had no precipitation value ('--'); 0 is a genuine dry reading ('0').
     const precipValue =
         current.precipitation == null ? '--' : (convertPrecip(current.precipitation, units.temp) ?? '0');
+
+    // waveHeight, swellPeriod and swellDirection are the TOTAL sea, wind sea
+    // and every swell together, so it is 'Waves', never 'Swell' (W1-07). A
+    // model's period is its mean period; a wave buoy reports its dominant one.
+    const periodNote =
+        (current as SourcedWeatherMetrics).sources?.swellPeriod?.source === 'buoy' ? 'Peak period' : 'Mean period';
 
     // Condition Score Logic
     const score = calculateDailyScore(current.windSpeed || 0, current.waveHeight || 0, settings.vessel);
@@ -520,21 +527,21 @@ export const DetailedMetricsWidget = ({
         ),
         swell: (
             <DetailTile
-                label="Swell Period"
+                label="Wave Period"
                 value={`${current.swellPeriod || '--'}`}
                 unit="s"
                 colorClass="text-sky-300"
                 icon={<WaveIcon className="w-4 h-4" />}
                 subContent={
                     <span className="text-[11px] text-gray-400 truncate max-w-full">
-                        {current.swellDirection ? `From ${current.swellDirection}` : 'Peak Energy'}
+                        {current.swellDirection ? `From ${current.swellDirection}` : periodNote}
                     </span>
                 }
             />
         ),
         wave: (
             <DetailTile
-                label={locationType === 'offshore' ? 'Swell' : 'Wave'}
+                label="Waves"
                 value={
                     /* waveHeight arrives in FEET (transformers scale by 3.28084); this
                        printed the raw feet under the user's own unit (audit 2026-09-02). */
@@ -554,12 +561,12 @@ export const DetailedMetricsWidget = ({
         ),
         wavePeriod: (
             <DetailTile
-                label={locationType === 'offshore' ? 'Swell Per.' : 'Wave Per.'}
+                label="Wave Per."
                 value={`${current.swellPeriod || '--'}`}
                 unit="s"
                 colorClass="text-sky-300"
                 icon={<WaveIcon className="w-4 h-4" />}
-                subContent={<span className="text-[11px] text-gray-400">Peak Energy</span>}
+                subContent={<span className="text-[11px] text-gray-400">{periodNote}</span>}
             />
         ),
         uv: (

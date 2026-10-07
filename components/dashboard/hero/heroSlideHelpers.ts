@@ -98,6 +98,9 @@ export function computeCardDisplayValues(
     isHourly: boolean,
     isLandlocked?: boolean,
 ): CardDisplayValues {
+    // Sea heights read in the skipper's Seas setting, the one rule every
+    // sea reading on the Glass uses (the store fills it from Lengths).
+    const seaUnit = units.waveHeight || 'm';
     return {
         airTemp: cardData.airTemperature !== null ? convertTemp(cardData.airTemperature, units.temp) : '--',
         highTemp: cardData.highTemp !== undefined ? convertTemp(cardData.highTemp, units.temp) : '--',
@@ -176,10 +179,13 @@ export function computeCardDisplayValues(
             cardData.cape !== undefined && cardData.cape !== null && !isNaN(cardData.cape as number)
                 ? Math.round(cardData.cape as number)
                 : '--',
+        // Stored in FEET, like waveHeight. It went out raw under a fixed 'ft',
+        // so metric skippers read feet (W1-07); converted and labelled as one.
         secondarySwellHeight: (() => {
             const v = cardData.secondarySwellHeight;
-            return v !== undefined && v !== null && !isNaN(v) ? v : '--';
+            return v != null && !isNaN(v) ? (convertLength(v, seaUnit) ?? '--') : '--';
         })(),
+        secondarySwellUnit: seaUnit,
         secondarySwellPeriod: (() => {
             const v = cardData.secondarySwellPeriod;
             return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
@@ -698,6 +704,8 @@ export interface HeroDisplayValues {
     waterTemperature: string;
     currentDirection: string;
     secondarySwellHeight: number | string;
+    /** The unit secondarySwellHeight was converted to: print this beside it. */
+    secondarySwellUnit: string;
     secondarySwellPeriod: number | string;
 }
 
