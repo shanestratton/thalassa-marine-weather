@@ -337,18 +337,43 @@ export function pickCloudTrueWind(row: CloudWindRow | null | undefined, now: num
 }
 
 /**
+ * Her own wind paints the field only from the zoom the boat view lands at
+ * (useObsStartupCamera OBS_VESSEL_ZOOM, pinned equal by a test). Shane
+ * 2026-10-07: "what about if it is just the highest zoom (14) as soon as the
+ * punter zooms out from there, then the wind models kick in". Close-in itself
+ * starts near z10, where a phone shows about 28 x 60 km at Airlie: one
+ * anemometer in a marina cannot speak for the whole Whitsunday Passage, so
+ * below 14 the model paints the field. At 14 even an iPad shows only about
+ * 2 nm around her. The map zooms in past 14, and her wind holds there too.
+ */
+export const BOAT_WIND_MIN_ZOOM = 14;
+/** A camera that eases to 13.98 is still "at 14"... */
+export const BOAT_WIND_ENTER_ZOOM = BOAT_WIND_MIN_ZOOM - 0.05;
+/** ...and her wind lets go only past this, so a settle on the edge cannot flicker. */
+export const BOAT_WIND_EXIT_ZOOM = BOAT_WIND_MIN_ZOOM - 0.1;
+
+/** Is the settled camera close enough for her wind to paint the field? With hysteresis. */
+export function boatWindZoomFor(wasBoat: boolean, zoom: number): boolean {
+    if (!Number.isFinite(zoom)) return false;
+    return zoom >= (wasBoat ? BOAT_WIND_EXIT_ZOOM : BOAT_WIND_ENTER_ZOOM);
+}
+
+/**
  * One source, never a blend: the boat's instruments when they are usable, the
- * boat is on screen and the scrubber is at now; otherwise the selected model
- * at the screen centre for the scrubbed hour.
+ * boat is on screen, the camera is in at her zoom (BOAT_WIND_MIN_ZOOM) and the
+ * scrubber is at now; otherwise the selected model at the screen centre for
+ * the scrubbed hour.
  */
 export function resolveCloseInWind(input: {
     boat: BoatWind | null;
     boatInView: boolean;
+    /** boatWindZoomFor: the camera is in at her zoom. */
+    boatZoom: boolean;
     scrubAtNow: boolean;
     model: LocalWind | null;
 }): CloseInWind | null {
-    const { boat, boatInView, scrubAtNow, model } = input;
-    if (boat && boatInView && scrubAtNow)
+    const { boat, boatInView, boatZoom, scrubAtNow, model } = input;
+    if (boat && boatInView && boatZoom && scrubAtNow)
         return { kt: boat.kt, fromDeg: boat.fromDeg, source: 'boat', stale: boat.stale };
     if (model) return { kt: model.kt, fromDeg: model.fromDeg, source: 'model', stale: false };
     return null;
