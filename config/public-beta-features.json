@@ -16,7 +16,8 @@
         "VITE_GOOGLE_SIGN_IN_ENABLED": true,
         "VITE_ACCOUNT_DELETION_ENABLED": true,
         "VITE_GRANT_ALL_FEATURES": false,
-        "VITE_ENABLE_ENC_DEMO_SAMPLES": false
+        "VITE_ENABLE_ENC_DEMO_SAMPLES": false,
+        "VITE_BLITZORTUNG_ENABLED": false
     },
     "publicEndpoints": {
         "VITE_DEEPGRAM_PROXY_URL": "https://thalassa-deepgram-proxy.thalassacalypso.workers.dev",

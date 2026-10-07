@@ -377,8 +377,9 @@ phase 2's single-model request — the spread is extra, never a precondition.
   they are split, broken (not stretched) where models ran out. It lives inside the track and costs no height. The
   credit then names **every** provider in it.
 
-Deliberately **not** reused: `ConsensusMatrixEngine` (turns a null into a 0-knot calm, fabricates a gust as speed × 1.4,
-and on fetch failure invents four "models" from sin-noise) and `MultiModelWeatherService` (`?? 0` on missing data).
+Deliberately **not** reused: `ConsensusMatrixEngine` (until build 123 it turned a null into a 0-knot calm, fabricated a
+gust as speed × 1.4, and on fetch failure invented four "models" from sin-noise — all fixed in W1-05, but it samples only
+every 6 h) and `MultiModelWeatherService` (`?? 0` on missing data).
 
 ### The ghost sails by the wind
 

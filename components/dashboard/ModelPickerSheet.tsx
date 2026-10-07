@@ -22,6 +22,7 @@ import {
     OFFSHORE_MODELS,
     getForecastModelInfo,
     getOffshoreModelInfo,
+    providerLicence,
 } from '../../services/weather/forecastModels';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { Button } from '../ui/Button';
@@ -66,9 +67,10 @@ const CREDIT_NAMES: Readonly<Record<string, string>> = {
 
 /**
  * The one-line data credit for whichever model the Glass is showing, e.g.
- * 'Forecast: DWD ICON · CC-BY-4.0'. The sheet prints it for the model the
- * Glass is showing, above the full attribution line (UX scorecard run 7).
- * Blends and Auto credit every source; offshore sources credit StormGlass.
+ * 'Forecast: DWD ICON · CC BY 4.0' ('CC BY-SA 4.0' for the UK Met Office). The
+ * sheet prints it for the model the Glass is showing, above the full
+ * attribution line (UX scorecard run 7). Blends and Auto credit every source;
+ * offshore sources credit StormGlass.
  */
 export function forecastCreditLine(model: WeatherModel, offshoreModel?: OffshoreModel): string {
     if (offshoreModel) {
@@ -81,7 +83,7 @@ export function forecastCreditLine(model: WeatherModel, offshoreModel?: Offshore
     if (!info) return MODEL_ATTRIBUTION_LINE;
     const name =
         CREDIT_NAMES[info.id] ?? (info.provider === info.label ? info.label : `${info.provider} ${info.label}`);
-    return `Forecast: ${name} · CC-BY-4.0`;
+    return `Forecast: ${name} · ${providerLicence(info.provider)}`;
 }
 
 /** Words that keep their capital after the dash (proper nouns, acronyms). */
@@ -378,7 +380,7 @@ export const ModelPickerSheet: React.FC<ModelPickerSheetProps> = ({
                         </p>
                         <p>
                             {offshore ? (
-                                'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC-BY-4.0).'
+                                'Marine forecasts via StormGlass. ICON atmosphere: DWD / Open-Meteo (CC BY 4.0).'
                             ) : (
                                 <AttributionLine text={MODEL_ATTRIBUTION_LINE} />
                             )}

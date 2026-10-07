@@ -57,10 +57,15 @@ describe('lightning lifecycle', () => {
         });
         vi.stubGlobal('cancelAnimationFrame', (id: number) => frames.delete(id));
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        // The Blitzortung layer sits behind its licence flag, OFF by default
+        // since build 123 (tests/BlitzortungLicenceFlag.test.tsx). This file
+        // tests the layer itself, so it runs with the flag flipped on.
+        vi.stubEnv('VITE_BLITZORTUNG_ENABLED', 'true');
     });
     afterEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
     });
 
     it('restarts its subscription and animation after StrictMode cleanup replay', () => {

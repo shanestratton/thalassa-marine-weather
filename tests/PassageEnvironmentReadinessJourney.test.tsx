@@ -57,7 +57,7 @@ function availableCurrent(dataFingerprint = 'current-data-a'): CurrentBriefing {
         avgSpeedKts: 0.4,
         maxSpeedKts: 0.4,
         netEffectHours: -0.5,
-        source: 'climatology',
+        freshness: 'weekly',
         fetchedAt: new Date().toISOString(),
         provider: 'NOAA CoastWatch ERDDAP',
         providerDataset: 'test-current-field',
@@ -76,7 +76,7 @@ function unavailableCurrent(): CurrentBriefing {
         avgSpeedKts: null,
         maxSpeedKts: null,
         netEffectHours: null,
-        source: 'climatology',
+        freshness: 'weekly',
         fetchedAt: new Date().toISOString(),
         provider: 'NOAA CoastWatch ERDDAP',
         providerDataset: null,
@@ -205,7 +205,7 @@ describe('passage environment readiness journeys', () => {
         // A provider DATA refresh keeps it too (hourly frames re-nagged on
         // every page open before 2026-08-26).
         currentMocks.fetchCurrents.mockResolvedValue(availableCurrent('current-data-b'));
-        fireEvent.click(screen.getByRole('button', { name: /Enhance/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Refresh currents' }));
         await screen.findByText(/Surface Currents/);
         await waitFor(() => expect(onReviewedChange).toHaveBeenLastCalledWith(true));
     });

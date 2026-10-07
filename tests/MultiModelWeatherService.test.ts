@@ -13,20 +13,91 @@ import {
     queryMultiModel,
     type WeatherModelId,
 } from '../services/weather/MultiModelWeatherService';
+import {
+    LIVENESS_PROBE_HOURS,
+    modelLiveness,
+    probeModelLiveness,
+    resetModelLivenessForTests,
+} from '../services/weather/modelLiveness';
+
+/** Fictional route midpoints, one per ocean the app is used in. */
+const MIDPOINTS: Record<string, [number, number]> = {
+    med: [36, -5.3],
+    caribbean: [13.0, -61.2],
+    pacific: [-17.5, -149.6],
+    northSea: [56, 3],
+    usWest: [37.8, -122.6],
+    queensland: [-20.27, 148.72],
+    tasman: [-33.868, 151.209],
+    fiji: [-17.7, 178.1],
+};
+
+/** A proxy reply carrying `values` as this model's 10 m wind for the probe's day. */
+function windReply(values: (number | null)[]): Response {
+    return new Response(
+        JSON.stringify({ hourly: { time: values.map((_, i) => 1_791_331_200 + i * 3600), wind_speed_10m: values } }),
+        { status: 200 },
+    );
+}
+const liveDay = () => Array.from({ length: LIVENESS_PROBE_HOURS }, () => 12);
+const deadDay = () => Array.from({ length: LIVENESS_PROBE_HOURS }, () => null);
 
 // ── recommendModels ──────────────────────────────────────────
 
 describe('recommendModels', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        resetModelLivenessForTests();
+        // Any background liveness probe this starts gets a dead (all-null) day,
+        // which is what ACCESS-G has really answered since June 2025.
+        vi.spyOn(globalThis, 'fetch').mockImplementation(async () => windReply(deadDay()));
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('always includes GFS and ECMWF as baseline', () => {
         const models = recommendModels(0, 0);
         expect(models).toContain('gfs');
         expect(models).toContain('ecmwf');
     });
 
-    it('adds ACCESS-G for Australian waters', () => {
-        // Sydney: lat -33.868, lon 151.209
-        const models = recommendModels(-33.868, 151.209);
-        expect(models).toContain('access_g');
+    // BOM suspended ACCESS-G open data in June 2025: every value has been null
+    // everywhere since. It used to be added for any SW-Pacific midpoint, so
+    // AU, NZ and Pacific-island voyage comparisons carried a dead member.
+    it.each(['tasman', 'queensland', 'fiji'])('does not offer ACCESS-G at %s while its feed is unproven', (name) => {
+        const [lat, lon] = MIDPOINTS[name];
+        expect(recommendModels(lat, lon)).not.toContain('access_g');
+    });
+
+    it('starts a background probe of the 10 m wind instead, without waiting for it', async () => {
+        const fetchSpy = vi.mocked(globalThis.fetch);
+        const [lat, lon] = MIDPOINTS.tasman;
+        const models = recommendModels(lat, lon); // synchronous — nothing awaited
+        expect(models).toEqual(expect.arrayContaining(['gfs', 'ecmwf']));
+        await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+        const body = JSON.parse(String((fetchSpy.mock.calls[0][1] as RequestInit).body)) as {
+            params: Record<string, string>;
+        };
+        expect(body.params.models).toBe('bom_access_global');
+        expect(body.params.hourly).toBe('wind_speed_10m');
+        await vi.waitFor(() => expect(modelLiveness('bom_access_global')).toBe('dead'));
+        expect(recommendModels(lat, lon)).not.toContain('access_g');
+        // Today's verdict stands: no second probe.
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('offers ACCESS-G once today’s probe has seen real wind', async () => {
+        vi.mocked(globalThis.fetch).mockImplementation(async () => windReply(liveDay()));
+        const [lat, lon] = MIDPOINTS.fiji;
+        await probeModelLiveness('bom_access_global', { lat, lon });
+        expect(recommendModels(lat, lon)).toContain('access_g');
+        expect(recommendModels(...MIDPOINTS.tasman)).toContain('access_g');
+    });
+
+    it.each(['med', 'caribbean', 'northSea', 'usWest'])('never adds ACCESS-G at %s', (name) => {
+        expect(recommendModels(...MIDPOINTS[name])).not.toContain('access_g');
     });
 
     it('does not add ACCESS-G for North Atlantic', () => {
@@ -96,6 +167,23 @@ describe('AVAILABLE_MODELS', () => {
         expect(ids).toContain('icon');
         expect(ids).toContain('access_g');
         expect(ids).toContain('gem');
+    });
+
+    it('describes ACCESS-G as the global model it is, not an Australian one', () => {
+        // It is BOM's GLOBAL model at 0.15° (about 15 km); the old copy said
+        // '0.15° Australia' and 'best for Australian waters'.
+        const accessG = getModelById('access_g')!;
+        expect(accessG.openMeteoModel).toBe('bom_access_global');
+        expect(accessG.resolution).toBe('0.15°');
+        expect(accessG.description).toMatch(/global/i);
+        expect(`${accessG.description} ${accessG.bestFor}`).not.toMatch(/Australian waters|best for Oz/i);
+    });
+
+    it('gives ECMWF the grid it is actually fetched on (ecmwf_ifs025 is 0.25°)', () => {
+        const ecmwf = getModelById('ecmwf')!;
+        expect(ecmwf.openMeteoModel).toBe('ecmwf_ifs025');
+        expect(ecmwf.resolution).toBe('0.25°');
+        expect(ecmwf.description).not.toMatch(/highest resolution/i);
     });
 
     it('every model has an openMeteoModel string', () => {

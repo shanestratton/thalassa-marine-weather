@@ -350,7 +350,9 @@ describe('Her wind vs the models: the card', () => {
         const list = within(dialog()).getByRole('list', { name: 'Models, closest first' });
         expect(within(list).getAllByRole('listitem')).toHaveLength(5);
         expect(within(list).queryAllByRole('button')).toHaveLength(0);
-        expect(dialog()).toHaveTextContent('Forecast data: DWD, ECMWF, UK Met Office, JMA (CC-BY-4.0) via Open-Meteo');
+        expect(dialog()).toHaveTextContent(
+            'Data via Open-Meteo: DWD, ECMWF, JMA (CC BY 4.0); UK Met Office (CC BY-SA 4.0)',
+        );
 
         // A new gateway aggregate every 5 s for a minute.
         for (let i = 1; i <= 12; i++) {
@@ -369,7 +371,7 @@ describe('Her wind vs the models: the card', () => {
         expect(dialog()).toHaveTextContent(/Her last wind reading is 1[34] s old\./);
         expect(dialog()).toHaveTextContent('One reading is a snapshot, not a verdict.');
         expect(within(dialog()).queryByRole('list')).not.toBeInTheDocument();
-        expect(dialog()).not.toHaveTextContent('Forecast data:');
+        expect(dialog()).not.toHaveTextContent('Data via Open-Meteo:');
         // And back: one fresh reading is a snapshot again, from the series held.
         emit(16);
         await advance(2_000);
@@ -400,12 +402,12 @@ describe('Her wind vs the models: the card', () => {
         await flush();
         expect(dialog()).toHaveTextContent('Getting the models at her position…');
         expect(within(dialog()).queryByRole('list')).not.toBeInTheDocument();
-        expect(dialog()).not.toHaveTextContent('Forecast data:');
+        expect(dialog()).not.toHaveTextContent('Data via Open-Meteo:');
         // Her own reply ranks her.
         await act(async () => proxy.release[1]());
         await flush();
         expect(within(dialog()).getByRole('list', { name: 'Models, closest first' })).toBeInTheDocument();
-        expect(dialog()).toHaveTextContent('Forecast data:');
+        expect(dialog()).toHaveTextContent('Data via Open-Meteo:');
     });
 
     it('ⓘ trades the comparison for the details, credit and all; closing leaves no timer running', async () => {
@@ -419,14 +421,14 @@ describe('Her wind vs the models: the card', () => {
         await flush();
         const how = within(dialog()).getByRole('button', { name: 'How this works' });
         expect(how).toHaveAttribute('aria-pressed', 'false');
-        expect(dialog()).toHaveTextContent('Forecast data:');
+        expect(dialog()).toHaveTextContent('Data via Open-Meteo:');
         fireEvent.click(how);
         expect(how).toHaveAttribute('aria-pressed', 'true');
         expect(dialog()).toHaveTextContent('Only the five global models are checked.');
-        expect(dialog()).not.toHaveTextContent('Forecast data:');
+        expect(dialog()).not.toHaveTextContent('Data via Open-Meteo:');
         expect(within(dialog()).queryByRole('list')).not.toBeInTheDocument();
         fireEvent.click(how);
-        expect(dialog()).toHaveTextContent('Forecast data:');
+        expect(dialog()).toHaveTextContent('Data via Open-Meteo:');
 
         fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }));
         await flush();

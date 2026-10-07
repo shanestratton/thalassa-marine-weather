@@ -5,8 +5,10 @@
  * box. Lightweight JSON response — no NetCDF.
  *
  * Strategy:
- * - Query NOAA CoastWatch ERDDAP datasets in a bounded fallback chain
- * - "Enhance" requests the near-real-time mode for the route corridor
+ * - Copernicus Marine first, then NOAA CoastWatch ERDDAP datasets in a bounded
+ *   fallback chain — live data either way; there is no climatology here
+ * - `freshness` only sets how long a fetched field may be reused: 'daily'
+ *   (Preferences → Daily ocean currents) or 'weekly'; `refresh` skips the cache
  * - Cache only provider-confirmed responses; outages never become zero current
  * - Auto-purge after 30 days
  */
@@ -46,10 +48,13 @@ export type CurrentProvider =
     | 'NOAA CoastWatch ERDDAP'
     | 'E.U. Copernicus Marine Service / NOAA CoastWatch ERDDAP';
 
+/** How long a fetched field may be reused. Both fetch the same live chain. */
+export type CurrentFreshness = 'daily' | 'weekly';
+
 interface CurrentBriefingBase {
     vectors: CurrentVector[];
-    /** Requested briefing mode: standard or near-real-time enhancement. */
-    source: 'climatology' | 'nrt';
+    /** The cache age this briefing was requested under — not a data source. */
+    freshness: CurrentFreshness;
     fetchedAt: string;
     provider: CurrentProvider;
     providerDataset: string | null;
@@ -91,14 +96,14 @@ interface ErddapPayload {
     table?: { rows?: unknown[][] };
 }
 
-function unavailableBriefing(source: 'climatology' | 'nrt', message: string): UnavailableCurrentBriefing {
+function unavailableBriefing(freshness: CurrentFreshness, message: string): UnavailableCurrentBriefing {
     return {
         availability: 'unavailable',
         vectors: [],
         avgSpeedKts: null,
         maxSpeedKts: null,
         netEffectHours: null,
-        source,
+        freshness,
         fetchedAt: new Date().toISOString(),
         provider: 'E.U. Copernicus Marine Service / NOAA CoastWatch ERDDAP',
         providerDataset: null,
@@ -148,7 +153,7 @@ function currentCacheKey(
 }
 
 const CACHE_KEY_PREFIX = 'thalassa_ocean_currents_';
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24h for NRT, 7 days for climatology
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 h 'daily', 7 days 'weekly'
 const PURGE_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days auto-purge
 const CURRENT_FETCH_BUDGET_MS = 20_000;
 /** A surface-current field older than this is a provider failure, not a
@@ -182,28 +187,33 @@ export const OceanCurrentService = {
      * @param courseBearing — Overall course bearing (degrees)
      * @param distanceNM — Total route distance
      * @param speedKts — Expected vessel speed
-     * @param enhance — If true, fetch near-real-time data
+     * @param daily — Reuse a fetched field for a day rather than a week
+     *   (settings.currentNrtEnabled). The data source is the same either way.
+     * @param options.refresh — Skip the cache and fetch now.
      */
     async fetchCurrents(
         bbox: { north: number; south: number; east: number; west: number },
         courseBearing: number,
         distanceNM: number,
         speedKts: number,
-        enhance = false,
+        daily = false,
+        options: { refresh?: boolean } = {},
     ): Promise<CurrentBriefing> {
-        const source = enhance ? 'nrt' : 'climatology';
-        const key = currentCacheKey(bbox, source, courseBearing, distanceNM, speedKts);
-        const ttl = source === 'nrt' ? CACHE_TTL : 7 * CACHE_TTL;
+        const freshness: CurrentFreshness = daily ? 'daily' : 'weekly';
+        const key = currentCacheKey(bbox, freshness, courseBearing, distanceNM, speedKts);
+        const ttl = freshness === 'daily' ? CACHE_TTL : 7 * CACHE_TTL;
 
         // Check cache
-        try {
-            const data = parseCachedBriefing(readPlaintextWeatherCacheItem(key));
-            if (data && Date.now() - data._cachedAt < ttl) {
-                log.info(`Using cached ${source} current data`);
-                return { ...data, retrieval: 'cached' };
+        if (!options.refresh) {
+            try {
+                const data = parseCachedBriefing(readPlaintextWeatherCacheItem(key));
+                if (data && Date.now() - data._cachedAt < ttl) {
+                    log.info(`Using cached current data (kept ${freshness})`);
+                    return { ...data, freshness, retrieval: 'cached' };
+                }
+            } catch {
+                /* ignore */
             }
-        } catch {
-            /* ignore */
         }
 
         try {
@@ -287,7 +297,7 @@ export const OceanCurrentService = {
                 ];
 
                 log.info(
-                    `Fetching ${source} currents: ${paddedBbox.south}–${paddedBbox.north}°N, ${paddedBbox.west}–${paddedBbox.east}°E`,
+                    `Fetching currents: ${paddedBbox.south}–${paddedBbox.north}°N, ${paddedBbox.west}–${paddedBbox.east}°E`,
                 );
 
                 let data: ErddapPayload | null = null;
@@ -349,7 +359,7 @@ export const OceanCurrentService = {
                     const detail = providerFailures.length ? ` (${providerFailures.join('; ')})` : '';
                     log.warn(`Ocean-current provider unavailable${detail}`);
                     return unavailableBriefing(
-                        source,
+                        freshness,
                         'NOAA CoastWatch could not provide a current field for this route. Retry when connected.',
                     );
                 }
@@ -379,7 +389,7 @@ export const OceanCurrentService = {
                 if (rows.length > 0 && vectors.length === 0) {
                     log.warn(`Ocean-current dataset "${providerDataset}" returned rows without valid vectors`);
                     return unavailableBriefing(
-                        source,
+                        freshness,
                         'NOAA CoastWatch returned an unreadable current field. No zero-current assumption was made.',
                     );
                 }
@@ -446,7 +456,7 @@ export const OceanCurrentService = {
                 avgSpeedKts: Math.round(avgCurrentSpeed * 10) / 10,
                 maxSpeedKts: Math.round(maxCurrentSpeed * 10) / 10,
                 netEffectHours,
-                source,
+                freshness,
                 fetchedAt: new Date().toISOString(),
                 provider,
                 providerDataset,
@@ -464,7 +474,7 @@ export const OceanCurrentService = {
         } catch (err) {
             log.error('Ocean-current fetch failed:', err);
             return unavailableBriefing(
-                source,
+                freshness,
                 'Ocean-current data is unavailable. No zero-current assumption was made; retry when connected.',
             );
         }

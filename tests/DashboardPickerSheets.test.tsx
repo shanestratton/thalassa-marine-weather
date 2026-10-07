@@ -137,11 +137,12 @@ describe('dashboard picker sheets', () => {
     });
 
     it('writes a one-line credit naming the model the Glass is showing', () => {
-        expect(forecastCreditLine('dwd_icon')).toBe('Forecast: DWD ICON · CC-BY-4.0');
-        expect(forecastCreditLine('ecmwf_aifs025_single')).toBe('Forecast: ECMWF AIFS · CC-BY-4.0');
-        expect(forecastCreditLine('ukmo_global_deterministic_10km')).toBe('Forecast: UK Met Office · CC-BY-4.0');
-        // Blends credit every source.
-        expect(forecastCreditLine('best_match')).toMatch(/CC-BY-4\.0/);
+        expect(forecastCreditLine('dwd_icon')).toBe('Forecast: DWD ICON · CC BY 4.0');
+        expect(forecastCreditLine('ecmwf_aifs025_single')).toBe('Forecast: ECMWF AIFS · CC BY 4.0');
+        // UK Met Office open data is share-alike, not plain CC BY.
+        expect(forecastCreditLine('ukmo_global_deterministic_10km')).toBe('Forecast: UK Met Office · CC BY-SA 4.0');
+        // Blends credit every source, each under its own licence.
+        expect(forecastCreditLine('best_match')).toMatch(/\(CC BY 4\.0\); UKMO \(CC BY-SA 4\.0\)$/);
         expect(forecastCreditLine('dwd_icon', 'sg')).toBe('Forecast: StormGlass blend');
         expect(forecastCreditLine('dwd_icon', 'ecmwf')).toBe('Forecast: ECMWF via StormGlass');
     });
