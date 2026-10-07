@@ -24,6 +24,13 @@
  * The two cross-fade, with hysteresis, and the leaflet engine
  * is torn down rather than left animating underneath.
  *
+ * HER WIND ON HER ICON (build 123, W1-WC). Her own wind paints the field only
+ * in at zoom 14; further out the model does (Shane 2026-10-07: "as soon as the
+ * punter zooms out from there, then the wind models kick in"). So wherever the
+ * field is not showing her wind, this publishes it for her own-ship marker
+ * (boatWindReadout), from the very reading the close-in field takes, with
+ * whether the field is painting it: the two never both claim it.
+ *
  * Usage:
  *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible />
  */
@@ -37,7 +44,12 @@ import { BoatLinkService } from '../../services/boatLink/BoatLinkService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
 import { WEATHER_FOLLOW_TARGET_EVENT } from '../../services/weatherPosition';
-import { boatInstrumentsFollowed, followedBoatCloudWind, lookUpFollowedBoatWind } from './obsBoatInstruments';
+import {
+    boatInstrumentsFollowed,
+    followedBoatCloudWind,
+    followedBoatSubject,
+    lookUpFollowedBoatWind,
+} from './obsBoatInstruments';
 import { WIND_MAX_MS, WIND_PARTICLE_COLORS } from './windRamp';
 import { windGridFrameToVelocityData, type VelocityGribRecord } from './windVelocityFrame';
 import { CloseInWindLayer } from './CloseInWindLayer';
@@ -50,8 +62,11 @@ import {
     sampleWindGridAt,
     setCloseInWindReadout,
     windFromVector,
+    type BoatWind,
     type CloseInWindSource,
+    type LocalWind,
 } from './closeInWind';
+import { getBoatWindReadout, resolveBoatWindReadout, setBoatWindReadout } from './boatWindReadout';
 
 const log = createLogger('MapboxVelocityOverlay');
 import L from 'leaflet';
@@ -383,6 +398,33 @@ function storeBoatWind(): ReturnType<typeof pickBoatTrueWind> {
     return pickBoatTrueWind(state);
 }
 
+/**
+ * Her own wind now, read ONCE for both the close-in field and her icon, and
+ * where its lane puts her (asked only by the close-in field, for "is she on
+ * screen"). Her live store wind first (the bus, or the Pi over the LAN); else,
+ * as ashore on Obs where nothing feeds the store (Shane 2026-10-07), her own
+ * cloud row through the boat chain, placed where that row puts her, and that
+ * even while a screen holds the store's cloud lane.
+ */
+function readHerWind(): { wind: BoatWind; at: () => { lat: number; lon: number } | null } | null {
+    const storeBoat = storeBoatWind();
+    if (storeBoat) return { wind: storeBoat, at: boatPosition };
+    const cloud = followedBoatCloudWind();
+    return cloud ? { wind: cloud.wind, at: () => ({ lat: cloud.lat, lon: cloud.lon }) } : null;
+}
+
+/** The model's wind at the camera's centre for this hour; null with no centre, or no grid there. */
+function modelWindAtCentre(map: mapboxgl.Map, grid: WindGrid | null | undefined, hour: number): LocalWind | null {
+    try {
+        const centre = map.getCenter();
+        const vector = sampleWindGridAt(grid, hour, centre.lat, centre.lng);
+        return vector ? windFromVector(vector.u, vector.v) : null;
+    } catch {
+        // A torn-down map: no centre to sample.
+        return null;
+    }
+}
+
 function onScreen(map: mapboxgl.Map, lat: number, lon: number): boolean {
     try {
         const container = map.getContainer();
@@ -510,6 +552,24 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // the screen must not cost her the slack while the camera sits still.
     // Judged only for a settled camera; mid-flight it holds its last answer.
     const boatZoomRef = useRef(false);
+
+    // ── Her wind on her icon (W1-WC) ──────────────────────────────
+    // Wherever the field is not showing her wind (below 14 in close-in, in the
+    // leaflet field further out, or under z3), her own-ship marker carries it.
+    // In close-in refreshCloseIn publishes it with the field's own reading;
+    // outside it the field is the model's alone, and refreshHerWind does.
+    const herWindOn = Boolean(mapboxMap && visible);
+    const herWindOnRef = useRef(herWindOn);
+    herWindOnRef.current = herWindOn;
+    /** Her icon's readout: hers, for the followed boat, only at now. */
+    const herIconReadout = (wind: BoatWind | null, scrubAtNow: boolean, fieldShowsHers: boolean) =>
+        resolveBoatWindReadout({
+            wind,
+            boat: boatInstrumentsRef.current ? followedBoatSubject() : null,
+            scrubAtNow,
+            fieldShowsHers,
+        });
+
     const refreshCloseInRef = useRef<() => void>(() => {});
     refreshCloseInRef.current = () => {
         const layer = closeInLayerRef.current;
@@ -523,14 +583,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const vector = sampleWindGridAt(windGridPropRef.current, windHourRef.current, centre.lat, centre.lng);
         // Shane 2026-10-06: the vessel's wind gear when the box is her and
         // there is a reading; the phone's Current Location or a place, the model.
-        // Her live store wind first (the bus, or the Pi over the LAN); else, as
-        // ashore on Obs where nothing feeds the store (Shane 2026-10-07), her
-        // own cloud row through the boat chain, placed where that row puts her,
-        // and that even while a screen holds the store's cloud lane.
-        const storeBoat = boatInstrumentsRef.current ? storeBoatWind() : null;
-        const cloud = !storeBoat && boatInstrumentsRef.current ? followedBoatCloudWind() : null;
-        const boat = storeBoat ?? cloud?.wind ?? null;
-        const position = storeBoat ? boatPosition() : cloud ? { lat: cloud.lat, lon: cloud.lon } : null;
+        // Her store wind first, else her cloud row (readHerWind).
+        const hers = boatInstrumentsRef.current ? readHerWind() : null;
+        const boat = hers?.wind ?? null;
+        const position = hers ? hers.at() : null;
         // A flyTo's arc dips under 14 on its way to her; an instrument tick or
         // the re-check landing mid-flight must not flip the field and back.
         let moving = false;
@@ -542,19 +598,40 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             // A torn-down map: no zoom, so no boat wind.
         }
         if (!moving) boatZoomRef.current = boatWindZoomFor(boatZoomRef.current, zoom);
+        const scrubAtNow = isWindScrubAtNow(windHourRef.current, windNowIdxRef.current);
         const wind = resolveCloseInWind({
             boat,
             boatInView: !!position && onScreen(mapboxMap, position.lat, position.lon),
             // Her wind paints the field only in at the boat view's zoom (14);
             // further out the model takes over (Shane 2026-10-07).
             boatZoom: boatZoomRef.current,
-            scrubAtNow: isWindScrubAtNow(windHourRef.current, windNowIdxRef.current),
+            scrubAtNow,
             model: vector ? windFromVector(vector.u, vector.v) : null,
         });
         sampledGridRef.current = windGridPropRef.current;
         closeInSourceRef.current = wind?.source ?? null;
+        // Her icon (W1-WC) takes the same reading, with the field's own answer.
+        // Whichever lets go of her wind goes first, so there is no moment, for
+        // any listener, where the field and her icon both claim it.
+        const icon = herIconReadout(boat, scrubAtNow, wind?.source === 'boat');
+        if (icon?.fieldShowsHers) setBoatWindReadout(icon);
         layer.setWind(wind);
         setCloseInWindReadout(wind);
+        if (!icon?.fieldShowsHers) setBoatWindReadout(icon);
+    };
+
+    const refreshHerWindRef = useRef<() => void>(() => {});
+    refreshHerWindRef.current = () => {
+        if (closeInWantedRef.current && closeInLayerRef.current) {
+            refreshCloseInRef.current();
+            return;
+        }
+        if (!herWindOnRef.current || !boatInstrumentsRef.current) {
+            setBoatWindReadout(null);
+            return;
+        }
+        const scrubAtNow = isWindScrubAtNow(windHourRef.current, windNowIdxRef.current);
+        setBoatWindReadout(herIconReadout(readHerWind()?.wind ?? null, scrubAtNow, false));
     };
 
     useEffect(() => {
@@ -584,7 +661,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         // A new follow target (Switch boat included) changes whose wind it is.
         window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, refresh);
         const recheck = setInterval(() => {
-            if (closeInSourceRef.current === 'boat') refresh();
+            // Her wind ages on its own clock, on the field or on her icon (W1-WC).
+            if (closeInSourceRef.current === 'boat' || getBoatWindReadout() !== null) refresh();
         }, BOAT_RECHECK_MS);
         const owned = layer;
         return () => {
@@ -592,6 +670,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             unsubscribe();
             window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, refresh);
             clearInterval(recheck);
+            const heldHers = closeInSourceRef.current === 'boat';
             closeInSourceRef.current = null;
             boatZoomRef.current = false;
             setCloseInWindReadout(null);
@@ -600,6 +679,12 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             };
             const sameModel = !!windGridPropRef.current && windGridPropRef.current === sampledGridRef.current;
             if (!unmountedRef.current && handOverRef.current && sameModel) {
+                // A flick out past close-in can leave the field on her wind
+                // (held mid-gesture, boatZoomRef), and her icon takes it in
+                // this same flush (W1-WC). The field lets go first, as in
+                // refreshCloseIn: for its last second it fades out on the
+                // model at the centre, the leaflet field's own wind.
+                if (heldHers) owned.setWind(modelWindAtCentre(mapboxMap, windGridPropRef.current, windHourRef.current));
                 // Zoomed out: hold until leaflet has faded in, then fade.
                 owned.release(LEAFLET_FADE_IN_DELAY_MS, forget);
             } else {
@@ -609,28 +694,31 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         };
     }, [closeInWanted, mapboxMap]);
 
-    // A new hour, a new grid, or the scrubber leaving now: re-read the local wind.
+    // A new hour, a new grid, or the scrubber leaving now: re-read the local
+    // wind (in close-in) and her icon's (W1-WC, anywhere).
     useEffect(() => {
-        if (closeInWanted) refreshCloseInRef.current();
+        refreshHerWindRef.current();
     }, [closeInWanted, windHour, windGrid, windNowIdx, boatInstruments]);
 
     // Ashore the followed boat's wind is her cloud row (Shane 2026-10-07):
-    // ask for it at once and on every re-check, while close-in is showing on
-    // Obs and the box follows a receiver; the chain reads at most once per
-    // 30 s and nothing while the box follows the phone. Each answer re-reads
-    // the wind, so a reading past its 60 s gate hands back to the model.
+    // ask for it at once and on every re-check, while the wind layer is on
+    // Obs (close-in paints it in at 14; her icon carries it further out,
+    // W1-WC) and the box follows a receiver; the chain reads at most once per
+    // 30 s, shared with the camera and the marker, and nothing while the box
+    // follows the phone. Each answer re-reads the wind, so a reading past its
+    // 60 s gate hands back to the model and leaves her icon.
     useEffect(() => {
-        if (!closeInWanted || !boatInstruments || !boatLookUp) return;
+        if (!herWindOn || !boatInstruments || !boatLookUp) return;
         let live = true;
         const ask = () => {
             // Her own wind is already in the store (aboard: the bus, or the Pi
             // over the LAN), and it wins: no cloud read for a row that cannot show.
             if (storeBoatWind()) {
-                refreshCloseInRef.current();
+                refreshHerWindRef.current();
                 return;
             }
             void lookUpFollowedBoatWind().then(() => {
-                if (live) refreshCloseInRef.current();
+                if (live) refreshHerWindRef.current();
             });
         };
         ask();
@@ -642,7 +730,35 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             clearInterval(recheck);
             window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, ask);
         };
-    }, [closeInWanted, boatInstruments, boatLookUp]);
+    }, [herWindOn, boatInstruments, boatLookUp]);
+
+    // Her icon outside close-in (W1-WC): the leaflet field, or none under z3.
+    // The field there is the model's alone, so her reading rides on her icon:
+    // re-read on her instruments' own notifications, a new follow target, and
+    // the 2 s re-check while she has a reading out (it ages on its own clock).
+    // In close-in the field's own refresh publishes it.
+    useEffect(() => {
+        if (!herWindOn || !boatInstruments) {
+            setBoatWindReadout(null);
+            return;
+        }
+        if (closeInWanted) return;
+        const refresh = () => refreshHerWindRef.current();
+        refresh();
+        const unsubscribe = NmeaStore.subscribe(refresh);
+        window.addEventListener(WEATHER_FOLLOW_TARGET_EVENT, refresh);
+        const recheck = setInterval(() => {
+            if (getBoatWindReadout() !== null) refresh();
+        }, BOAT_RECHECK_MS);
+        return () => {
+            unsubscribe();
+            window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, refresh);
+            clearInterval(recheck);
+        };
+    }, [herWindOn, boatInstruments, closeInWanted]);
+
+    // Off with the overlay: nothing of hers is left on her icon.
+    useEffect(() => () => setBoatWindReadout(null), []);
 
     // The selected WindStore grid is the sole particle source. This effect
     // covers grid/hour updates after Leaflet setup, including the first frame.
