@@ -318,15 +318,17 @@ export const mapStormGlassToReport = (
         windDirection: degreesToCardinal(wDir),
         windDegree: wDir ?? undefined,
         waveHeight: scale1(getVal(currentHour.waveHeight as MultiSourceField), 3.28084),
+        // swellPeriod and swellDirection carry the TOTAL sea (wavePeriod,
+        // waveDirection), whatever their names say: wind sea and every swell.
+        // Never draw them as a swell partition, nor lend this direction to
+        // SWELL 2 (W1-07); real partitions come with W1-13.
         swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField),
         swellDirection: (() => {
             const d = getVal(currentHour.waveDirection as MultiSourceField);
             return d != null ? degreesToCardinal(d) : undefined;
         })(),
-        secondarySwellHeight: (() => {
-            const v = getVal(currentHour.secondarySwellHeight as MultiSourceField);
-            return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null;
-        })(),
+        // FEET, like waveHeight; the Glass converts it to the Seas unit.
+        secondarySwellHeight: scale1(getVal(currentHour.secondarySwellHeight as MultiSourceField), 3.28084),
         secondarySwellPeriod: getVal(currentHour.secondarySwellPeriod as MultiSourceField) ?? null,
         airTemperature: temp,
         waterTemperature: getVal(currentHour.waterTemperature as MultiSourceField),
@@ -401,11 +403,10 @@ export const mapStormGlassToReport = (
             ),
             isEstimated: false,
             // null, not 0 — a "0 second" swell period is not a reading.
+            // The TOTAL sea's mean period, as on current (W1-07).
             swellPeriod: getVal(h.wavePeriod as MultiSourceField),
-            secondarySwellHeight: (() => {
-                const v = getVal(h.secondarySwellHeight as MultiSourceField);
-                return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null;
-            })(),
+            // FEET, like waveHeight.
+            secondarySwellHeight: scale1(getVal(h.secondarySwellHeight as MultiSourceField), 3.28084),
             secondarySwellPeriod: getVal(h.secondarySwellPeriod as MultiSourceField) ?? null,
             // No tideHeight: these are weather hours. A 0 here drew a flat
             // zero-metre tide in TideGraph's hourly fallback.
