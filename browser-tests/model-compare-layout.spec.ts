@@ -31,7 +31,7 @@ const DEVICES: DiaryDevice[] = [
  *  ticks, so they wrap where WIND does not. */
 const TABS = ['WIND', 'DIR', 'GUST', 'WAVE', 'PER.', 'BARO', 'TEMP', 'HUM', 'RAIN', 'VIS', 'UV'];
 
-async function open(page: Page, device: DiaryDevice, wide: boolean) {
+async function open(page: Page, device: DiaryDevice, wide: boolean, day?: number) {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/*', (route) => {
@@ -43,6 +43,7 @@ async function open(page: Page, device: DiaryDevice, wide: boolean) {
     await page.setViewportSize({ width: device.width, height: device.height });
     const query = new URLSearchParams({ tab: 'wind', top: String(device.top), bottom: String(device.bottom) });
     if (wide) query.set('fonts', 'wide');
+    if (day != null) query.set('day', String(day));
     await page.goto(`/e2e/fixtures/model-compare.html?${query}`);
     const dialog = page.getByRole('dialog', { name: 'Model Convergence' });
     await expect(dialog).toBeVisible();
@@ -107,6 +108,32 @@ for (const device of DEVICES) {
             await expect(
                 dialog.getByRole('img', { name: /^Models with data: 7 from the start, .*5 from / }),
             ).toBeVisible();
+            const issues: string[] = [];
+            for (const tab of TABS) {
+                await dialog.getByRole('button', { name: tab, exact: true }).click();
+                await expect(dialog.getByRole('button', { name: tab, exact: true })).toHaveAttribute(
+                    'aria-pressed',
+                    'true',
+                );
+                for (const issue of await layoutIssues(page, device)) issues.push(`${tab}: ${issue}`);
+            }
+            expect(issues).toEqual([]);
+            expect(errors).toEqual([]);
+        });
+    }
+}
+
+// Opened from a Glass day card's chip (W1-09): the asked-for day's verdict
+// replaces the three-day headline on every tab, and still fits. Day 8 has
+// five models left, day 9 four: the longest verdict ('only 4 of 7 models').
+for (const device of DEVICES) {
+    for (const day of [3, 9]) {
+        test(`ten-day comparison opened on day ${day} fits ${device.name} (${device.width}x${device.height}), wide fonts, every tab`, async ({
+            page,
+        }) => {
+            const { errors, dialog } = await open(page, device, true, day);
+            await expect(dialog.getByTestId('matrix-day-verdict')).toBeVisible();
+            await expect(dialog.locator('rect[data-selected-day]')).toHaveCount(1);
             const issues: string[] = [];
             for (const tab of TABS) {
                 await dialog.getByRole('button', { name: tab, exact: true }).click();

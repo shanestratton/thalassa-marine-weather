@@ -7,12 +7,25 @@
  * Self-contained on purpose — it does NOT reuse the hourly card's tide-graph /
  * map chrome, so it can't destabilise the (fragile) hourly render path.
  */
-import React, { useLayoutEffect, useRef, useState } from 'react';
-import type { DailySummary } from './heroSlideHelpers';
+import React, { useId, useLayoutEffect, useRef, useState } from 'react';
+import type { DailySummary, DaySky } from './heroSlideHelpers';
 import type { UnitPreferences } from '../../../types';
 import { convertTemp, convertSpeed, convertLength } from '../../../utils/units';
 import { degreesToCardinal } from '../../../utils/format';
 import { TideCurveIcon } from '../../Icons';
+import { AGREEMENT_GLYPH, AGREEMENT_WORDS, type AgreementLevel } from '../../../services/weather/dayAgreement';
+
+/** The models' wind verdict for the card's day (W1-09, services/weather/dayAgreement). */
+export interface DayAgreementChip {
+    /** null: fewer than two models reach the day, so there is nothing to compare. */
+    level: AgreementLevel | null;
+    /** Models with every hour of the day. */
+    members: number;
+    /** The most the comparison fields. */
+    peak: number;
+    /** Judged with fewer than min(5, peak) models: say "only". */
+    thin: boolean;
+}
 
 interface DailySummaryCardProps {
     daily: DailySummary;
@@ -27,6 +40,15 @@ interface DailySummaryCardProps {
     /** Replaces the empty weather rows with a sentence — used when the day is
      *  past the pinned model's range but waves or tides still have data. */
     note?: string;
+    /** The models' wind agreement for this day (W1-09). 'pending': not known
+     *  yet, so its line is held (no jump when it lands); null: none to show
+     *  (offline, no answer), so no chip rather than a stale one. */
+    agreement?: DayAgreementChip | 'pending' | null;
+    /** Opens the ten-day comparison on this day. */
+    onCompare?: () => void;
+    /** First light, the sun, last light and the moon (W1-09): drawn when the
+     *  slot has room for it (the roomy step), spoken at every other. */
+    sky?: DaySky | null;
 }
 
 /**
@@ -51,6 +73,13 @@ const Missing: React.FC = () => (
  *             tide times stay: the hero header right above already shows
  *             the day's high and low, and on a marine app the tide line is
  *             the one worth the room (2026-10-02).
+ *   roomy   — full plus the sun & moon row (W1-09). Only offered to a card
+ *             that has one, and only drawn where it fits: at 390x844 and
+ *             393x852 the row would push the full card down to compact.
+ *   snug    — the full card with the agreement chip's glyph in the corner
+ *             instead of on a line of its own (W1-09 review): at 375x812 the
+ *             line (24 px) cost the card its condition line on every day.
+ *             Only offered to a card that holds a chip line.
  * Anything hidden stays in the spoken text, so VoiceOver loses nothing.
  *
  * The card measures itself rather than trusting fixed thresholds: what a
@@ -60,25 +89,45 @@ const Missing: React.FC = () => (
  * estimate below (measured in the app, Chromium, 2026-10-02: full 188-198,
  * compact 122 px with a wave period and a tide line; tight is the floor).
  */
-export type DayCardDensity = 'full' | 'compact' | 'tight';
+export type DayCardDensity = 'roomy' | 'full' | 'snug' | 'compact' | 'tight';
 export const DAY_CARD_DENSITY_ESTIMATE_PX: Readonly<Record<DayCardDensity, number>> = Object.freeze({
+    roomy: 240,
     full: 200,
+    snug: 180,
     compact: 126,
     tight: 0,
 });
-const DENSITIES: readonly DayCardDensity[] = ['full', 'compact', 'tight'];
+const DENSITIES: readonly DayCardDensity[] = ['roomy', 'full', 'snug', 'compact', 'tight'];
+/** The chip's line at its least (the chip's own height): what snug saves. */
+const CHIP_LINE_PX = 20;
 
 export function chooseDayCardDensity(
     slotHeight: number | null | undefined,
     needed: Partial<Record<DayCardDensity, number>> = {},
+    /** The card has a sun & moon row to draw at the roomy step. */
+    roomy = false,
+    /** The card holds a chip line that snug can move to the corner. */
+    snug = false,
 ): DayCardDensity {
     // Unmeasured (first paint, jsdom, a hidden slide): never shrink on a zero.
     if (!slotHeight || slotHeight <= 0) return 'full';
     for (const density of DENSITIES) {
-        if ((needed[density] ?? DAY_CARD_DENSITY_ESTIMATE_PX[density]) <= slotHeight) return density;
+        if ((density === 'roomy' && !roomy) || (density === 'snug' && !snug)) continue;
+        // Unmeasured, snug is the measured full card less the chip's line.
+        const estimate =
+            density === 'snug' && needed.full != null
+                ? needed.full - CHIP_LINE_PX
+                : DAY_CARD_DENSITY_ESTIMATE_PX[density];
+        if ((needed[density] ?? estimate) <= slotHeight) return density;
     }
     return 'tight';
 }
+
+/** A drawn layout's measurement key. Snug is the full layout without the
+ *  chip's line, so a card measured snug while its chip loaded knows its full
+ *  height once the chip comes to nothing, and is not left a step down. */
+const layoutKey = (density: DayCardDensity, lineDrawn: boolean) =>
+    density === 'snug' ? 'full:0' : `${density}:${lineDrawn ? 1 : 0}`;
 
 /**
  * The density that fits the card's slot, live. The root is h-full, so its
@@ -87,12 +136,17 @@ export function chooseDayCardDensity(
  * kept per width, and a density only ever steps up to one that has not been
  * measured too tall, so it cannot oscillate.
  */
-function useDayCardDensity(): [React.RefObject<HTMLDivElement>, React.RefObject<HTMLDivElement>, DayCardDensity] {
+function useDayCardDensity(
+    roomy: boolean,
+    /** The card holds a line for the agreement chip (or its pending place). */
+    line: boolean,
+): [React.RefObject<HTMLDivElement>, React.RefObject<HTMLDivElement>, DayCardDensity] {
     const rootRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const [density, setDensity] = useState<DayCardDensity>('full');
     const densityRef = useRef<DayCardDensity>('full');
-    const neededRef = useRef<{ width: number; heights: Partial<Record<DayCardDensity, number>> }>({
+    // Natural heights per drawn layout (layoutKey), at one width.
+    const neededRef = useRef<{ width: number; heights: Record<string, number> }>({
         width: -1,
         heights: {},
     });
@@ -105,12 +159,19 @@ function useDayCardDensity(): [React.RefObject<HTMLDivElement>, React.RefObject<
             const width = root.clientWidth;
             if (!slot || !width) return;
             if (neededRef.current.width !== width) neededRef.current = { width, heights: {} };
-            // Keyed by what is DRAWN (the wrapper's data-density), not by what
-            // was last asked for: a resize can land before React re-renders.
+            // Keyed by what is DRAWN (the wrapper's data-density and whether
+            // the chip's line is), not by what was last asked for: a resize
+            // can land before React re-renders.
             const drawn = (content.dataset.density as DayCardDensity | undefined) ?? 'full';
+            const heights = neededRef.current.heights;
             const natural = content.offsetHeight;
-            if (natural > 0) neededRef.current.heights[drawn] = natural;
-            const next = chooseDayCardDensity(slot, neededRef.current.heights);
+            if (natural > 0) heights[layoutKey(drawn, content.dataset.chipLine === '1')] = natural;
+            const needed: Partial<Record<DayCardDensity, number>> = {};
+            for (const d of DENSITIES) {
+                const h = heights[layoutKey(d, line && d !== 'tight')];
+                if (h != null) needed[d] = h;
+            }
+            const next = chooseDayCardDensity(slot, needed, roomy, line);
             if (next !== densityRef.current) {
                 densityRef.current = next;
                 setDensity(next);
@@ -122,7 +183,7 @@ function useDayCardDensity(): [React.RefObject<HTMLDivElement>, React.RefObject<
         observer.observe(root);
         observer.observe(content);
         return () => observer.disconnect();
-    }, []);
+    }, [roomy, line]);
     return [rootRef, contentRef, density];
 }
 
@@ -206,6 +267,166 @@ const DirCell: React.FC<{ deg: number; density?: DayCardDensity }> = ({ deg, den
     </div>
 );
 
+const CHIP_TONE: Record<AgreementLevel | 'none', string> = {
+    agree: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-300',
+    some: 'border-amber-400/35 bg-amber-500/10 text-amber-300',
+    split: 'border-red-400/40 bg-red-500/10 text-red-300',
+    none: 'border-white/15 bg-white/5 text-white/75',
+};
+
+/** What the chip says: its words on screen, its count, and its spoken name. */
+export function agreementChipWords(chip: DayAgreementChip): { words: string; count: string; spoken: string } {
+    if (!chip.level) {
+        return {
+            words: `${chip.members} model only`,
+            count: '',
+            spoken: `Wind: only ${chip.members} model reaches this day, nothing to compare`,
+        };
+    }
+    const words = AGREEMENT_WORDS[chip.level];
+    // Fewer than the comparison fields (runs end after day 7): say how many of
+    // how many, as agreement among fewer can only look tighter; "only" when thin.
+    const count = chip.members < chip.peak ? `${chip.members} of ${chip.peak} models` : `${chip.members} models`;
+    return { words, count, spoken: `Wind: ${words.toLowerCase()}, ${chip.thin ? 'only ' : ''}${count}` };
+}
+
+/**
+ * The models' wind verdict for the day: a glyph (never colour alone), the
+ * words and the member count, a button into the comparison on this day. On
+ * a line of its own under the readings it qualifies; at the snug and tight
+ * steps, the glyph alone in the card's top-left corner, where it costs no
+ * height, the words still its spoken name.
+ */
+const AgreementChip: React.FC<{
+    chip: DayAgreementChip;
+    corner: boolean;
+    onCompare?: () => void;
+    hintId: string;
+}> = ({ chip, corner, onCompare, hintId }) => {
+    const { words, count, spoken } = agreementChipWords(chip);
+    const glyph = chip.level ? (
+        <svg
+            data-agreement={chip.level}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={corner ? 'w-3 h-3' : 'w-3.5 h-3.5 shrink-0'}
+            aria-hidden="true"
+        >
+            <path d={AGREEMENT_GLYPH[chip.level]} />
+        </svg>
+    ) : null;
+    const tone = CHIP_TONE[chip.level ?? 'none'];
+    const className = corner
+        ? `absolute left-1 top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full border ${tone}`
+        : `inline-flex h-5 max-w-full items-center gap-1 rounded-full border px-2 text-xs leading-4 font-semibold whitespace-nowrap ${tone}`;
+    const body = corner ? (
+        (glyph ?? <span aria-hidden="true" className="h-0.5 w-1.5 rounded-full bg-current" />)
+    ) : (
+        <>
+            {glyph}
+            <span aria-hidden="true">{words}</span>
+            {count ? (
+                <span aria-hidden="true" className="font-normal opacity-80">
+                    · {count}
+                </span>
+            ) : null}
+        </>
+    );
+    return onCompare ? (
+        <button
+            type="button"
+            onClick={(event) => {
+                event.stopPropagation();
+                onCompare();
+            }}
+            aria-label={spoken}
+            aria-haspopup="dialog"
+            aria-describedby={hintId}
+            data-placement={corner ? 'corner' : 'line'}
+            className={`hit-target-44 ${className}`}
+            // The passage stylesheet floors every button at 44 px, unlayered,
+            // so no utility can undo it: a 44 px chip line cost 393 pt phones
+            // their full card. hit-target-44 keeps the 44 px to the finger.
+            style={{ minHeight: 0 }}
+        >
+            {body}
+        </button>
+    ) : (
+        <span role="img" aria-label={spoken} data-placement={corner ? 'corner' : 'line'} className={className}>
+            {body}
+        </span>
+    );
+};
+
+const lowerFirst = (phrase: string) => phrase.charAt(0).toLowerCase() + phrase.slice(1);
+const isClock = (v: string | null) => !!v && /^\d{1,2}:\d{2}$/.test(v);
+
+/** The sun & moon row's phrases, in time order: a pair that is one polar
+ *  word ('Sun stays up', 'No true night') is said once. */
+function skyPhrases(sky: DaySky): { sun: string[]; moon: string[] } {
+    const pair = (a: string | null, b: string | null, aLabel: string, bLabel: string, none: string[]) => {
+        if (a && a === b && !isClock(a)) return [[a], []];
+        return [[a ? `${aLabel} ${a}` : none[0]], [b ? `${bLabel} ${b}` : none[1]]];
+    };
+    const [firstLight, lastLight] = pair(sky.firstLight, sky.lastLight, 'First light', 'Last light', ['', '']);
+    const [sunrise, sunset] = pair(sky.sunrise, sky.sunset, 'Sunrise', 'Sunset', ['', '']);
+    const [moonrise, moonset] = pair(sky.moonrise, sky.moonset, 'Moonrise', 'Moonset', ['No moonrise', 'No moonset']);
+    // Deep polar night: no light and no sun are the same words, said once.
+    const once = (phrases: string[]) => [...new Set(phrases.filter(Boolean))];
+    return {
+        sun: once([...firstLight, ...sunrise, ...sunset, ...lastLight]),
+        moon: once([...moonrise, ...moonset, `${Math.round(sky.illumination * 100)}% lit`]),
+    };
+}
+
+/** The sun & moon row (W1-09): drawn at the roomy step, spoken at every other. */
+const SkyRow: React.FC<{ sky: DaySky; drawn: boolean }> = ({ sky, drawn }) => {
+    const { sun, moon } = skyPhrases(sky);
+    const spoken = `${sun.map((p, i) => (i ? lowerFirst(p) : p)).join(', ')}. ${moon
+        .map((p, i) => (i ? lowerFirst(p) : p))
+        .join(', ')
+        .replace(/(\d+% lit)$/, 'moon $1')}.`;
+    if (!drawn)
+        return (
+            <p data-testid="day-sky" className="sr-only">
+                {spoken}
+            </p>
+        );
+    const line = (phrases: string[]) => (
+        <span aria-hidden="true" className="flex flex-wrap justify-center gap-x-2.5">
+            {phrases.map((p) => {
+                const m = /^(.*?)\s(\d{1,2}:\d{2})$/.exec(p);
+                return (
+                    <span key={p} className="whitespace-nowrap">
+                        {m ? (
+                            <>
+                                <span className="text-white/55">{m[1]}</span>{' '}
+                                <span className="font-semibold text-white/90 tabular-nums">{m[2]}</span>
+                            </>
+                        ) : (
+                            p
+                        )}
+                    </span>
+                );
+            })}
+        </span>
+    );
+    return (
+        <p
+            data-testid="day-sky"
+            className="glass-forecast-caption flex w-full flex-col items-center gap-0.5 text-center text-xs leading-4 text-white/75"
+        >
+            {line(sun)}
+            {line(moon)}
+            <span className="sr-only">{spoken}</span>
+        </p>
+    );
+};
+
 export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
     daily,
     units,
@@ -213,6 +434,9 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
     dateLabel,
     showDateHeading = true,
     note,
+    agreement,
+    onCompare,
+    sky,
 }) => {
     const tempUnit = units.temp === 'F' ? '°F' : '°C';
     // convertTemp returns a string ('--' when missing, else a rounded number string)
@@ -239,21 +463,30 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
     const showWave = !isLandlocked && (!note || hasWave);
     const metricCount = Math.max(1, (showWindRow ? 3 : 0) + (showDir ? 1 : 0) + (showWave ? 1 : 0));
 
-    const [rootRef, contentRef, density] = useDayCardDensity();
+    const hintId = useId();
+    const chip = agreement && agreement !== 'pending' && agreement.members > 0 ? agreement : null;
+    const [rootRef, contentRef, drawnDensity] = useDayCardDensity(!!sky, !!chip || agreement === 'pending');
+    // The roomy step is the full card plus the sun & moon row; snug, the full
+    // card with the chip in the corner.
+    const density: Exclude<DayCardDensity, 'roomy' | 'snug'> =
+        drawnDensity === 'roomy' || drawnDensity === 'snug' ? 'full' : drawnDensity;
     const full = density === 'full';
+    const cornerChip = drawnDensity === 'tight' || drawnDensity === 'snug';
+    const chipLine = !cornerChip && (!!chip || agreement === 'pending');
 
     return (
         <div
             ref={rootRef}
             role="group"
             aria-label={dateLabel ? `Forecast for ${dateLabel}` : 'Day forecast'}
-            data-density={density}
-            className="w-full h-full min-h-0 overflow-hidden text-white"
+            data-density={drawnDensity}
+            className="relative w-full h-full min-h-0 overflow-hidden text-white"
         >
             <div
                 ref={contentRef}
                 data-testid="day-card-content"
-                data-density={density}
+                data-density={drawnDensity}
+                data-chip-line={chipLine ? '1' : '0'}
                 className={`flex flex-col items-center justify-start px-5 ${full ? 'pt-3 gap-2.5' : 'pt-1.5 gap-1'}`}
             >
                 {/* Day of week + date — anchored to the top so it's never clipped.
@@ -354,6 +587,23 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
                     {showWindRow ? <Metric label="Rain" value={rain} unit="%" density={density} /> : null}
                 </div>
 
+                {/* The models' wind verdict, on its own line under the readings it
+                    qualifies (W1-09); its line is held while it loads. At the
+                    snug and tight steps it sits in the corner instead (below). */}
+                {chip && !cornerChip ? (
+                    <div className={`flex w-full justify-center ${full ? '-mt-1' : ''}`}>
+                        <AgreementChip chip={chip} corner={false} onCompare={onCompare} hintId={hintId} />
+                    </div>
+                ) : agreement === 'pending' && !cornerChip ? (
+                    <span
+                        data-testid="day-agreement-pending"
+                        aria-hidden="true"
+                        className={`invisible block h-5 w-px ${full ? '-mt-1' : ''}`}
+                    />
+                ) : null}
+
+                {sky ? <SkyRow sky={sky} drawn={drawnDensity === 'roomy'} /> : null}
+
                 {/* Tide row — kept on every slot: the day's tide times */}
                 {daily.tideSummary ? (
                     <div
@@ -364,6 +614,12 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
                     </div>
                 ) : null}
             </div>
+            {chip && cornerChip ? <AgreementChip chip={chip} corner onCompare={onCompare} hintId={hintId} /> : null}
+            {chip && onCompare ? (
+                <span id={hintId} hidden>
+                    Opens the model comparison on this day
+                </span>
+            ) : null}
         </div>
     );
 };

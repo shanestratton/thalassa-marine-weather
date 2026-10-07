@@ -23,11 +23,18 @@
  * chart counts the models with data each hour, so the drop after day 7
  * (ICON and UKMO end) shows. A day with only a few members left is drawn
  * thin, because fewer lines can look like more agreement. The headline
- * verdict covers the next three days only; one model alone is said in
+ * verdict covers the next three days only (on WIND and DIR, the worst day
+ * bar among them, so it never reads better than a bar); one model alone is said in
  * words, never called agreement. Where no model publishes a variable an
  * honest empty state replaces the chart, and a leg the servers never
  * answered says so instead. No mock data. Days and times are the location's
  * own, not the phone's.
+ *
+ * One set of thresholds (services/weather/dayAgreement, W1-09): the WIND and
+ * DIR day bars are the Glass day cards' own agreement verdicts, and the other
+ * tabs read the same module. A day card's chip opens the sheet on its day
+ * (`initialDay`): that day is banded and its verdict, in the chip's words,
+ * replaces the three-day headline.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -40,6 +47,17 @@ import {
     type MarineVar,
 } from '../../services/weather/ModelSpreadService';
 import { ECCC_LICENCE, ECCC_LICENCE_URL, forecastDataCredit } from '../../services/weather/forecastModels';
+import {
+    AGREEMENT_GLYPH,
+    AGREEMENT_WORDS,
+    THIN_BELOW,
+    circularSpread,
+    classifySpread,
+    localDayStarts,
+    median,
+    windAgreementForDays,
+    type AgreementLevel,
+} from '../../services/weather/dayAgreement';
 import { resolveTimeZone } from '../../utils/timezone';
 import { useLocationCoords } from '../../stores/LocationStore';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -73,9 +91,6 @@ interface ParamSpec {
     padMax: number;
     tickStep: number;
     decimals: number;
-    /** Spread thresholds: below hi → high confidence, below mod → moderate. */
-    hi: number;
-    mod: number;
     /** Degrees — plotted on a 360° window centred on the compass point
      *  nearest the models' mean bearing, the line lifted only where it
      *  crosses the window's edge (opposite the consensus); spread measured
@@ -94,8 +109,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 30,
         tickStep: 10,
         decimals: 0,
-        hi: 4,
-        mod: 8,
     },
     {
         id: 'dir',
@@ -107,8 +120,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 360,
         tickStep: 90,
         decimals: 0,
-        hi: 20,
-        mod: 45,
         circular: true,
     },
     {
@@ -121,8 +132,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 40,
         tickStep: 10,
         decimals: 0,
-        hi: 5,
-        mod: 10,
     },
     {
         id: 'wave',
@@ -134,8 +143,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 3,
         tickStep: 1,
         decimals: 1,
-        hi: 0.3,
-        mod: 0.8,
     },
     {
         id: 'period',
@@ -147,8 +154,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 12,
         tickStep: 3,
         decimals: 1,
-        hi: 1,
-        mod: 2.5,
     },
     {
         id: 'pressure',
@@ -160,8 +165,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 1030,
         tickStep: 10,
         decimals: 0,
-        hi: 2,
-        mod: 5,
     },
     {
         id: 'temp',
@@ -173,8 +176,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 30,
         tickStep: 5,
         decimals: 1,
-        hi: 1.5,
-        mod: 3,
     },
     {
         id: 'humidity',
@@ -186,8 +187,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 100,
         tickStep: 25,
         decimals: 0,
-        hi: 8,
-        mod: 15,
     },
     {
         id: 'rain',
@@ -199,8 +198,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 2,
         tickStep: 1,
         decimals: 1,
-        hi: 0.5,
-        mod: 2,
     },
     {
         id: 'vis',
@@ -213,8 +210,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 20,
         tickStep: 5,
         decimals: 0,
-        hi: 2,
-        mod: 5,
     },
     {
         id: 'uv',
@@ -226,8 +221,6 @@ const PARAMS: ParamSpec[] = [
         padMax: 12,
         tickStep: 3,
         decimals: 1,
-        hi: 1,
-        mod: 2,
     },
 ];
 
@@ -252,6 +245,9 @@ interface Props {
     selectedModel: WeatherModel;
     /** Open on this tab (a long-pressed grid metric id). */
     initialParam?: MatrixParam;
+    /** Open on the local day holding this instant (a Glass day card's
+     *  agreement chip, W1-09): that day is banded and its verdict heads the sheet. */
+    initialDay?: number;
     /** The Glass report's own coordinates. Preferred over LocationStore,
      *  whose Brisbane default is never synced on a cold boot with no cached
      *  report — charting the wrong point while the grid shows the right one. */
@@ -277,18 +273,9 @@ export function sampleAt(times: number[], values: (number | null)[], targetMs: n
     return values[best] ?? null;
 }
 
-/** Max pairwise circular difference in degrees. */
-export function circularSpread(vals: number[]): number {
-    let max = 0;
-    for (let i = 0; i < vals.length; i++) {
-        for (let j = i + 1; j < vals.length; j++) {
-            let d = Math.abs(vals[i] - vals[j]) % 360;
-            if (d > 180) d = 360 - d;
-            if (d > max) max = d;
-        }
-    }
-    return max;
-}
+// The day boundaries and the circular spread are the shared module's, so the
+// Glass day chip and these day bars cut the same days and measure alike.
+export { circularSpread, localDayStarts };
 
 /** The models' mean bearing in degrees [0, 360), or 180 (a plain 0–360
  *  window) when there is none or the bearings cancel out. */
@@ -403,72 +390,101 @@ function zoneFormat(timeZone: string, options: Intl.DateTimeFormatOptions): Intl
     }
 }
 
-/** Indexes of the first hour of each new local day after the first, in the
- *  location's time zone, so a clock change gives a 23- or 25-hour day. */
-export function localDayStarts(times: number[], timeZone: string): number[] {
-    const day = zoneFormat(timeZone, { year: 'numeric', month: 'numeric', day: 'numeric' });
-    const starts: number[] = [];
-    let prev = '';
-    times.forEach((t, i) => {
-        const d = day.format(t);
-        if (i > 0 && d !== prev) starts.push(i);
-        prev = d;
-    });
-    return starts;
-}
-
-/** Under this many members a day is "thin": fewer lines can only narrow the
- *  range, so a calm-looking day 9 may just be a day with fewer models. */
-const THIN_BELOW = 5;
 const HOUR_MS = 60 * 60 * 1000;
 /** The headline verdict covers this much from now; the day bars carry the rest. */
 const NEAR_TERM_MS = 72 * HOUR_MS;
 
 type Level = 'high' | 'moderate' | 'low';
+/** The sheet's words for the shared verdicts (the thresholds are dayAgreement's). */
+const LEVEL_OF: Record<AgreementLevel, Level> = { agree: 'high', some: 'moderate', split: 'low' };
+const AGREEMENT_OF: Record<Level, AgreementLevel> = { high: 'agree', moderate: 'some', low: 'split' };
 
 export interface DayAgreement {
-    /** Mean spread across the day's hours with at least two members. */
+    /** The day's spread: on WIND, of the models' strongest hours; on DIR,
+     *  the mean over the breezy hours; elsewhere the mean over the hours with
+     *  at least two members. */
     variance: number | null;
     level: Level | 'none';
-    /** The fewest members in the hours that were compared, or (when none
-     *  could be) the most the day had: 0 or 1. */
+    /** The models compared: on WIND and DIR those with every hour of the
+     *  day; elsewhere the fewest in the hours compared. When none could be
+     *  compared, the most the day had: 0 or 1. */
     members: number;
     /** Compared with fewer members than the tab can field (under five, or
      *  under its own peak when it has fewer models than that). */
     thin: boolean;
+    /** The most members any day had (on a day that was compared). */
+    peak?: number;
+    /** WIND: the weakest and strongest of the models' daily maxima. */
+    range?: [number, number] | null;
+    /** DIR: two or more models, but the wind too light to judge direction. */
+    calm?: boolean;
 }
 
-/** Spread among the models with a value at hour i; null under two members. */
-function hourSpread(series: HourlySeries[], i: number, spec: ParamSpec): number | null {
+/** Spread among the models with a value at hour i, and their median; null
+ *  under two members. */
+function hourStats(series: HourlySeries[], i: number, spec: ParamSpec): { spread: number; median: number } | null {
     const vals = series.map((s) => s.values[i]).filter((v): v is number => v != null);
     if (vals.length < 2) return null;
-    return spec.circular ? circularSpread(vals) : Math.max(...vals) - Math.min(...vals);
+    return {
+        spread: spec.circular ? circularSpread(vals) : Math.max(...vals) - Math.min(...vals),
+        median: median(vals),
+    };
 }
 
-const levelOf = (variance: number, spec: ParamSpec): Level =>
-    variance < spec.hi ? 'high' : variance < spec.mod ? 'moderate' : 'low';
+const levelOf = (spread: number, param: MatrixParam, reference: number): Level =>
+    LEVEL_OF[classifySpread(param, spread, reference)];
 
-/** Agreement per local day: [0, starts[0]), [starts[0], starts[1]), … to length. */
+/** Agreement per local day: [0, starts[0]), [starts[0], starts[1]), … to
+ *  length. WIND and DIR are the Glass day chip's own verdicts (dayAgreement):
+ *  pass the WIND series as `speeds` on DIR so direction is judged only where
+ *  the breeze is up. */
 export function agreementByDay(
     series: HourlySeries[],
     starts: number[],
     length: number,
     param: MatrixParam,
+    speeds?: HourlySeries[],
 ): DayAgreement[] {
+    if (param === 'wind' || param === 'dir') {
+        const wind = param === 'wind';
+        return windAgreementForDays(wind ? series : (speeds ?? []), wind ? [] : series, starts, length).map(
+            (d): DayAgreement => {
+                const level = wind ? d.speedLevel : d.dirLevel;
+                if (!level)
+                    return {
+                        variance: null,
+                        level: 'none',
+                        members: d.members,
+                        thin: false,
+                        ...(!wind && d.members >= 2 ? { calm: true } : {}),
+                    };
+                return {
+                    variance: wind ? d.speedSpread : d.dirSpread,
+                    level: LEVEL_OF[level],
+                    members: d.members,
+                    thin: d.thin,
+                    peak: d.peak,
+                    ...(wind ? { range: d.speedRange } : {}),
+                };
+            },
+        );
+    }
     const spec = specFor(param);
     const counts = memberCounts(series, length);
     const peak = Math.max(0, ...counts);
     const bounds = [0, ...starts, length];
     return bounds.slice(1).map((end, d) => {
         let sum = 0;
+        let ref = 0;
         let n = 0;
         let fewest = Infinity;
         let most = 0;
         for (let i = bounds[d]; i < end; i++) {
             most = Math.max(most, counts[i]);
-            const spread = hourSpread(series, i, spec);
-            if (spread != null) {
-                sum += spread;
+            const stats = hourStats(series, i, spec);
+            if (stats) {
+                sum += stats.spread;
+                ref += stats.median;
                 n++;
                 fewest = Math.min(fewest, counts[i]);
             }
@@ -477,9 +493,10 @@ export function agreementByDay(
         const variance = sum / n;
         return {
             variance,
-            level: levelOf(variance, spec),
+            level: levelOf(variance, param, ref / n),
             members: fewest,
             thin: fewest < Math.min(THIN_BELOW, peak),
+            peak,
         };
     });
 }
@@ -494,20 +511,63 @@ export function nearTermAgreement(
 ): { variance: number; level: Level } | null {
     const spec = specFor(param);
     let sum = 0;
+    let ref = 0;
     let n = 0;
     times.forEach((t, i) => {
         if (t + HOUR_MS <= fromMs || t >= fromMs + NEAR_TERM_MS) return;
-        const spread = hourSpread(series, i, spec);
-        if (spread != null) {
-            sum += spread;
+        const stats = hourStats(series, i, spec);
+        if (stats) {
+            sum += stats.spread;
+            ref += stats.median;
             n++;
         }
     });
-    return n ? { variance: sum / n, level: levelOf(sum / n, spec) } : null;
+    return n ? { variance: sum / n, level: levelOf(sum / n, param, ref / n) } : null;
+}
+
+const LEVEL_RANK: Record<Level, number> = { high: 0, moderate: 1, low: 2 };
+
+/**
+ * WIND and DIR: the headline is the worst day bar among the local days the
+ * next three days touch (from `fromMs`), so it can never read better than a
+ * bar beneath it (an hourly average let a one-hour squall vanish, and called
+ * light-air bearings a disagreement). `calm`: every such day with members
+ * was too light to judge a direction. `bounds` is [0, ...dayStarts, length].
+ */
+export function nearTermDayVerdict(
+    days: DayAgreement[],
+    bounds: number[],
+    times: number[],
+    fromMs: number,
+): { day: number; agreement: DayAgreement & { level: Level } } | { calm: true } | null {
+    let worst: { day: number; agreement: DayAgreement & { level: Level } } | null = null;
+    let calm = false;
+    days.forEach((d, k) => {
+        const start = times[bounds[k]];
+        const end = bounds[k + 1] < times.length ? times[bounds[k + 1]] : times[times.length - 1] + HOUR_MS;
+        if (end <= fromMs || start >= fromMs + NEAR_TERM_MS) return;
+        if (d.level === 'none') {
+            calm ||= !!d.calm;
+            return;
+        }
+        const level = d.level;
+        if (
+            !worst ||
+            LEVEL_RANK[level] > LEVEL_RANK[worst.agreement.level] ||
+            (level === worst.agreement.level && (d.variance ?? 0) > (worst.agreement.variance ?? 0))
+        )
+            worst = { day: k, agreement: { ...d, level } };
+    });
+    return worst ?? (calm ? { calm: true } : null);
 }
 
 /** "1 model", "7 models". */
 const models = (n: number) => `${n} model${n === 1 ? '' : 's'}`;
+
+/** A day's members in words: "7 models", or "5 of 7 models" once runs have
+ *  ended (agreement among fewer can only look tighter), "only" when thin. */
+const memberWords = (c: DayAgreement) =>
+    c.peak && c.members < c.peak ? `${c.thin ? 'only ' : ''}${c.members} of ${models(c.peak)}` : models(c.members);
 
 // ── Chart geometry ──
 
@@ -531,16 +591,23 @@ const LEVEL_FILL: Record<DayAgreement['level'], string> = {
     moderate: 'fill-amber-400/60',
     low: 'fill-red-400/60',
 };
+/** The Glass day chip's glyphs: one picture per verdict on both surfaces. */
 const LEVEL_ICON: Record<Level, string> = {
-    high: 'M5 13l4 4L19 7',
-    moderate: 'M12 9v2m0 4h.01',
-    low: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
+    high: AGREEMENT_GLYPH.agree,
+    moderate: AGREEMENT_GLYPH.some,
+    low: AGREEMENT_GLYPH.split,
+};
+const LEVEL_TEXT: Record<Level, string> = { high: 'text-emerald-400', moderate: 'text-amber-400', low: 'text-red-400' };
+const LEVEL_DISC: Record<Level, string> = {
+    high: 'bg-emerald-500/20',
+    moderate: 'bg-amber-500/20',
+    low: 'bg-red-500/20',
 };
 
 // ── Component ──
 
 export const ModelComparisonMatrix: React.FC<Props> = React.memo(
-    ({ visible, onClose, selectedModel, initialParam, coordinates }) => {
+    ({ visible, onClose, selectedModel, initialParam, initialDay, coordinates }) => {
         const portalTarget = usePanePortalTarget();
         const storeCoords = useLocationCoords();
         const lat = coordinates?.lat ?? storeCoords.lat;
@@ -595,9 +662,11 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
         const timeZone = useMemo(() => (lat == null || lon == null ? 'UTC' : resolveTimeZone(lat, lon)), [lat, lon]);
         const { times, series } = useMemo(() => seriesFor(spread, param), [spread, param]);
         const dayStarts = useMemo(() => localDayStarts(times, timeZone), [times, timeZone]);
+        // DIR is judged only where the breeze is up, so it needs the WIND series too.
+        const speeds = useMemo(() => (param === 'dir' ? seriesFor(spread, 'wind').series : undefined), [spread, param]);
         const days = useMemo(
-            () => agreementByDay(series, dayStarts, times.length, param),
-            [series, dayStarts, times.length, param],
+            () => agreementByDay(series, dayStarts, times.length, param, speeds),
+            [series, dayStarts, times.length, param, speeds],
         );
         const runs = useMemo(() => countRuns(memberCounts(series, times.length)), [series, times.length]);
 
@@ -654,6 +723,18 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
         const dayName = (d: number) => weekday.format(times[dayBounds[d]]);
         /** x of the k-th day boundary (the last is the chart's right edge). */
         const dayX = (k: number) => (dayBounds[k] < times.length ? xOf(times[dayBounds[k]]) : CHART_W - CHART_PAD_R);
+        // The day a Glass card asked for (W1-09): the local day holding initialDay.
+        const shownDay =
+            initialDay == null || !times.length
+                ? -1
+                : dayBounds.slice(0, -1).findIndex((start, d) => {
+                      const end = dayBounds[d + 1];
+                      return (
+                          initialDay >= times[start] &&
+                          initialDay < (end < times.length ? times[end] : times[times.length - 1] + HOUR_MS)
+                      );
+                  });
+        const dayLong = zoneFormat(timeZone, { weekday: 'short', day: 'numeric', month: 'short' });
 
         // Members per hour: the strip's bars, sized by count, on the hours' own scale.
         const maxCount = Math.max(1, ...runs.map((r) => r.count));
@@ -669,18 +750,20 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
         );
 
         // The headline covers the next three days; the day bars carry the rest.
-        const verdict = nearTermAgreement(series, times, nowMs, param);
-        const overallLevel = verdict?.level;
-        const overallColor =
-            overallLevel === 'high'
-                ? 'text-emerald-400'
-                : overallLevel === 'moderate'
-                  ? 'text-amber-400'
-                  : 'text-red-400';
+        // WIND and DIR take their worst near bar (the chip's verdicts), the
+        // other tabs the mean hourly spread.
+        const windish = param === 'wind' || param === 'dir';
+        const nearDay = windish ? nearTermDayVerdict(days, dayBounds, times, nowMs) : null;
+        const worstDay = nearDay && 'day' in nearDay ? nearDay : null;
+        const verdict = windish ? null : nearTermAgreement(series, times, nowMs, param);
+        const overallLevel = windish ? worstDay?.agreement.level : verdict?.level;
+        const overallColor = overallLevel ? LEVEL_TEXT[overallLevel] : 'text-red-400';
         const overallLabel = !overallLevel
             ? series.length === 1
                 ? `Only ${series[0].label} publishes ${spec.short} here, so there is nothing to compare`
-                : 'Too few models overlap to compare'
+                : nearDay && 'calm' in nearDay
+                  ? 'The wind is too light over the next 3 days for its direction to matter'
+                  : 'Too few models overlap to compare'
             : overallLevel === 'high'
               ? 'Strong agreement'
               : overallLevel === 'moderate'
@@ -690,11 +773,39 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
         const dayWords = (c: DayAgreement, d: number, spreadText = false) =>
             `${dayName(d)}: ${
                 c.level === 'none'
-                    ? c.members
-                        ? models(c.members)
-                        : 'no data'
+                    ? c.calm
+                        ? 'light wind'
+                        : c.members
+                          ? models(c.members)
+                          : 'no data'
                     : `${spreadText ? `±${c.variance!.toFixed(spec.decimals)}` : c.level}${c.thin ? `, only ${models(c.members)}` : ''}`
             }`;
+
+        /** A day's spread in words: the strongest hours' range on WIND. */
+        const spreadWords = (c: DayAgreement) =>
+            c.variance == null
+                ? ''
+                : param === 'wind' && c.range
+                  ? `strongest ${Math.round(c.range[0])}–${Math.round(c.range[1])} ${spec.unit}`
+                  : `±${c.variance.toFixed(spec.decimals)} ${spec.unit || 'idx'}`;
+        const overallDetail = worstDay
+            ? `Worst of 3 days: ${[
+                  dayName(worstDay.day),
+                  spreadWords(worstDay.agreement),
+                  memberWords(worstDay.agreement),
+              ]
+                  .filter(Boolean)
+                  .join(' · ')}`
+            : verdict
+              ? `3-day avg spread ±${verdict.variance.toFixed(spec.decimals)} ${spec.unit || 'idx'}`
+              : '';
+
+        // The asked-for day's verdict, in the Glass chip's words, heads the
+        // sheet in place of the three-day headline.
+        const shown = shownDay >= 0 ? days[shownDay] : undefined;
+        const shownName = shown ? dayLong.format(times[dayBounds[shownDay]]) : '';
+        const shownSpread = shown ? spreadWords(shown) : '';
+        const shownCount = shown ? memberWords(shown) : '';
 
         /** Tick label — compass points for direction. */
         const tickLabel = (t: number) => (spec.circular ? COMPASS[(((t / 90) % 4) + 4) % 4] : t.toFixed(spec.decimals));
@@ -856,6 +967,18 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                         );
                                     })}
 
+                                    {/* The day a Glass card asked for, banded behind the lines */}
+                                    {shownDay >= 0 && (
+                                        <rect
+                                            data-selected-day
+                                            x={dayX(shownDay)}
+                                            y={CHART_PAD_T}
+                                            width={Math.max(0, dayX(shownDay + 1) - dayX(shownDay))}
+                                            height={PLOT_H}
+                                            className="fill-sky-400/10"
+                                        />
+                                    )}
+
                                     {/* Model lines — a missing hour is a gap, never joined */}
                                     {drawOrder.map(({ s, values }) => (
                                         <path
@@ -888,6 +1011,9 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                             <rect
                                                 key={d}
                                                 data-thin={c.thin || undefined}
+                                                data-selected={d === shownDay || undefined}
+                                                stroke={d === shownDay ? 'rgb(125 211 252)' : undefined}
+                                                strokeWidth={d === shownDay ? 0.75 : undefined}
                                                 x={dayX(d) + 1}
                                                 y={c.thin ? 2 : 1}
                                                 width={Math.max(0, dayX(d + 1) - dayX(d) - 2)}
@@ -988,18 +1114,60 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                         </div>
                     )}
 
-                    {/* Convergence summary: the next three days, or why there is none */}
-                    {hasData &&
+                    {/* The asked-for day's verdict, or the summary of the next three days */}
+                    {hasData && shown ? (
+                        <div
+                            data-testid="matrix-day-verdict"
+                            className="mx-5 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-sky-400/20 flex items-center gap-2"
+                        >
+                            {shown.level !== 'none' && (
+                                <div
+                                    className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${LEVEL_DISC[shown.level]}`}
+                                >
+                                    <svg
+                                        className={`w-3 h-3 ${LEVEL_TEXT[shown.level]}`}
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={3}
+                                        aria-hidden="true"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d={LEVEL_ICON[shown.level]}
+                                        />
+                                    </svg>
+                                </div>
+                            )}
+                            {shown.level === 'none' ? (
+                                <p className="flex-1 min-w-0 text-[11px] text-gray-400">
+                                    {shownName}:{' '}
+                                    {shown.calm
+                                        ? 'the wind is too light for its direction to matter.'
+                                        : shown.members
+                                          ? `only ${models(shown.members)}, so there is nothing to compare.`
+                                          : 'no model reaches this day.'}
+                                </p>
+                            ) : (
+                                <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-2">
+                                    <span
+                                        className={`text-[11px] font-black uppercase tracking-wider ${LEVEL_TEXT[shown.level]}`}
+                                    >
+                                        {AGREEMENT_WORDS[AGREEMENT_OF[shown.level]]}
+                                    </span>
+                                    <span className="text-[10px] text-gray-400">
+                                        {[shownName, shownSpread, shownCount].filter(Boolean).join(' · ')}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        hasData &&
                         (overallLevel ? (
                             <div className="mx-5 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-white/5 flex items-center gap-2">
                                 <div
-                                    className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
-                                        overallLevel === 'high'
-                                            ? 'bg-emerald-500/20'
-                                            : overallLevel === 'moderate'
-                                              ? 'bg-amber-500/20'
-                                              : 'bg-red-500/20'
-                                    }`}
+                                    className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${LEVEL_DISC[overallLevel]}`}
                                 >
                                     <svg
                                         className={`w-3 h-3 ${overallColor}`}
@@ -1020,17 +1188,15 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                     <span className={`text-[11px] font-black uppercase tracking-wider ${overallColor}`}>
                                         {overallLabel}
                                     </span>
-                                    <span className="text-[10px] text-gray-500">
-                                        3-day avg spread ±{verdict!.variance.toFixed(spec.decimals)}{' '}
-                                        {spec.unit || 'idx'}
-                                    </span>
+                                    <span className="text-[10px] text-gray-500">{overallDetail}</span>
                                 </div>
                             </div>
                         ) : (
                             <p className="mx-5 mb-2 px-3 py-0.5 text-[11px] text-gray-400 text-center">
                                 {overallLabel}.
                             </p>
-                        ))}
+                        ))
+                    )}
 
                     {/* Attribution — a licence condition, not a courtesy: the models on screen */}
                     {credit && (

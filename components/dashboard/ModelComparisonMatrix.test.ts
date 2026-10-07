@@ -378,6 +378,48 @@ describe('ModelComparisonMatrix — the ten-day sheet', () => {
         expect(row.querySelectorAll('rect[data-thin]')).toHaveLength(2);
     });
 
+    it('opens on the day a Glass card asked for: that day banded, its bar marked, its verdict in words (W1-09)', async () => {
+        render(
+            createElement(ModelComparisonMatrix, {
+                visible: true,
+                onClose: vi.fn(),
+                selectedModel: 'ecmwf_ifs025' as never,
+                coordinates: { lat: 44.6, lon: -63.5 },
+                // The day chip asks with its day's local midday: Fri 9 Oct in Halifax.
+                initialDay: Date.parse('2026-10-09T12:00:00-03:00'),
+            }),
+        );
+        await waitFor(() => expect(document.querySelectorAll('path[data-model]')).toHaveLength(7));
+        expect(document.querySelectorAll('rect[data-selected-day]')).toHaveLength(1);
+        const bars = screen.getByRole('img', { name: /^Agreement by day/ });
+        expect(bars.querySelectorAll('rect[data-selected]')).toHaveLength(1);
+        // The day's own verdict, in the chip's words, replaces the three-day headline:
+        // the seven models' strongest hours that Friday run 12–18 kt.
+        const verdict = screen.getByTestId('matrix-day-verdict');
+        expect(verdict).toHaveTextContent('Fri 9 Oct');
+        expect(verdict).toHaveTextContent('Some spread');
+        expect(verdict).toHaveTextContent('strongest 12–18 kts');
+        expect(verdict).toHaveTextContent('7 models');
+        expect(screen.queryByText(/3-day avg spread/)).toBeNull();
+        // Another tab keeps the day: DIR judges it on the same day.
+        fireEvent.click(screen.getByRole('button', { name: 'DIR' }));
+        expect(screen.getByTestId('matrix-day-verdict')).toHaveTextContent('Fri 9 Oct');
+    });
+
+    it('says a late day is thin in the day verdict too, never plain agreement (W1-09)', async () => {
+        render(
+            createElement(ModelComparisonMatrix, {
+                visible: true,
+                onClose: vi.fn(),
+                selectedModel: 'ecmwf_ifs025' as never,
+                coordinates: { lat: 44.6, lon: -63.5 },
+                initialDay: Date.parse('2026-10-16T12:00:00-03:00'), // Fri 16 Oct: four models left
+            }),
+        );
+        await waitFor(() => expect(document.querySelectorAll('path[data-model]')).toHaveLength(7));
+        expect(screen.getByTestId('matrix-day-verdict')).toHaveTextContent('only 4 of 7 models');
+    });
+
     it('heads the sheet with the next three days, not with day ten', async () => {
         // The models agree closely to day 8, then fan out 3 kt apart each.
         vi.mocked(queryModelSpread).mockResolvedValue(
@@ -385,11 +427,54 @@ describe('ModelComparisonMatrix — the ten-day sheet', () => {
         );
         await open();
         const dialog = screen.getByRole('dialog', { name: 'Model Convergence' });
-        expect(dialog).toHaveTextContent('Strong agreement3-day avg spread ±2 kts');
+        expect(dialog).toHaveTextContent('Strong agreement');
+        expect(dialog).toHaveTextContent(/Worst of 3 days: \w{3} · strongest 1[2-9]–1[2-9] kts · 7 models/);
         expect(dialog).not.toHaveTextContent('Models disagree');
         expect(screen.getByRole('img', { name: /^Agreement by day/ }).getAttribute('aria-label')).toMatch(
             /Fri: low, only 4 models, Sat: low, only 4 models$/,
         );
+    });
+
+    // Review 2026-10-08: the WIND and DIR bars are the day chip's verdicts
+    // (each model's strongest hour; direction only in a breeze), but the
+    // headline still averaged every hour, so it could read better than a bar.
+    it('never heads WIND with better than its worst bar of the next three days (a one-hour squall)', async () => {
+        // One model puts a 30 kt squall through at Thu 17:00 in Halifax; otherwise 0.3 kt apart.
+        vi.mocked(queryModelSpread).mockResolvedValue(
+            withAtmos('wind_speed_10m', (k) => TIMES.map((_, i) => (k === 2 && i === 30 ? 30 : 12 + 0.3 * k))),
+        );
+        await open();
+        const dialog = screen.getByRole('dialog', { name: 'Model Convergence' });
+        expect(screen.getByRole('img', { name: /^Agreement by day/ }).getAttribute('aria-label')).toMatch(
+            /^Agreement by day — Wed: high, Thu: low, Fri: high/,
+        );
+        expect(dialog).toHaveTextContent('Models disagree');
+        expect(dialog).toHaveTextContent('Worst of 3 days: Thu · strongest 12–30 kts · 7 models');
+        expect(dialog).not.toHaveTextContent('Strong agreement');
+    });
+
+    it('does not call light-air directions a disagreement when every near bar says light wind (DIR)', async () => {
+        const calm = withAtmos('wind_speed_10m', (k) => TIMES.map(() => 3 + 0.2 * k));
+        calm.atmos!.models.forEach((m, k) => {
+            m.values.wind_direction_10m = TIMES.map((_, i) => (i > (LAST[m.id] ?? 239) ? null : (k * 50) % 360));
+        });
+        vi.mocked(queryModelSpread).mockResolvedValue(calm);
+        render(
+            createElement(ModelComparisonMatrix, {
+                visible: true,
+                onClose: vi.fn(),
+                selectedModel: 'ecmwf_ifs025' as never,
+                initialParam: 'dir',
+                coordinates: { lat: 44.6, lon: -63.5 },
+            }),
+        );
+        await waitFor(() => expect(document.querySelectorAll('path[data-model]')).toHaveLength(7));
+        const dialog = screen.getByRole('dialog', { name: 'Model Convergence' });
+        expect(screen.getByRole('img', { name: /^Agreement by day/ }).getAttribute('aria-label')).toMatch(
+            /^Agreement by day — Wed: light wind, Thu: light wind, Fri: light wind/,
+        );
+        expect(dialog).not.toHaveTextContent(/Models disagree|Some divergence|Strong agreement/);
+        expect(dialog).toHaveTextContent('The wind is too light over the next 3 days for its direction to matter');
     });
 
     it('says one model alone is one model, never "strong agreement" (UV, from GFS only)', async () => {
