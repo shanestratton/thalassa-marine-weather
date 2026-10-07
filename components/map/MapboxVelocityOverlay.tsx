@@ -500,6 +500,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // hand-over means a model switch, and the old model's wind must not linger.
     const sampledGridRef = useRef<WindGrid | undefined>(undefined);
     const closeInSourceRef = useRef<CloseInWindSource | null>(null);
+    // The zoom gate's own memory (boatWindZoomFor's hysteresis), kept apart
+    // from the source shown: a scrub away and back, a feed gap or her leaving
+    // the screen must not cost her the slack while the camera sits still.
+    // Judged only for a settled camera; mid-flight it holds its last answer.
+    const boatZoomRef = useRef(false);
     const refreshCloseInRef = useRef<() => void>(() => {});
     refreshCloseInRef.current = () => {
         const layer = closeInLayerRef.current;
@@ -521,18 +526,23 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const cloud = !storeBoat && boatInstrumentsRef.current ? followedBoatCloudWind() : null;
         const boat = storeBoat ?? cloud?.wind ?? null;
         const position = storeBoat ? boatPosition() : cloud ? { lat: cloud.lat, lon: cloud.lon } : null;
+        // A flyTo's arc dips under 14 on its way to her; an instrument tick or
+        // the re-check landing mid-flight must not flip the field and back.
+        let moving = false;
         let zoom = Number.NaN;
         try {
+            moving = typeof mapboxMap.isMoving === 'function' && mapboxMap.isMoving();
             zoom = mapboxMap.getZoom();
         } catch {
             // A torn-down map: no zoom, so no boat wind.
         }
+        if (!moving) boatZoomRef.current = boatWindZoomFor(boatZoomRef.current, zoom);
         const wind = resolveCloseInWind({
             boat,
             boatInView: !!position && onScreen(mapboxMap, position.lat, position.lon),
             // Her wind paints the field only in at the boat view's zoom (14);
             // further out the model takes over (Shane 2026-10-07).
-            boatZoom: boatWindZoomFor(closeInSourceRef.current === 'boat', zoom),
+            boatZoom: boatZoomRef.current,
             scrubAtNow: isWindScrubAtNow(windHourRef.current, windNowIdxRef.current),
             model: vector ? windFromVector(vector.u, vector.v) : null,
         });
@@ -578,6 +588,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             window.removeEventListener(WEATHER_FOLLOW_TARGET_EVENT, refresh);
             clearInterval(recheck);
             closeInSourceRef.current = null;
+            boatZoomRef.current = false;
             setCloseInWindReadout(null);
             const forget = () => {
                 if (closeInLayerRef.current === owned) closeInLayerRef.current = null;
