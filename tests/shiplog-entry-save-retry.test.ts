@@ -4,6 +4,10 @@ const updateResults: Array<Promise<{ error: { message: string } | null }> | { er
 let updateCalls = 0;
 let abortCalls = 0;
 const updatePayloads: Record<string, unknown>[] = [];
+/** What the ship_logs.position_source probe answers (build 123): absent unless a test says otherwise. */
+let positionSourceProbe: { error: { code?: string; message?: string } | null } = {
+    error: { code: 'PGRST204', message: "Could not find the 'position_source' column" },
+};
 
 vi.mock('../services/shiplog/OfflineQueue', () => ({
     queueOfflineEntry: vi.fn(),
@@ -21,6 +25,7 @@ vi.mock('../services/supabase', () => ({
                 update: vi.fn(),
                 eq: vi.fn(),
                 abortSignal: vi.fn(),
+                select: () => ({ limit: async () => positionSourceProbe }),
                 then: (
                     onFulfilled: (value: { error: { message: string } | null }) => unknown,
                     onRejected?: (reason: unknown) => unknown,
@@ -92,8 +97,11 @@ vi.mock('../utils/logger', () => ({
 import { retryGpsAndUpdateEntry } from '../services/shiplog/EntrySave';
 import { BgGeoManager } from '../services/BgGeoManager';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { __resetPositionSourceColumnForTests } from '../services/shiplog/positionSourceColumn';
 
 beforeEach(() => {
+    __resetPositionSourceColumnForTests();
+    positionSourceProbe = { error: { code: 'PGRST204', message: "Could not find the 'position_source' column" } };
     updateResults.length = 0;
     updateCalls = 0;
     abortCalls = 0;
@@ -145,6 +153,28 @@ describe('retryGpsAndUpdateEntry', () => {
         await expect(retrying).resolves.toBeUndefined();
 
         expect(updatePayloads[0]).toMatchObject({ course_deg: 0 });
+        vi.useRealTimers();
+    });
+
+    // Build 123 review: the position this retry writes is the phone's, and
+    // says so — but only where the column exists (its migration is unpushed).
+    it("tags the position it fills in as the phone's once the column exists", async () => {
+        vi.useFakeTimers();
+        positionSourceProbe = { error: null };
+        const retrying = retryGpsAndUpdateEntry('entry-1');
+        await vi.advanceTimersByTimeAsync(5000);
+        await expect(retrying).resolves.toBeUndefined();
+        expect(updatePayloads[0]).toMatchObject({ latitude: -27.47, position_source: 'phone' });
+        vi.useRealTimers();
+    });
+
+    it('…and leaves the field off while the column is absent', async () => {
+        vi.useFakeTimers();
+        const retrying = retryGpsAndUpdateEntry('entry-1');
+        await vi.advanceTimersByTimeAsync(5000);
+        await expect(retrying).resolves.toBeUndefined();
+        expect(updatePayloads[0]).toMatchObject({ latitude: -27.47 });
+        expect(updatePayloads[0]).not.toHaveProperty('position_source');
         vi.useRealTimers();
     });
 });

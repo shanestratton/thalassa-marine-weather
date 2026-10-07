@@ -1979,8 +1979,10 @@ const anchorSafetyNotificationService = read('services/AnchorSafetyNotificationS
 const bridgeViewController = read('ios/App/App/ThalassaBridgeViewController.swift');
 const bgGeoManager = read('services/BgGeoManager.ts');
 const shipLogService = read('services/ShipLogService.ts');
-const shipLogAlwaysPreflightIndex = shipLogService.indexOf("requireAlwaysLocationAuthorization('voyage-log')");
-const shipLogStartAcquisitionIndex = shipLogService.indexOf('BgGeoManager.requestStart()', shipLogAlwaysPreflightIndex);
+// Voyage logging's location preflight (build 123, package VL). It used to be
+// the Always gate below; it is now source-aware — see the check that uses it.
+const shipLogVoyagePreflightIndex = shipLogService.indexOf('BgGeoManager.requireVoyageBackgroundLocation(');
+const shipLogStartAcquisitionIndex = shipLogService.indexOf('BgGeoManager.requestStart()', shipLogVoyagePreflightIndex);
 const gps = read('services/GpsService.ts');
 const mob = read('services/MobService.ts');
 const mobUi = read('components/vessel/MobPage.tsx');
@@ -2052,8 +2054,19 @@ check(
         !anchor.includes("extra: { interruptionLevel: 'timeSensitive'") &&
         plistBoolean(mainEntitlements, 'com.apple.developer.usernotifications.time-sensitive', true),
 );
+// CHANGED CONSCIOUSLY in build 123 (package VL), and only for voyage logging.
+// Shane 2026-10-07, with a red "needs Always Location" toast on screen while
+// the boat's own GPS fed the log: "we need it to use the vessel gps if and
+// when available". Since the 2026-08-06 beta candidate this check also made
+// voyage logging fail closed without Always. Always buys a background restart
+// and a relaunch after iOS ends the app; While Using, started in the
+// foreground, keeps a running app logging with the screen locked (Apple,
+// "Handling location updates in the background"). So voyage logging now asks
+// only for what its track source needs, and its own check is below. Anchor
+// Watch needs geofences, which need Always: its half of this check is
+// unchanged, as is the shared requireAlwaysLocationAuthorization contract.
 check(
-    'Anchor Watch and voyage logging fail closed without verified iOS Always Location',
+    'Anchor Watch fails closed without verified iOS Always Location',
     includesAll(bgGeoManager, [
         "requireAlwaysLocationAuthorization(feature: 'anchor-watch' | 'voyage-log')",
         'current.status === AuthorizationStatus.Always',
@@ -2067,9 +2080,21 @@ check(
             "requireAlwaysLocationAuthorization('anchor-watch')",
             "Capacitor.getPlatform() === 'ios' && !nativeMonitoringVerified",
             'A live NMEA feed is supplemental',
-        ]) &&
-        shipLogAlwaysPreflightIndex > -1 &&
-        shipLogStartAcquisitionIndex > shipLogAlwaysPreflightIndex,
+        ]),
+);
+check(
+    'Voyage logging asks iOS only for what its track source needs, before the GPS lease',
+    includesAll(bgGeoManager, [
+        'async requireVoyageBackgroundLocation(',
+        // A boat-fed log never demands Always; a phone log is only advised.
+        "if (mode === 'none-needed')",
+        'PHONE_LOG_ALWAYS_ADVISORY',
+        // A background start without Always defers to the foreground.
+        'iOS only starts While Using location in the foreground',
+    ]) &&
+        !shipLogService.includes("requireAlwaysLocationAuthorization('voyage-log')") &&
+        shipLogVoyagePreflightIndex > -1 &&
+        shipLogStartAcquisitionIndex > shipLogVoyagePreflightIndex,
 );
 check(
     'shared marine GPS cannot auto-pause while a ref-counted tracking lease is active',

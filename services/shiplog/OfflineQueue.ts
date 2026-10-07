@@ -13,6 +13,7 @@ import { supabase, getCurrentUser } from '../supabase';
 import { createLogger } from '../../utils/createLogger';
 import { boundedLocalQuarantine } from '../../utils/localPrivacyRetention';
 import { SHIP_LOGS_TABLE, toDbFormat } from './helpers';
+import { positionSourceColumnPresent, withPositionSource } from './positionSourceColumn';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -2755,6 +2756,11 @@ export async function syncOfflineQueue(): Promise<number> {
         if (queue.length === 0) return 0;
 
         const normalized = normalizeLatestPositions(queue) as OwnedOfflineEntry[];
+        // Which receiver produced each point (build 123, package VL) goes up
+        // only once the column has been SEEN: its migration is not pushed yet,
+        // and an unknown column would bisect the queue into dead letters.
+        const writePositionSource = await positionSourceColumnPresent(database);
+        if (!isAuthIdentityScopeCurrent(scope)) return 0;
 
         // Remove only confirmed-success operation ids. Concurrent appends and
         // in-memory demotions are therefore never mistaken for a synced prefix.
@@ -2794,6 +2800,7 @@ export async function syncOfflineQueue(): Promise<number> {
                         const row = toDbFormat({ ...e, userId: ownerUserId });
                         delete row.id; // never ship synthetic/display ids — DB generates real ones
                         row.client_operation_id = e.queue_id;
+                        withPositionSource(row, e.positionSource, writePositionSource);
                         if (clearBoatId) row.boat_id = null;
                         return row;
                     });

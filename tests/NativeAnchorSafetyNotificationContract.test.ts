@@ -113,17 +113,28 @@ describe('Always-location and shared marine GPS contract', () => {
         expect(bgGeo).toContain("locationAuthorizationRequest: 'WhenInUse'");
     });
 
-    it('requires the native Always path for Anchor Watch and active voyage logging', () => {
+    it('requires the native Always path for Anchor Watch', () => {
         expect(anchorService).toContain("requireAlwaysLocationAuthorization('anchor-watch')");
         expect(anchorService).toContain("Capacitor.getPlatform() === 'ios' && !nativeMonitoringVerified");
         expect(anchorService).toContain('A live NMEA feed is supplemental');
+    });
 
+    // Changed consciously in build 123 (package VL, Shane 2026-10-07: "we need
+    // it to use the vessel gps if and when available"). Voyage logging no
+    // longer demands Always: it asks iOS only for what its track source needs
+    // (BgGeoManager.requireVoyageBackgroundLocation — nothing when her Pi
+    // records the track, While Using for a gateway-only boat, Always ADVISED
+    // for a phone-only log). Its preflight still runs before the lease is
+    // taken and before any tracking state is committed. Anchor Watch keeps
+    // the Always gate above, unchanged.
+    it('runs the source-aware voyage location preflight before the native lease', () => {
         const shipStart = sourceBlock(shipLog, 'async startTracking(', '// GPS engine confirmed running');
-        const preflightIndex = shipStart.indexOf("requireAlwaysLocationAuthorization('voyage-log')");
+        const preflightIndex = shipStart.indexOf('BgGeoManager.requireVoyageBackgroundLocation(');
         const nativeStartIndex = shipStart.indexOf('BgGeoManager.requestStart()');
         expect(preflightIndex).toBeGreaterThan(0);
         expect(nativeStartIndex).toBeGreaterThan(preflightIndex);
-        expect(shipStart).not.toMatch(/this\.trackingState\s*=\s*\{[\s\S]*requireAlwaysLocationAuthorization/);
+        expect(shipStart).not.toContain("requireAlwaysLocationAuthorization('voyage-log')");
+        expect(shipStart).not.toMatch(/this\.trackingState\s*=\s*\{[\s\S]*requireVoyageBackgroundLocation/);
     });
 
     it('ships exact foreground and user-armed background purpose copy', () => {

@@ -50,7 +50,27 @@ const gpsHealthMock = vi.hoisted(() => ({
     value: null as null | { usable: boolean; reason: string; actionable: boolean },
 }));
 const acquireFreshOwnshipPositionMock = vi.hoisted(() => vi.fn());
+/** The Start's source plan (services/shiplog/trackSourceInputs); a phone-only punter unless a test says otherwise. */
+const sourcePlanMock = vi.hoisted(() => {
+    const phonePlan = {
+        source: 'phone',
+        lane: 'none',
+        where: 'unknown',
+        keepAlive: 'always-advised',
+        showPhoneNotice: true,
+        standIn: 'allowed',
+        standInOptIn: false,
+        phoneAccessory: false,
+    };
+    return { phonePlan, resolve: vi.fn(async () => ({ ...phonePlan }) as Record<string, unknown>) };
+});
 const activeVoyageMock = vi.hoisted(() => ({ value: null as null | Record<string, unknown> }));
+/** The live voyage's stand-in question and location caution, as ShipLogService reports them (build 123). */
+const liveVoyageMock = vi.hoisted(() => ({
+    standInPending: false,
+    advisory: null as string | null,
+    answer: vi.fn(async (_answer: 'phone' | 'wait') => undefined),
+}));
 const shipLogHandoffMock = vi.hoisted(() => ({
     startTracking: vi.fn(),
     stopTracking: vi.fn(),
@@ -158,6 +178,10 @@ vi.mock('../services/ownshipPosition', () => ({
     acquireFreshOwnshipPosition: acquireFreshOwnshipPositionMock,
 }));
 
+vi.mock('../services/shiplog/trackSourceInputs', () => ({
+    resolveTrackSourcePlan: sourcePlanMock.resolve,
+}));
+
 vi.mock('../utils/lazyRetry', () => ({
     lazyRetry: (fn: () => Promise<{ default: React.ComponentType }>) => React.lazy(fn),
 }));
@@ -263,7 +287,24 @@ vi.mock('../pages/log/LogSubComponents', () => ({
 }));
 vi.mock('../pages/log/VoyageDialogs', () => ({ VoyageChoiceDialog: () => null, StopVoyageDialog: () => null }));
 vi.mock('../pages/log/ExportSheet', () => ({ ExportSheet: () => null }));
-vi.mock('../pages/log/GpsDisclaimerModal', () => ({ GpsDisclaimerModal: () => null }));
+// A stand-in with the real dialog's name and its one decision, so the page's
+// gating (shown or not, and what happens after) is what these tests see.
+vi.mock('../pages/log/GpsDisclaimerModal', () => ({
+    GpsDisclaimerModal: ({
+        isOpen,
+        onDismiss,
+        alwaysAdvice,
+    }: {
+        isOpen: boolean;
+        onDismiss: (dontShowAgain: boolean) => void;
+        alwaysAdvice?: boolean;
+    }) =>
+        isOpen ? (
+            <div role="dialog" aria-label="Logging from this phone" data-always-advice={String(!!alwaysAdvice)}>
+                <button onClick={() => onDismiss(false)}>Start tracking</button>
+            </div>
+        ) : null,
+}));
 vi.mock('../pages/log/ImportSheet', () => ({ ImportSheet: () => null }));
 vi.mock('../pages/log/ShareSheet', () => ({ ShareSheet: () => null }));
 vi.mock('../pages/log/ShareFormSheet', () => ({ ShareFormSheet: () => null }));
@@ -282,6 +323,10 @@ vi.mock('../services/ShipLogService', () => ({
         getTrackingStatus: shipLogHandoffMock.getTrackingStatus,
         startTracking: shipLogHandoffMock.startTracking,
         stopTracking: shipLogHandoffMock.stopTracking,
+        subscribeStandInQuestion: () => () => {},
+        isStandInQuestionPending: () => liveVoyageMock.standInPending,
+        answerStandInQuestion: liveVoyageMock.answer,
+        getLocationAdvisory: () => liveVoyageMock.advisory,
     },
 }));
 
@@ -524,6 +569,10 @@ describe('LogPage', () => {
         publishFollowedRouteMock.mockResolvedValue('linked');
         traceDirectUseBlockReasonMock.mockReturnValue(null);
         gpsHealthMock.value = null;
+        sourcePlanMock.resolve.mockImplementation(async () => ({ ...sourcePlanMock.phonePlan }));
+        liveVoyageMock.standInPending = false;
+        liveVoyageMock.advisory = null;
+        liveVoyageMock.answer.mockClear();
         acquireFreshOwnshipPositionMock.mockResolvedValue({
             lat: -27.5,
             lon: 153,
@@ -822,6 +871,334 @@ describe('LogPage', () => {
         await waitFor(() => expect(acquireFreshOwnshipPositionMock).toHaveBeenCalledOnce());
         await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
         expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    // ── Build 123, package VL: the phone notice is for the phone ──────────────
+    // Shane 2026-10-07: the phone's "GPS Accuracy Notice" while the app knew
+    // exactly where the boat was, from her own GPS.
+    it('a fresh fix from the boat never shows the phone notice, even when it was never dismissed', async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: false, reason: 'denied', actionable: true };
+        acquireFreshOwnshipPositionMock.mockResolvedValueOnce({
+            lat: 50.7712,
+            lon: -1.3005,
+            sog: 0,
+            cog: 0,
+            timestamp: Date.now(),
+            source: 'nmea',
+        });
+        const { Preferences } = await import('@capacitor/preferences');
+        vi.mocked(Preferences.get).mockResolvedValue({ value: null });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+        expect(screen.queryByRole('dialog', { name: /GPS Accuracy Notice|Logging from this phone/ })).toBeNull();
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('a vessel plan starts from her GPS without asking this phone for a fix or showing the notice', async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        sourcePlanMock.resolve.mockResolvedValueOnce({
+            ...sourcePlanMock.phonePlan,
+            source: 'vessel',
+            lane: 'pi',
+            where: 'aboard',
+            keepAlive: 'none-needed',
+            showPhoneNotice: false,
+        });
+        const { Preferences } = await import('@capacitor/preferences');
+        vi.mocked(Preferences.get).mockResolvedValue({ value: null });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+        expect(startTracking).toHaveBeenCalledWith(
+            expect.objectContaining({
+                sourcePlan: expect.objectContaining({ source: 'vessel', keepAlive: 'none-needed' }),
+            }),
+        );
+        expect(acquireFreshOwnshipPositionMock).not.toHaveBeenCalled();
+        expect(screen.queryByRole('dialog', { name: 'Logging from this phone' })).toBeNull();
+    });
+
+    it('a gateway-only boat with Location off says so in the page card (While Using is enough), never a toast', async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: false, reason: 'denied', actionable: true };
+        sourcePlanMock.resolve.mockResolvedValueOnce({
+            ...sourcePlanMock.phonePlan,
+            source: 'vessel',
+            lane: 'bus',
+            where: 'aboard',
+            keepAlive: 'when-in-use',
+            showPhoneNotice: false,
+        });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent('While Using is enough');
+        expect(alert).toHaveTextContent('Tracking did not start');
+        expect(within(alert).getByRole('button', { name: 'Open location settings' })).toBeInTheDocument();
+        expect(startTracking).not.toHaveBeenCalled();
+        expect(acquireFreshOwnshipPositionMock).not.toHaveBeenCalled();
+    });
+
+    it('a boat-only Start from ashore with Location off: nothing is asked of this phone', async () => {
+        // (Aboard, a Pi recording her track no longer means "nothing needed":
+        // its track cannot fill a voyage's gaps until phase 2, so the plan is
+        // While Using like a gateway-only boat — the card above.)
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: false, reason: 'denied', actionable: true };
+        sourcePlanMock.resolve.mockResolvedValueOnce({
+            ...sourcePlanMock.phonePlan,
+            source: 'vessel',
+            lane: 'cloud',
+            where: 'ashore',
+            keepAlive: 'none-needed',
+            standIn: 'never',
+            showPhoneNotice: false,
+        });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it("the phone's own fix still shows the phone notice once before tracking starts", async () => {
+        const startTracking = vi.fn();
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        gpsHealthMock.value = { usable: true, reason: 'ok', actionable: false };
+        const { Preferences } = await import('@capacitor/preferences');
+        vi.mocked(Preferences.get).mockResolvedValue({ value: null });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        const notice = await screen.findByRole('dialog', { name: 'Logging from this phone' });
+        expect(startTracking).not.toHaveBeenCalled();
+        fireEvent.click(within(notice).getByRole('button', { name: 'Start tracking' }));
+        await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+        expect(startTracking).toHaveBeenCalledWith(
+            expect.objectContaining({ sourcePlan: expect.objectContaining({ source: 'phone' }) }),
+        );
+    });
+
+    it('a location refusal from the voyage preflight lands in the start card, never a toast (build 123 review)', async () => {
+        const { VoyageLocationError } = await import('../services/BgGeoManager');
+        let handled: boolean | undefined;
+        const startTracking = vi.fn((options?: { onFailed?: (error: unknown) => boolean }) => {
+            // What useLogPageState does when ShipLogService.startTracking rejects.
+            handled = options?.onFailed?.(
+                new VoyageLocationError(
+                    "To keep logging your boat's GPS with the screen locked, Thalassa needs Location — While Using is enough.",
+                    'permission',
+                ),
+            );
+        });
+        logPageStateOverrides.hook.handleStartTracking = startTracking;
+        sourcePlanMock.resolve.mockResolvedValueOnce({
+            ...sourcePlanMock.phonePlan,
+            source: 'vessel',
+            lane: 'bus',
+            where: 'aboard',
+            keepAlive: 'when-in-use',
+            showPhoneNotice: false,
+        });
+
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+
+        const alert = await screen.findByRole('alert');
+        expect(handled).toBe(true);
+        expect(alert).toHaveTextContent('Tracking did not start');
+        expect(alert).toHaveTextContent('While Using is enough');
+        expect(within(alert).getByRole('button', { name: 'Open location settings' })).toBeInTheDocument();
+    });
+
+    it('any other start failure is left to the toast', async () => {
+        let handled: boolean | undefined;
+        logPageStateOverrides.hook.handleStartTracking = vi.fn(
+            (options?: { onFailed?: (error: unknown) => boolean }) => {
+                handled = options?.onFailed?.(new Error('Background GPS did not confirm.'));
+            },
+        );
+        sourcePlanMock.resolve.mockResolvedValueOnce({
+            ...sourcePlanMock.phonePlan,
+            source: 'vessel',
+            lane: 'bus',
+            where: 'aboard',
+            keepAlive: 'when-in-use',
+            showPhoneNotice: false,
+        });
+        render(<LogPage />);
+        fireEvent.click(screen.getByTestId('slide-to-action'));
+        await waitFor(() => expect(handled).toBe(false));
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it("the phone notice's Always line shows only when Location is not Always already", async () => {
+        const { Capacitor } = await import('@capacitor/core');
+        const { BgGeoManager } = await import('../services/BgGeoManager');
+        const platform = vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios');
+        const always = vi.spyOn(BgGeoManager, 'hasAlwaysLocation').mockResolvedValue(true);
+        try {
+            logPageStateOverrides.hook.handleStartTracking = vi.fn();
+            gpsHealthMock.value = { usable: true, reason: 'ok', actionable: false };
+            const { Preferences } = await import('@capacitor/preferences');
+            vi.mocked(Preferences.get).mockResolvedValue({ value: null });
+
+            const first = render(<LogPage />);
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            const granted = await screen.findByRole('dialog', { name: 'Logging from this phone' });
+            expect(granted).toHaveAttribute('data-always-advice', 'false');
+            first.unmount();
+
+            always.mockResolvedValue(false);
+            render(<LogPage />);
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+            const whileUsing = await screen.findByRole('dialog', { name: 'Logging from this phone' });
+            expect(whileUsing).toHaveAttribute('data-always-advice', 'true');
+        } finally {
+            platform.mockRestore();
+            always.mockRestore();
+        }
+    });
+
+    describe('a live voyage that never heard her (Cast Off, a Start while her lane was connecting)', () => {
+        const tracking = () =>
+            Object.assign(logPageStateOverrides.state, { isTracking: true, currentVoyageId: 'cast-off-voyage' });
+
+        it('asks the stand-in question on the Log page; "Log from this phone" goes to the live voyage', async () => {
+            tracking();
+            liveVoyageMock.standInPending = true;
+            render(<LogPage />);
+            const question = await screen.findByRole('dialog', { name: /GPS isn.t answering/ });
+            fireEvent.click(within(question).getByRole('button', { name: 'Log from this phone' }));
+            expect(liveVoyageMock.answer).toHaveBeenCalledWith('phone');
+        });
+
+        it('Cancel puts it away for this voyage', async () => {
+            tracking();
+            liveVoyageMock.standInPending = true;
+            const { rerender } = render(<LogPage />);
+            const question = await screen.findByRole('dialog', { name: /GPS isn.t answering/ });
+            fireEvent.click(within(question).getByRole('button', { name: 'Cancel' }));
+            rerender(<LogPage />);
+            expect(screen.queryByRole('dialog', { name: /GPS isn.t answering/ })).toBeNull();
+            expect(liveVoyageMock.answer).not.toHaveBeenCalled();
+        });
+
+        it('nothing is asked while the service has nothing to ask', () => {
+            tracking();
+            render(<LogPage />);
+            expect(screen.queryByRole('dialog', { name: /GPS isn.t answering/ })).toBeNull();
+        });
+
+        it('the location caution for the live voyage is a card with the settings link, put away with Got it', () => {
+            tracking();
+            liveVoyageMock.advisory =
+                'Recording only while Thalassa is open. To keep logging with the screen locked, allow Location for Thalassa — While Using is enough.';
+            render(<LogPage />);
+            const card = screen.getByTestId('voyage-location-advisory');
+            expect(card).toHaveTextContent('Recording only while Thalassa is open');
+            expect(within(card).getByRole('button', { name: 'Open location settings' })).toBeInTheDocument();
+            fireEvent.click(within(card).getByRole('button', { name: 'Got it' }));
+            expect(screen.queryByTestId('voyage-location-advisory')).toBeNull();
+        });
+    });
+
+    describe('her GPS silent at Start: the one stand-in question', () => {
+        const silentPlan = () => ({
+            ...sourcePlanMock.phonePlan,
+            source: 'vessel-silent',
+            lane: 'none',
+            where: 'unknown',
+            keepAlive: 'when-in-use',
+            showPhoneNotice: false,
+            standIn: 'ask',
+        });
+
+        it('asks "Log from this phone / Wait for the boat"; Wait starts a boat-only voyage without touching the phone', async () => {
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            sourcePlanMock.resolve.mockResolvedValueOnce(silentPlan());
+
+            render(<LogPage />);
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+
+            const question = await screen.findByRole('dialog', { name: /GPS isn.t answering/ });
+            expect(within(question).getByRole('button', { name: 'Log from this phone' })).toBeInTheDocument();
+            fireEvent.click(within(question).getByRole('button', { name: 'Wait for the boat' }));
+
+            await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+            expect(startTracking).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sourcePlan: expect.objectContaining({
+                        source: 'vessel-silent',
+                        standIn: 'never',
+                        standInOptIn: false,
+                    }),
+                }),
+            );
+            expect(acquireFreshOwnshipPositionMock).not.toHaveBeenCalled();
+            expect(screen.queryByRole('dialog', { name: /GPS isn.t answering/ })).toBeNull();
+        });
+
+        it('"Log from this phone" checks the phone, shows the phone notice, then starts opted in', async () => {
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            gpsHealthMock.value = { usable: true, reason: 'ok', actionable: false };
+            sourcePlanMock.resolve.mockResolvedValueOnce(silentPlan());
+            const { Preferences } = await import('@capacitor/preferences');
+            vi.mocked(Preferences.get).mockResolvedValue({ value: null });
+
+            render(<LogPage />);
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+
+            const question = await screen.findByRole('dialog', { name: /GPS isn.t answering/ });
+            fireEvent.click(within(question).getByRole('button', { name: 'Log from this phone' }));
+
+            const notice = await screen.findByRole('dialog', { name: 'Logging from this phone' });
+            expect(acquireFreshOwnshipPositionMock).toHaveBeenCalledOnce();
+            fireEvent.click(within(notice).getByRole('button', { name: 'Start tracking' }));
+            await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+            expect(startTracking).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sourcePlan: expect.objectContaining({ source: 'phone', standIn: 'allowed', standInOptIn: true }),
+                }),
+            );
+        });
+
+        it('a Start from ashore never asks: a boat-only voyage, no phone fix, no notice', async () => {
+            const startTracking = vi.fn();
+            logPageStateOverrides.hook.handleStartTracking = startTracking;
+            sourcePlanMock.resolve.mockResolvedValueOnce({
+                ...silentPlan(),
+                where: 'ashore',
+                standIn: 'never',
+                keepAlive: 'none-needed',
+            });
+
+            render(<LogPage />);
+            fireEvent.click(screen.getByTestId('slide-to-action'));
+
+            await waitFor(() => expect(startTracking).toHaveBeenCalledOnce());
+            expect(screen.queryByRole('dialog', { name: /GPS isn.t answering/ })).toBeNull();
+            expect(acquireFreshOwnshipPositionMock).not.toHaveBeenCalled();
+            expect(startTracking).toHaveBeenCalledWith(
+                expect.objectContaining({ sourcePlan: expect.objectContaining({ standIn: 'never' }) }),
+            );
+        });
     });
 
     it('does not enter Live Recording when a fresh GPS fix cannot be acquired', async () => {

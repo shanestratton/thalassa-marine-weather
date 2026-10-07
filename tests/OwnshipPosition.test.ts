@@ -259,4 +259,54 @@ describe('ownship position safety boundary', () => {
         resolvePassive(null);
         await expect(passive).resolves.toBeNull();
     });
+
+    // Build 123, package VL (voyagelog.md, whyWrong 3a): every store lat/lon
+    // was "nmea", including the Pi's cloud row stamped with the phone's read
+    // time — so a preflight could call a minute-old relayed fix the live bus.
+    // It is still the BOAT (ten chart, HUD and diary readers rely on 'nmea'
+    // meaning "her own receiver, any lane"), but it now says it was relayed,
+    // and when the Pi reported it.
+    describe('a cloud-row ingest is the boat relayed, not the bus', () => {
+        const cloudStore = (reportedAt: number, positionSampleAt?: number) => ({
+            connectionStatus: 'remote',
+            remote: {
+                source: 'pi',
+                via: 'cloud',
+                deviceLabel: null,
+                reportedAt,
+                ...(positionSampleAt ? { positionSampleAt } : {}),
+                receivedAt: NOW,
+            },
+            // Stamped with the phone's read time, exactly as NmeaStore.ingestRemote does.
+            latitude: metric(-22.2796, NOW),
+            longitude: metric(166.4389, NOW),
+        });
+        const noPhone = { lat: 0, lon: 0, source: 'map_pin', timestamp: NOW };
+
+        it('marks the relay and dates it by the Pi, not by the phone reading it', () => {
+            const own = resolveOwnshipPosition(cloudStore(NOW - 40_000), noPhone, { now: NOW });
+            expect(own).toMatchObject({ lat: -22.2796, lon: 166.4389, source: 'nmea' });
+            expect(own?.relay).toEqual({ reportedAt: NOW - 40_000 });
+        });
+
+        it("prefers the receiver's own position time when the row carries it", () => {
+            const own = resolveOwnshipPosition(cloudStore(NOW - 10_000, NOW - 25_000), noPhone, { now: NOW });
+            expect(own?.relay).toEqual({ reportedAt: NOW - 25_000 });
+        });
+
+        it('the Pi on her LAN and the gateway socket are the bus: no relay mark', () => {
+            const lan = {
+                ...cloudStore(NOW - 2_000),
+                remote: { source: 'pi', via: 'lan', deviceLabel: null, reportedAt: NOW - 2_000, receivedAt: NOW },
+            };
+            expect(resolveOwnshipPosition(lan, noPhone, { now: NOW })?.relay).toBeUndefined();
+            const socket = {
+                connectionStatus: 'connected',
+                remote: null,
+                latitude: metric(50.7712),
+                longitude: metric(-1.3005),
+            };
+            expect(resolveOwnshipPosition(socket, noPhone, { now: NOW })).not.toHaveProperty('relay');
+        });
+    });
 });
