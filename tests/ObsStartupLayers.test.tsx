@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { useMapHubLayerVisibility } from '../components/map/useMapHubLayerVisibility';
 import { useWeatherLayers } from '../components/map/useWeatherLayers';
 import { useOpenSeaMapRasterHide } from '../components/map/mapHub/useOpenSeaMapRasterHide';
+import { useEncAtOpen } from '../components/map/mapHub/useEncAtOpen';
 import { __resetPassageHudForTests, isPassageHudEnabled } from '../stores/passageHudStore';
 import { __resetPassageOverlayForTests, isPassageOverlayOn } from '../stores/chartPassageOverlay';
 
@@ -90,10 +91,24 @@ describe('clean OBS startup', () => {
         expect(visibility.get('harbour-seamarks-circle')).toBe('visible');
     });
 
+    it('starts ENC off on a fresh OBS unless Preferences asks for it, whatever an old launch left behind', async () => {
+        // The persisted switch Release 119 retired: a stale `true` must not
+        // come back as the start state.
+        localStorage.setItem('thalassa_map_enc_visible', 'true');
+        const { DEFAULT_SETTINGS } = await import('../stores/settingsStore');
+        expect(DEFAULT_SETTINGS.obsEncOnOpen).not.toBe(true);
+        const off = renderHook(() => useEncAtOpen(true, DEFAULT_SETTINGS.obsEncOnOpen));
+        expect(off.result.current.encVisible).toBe(false);
+        const on = renderHook(() => useEncAtOpen(true, true));
+        expect(on.result.current.encVisible).toBe(true);
+    });
+
     it('connects clean startup to OBS while retaining plotting ENC and safety layers', () => {
         const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
         expect(hub).toContain('const [weatherInspectMode, setWeatherInspectMode] = useState(false)');
-        expect(hub).toContain('const [encVisible, setEncVisible] = useState(false)');
+        // ENC at open follows Preferences → Chart (W1-01 slice 1b), off by
+        // default; the case above pins the off default itself.
+        expect(hub).toContain('const { encVisible, toggleEnc } = useEncAtOpen(ownshipStartup, settings.obsEncOnOpen);');
         expect(hub).toContain("const obsShowing = ownshipStartup && currentView === 'map';");
         expect(hub).toContain('useObsStartupCamera(mapRef, mapReady, obsShowing, obsStart)');
         expect(hub).not.toContain('lastFlownCoordsRef');

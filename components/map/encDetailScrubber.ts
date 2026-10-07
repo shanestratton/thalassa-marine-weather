@@ -6,13 +6,29 @@
  * One knob, 0 (full chart) → 6 (minimal), two mechanisms:
  *
  *  1. CUMULATIVE FURNITURE CUTS — visibility per layer group, ordered
- *     from decorative to load-bearing: derived contours and light
- *     sectors go first, names and plain contours in the middle, marks
- *     and lights only at the very end.
+ *     from decorative to load-bearing: derived contours first, then
+ *     badges and minor labels, islet dots, names, plain contours and
+ *     leads, and the aids to navigation only at the very end.
  *  2. A SCAMIN BIAS on the density-laddered layers (soundings + the
  *     two name layers): each step subtracts ~0.9 "virtual zoom", so
  *     the sounding field THINS smoothly the way zooming out would,
  *     instead of blinking off.
+ *
+ * THE TIERS FOLLOW IHO S-52 DISPLAY CATEGORIES (build 123, W1-01). S-52 is
+ * the presentation standard every ECDIS draws to, worldwide. It puts the
+ * aids to navigation (buoys, beacons, lights, and the sectors a light
+ * carries) in "Standard display", the picture an ECDIS shows when a chart
+ * first comes up; only Display Base (coastline, the safety contour,
+ * isolated dangers) sits below it. Spot soundings, names and other
+ * lettering are "Other". The browsing chart holds a forced floor
+ * (BROWSE_DECLUTTER_FLOOR, see MapHub), and until W1-01 that floor cut the
+ * light sectors (tier 1) and the special-purpose and safe-water marks
+ * (tier 3): a sector light's white, red and green arcs and a fairway buoy
+ * never showed on Obs at any zoom. Now every S-52 Standard navaid the chart
+ * mounts (S52_STANDARD_NAVAID_LAYERS) sits in the last tier, together, and
+ * the floor cannot reach it. What the floor thins is what Shane asked it to
+ * (2026-07-22: "too much noise"): sounding density, names, VHF badges,
+ * lead and hazard labels, derived contours and islet dots.
  *
  * SAFETY FLOOR — never touched at ANY level: depth bands + glaze,
  * land + coastline, the bold safety contour, every hazard layer
@@ -31,36 +47,63 @@
  */
 import type mapboxgl from 'mapbox-gl';
 
-import { ENC_VEC_LAYERS } from './encLayerIds';
+import { ENC_VEC_LAYERS, S57_NAVAID_CLASSES } from './encLayerIds';
 import { SCAMIN_CLAUSE } from './encDepthStyle';
 
 /** Slider maximum — 0 is the full chart, this is the bare one. */
 export const DETAIL_SCRUB_MAX = 6;
+
+/**
+ * The browsing chart's declutter level (Shane 2026-07-22). The slider is
+ * only on the plotting card, so whenever that card is closed the chart
+ * draws at exactly this level (browseDetailLevel). It removes tiers 1–3
+ * below and nothing else, so it must stay under the navaid tier (asserted
+ * in tests/encDetailScrubber.test.ts).
+ */
+export const BROWSE_DECLUTTER_FLOOR = 3;
+
+/**
+ * The level the chart draws at. While plotting (the card with the slider is
+ * open) it is exactly what the skipper set. While browsing it is the floor,
+ * whatever the slider was left at. The slider is session state that nothing
+ * resets, and Obs and the Plan tab share one map, so max(slider, floor)
+ * carried a plotting "Clean" (6) back to Obs, which has no slider, and hid
+ * every light, sector and buoy there for the rest of the session (W1-01
+ * review).
+ */
+export function browseDetailLevel(plotting: boolean, slider: number): number {
+    return plotting ? slider : BROWSE_DECLUTTER_FLOOR;
+}
+
+/**
+ * The aids to navigation IHO S-52 places in Standard display: every navaid
+ * class the chart mounts (S57_NAVAID_CLASSES: lights, lateral, cardinal,
+ * safe-water, special-purpose and isolated-danger buoys and beacons) plus
+ * the light-sector legs and arcs drawn from LIGHTS. Derived from the class
+ * registry, so a navaid class added later is protected without another
+ * edit here. None of them is cut below the bare level.
+ */
+export const S52_STANDARD_NAVAID_LAYERS: readonly string[] = [
+    ...S57_NAVAID_CLASSES.map((c) => ENC_VEC_LAYERS[c]),
+    ENC_VEC_LAYERS.LIGHTSEC_LEG,
+    ENC_VEC_LAYERS.LIGHTSEC_ARC,
+];
+
+/** Navaids that belong to the safety floor instead: they point at a hazard. */
+const SAFETY_FLOOR_MARKS = new Set<string>([ENC_VEC_LAYERS.BOYISD, ENC_VEC_LAYERS.BCNISD]);
 
 /** Virtual-zoom bias per declutter step (negative = zoomed-out look). */
 const BIAS_PER_STEP = -0.9;
 
 /** Cumulative cuts: at declutter level d, groups [0..d-1] are hidden. */
 const FURNITURE_CUTS: string[][] = [
-    // d ≥ 1 — pure decoration first
-    [
-        ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
-        ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL,
-        ENC_VEC_LAYERS.LIGHTSEC_LEG,
-        ENC_VEC_LAYERS.LIGHTSEC_ARC,
-    ],
+    // d ≥ 1 — pure decoration first: contours we interpolated ourselves
+    [ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE, ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL],
     // d ≥ 2 — badges + minor labels
     [ENC_VEC_LAYERS.VHF_BADGE, ENC_VEC_LAYERS.VHF_BADGE_VTS, ENC_VEC_LAYERS.RECTRC_LABEL, ENC_VEC_LAYERS.POINTS_LABEL],
-    // d ≥ 3 — special-purpose / safe-water minors + islet dots. Isolated-danger
-    // marks (BOYISD/BCNISD) are DELIBERATELY absent: they point at a charted
-    // hazard, so they belong to the safety floor, never a declutter tier.
-    [
-        ENC_VEC_LAYERS.BOYSPP,
-        ENC_VEC_LAYERS.BCNSPP,
-        ENC_VEC_LAYERS.BOYSAW,
-        ENC_VEC_LAYERS.BCNSAW,
-        ENC_VEC_LAYERS.LNDARE_ISLET,
-    ],
+    // d ≥ 3 — islet dots. The special-purpose and safe-water marks that used
+    // to share this tier are S-52 Standard navaids and moved to d = 6 (W1-01).
+    [ENC_VEC_LAYERS.LNDARE_ISLET],
     // d ≥ 4 — the written word: names, contour + navaid labels
     [
         ENC_VEC_LAYERS.DEPCNT_LABEL,
@@ -70,8 +113,10 @@ const FURNITURE_CUTS: string[][] = [
     ],
     // d ≥ 5 — plain contours (the SAFETY contour lives elsewhere) + leads
     [ENC_VEC_LAYERS.DEPCNT_LINE, ENC_VEC_LAYERS.RECTRC],
-    // d = 6 — the marks themselves; the chart is now bands, hazards, safety line
-    [ENC_VEC_LAYERS.BOYLAT, ENC_VEC_LAYERS.BCNLAT, ENC_VEC_LAYERS.BOYCAR, ENC_VEC_LAYERS.BCNCAR, ENC_VEC_LAYERS.LIGHTS],
+    // d = 6 — the aids to navigation, all together: lights and their sectors,
+    // laterals, cardinals, safe-water and special-purpose marks. The chart is
+    // now bands, hazards, the safety line and the isolated-danger marks.
+    S52_STANDARD_NAVAID_LAYERS.filter((id) => !SAFETY_FLOOR_MARKS.has(id)),
 ];
 
 /** Layers with ANOTHER owner (setEncChartDetail hides DEPCNT_LINE/LABEL

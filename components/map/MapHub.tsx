@@ -176,7 +176,7 @@ import {
 } from '../../services/enc/EncCellMetadata';
 import { evaluateTraceRelease, traceGeometryKey, traceRegistryScope } from '../../services/traceVerification';
 import { useEncChartInventory } from './useEncChartInventory';
-import { DETAIL_SCRUB_MAX, applyChartDetailLevel } from './encDetailScrubber';
+import { DETAIL_SCRUB_MAX, applyChartDetailLevel, browseDetailLevel } from './encDetailScrubber';
 import { ChartDepthControls, LiveTideAckModal } from './ChartDepthControls';
 import { useTideDepthMode } from './useTideDepthMode';
 import { useWeatherInspectPopup } from './useWeatherInspectPopup';
@@ -271,6 +271,7 @@ import { useFollowRouteClearOnPassage } from './mapHub/useFollowRouteClearOnPass
 import { useMarkHaloPulse } from './mapHub/useMarkHaloPulse';
 import { useOpenSeaMapRasterHide } from './mapHub/useOpenSeaMapRasterHide';
 import { useTracerChartFloors } from './mapHub/useTracerChartFloors';
+import { useEncAtOpen } from './mapHub/useEncAtOpen';
 import { useWindLightningBootExclusion } from './mapHub/useWindLightningBootExclusion';
 import { useLayerFrameSnap } from './mapHub/useLayerFrameSnap';
 import { createTracerMapLongPressHandler, createTracerMapTapHandler } from './mapHub/tracerMapGestures';
@@ -1807,9 +1808,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         browseTideStationsVisible,
         browseLightningVisible,
     } = useMapHubLayerVisibility({ mapRef, planningSurface });
-    // Browse charts are opt-in on every fresh OBS. The map-base menu keeps
+    // Browse charts are opt-in on every fresh OBS, unless Settings →
+    // Preferences → Chart → "Show ENC charts when Obs opens" is on (W1-01,
+    // off by default; only the Obs chart honours it). The map-base menu keeps
     // the switch reachable; the tracer still independently requires ENC.
-    const [encVisible, setEncVisible] = useState(false);
+    const { encVisible, toggleEnc } = useEncAtOpen(ownshipStartup, settings.obsEncOnOpen);
     // Chart-detail toggle. Default ON — the draft-aware depth shading IS the
     // product (flipped 2026-06-13; the 2026-05-17 "clean chart" preference
     // predates day-palette banding). When OFF: land + markers + hazards only.
@@ -2112,18 +2115,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // safety contour, every hazard layer and the isolated-danger
                 // marks are never cut at ANY level). So a floor here cannot
                 // take away anything that sinks you; it takes labels, badges,
-                // minor marks and — via the SCAMIN bias, ~0.9 virtual zoom per
-                // step — thins the sounding field smoothly rather than
-                // blinking it off.
+                // derived contours, islet dots and — via the SCAMIN bias, ~0.9
+                // virtual zoom per step — thins the sounding field smoothly
+                // rather than blinking it off.
                 //
-                // A FLOOR, not a new default, and only while BROWSING. The
-                // scrubber only renders with the plotting card
-                // (coordCaptureMode), so raising the stored value would leave
-                // the browsing chart's density behind a control you cannot see
-                // there. This leaves the slider alone: plotting gets exactly
-                // what the skipper set, browsing never goes below the floor.
-                const BROWSE_DECLUTTER_FLOOR = 3;
-                const effectiveDeclutter = coordCaptureMode ? declutter : Math.max(declutter, BROWSE_DECLUTTER_FLOOR);
+                // It no longer takes any aid to navigation (build 123, W1-01).
+                // The floor used to cut the light sectors and the special-
+                // purpose and safe-water marks too, so the browsing chart never
+                // showed them. Every IHO S-52 Standard display navaid the
+                // chart mounts (lights, their sectors, every buoy and beacon)
+                // now sits in the scrubber's last tier, which the floor cannot
+                // reach. The value lives with the tiers (BROWSE_DECLUTTER_FLOOR
+                // in encDetailScrubber) so the two cannot drift apart.
+                //
+                // Only while BROWSING, and browsing draws at the floor exactly.
+                // The scrubber only renders with the plotting card
+                // (coordCaptureMode), so the browsing chart's density must not
+                // hang on a control you cannot see there. That includes the
+                // slider's leftover value: it is session state nothing resets,
+                // and Obs and the Plan tab are this same map, so the old
+                // max(slider, floor) carried a plotting "Clean" (6) back to Obs
+                // and hid every light and buoy for the rest of the session
+                // (W1-01 review). Plotting still gets exactly what the skipper
+                // set; browseDetailLevel holds the rule.
+                const effectiveDeclutter = browseDetailLevel(coordCaptureMode, declutter);
                 if (
                     applyChartDetailLevel(map, effectiveDeclutter, {
                         encMasterOff: !encVisible,
@@ -3379,7 +3394,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     onChange={setMapBase}
                     encCellCount={encCellCount}
                     encVisible={encVisible}
-                    onToggleEnc={() => setEncVisible((on) => !on)}
+                    onToggleEnc={toggleEnc}
                 />
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
