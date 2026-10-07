@@ -230,6 +230,13 @@ export const ALL_LAYER_IDS: readonly string[] = [
     ENC_VEC_LAYERS.BCNSAW,
     ENC_VEC_LAYERS.BOYISD,
     ENC_VEC_LAYERS.BCNISD,
+    // Hazard NAMES sit BELOW the hazard marks (build 123, HM). They share the
+    // marks' source, so one collision graph (every chart map collides by
+    // source: tests/enc/encMapsCollideBySource.test.ts), and Mapbox places
+    // the higher layer first: on top, a wreck's name was placed before the
+    // marks and culled the wreck itself and any rock beside it. Here every
+    // mark is placed first and a name prints only where it has room.
+    ENC_VEC_LAYERS.POINTS_LABEL,
     ENC_VEC_LAYERS.OBSTRN,
     ENC_VEC_LAYERS.WRECKS,
     ENC_VEC_LAYERS.UWTROC,
@@ -237,8 +244,7 @@ export const ALL_LAYER_IDS: readonly string[] = [
     ENC_VEC_LAYERS.RECTRC_LABEL,
     ENC_VEC_LAYERS.VHF_BADGE, // watch-channel badges ride above the lead labels
     ENC_VEC_LAYERS.VHF_BADGE_VTS,
-    ENC_VEC_LAYERS.NAVAIDS_LABEL, // labels topmost
-    ENC_VEC_LAYERS.POINTS_LABEL,
+    ENC_VEC_LAYERS.NAVAIDS_LABEL, // navaid names topmost (their marks never yield: allow-overlap)
 ];
 
 // S-57 point-mark class taxonomy — the DOMAIN registry lives in

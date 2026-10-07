@@ -3,13 +3,14 @@
  * the follow-up from W1-01's S-52 review).
  *
  * The chart mounts its light flares, buoys, beacons and their name labels on
- * ONE source (enc-vec-navaids), and the map runs with crossSourceCollisions
- * off, so they all share one collision graph. Mapbox places symbol layers top
- * down: the name labels sit above the lights and are placed first. With the
- * LIGHTS layer at icon-allow-overlap false, a nearby mark's name could cull a
- * lit beacon's flare, and of two close minor lights one simply vanished. IHO
- * S-52, which every ECDIS draws to worldwide, never collision-culls an aid to
- * navigation: text may give way, the symbol may not.
+ * ONE source (enc-vec-navaids), and every chart map (the main chart and the
+ * auto-route trial map, tests/enc/encMapsCollideBySource.test.ts) runs with
+ * crossSourceCollisions off, so they all share one collision graph. Mapbox
+ * places symbol layers top down: the name labels sit above the lights and are
+ * placed first. With the LIGHTS layer at icon-allow-overlap false, a nearby
+ * mark's name could cull a lit beacon's flare, and of two close minor lights
+ * one simply vanished. IHO S-52, which every ECDIS draws to worldwide, never
+ * collision-culls an aid to navigation: text may give way, the symbol may not.
  *
  * The real mount runs on a recording stub map and every layer spec is read
  * back. Nothing here is a real chart.

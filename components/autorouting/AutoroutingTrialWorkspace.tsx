@@ -376,6 +376,15 @@ export function AutoroutingTrialWorkspace({
                 attributionControl: false,
                 projection: 'mercator',
                 maxTileCacheSize: 20,
+                // The main chart's collision settings (useMapInit). The ENC
+                // stack keeps a name from culling a wreck, rock or light by
+                // layer order WITHIN its own source; under Mapbox's default
+                // cross-source graph a buoy's name took a rock off this map
+                // (measured, build 123 HM review), and a lead name, VHF badge
+                // or waypoint number could too. Pinned by
+                // tests/enc/encMapsCollideBySource.test.ts.
+                crossSourceCollisions: false,
+                fadeDuration: 0,
                 // Waypoint numbers must render without another font-server
                 // request, including on an intermittent onboard connection.
                 localFontFamily: 'sans-serif',
