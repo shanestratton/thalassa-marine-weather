@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CrewMember, SharedRegister } from '../services/CrewService';
 import type { AuthorizedSharedVoyagesResult, PassageStatus } from '../services/PassagePlanService';
 import type { Voyage } from '../services/VoyageService';
@@ -367,6 +367,9 @@ const albatrossRows = () => [
 
 const renderPage = () => render(<CrewManagement onBack={vi.fn()} />);
 
+/** The crewing view's picker when it could not learn what the skipper shared. */
+const COULD_NOT_CHECK = "Couldn't check the skipper's shared passages yet";
+
 /** The skipper shares a planning, an active and a finished passage; another skipper and your own route mix in. */
 function shareSkipperPassages() {
     const planning = voyage('voyage-plan', 'skipper-1', 'Harbour to Far Island');
@@ -416,6 +419,10 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         binderSync.requestFullReconciliation.mockResolvedValue({ pushed: 0, pulled: 0, errors: [] });
         seedSnapshot([ALBATROSS]);
         seedView([VIEW]);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it("shows the skipper's boat, its people and roles, and none of your own crew", async () => {
@@ -667,6 +674,41 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         expect(within(card).getByText(/Example Harbour → Far Island/)).toBeInTheDocument();
     });
 
+    it('choosing the passage already selected checks its access again, rather than waiting forever', async () => {
+        // The picker hands the page the passage you tap even when it is the
+        // one already stored. The page then waits for a fresh access check;
+        // with no new id, nothing started one, and "Checking passage
+        // access…" stayed up with the cards gone.
+        const planning = voyage('voyage-plan', 'skipper-1', 'Harbour to Far Island');
+        mocks.activePassageId = planning.id;
+        mocks.getAuthorizedSharedVoyages.mockResolvedValue({
+            voyages: [{ voyage: planning, ownerEmail: 'skipper-1@example.com' }],
+            complete: true,
+        });
+        mocks.getPassageStatus.mockImplementation(async (id: string | null) =>
+            id === planning.id ? statusFor(planning.id, 'skipper-1') : noAccess,
+        );
+        renderPage();
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-selected', planning.id),
+        );
+        const checks = mocks.getPassageStatus.mock.calls.length;
+
+        fireEvent.click(screen.getByRole('combobox', { name: 'Saved Routes' }));
+        const option = (await screen.findAllByRole('option')).find((candidate) =>
+            (candidate.textContent ?? '').includes('Harbour to Far Island'),
+        );
+        expect(option).toBeDefined();
+        fireEvent.click(option!);
+
+        await waitFor(() => expect(mocks.getPassageStatus).toHaveBeenCalledTimes(checks + 1));
+        expect(mocks.getPassageStatus).toHaveBeenLastCalledWith(planning.id);
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-selected', planning.id),
+        );
+        expect(screen.queryByText('Checking passage access…')).not.toBeInTheDocument();
+    });
+
     it("'Show Kestrel' brings back today's page, and 'Back to Wandering Albatross' returns", async () => {
         renderPage();
         fireEvent.click(await screen.findByRole('button', { name: 'Show Kestrel' }));
@@ -731,6 +773,52 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         expect(mocks.leaveVessel).toHaveBeenCalledWith('row-global');
         expect(mocks.leaveVessel).toHaveBeenCalledWith('row-scoped');
         await waitFor(() => expect(binderSync.requestFullReconciliation).toHaveBeenCalledTimes(1));
+    });
+
+    it('memberships that answer after the 6 s never undo a Leave, and Undo restores the boat once', async () => {
+        // Accepting another skipper's invite reloads your memberships, and
+        // this time they answer late: at 6 s the page shows what it has. You
+        // leave Wandering Albatross. The late answer was read before that, so
+        // it must not bring the boat's rows back.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+        mocks.acceptInvite.mockResolvedValue(true);
+        mocks.getMyInvites
+            .mockResolvedValueOnce([
+                { ...membership('skipper-2', 'invite-2', 'deckhand', ['stores']), status: 'pending' },
+            ])
+            .mockResolvedValue([]);
+        renderPage();
+        await screen.findByRole('region', { name: 'Crewing on Wandering Albatross' });
+
+        let answerLate: () => void = () => undefined;
+        mocks.getMyMemberships.mockReturnValueOnce(
+            new Promise<CrewMember[]>((resolve) => {
+                answerLate = () => resolve(albatrossRows());
+            }),
+        );
+        fireEvent.click(await screen.findByRole('button', { name: 'Accept crew invite request' }));
+        await waitFor(() => expect(mocks.getMyMemberships).toHaveBeenCalledTimes(2));
+        await act(async () => {});
+        await act(async () => {
+            vi.advanceTimersByTime(6000);
+        });
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Leave Wandering Albatross' }));
+        expect(await screen.findByText('My Crew')).toBeInTheDocument();
+        expect(screen.getByText('Left Wandering Albatross')).toBeInTheDocument();
+
+        await act(async () => answerLate());
+        await act(async () => {});
+        expect(screen.queryByText('Shared with Me')).not.toBeInTheDocument();
+        expect(screen.queryByRole('region', { name: 'Crewing on Wandering Albatross' })).not.toBeInTheDocument();
+
+        // Undo brings the boat back once: leaving again leaves each row once.
+        fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Leave Wandering Albatross' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Let the undo lapse' }));
+        await waitFor(() => expect(mocks.leaveVessel).toHaveBeenCalledTimes(2));
+        expect(mocks.leaveVessel).toHaveBeenCalledWith('row-global');
+        expect(mocks.leaveVessel).toHaveBeenCalledWith('row-scoped');
     });
 
     it('a failed leave puts the boat back and says so', async () => {
@@ -825,12 +913,171 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         );
     });
 
-    it("settles the passage picker even when your memberships can't be read (a slow satellite link)", async () => {
-        mocks.getMyMemberships.mockRejectedValue(new Error('timed out'));
+    it("says it couldn't check, never that nothing is shared, when your memberships can't be read; Retry checks again", async () => {
+        // This settled on "<boat>'s skipper hasn't shared a passage with you
+        // right now" until 2026-10-07. That was a claim the app did not know:
+        // without your memberships it never asks for the shared passages at
+        // all. The picker still settles (no endless "Loading"), but on what is
+        // true, with a way to try again.
+        shareSkipperPassages();
+        mocks.getMyMemberships.mockRejectedValueOnce(new Error('timed out'));
+        renderPage();
+        expect(await screen.findByText(COULD_NOT_CHECK)).toBeInTheDocument();
+        expect(screen.queryByText(/hasn't shared/)).not.toBeInTheDocument();
+        expect(screen.queryByText('Loading saved routes…')).not.toBeInTheDocument();
+        // Nor "0 shared from …", which is the same claim in numbers.
+        expect(screen.queryByText(/shared from Wandering Albatross/)).not.toBeInTheDocument();
+        expect(mocks.getAuthorizedSharedVoyages).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'),
+        );
+        expect(screen.getByText('2 shared from Wandering Albatross')).toBeInTheDocument();
+        expect(screen.queryByText(COULD_NOT_CHECK)).not.toBeInTheDocument();
+    });
+
+    it("memberships that answer after loadData's 6 s still bring the skipper's passages; until then it couldn't check", async () => {
+        // A slow satellite link: your memberships answer at 6.5 s, after
+        // loadData's 6 s cap. The late answer used to be thrown away, so the
+        // shared passages were never asked for and the page said the skipper
+        // hadn't shared any.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+        shareSkipperPassages();
+        let answerMemberships: () => void = () => undefined;
+        mocks.getMyMemberships.mockReturnValue(
+            new Promise<CrewMember[]>((resolve) => {
+                answerMemberships = () => resolve(albatrossRows());
+            }),
+        );
+        renderPage();
+        await screen.findByRole('region', { name: 'Crewing on Wandering Albatross' });
+        await act(async () => {});
+        expect(screen.getByText('Loading saved routes…')).toBeInTheDocument();
+
+        // 6 s: loadData stops waiting, and says so honestly.
+        await act(async () => {
+            vi.advanceTimersByTime(6000);
+        });
+        expect(await screen.findByText(COULD_NOT_CHECK)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+        expect(screen.queryByText(/hasn't shared/)).not.toBeInTheDocument();
+        expect(mocks.getAuthorizedSharedVoyages).not.toHaveBeenCalled();
+
+        // 6.5 s: the memberships answer, and the page still listens.
+        await act(async () => {
+            vi.advanceTimersByTime(500);
+        });
+        await act(async () => answerMemberships());
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'),
+        );
+        expect(screen.getByText('2 shared from Wandering Albatross')).toBeInTheDocument();
+        expect(screen.queryByText(COULD_NOT_CHECK)).not.toBeInTheDocument();
+        expect(mocks.getMyMemberships).toHaveBeenCalledTimes(1);
+    });
+
+    it("a boat you have just accepted is never 'hasn't shared' before your memberships say what it shares", async () => {
+        // The first load knew you crewed nowhere, and that answer was whole.
+        // You accept Wandering Albatross's invite; the binders name the boat
+        // before your memberships reload. That earlier answer never asked
+        // about this boat, so it is no grounds for "nothing shared".
+        seedSnapshot([]);
+        mocks.getMyMemberships.mockResolvedValueOnce([]);
+        mocks.getMyInvites
+            .mockResolvedValueOnce([
+                { ...membership('skipper-1', 'invite-1', 'co-skipper', ['stores']), status: 'pending' },
+            ])
+            .mockResolvedValue([]);
+        mocks.acceptInvite.mockResolvedValue(true);
+        renderPage();
+        const accept = await screen.findByRole('button', { name: 'Accept crew invite request' });
+        await waitFor(() => expect(mocks.getAuthorizedSharedVoyages).toHaveBeenCalled());
+
+        shareSkipperPassages();
+        let answerMemberships: () => void = () => undefined;
+        mocks.getMyMemberships.mockReturnValueOnce(
+            new Promise<CrewMember[]>((resolve) => {
+                answerMemberships = () => resolve(albatrossRows());
+            }),
+        );
+        fireEvent.click(accept);
+        await waitFor(() => expect(mocks.getMyMemberships).toHaveBeenCalledTimes(2));
+        act(() => seedSnapshot([ALBATROSS]));
+        expect(await screen.findByRole('region', { name: 'Crewing on Wandering Albatross' })).toBeInTheDocument();
+        await act(async () => {});
+        expect(screen.queryByText(/hasn't shared/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/shared from Wandering Albatross/)).not.toBeInTheDocument();
+        expect(screen.getByText('Loading saved routes…')).toBeInTheDocument();
+
+        await act(async () => answerMemberships());
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'),
+        );
+        expect(screen.getByText('2 shared from Wandering Albatross')).toBeInTheDocument();
+    });
+
+    it('a reload that answers at once still asks again what the skipper shares', async () => {
+        // Every reload sets "not known" and then your memberships. When they
+        // answer at once React can draw both as one change, so "memberships
+        // loaded" never visibly flips; the lookup must run anyway, or the
+        // picker waits on "Loading saved routes…" for good.
+        mocks.acceptInvite.mockResolvedValue(true);
+        mocks.getMyInvites
+            .mockResolvedValueOnce([
+                { ...membership('skipper-2', 'invite-2', 'deckhand', ['stores']), status: 'pending' },
+            ])
+            .mockResolvedValue([]);
         renderPage();
         expect(
             await screen.findByText("Wandering Albatross's skipper hasn't shared a passage with you right now."),
         ).toBeInTheDocument();
+        const lookups = mocks.getAuthorizedSharedVoyages.mock.calls.length;
+        fireEvent.click(await screen.findByRole('button', { name: 'Accept crew invite request' }));
+        await waitFor(() => expect(mocks.getMyMemberships).toHaveBeenCalledTimes(2));
+        await waitFor(() => expect(mocks.getAuthorizedSharedVoyages.mock.calls.length).toBeGreaterThan(lookups));
+        expect(
+            await screen.findByText("Wandering Albatross's skipper hasn't shared a passage with you right now."),
+        ).toBeInTheDocument();
         expect(screen.queryByText('Loading saved routes…')).not.toBeInTheDocument();
+    });
+
+    it("if those memberships can't be read, it says it couldn't check, with Retry", async () => {
+        seedSnapshot([]);
+        mocks.getMyMemberships.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('timed out'));
+        mocks.getMyInvites
+            .mockResolvedValueOnce([
+                { ...membership('skipper-1', 'invite-1', 'co-skipper', ['stores']), status: 'pending' },
+            ])
+            .mockResolvedValue([]);
+        mocks.acceptInvite.mockResolvedValue(true);
+        renderPage();
+        const accept = await screen.findByRole('button', { name: 'Accept crew invite request' });
+        await waitFor(() => expect(mocks.getAuthorizedSharedVoyages).toHaveBeenCalled());
+
+        fireEvent.click(accept);
+        await waitFor(() => expect(mocks.getMyMemberships).toHaveBeenCalledTimes(2));
+        act(() => seedSnapshot([ALBATROSS]));
+        expect(await screen.findByText(COULD_NOT_CHECK)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+        expect(screen.queryByText(/hasn't shared/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/shared from Wandering Albatross/)).not.toBeInTheDocument();
+    });
+
+    it("an incomplete answer about the skipper's shared passages is not 'nothing shared' either", async () => {
+        // getAuthorizedSharedVoyages answers complete: false when a lookup
+        // failed (a dropped link part-way), which is not "none".
+        mocks.getAuthorizedSharedVoyages.mockResolvedValue({ voyages: [], complete: false });
+        renderPage();
+        expect(await screen.findByText(COULD_NOT_CHECK)).toBeInTheDocument();
+        expect(screen.queryByText(/hasn't shared/)).not.toBeInTheDocument();
+
+        // Retry, and this time the answer is whole: now "none" is known.
+        mocks.getAuthorizedSharedVoyages.mockResolvedValue({ voyages: [], complete: true });
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+        expect(
+            await screen.findByText("Wandering Albatross's skipper hasn't shared a passage with you right now."),
+        ).toBeInTheDocument();
+        expect(screen.queryByText(COULD_NOT_CHECK)).not.toBeInTheDocument();
     });
 });

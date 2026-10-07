@@ -9,6 +9,10 @@
  * 2026-10-06, the page's tier-1 look: an uppercase eyebrow, the picker as the
  * Plan page's Trip tile with the count as its subline, and glass cards for the
  * loading and empty states (with the count beneath them, as before).
+ *
+ * 2026-10-07: the empty state can carry one action (the crewing view's Retry
+ * when it couldn't check what the skipper shared), and a null count line is
+ * left out rather than claiming a number the page does not know.
  */
 import React from 'react';
 import { SavedRoutePicker, type SavedRoutePickerRow } from '../crew/SavedRoutePicker';
@@ -23,11 +27,16 @@ interface SavedRoutesSelectorProps {
     savedRoutesLoading: boolean;
     ownVoyageCount: number;
     sharedVoyageCount: number;
-    /** Replaces the "N yours · M shared" line (the crewing view: "2 shared from Petrel"). */
-    countLabel?: string;
+    /**
+     * Replaces the "N yours · M shared" line (the crewing view: "2 shared from
+     * Petrel"); null leaves the line out.
+     */
+    countLabel?: string | null;
     /** Replaces the empty state's title and hint. */
     emptyTitle?: string;
     emptyHint?: string;
+    /** One button under the empty state's hint (a 44 px target). */
+    emptyAction?: { label: string; onClick: () => void };
 }
 
 export const SavedRoutesSelector: React.FC<SavedRoutesSelectorProps> = ({
@@ -41,13 +50,17 @@ export const SavedRoutesSelector: React.FC<SavedRoutesSelectorProps> = ({
     countLabel,
     emptyTitle,
     emptyHint,
+    emptyAction,
 }) => {
-    const count = countLabel ?? (
-        <>
-            {ownVoyageCount} yours
-            {sharedVoyageCount > 0 ? ` · ${sharedVoyageCount} shared` : ''}
-        </>
-    );
+    const count =
+        countLabel === null
+            ? null
+            : (countLabel ?? (
+                  <>
+                      {ownVoyageCount} yours
+                      {sharedVoyageCount > 0 ? ` · ${sharedVoyageCount} shared` : ''}
+                  </>
+              ));
     return (
         <div className="mb-5">
             <h2 className="crew-eyebrow mb-2">Saved Routes</h2>
@@ -89,10 +102,15 @@ export const SavedRoutesSelector: React.FC<SavedRoutesSelectorProps> = ({
                                 <p className="crew-card-sub mt-0.5">
                                     {emptyHint ?? 'Plan a route from the Plan tab; saved routes will appear here.'}
                                 </p>
+                                {emptyAction && (
+                                    <button type="button" onClick={emptyAction.onClick} className="crew-quiet mt-2">
+                                        {emptyAction.label}
+                                    </button>
+                                )}
                             </div>
                         </div>
                     )}
-                    <p className="crew-muted mt-1.5 px-1 text-[11px] font-semibold">{count}</p>
+                    {count !== null && <p className="crew-muted mt-1.5 px-1 text-[11px] font-semibold">{count}</p>}
                 </>
             )}
         </div>
