@@ -22,6 +22,8 @@ const pairing = vi.hoisted(() => ({
 }));
 const ais = vi.hoisted(() => ({ update: vi.fn() }));
 const cloud = vi.hoisted(() => ({ row: null as null | { source: 'pi' | 'device'; reportedAt: number } }));
+/** Where the phone is (services/boatLink). These policy tests stand aboard; the placement tests live in InstrumentSourcePolicyPlacement.test.ts. */
+const placement = vi.hoisted(() => ({ where: 'aboard' as 'aboard' | 'ashore' | 'unknown', fallbackPermitted: true }));
 
 vi.mock('../services/NmeaListenerService', () => ({
     NmeaListenerService: {
@@ -34,6 +36,8 @@ vi.mock('../services/NmeaListenerService', () => ({
             return listener.autoStart();
         },
         stop: () => listener.stop(),
+        isEnabled: () => false,
+        setResumeGate: vi.fn(),
     },
     NMEA_LIVE_MAX_AGE_MS: 6_500,
     NMEA_USABLE_MAX_AGE_MS: 13_000,
@@ -48,7 +52,14 @@ vi.mock('../services/CloudTelemetryService', () => ({
     CloudTelemetryService: { readOnce: async () => cloud.row },
 }));
 vi.mock('../services/PiCacheService', () => ({
-    piCache: { getBaseUrl: () => 'https://192.168.1.50:3001', getStatus: () => ({ reachable: true }) },
+    piCache: {
+        getBaseUrl: () => 'https://192.168.1.50:3001',
+        getRemoteBaseUrl: () => null,
+        getStatus: () => ({ reachable: true }),
+    },
+}));
+vi.mock('../services/boatLink/BoatLinkService', () => ({
+    BoatLinkService: { evaluate: () => ({ where: placement.where, fallbackPermitted: placement.fallbackPermitted }) },
 }));
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),

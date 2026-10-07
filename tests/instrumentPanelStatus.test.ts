@@ -116,29 +116,69 @@ describe('missingInstruments', () => {
     });
 });
 
-describe('the Pi over the boat LAN is live, not remote', () => {
-    it('names the Pi and the boat network, with the age, and never the hostname', () => {
+describe('direct from the Pi is live — and says nothing about where the phone is', () => {
+    // Shane 2026-10-07: this said 'Live · Pi — on the boat network' whenever the
+    // Pi answered directly, which it does from 900 km away over a VPN that
+    // carries the boat's network. A lane names no place.
+    it('names the Pi, with the age, never the hostname, and never the boat network', () => {
         const d = diagnose({
             gatewayConfigured: false,
             connectionStatus: 'remote',
             remote: { source: 'pi', deviceLabel: 'calypso', via: 'lan', ageSeconds: 2.2 },
         });
         expect(d.state).toBe('live');
-        expect(d.label).toBe('Live · Pi');
-        expect(d.detail).toContain('boat network');
+        expect(d.label).toBe('Live');
+        expect(d.detail).toContain('directly from the Pi');
+        expect(d.detail).not.toContain('boat network');
         expect(d.detail).toContain('2 s ago');
         expect(d.detail).not.toContain('calypso');
     });
 
-    it('the cloud row stays Remote', () => {
+    it('the cloud row reads live in sky, through the cloud', () => {
         const d = diagnose({
             gatewayConfigured: false,
             connectionStatus: 'remote',
             remote: { source: 'pi', deviceLabel: 'calypso', via: 'cloud', ageSeconds: 7 },
         });
         expect(d.state).toBe('remote');
-        expect(d.label).toBe('Remote');
+        expect(d.label).toBe('Live');
         expect(d.detail).toContain('through the cloud');
+    });
+
+    it('with the boat link, the panel says what every screen says, whichever lane', () => {
+        for (const via of ['lan', 'cloud'] as const) {
+            const d = diagnose({
+                gatewayConfigured: true,
+                connectionStatus: 'remote',
+                remote: { source: 'pi', deviceLabel: 'calypso', via, ageSeconds: 3 },
+                link: {
+                    pill: { text: 'Away · Live', tone: 'sky' },
+                    line: 'Reading the boat through your Pi, over Tailscale.',
+                },
+            });
+            expect(d.label).toBe('Away · Live');
+            expect(d.state).toBe('remote');
+            expect(d.detail).toBe('Reading the boat through your Pi, over Tailscale. Reported 3 s ago.');
+        }
+        const aboard = diagnose({
+            gatewayConfigured: true,
+            connectionStatus: 'connected',
+            metrics: [live()],
+            link: { pill: { text: 'Aboard · Live', tone: 'green' }, line: null },
+        });
+        expect(aboard).toMatchObject({ state: 'live', label: 'Aboard · Live', detail: null });
+    });
+
+    it('a row the skipper’s phone published: the same words the Vessel row and the gateway page use', () => {
+        const d = diagnose({
+            gatewayConfigured: false,
+            connectionStatus: 'remote',
+            remote: { source: 'device', deviceLabel: 'fixture-phone', via: 'cloud', ageSeconds: 7 },
+            link: { pill: { text: 'Live', tone: 'green' }, line: 'Reading the boat through the skipper’s phone.' },
+        });
+        expect(d.label).toBe('Live');
+        expect(d.detail).toBe('Reading the boat through the skipper’s phone. Reported 7 s ago.');
+        expect(d.detail).not.toContain('fixture-phone');
     });
 });
 

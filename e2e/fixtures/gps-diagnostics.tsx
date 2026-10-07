@@ -16,7 +16,7 @@ function Fixture() {
     const sources = [
         presentGpsDiagnostics(
             {
-                label: 'Boat GPS · Pi LAN',
+                label: 'Boat GPS · Pi direct',
                 maxAgeMs: 13_000,
                 positionAt: scenario === 'missing' ? null : now,
                 satellites: metric(32),

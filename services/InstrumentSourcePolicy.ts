@@ -20,11 +20,24 @@
  *
  * A socket the skipper opens by hand on the NMEA page is theirs: the policy
  * never closes it and stops arbitrating until they disconnect.
+ *
+ * WHERE THE PHONE IS decides whether the fallback may open at all (Shane
+ * 2026-10-07, at home with the boat 900 km away over Tailscale: "gateway
+ * settings, sometime take over"). A silent Pi is no reason to take one of the
+ * gateway's client slots from ashore — over a VPN that carries the boat's
+ * network her gateway answers from anywhere, so the old rule opened it from
+ * the kitchen table, on the port the boat's own logger holds. The fallback
+ * opens only aboard, or with the place unknown and the phone on the gateway's
+ * own network with no VPN up (services/boatLink). Ashore, a fallback socket
+ * that is open closes, and a parked one stays parked.
  */
-import { NmeaListenerService } from './NmeaListenerService';
+import { NmeaListenerService, type SocketRestartKind } from './NmeaListenerService';
 import { NmeaStore } from './NmeaStore';
 import { PiTelemetryService } from './PiTelemetryService';
 import { getPairing } from './PiPairingService';
+import { BoatLinkService } from './boatLink/BoatLinkService';
+import { setSocketOwnerReader } from './boatLink/socketOwner';
+import type { SocketOwner } from './boatLink/boatLinkModel';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('InstrumentSource');
@@ -60,6 +73,8 @@ class InstrumentSourcePolicyClass {
     private cloudCheckInFlight = false;
     /** At least one cloud check has completed: decisions may use its answer while the next one runs. */
     private cloudAnswered = false;
+    /** The fallback was held back for this place last tick (logged once per change). */
+    private heldBackFor: string | null = null;
 
     /**
      * A page that needs the instruments up (AvNav, Smart Polars): the store,
@@ -84,6 +99,8 @@ class InstrumentSourcePolicyClass {
     boot(now = Date.now()): InstrumentBoot {
         if (this.booted) return this.booted;
         this.startedAt = now;
+        setSocketOwnerReader(() => this.socketOwner());
+        NmeaListenerService.setResumeGate((kind) => this.mayRestartSocket(kind));
 
         if (getPairing()) {
             // Pi first. The store starts here so the LAN lane has somewhere to
@@ -128,6 +145,33 @@ class InstrumentSourcePolicyClass {
         if (this.booted === 'direct') return 'direct';
         if (this.booted !== 'pi-first') return 'none';
         return this.socketOwned ? 'pi-silent-direct' : 'pi';
+    }
+
+    /** Who opened the gateway socket, for the words every screen shows (services/boatLink). */
+    socketOwner(): SocketOwner {
+        if (this.manual) return 'skipper';
+        if (this.socketOwned) return 'policy';
+        if (!NmeaListenerService.isEnabled()) return 'none';
+        // With a Pi paired nothing else opens a socket on its own; without
+        // one, the boot (or a page's ensureFeed) opened the boat's gateway.
+        return this.booted === 'pi-first' ? 'policy' : 'boot';
+    }
+
+    /**
+     * May the socket restart on its own — a PARKED one on app foreground or a
+     * network change, an enabled one's immediate retry on the same, or a rung
+     * of its reconnect ladder? With no Pi the gateway is the boat's only link,
+     * so yes, as before; the skipper's own socket, yes. The policy's fallback:
+     * a restart the app or the network triggered only where the fallback is
+     * allowed at all; a ladder rung anywhere but ashore (the socket was opened
+     * where it was allowed, and an unknown place must not strand it aboard —
+     * ashore, this tick closes it).
+     */
+    mayRestartSocket(kind: SocketRestartKind = 'parked'): boolean {
+        if (this.booted !== 'pi-first' || this.manual) return true;
+        if (!this.socketOwned) return false;
+        const link = BoatLinkService.evaluate();
+        return kind === 'rung' ? link.where !== 'ashore' : link.fallbackPermitted;
     }
 
     /**
@@ -187,10 +231,36 @@ class InstrumentSourcePolicyClass {
             if (this.cloudCheckInFlight && !this.cloudAnswered) return;
             if (now - this.lastSwitchAt < FLAP_GUARD_MS) return;
             if (!NmeaListenerService.getSavedConfig()) return;
+            const link = BoatLinkService.evaluate();
+            if (!link.fallbackPermitted) {
+                // Ashore, or nowhere this phone can show it is with her: a
+                // silent Pi is not a reason to take one of the gateway's slots.
+                if (this.heldBackFor !== link.where) {
+                    this.heldBackFor = link.where;
+                    log.warn(
+                        `the Pi has not answered for ${Math.round(silentForMs / 1000)} s, but this phone is ` +
+                            `${link.where === 'ashore' ? 'away from the boat' : 'not known to be aboard'} — the gateway stays shut`,
+                    );
+                }
+                return;
+            }
+            this.heldBackFor = null;
             log.warn(`the Pi has not answered for ${Math.round(silentForMs / 1000)} s — reading the gateway direct`);
             NmeaListenerService.autoStart();
             this.socketOwned = true;
             this.lastSwitchAt = now;
+            return;
+        }
+
+        // A fallback socket open while this phone has left the boat: close it
+        // now, flap guard or not — the boat's slot is not this phone's to hold
+        // from ashore, and a parked one must not reopen on the next foreground.
+        if (BoatLinkService.evaluate().where === 'ashore') {
+            log.warn('this phone is away from the boat — giving the gateway its slot back');
+            NmeaListenerService.stop();
+            this.socketOwned = false;
+            this.lastSwitchAt = now;
+            this.piBackSince = null;
             return;
         }
 
@@ -216,6 +286,9 @@ class InstrumentSourcePolicyClass {
         this.lastCloudCheckAt = 0;
         this.cloudCheckInFlight = false;
         this.cloudAnswered = false;
+        this.heldBackFor = null;
+        setSocketOwnerReader(null);
+        NmeaListenerService.setResumeGate(null);
     }
 }
 

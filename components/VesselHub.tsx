@@ -35,7 +35,8 @@ import { buildClaim, claimAgeLabel, getDeviceId, holdsClaim, type SkipperClaim }
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { piCache } from '../services/PiCacheService';
 import { useCloudTelemetry } from '../hooks/useCloudTelemetry';
-import { useNmeaConnectionStatus } from './nmea/useNmeaStore';
+import { useBoatLink } from '../hooks/useBoatLink';
+import type { Tone } from '../services/boatLink/boatLinkModel';
 import { refreshSkipperClaim } from '../stores/settingsStore';
 import { useWeather } from '../context/WeatherContext';
 import { useUIStore } from '../stores/uiStore';
@@ -111,6 +112,14 @@ const HUB_ICON = 'h-4 w-4 [stroke-width:1.5]';
 // when the menu became one box (Shane 2026-10-04); the Diary and Scuttlebutt
 // cards wear the same sky as a wash and an icon tile (vesselHub/JournalCard).
 const HUB_ACCENT = 'var(--day-ui-accent, #7dd3fc)';
+/** The NMEA Gateway row's value colour, by the boat link's tone (the same palette it always used). */
+const HUB_TONE_COLOUR: Record<Tone, string> = {
+    green: '#6ee7b7',
+    sky: '#7dd3fc',
+    amber: '#fcd34d',
+    red: '#fca5a5',
+    grey: '#94a3b8',
+};
 
 // Scroll-port edge fades (UX scorecard run 6, Y-vessel-hub-fades): the bottom
 // always fades so a cut-off row reads as "more below", and the top fades once
@@ -276,29 +285,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
     const rawVesselName = (ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined;
     const vesselName: string = rawVesselName || 'Your Vessel';
-    // How the boat is being read right now: her own gateway when aboard, the
-    // Pi's cloud snapshot when away (Shane 2026-09-07: "update the NMEA
-    // Gateway card since it will not need to directly connect any more").
-    const nmeaLink = useNmeaConnectionStatus();
-    // The row's state sits in the right-hand slot, as the Settings rows show
-    // theirs, and its subtitle stays a plain description (UX scorecard run 10,
-    // vessel-row-status-slot): the state used to ride inline after a dot
-    // ('Instruments & AIS · connect when aboard').
-    const gatewayStatus = nmeaLink.status === 'remote' ? 'Reading her via the Pi' : 'Instruments & AIS';
-    const gatewayState =
-        nmeaLink.status === 'connected'
-            ? 'Connected'
-            : nmeaLink.status === 'remote'
-              ? nmeaLink.remote?.via === 'lan'
-                  ? 'Aboard'
-                  : 'Away'
-              : 'Not connected';
-    const gatewayStatusColor =
-        nmeaLink.status === 'connected' || nmeaLink.remote?.via === 'lan'
-            ? '#6ee7b7'
-            : nmeaLink.status === 'remote'
-              ? '#7dd3fc'
-              : '#94a3b8';
+    // How the boat is being read right now, in the words every screen uses
+    // (services/boatLink): where this phone is, by position, and how fresh
+    // — 'Away · Live', 'Aboard · Live', '40 s old'. This row used to say
+    // 'Aboard' whenever the Pi answered directly, which it does from 900 km
+    // away over a VPN that carries the boat's network (Shane 2026-10-07).
+    // The state sits in the right-hand slot, as the Settings rows show
+    // theirs, and the subtitle names the route ('Through the Pi · Tailscale')
+    // or what the row is for (UX scorecard run 10, vessel-row-status-slot).
+    const boatLink = useBoatLink();
+    const gatewayStatus = boatLink.hub.status;
+    const gatewayState = boatLink.hub.value;
+    const gatewayStatusColor = HUB_TONE_COLOUR[boatLink.hub.tone];
     const vesselNameSet = !!rawVesselName && rawVesselName.trim().length > 0;
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
     const [position, setPosition] = useState<GpsPosition | null>(null);

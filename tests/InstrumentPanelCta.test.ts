@@ -37,7 +37,7 @@ describe('the Instrument Panel CTA', () => {
     });
 
     it('is the quiet button while Connect is the next step, so one primary shows', () => {
-        expect(nmea).toContain('const connectShowing = !isConnected && !isConnecting && !rolledUp;');
+        expect(nmea).toContain('const connectShowing = !showConnected && !showConnecting && !rolledUp;');
         expect(nmea).toMatch(/variant="primary"\s+onClick=\{handleConnect\}\s+aria-label="Connect NMEA"/);
     });
 

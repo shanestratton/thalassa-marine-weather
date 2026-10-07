@@ -24,6 +24,9 @@ export default defineConfig({
         'scuttlebutt-layout.spec.ts',
         'sail-plan-layout.spec.ts',
         'boat-network-layout.spec.ts',
+        // The NMEA Gateway page and the System status box say where this phone
+        // is and how the boat reaches it, on one line each (e2e/fixtures/gateway-state.tsx).
+        'gateway-state-layout.spec.ts',
         'music-layout.spec.ts',
         'autorouting-trial.spec.ts',
         'cruising-layers.spec.ts',
