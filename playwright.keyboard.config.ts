@@ -36,6 +36,10 @@ export default defineConfig({
         // An offline MBTiles chart opens and draws under the app's real CSP,
         // index.html's and vercel.json's (e2e/fixtures/mbtiles-csp.ts, W1-FX).
         'mbtiles-csp.spec.ts',
+        // A hazard's name never takes a wreck, rock or obstruction off the
+        // chart; the shallower of two touching rocks still wins
+        // (e2e/fixtures/enc-hazard-labels.tsx, build 123 HM).
+        'enc-hazard-labels.spec.ts',
         'shore-watch-layout.spec.ts',
         'passage-log-layout.spec.ts',
         'passage-recording-layout.spec.ts',
