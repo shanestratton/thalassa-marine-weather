@@ -2,14 +2,16 @@
  * MultiModelWeatherService — Fetch and compare forecasts from multiple weather models.
  *
  * For offshore passage planning, serious sailors check multiple models to assess
- * forecast confidence. This service queries GFS, ECMWF, and optionally ICON/ACCESS-G
- * for the same set of route waypoints, then produces a comparison matrix.
+ * forecast confidence. This service queries GFS, ECMWF, and optionally ICON/GEM/
+ * ACCESS-G for the same set of route waypoints, then produces a comparison matrix.
  *
  * Uses Open-Meteo's commercial multi-model endpoint which provides access to:
  *   - GFS (NOAA) — 0.25° global
- *   - ECMWF IFS — 0.1° global (best model)
- *   - ICON (DWD) — 0.125° Europe, 0.25° global
- *   - BOM ACCESS-G — 0.15° Australia (best for Oz waters)
+ *   - ECMWF IFS — 0.25° global (ecmwf_ifs025)
+ *   - ICON (DWD) — 0.125° global
+ *   - BOM ACCESS-G — 0.15° (~15 km) global. BOM suspended its open data in
+ *     June 2025 (all-null everywhere since), so it is only recommended once a
+ *     liveness probe sees real wind — see recommendModels().
  *   - GEM (CMC) — 0.25° global (Canadian model)
  *
  * Architecture:
@@ -20,6 +22,7 @@
  */
 
 import { fetchOpenMeteoPoints } from './openMeteoProxy';
+import { ensureModelLiveness, isModelLive } from './modelLiveness';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -53,8 +56,10 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
         id: 'ecmwf',
         name: 'ECMWF IFS',
         provider: 'ECMWF',
-        resolution: '0.1°',
-        description: 'European Centre — highest resolution global model',
+        // ecmwf_ifs025 is the 0.25° open-data grid; the 9 km run is a
+        // different id the proxy does not serve yet.
+        resolution: '0.25°',
+        description: 'European Centre global model',
         bestFor: 'Best overall accuracy, particularly for fronts and low pressure',
         openMeteoModel: 'ecmwf_ifs025',
     },
@@ -76,9 +81,10 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
         id: 'access_g',
         name: 'ACCESS-G',
         provider: 'BOM',
+        // A GLOBAL model at 0.15° (about 15 km), not an Australian one.
         resolution: '0.15°',
-        description: 'Bureau of Meteorology — best for Australian waters',
-        bestFor: 'Coral Sea, Tasman, Southern Ocean, Pacific Islands',
+        description: 'Australian Bureau of Meteorology global model (about 15 km)',
+        bestFor: 'A second opinion in the SW Pacific, Tasman and Southern Ocean',
         openMeteoModel: 'bom_access_global',
     },
     {
@@ -130,8 +136,8 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
  * (SELECTABLE_MODELS, services/weather/forecastModels.ts).
  *
  * Kept as a separate list rather than reordering AVAILABLE_MODELS because
- * that array feeds recommendModels() and the ensemble/routing paths, which
- * legitimately still want GFS, ACCESS-G and GEM.
+ * that array feeds recommendModels() and the routing comparison paths, which
+ * still want GFS and GEM (and ACCESS-G, once its feed is live again).
  *
  * GFS is absent ON PURPOSE and must not be added back: it was dropped from
  * the Glass on 2026-07-21 because `ncep_gfs025` carries no 10 m wind on the
@@ -262,6 +268,9 @@ export async function queryMultiModel(
     };
 }
 
+/** ACCESS-G's Open-Meteo id — the one model here whose feed is known to have died. */
+const ACCESS_G_MODEL = 'bom_access_global';
+
 /**
  * Detect the best models to query based on vessel position.
  * Returns optimal model set for the region.
@@ -269,9 +278,16 @@ export async function queryMultiModel(
 export function recommendModels(lat: number, lon: number): WeatherModelId[] {
     const models: WeatherModelId[] = ['gfs', 'ecmwf']; // Always include baseline pair
 
-    // Australian waters — add ACCESS-G
+    // SW Pacific / Tasman / Southern Ocean — BOM's global ACCESS-G as a third
+    // opinion, but only while it is actually publishing. BOM suspended the
+    // open data in June 2025 and every value has been null since, so a member
+    // added on trust was a dead row in every comparison. Today's cached probe
+    // of its 10 m wind decides; when there is no verdict yet a probe starts in
+    // the background (at this point — the model is global) and this call
+    // answers without it rather than waiting.
     if (lat < 0 && lat > -60 && lon > 100 && lon < 180) {
-        models.push('access_g');
+        if (isModelLive(ACCESS_G_MODEL)) models.push('access_g');
+        else ensureModelLiveness(ACCESS_G_MODEL, { lat, lon });
     }
 
     // European / Mediterranean / North Atlantic — add ICON

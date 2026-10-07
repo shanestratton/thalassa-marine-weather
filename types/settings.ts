@@ -193,16 +193,14 @@ export interface UserSettings {
     smartPolarsEnabled?: boolean;
     comfortParams?: ComfortParams;
     /**
-     * Use OSCAR near-real-time (NRT) ocean currents instead of monthly
-     * climatology in the isochrone routing engine. NRT data is 5 days
-     * behind real time but reflects actual current conditions (eddies,
-     * meanders, anomalies); climatology is always-available but is a
-     * monthly average.
+     * Settings → Preferences → "Daily ocean currents". Ocean currents are
+     * always live data (Copernicus Marine, else NOAA CoastWatch — there is no
+     * climatology in the app); this only sets how long a fetched field is
+     * reused: a day when ON, up to a week when OFF (OceanCurrentService
+     * `freshness`). The key keeps its old name so saved settings carry over.
      *
-     * Default OFF — climatology is good enough for most routes and
-     * is faster + more reliable. Turn ON for tight passages where
-     * day-to-day current variability matters (e.g. crossing the Gulf
-     * Stream timing-critical, exiting an Atlantic trade wind zone).
+     * Default OFF. Turn ON for passages where day-to-day current change
+     * matters (a timing-critical Gulf Stream or Agulhas crossing).
      */
     currentNrtEnabled?: boolean;
     /**

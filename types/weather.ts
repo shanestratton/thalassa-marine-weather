@@ -26,7 +26,7 @@ export type WeatherModel =
  * Controls which NWP model backs the Stormglass API when the vessel
  * crosses the 20 nm offshore boundary.
  *
- *  - `sg`   — Stormglass AI (blended ensemble, recommended)
+ *  - `sg`   — Stormglass AI (a blend of several models, recommended)
  *  - `ecmwf` — ECMWF IFS (European standard, 9 km global)
  *  - `gfs`   — GFS / NOAA (American standard, 25 km global)
  *  - `icon`  — DWD ICON (German global hi-res, 13 km)

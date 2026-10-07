@@ -75,7 +75,7 @@ import {
 } from '../../services/routeForecastSpread';
 import { FORECAST_TTL_MS } from '../../services/routeForecastSampler';
 import { fetchOpenMeteoPoints, type OpenMeteoParameters } from '../../services/weather/openMeteoProxy';
-import { SELECTABLE_MODELS } from '../../services/weather/forecastModels';
+import { SELECTABLE_MODELS, forecastDataCredit } from '../../services/weather/forecastModels';
 import { AVAILABLE_MODELS } from '../../services/weather/MultiModelWeatherService';
 import { vesselAirDraftMetres } from '../../services/units';
 import { circularMean } from '../../utils/circularStats';
@@ -761,15 +761,19 @@ export function formatWindGap(gapKt: number, speedUnit: string | undefined): { s
 }
 
 /**
- * The CC-BY-4.0 credit for the models with any wind here: who answered, in
- * picker order, each provider once; null when nobody did. Not
- * MODEL_ATTRIBUTION_LINE, which names providers that supplied nothing here.
+ * The licence credit for the models with any wind here: who answered, in
+ * picker order, each provider once, each under its own licence (the shared
+ * forecastDataCredit — UK Met Office data is CC BY-SA 4.0); null when nobody
+ * did. Not MODEL_ATTRIBUTION_LINE, which names providers that supplied nothing
+ * here. "Data via Open-Meteo:" leads, not "Forecast data: … via Open-Meteo":
+ * with both licences named, the longer form took a third line and pushed the
+ * card past one screen at 320 × 568 zoomed (browser-tests/model-check-layout).
  */
 export function creditLine(answered: readonly string[]): string | null {
-    const providers = [
-        ...new Set(SELECTABLE_MODELS.filter((m) => answered.includes(m.id)).map((m) => m.provider.trim())),
-    ].filter(Boolean);
-    return providers.length ? `Forecast data: ${providers.join(', ')} (CC-BY-4.0) via Open-Meteo` : null;
+    return forecastDataCredit(
+        SELECTABLE_MODELS.filter((m) => answered.includes(m.id)).map((m) => m.provider),
+        'Data via Open-Meteo',
+    );
 }
 
 /** ⓘ: how the check works, in five plain paragraphs, the direction threshold in her speed unit. */

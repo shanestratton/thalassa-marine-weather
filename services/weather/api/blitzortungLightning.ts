@@ -2,14 +2,22 @@
  * blitzortungLightning — Real-time global lightning strike feed via the
  * volunteer-operated Blitzortung.org detector network.
  *
+ * LICENCE — OFF BY DEFAULT (build 123). Blitzortung's terms do NOT permit
+ * this use: apps must be freely accessible, the data may not feed a storm
+ * warning, and apps "have to retrieve their data from a separate server and
+ * not from the servers of Blitzortung.org". This file used to claim their
+ * ToS "explicitly permits" native apps; it never did — a missing Origin
+ * header only got us past a server check. Nothing here connects unless
+ * isBlitzortungEnabled() (VITE_BLITZORTUNG_ENABLED, owned by
+ * config/public-beta-features.json) says so — see ./lightningLicence.ts.
+ *
  * Platform routing (2026-04-23)
  * ─────────────────────────────
  * NATIVE iOS (Capacitor): connects directly via the Swift `Lightning`
  *   plugin, which opens a URLSessionWebSocketTask to
- *   `wss://ws{1,5,6,7}.blitzortung.org:3000/`. Apple's native networking
- *   doesn't set an Origin header, so Blitzortung's server-side check
- *   treats us as a native app (which their ToS explicitly permits) and
- *   streams live strikes. No server relay needed.
+ *   `wss://ws{1,2,7,8}.blitzortung.org/`. Apple's native networking
+ *   doesn't set an Origin header, so the server streams to it — which
+ *   is a technical fact, not permission (see LICENCE above).
  *
  * WEB browser: disabled — WKWebView / Chrome / Safari all send an Origin
  *   header on WebSocket handshakes that Blitzortung rejects with code
@@ -18,12 +26,11 @@
  *   layer is a no-op on web and the UI toggle is hidden in non-native
  *   builds.
  *
- * Why Blitzortung (replacing Xweather, DECOMMISSIONED 2026-04-22):
- *   - Free for non-commercial use (email permission for commercial)
+ * Why Blitzortung was chosen (replacing Xweather, DECOMMISSIONED 2026-04-22):
  *   - No daily quota — Xweather exhausted its quota mid-afternoon
- *   - Strong Australian coverage (where most of our users are)
  *   - Real-time (sub-minute latency) vs Xweather's 15-min raster
  *   - Animated point markers > static raster tiles
+ *   Its non-commercial, no-warning, own-relay terms were not weighed then.
  *
  * Message flow:
  *   1. Swift LightningPlugin opens wss:// to one of 4 live-data servers
@@ -32,11 +39,13 @@
  *   4. Swift forwards raw strings to JS via Capacitor events
  *   5. JS decodes (LZW + JSON.parse) and fires listener callbacks
  *
- * License: attribution required — render "⚡ Blitzortung.org" chip
- * somewhere in the UI when this layer is active.
+ * Licence: the data is CC BY-SA 4.0 and "the source of the data must be
+ * clearly identified" — BlitzortungAttribution names Blitzortung.org and the
+ * licence whenever this layer is drawn.
  */
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { isBlitzortungEnabled } from './lightningLicence';
 
 import { createLogger } from '../../../utils/createLogger';
 
@@ -542,9 +551,11 @@ export function subscribeLightningStatus(cb: (snapshot: StatusSnapshot) => void)
  *   Last unsubscribe → closes it + clears retry state
  *
  * On web, this is a no-op — the listener is registered but no strikes
- * will ever fire because the WebSocket can't open (see header).
+ * will ever fire because the WebSocket can't open (see header). With the
+ * licence flag off (the default) it is a no-op everywhere: no socket opens.
  */
 export function subscribeLightningStrikes(cb: StrikeListener): () => void {
+    if (!isBlitzortungEnabled()) return () => {};
     state.listeners.add(cb);
     if (state.listeners.size === 1 && state.status === 'closed') {
         void connect();

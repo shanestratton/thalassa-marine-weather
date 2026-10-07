@@ -360,21 +360,23 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </Section>
             )}
 
-            {/* High-fidelity ocean currents, moved here from Vessel Profile,
-                which keeps a line that points here (UX scorecard run 9). Same
-                setting (currentNrtEnabled), same effect. Not behind the
-                weatherFull gate: the switch was never gated. */}
+            {/* Daily ocean currents, moved here from Vessel Profile, which
+                keeps a line that points here (UX scorecard run 9). Same setting
+                (currentNrtEnabled). It used to promise "recent currents instead
+                of monthly averages": there are no averages — both ways fetch
+                the same live chain (Copernicus Marine, else NOAA), and the
+                switch only sets how long a fetched field is reused (build 123).
+                Not behind the weatherFull gate: the switch was never gated. */}
             <Section title="Ocean currents">
                 <Row>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white font-medium">High-fidelity ocean currents</p>
+                        <p className="text-sm text-white font-medium">Daily ocean currents</p>
                         <p className="text-xs text-gray-400">
-                            Use recent ocean currents (about 5 days old) instead of monthly averages. Helps where a
-                            strong current decides your timing.
+                            Currents are always live data. On: fetched again each day. Off: reused for up to 7 days.
                         </p>
                     </div>
                     <Toggle
-                        label="High-fidelity ocean currents"
+                        label="Daily ocean currents"
                         checked={settings.currentNrtEnabled === true}
                         onChange={(on) => onSave({ currentNrtEnabled: on })}
                     />

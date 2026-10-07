@@ -146,6 +146,18 @@ describe('what it says', () => {
         expect(credit.textContent).toBe('Forecast data: UK Met Office');
         // It may wrap on a narrow phone. It may not be cut off with an ellipsis.
         expect(credit.className).not.toMatch(/truncate|line-clamp|text-ellipsis|overflow-hidden|whitespace-nowrap/);
+        // UK Met Office data is CC BY-SA 4.0: its licence is named, not folded
+        // into the CC BY link.
+        expect(screen.getByRole('link', { name: 'CC BY-SA 4.0' })).toHaveAttribute(
+            'href',
+            'https://creativecommons.org/licenses/by-sa/4.0/',
+        );
+    });
+
+    it('names no share-alike licence when no UK Met Office data is on screen', () => {
+        setup({ aheadMs: 6 * HOUR });
+        expect(screen.getByTestId('route-scrub-credit')).toHaveTextContent('Forecast data: ECMWF');
+        expect(screen.queryByRole('link', { name: 'CC BY-SA 4.0' })).toBeNull();
     });
 
     it('keeps all explanations below the slider off the compact chart face', () => {

@@ -1,9 +1,12 @@
 /**
- * ModelComparisonCard — Multi-Model Weather Ensemble Heat Map.
+ * ModelComparisonCard — multi-model comparison heat map.
  *
- * Premium visual comparison of weather model forecasts across route waypoints.
- * Uses colour-coded heat map rows per model with a consensus band,
- * sparkline-style visualisations, and mobile-first responsive layout.
+ * Visual comparison of deterministic model forecasts across route waypoints
+ * (not an ensemble: one run per model). Uses colour-coded heat map rows per
+ * model with a consensus band, sparkline-style visualisations, and
+ * mobile-first responsive layout. A model that answered with no wind at all
+ * (ACCESS-G since BOM suspended its open data in June 2025) gets no row: one
+ * line names it instead.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -156,6 +159,22 @@ const DirArrow: React.FC<{ deg: number; size?: number }> = ({ deg, size = 14 }) 
 export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }) => {
     const [activeWp, setActiveWp] = useState(0);
 
+    // A model with no wind value at any waypoint sent nothing: no pill, no
+    // row, no place in the count.
+    const { liveModels, silentModels } = useMemo(() => {
+        const answered = new Set<string>();
+        for (const wp of data.waypoints) {
+            for (const f of wp.forecasts) {
+                if (f.points.some((p) => p.windSpeed != null)) answered.add(f.model.id);
+            }
+        }
+        return {
+            liveModels: data.models.filter((m) => answered.has(m.id)),
+            silentModels: data.models.filter((m) => !answered.has(m.id)),
+        };
+    }, [data]);
+    const liveIds = new Set(liveModels.map((m) => m.id));
+
     // Recalculate confidence with relaxed thresholds
     const overallConfidence = useMemo(() => {
         const confidences = data.waypoints.map((wp) => {
@@ -212,14 +231,14 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     <div className="text-xs text-gray-400 mt-0.5">{style.desc}</div>
                 </div>
                 <div className="text-right shrink-0">
-                    <div className="text-xs text-gray-400 uppercase tracking-widest font-bold">Ensemble</div>
-                    <div className="text-xs text-white font-bold">{data.models.length} models</div>
+                    <div className="text-xs text-gray-400 uppercase tracking-widest font-bold">Model comparison</div>
+                    <div className="text-xs text-white font-bold">{liveModels.length} models</div>
                 </div>
             </div>
 
             {/* ── Model Legend (compact pills) ── */}
             <div className="flex flex-wrap gap-1.5">
-                {data.models.map((m) => {
+                {liveModels.map((m) => {
                     const pal = MODEL_PALETTE[m.name] || DEFAULT_PAL;
                     return (
                         <div
@@ -233,6 +252,11 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     );
                 })}
             </div>
+            {silentModels.length > 0 && (
+                <p className="text-xs text-gray-400">
+                    No data from {silentModels.map((m) => m.name).join(', ')} — left out.
+                </p>
+            )}
 
             {/* ── Waypoint Selector (scrollable tabs) ── */}
             {data.waypoints.length > 1 && (
@@ -349,6 +373,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     {/* ── HEAT MAP ROWS — one per model ── */}
                     <div className="divide-y divide-white/4">
                         {wpData.forecasts.map((f, fIdx) => {
+                            if (!liveIds.has(f.model.id)) return null;
                             const pal = MODEL_PALETTE[f.model.name] || DEFAULT_PAL;
                             const sample24 = f.points[Math.min(24, f.points.length - 1)];
                             if (!sample24) return null;
@@ -479,8 +504,10 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
 
             {/* Query metadata */}
             <div className="text-xs text-gray-500 text-right font-mono">
-                {data.models.length} models queried in {data.elapsed_ms}ms •{' '}
-                {new Date(data.queryTime).toLocaleTimeString()}
+                {silentModels.length > 0
+                    ? `${liveModels.length} of ${data.models.length} models answered`
+                    : `${data.models.length} models queried`}{' '}
+                in {data.elapsed_ms}ms • {new Date(data.queryTime).toLocaleTimeString()}
             </div>
         </div>
     );

@@ -10,6 +10,7 @@ import type { RadialHelmMenuProps } from './RadialHelmMenu';
 import type { useWeatherLayers } from './useWeatherLayers';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { isMpaEnabled } from './useMpaLayer';
+import { isBlitzortungEnabled } from '../../services/weather/api/lightningLicence';
 
 export interface BuildTacticalStateDeps {
     aisVisible: boolean;
@@ -159,20 +160,27 @@ export function buildTacticalState(deps: BuildTacticalStateDeps): NonNullable<Ra
                 weather.setActiveLayer('none');
             }
         },
-        lightningVisible,
-        onToggleLightning: () => {
-            const next = !lightningVisible;
-            // The other half of the wind/lightning exclusion
-            // wired on toggleLayer above. 'velocity' is a
-            // legacy alias for the same overlay, so both
-            // keys have to be cleared or the particles
-            // survive under a different name.
-            if (next) {
-                if (weather.activeLayers.has('wind')) weather.toggleLayer('wind');
-                if (weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
-            }
-            setLightningVisible(next);
-        },
+        // Lightning is offered only behind the Blitzortung licence flag (off
+        // by default since build 123): like protected areas below, no flag,
+        // no menu item — never a toggle for a layer that cannot draw.
+        ...(isBlitzortungEnabled()
+            ? {
+                  lightningVisible,
+                  onToggleLightning: () => {
+                      const next = !lightningVisible;
+                      // The other half of the wind/lightning exclusion
+                      // wired on toggleLayer above. 'velocity' is a
+                      // legacy alias for the same overlay, so both
+                      // keys have to be cleared or the particles
+                      // survive under a different name.
+                      if (next) {
+                          if (weather.activeLayers.has('wind')) weather.toggleLayer('wind');
+                          if (weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
+                      }
+                      setLightningVisible(next);
+                  },
+              }
+            : {}),
         weatherInspectMode,
         onToggleWeatherInspect: () => {
             setWeatherInspectMode((v) => {
