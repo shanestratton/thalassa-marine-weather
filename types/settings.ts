@@ -224,6 +224,19 @@ export interface UserSettings {
      */
     obsChartBase?: ObsChartBase;
     /**
+     * Settings → Preferences → Chart: "Show ENC charts when Obs opens"
+     * (build 123, W1-01). Off by default, so browse charts keep starting off
+     * on every fresh Obs (Release 119: each ENC merge allocates about 25 MB,
+     * and the 2026-09-04 jetsam came with cells merging). Only exactly `true`
+     * turns them on, and only on the Obs chart, never a picker or planner map.
+     * It is read live, not once at open: an Obs that is already open follows
+     * a change (from this phone's Preferences or an account sync from another
+     * device) until the skipper uses the map-base menu's ENC row, which then
+     * wins for the session. Pinned in tests/EncMasterSwitch.test.tsx;
+     * components/map/mapHub/useEncAtOpen.ts reads it.
+     */
+    obsEncOnOpen?: boolean;
+    /**
      * Settings → Preferences → Routing: "Auto route (trial)" (2026-10-01).
      * Auto routing and Plan Your Day run Thalassa's own router only while
      * this is on (services/autorouteTrialSwitch.ts). Off by default: Pro is
