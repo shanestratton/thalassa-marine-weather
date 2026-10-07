@@ -79,7 +79,8 @@ export const CrewFloatPlanCard: React.FC<CrewFloatPlanCardProps> = ({
 }) => {
     const vessel = view?.vessel ?? null;
     const skipperName = view?.manifest.find((entry) => entry.isSkipper)?.name || 'The skipper';
-    // The skipper's profile roster first, then the app crew not on it, you included (FloatPlanSheet's merge).
+    // The skipper's profile roster and the app crew not on it, you included,
+    // in rank order: the one sortByCrewRank FloatPlanSheet lists them with.
     const people = crewVesselPeople(view, self);
     const gaps = [!self?.name && 'name', !self?.phone && 'mobile', !self?.age && 'age'].filter((gap): gap is string =>
         Boolean(gap),

@@ -177,7 +177,7 @@ describe('FloatPlanSheet crew prefill', () => {
         expect(peopleAboard()).toBe('5');
     });
 
-    it('the vessel profile’s own people come first — names, ranks and ages — then accepted crew, each once', async () => {
+    it('the vessel profile’s own people and accepted crew, each once, in rank order — names, ranks and ages', async () => {
         // Shane 2026-09-09: the rows under "Crew Aboard" "auto xfer across to the float plan".
         mocks.vessel.crewCount = 2;
         mocks.vessel.crewRoster = [
@@ -190,18 +190,21 @@ describe('FloatPlanSheet crew prefill', () => {
         await waitFor(() => expect(screen.getByTestId('float-plan-invite-chip')).toBeInTheDocument());
         // Shane 2026-10-04: the POB "needs to include the invitee as well as the
         // others on board". The skipper is his own Skipper row, not a second person.
+        // Shane 2026-10-07: "order the punters on board by their rank" — the
+        // profile's Guest lists after the crew list's First mate and Navigator.
         await waitFor(() =>
             expect(nameInputs().map((input) => input.value)).toEqual([
                 'Ana Reyes',
-                'Aunt Beryl',
                 'Marta "M" Kowalski',
                 'Lee Chen',
+                'Aunt Beryl',
             ]),
         );
         expect((screen.getByLabelText('Person 1 role') as HTMLSelectElement).value).toBe('Skipper');
-        expect((screen.getByLabelText('Person 2 role') as HTMLSelectElement).value).toBe('Guest');
-        expect((screen.getByLabelText('Person 2 age') as HTMLInputElement).value).toBe('71');
-        expect((screen.getByLabelText('Person 3 role') as HTMLSelectElement).value).toBe('First mate');
+        expect((screen.getByLabelText('Person 2 role') as HTMLSelectElement).value).toBe('First mate');
+        expect((screen.getByLabelText('Person 3 role') as HTMLSelectElement).value).toBe('Navigator');
+        expect((screen.getByLabelText('Person 4 role') as HTMLSelectElement).value).toBe('Guest');
+        expect((screen.getByLabelText('Person 4 age') as HTMLInputElement).value).toBe('71');
         expect(peopleAboard()).toBe('4');
         expect(screen.queryByText(/The roster lists/)).not.toBeInTheDocument();
         // Who joined from the crew list is said, so an over-count is never silent.
@@ -214,7 +217,7 @@ describe('FloatPlanSheet crew prefill', () => {
         expect(screen.queryByTestId('float-plan-roster-refresh')).toBeNull();
 
         // Lee is not coming this time: the line and the count follow.
-        fireEvent.click(screen.getByRole('button', { name: 'Remove person 4' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Remove person 3' }));
         expect(peopleAboard()).toBe('3');
         expect(
             screen.getByText('Added from your crew: Marta "M" Kowalski — remove anyone not aboard.'),
@@ -320,16 +323,20 @@ describe('FloatPlanSheet crew prefill', () => {
         render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
         await waitFor(() => expect(nameInputs()).toHaveLength(3));
 
-        expect(nameInputs().map((input) => input.value)).toEqual(['Ana Reyes', 'Priya Nair', 'Tom Okafor']);
+        // In rank order (Shane 2026-10-07): the co-skipper invitee is second.
+        expect(nameInputs().map((input) => input.value)).toEqual(['Ana Reyes', 'Tom Okafor', 'Priya Nair']);
         expect((screen.getByLabelText('Person 1 role') as HTMLSelectElement).value).toBe('Skipper');
-        expect((screen.getByLabelText('Person 2 role') as HTMLSelectElement).value).toBe('First mate');
-        expect((screen.getByLabelText('Person 3 role') as HTMLSelectElement).value).toBe('Co-skipper');
-        expect((screen.getByLabelText('Person 3 age') as HTMLInputElement).value).toBe('41');
+        expect((screen.getByLabelText('Person 2 role') as HTMLSelectElement).value).toBe('Co-skipper');
+        expect((screen.getByLabelText('Person 2 age') as HTMLInputElement).value).toBe('41');
+        expect((screen.getByLabelText('Person 3 role') as HTMLSelectElement).value).toBe('First mate');
         expect(peopleAboard()).toBe('3');
         expect(screen.queryByText(/The roster lists/)).toBeNull();
         expect(screen.getByText('Added from your crew: Tom Okafor — remove anyone not aboard.')).toBeInTheDocument();
-        // The plan itself names all three with their roles.
-        expect(document.body.textContent).toContain('Tom Okafor — Co-skipper, 41');
+        // The plan itself names all three with their roles, in the same order.
+        const text = document.body.textContent ?? '';
+        expect(text).toContain('1. Ana Reyes — Skipper, 52');
+        expect(text).toContain('2. Tom Okafor — Co-skipper, 41');
+        expect(text).toContain('3. Priya Nair — First mate, 38');
     });
 
     describe('crew invited for another passage are named with it (review 2026-10-06)', () => {
@@ -439,15 +446,15 @@ describe('FloatPlanSheet crew prefill', () => {
         expect((screen.getByLabelText('Person 4 role') as HTMLSelectElement).value).toBe('Guest');
     });
 
-    it('leaves a saved plan roster alone and does not ask the crew list', async () => {
+    it('leaves a saved plan roster alone, in rank order, and does not ask the crew list', async () => {
         load.mockResolvedValue({ aboard: [SKIPPER, MARTA], invited: [] });
         render(
             <FloatPlanSheet
                 preset={{
                     ...PRESET,
                     personsRoster: [
-                        { name: 'Shane Stratton', role: 'Skipper', age: 52 },
                         { name: 'Bec', role: 'Crew', medical: 'seasick' },
+                        { name: 'Shane Stratton', role: 'Skipper', age: 52 },
                     ],
                 }}
                 onClose={vi.fn()}
@@ -543,12 +550,14 @@ describe('FloatPlanSheet crew prefill', () => {
         });
         fireEvent.click(screen.getByTestId('float-plan-roster-refresh'));
 
+        // Back in rank order: Aunt Beryl has no role yet, so she ranks with the
+        // crew, above Tom the guest.
         await waitFor(() =>
             expect(nameInputs().map((input) => input.value)).toEqual([
                 'Capt. Shane Stratton',
                 'Lee Chen',
-                'Tom',
                 'Aunt Beryl',
+                'Tom',
             ]),
         );
         expect(load).toHaveBeenCalledTimes(2);
@@ -571,6 +580,180 @@ describe('FloatPlanSheet crew prefill', () => {
         expect((screen.getByLabelText('Person 1 age') as HTMLInputElement).value).toBe('62');
         expect((screen.getByLabelText('Person 2 medical notes') as HTMLInputElement).value).toBe('on warfarin');
         expect((screen.getByLabelText('Person 3 medical notes') as HTMLInputElement).value).toBe('');
+    });
+
+    describe('in rank order (Shane 2026-10-07: "order the punters on board by their rank")', () => {
+        const PAT: FloatPlanRosterSeed = { name: 'Pat Example', role: 'Guest', source: 'crew', crewUserId: 'u-pat' };
+
+        function roles(): string[] {
+            return (screen.queryAllByLabelText(/^Person \d+ role$/) as HTMLSelectElement[]).map(
+                (select) => select.value,
+            );
+        }
+
+        it('a punter invited first still lists after the First mate, on the sheet and in the plan', async () => {
+            // The crew list arrives oldest invite first: Pat accepted before Marta and Lee.
+            await renderSeeded({ aboard: [SKIPPER, PAT, MARTA, LEE], invited: [] });
+
+            expect(nameInputs().map((input) => input.value)).toEqual([
+                'Capt. Shane Stratton',
+                'Marta "M" Kowalski',
+                'Lee Chen',
+                'Pat Example',
+            ]);
+            expect(roles()).toEqual(['Skipper', 'First mate', 'Navigator', 'Guest']);
+            const text = document.body.textContent ?? '';
+            const at = [
+                'Capt. Shane Stratton — Skipper',
+                'Kowalski — First mate',
+                'Lee Chen — Navigator',
+                'Pat Example — Guest',
+            ].map((line) => text.indexOf(line));
+            expect(at.every((index) => index >= 0)).toBe(true);
+            expect(at).toEqual([...at].sort((a, b) => a - b));
+        });
+
+        it('a new role moves the person to their rank, carrying everything typed against them', async () => {
+            await renderSeeded();
+            fireEvent.change(screen.getByLabelText('Person 3 medical notes'), { target: { value: 'asthma' } });
+
+            // Lee steps up to co-skipper for this passage.
+            fireEvent.change(screen.getByLabelText('Person 3 role'), { target: { value: 'Co-skipper' } });
+
+            await waitFor(() =>
+                expect(nameInputs().map((input) => input.value)).toEqual([
+                    'Capt. Shane Stratton',
+                    'Lee Chen',
+                    'Marta "M" Kowalski',
+                ]),
+            );
+            expect(roles()).toEqual(['Skipper', 'Co-skipper', 'First mate']);
+            expect((screen.getByLabelText('Person 2 medical notes') as HTMLInputElement).value).toBe('asthma');
+            expect((screen.getByLabelText('Person 3 medical notes') as HTMLInputElement).value).toBe('');
+        });
+
+        it('an invite chip adds the person at their rank', async () => {
+            const KIM: FloatPlanRosterSeed = { name: 'Kim', role: 'Navigator', source: 'invite', crewUserId: 'u-kim' };
+            await renderSeeded({ aboard: [SKIPPER, MARTA, { ...LEE, role: 'Deckhand' }], invited: [KIM] });
+
+            fireEvent.click(screen.getByTestId('float-plan-invite-chip'));
+
+            expect(nameInputs().map((input) => input.value)).toEqual([
+                'Capt. Shane Stratton',
+                'Marta "M" Kowalski',
+                'Kim',
+                'Lee Chen',
+            ]);
+        });
+
+        it('a name being typed stays put while the skipper is in its row, and settles at its rank when he leaves it', async () => {
+            await renderSeeded();
+            fireEvent.click(screen.getByTestId('float-plan-invite-chip')); // Tom, a guest
+            fireEvent.click(screen.getByRole('button', { name: '+ Add person' }));
+            fireEvent.change(nameInputs()[4], { target: { value: 'Aaron Diaz' } });
+            fireEvent.change(screen.getByLabelText('Person 5 medical notes'), { target: { value: 'nut allergy' } });
+
+            // Typing, then moving to another field of the same row: still the
+            // last row, under the skipper's thumb.
+            fireEvent.blur(nameInputs()[4], { relatedTarget: screen.getByLabelText('Person 5 medical notes') });
+            expect(nameInputs().map((input) => input.value)).toEqual([
+                'Capt. Shane Stratton',
+                'Marta "M" Kowalski',
+                'Lee Chen',
+                'Tom',
+                'Aaron Diaz',
+            ]);
+            // The plan below ranks it already: no role yet is crew, above Tom the guest.
+            const text = document.body.textContent ?? '';
+            expect(text.indexOf('Aaron Diaz')).toBeGreaterThan(-1);
+            expect(text.indexOf('Aaron Diaz')).toBeLessThan(text.indexOf('Tom — Guest'));
+
+            // Leaving the row with the role still "Role…": it settles where the
+            // plan already lists it, carrying what was typed against it.
+            fireEvent.blur(screen.getByLabelText('Person 5 medical notes'));
+            await waitFor(() =>
+                expect(nameInputs().map((input) => input.value)).toEqual([
+                    'Capt. Shane Stratton',
+                    'Marta "M" Kowalski',
+                    'Lee Chen',
+                    'Aaron Diaz',
+                    'Tom',
+                ]),
+            );
+            expect(roles()).toEqual(['Skipper', 'First mate', 'Navigator', '', 'Guest']);
+            expect((screen.getByLabelText('Person 4 medical notes') as HTMLInputElement).value).toBe('nut allergy');
+            expect((screen.getByLabelText('Person 5 medical notes') as HTMLInputElement).value).toBe('');
+
+            // A role moves a row at once.
+            fireEvent.click(screen.getByRole('button', { name: '+ Add person' }));
+            fireEvent.change(nameInputs()[5], { target: { value: 'Bea Moss' } });
+            fireEvent.change(screen.getByLabelText('Person 6 role'), { target: { value: 'Deckhand' } });
+            await waitFor(() =>
+                expect(nameInputs().map((input) => input.value)).toEqual([
+                    'Capt. Shane Stratton',
+                    'Marta "M" Kowalski',
+                    'Lee Chen',
+                    'Aaron Diaz',
+                    'Bea Moss',
+                    'Tom',
+                ]),
+            );
+
+            // A name corrected inside its rank settles by name once he leaves it.
+            fireEvent.change(screen.getByLabelText('Person 4 name'), { target: { value: 'Zane Diaz' } });
+            expect(nameInputs()[3].value).toBe('Zane Diaz');
+            fireEvent.blur(screen.getByLabelText('Person 4 name'));
+            await waitFor(() =>
+                expect(nameInputs().map((input) => input.value)).toEqual([
+                    'Capt. Shane Stratton',
+                    'Marta "M" Kowalski',
+                    'Lee Chen',
+                    'Bea Moss',
+                    'Zane Diaz',
+                    'Tom',
+                ]),
+            );
+            expect((screen.getByLabelText('Person 5 medical notes') as HTMLInputElement).value).toBe('nut allergy');
+            // The sheet and the plan now agree, line for line.
+            const plan = document.body.textContent ?? '';
+            const at = ['Bea Moss — Deckhand', 'Zane Diaz', 'Tom — Guest'].map((line) => plan.lastIndexOf(line));
+            expect(at.every((index) => index >= 0)).toBe(true);
+            expect(at).toEqual([...at].sort((a, b) => a - b));
+        });
+
+        it('stepping through a profile row without changing it still lets the crew list join', async () => {
+            // Leaving a row re-ranks it; when nobody moves, the roster must stay
+            // the very same list, or the crew merge reads "already edited".
+            mocks.vessel.crewCount = 2;
+            mocks.vessel.crewRoster = [
+                { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
+                { name: 'Aunt Beryl', age: 71, rank: 'Guest' },
+            ];
+            let resolve: (value: { aboard: FloatPlanRosterSeed[]; invited: FloatPlanRosterSeed[] }) => void = () => {};
+            load.mockReturnValue(
+                new Promise((r) => {
+                    resolve = r;
+                }),
+            );
+            render(<FloatPlanSheet preset={PRESET} onClose={vi.fn()} />);
+            await waitFor(() => expect(nameInputs().map((input) => input.value)).toEqual(['Ana Reyes', 'Aunt Beryl']));
+
+            fireEvent.focus(nameInputs()[1]);
+            fireEvent.blur(nameInputs()[1]);
+
+            await act(async () => {
+                resolve({ aboard: [SKIPPER, MARTA, LEE], invited: [] });
+                await Promise.resolve();
+            });
+            await waitFor(() =>
+                expect(nameInputs().map((input) => input.value)).toEqual([
+                    'Ana Reyes',
+                    'Marta "M" Kowalski',
+                    'Lee Chen',
+                    'Aunt Beryl',
+                ]),
+            );
+        });
     });
 
     it('hides the refresh button for a signed-out punter', async () => {

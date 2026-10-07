@@ -36,6 +36,7 @@ import {
     mergeAboard,
     type FloatPlanSelfDetails,
 } from './crew/floatPlanPeople';
+import { sortByCrewRank } from './crew/crewRank';
 import { formatPlannedRouteLabel, formatStoredPlannedRouteName } from './shiplog/plannedRouteNaming';
 
 const log = createLogger('floatPlanCrew');
@@ -43,7 +44,9 @@ const log = createLogger('floatPlanCrew');
 /**
  * Roles a rescue coordinator would recognise, in the order they matter to one.
  * Shared by the Float Plan's roster and the vessel profile's crew rows so the
- * two agree (2026-09-09).
+ * two agree (2026-09-09). Listed in rank order; the order people aboard are
+ * listed in is services/crew/crewRank.ts, which reads each of these (and
+ * whatever a skipper types instead) at its rank.
  */
 export const FLOAT_PLAN_ROLES = [
     'Skipper',
@@ -467,24 +470,28 @@ export function rosterSeedsFromVesselProfile(
 }
 
 /**
- * The vessel profile's people, then the accepted crew not already among them
+ * The vessel profile's people and the accepted crew not already among them
  * (Shane 2026-10-04: the POB "needs to include the invitee as well as the
- * others on board"), each once, an invitee with their own name, phone and age.
+ * others on board"), each once, an invitee with their own name, phone and age,
+ * in rank order (Shane 2026-10-07) — the same sortByCrewRank the crew's own
+ * view of the boat uses.
  */
 export function mergeProfileWithCrew(
     profile: ReturnType<typeof rosterSeedsFromVesselProfile>,
     aboard: FloatPlanRosterSeed[],
 ) {
-    return mergeAboard(
-        profile,
-        aboard.map((seed) => ({
-            appName: seed.shared?.appName ?? seed.name,
-            ownName: seed.shared?.name,
-            role: seed.role,
-            isSkipper: seed.source === 'skipper',
-            crewUserId: seed.crewUserId,
-            age: seed.shared?.age,
-            phone: seed.shared?.phone,
-        })),
+    return sortByCrewRank(
+        mergeAboard(
+            profile,
+            aboard.map((seed) => ({
+                appName: seed.shared?.appName ?? seed.name,
+                ownName: seed.shared?.name,
+                role: seed.role,
+                isSkipper: seed.source === 'skipper',
+                crewUserId: seed.crewUserId,
+                age: seed.shared?.age,
+                phone: seed.shared?.phone,
+            })),
+        ),
     );
 }

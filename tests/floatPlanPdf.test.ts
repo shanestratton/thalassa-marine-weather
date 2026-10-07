@@ -38,6 +38,22 @@ describe('float plan PDF', () => {
         expect(html).not.toContain('Fuel 264 L');
     });
 
+    it('lists the people aboard in rank order, as the email brief does (Shane 2026-10-07)', () => {
+        const { html } = buildHtml(
+            plan({
+                personsOnBoard: 3,
+                personsRoster: [
+                    { name: 'Pat Example', role: 'Guest' },
+                    { name: 'Priya Nair', role: 'First mate' },
+                    { name: 'Ana Reyes', role: 'Skipper' },
+                ],
+            }),
+        );
+        expect(html).toContain('1. Ana Reyes — Skipper');
+        expect(html).toContain('2. Priya Nair — First mate');
+        expect(html).toContain('3. Pat Example — Guest');
+    });
+
     it('carries the overdue time and the number to ring', () => {
         // These two are the entire reason a float plan exists. Everything else is
         // reference; without either of them the document is decoration.
