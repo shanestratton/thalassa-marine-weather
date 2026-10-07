@@ -11,6 +11,9 @@ import {
     OFFSHORE_MODELS,
     resolveOffshoreModel,
     getOffshoreModelInfo,
+    MODEL_ATTRIBUTION_LINE,
+    forecastDataCredit,
+    providerLicence,
 } from './forecastModels';
 
 describe('forecastModels', () => {
@@ -94,5 +97,40 @@ describe('forecastModels', () => {
         for (const w of WAVE_SPREAD_MODELS) {
             expect(atmosIds.has(w.id)).toBe(false);
         }
+    });
+
+    describe('licences in the credit', () => {
+        // UK Met Office open data is CC BY-SA 4.0 (share-alike); everything
+        // else these models publish through Open-Meteo is CC BY 4.0. The credit
+        // said CC-BY-4.0 for all of them.
+        it('knows the UK Met Office is share-alike, under either of its names', () => {
+            expect(providerLicence('UK Met Office')).toBe('CC BY-SA 4.0');
+            expect(providerLicence('UKMO')).toBe('CC BY-SA 4.0');
+            for (const p of ['ECMWF', 'DWD', 'JMA', 'Météo-France', 'NOAA'])
+                expect(providerLicence(p)).toBe('CC BY 4.0');
+        });
+
+        it('every Glass model resolves a licence', () => {
+            for (const m of SELECTABLE_MODELS) expect(providerLicence(m.provider)).toMatch(/^CC BY(-SA)? 4\.0$/);
+        });
+
+        it('groups providers by licence, each once, in the order given', () => {
+            expect(forecastDataCredit(['DWD', 'ECMWF', 'UK Met Office', 'JMA', 'ECMWF'])).toBe(
+                'Forecast data: DWD, ECMWF, JMA (CC BY 4.0); UK Met Office (CC BY-SA 4.0)',
+            );
+            expect(forecastDataCredit(['UK Met Office'])).toBe('Forecast data: UK Met Office (CC BY-SA 4.0)');
+            expect(forecastDataCredit(['ECMWF'])).toBe('Forecast data: ECMWF (CC BY 4.0)');
+            expect(forecastDataCredit(['ECMWF', 'UK Met Office'], 'Data via Open-Meteo')).toBe(
+                'Data via Open-Meteo: ECMWF (CC BY 4.0); UK Met Office (CC BY-SA 4.0)',
+            );
+            expect(forecastDataCredit([' ', ''])).toBeNull();
+            expect(forecastDataCredit([])).toBeNull();
+        });
+
+        it('the full attribution line credits UKMO under CC BY-SA 4.0, not CC BY', () => {
+            expect(MODEL_ATTRIBUTION_LINE).toBe(
+                'Forecast data: ECMWF, DWD, JMA, Météo-France, NOAA (CC BY 4.0); UKMO (CC BY-SA 4.0)',
+            );
+        });
     });
 });

@@ -295,13 +295,14 @@ test('the details view and the rows: no buttons in the list, the credit only wit
     const dialog = page.getByRole('dialog', { name: 'Her wind vs the models' });
     await expect(dialog.getByRole('list', { name: 'Models, closest first' })).toBeVisible();
     await expect(dialog.getByRole('list').getByRole('button')).toHaveCount(0);
-    await expect(dialog).toContainText('(CC-BY-4.0) via Open-Meteo');
+    await expect(dialog).toContainText('Data via Open-Meteo:');
+    await expect(dialog).toContainText('UK Met Office (CC BY-SA 4.0)');
     await show(page, 'details', 'kts');
     await expect(dialog.getByRole('button', { name: 'How this works' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(dialog).not.toContainText('Forecast data:');
+    await expect(dialog).not.toContainText('Data via Open-Meteo:');
     await show(page, 'stale', 'kts');
     await expect(dialog).toContainText('Her last wind reading is');
-    await expect(dialog).not.toContainText('Forecast data:');
+    await expect(dialog).not.toContainText('Data via Open-Meteo:');
 });
 
 // ── Wiring: the row on the real weather panel opens the real card ──

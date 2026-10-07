@@ -36,6 +36,9 @@ interface ImportMetaEnv {
     /** Explicit development/test/demo-only opt-in for the bundled Savannah
      * ENC preview. Production code rejects the flag even when set. */
     readonly VITE_ENABLE_ENC_DEMO_SAMPLES?: string;
+    /** Blitzortung lightning feed: 'true' only with their written permission
+     *  (services/weather/api/lightningLicence.ts). Owned by the release profile. */
+    readonly VITE_BLITZORTUNG_ENABLED?: string;
     /** Compile-time release gate for native Sign in with Apple. Keep unset or
      *  false until the complete server-side token lifecycle is live. */
     readonly VITE_APPLE_SIGN_IN_ENABLED?: string;

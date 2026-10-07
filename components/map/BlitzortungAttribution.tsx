@@ -2,10 +2,12 @@
  * BlitzortungAttribution — single-line legend chip + diagnostic pill
  * for the Blitzortung.org lightning data feed.
  *
- * Blitzortung's terms of service require visible attribution whenever
- * their data is rendered. They run a volunteer detector network and
- * ask for credit; the credit doesn't have to be a clickable link or a
- * paragraph — just a visible mention of the source.
+ * Blitzortung's terms require that "the source of the data must be clearly
+ * identified", and the data stays under CC BY-SA 4.0 — so whenever their
+ * strikes are drawn this names Blitzortung.org AND the licence, linked.
+ * The layer itself is OFF behind the licence flag since build 123 (their
+ * terms forbid our use; services/weather/api/lightningLicence.ts); this is
+ * what must be on screen if that flag is ever turned back on.
  *
  * Visual: matches `CmemsAttribution` — same compact single-line pill
  * style, same `left-2 bottom-2` corner. Adds a colour-coded status dot
@@ -24,6 +26,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { subscribeLightningStatus, type StatusSnapshot } from '../../services/weather/api/blitzortungLightning';
+import { BLITZORTUNG_LICENCE, BLITZORTUNG_LICENCE_URL } from '../../services/weather/api/lightningLicence';
 import { LIGHTNING_POLARITY, POLARITY_ORDER } from './lightningPalette';
 
 interface BlitzortungAttributionProps {
@@ -167,6 +170,16 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
                         className="text-white/85 underline-offset-2 hover:underline"
                     >
                         Blitzortung.org
+                    </a>
+                    <span aria-hidden="true">·</span>
+                    <a
+                        href={BLITZORTUNG_LICENCE_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        referrerPolicy="no-referrer"
+                        className="text-white/85 underline-offset-2 hover:underline"
+                    >
+                        {BLITZORTUNG_LICENCE}
                     </a>
                 </div>
             </div>

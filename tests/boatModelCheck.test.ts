@@ -520,7 +520,7 @@ describe('rankModelsAtHer: closest first by the speed gap', () => {
         const v = view({ session: her, series: READY(spread) });
         expect(v.verdict).toBe('Only ICON has wind here now');
         expect(v.rows.every((row) => row.mark === null)).toBe(true);
-        expect(v.credit).toBe('Forecast data: DWD, JMA (CC-BY-4.0) via Open-Meteo');
+        expect(v.credit).toBe('Data via Open-Meteo: DWD, JMA (CC BY 4.0)');
     });
 
     describe('direction (never part of the rank)', () => {
@@ -822,7 +822,7 @@ describe('buildModelCheckView: every string the card shows', () => {
         expect(v.rows[0].gapLong).toBe('1 kt over her wind');
         expect(v.rows[4].gapLong).toBe('no wind here from this model');
         expect(v.notes).toEqual(['Models are for 10 m up. A masthead anemometer usually reads a little more.']);
-        expect(v.credit).toBe('Forecast data: DWD, ECMWF, UK Met Office (CC-BY-4.0) via Open-Meteo');
+        expect(v.credit).toBe('Data via Open-Meteo: DWD, ECMWF (CC BY 4.0); UK Met Office (CC BY-SA 4.0)');
     });
 
     it('averaged: the caveat and her source line name the minutes', () => {
@@ -905,14 +905,19 @@ describe('buildModelCheckView: every string the card shows', () => {
     });
 
     it('the credit names only who answered; ECMWF once for IFS and AIFS; never empty', () => {
+        // UK Met Office data is CC BY-SA 4.0, so it is credited under its own
+        // licence rather than folded into the CC BY list.
         expect(creditLine([ICON, ECMWF, UKMO])).toBe(
-            'Forecast data: DWD, ECMWF, UK Met Office (CC-BY-4.0) via Open-Meteo',
+            'Data via Open-Meteo: DWD, ECMWF (CC BY 4.0); UK Met Office (CC BY-SA 4.0)',
         );
-        expect(creditLine([AIFS, ECMWF, JMA])).toBe('Forecast data: ECMWF, JMA (CC-BY-4.0) via Open-Meteo');
+        expect(creditLine([AIFS, ECMWF, JMA])).toBe('Data via Open-Meteo: ECMWF, JMA (CC BY 4.0)');
+        expect(creditLine([UKMO])).toBe('Data via Open-Meteo: UK Met Office (CC BY-SA 4.0)');
         expect(creditLine([])).toBeNull();
         for (const m of SELECTABLE_MODELS) {
             expect(m.provider.trim()).not.toBe('');
-            expect(creditLine([m.id])).toBe(`Forecast data: ${m.provider} (CC-BY-4.0) via Open-Meteo`);
+            expect(creditLine([m.id])).toMatch(
+                new RegExp(`^Data via Open-Meteo: ${m.provider} \\(CC BY(-SA)? 4\\.0\\)$`),
+            );
         }
     });
 

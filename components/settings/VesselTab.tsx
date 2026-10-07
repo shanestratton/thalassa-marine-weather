@@ -2071,11 +2071,9 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                         </div>
                     </SubSection>
 
-                    {/* NRT Currents Toggle — OSCAR near-real-time vs monthly
-                        climatology in the isochrone router's set/drift advection.
-                        NRT is 5-day-old but reflects actual eddies/meanders.
-                        Climatology is steady-state monthly averages — good enough
-                        for most routes. */}
+                    {/* Daily ocean currents — how long the router's set/drift
+                        field (live Copernicus Marine, else NOAA) is reused: a
+                        day when on, a week when off. There is no climatology. */}
                     <SubSection>
                         {onOpenPreferences ? (
                             // It is a forecast-data preference, not a property of
@@ -2085,13 +2083,11 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                             <button
                                 type="button"
                                 onClick={onOpenPreferences}
-                                aria-label={`High-fidelity ocean currents, ${settings.currentNrtEnabled === true ? 'on' : 'off'}. Change it in Preferences`}
+                                aria-label={`Daily ocean currents, ${settings.currentNrtEnabled === true ? 'on' : 'off'}. Change it in Preferences`}
                                 className="flex w-full min-h-11 items-center justify-between gap-3 text-left"
                             >
                                 <span className="flex-1 min-w-0">
-                                    <span className="block text-sm font-bold text-white">
-                                        High-fidelity ocean currents
-                                    </span>
+                                    <span className="block text-sm font-bold text-white">Daily ocean currents</span>
                                     <span className="block text-xs text-gray-400 mt-0.5">
                                         {settings.currentNrtEnabled === true ? 'On' : 'Off'} · switch in Preferences
                                     </span>
@@ -2101,16 +2097,16 @@ export const VesselTab: React.FC<VesselTabProps> = ({ settings, onSave, onOpenPr
                         ) : (
                             <div className="flex items-start justify-between gap-3">
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-bold text-white">High-fidelity ocean currents</p>
+                                    <p className="text-sm font-bold text-white">Daily ocean currents</p>
                                     <p className="text-xs text-gray-400 mt-0.5">
-                                        Use recent ocean currents (about 5 days old) instead of monthly averages. Helps
-                                        where a strong current decides your timing.
+                                        Currents are always live data. On: fetched again each day. Off: reused for up to
+                                        7 days.
                                     </p>
                                 </div>
                                 {/* The shared settings switch (60x43, sky when on), not a
                                     cyan one of its own (UX scorecard run 7). */}
                                 <Toggle
-                                    label="High-fidelity ocean currents"
+                                    label="Daily ocean currents"
                                     checked={settings.currentNrtEnabled === true}
                                     onChange={(on) => saveLocally({ currentNrtEnabled: on })}
                                 />

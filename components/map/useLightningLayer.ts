@@ -1,13 +1,16 @@
 /**
  * useLightningLayer — Real-time lightning overlay.
  *
- * Replaced Xweather raster tiles with the free Blitzortung WebSocket
- * feed on 2026-04-22. Why:
+ * Replaced Xweather raster tiles with the Blitzortung WebSocket feed on
+ * 2026-04-22. Why:
  *   - Xweather burned through its daily quota in a single dev session
  *     and was extraordinarily expensive at the next subscription tier.
- *   - Blitzortung is volunteer-detector-network data, free for our use,
- *     no quota, and has good Australian coverage (where most users are).
+ *   - Blitzortung is volunteer-detector-network data with no quota.
  *   - Real-time animated points > static 15-min raster aggregation.
+ * Its terms do not cover a subscription app (no storm warning, free apps
+ * only, data via our own server), so the layer is OFF behind the licence
+ * flag from build 123: with isBlitzortungEnabled() false it draws nothing
+ * and subscribes to nothing (services/weather/api/lightningLicence.ts).
  *
  * Visual: each strike appears as a bright cyan circle the moment it
  * arrives, then fades over 16 minutes through yellow → orange → faint
@@ -27,6 +30,7 @@ import {
     setLightningViewportStats,
     type LightningStrike,
 } from '../../services/weather/api/blitzortungLightning';
+import { isBlitzortungEnabled } from '../../services/weather/api/lightningLicence';
 
 const log = createLogger('LightningLayer');
 
@@ -106,7 +110,7 @@ interface StrikeFeatureProps {
 export function useLightningLayer(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,
     mapReady: boolean,
-    visible: boolean,
+    requested: boolean,
 ) {
     // Strike ring buffer kept in a ref so the repaint loop doesn't
     // trigger React re-renders.
@@ -114,6 +118,8 @@ export function useLightningLayer(
     const unsubRef = useRef<(() => void) | null>(null);
     const rafRef = useRef<number | null>(null);
     const isSetUp = useRef(false);
+    // Behind the Blitzortung licence flag: off, the layer is never drawn.
+    const visible = requested && isBlitzortungEnabled();
 
     useEffect(() => {
         const map = mapRef.current;
