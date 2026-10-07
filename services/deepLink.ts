@@ -78,7 +78,11 @@ export type TracerOpenAction =
     | { kind: 'load-voyage'; choice: import('./shiplog/RoutesAndTracks').SeaVoyageChoice }
     /** Plot the NEXT leg of a trip: pin 1 pre-dropped + LOCKED at the
      *  previous leg's exact final coordinates (Shane 2026-07-17). */
-    | { kind: 'new-leg'; fromId: string };
+    | { kind: 'new-leg'; fromId: string }
+    /** Plan the trip home (Shane 2026-10-07): a NEW trip whose leg 1 is
+     *  outbound leg `fromOrdinal` (default the last) reversed, built one
+     *  checked leg at a time. The outbound trip is only read. */
+    | { kind: 'return-trip'; tripId: string; fromOrdinal?: number };
 
 export interface TracerOpenEventDetail {
     readonly requestId: number;

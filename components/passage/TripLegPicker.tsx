@@ -13,6 +13,12 @@
  * 1's id), with the "(Nth Leg)" name badge as the display fallback for
  * routes whose fields were shed by the cloud round-trip (the saved_routes
  * table doesn't carry the chain columns yet).
+ *
+ * The way home (Shane 2026-10-07: "i can reverse the first leg. but i cannot
+ * reverse the 2nd leg and so on"): "⇄ Plan the return trip" and the ⇄ chip on
+ * each leg open a NEW trip whose first leg is that leg reversed, built one
+ * checked leg at a time in the tracer (components/map/useReturnTripFlow.ts).
+ * The outbound trip is never edited.
  */
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -22,8 +28,10 @@ import {
     groupTracesByTrip,
     nextLegSeed,
     ordinalLegLabel,
+    type SavedTrace,
     type TripGroup,
 } from '../../services/routeTracer';
+import { routeNameParts, stripRouteBadges } from '../../services/routeNameParts';
 import { requestTracerOpen } from '../../services/deepLink';
 import { triggerHaptic } from '../../utils/system';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
@@ -38,6 +46,15 @@ import {
 // Grouping is the SHARED helper (groupTracesByTrip) so this Trip box and the
 // tracer card's "open a saved route" list can never drift (2026-07-17).
 const buildTrips = (scope: AuthIdentityScope): TripGroup[] => groupTracesByTrip(loadSavedTraces(scope));
+
+/** "Return from Sandy Cove: legs 2 to 1 reversed" — what the ⇄ chip on row K
+ *  starts. The destination comes from the leg itself (stored, or the last
+ *  place in its name); a title with no places says which leg instead. */
+function returnChipLabel(leg: Pick<SavedTrace, 'destName' | 'name'>, position: number): string {
+    const from =
+        leg.destName ?? routeNameParts(stripRouteBadges(leg.name))?.places.at(-1) ?? `the end of leg ${position}`;
+    return `Return from ${from}: ${position > 1 ? `legs ${position} to 1 reversed` : 'leg 1 reversed'}`;
+}
 
 export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenChart }) => {
     const portalTarget = usePanePortalTarget();
@@ -114,6 +131,16 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
     const selected = trips.find((t) => t.key === selectedKey) ?? null;
     const lastLeg = selected ? selected.legs[selected.legs.length - 1] : null;
     const seed = lastLeg ? nextLegSeed(lastLeg) : null;
+    // The scope these rows were built under travels with the request, so a
+    // tap that lands after a sign-out/sign-in is refused, not relabelled.
+    const openReturnTrip = (trip: TripGroup, fromOrdinal?: number): void => {
+        triggerHaptic('medium');
+        requestTracerOpen(
+            { kind: 'return-trip', tripId: trip.key, ...(fromOrdinal ? { fromOrdinal } : {}) },
+            tripSnapshot.scope,
+        );
+        onOpenChart();
+    };
 
     if (trips.length === 0) return null; // nothing saved yet — no empty furniture
 
@@ -190,7 +217,7 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                     </span>
                                     <span className="mt-0.5 block text-[11px] font-bold text-gray-400">
                                         {selected.legs.length} leg{selected.legs.length > 1 ? 's' : ''} — tap one to
-                                        open it on the chart
+                                        open it on the chart, ⇄ to plan the way back from it
                                     </span>
                                 </span>
                                 <button
@@ -203,25 +230,41 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                             </div>
                             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3">
                                 {selected.legs.map((leg, i) => (
-                                    <button
-                                        key={leg.id}
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            requestTracerOpen({ kind: 'load-saved', id: leg.id }, tripSnapshot.scope);
-                                            onOpenChart();
-                                        }}
-                                        className="flex min-h-[44px] w-full items-center gap-2 rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2 text-left active:scale-[0.99]"
-                                    >
-                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-black text-gray-300">
-                                            {i + 1}
-                                        </span>
-                                        <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-200">
-                                            {leg.name}
-                                        </span>
-                                        <span className="shrink-0 text-[10px] font-bold text-gray-500">
-                                            {leg.points.length} pins
-                                        </span>
-                                    </button>
+                                    // Two siblings, not a chip inside the row button:
+                                    // a button may not contain another one.
+                                    <div key={leg.id} className="flex items-stretch gap-1.5">
+                                        <button
+                                            onClick={() => {
+                                                triggerHaptic('light');
+                                                requestTracerOpen(
+                                                    { kind: 'load-saved', id: leg.id },
+                                                    tripSnapshot.scope,
+                                                );
+                                                onOpenChart();
+                                            }}
+                                            className="flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-slate-900/50 px-3 py-2 text-left active:scale-[0.99]"
+                                        >
+                                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[11px] font-black text-gray-300">
+                                                {i + 1}
+                                            </span>
+                                            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-200">
+                                                {leg.name}
+                                            </span>
+                                            <span className="shrink-0 text-[10px] font-bold text-gray-500">
+                                                {leg.points.length} pins
+                                            </span>
+                                        </button>
+                                        {/* ⇄ from here: a new trip home whose first leg is
+                                            this one reversed (legs K..1). */}
+                                        <button
+                                            onClick={() => openReturnTrip(selected, i + 1)}
+                                            aria-label={returnChipLabel(leg, i + 1)}
+                                            title={returnChipLabel(leg, i + 1)}
+                                            className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl border border-sky-400/25 bg-sky-500/10 text-[15px] font-black text-sky-300 active:scale-95"
+                                        >
+                                            ⇄
+                                        </button>
+                                    </div>
                                 ))}
                                 {seed && (
                                     <button
@@ -233,13 +276,29 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                             );
                                             onOpenChart();
                                         }}
-                                        className="flex w-full items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 text-left shadow-[0_0_14px_rgba(245,158,11,0.25)] active:scale-[0.99]"
+                                        className="flex min-h-[44px] w-full items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2.5 text-left shadow-[0_0_14px_rgba(245,158,11,0.25)] active:scale-[0.99]"
                                     >
                                         <span className="text-base leading-none">⚓</span>
                                         <span className="min-w-0 flex-1 truncate text-[13px] font-black text-amber-300">
                                             Plot the {ordinalLegLabel(seed.ordinal).toLowerCase()} from {seed.fromName}
                                         </span>
                                         <span className="shrink-0 text-[11px] font-black text-amber-400">🔒→</span>
+                                    </button>
+                                )}
+                                {selected.legs.length >= 2 && (
+                                    <button
+                                        onClick={() => openReturnTrip(selected)}
+                                        className="flex min-h-[44px] w-full items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2.5 text-left active:scale-[0.99]"
+                                    >
+                                        <span aria-hidden="true" className="text-base leading-none text-sky-300">
+                                            ⇄
+                                        </span>
+                                        <span className="min-w-0 flex-1 truncate text-[13px] font-black text-sky-200">
+                                            Plan the return trip
+                                        </span>
+                                        <span className="shrink-0 text-[11px] font-bold text-sky-300/80">
+                                            legs {selected.legs.length} to 1
+                                        </span>
                                     </button>
                                 )}
                             </div>
