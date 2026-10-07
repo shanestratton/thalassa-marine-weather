@@ -175,9 +175,6 @@ jobs:
             - name: Run E2E tests
               run: npx playwright test --project=chromium --project=mobile-safari
 
-            - name: Daylight, keyboard and split-pane browser regressions
-              run: npx playwright test --config playwright.keyboard.config.ts
-
             - name: Upload E2E artifacts on failure
               if: failure()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -195,6 +192,51 @@ jobs:
                   name: coverage-report
                   path: coverage/
                   retention-days: 30
+
+    # The daylight, keyboard and split-pane browser regressions run beside the
+    # check job, not inside it (build 123, 2026-10-08). They need no build:
+    # playwright.keyboard.config.ts serves its fixtures from the dev server.
+    # Inside the check job they had grown to ~17+ min and build 123 added
+    # several hundred more layout cases, while the check job already ran
+    # 75-117 min against its 120-min cap (run 37562508850: 117 min).
+    browser-regressions:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 90
+        env:
+            NODE_OPTIONS: --max-old-space-size=4096
+            VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+            VITE_SUPABASE_KEY: ${{ vars.VITE_SUPABASE_KEY }}
+            VITE_MAPBOX_ACCESS_TOKEN: ${{ vars.VITE_MAPBOX_ACCESS_TOKEN }}
+            VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+            VITE_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.VITE_GOOGLE_OAUTH_CLIENT_ID }}
+            VITE_APP_VERSION: ${{ vars.VITE_APP_VERSION }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Setup Node.js
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: 24
+                  cache: 'npm'
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Install Playwright browsers
+              run: npx playwright install --with-deps chromium webkit
+
+            - name: Daylight, keyboard and split-pane browser regressions
+              run: npx playwright test --config playwright.keyboard.config.ts
+
+            - name: Upload browser-regression artifacts on failure
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: browser-regressions-report
+                  path: |
+                      playwright-report/
+                      test-results/
+                  retention-days: 7
 
     # Independently deployed production boundaries use their own lockfiles and
     # runtime floors. Separate jobs prevent root dependency hoisting or Node 24
