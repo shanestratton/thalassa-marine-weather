@@ -37,8 +37,7 @@ import type { IsochroneNode } from '../../services/isochrone/types';
 import { cumulativeLegs } from '../../services/isochrone/geodesy';
 import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
-import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
-import { SmartPolarStore } from '../../services/SmartPolarStore';
+import { resolveRoutingPolar } from '../../services/routingPolar';
 
 import { WindStore } from '../../stores/WindStore';
 import { PassageStore, type PassageLeg } from '../../stores/PassageStore';
@@ -232,6 +231,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // decision 8 — and a pin off the water). Its own line in PassageBanner:
     // no later notice replaces it (fix-up, 2026-09-30). Cleared with the route.
     const [routeCaveats, setRouteCaveats] = useState<string[]>([]);
+    // Which polar the shown ETA was sailed on (services/routingPolar label),
+    // for PassageBanner's "Polar:" line. Null for a route no polar sailed
+    // (inshore, short hops). Cleared with the route.
+    const [routingPolarLabel, setRoutingPolarLabel] = useState<string | null>(null);
     const [settingPoint, setSettingPoint] = useState<'departure' | 'arrival' | null>(null);
     // A RoutePlanner handoff is staged before the tab changes. Read it during
     // initial render (not in the mount effect) so the destination MapHub never
@@ -488,6 +491,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // for a 6-NM trip up the Savannah River.
         dispatchPassageNotice(null); // fresh compute, clear any stale band
         setRouteCaveats([]); // …and the last route's caveats
+        setRoutingPolarLabel(null); // …and the polar it sailed on
         clearTideChips(); // stale window chips must not ride over the new route
         try {
             const { tryInshoreRoute } = await import('../../services/InshoreRouter');
@@ -1937,10 +1941,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             }
 
             try {
+                // The one routing polar (services/routingPolar): the skipper's
+                // own, learned, scaled database shape or the generic one, with a
+                // no-go zone. It also keys the precompute cache.
+                const routingPolar = await resolveRoutingPolar({
+                    vessel: useSettingsStore.getState().settings.vessel ?? null,
+                });
+                if (computeGenRef.current !== gen) return;
+
                 // ── Check precompute cache first (fired from CTA press) ──
                 try {
                     const { getPrecomputedRoute } = await import('../../services/IsochronePrecomputeCache');
-                    const cached = getPrecomputedRoute(depGate.lat, depGate.lon, arrGate.lat, arrGate.lon);
+                    const cached = getPrecomputedRoute(
+                        depGate.lat,
+                        depGate.lon,
+                        arrGate.lat,
+                        arrGate.lon,
+                        routingPolar.signature,
+                    );
                     if (cached && cached.routeCoordinates.length >= 2) {
                         if (computeGenRef.current !== gen) return;
                         log.info(
@@ -1962,6 +1980,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         updatedResult2.totalDistance = checkedCached.totalDistanceNM;
                         updatedResult2.estimatedDuration = checkedCached.totalDurationHours;
                         setRouteAnalysis(updatedResult2);
+                        setRoutingPolarLabel(routingPolar.label);
                         if (!cachedValidation.verified) {
                             markRouteUnverified(
                                 checkedCached.routeCoordinates,
@@ -2183,7 +2202,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 }
 
                 const windField = createWindFieldFromGrid(windGrid);
-                const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
+                const polar = routingPolar.polar;
                 const depTimeStr = departureTime || new Date().toISOString();
 
                 log.info('[Isochrone BG] Preloading bathymetry grid...');
@@ -2355,6 +2374,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     updatedResult.totalDistance = isoResult.totalDistanceNM;
                     updatedResult.estimatedDuration = isoResult.totalDurationHours;
                     setRouteAnalysis(updatedResult);
+                    setRoutingPolarLabel(routingPolar.label);
 
                     // Push isochrone route to global PassageStore for Nav Station
                     pushToPassageStore(
@@ -2848,6 +2868,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             updatedResult.totalDistance = isoResult.totalDistanceNM;
                             updatedResult.estimatedDuration = isoResult.totalDurationHours;
                             setRouteAnalysis(updatedResult);
+                            setRoutingPolarLabel(routingPolar.label);
 
                             if (!multiValidation.verified) {
                                 markRouteUnverified(
@@ -2981,6 +3002,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setRouteAnalysis(null);
         setRouteVerification({ status: 'idle', geometryKey: null });
         setRouteCaveats([]);
+        setRoutingPolarLabel(null);
         displayedRouteGeometryKeyRef.current = null;
         setDepartureTime('');
         isoResultRef.current = null;
@@ -3030,6 +3052,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         routeVerification,
         routeActionsAvailable,
         routeCaveats,
+        routingPolarLabel,
         settingPoint,
         setSettingPoint,
         showPassage,

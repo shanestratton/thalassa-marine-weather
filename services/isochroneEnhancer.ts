@@ -142,9 +142,18 @@ export async function enhanceVoyagePlanWithIsochrone(
         // useVoyageForm fires precomputeIsochrone() the moment Calculate is
         // pressed — by the time the bathymetric step finishes, there's a
         // good chance an isochrone result is already sitting in the cache.
-        // Hitting the cache saves the 30-60s recompute.
+        // Hitting the cache saves the 30-60s recompute. The cache is keyed on
+        // the routing polar too, so resolve it first (services/routingPolar).
+        const { resolveRoutingPolar } = await import('./routingPolar');
+        const routingPolar = await resolveRoutingPolar({ vessel });
         const { getPrecomputedRoute } = await import('./IsochronePrecomputeCache');
-        let isoResult = getPrecomputedRoute(origin.lat, origin.lon, destination.lat, destination.lon);
+        let isoResult = getPrecomputedRoute(
+            origin.lat,
+            origin.lon,
+            destination.lat,
+            destination.lon,
+            routingPolar.signature,
+        );
 
         if (isoResult) {
             log.info('hit precompute cache — skipping fresh compute');
@@ -158,8 +167,6 @@ export async function enhanceVoyagePlanWithIsochrone(
 
             const { WindStore } = await import('../stores/WindStore');
             const { createWindFieldFromGrid } = await import('./weather/WindFieldAdapter');
-            const { SmartPolarStore } = await import('./SmartPolarStore');
-            const { DEFAULT_CRUISING_POLAR } = await import('./defaultPolar');
             const { preloadBathymetry } = await import('./BathymetryCache');
             const { computeIsochrones } = await import('./IsochroneRouter');
 
@@ -169,7 +176,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 return null;
             }
             const windField = createWindFieldFromGrid(windGrid);
-            const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
+            const polar = routingPolar.polar;
 
             // ── 3. Bathymetry preload ──
             // Without this the IsochroneRouter falls back to per-step HTTP
@@ -286,7 +293,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                     const { useSettingsStore } = await import('../stores/settingsStore');
                     useNrt = useSettingsStore.getState().settings.currentNrtEnabled === true;
                 } catch (_) {
-                    /* fall back to climatology */
+                    /* settings unreadable: the standard (non-NRT) current request */
                 }
                 const briefing = await OceanCurrentService.fetchCurrents(
                     {

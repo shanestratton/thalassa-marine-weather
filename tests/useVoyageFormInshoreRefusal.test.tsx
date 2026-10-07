@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
     buildCycloneExclusionField: vi.fn(),
     fetchWaveField: vi.fn(),
     planDepartureWindow: vi.fn(),
+    resolveRoutingPolar: vi.fn(),
     bathymetricEnhance: vi.fn(),
     isochroneEnhance: vi.fn(),
     weatherEnhance: vi.fn(),
@@ -98,12 +99,9 @@ vi.mock('../services/weather/WindFieldAdapter', () => ({
     createWindFieldFromGrid: () => ({ test: true }),
 }));
 
-vi.mock('../services/SmartPolarStore', () => ({
-    SmartPolarStore: { exportToPolarData: () => ({ test: true }) },
-}));
-
-vi.mock('../services/defaultPolar', () => ({
-    DEFAULT_CRUISING_POLAR: { test: true },
+// The one routing-polar resolver (W1-03): the departure window plans on it.
+vi.mock('../services/routingPolar', () => ({
+    resolveRoutingPolar: mocks.resolveRoutingPolar,
 }));
 
 vi.mock('../services/BathymetryCache', () => ({
@@ -186,6 +184,19 @@ const plan = (): VoyagePlan => ({
     destinationCoordinates: { lat: -27.4268, lon: 153.1267 },
 });
 
+/** What the resolver hands the router: a fictional polar with its no-go rows. */
+const RESOLVED_POLAR = {
+    windSpeeds: [6, 12, 20],
+    angles: [0, 40, 45, 90, 180],
+    matrix: [
+        [0, 0, 0],
+        [0, 0, 0],
+        [4.1, 5.6, 6.2],
+        [5.2, 6.9, 7.4],
+        [3.6, 5.3, 6.6],
+    ],
+};
+
 beforeEach(() => {
     vi.clearAllMocks();
     setAuthIdentityScope(null);
@@ -206,6 +217,13 @@ beforeEach(() => {
     mocks.weatherEnhance.mockImplementation(async (value: VoyagePlan) => value);
     mocks.depthEnhance.mockResolvedValue({ minDepth: null, shallowSegments: 0, segments: [] });
     mocks.multiModelQuery.mockResolvedValue(null);
+    mocks.resolveRoutingPolar.mockResolvedValue({
+        polar: RESOLVED_POLAR,
+        source: 'database-scaled',
+        label: 'Beneteau Oceanis 38.1 (shape scaled to 6 kn)',
+        reason: 'the yacht database shape, scaled to her cruising speed',
+        signature: '5ca1ed00',
+    });
 });
 
 afterEach(() => {
