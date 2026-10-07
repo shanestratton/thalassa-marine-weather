@@ -17,7 +17,12 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { CREDITS_SLOT_PX, CREDITS_STRIP_POSITION_CLASS, creditsStripTop } from './creditsStrip';
+import {
+    CREDITS_SLOT_PX,
+    CREDITS_STRIP_POSITION_CLASS,
+    creditsStripTop,
+    satelliteCreditOffsetPx,
+} from './creditsStrip';
 import { SearchIcon } from '../Icons';
 import { createLogger } from '../../utils/createLogger';
 import { parseCoordinateString } from '../../utils/coordParse';
@@ -46,6 +51,8 @@ import { locateOnObs, obsLocateSubject, useObsCentreNoticeWatch, type ObsBoatNam
 import { ObsCentreNoticeChip } from './ObsCentreNoticeChip';
 import { useCrewingBoat } from '../../hooks/useCrewingBoat';
 import { ObsLayerLoadingPill } from './ObsLayerLoadingPill';
+import { useSatelliteLayer } from './useSatelliteLayer';
+import { SatelliteIrCredit } from './SatelliteIrCredit';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 
 import {
@@ -2978,6 +2985,21 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
     weatherRef.current = weather;
 
+    // ── Observed satellite cloud (W1-10) ──
+    // While rain is up and ready it shows the newest frame taken by the rain
+    // scrubber's moment, so rain and cloud scrub together; otherwise the latest
+    // frame or its own loop. Never on embedded or picker maps.
+    const satFollowTimeMs =
+        weather.activeLayers.has('rain') && weather.rainReady
+            ? (weather.unifiedFramesRef?.current?.[weather.rainFrameIndex]?.timeMs ?? null)
+            : null;
+    const satellite = useSatelliteLayer(
+        mapRef,
+        mapReady,
+        weather.activeLayers.has('satIR') && !embedded && !pickerMode,
+        satFollowTimeMs,
+    );
+
     // Clear Follow Route when passage mode activates —
     // components/map/mapHub/useFollowRouteClearOnPassage.ts.
     useFollowRouteClearOnPassage(mapRef, passage.showPassage);
@@ -3477,6 +3499,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         mooringFilter: mooringColourFilter,
         onMooringFilter: setMooringColourFilter,
         tideStatus: tideStationStatus,
+        satelliteIr: weather.activeLayers.has('satIR'),
     };
     const obsKeyCount = !planningSurface && !embedded && !pickerMode && !isPinView ? obsLayerKeyCount(obsKeyProps) : 0;
 
@@ -4986,6 +5009,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <BlitzortungAttribution visible compact />
                     </div>
                 )}
+                {!pickerMode && !planningSurface && !embedded && !isPinView && satellite.status !== 'off' && (
+                    <SatelliteIrCredit
+                        state={satellite}
+                        top={creditsStripTop(
+                            satelliteCreditOffsetPx({
+                                rain: rainCreditShown,
+                                cmems: cmemsAttributionLayers.length > 0,
+                                lightning: browseLightningVisible,
+                            }),
+                        )}
+                        onTogglePlay={() => satellite.setPlaying(!satellite.playing)}
+                    />
+                )}
 
                 {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
                 {/* Viewport-aware — only renders when ENC cells overlap the
@@ -5342,6 +5378,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windError={weather.windState.error}
                         rainLoading={weather.rainLoading}
                         rainImageLoading={weather.rainImageLoading}
+                        satLoading={satellite.status === 'loading'}
                     />
                 )}
 

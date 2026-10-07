@@ -61,6 +61,26 @@ export function rainFrameForTime(
     return { index: best, beyond: targetMs > last + RAIN_BEYOND_MS };
 }
 
+/**
+ * The newest frame at or before `targetMs` — how an OBSERVED layer (the
+ * satellite cloud) shares this axis: the moment the radar scrubber stands on is
+ * shown by the last observation made by then, never a later one, and a
+ * forecast moment holds the latest observation (whose own time the chip
+ * shows). -1 when every timed frame is later than the moment.
+ */
+export function latestFrameAtOrBefore(frames: readonly TimedRainFrame[], targetMs: number): number {
+    let best = -1;
+    let bestTime = -Infinity;
+    for (let i = 0; i < frames.length; i++) {
+        const t = frames[i]?.timeMs;
+        if (typeof t === 'number' && Number.isFinite(t) && t <= targetMs && t > bestTime) {
+            best = i;
+            bestTime = t;
+        }
+    }
+    return best;
+}
+
 /** Hours ahead of now that timed imagery reaches; null when none of it is ahead of now. */
 export function rainReachHours(frames: readonly TimedRainFrame[], nowMs: number): number | null {
     let last = -Infinity;
