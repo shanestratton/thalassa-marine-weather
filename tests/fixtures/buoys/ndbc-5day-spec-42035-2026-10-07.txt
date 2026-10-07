@@ -1,0 +1,6 @@
+#YY  MM DD hh mm WVHT  SwH  SwP  WWH  WWP SwD WWD  STEEPNESS  APD MWD
+#yr  mo dy hr mn    m    m  sec    m  sec  -  degT     -      sec degT
+2026 10 07 16 40  0.9  0.0   MM  0.9  5.6  MM ESE      STEEP  4.0 116
+2026 10 07 16 10  0.9  0.2 10.8  0.9  5.6   E ESE      STEEP  4.0 119
+2026 10 07 15 40  0.9  0.1  7.7  0.9  5.3  SE ESE      STEEP  3.9 122
+2026 10 07 15 10  0.9  0.1 10.0  0.9  5.3   E ESE      STEEP  4.0 119
