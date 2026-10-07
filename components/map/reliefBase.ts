@@ -56,9 +56,21 @@ export const RELIEF_AU_BOUNDS: [number, number, number, number] = [142, -29.5, 1
  * derived (CC BY 4.0 §3(a)(1)(B): exaggerated, smoothed, merged and
  * land-masked), credit the OSM land mask (ODbL Produced Work), imply no
  * endorsement, not for navigation.
+ *
+ * GA's part follows its wording for derivative material (Copyright@ga.gov.au
+ * confirmed CC BY 4.0 covers these commercial tiles, 2026-10-07; the AHS
+ * lineage notice is attribution only): "Based on [title + link] by Geoscience
+ * Australia", © Commonwealth of Australia, the licence named with a link, and
+ * its section 5 disclaimer of warranties. There is no in-app credits page, so
+ * the map's credit carries all of it.
  */
+export const GBR30_DATASET_URL = 'https://pid.geoscience.gov.au/dataset/ga/115066';
+export const CC_BY_4_URL = 'https://creativecommons.org/licenses/by/4.0/';
 export const RELIEF_ATTRIBUTION =
-    'Seafloor relief derived from <a href="https://doi.org/10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa" target="_blank" rel="noopener noreferrer">GEBCO Compilation Group (2026) GEBCO 2026 Grid</a>; GBR 30 m &copy; Commonwealth of Australia (Geoscience Australia), CC BY 4.0; coastline &copy; OpenStreetMap contributors. Not for navigation.';
+    'Seafloor relief derived from <a href="https://doi.org/10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa" target="_blank" rel="noopener noreferrer">GEBCO Compilation Group (2026) GEBCO 2026 Grid</a>; ' +
+    `based on <a href="${GBR30_DATASET_URL}" target="_blank" rel="noopener noreferrer">Great Barrier Reef Bathymetry 2020 30 m</a> by Geoscience Australia, &copy; Commonwealth of Australia, ` +
+    `<a href="${CC_BY_4_URL}" target="_blank" rel="noopener noreferrer license">CC BY 4.0</a> (subject to its section 5 disclaimer of warranties); ` +
+    'coastline &copy; OpenStreetMap contributors. Not for navigation.';
 
 export const LAND_IMAGERY_LAYER = 'satellite-land-layer';
 export const SEA_BASE_LAND_SHADE = 'sea-base-land-shade';
