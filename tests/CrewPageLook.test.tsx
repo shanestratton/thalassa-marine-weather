@@ -331,9 +331,17 @@ describe('Crew & Float Plan, the tier-1 look', () => {
         const disband = await screen.findByRole('button', { name: 'Disband Entire Group' });
         expect(disband).toHaveClass('crew-danger-row');
         expect(disband).toHaveAccessibleDescription(/Removes all 2 crew members and their access/);
-        // After the readiness cards, never in the My Crew header.
-        const stack = await screen.findByTestId('readiness-stack');
-        expect(stack.compareDocumentPosition(disband) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // After the readiness cards, never in the My Crew header. Both are read
+        // afresh: a stack held from first sight may have stepped aside for the
+        // access re-check, and a detached node's position means nothing.
+        await waitFor(() =>
+            expect(
+                screen
+                    .getByTestId('readiness-stack')
+                    .compareDocumentPosition(screen.getByRole('button', { name: 'Disband Entire Group' })) &
+                    Node.DOCUMENT_POSITION_FOLLOWING,
+            ).toBeTruthy(),
+        );
         const invite = screen.getByRole('button', { name: 'Invite crew member' });
         expect(invite.closest('section')).not.toContainElement(disband);
 
