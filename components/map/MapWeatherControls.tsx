@@ -5,7 +5,7 @@
  * Kept separate from MapHub so the control surface can evolve and be tested
  * without entangling it with Mapbox lifecycle and route-planning state.
  */
-import React, { useId, useState } from 'react';
+import React, { Suspense, useId, useState } from 'react';
 import { useWeatherControlsAutoHide } from './useWeatherControlsAutoHide';
 import { summarizeWeatherControls } from './weatherControlSummary';
 import { CREDITS_STRIP_POSITION_CLASS, creditsStripTop } from './creditsStrip';
@@ -29,8 +29,16 @@ import {
     pressureSourceText,
     pressureValidTimeText,
 } from '../../services/weather/pressureProvenance';
+import { lazyRetry } from '../../utils/lazyRetry';
+import { useFollowedBoatKey } from './useFollowedBoatKey';
 
 type WeatherControlsWeather = ReturnType<typeof useWeatherLayers>;
+
+// "Her wind vs the models": a lazy chunk, loaded only when the row is tapped.
+const ModelCheckAtBoat = lazyRetry(
+    () => import('./ModelCheckAtBoat').then((module) => ({ default: module.ModelCheckAtBoat })),
+    'ModelCheckAtBoat',
+);
 
 const CMEMS_STATUS_LABELS: Record<CmemsLayerId, string> = {
     currents: 'Currents',
@@ -80,6 +88,9 @@ export function MapWeatherControls({
     const windCloseIn = closeInWind
         ? { value: formatCloseInWind(closeInWind, speedUnit), source: closeInWind.source, stale: closeInWind.stale }
         : null;
+    // "Her wind vs the models" is offered only while Current Location follows a boat.
+    const followedBoatKey = useFollowedBoatKey();
+    const [checkOpen, setCheckOpen] = useState(false);
 
     // Identify active weather layers (only scrubber-capable types).
     const weatherKeys: HelixLayer[] = [
@@ -116,7 +127,7 @@ export function MapWeatherControls({
     const activeLayer =
         selectedLayer && activeWeatherLayers.includes(selectedLayer) ? selectedLayer : activeWeatherLayers[0];
     const autoHide = useWeatherControlsAutoHide({
-        enabled: visible && !embedded && surfaceAvailable,
+        enabled: visible && !embedded && surfaceAvailable && !checkOpen,
         hidden: controlsHidden,
         contextKey: `${activeWeatherLayers.join(',')}:${extraLegendCount ?? 0}:${lookingAhead}`,
         onHiddenChange: onControlsHiddenChange,
@@ -692,6 +703,21 @@ export function MapWeatherControls({
                             />
                         )}
                         {content}
+                        {/* After the timeline, so it stays above the fold at 320x568. */}
+                        {showTimeline && activeLayer === 'wind' && !embedded && followedBoatKey !== null && (
+                            <button
+                                type="button"
+                                data-model-check-row
+                                aria-haspopup="dialog"
+                                aria-expanded={checkOpen}
+                                aria-label="Compare her wind with the models now"
+                                onClick={() => setCheckOpen(true)}
+                                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-left text-xs font-bold text-slate-200 active:scale-[0.99]"
+                            >
+                                <span>Her wind vs the models</span>
+                                <span aria-hidden="true">›</span>
+                            </button>
+                        )}
                         {showTimeline &&
                             activeWeatherLayers.includes('pressure') &&
                             hasWindLayer &&
@@ -717,6 +743,16 @@ export function MapWeatherControls({
                         />
                     </div>
                 </section>
+            )}
+            {/* Outside the section: its auto-hide and interaction handlers must not see the card. */}
+            {checkOpen && (
+                <Suspense fallback={null}>
+                    <ModelCheckAtBoat
+                        onClose={() => setCheckOpen(false)}
+                        speedUnit={speedUnit}
+                        chartModel={weather.windModel}
+                    />
+                </Suspense>
             )}
             {/* RainViewer credit. It STAYS — their terms ask for the source to
                 be named with a link, and they give us the radar for free — but
