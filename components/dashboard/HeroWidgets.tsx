@@ -203,7 +203,6 @@ const GLOSSARY = {
     pinnedTemp: 'Shown here while another metric is pinned to the top',
     wind: 'Sustained wind speed — average over 10 minutes',
     gust: 'Peak gust speed — sudden short bursts above sustained wind',
-    swell: 'Open-ocean swell height — long-period waves from distant storms',
     wave: 'Significant wave height — average of tallest third of waves',
     uv: 'UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme',
     vis: 'Visibility — horizontal distance at which objects can be clearly seen',
@@ -268,7 +267,7 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; alarm?: boolean }
     );
 };
 
-// --- Small directional arrow (for WAVE/SWELL cells) ---
+// --- Small directional arrow (for the WAVE and PERIOD cells) ---
 const DirectionArrow: React.FC<{ degrees: number | null; size?: number }> = ({ degrees, size = 14 }) => {
     if (degrees === null) return null;
     return (
@@ -307,7 +306,7 @@ const InstrumentCell: React.FC<{
     spokenLabel: string;
     /** The value in words where the shown one is an abbreviation ("east-southeast"). */
     spokenValue?: string;
-    /** Words for what only a glyph shows, e.g. the swell arrow's bearing. */
+    /** Words for what only a glyph shows, e.g. the wave arrow's bearing. */
     spokenExtra?: string;
     /** A muted word under the value naming what the number covers ('today'),
      *  where the cell's label alone left it ambiguous. Seen, not read: the
@@ -486,10 +485,13 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             : '--';
     const windDir = asReading(topRowData.windDirection || '--');
     const windDirSpoken = windDir === '--' ? undefined : expandCompassDirection(String(windDir)).toLowerCase();
-    const swellDirDeg = cardinalToDegrees(topRowData.swellDirection) ?? null;
-    const swellFromSpoken =
-        swellDirDeg !== null && topRowData.swellDirection
-            ? `swell from the ${expandCompassDirection(String(topRowData.swellDirection)).toLowerCase()}`
+    // swellDirection and swellPeriod are the TOTAL sea's (wind sea and every
+    // swell), whatever their names say, so this cell is WAVE at every
+    // location type, offshore too (W1-07). SWELL 2 is the only swell shown.
+    const waveDirDeg = cardinalToDegrees(topRowData.swellDirection) ?? null;
+    const wavesFromSpoken =
+        waveDirDeg !== null && topRowData.swellDirection
+            ? `waves from the ${expandCompassDirection(String(topRowData.swellDirection)).toLowerCase()}`
             : undefined;
 
     const safeRound = (v: number | null | undefined): number | string =>
@@ -761,10 +763,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         )}
                     </DraggableMetricCell>
 
-                    {/* Wave/Swell Height — or TEMP if pinned */}
+                    {/* Wave Height — or TEMP if pinned */}
                     <DraggableMetricCell
                         id={heroMetric === 'wave' ? 'temp' : 'wave'}
-                        description={heroMetric === 'wave' ? undefined : isOffshore ? GLOSSARY.swell : GLOSSARY.wave}
+                        description={heroMetric === 'wave' ? undefined : GLOSSARY.wave}
                     >
                         {heroMetric === 'wave' ? (
                             <InstrumentCell
@@ -776,16 +778,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                             />
                         ) : (
                             <InstrumentCell
-                                label={isOffshore ? 'SWELL' : 'WAVE'}
-                                spokenLabel={isOffshore ? 'Swell height' : 'Wave height'}
-                                spokenExtra={swellFromSpoken}
+                                label="WAVE"
+                                spokenLabel="Wave height"
+                                spokenExtra={wavesFromSpoken}
                                 icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
                                 value={waveHeight ?? '--'}
                                 unit={waveUnit}
                                 trend={trends?.waveHeight}
                                 alarm={alarmFor('waveHeight')}
-                                dirDeg={swellDirDeg}
-                                tooltip={isOffshore ? GLOSSARY.swell : GLOSSARY.wave}
+                                dirDeg={waveDirDeg}
+                                tooltip={GLOSSARY.wave}
                             />
                         )}
                     </DraggableMetricCell>
@@ -803,14 +805,14 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                         ) : (
                             <InstrumentCell
                                 label="PERIOD"
-                                spokenLabel={isOffshore ? 'Period of the swell' : 'Period of the waves'}
+                                spokenLabel="Period of the waves"
                                 // Six letters overflow a 375 pt phone's fifth column at
                                 // any tracking; untracked, it keeps 4 pt clear.
                                 compactLabel
                                 icon={<WavePeriodIcon className="w-3 h-3 metric-anim-gauge" />}
                                 value={wavePeriod}
                                 unit="s"
-                                dirDeg={swellDirDeg}
+                                dirDeg={waveDirDeg}
                             />
                         )}
                     </DraggableMetricCell>

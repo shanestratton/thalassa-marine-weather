@@ -191,7 +191,11 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
         // Fields: Hs (significant wave height), Hmax, Tz (period), Tp, Direction, SST (sea surface temp)
         return {
             waveHeight: parseFloat(record.Hs) || undefined,
-            dominantWavePeriod: parseFloat(record.Tp) || parseFloat(record.Tz) || undefined,
+            // Tp only: this field is the dominant (peak) period, and Tz, the
+            // mean zero-crossing period, arrived under that name and was
+            // captioned 'Peak period'. With no Tp the merger uses the model's
+            // mean period instead (W1-07).
+            dominantWavePeriod: parseFloat(record.Tp) || undefined,
             windDirection: parseFloat(record.Direction) || undefined,
             waterTemp: parseFloat(record.SST) || undefined,
             timestamp: record.DateTime || new Date().toISOString(),

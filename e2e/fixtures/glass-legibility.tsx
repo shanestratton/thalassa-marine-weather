@@ -65,6 +65,27 @@ const widgets: MetricWidget[] = [
     { id: 'swell2', label: 'SWELL 2', icon: <WaveIcon />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
     { id: 'period2', label: 'PER. 2', icon: <GaugeIcon />, headingColor: 'text-cyan-400', labelColor: 'text-cyan-300' },
 ];
+// The widest readings each offshore tile draws, as HeroSlide formats them
+// (W1-07, build 123): SWELL 2 in the skipper's own Seas unit, no arrow.
+// ?seas=ft is the imperial skipper's grid.
+const SEAS_FT = new URLSearchParams(window.location.search).get('seas') === 'ft';
+const offshoreReadings: Record<string, [string, string]> = SEAS_FT
+    ? {
+          water: ['84', '°F'],
+          drift: ['2.4', 'kts'],
+          set: ['NNW', ''],
+          cape: ['2400', ''],
+          swell2: ['13.1', 'ft'],
+          period2: ['16', 's'],
+      }
+    : {
+          water: ['29', '°C'],
+          drift: ['2.4', 'kts'],
+          set: ['NNW', ''],
+          cape: ['2400', ''],
+          swell2: ['4.6', 'm'],
+          period2: ['16', 's'],
+      };
 
 // ?daySlots=1 (2026-10-02): the day card in the Glass carousel's slot heights,
 // measured in the app: 109 px at 375x667 (where it was cut off), 156 px at
@@ -130,7 +151,11 @@ function Fixture() {
                     className="relative w-full rounded-xl overflow-hidden bg-white/8 border border-white/15 flex flex-col"
                     style={{ height: 182 }}
                 >
-                    <MetricGridPanel widgets={widgets} getValue={() => '2'} getUnit={() => 'm'} />
+                    <MetricGridPanel
+                        widgets={widgets}
+                        getValue={(id) => offshoreReadings[id][0]}
+                        getUnit={(id) => offshoreReadings[id][1]}
+                    />
                 </section>
                 <section
                     data-testid="daily-summary"
@@ -148,7 +173,8 @@ function Fixture() {
                             windGust: 18,
                             windDegree: 45,
                             waveHeight: 1.2,
-                            swellPeriod: 8,
+                            // Two digits: '14s' is the widest period caption (W1-07).
+                            swellPeriod: 14,
                             precipChance: 20,
                             tideSummary: 'High 08:00 · Low 14:00',
                         }}
