@@ -79,6 +79,11 @@ export type WeatherLayer =
     | 'pressure'
     | 'sea'
     | 'satellite'
+    // OBSERVED satellite cloud (NOAA GMGSI longwave IR, W1-10), the Sky
+    // menu's "Sat cloud". Not 'satellite' (the old Esri imagery key) and not
+    // 'clouds' (OpenWeatherMap MODEL cloud, which stays alongside it). It has
+    // no LAYER_FRAME_ZOOM on purpose: switching it on never moves the camera.
+    | 'satIR'
     | 'velocity'
     // Sea State
     | 'waves'

@@ -6,6 +6,7 @@ import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { RouteLegend } from './RouteLegend';
 import { ChartKeyPanel } from './ChartKeyPanel';
 import type { MooringColourFilter } from '../../services/anchorages/cruisingReference';
+import { SAT_IR_CREDIT, SAT_IR_EXTENT_DEG, SAT_IR_LEGEND_GRADIENT, SAT_IR_LOW_ANGLE_DEG } from './satelliteImagery';
 
 /** Non-weather entries share the weather panel's one collapsible key. */
 export interface ObsLayerKeyProps {
@@ -28,6 +29,8 @@ export interface ObsLayerKeyProps {
     mooringFilter: MooringColourFilter;
     onMooringFilter: (value: MooringColourFilter) => void;
     tideStatus: { stationCount: number; loading: boolean; error: boolean; zoomRequired: boolean };
+    /** The observed satellite cloud (Sky → Sat cloud) is up. */
+    satelliteIr?: boolean;
 }
 
 export function obsLayerKeyCount(props: ObsLayerKeyProps): number {
@@ -45,6 +48,7 @@ export function obsLayerKeyCount(props: ObsLayerKeyProps): number {
         props.route,
         props.track,
         props.passage || props.forecastRoute,
+        props.satelliteIr,
     ].filter(Boolean).length;
 }
 
@@ -70,6 +74,36 @@ export function ObsLayerKey(props: ObsLayerKeyProps) {
             {props.lightning && (
                 <KeySection title="Lightning">
                     <BlitzortungAttribution visible />
+                </KeySection>
+            )}
+            {props.satelliteIr && (
+                <KeySection title="Satellite cloud (IR)">
+                    {/* Over the chart's own navy, as the clear sky leaves it. */}
+                    <div
+                        data-testid="sat-ir-ramp"
+                        aria-hidden="true"
+                        className="h-2 rounded-full"
+                        style={{ background: `${SAT_IR_LEGEND_GRADIENT}, #12284a` }}
+                    />
+                    <p className="flex justify-between text-[10px] text-slate-400">
+                        <span>Warmer, lower</span>
+                        <span>Colder, higher tops</span>
+                    </p>
+                    <p>
+                        Observed cloud-top temperature from geostationary satellites, hourly and about 1–3 h old. Clear
+                        sky, low warm cloud and fog barely show. Context, not a squall nowcast: use Rain for that.
+                    </p>
+                    <p>
+                        Shown {SAT_IR_EXTENT_DEG}°S–{SAT_IR_EXTENT_DEG}°N only: past that there is no imagery, so a
+                        blank chart there is not clear sky. Past {SAT_IR_LOW_ANGLE_DEG}° the satellites look in at a low
+                        angle, so cold sea and ice can show as thin cloud.
+                    </p>
+                    <p>{SAT_IR_CREDIT}</p>
+                    <p>
+                        Colours added by Thalassa (enhanced IR), not an unaltered NOAA product. Each image is scaled to
+                        the tropics&rsquo; coldest cloud tops so the colours mean the same every hour; an image that
+                        cannot be scaled is not shown.
+                    </p>
                 </KeySection>
             )}
             {props.squall && (

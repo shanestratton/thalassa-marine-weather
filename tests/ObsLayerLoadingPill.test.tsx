@@ -13,6 +13,7 @@ function props(overrides: Partial<React.ComponentProps<typeof ObsLayerLoadingPil
         windError: null,
         rainLoading: false,
         rainImageLoading: false,
+        satLoading: false,
         ...overrides,
     };
 }
@@ -54,6 +55,21 @@ describe('ObsLayerLoadingPill', () => {
                 props({ activeLayers: new Set(['wind']), windLoading: true, windReady: true, windHasGrid: true }),
             ),
         ).toBeNull();
+    });
+
+    it('names the satellite cloud while its first frame is on the way, and only while it is on', () => {
+        const input = props({ activeLayers: new Set<WeatherLayer>(['satIR']), satLoading: true });
+        expect(getObsLayerLoadingKind(input)).toBe('satellite');
+        render(<ObsLayerLoadingPill {...input} />);
+        expect(screen.getByRole('status', { name: 'Loading satellite layer' })).toBeInTheDocument();
+        // A stale flag with the layer off is not a load anyone asked for.
+        expect(getObsLayerLoadingKind(props({ satLoading: true }))).toBeNull();
+        // Two layers loading at once read as one weather load.
+        expect(
+            getObsLayerLoadingKind(
+                props({ activeLayers: new Set<WeatherLayer>(['satIR', 'rain']), satLoading: true, rainLoading: true }),
+            ),
+        ).toBe('weather');
     });
 
     it('still centres the pill for a first load with nothing on screen', () => {

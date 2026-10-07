@@ -27,5 +27,14 @@ export function creditsStripTop(offsetPx = 0): string {
     return `calc(env(safe-area-inset-top) + ${CREDITS_STRIP_TOP_PX + offsetPx}px)`;
 }
 
+/**
+ * Where the satellite cloud's credit starts: under every credit that can sit
+ * above it. Copernicus takes TWO slots: its credit is three 10px lines (~48px),
+ * and stacking at one slot let the next credit overlap its DOI line.
+ */
+export function satelliteCreditOffsetPx(above: { rain: boolean; cmems: boolean; lightning: boolean }): number {
+    return ((above.rain ? 1 : 0) + (above.cmems ? 2 : 0) + (above.lightning ? 1 : 0)) * CREDITS_SLOT_PX;
+}
+
 /** Centred under the dropdown; z sits under the dropdown (z-700 shut, z-9998 open). */
 export const CREDITS_STRIP_POSITION_CLASS = 'absolute left-1/2 -translate-x-1/2';

@@ -76,7 +76,7 @@ export function assertNetworkAllowed(kind: NetworkKind, label: string): void {
  */
 export const SATELLITE_MODE_ENFORCED: ReadonlyArray<{ kind: NetworkKind; label: string }> = [
     { kind: 'grib', label: 'Wind & pressure GRIB grids pause (the biggest download)' },
-    { kind: 'raster', label: 'Rain radar and precip imagery pause' },
+    { kind: 'raster', label: 'Rain radar, precip and satellite cloud imagery pause' },
     { kind: 'ais-internet', label: 'Internet AIS pauses — your own VHF AIS still shows' },
     { kind: 'offline-download', label: 'Bulk offline chart downloads are blocked' },
     // Photos and ≤60 s clips are the heaviest thing a phone sends (~200 MB/min

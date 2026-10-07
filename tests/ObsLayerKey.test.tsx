@@ -96,6 +96,25 @@ describe('shared OBS layer key', () => {
         expect(screen.getByText(/Indicative CAPAD classes, not permissions/)).toBeInTheDocument();
         expect(screen.getByText(/Missing mapped marks do not mean clear water/)).toBeInTheDocument();
     });
+    it('explains the satellite cloud colours, its limits and who made the imagery', () => {
+        const p = props({ satelliteIr: true });
+        render(<ObsLayerKey {...p} />);
+        expect(obsLayerKeyCount(p)).toBe(1);
+        const key = screen.getByRole('region', { name: 'Satellite cloud (IR) key' });
+        expect(within(key).getByTestId('sat-ir-ramp')).toBeInTheDocument();
+        // What IR cannot see, and what it is not.
+        expect(within(key).getByText(/low warm cloud and fog barely show/i)).toBeInTheDocument();
+        expect(within(key).getByText(/not a squall nowcast/i)).toBeInTheDocument();
+        expect(within(key).getByText(/60°S–60°N only/)).toBeInTheDocument();
+        // Past the edge a blank chart is not clear sky, and each image is re-anchored.
+        expect(within(key).getByText(/not clear sky/)).toBeInTheDocument();
+        expect(within(key).getByText(/cannot be scaled is not shown/)).toBeInTheDocument();
+        // NOAA asks that altered imagery is not passed off as theirs.
+        expect(
+            within(key).getByText(/NOAA\/NESDIS GMGSI: GOES, Meteosat \(EUMETSAT\), Himawari \(JMA\)/),
+        ).toBeInTheDocument();
+        expect(within(key).getByText(/colours added by Thalassa/i)).toBeInTheDocument();
+    });
     it('keeps lightning credit and connection status visible in compact mode without duplicating the key', () => {
         render(<BlitzortungAttribution visible compact />);
         expect(screen.getByRole('link', { name: 'Blitzortung.org' })).toBeInTheDocument();
