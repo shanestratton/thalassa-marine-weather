@@ -11,6 +11,8 @@ import { TideGraph } from '../../components/dashboard/tide/TideGraph';
 import { ThermometerIcon, GaugeIcon, CompassIcon, CloudIcon, WaveIcon } from '../../components/Icons';
 import type { UnitPreferences, WeatherMetrics } from '../../types';
 import { SUN_STAYS_DOWN, SUN_STAYS_UP } from '../../utils/celestial';
+import { SunMoonSheet } from '../../components/dashboard/SunMoonSheet';
+import type { DayAgreementChip } from '../../components/dashboard/hero/DailySummaryCard';
 import '../../index.css';
 // Keep the late-loaded passage stylesheet in the cascade, as in the app.
 import '../../styles/bioluminescent.css';
@@ -95,6 +97,73 @@ const DAY_SLOTS = new URLSearchParams(window.location.search).get('daySlots') ==
 // ?sun=polar (build 123, W1-06): the header's sun chip in polar day and night
 // beside the '--:--' chip it stands in for, in the Glass header's px-4 gutter.
 const POLAR_SUN = new URLSearchParams(window.location.search).get('sun') === 'polar';
+// ?w109=<device> (build 123, W1-09): the day card with the models' agreement
+// chip and its sun & moon row, in the carousel slot that phone gives it, at
+// the app's 16 px gutters. 197 px at 390x844 and 109 px at 375x667 were
+// measured in the app (2026-10-02); the others follow from the Glass stack
+// (glassLayout.ts) and each phone's insets: 393x852 (59/34) 193, 430x932
+// (59/34) 273, 375x812 (50/34) 162, 320x693 zoomed (48/28) 79.
+// &fonts=wide draws Verdana / DejaVu Sans, the widest faces we meet.
+const PARAMS = new URLSearchParams(window.location.search);
+const W109_SLOTS: Record<string, { slot: number; dayLabel: boolean }> = {
+    'iphone-15': { slot: 193, dayLabel: true },
+    'iphone-pro-max': { slot: 273, dayLabel: true },
+    'iphone-13-mini': { slot: 162, dayLabel: true },
+    'iphone-se': { slot: 109, dayLabel: false },
+    'iphone-16-zoomed': { slot: 79, dayLabel: false },
+};
+const W109 = W109_SLOTS[PARAMS.get('w109') ?? ''];
+// ?sunmoon=1&top=<px>&bottom=<px>: the header chip as the sheet's button and
+// the sheet open over the app's tab bar, the phone's insets painted where
+// env() would put them (env() is 0 in a desktop browser).
+const SUN_MOON = PARAMS.get('sunmoon') === '1';
+const INSET_TOP = Math.max(0, Number(PARAMS.get('top')) || 0);
+const INSET_BOTTOM = Math.max(0, Number(PARAMS.get('bottom')) || 0);
+if (PARAMS.get('fonts') === 'wide') {
+    const wide = document.createElement('style');
+    wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+    document.head.append(wide);
+}
+if (SUN_MOON) {
+    const insets = document.createElement('style');
+    insets.textContent = `[role="presentation"]:has(> [aria-labelledby="sun-moon-title"]) { padding-top: max(1rem, ${INSET_TOP}px) !important; padding-bottom: calc(4rem + ${INSET_BOTTOM}px + 1rem) !important; }`;
+    document.head.append(insets);
+}
+/** Fictional: Airlie Beach's USNO times for 7 Oct 2026. */
+const W109_SKY = {
+    firstLight: '05:19',
+    sunrise: '05:42',
+    sunset: '18:05',
+    lastLight: '18:27',
+    moonrise: '03:13',
+    moonset: '14:57',
+    illumination: 0.12,
+    phaseName: 'Waning Crescent',
+};
+/** The card as the app draws it (no tide line: nothing fills tideSummary
+ *  today), a long condition with the widest chip, and the worst case with a
+ *  tide line too. */
+const W109_CARDS: { id: string; tide: boolean; condition: string; agreement: DayAgreementChip }[] = [
+    {
+        id: 'app',
+        tide: false,
+        condition: 'Partly Cloudy',
+        agreement: { level: 'some', members: 7, peak: 7, thin: false },
+    },
+    {
+        id: 'thin',
+        tide: false,
+        condition: 'Thunderstorm with slight hail',
+        agreement: { level: 'split', members: 4, peak: 7, thin: true },
+    },
+    {
+        id: 'tide',
+        tide: true,
+        condition: 'Light Drizzle',
+        agreement: { level: 'agree', members: 7, peak: 7, thin: false },
+    },
+];
+
 const shortDay = {
     highTemp: 23,
     lowTemp: 21,
@@ -238,6 +307,74 @@ function Fixture() {
                         </div>
                     ))}
                 </section>
+            )}
+            {W109 && (
+                <section data-testid="w109-cards" className="w-full px-4 flex flex-col gap-3 pb-4">
+                    {W109_CARDS.filter((c) => !c.tide || W109.slot > 100).map((card) => (
+                        // Framed as HeroSlide frames it.
+                        <div
+                            key={card.id}
+                            data-testid={`w109-${card.id}`}
+                            className="relative w-full rounded-2xl overflow-hidden border border-white/8 bg-white/4"
+                            style={{ height: W109.slot }}
+                        >
+                            <DailySummaryCard
+                                units={units}
+                                dateLabel="Sat 10 Oct"
+                                showDateHeading={!W109.dayLabel}
+                                daily={{
+                                    ...shortDay,
+                                    swellPeriod: 14,
+                                    condition: card.condition,
+                                    tideSummary: card.tide ? shortDay.tideSummary : undefined,
+                                }}
+                                agreement={card.agreement}
+                                onCompare={() => undefined}
+                                sky={W109_SKY}
+                            />
+                        </div>
+                    ))}
+                </section>
+            )}
+            {SUN_MOON && (
+                <>
+                    <section data-testid="sun-moon-chip" className="w-full px-4 pb-4">
+                        <CompactHeaderRow
+                            alerts={[]}
+                            sunrise="07:43"
+                            sunset="19:09"
+                            moonPhase="🌘"
+                            moonPhaseName="Waning Crescent"
+                            onOpenSunMoon={() => undefined}
+                        />
+                    </section>
+                    {/* Marseille's own day, fictional position nearby. */}
+                    <SunMoonSheet
+                        onClose={() => undefined}
+                        lat={43.3}
+                        lon={5.37}
+                        timeZone="Europe/Paris"
+                        isoDate="2026-10-07"
+                        isToday={false}
+                    />
+                    {/* The real tab bar's geometry (App.tsx): fixed, z-900, 4rem above the home indicator. */}
+                    <nav
+                        aria-label="Main"
+                        className="fixed bottom-0 left-0 right-0 z-900 border-t"
+                        style={{
+                            background: 'rgb(10, 15, 20)',
+                            borderColor: 'rgba(56, 189, 248, 0.12)',
+                            paddingBottom: INSET_BOTTOM,
+                        }}
+                    >
+                        <div className="mx-auto flex h-16 items-center justify-around px-4 text-xs font-bold text-slate-300">
+                            <span className="text-sky-300">THE GLASS</span>
+                            <span>OBS</span>
+                            <span>PLAN</span>
+                            <span>VESSEL</span>
+                        </div>
+                    </nav>
+                </>
             )}
             {mode === 'night' && (
                 <div

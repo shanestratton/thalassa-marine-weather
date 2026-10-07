@@ -15,7 +15,7 @@ import {
 import { UnitPreferences, SourcedWeatherMetrics, HourlyForecast } from '../../../types';
 import { ShipLogService } from '../../../services/ShipLogService';
 import { circularMean } from '../../../utils/circularStats';
-import { SUN_STAYS_DOWN, SUN_STAYS_UP } from '../../../utils/celestial';
+import { SUN_STAYS_DOWN, SUN_STAYS_UP, getMoonData, getSolarTimesForDate, localNoon } from '../../../utils/celestial';
 
 // ── Sun Phase Helper ────────────────────────────────────────────────
 
@@ -225,6 +225,63 @@ export interface DailySummary {
     sunrise?: string;
     sunset?: string;
     precipChance?: number;
+    /** The day's date on the location's calendar, YYYY-MM-DD: what its sun &
+     *  moon row and its model-agreement chip are for (W1-09). */
+    isoDate?: string;
+}
+
+/**
+ * The day card's sun & moon row (W1-09): first and last light (civil), the
+ * sun, the moon's rise and set and how much of it is lit, all for the
+ * location's own day on its own clock. Polar days carry celestial's words
+ * ('Sun stays up', 'No true night') instead of times; a moonrise or moonset
+ * that falls on another day is null.
+ */
+export interface DaySky {
+    firstLight: string;
+    sunrise: string;
+    sunset: string;
+    lastLight: string;
+    moonrise: string | null;
+    moonset: string | null;
+    /** 0–1, at the day's local noon. */
+    illumination: number;
+    phaseName: string;
+}
+
+export function daySky(isoDate: string, lat: number, lon: number, timeZone?: string): DaySky | null {
+    // 0°, 0° is the optimistic stub of a location still being geocoded.
+    if (!/^\d{4}-\d{2}-\d{2}/.test(isoDate) || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (lat === 0 && lon === 0) return null;
+    const sun = getSolarTimesForDate(isoDate, lat, lon, timeZone);
+    const moon = getMoonData(localNoon(isoDate, timeZone), lat, lon, timeZone);
+    return {
+        firstLight: sun.dawn,
+        sunrise: sun.sunrise,
+        sunset: sun.sunset,
+        lastLight: sun.dusk,
+        moonrise: moon.moonrise ?? null,
+        moonset: moon.moonset ?? null,
+        illumination: moon.illumination,
+        phaseName: moon.phaseName,
+    };
+}
+
+/**
+ * A day card asks the Glass's one model comparison (mounted with the metric
+ * grid, in HeroWidgets) to open on its day, on the tab that decided its
+ * verdict: one window event, as 'thalassa:navigate' does, rather than a
+ * second comparison sheet in every day row.
+ */
+export const MODEL_COMPARE_EVENT = 'thalassa:compare-models';
+export interface ModelCompareRequest {
+    /** An instant inside the day (its middle). */
+    dayMs: number;
+    param: 'wind' | 'dir';
+}
+export function requestModelComparison(detail: ModelCompareRequest): void {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent<ModelCompareRequest>(MODEL_COMPARE_EVENT, { detail }));
 }
 
 /**
@@ -372,6 +429,40 @@ const localCalendarDate = (value: string | number | Date, timeZone?: string): st
         return date.toLocaleDateString('en-CA');
     }
 };
+
+/**
+ * The location's date `offsetDays` after its today, YYYY-MM-DD: Glass row N
+ * is the place's today plus N (the rows are consecutive days from today).
+ */
+export function locationDayIso(offsetDays: number, timeZone?: string, now: Date = new Date()): string {
+    const today = localCalendarDate(now, timeZone) ?? now.toISOString().slice(0, 10);
+    const d = new Date(`${today}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + offsetDays);
+    return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The location's date of the Glass row on screen, from the row's own data
+ * (the header's sun times come from the same data): an hourly card's hour on
+ * the place's clock, else the day's isoDate. Row N is NOT always today plus
+ * N (a report cached days ago, a provider that skips a day); the count is
+ * only the fallback. Row 0 is always the place's today.
+ */
+export function activeRowIsoDate(
+    data: { isoDate?: string; time?: unknown } | null | undefined,
+    offsetDays: number,
+    timeZone?: string,
+    now: Date = new Date(),
+): string {
+    if (offsetDays > 0 && data) {
+        const own =
+            (typeof data.time === 'string' || typeof data.time === 'number'
+                ? localCalendarDate(data.time, timeZone)
+                : undefined) ?? dateOnly(data.isoDate);
+        if (own) return own;
+    }
+    return locationDayIso(offsetDays, timeZone, now);
+}
 
 const previousCalendarDate = (isoDate: string): string | undefined => {
     const date = new Date(`${isoDate}T12:00:00Z`);
@@ -647,6 +738,12 @@ export function buildSlides(
                     sunrise: m.sunrise || rowData.sunrise,
                     sunset: m.sunset || rowData.sunset,
                     precipChance: m.precipChance,
+                    // The location's date: from the day's own hours on its
+                    // clock, else the row's (W1-09).
+                    isoDate:
+                        (firstHour ? localCalendarDate(firstHour.time, timeZone) : undefined) ??
+                        dateOnly(rowData.isoDate) ??
+                        dateOnly(rowData.date),
                 },
             },
         ];

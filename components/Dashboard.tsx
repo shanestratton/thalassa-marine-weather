@@ -23,6 +23,11 @@ const GlassTutorial = lazyRetry(
     () => import('./dashboard/GlassTutorial').then((module) => ({ default: module.GlassTutorial })),
     'GlassTutorial',
 );
+// The header's Sun and moon chip opens it (W1-09); loaded only then.
+const SunMoonSheet = lazyRetry(
+    () => import('./dashboard/SunMoonSheet').then((module) => ({ default: module.SunMoonSheet })),
+    'SunMoonSheet',
+);
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
@@ -34,7 +39,7 @@ import {
     getGlassTopLayout,
 } from './dashboard/glassLayout';
 import { useViewportHeight } from '../hooks/useViewportHeight';
-import { computeSunPhase, resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
+import { activeRowIsoDate, computeSunPhase, resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
 
 import { useSettings } from '../context/SettingsContext';
 // useWeather removed with the old freshness strip — re-add if a new Glass-page
@@ -297,6 +302,22 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             setActiveDayData(liveDayData);
         }
     }, [current, data?.forecast, data?.timeZone, hourly]);
+
+    // The sun & moon sheet (W1-09), for the day on screen at the Glass point.
+    // Not for the 0°, 0° stub a location wears while it is geocoded. The day
+    // is the row's own date (row N is not always today plus N), read at the
+    // tap from the refs: the rAF batch can leave activeDayData a row behind.
+    const [sunMoonDay, setSunMoonDay] = useState<{ isoDate: string; isToday: boolean } | null>(null);
+    const sunMoonPlaced = !!data?.coordinates && (data.coordinates.lat !== 0 || data.coordinates.lon !== 0);
+    const sunMoonZone = data?.timeZone;
+    const openSunMoon = useCallback(() => {
+        const day = activeDayRef.current;
+        setSunMoonDay({
+            isoDate: activeRowIsoDate(activeDayDataRef.current, day, sunMoonZone),
+            isToday: day === 0,
+        });
+    }, [sunMoonZone]);
+    const closeSunMoon = useCallback(() => setSunMoonDay(null), []);
 
     // Minutely rain data — Rainbow.ai for Skipper tier, WeatherKit fallback for others
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
@@ -1198,7 +1219,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                             moonPhaseName={moon.phase}
                                             dashboardMode={userSettings.dashboardMode || 'full'}
                                             onToggleDashboardMode={handleToggleDashboardMode}
+                                            onOpenSunMoon={sunMoonPlaced ? openSunMoon : undefined}
                                         />
+                                        {sunMoonDay && sunMoonPlaced && (
+                                            <Suspense fallback={null}>
+                                                <SunMoonSheet
+                                                    onClose={closeSunMoon}
+                                                    lat={data.coordinates!.lat}
+                                                    lon={data.coordinates!.lon}
+                                                    timeZone={data.timeZone}
+                                                    isoDate={sunMoonDay.isoDate}
+                                                    isToday={sunMoonDay.isToday}
+                                                />
+                                            </Suspense>
+                                        )}
                                     </div>
                                 </div>
 

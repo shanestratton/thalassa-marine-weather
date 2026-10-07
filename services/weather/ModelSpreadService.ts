@@ -73,6 +73,19 @@ const MEMO_TTL_MS = 30 * 60 * 1000;
 
 const memo = new Map<string, { at: number; data: ModelSpreadResult }>();
 const inflight = new Map<string, Promise<ModelSpreadResult>>();
+/** The last answer per cell with a leg missing, and how long a passive
+ *  reader takes it rather than asking again (W1-09 review). */
+const incomplete = new Map<string, { at: number; data: ModelSpreadResult }>();
+const PASSIVE_RETRY_MS = 5 * 60 * 1000;
+
+export interface SpreadQueryOptions {
+    /** A reader that asks without being opened: the Glass day cards' chip,
+     *  which asks on every day swipe. It also takes a recent answer that
+     *  came back with a leg missing (or none), so a refused or timed-out leg
+     *  costs one pair of requests per five minutes rather than one per swipe.
+     *  The comparison sheet asks without it, so opening it still retries. */
+    passive?: boolean;
+}
 
 /** The 0.1° cell (~11 km) a point falls in. The antimeridian's two sides share
  *  a cell, and so do ±0. Exported for tests. */
@@ -168,23 +181,35 @@ async function fetchSpread(lat: number, lon: number): Promise<{ data: ModelSprea
 /**
  * The ten-day spread for the 0.1° cell holding (lat, lon): memoised for 30
  * minutes and in-flight-deduped per cell. The first caller's exact point is
- * the one fetched; later callers in the same cell share that answer.
+ * the one fetched; later callers in the same cell share that answer. An
+ * answer with a leg missing is not memoised, except for passive readers.
  */
-export async function queryModelSpread(lat: number, lon: number): Promise<ModelSpreadResult> {
+export async function queryModelSpread(
+    lat: number,
+    lon: number,
+    options: SpreadQueryOptions = {},
+): Promise<ModelSpreadResult> {
     const key = spreadCellKey(lat, lon);
     const hit = memo.get(key);
     if (hit && Date.now() - hit.at < MEMO_TTL_MS) return hit.data;
     const pending = inflight.get(key);
     if (pending) return pending;
+    const recent = options.passive ? incomplete.get(key) : undefined;
+    if (recent && Date.now() - recent.at < PASSIVE_RETRY_MS) return recent.data;
 
     const promise = fetchSpread(lat, lon)
         .then(({ data, complete }) => {
             // Only memoise when BOTH endpoints answered — a transient failure
             // on either leg must not lock in a false "no model publishes
-            // this" empty state for half an hour.
+            // this" empty state for half an hour. A passive reader may take
+            // the incomplete answer for a few minutes (SpreadQueryOptions).
             if (complete) {
                 memo.set(key, { at: Date.now(), data });
+                incomplete.delete(key);
                 pruneMap(memo, 8, (entry) => Date.now() - entry.at >= MEMO_TTL_MS);
+            } else {
+                incomplete.set(key, { at: Date.now(), data });
+                pruneMap(incomplete, 8, (entry) => Date.now() - entry.at >= PASSIVE_RETRY_MS);
             }
             return data;
         })
