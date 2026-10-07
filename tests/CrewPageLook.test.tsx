@@ -8,7 +8,7 @@
  */
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CrewMember } from '../services/CrewService';
 import type { PassageStatus } from '../services/PassagePlanService';
 import type { Voyage } from '../services/VoyageService';
@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     activePassageId: '' as string,
     getMyCrew: vi.fn(),
     removeCrew: vi.fn(),
+    updateCrewPermissions: vi.fn(),
     getPassageStatus: vi.fn(),
     loadNames: vi.fn(),
     toastSuccess: vi.fn(),
@@ -66,7 +67,7 @@ vi.mock('../services/CrewService', () => ({
     getMyCrew: mocks.getMyCrew,
     removeCrew: mocks.removeCrew,
     disbandGroup: vi.fn(),
-    updateCrewPermissions: vi.fn(),
+    updateCrewPermissions: mocks.updateCrewPermissions,
     getMyInvites: vi.fn(async () => []),
     getMyMemberships: vi.fn(async () => []),
     acceptInvite: vi.fn(),
@@ -302,8 +303,13 @@ describe('Crew & Float Plan, the tier-1 look', () => {
         mocks.activePassageId = 'voyage-1';
         mocks.getMyCrew.mockResolvedValue([MIA, SAM]);
         mocks.removeCrew.mockResolvedValue(true);
+        mocks.updateCrewPermissions.mockResolvedValue(true);
         mocks.getPassageStatus.mockImplementation(async (id: string | null) => (id === 'voyage-1' ? OWNER : NONE));
         mocks.loadNames.mockResolvedValue({ 'u-mia': 'Mia Chen' });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('names each person and their role, with the status as a pill and Invite crew as the primary', async () => {
@@ -380,6 +386,49 @@ describe('Crew & Float Plan, the tier-1 look', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Let the undo lapse' }));
         await waitFor(() => expect(mocks.removeCrew).toHaveBeenCalledWith('crew-mia'));
+    });
+
+    it('a crew list that answers after the 6 s never brings back someone you have just removed', async () => {
+        // A permission save reloads the lists, and this time your crew answer
+        // late: at 6 s the page gives up waiting and shows the list it has.
+        // You remove Mia from it. The late answer was read before that, so it
+        // must not put her card back.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+        renderPage();
+        const openMia = async () => {
+            const card = (await screen.findByText('Mia Chen')).closest(
+                '[data-testid="crew-member-card"]',
+            ) as HTMLElement;
+            fireEvent.click(within(card).getByRole('button', { name: 'Edit crew member details' }));
+            return screen.getByRole('region', { name: 'Edit Access — mia.chen@example.com' });
+        };
+
+        let answerLate: () => void = () => undefined;
+        mocks.getMyCrew.mockReturnValueOnce(
+            new Promise<CrewMember[]>((resolve) => {
+                answerLate = () => resolve([MIA, SAM]);
+            }),
+        );
+        fireEvent.click(within(await openMia()).getByRole('button', { name: 'Save crew management changes' }));
+        await waitFor(() => expect(mocks.getMyCrew).toHaveBeenCalledTimes(2));
+        await act(async () => {});
+        await act(async () => {
+            vi.advanceTimersByTime(6000);
+        });
+
+        fireEvent.click(within(await openMia()).getByRole('button', { name: 'Remove from crew' }));
+        expect(screen.queryByText('Mia Chen')).not.toBeInTheDocument();
+        expect(screen.getByText('"mia.chen@example.com" removed')).toBeInTheDocument();
+
+        await act(async () => answerLate());
+        await act(async () => {});
+        expect(screen.queryByText('Mia Chen')).not.toBeInTheDocument();
+        expect(screen.getByText('sam.hollis@example.com')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Let the undo lapse' }));
+        await waitFor(() => expect(mocks.removeCrew).toHaveBeenCalledWith('crew-mia'));
+        await act(async () => {});
+        expect(screen.queryByText('Mia Chen')).not.toBeInTheDocument();
     });
 
     it('a first visit shows "Checking passage access…" until the answer, then remembers the grant', async () => {
