@@ -942,7 +942,7 @@ describe('wiring', () => {
         expect((hook.match(/addSource\(/g) ?? []).length).toBe(1);
     });
 
-    it('hands Mapbox data: URLs, which the CSP lets fetch() read (blob: it does not)', () => {
+    it('hands Mapbox data: URLs, which connect-src lets fetch() read', () => {
         for (const [file, csp] of [
             ['index.html', /connect-src([^;]*);/.exec(read('index.html'))?.[1]],
             ['vercel.json', /connect-src([^;]*);/.exec(read('vercel.json'))?.[1]],

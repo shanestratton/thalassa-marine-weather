@@ -17,13 +17,10 @@
 import { useSettingsStore } from '../stores/settingsStore';
 import { canAccess, type Feature } from '../services/SubscriptionService';
 
-const DEV_GRANT_ALL = (() => {
-    try {
-        return String(import.meta.env?.VITE_GRANT_ALL_FEATURES ?? 'false').toLowerCase() === 'true';
-    } catch {
-        return false;
-    }
-})();
+// A literal comparison, so production's define ("false" in the public-beta
+// profile) folds it to a constant and the override is compiled out
+// (tests/BundleStructuralTrims.test.ts). Exactly 'true' switches it on.
+const DEV_GRANT_ALL = import.meta.env.VITE_GRANT_ALL_FEATURES === 'true';
 
 export function useEntitlement(feature: Feature): boolean {
     const tier = useSettingsStore((s) => s.settings.subscriptionTier);

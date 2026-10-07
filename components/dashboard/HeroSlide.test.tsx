@@ -3,32 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, onTestFinished } from 'vitest';
 
 // Mock heavy sub-components to isolate HeroSlide logic
-vi.mock('./TideAndVessel', () => ({
+vi.mock('./tide/TideGraph', () => ({
     TideGraph: () => <div data-testid="tide-graph" />,
-    SunMoonWidget: () => <div data-testid="sun-moon" />,
-    VesselWidget: () => <div data-testid="vessel" />,
-    VesselStatusWidget: () => <div data-testid="vessel-status" />,
-    TideWidget: () => <div data-testid="tide-widget" />,
-    MoonVisual: () => <div />,
-    SolarArc: () => <div />,
-    getMoonPhaseData: () => ({ phase: 'Full Moon', illumination: 100, emoji: '🌕' }),
-}));
-
-vi.mock('./WeatherGrid', () => ({
-    MetricsWidget: () => <div data-testid="metrics-widget" />,
-    DetailedMetricsWidget: () => <div data-testid="details-widget" />,
-    BeaufortWidget: () => <div data-testid="beaufort-widget" />,
-    AlertsBanner: () => <div data-testid="alerts-banner" />,
-}));
-
-vi.mock('./WeatherCharts', () => ({
-    HourlyWidget: () => <div />,
-    DailyWidget: () => <div />,
-    MapWidget: () => <div />,
-}));
-
-vi.mock('./Advice', () => ({
-    AdviceWidget: () => <div />,
 }));
 
 // Mock useWeather context

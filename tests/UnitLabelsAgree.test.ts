@@ -6,7 +6,8 @@
  * but labelled with the WAVE unit, rain converted by the length unit (so
  * Fahrenheit users saw millimetres under "in"), and a wind badge that
  * converted to m/s and said "kts". Source-pinned because each is a one-token
- * regression away from coming back.
+ * regression away from coming back. (The raw-feet site was WeatherGrid's,
+ * deleted in build 123 with the widget registry nothing rendered.)
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
@@ -14,11 +15,6 @@ import { describe, expect, it } from 'vitest';
 const read = (p: string) => readFileSync(p, 'utf8');
 
 describe('units agree with their labels', () => {
-    it('WeatherGrid converts the wave height before printing it', () => {
-        const src = read('components/dashboard/WeatherGrid.tsx');
-        expect(src).toMatch(/convertLength\(current\.waveHeight, units\.waveHeight \|\| 'm'\)/);
-        expect(src).not.toMatch(/String\(current\.waveHeight\)/);
-    });
     it('the pinned WAVE metric converts with the unit it labels', () => {
         const src = read('components/dashboard/metricDisplayHelpers.ts');
         expect(src).toMatch(/const waveUnit = units\.waveHeight \|\| 'm';/);

@@ -76,6 +76,13 @@ const FOLDABLE_GATES = [
         'components/map/useWeatherLayers.ts',
         "const cmemsCurrentsEnabled = import.meta.env.VITE_CMEMS_CURRENTS_ENABLED === 'true';",
     ],
+    // Held capabilities (W1-FX): both are false in the public-beta profile, so
+    // the dev override and the demo-chart import fold out of production.
+    ['hooks/useEntitlement.ts', "const DEV_GRANT_ALL = import.meta.env.VITE_GRANT_ALL_FEATURES === 'true';"],
+    [
+        'services/enc/bootstrapEncSamples.ts',
+        "const explicit = import.meta.env.VITE_ENABLE_ENC_DEMO_SAMPLES === 'true';",
+    ],
 ] as const;
 
 describe('switched-off features use gates the build can fold', () => {
@@ -132,6 +139,24 @@ describe('every reader of a map-layer flag agrees with the folded gates', () => 
                 'services/weather/api/lightningLicence.ts',
             ]),
         );
+    });
+});
+
+describe('no app code reads a build flag in a form the build cannot fold', () => {
+    it("never wraps an import.meta.env flag in String(...).toLowerCase() === 'true'", () => {
+        // That form survives minification as "false".toLowerCase()==="true",
+        // so everything behind a switched-off flag still ships.
+        const loose =
+            /String\(\s*import\.meta\.env\??\.(VITE_[A-Z0-9_]+)[^;\n]*?\)\s*\.toLowerCase\(\)\s*===\s*'true'/g;
+        const offenders: string[] = [];
+        for (const file of appSourceFiles()) {
+            const source = readFileSync(file, 'utf8');
+            for (const match of source.matchAll(loose)) {
+                const line = source.slice(0, match.index ?? 0).split('\n').length;
+                offenders.push(`${relative(ROOT, file).replaceAll('\\', '/')}:${line} ${match[1]}`);
+            }
+        }
+        expect(offenders).toEqual([]);
     });
 });
 

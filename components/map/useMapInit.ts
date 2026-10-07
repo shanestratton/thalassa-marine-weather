@@ -16,7 +16,7 @@ import { triggerHaptic } from '../../utils/system';
 import { GpsService as _GpsService } from '../../services/GpsService';
 import { createPinMarker } from '../../utils/createMarkerEl';
 import { AvNavService, encryptOchartsUrl } from '../../services/AvNavService';
-import { MBTilesService } from '../../services/MBTilesService';
+import { MBTilesService, TRANSPARENT_TILE_DATA_URL } from '../../services/MBTilesService';
 import { piCache } from '../../services/PiCacheService';
 import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../../services/authIdentityScope';
 import { existingMapLayerIds } from './mapLayerQueries';
@@ -513,9 +513,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                             return { url: blobUrl };
                         }
                         // Missing tile — return transparent 1x1 PNG
-                        return {
-                            url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg==',
-                        };
+                        return { url: TRANSPARENT_TILE_DATA_URL };
                     }
                 }
 
