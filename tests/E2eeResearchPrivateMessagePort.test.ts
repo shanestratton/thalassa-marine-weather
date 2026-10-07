@@ -118,6 +118,35 @@ const sendRequest = () => ({
 });
 
 describe('explicit Research-to-private-message bridge — mocked native boundary', () => {
+    it('opens only the original UI credential binding when deliberately supplied', async () => {
+        const f = fixture();
+        expect(await f.port.connectCurrentAccount(BINDING)).toEqual(ready());
+        expect(f.native.privateMessageIssue).toHaveBeenCalledWith({ credentialBinding: BINDING });
+    });
+    it('refuses a newer same-account native binding instead of adopting it for an old UI action', async () => {
+        const f = fixture();
+        f.native.currentAccount.mockResolvedValueOnce({
+            status: 'authenticated',
+            account: {
+                accountId: OWNER,
+                deviceId: DEVICE,
+                credentialBinding: FENCE,
+                serverVerified: true,
+            },
+        });
+        expect((await f.port.connectCurrentAccount(BINDING)).status).toBe('unavailable');
+        expect(f.native.privateMessageIssue).not.toHaveBeenCalled();
+        expect(f.native.privateMessageReadiness).not.toHaveBeenCalled();
+    });
+    it.each(['', BINDING + '\n', 'caller-label'])(
+        'refuses malformed expected UI binding %s before native work',
+        async (value) => {
+            const f = fixture();
+            expect((await f.port.connectCurrentAccount(value)).status).toBe('unavailable');
+            expect(f.native.currentAccount).not.toHaveBeenCalled();
+            expect(f.native.privateMessageIssue).not.toHaveBeenCalled();
+        },
+    );
     it('connects the existing native Auth host without a second SDK fence or bearer acquisition', async () => {
         const f = fixture();
         expect(await f.port.connectCurrentAccount()).toEqual(ready());
@@ -408,11 +437,10 @@ describe('explicit Research-to-private-message bridge — mocked native boundary
     it('skips a later subscriber removed reentrantly by the first subscriber', async () => {
         const f = fixture();
         await f.open();
-        let stopLater!: () => void;
         const first = vi.fn(() => stopLater());
         const later = vi.fn();
         const stopFirst = await f.port.subscribe({ authority: auth }, first);
-        stopLater = await f.port.subscribe({ authority: auth }, later);
+        const stopLater = await f.port.subscribe({ authority: auth }, later);
         expect(await f.port.sendText(sendRequest())).toEqual(ok(row()));
         expect(first).toHaveBeenCalledTimes(1);
         expect(later).not.toHaveBeenCalled();

@@ -202,6 +202,27 @@ scan-from-zero cursor and immutable one-device/prekey registration are research
 limits, not production retention, renewal or recovery policies. No review or
 release gate is completed by this integration slice.
 
+The later [startup evidence](../experiments/scuttlebutt-e2ee/review/private-startup-2026-10-07.json)
+adds a dedicated Research entry with synchronous process-wide private legacy
+denial before UI loading, an owner-only sealed admission projection and original
+credential-binding fences. Pending, expired or historical protection remains a
+denial; `unknown` and unavailable never grant legacy access. Missing provisional
+identity, SDK hydration failure and view disposal no longer authorize native
+logout in the uninstalled generic adapter. Explicit SDK `SIGNED_OUT` remains a
+native deactivation event.
+
+The three-phase simulator run passed 63 new admission, 78 account-mode and 363
+ordinary adapter assertions with real provider/Keychain/sealed state and fixture
+Auth/relay. Within-process directory reopening is not a controlled crash. Research
+tests passed 1,765 cases in 24 suites; overlapping app/pilot fixtures passed 671 in
+31 suites. Types/lint and the separate web/18-source unsigned iOS build passed.
+These do not establish actual SDK/Capacitor/UI execution, full-app/router startup,
+visual or physical-device acceptance. No hosted state or human device changed.
+The explicit page requires pre-existing enrollment/pairing/protection and supplies
+no automatic setup/recovery. Inspect the no-legacy graph and the native and JS
+publication checks separately rather than transferring earlier hosted evidence
+to this new candidate.
+
 ## User problem and intended pilot
 
 Private DM content should be readable only at the intended endpoints, with ciphertext and public device material relayed by the service. An uncertain send must retry the same committed ciphertext; authentication, identity, storage or delivery failures must stop protected messaging visibly. Existing server-readable history must retain its accurate status.
@@ -321,6 +342,7 @@ Use the repository sources below to reproduce the completed baseline and identif
 - [Native HTTPS account-mode probe](../experiments/scuttlebutt-e2ee/VodozemacAccountModeExchangeProbe.swift), [guarded migration contract](../experiments/scuttlebutt-e2ee/hosted/cutoverMigration.mjs), [real-engine migration runner](../experiments/scuttlebutt-e2ee/hosted/cutoverMigrationProof.mjs) and [hosted cutover manifest](../experiments/scuttlebutt-e2ee/review/hosted-cutover-2026-10-07.json). Account-control transport, local migration tests and real hosted support installation are separate evidence categories.
 - [Deployment contracts](../experiments/scuttlebutt-e2ee/hosted/cutoverDeployment.mjs), [cutover deployer](../experiments/scuttlebutt-e2ee/hosted/deployCutover.mjs), [positive hosted controls](../experiments/scuttlebutt-e2ee/hosted/cutoverLiveProof.mjs) and [hosted API manifest](../experiments/scuttlebutt-e2ee/review/hosted-api-2026-10-07.json). Restoration journals/credentials stay in private artifacts; only hashes and sanitized evidence belong in the assessment packet.
 - [Native hosted runner](../experiments/scuttlebutt-e2ee/hosted/nativePmProof.mjs), [one-lifetime fixture controls](../experiments/scuttlebutt-e2ee/hosted/nativePmFixture.mjs), [native probe](../experiments/scuttlebutt-e2ee/VodozemacHostedPmProbe.swift) and [native hosted manifest](../experiments/scuttlebutt-e2ee/review/native-hosted-2026-10-07.json). The runner is deliberately fresh-only; do not reset consumed actors to manufacture reproducibility.
+- [Explicit private entry](../experiments/scuttlebutt-e2ee/app-pilot/entry.ts), [startup admission](../services/chat/e2ee/privateMessageStartup.ts), [native projection probe](../experiments/scuttlebutt-e2ee/VodozemacPrivateAdmissionProbe.swift) and [startup manifest](../experiments/scuttlebutt-e2ee/review/private-startup-2026-10-07.json). The entry composes the real PM page in the separate Research host, not the full app/router; ordinary startup defaults are unchanged.
 - [Research adapter](../experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift), [plugin](../experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift), [web controller and literal renderer](../experiments/scuttlebutt-e2ee/bridge-web/messaging.ts), native bridge fixtures and `tests/E2eePilotBridgeMessaging.test.ts`. These are separate from the shipping private-message port; include both native and JavaScript publication fences in the assessment.
 - `services/chat/e2ee/directMessageEnvelope.ts`, `encryptedDmDelivery.ts`, their seven research suites and the actual integrated app diff when ready.
 - [Physical device test plan](SCUTTLEBUTT_E2EE_DEVICE_TEST_PLAN.md), with completed run receipts and explicit failed, blocked and unrun cases.

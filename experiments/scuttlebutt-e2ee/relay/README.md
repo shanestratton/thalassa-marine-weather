@@ -194,6 +194,40 @@ host; resetting them is not a reproduction step. An explicitly reviewed fresh
 fixture plan or recovery of retained failed state is required for a subsequent
 live run. Pure metadata tests can be rerun without hosted writes.
 
+## Explicit private entry and native startup denial
+
+`../app-pilot/entry.ts` installs a global private legacy denial synchronously
+before dynamically loading its isolated UI. Ordinary `index.tsx` does not import
+it. The build's closed graph substitutes a refusing legacy page and rejects
+production services/Auth-store imports. `ChatPage` and its native message
+components are real Thalassa code, composed with one existing Research Auth host;
+this is not the full app/router. No environment toggle enables the ordinary app.
+
+The owner-only `messagePrivateAdmission({credentialBinding})` reply contains
+exactly five public scalars, with `unknown` or `protected-required`. A pending or
+confirmed sealed selection denies legacy even after expiry or owner-history
+changes. Neither state arms native messaging; original-owner/publication guards
+and full-pair readiness are separate. The JS admission source rechecks native
+account/device/binding, and page opening can require the exact original UI binding.
+The startup observer never releases legacy denial or performs native logout.
+
+Reproduce the local native checks with `--account-mode-only` on the existing
+`nativeExchangeProof.mjs` command above. It now runs `private-admission`,
+`account-mode` and `private-messages` as separate synthetic-Auth phases, then
+removes only its fresh owned simulator/fixtures. The 7 October result passed
+63/78/363 assertions respectively; no hosted actor or TLS/server is involved.
+Reopening is within-process, not a crash test.
+
+For separate web compilation, use Vite's runner config loader and a fresh absolute
+output directory with `../app-pilot/vite.config.mjs`; never use the primary dist
+or shared dependency cache. `../bridge-native/build.mjs` accepts those web assets
+with exact prior-platform cache/framework receipts to compile an unsigned
+Research app. It never cap-syncs, signs or installs. Its successful build does
+not prove SDK/UI execution or grant release authority. See the [startup evidence](../review/private-startup-2026-10-07.json).
+Pre-existing enrollment, pairing and protection are required to open the message
+page; there is no hidden setup or legacy fallback. The consumed eight-actor hosted
+inventory must not be reset or reused by a fresh client.
+
 ## HTTP and native network contract
 
 `httpGateway.ts` exposes only two exact HTTPS POST endpoints at its configured

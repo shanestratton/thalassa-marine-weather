@@ -30,6 +30,10 @@ export const isPrivateMessageLegacyUnavailable = (value: unknown): value is Priv
     value instanceof PrivateMessageLegacyUnavailableError;
 
 export interface PrivateMessageCutoverPolicy {
+    /** Explicit isolated entry only: deny the private legacy lane from boot,
+     * before any account seed, SDK await or native availability check. No reset.
+     * This is a local denial, never proof of durable account policy/readiness. */
+    requireNativePrivateMessagesForProcess(): void;
     /** True means the exact-current denial request was admitted, never native readiness. */
     requireNativePrivateMessagesForScope(scope: AuthIdentityScope): boolean;
     captureLegacyPrivateMessagePermit(
@@ -202,6 +206,16 @@ export function createPrivateMessageCutoverPolicy(
         return true;
     };
 
+    const requireNativePrivateMessagesForProcess = (): void => {
+        if (denyAllLegacy) return;
+        // Commit the denial BEFORE abort/listener callbacks can reenter. Unlike
+        // an owner-specific latch this works during provisional anonymous boot.
+        denyAllLegacy = true;
+        revision += 1;
+        cancelOwnedAbortScopes();
+        notify();
+    };
+
     const captureLegacyPrivateMessagePermit = (
         scope: AuthIdentityScope,
         peerAccountId?: string,
@@ -338,6 +352,7 @@ export function createPrivateMessageCutoverPolicy(
     }
 
     return Object.freeze({
+        requireNativePrivateMessagesForProcess,
         requireNativePrivateMessagesForScope,
         captureLegacyPrivateMessagePermit,
         isLegacyPrivateMessagePermitCurrent,
@@ -355,6 +370,7 @@ const privateMessageCutover = createPrivateMessageCutoverPolicy(getAuthIdentityS
     subscribeAuthIdentityScope(() => listener()),
 );
 export const requireNativePrivateMessagesForScope = privateMessageCutover.requireNativePrivateMessagesForScope;
+export const requireNativePrivateMessagesForProcess = privateMessageCutover.requireNativePrivateMessagesForProcess;
 export const captureLegacyPrivateMessagePermit = privateMessageCutover.captureLegacyPrivateMessagePermit;
 export const isLegacyPrivateMessagePermitCurrent = privateMessageCutover.isLegacyPrivateMessagePermitCurrent;
 export const captureLegacyPrivateMessageAbortScope = privateMessageCutover.captureLegacyPrivateMessageAbortScope;

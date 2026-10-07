@@ -13,6 +13,9 @@ enum DmNativeMessageOperation {
     // durable permission. The dispatcher supplies the exact sealed authority.
     case privateMessagePeer
     case privateMessagePermissions
+    // Local denial-only startup facts. Absence never authorizes legacy access.
+    case privateAdmissionState
+    case privateAdmissionGuard(DmNativePrivateAdmissionState)
     case thread
     case prepareText(clientMessageId: String, text: String)
     // Ordinary projection refuses replacement while a different native ID is
@@ -52,6 +55,7 @@ enum DmNativeMessageResult {
     case pairingState(DmNativePairingState)
     case privateMessagePeer(DmNativePrivateMessagePeer)
     case privateMessagePermissions(DmNativePrivateMessagePermissions)
+    case privateAdmissionState(DmNativePrivateAdmissionState)
     case thread(DmNativeThread)
     case outbox(DmOutboxRecord)
     case pendingRecords([DmOutboxRecord])
@@ -67,6 +71,13 @@ enum DmNativeMessageResult {
     case inboxRequest(DmNativeRelayInboxRequest)
     case accountModeRequest(DmNativeRelayAccountModeRequest)
     case accountModeState(DmNativeRelayAccountModeState)
+}
+
+/// Native sealed selection diagnostic only. BOTH values deny legacy private
+/// admission; neither grants Auth, peer trust, encryption or message permission.
+enum DmNativePrivateAdmissionState: String {
+    case protectedRequired = "protected-required"
+    case unknown = "unknown"
 }
 
 /// A server account-policy diagnostic/fact, NEVER a native send/read permit or

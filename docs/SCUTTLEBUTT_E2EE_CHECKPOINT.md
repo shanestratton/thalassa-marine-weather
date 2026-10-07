@@ -84,8 +84,10 @@ also have local adapter and real local HTTPS/SQL evidence. Isolated hosted SQL
 support and the cutover-aware Edge API are installed without selecting a human
 account, with positive disposable-actor hosted checks. A bounded native private-message
 adapter exchange now passes actual Auth verification and hosted HTTPS with two fresh
-fixture principals in one disposable simulator. Production cutover and main-app
-cold-start admission are not integrated. These are not a shipping
+fixture principals in one disposable simulator. A dedicated Research entry now
+installs private legacy denial before loading the real Thalassa message page;
+the ordinary app/router still has no experimental startup admission. Production
+cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
 production database change, production encryption indicator, production deployment
 or message deletion is included. Research dependencies and build artifacts stay
@@ -118,6 +120,74 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 7 October explicit private entry and native admission facts
+
+`app-pilot/entry.ts` synchronously denies the entire private legacy lane before
+its dynamic UI import, even during anonymous/provisional boot. The denial is
+one-way and survives unavailable native state, view closure, identity changes
+and failed startup. Ordinary `index.tsx` never imports this entry. Its build
+substitutes a refusing legacy page and rejects production chat, Auth-store,
+Supabase, Guardian and push imports. This is an explicit Research composition of
+Thalassa's real `ChatPage`, not the full app/router or a production rollout.
+
+The separate startup observer accepts only five bound native scalars and projects
+`unknown` or `protected-required`. Neither permits legacy, authenticates a user,
+arms a peer/send operation or claims encryption. Native reads the sealed pending
+selection or confirmed protection under the original freshly verified owner;
+even expired/historical selection intents remain a denial. Its publication guard
+rejects a changed local fact or credential epoch. Missing keys/store/credentials
+refuse rather than becoming legacy permission. The JS source rechecks the same
+native owner/device/binding after its await. An explicit message-page action also
+passes its original binding into native issue, preventing unnoticed adoption of
+a newer same-account lease.
+
+The uninstalled generic SDK session was corrected separately: absent provisional
+identity, empty SDK hydration, subscription failure and view disposal now use a
+credential-only verify fence, not durable native logout. SDK `SIGNED_OUT` still
+deactivates the native owner. These call-sequence changes have synthetic SDK/native
+tests; they are not a real phone login/logout matrix. The dedicated entry uses
+the existing single Research Auth controller, not that second SDK/session loop.
+Native setup, enrollment, pairing and permanent protection remain explicit; the
+message page opens only with a local protection denial fact plus separately
+issued full-pair readiness. It does not implement setup/recovery itself.
+
+The disposable native run passed **63 admission assertions**, plus the existing
+**78 account-mode and 363 ordinary adapter assertions**, in three separate
+phases. It uses real provider, Keychain and sealed storage with fixture Auth and
+relay. Cold reopening uses another directory/facade within one process, not
+SIGKILL/power loss. It covers no restored credential authority, fresh same-owner
+verification, pending/confirmed/expired/historical selections, stale and changed
+publication, logout/account change and missing-key refusal. No HTTP/claim/signing
+or store mutation accompanies the admission read. Owned fixtures and simulator
+were removed.
+
+All **1,765 Research tests in 24 suites** and **671 overlapping app/pilot tests in
+31 suites** passed; the earlier focused startup run passed 160 cases. Focused
+strict TypeScript and named lint/formatting pass. The app/pilot suite intentionally
+emits development error-boundary diagnostics for its rejected native lazy-import
+case; these were not failing tests. Retained corrections include DOM narrowing,
+a mock's zero-argument inference and pre-existing prefer-const warnings. The
+dedicated web build passed with 86 transformed modules. Inspection of its emitted
+bootstrap confirms denial before Vite's dynamic/preload UI wrapper; the first
+overly narrow audit regex refused that wrapper and was corrected after inspection.
+This is compiled-source inspection, not browser execution or visual QA.
+
+The matching **18-source unsigned physical-iOS Research app compiled**, packaging
+the dedicated web assets and actual admission plugin. Its provider/bindings and
+Capacitor frameworks came from exact hash-matching private prior snapshots in a
+fresh cache. No original cache, human device, primary app, signing, installation,
+launch, live Auth or hosted actor/state changed. This is not independent artifact
+provenance. The [startup manifest](../experiments/scuttlebutt-e2ee/review/private-startup-2026-10-07.json)
+links exact sources, native/build receipts and evidence limits.
+
+Next: SDK/Capacitor/UI execution with dedicated fresh fixture state, without
+reusing the consumed hosted pair, and the actual full-app/router admission path.
+Continue unrelated device/prekey, durable inbox and recovery work when execution
+needs new fixture planning or human devices. Production legacy/push enforcement,
+physical acceptance, independent concurrency, provenance/licence obligations and
+external assessment still gate release. Default builds remain disabled; no master
+merge/push, primary sync, deployment or human Research update occurred.
 
 ### 7 October native messages over the hosted relay
 

@@ -41,6 +41,20 @@ final class ResearchMessagingAdapter {
     func messageState(credentialBinding: String) throws -> ResearchMessagingResult {
         try guarded { try messageStateImpl(credentialBinding: credentialBinding) }
     }
+    func privateAdmissionState(credentialBinding: String) throws -> ResearchMessagingResult {
+        try guarded {
+            let snapshot = try owner(credentialBinding)
+            guard snapshot.context.peerGeneration == nil,
+                  case .privateAdmissionState(let selection) = try facade.executeMessageOperation(snapshot: snapshot,
+                    operation: .privateAdmissionState) else { throw unavailable }
+            return try result(snapshot: snapshot, binding: credentialBinding, status: "private_admission",
+                fields: ["accountId": snapshot.context.userId, "deviceId": snapshot.context.deviceId,
+                    "selection": selection.rawValue], additionalGuard: {
+                    guard case .privateAdmissionState(let current) = try self.facade.executeMessageOperation(snapshot: snapshot,
+                        operation: .privateAdmissionGuard(selection)), current == selection else { throw self.unavailable }
+                })
+        }
+    }
     func pairingCard(credentialBinding: String) throws -> ResearchMessagingResult {
         try guarded { try pairingCardImpl(credentialBinding: credentialBinding) }
     }
