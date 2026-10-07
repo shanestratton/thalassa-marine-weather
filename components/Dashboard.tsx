@@ -34,7 +34,7 @@ import {
     getGlassTopLayout,
 } from './dashboard/glassLayout';
 import { useViewportHeight } from '../hooks/useViewportHeight';
-import { resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
+import { computeSunPhase, resolveHeroRowTemperatureRange } from './dashboard/hero/heroSlideHelpers';
 
 import { useSettings } from '../context/SettingsContext';
 // useWeather removed with the old freshness strip — re-add if a new Glass-page
@@ -749,43 +749,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         return activeDay === 0 && activeHour === 0 ? current?.sources : safeActive?.sources;
     }, [activeDay, activeHour, current, safeActive]);
 
-    // Compute day/night for the active card time (fixes "Sunny" at midnight)
+    // Compute day/night for the active card time (fixes "Sunny" at midnight).
+    // The hero card's reader, so the polar words ('Sun stays up' / 'Sun stays
+    // down', W1-06) and the HH:MM times are read one way on the whole Glass.
     const isActiveDay = useMemo(() => {
-        const activeData = safeActive;
-        if (!activeData) {
+        if (!safeActive) {
             const h = new Date(widgetCardTime).getHours();
             return h >= 6 && h < 18;
         }
-        const sRise = activeData.sunrise;
-        const sSet = activeData.sunset;
-        if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') {
-            const h = new Date(widgetCardTime).getHours();
-            return h >= 6 && h < 18;
-        }
-        try {
-            const [rH, rM] = sRise
-                .replace(/[^0-9:]/g, '')
-                .split(':')
-                .map(Number);
-            const [sH, sM] = sSet
-                .replace(/[^0-9:]/g, '')
-                .split(':')
-                .map(Number);
-            if (isNaN(rH) || isNaN(sH)) {
-                const h = new Date(widgetCardTime).getHours();
-                return h >= 6 && h < 18;
-            }
-            const d = new Date(widgetCardTime);
-            const rise = new Date(d);
-            rise.setHours(rH, rM, 0, 0);
-            const set = new Date(d);
-            set.setHours(sH, sM, 0, 0);
-            return d >= rise && d < set;
-        } catch (e) {
-            log.warn('Data fetch error:', e);
-            const h = new Date(widgetCardTime).getHours();
-            return h >= 6 && h < 18;
-        }
+        return computeSunPhase(safeActive, widgetCardTime).isDay;
     }, [safeActive, widgetCardTime]);
 
     // Memoize nextUpdate — compute the next scheduled wall-clock refresh time

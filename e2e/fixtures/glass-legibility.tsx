@@ -10,6 +10,7 @@ import { CurrentConditionsCard } from '../../components/dashboard/CurrentConditi
 import { TideGraph } from '../../components/dashboard/tide/TideGraph';
 import { ThermometerIcon, GaugeIcon, CompassIcon, CloudIcon, WaveIcon } from '../../components/Icons';
 import type { UnitPreferences, WeatherMetrics } from '../../types';
+import { SUN_STAYS_DOWN, SUN_STAYS_UP } from '../../utils/celestial';
 import '../../index.css';
 // Keep the late-loaded passage stylesheet in the cascade, as in the app.
 import '../../styles/bioluminescent.css';
@@ -70,6 +71,9 @@ const widgets: MetricWidget[] = [
 // measured in the app: 109 px at 375x667 (where it was cut off), 156 px at
 // 375x800 and 197 px at 390x844. The card has to fit each without clipping.
 const DAY_SLOTS = new URLSearchParams(window.location.search).get('daySlots') === '1' ? [109, 156, 197] : [];
+// ?sun=polar (build 123, W1-06): the header's sun chip in polar day and night
+// beside the '--:--' chip it stands in for, in the Glass header's px-4 gutter.
+const POLAR_SUN = new URLSearchParams(window.location.search).get('sun') === 'polar';
 const shortDay = {
     highTemp: 23,
     lowTemp: 21,
@@ -190,6 +194,25 @@ function Fixture() {
                     />
                 </section>
             </div>
+            {POLAR_SUN && (
+                <section data-testid="sun-chip-rows" className="w-full px-4 flex flex-col gap-3 pb-4">
+                    {[
+                        { id: 'pending', rise: undefined, set: undefined },
+                        { id: 'up', rise: SUN_STAYS_UP, set: SUN_STAYS_UP },
+                        { id: 'down', rise: SUN_STAYS_DOWN, set: SUN_STAYS_DOWN },
+                    ].map((row) => (
+                        <div key={row.id} data-testid={`sun-chip-${row.id}`}>
+                            <CompactHeaderRow
+                                alerts={[]}
+                                sunrise={row.rise}
+                                sunset={row.set}
+                                moonPhase="🌔"
+                                moonPhaseName="Waxing Gibbous"
+                            />
+                        </div>
+                    ))}
+                </section>
+            )}
             {mode === 'night' && (
                 <div
                     data-testid="night-scrim"

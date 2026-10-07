@@ -9,7 +9,10 @@
  */
 
 import { jsPDF } from 'jspdf';
+import { getFirstLight, getLastLight, moonlightByNight, sunAltitudeDeg } from '../utils/celestial';
 import { createLogger } from '../utils/createLogger';
+import { calculateDistance } from '../utils/navigationCalculations';
+import { resolveTimeZone } from '../utils/timezone';
 import type { PassageBriefData } from './PassageBriefService';
 
 const log = createLogger('PassagePDF');
@@ -49,7 +52,8 @@ function formatDuration(hours: number): string {
     return `${days}d ${rem}h`;
 }
 
-function formatDateTime(iso: string): string {
+/** Date and time, on `timeZone`'s clock when given (the phone's otherwise). */
+function formatDateTime(iso: string, timeZone?: string): string {
     try {
         return new Date(iso).toLocaleString('en-AU', {
             weekday: 'short',
@@ -58,10 +62,186 @@ function formatDateTime(iso: string): string {
             hour: '2-digit',
             minute: '2-digit',
             hour12: false,
+            ...(timeZone ? { timeZone } : {}),
         });
     } catch {
         return iso;
     }
+}
+
+const HOUR_MS = 3_600_000;
+
+const clockIn = (d: Date, timeZone: string) =>
+    d.toLocaleTimeString('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** "Mon 10 Aug" on `timeZone`'s calendar, built from parts so no locale
+ *  punctuation creeps in. */
+function dayLabel(ms: number, timeZone: string): string {
+    const p: Record<string, string> = {};
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short', day: 'numeric', month: 'short' });
+    for (const part of fmt.formatToParts(ms)) p[part.type] = part.value;
+    return `${p.weekday} ${p.day} ${p.month}`;
+}
+
+/** A zone as a reader takes it: the IANA name, except the open-ocean zones
+ *  tz-lookup returns ('Etc/GMT+3' is POSIX-signed: it means UTC-3), shown as
+ *  the real offset. ASCII minus: the PDF's standard fonts have no U+2212. */
+function zoneName(timeZone: string, atMs: number): string {
+    if (!timeZone.startsWith('Etc/') && timeZone !== 'UTC') return timeZone;
+    try {
+        const offset = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' })
+            .formatToParts(atMs)
+            .find((p) => p.type === 'timeZoneName')?.value;
+        if (!offset) return timeZone;
+        const utc = offset.replace(/^GMT/, 'UTC');
+        return /^UTC([+-]0)?$/.test(utc) ? 'UTC' : utc;
+    } catch {
+        return timeZone;
+    }
+}
+
+type LatLon = { lat: number; lon: number };
+
+/** Where the boat is at an instant: along the planned route at the planned
+ *  pace (origin → turns → destination), taking a date-line crossing the
+ *  short way round. */
+function routePosition(data: PassageBriefData): (ms: number) => LatLon {
+    const pts: LatLon[] = [data.origin, ...(data.turnWaypoints ?? []), data.destination].map((p) => ({ ...p }));
+    for (let i = 1; i < pts.length; i++) {
+        pts[i].lon -= 360 * Math.round((pts[i].lon - pts[i - 1].lon) / 360);
+    }
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) {
+        cum.push(cum[i - 1] + calculateDistance(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon));
+    }
+    const total = cum[cum.length - 1];
+    const dep = Date.parse(data.departureTime);
+    const durMs = data.estimatedDuration * HOUR_MS;
+    return (ms) => {
+        const along = total * Math.min(1, Math.max(0, (ms - dep) / durMs || 0));
+        let i = 1;
+        while (i < cum.length - 1 && cum[i] < along) i++;
+        const f = Math.min(1, (along - cum[i - 1]) / (cum[i] - cum[i - 1] || 1));
+        const lon = pts[i - 1].lon + (pts[i].lon - pts[i - 1].lon) * f;
+        return {
+            lat: pts[i - 1].lat + (pts[i].lat - pts[i - 1].lat) * f,
+            lon: ((((lon + 180) % 360) + 360) % 360) - 180,
+        };
+    };
+}
+
+export interface ArrivalLight {
+    /** Light enough to see by on arrival: the sun no more than 6° down. */
+    daylight: boolean;
+    /** The destination's IANA zone; every time in `text` is on its clock. */
+    timeZone: string;
+    text: string;
+    /** The destination's civil dusk on the arrival day (or the evening before a pre-dawn arrival). */
+    lastLight?: Date;
+    /** The destination's next civil dawn after a dark arrival. */
+    firstLight?: Date;
+}
+
+/**
+ * Arrive before dark? Judged at the DESTINATION, by its civil dusk and dawn
+ * on its own clock (tz-lookup), naming the zone. Replaces the phone-clock
+ * `6 <= hour < 18`, which read a Brisbane phone's 08:30 as daylight for an
+ * 18:30 Caribbean landfall and called a midsummer Arctic evening dark.
+ */
+export function arrivalLightNote(data: PassageBriefData): ArrivalLight {
+    const { lat, lon } = data.destination;
+    const timeZone = resolveTimeZone(lat, lon);
+    const eta = new Date(Date.parse(data.departureTime) + data.estimatedDuration * HOUR_MS);
+    if (isNaN(eta.getTime())) {
+        return { daylight: false, timeZone, text: 'Estimated arrival unknown: check the departure time.' };
+    }
+    const lead = `Estimated arrival ${formatDateTime(eta.toISOString(), timeZone)} (${zoneName(timeZone, eta.getTime())} time)`;
+    const sun = sunAltitudeDeg(eta, lat, lon);
+    const last = getLastLight(eta, lat, lon, timeZone);
+
+    if (sun >= -6) {
+        // Daylight or civil twilight by the sun's height at the ETA first: a
+        // 00:40 Tromsø arrival in May is twilight even with no true night.
+        const how =
+            sun < -0.833
+                ? 'in civil twilight: light enough to see, with the sun below the horizon.'
+                : 'a daylight arrival.';
+        if (last.state === 'no-true-night') {
+            return {
+                daylight: true,
+                timeZone,
+                text: `${lead} — ${how} There is no true night there at this time of year.`,
+            };
+        }
+        const lastLight = last.at && last.at > eta ? last.at : undefined;
+        const tail = lastLight ? ` Last light there is ${clockIn(lastLight, timeZone)}.` : '';
+        return { daylight: true, timeZone, text: `${lead} — ${how}${tail}`, lastLight };
+    }
+
+    const first = getFirstLight(eta, lat, lon, timeZone);
+    if (first.state === 'stays-dark') {
+        return {
+            daylight: false,
+            timeZone,
+            text: `${lead} — AFTER DARK. The sun stays more than 6° below the horizon all day there at this time of year: plan the approach for the dark.`,
+        };
+    }
+    // Last light before the ETA (this evening's, or yesterday's for a
+    // pre-dawn arrival) and the next first light after it.
+    const lastLight =
+        last.at && last.at <= eta
+            ? last.at
+            : (getLastLight(new Date(eta.getTime() - 24 * HOUR_MS), lat, lon, timeZone).at ?? undefined);
+    const firstLight =
+        first.at && first.at > eta
+            ? first.at
+            : (getFirstLight(new Date(eta.getTime() + 24 * HOUR_MS), lat, lon, timeZone).at ?? undefined);
+    const times = [
+        lastLight && `last light there ${clockIn(lastLight, timeZone)}`,
+        firstLight &&
+            `first light ${clockIn(firstLight, timeZone)}${dayLabel(firstLight.getTime(), timeZone) === dayLabel(eta.getTime(), timeZone) ? '' : ' next morning'}`,
+    ].filter(Boolean);
+    return {
+        daylight: false,
+        timeZone,
+        text: `${lead} — AFTER DARK${times.length ? ` (${times.join('; ')})` : ''}. Consider adjusting departure or slowing down to make the approach in daylight.`,
+        lastLight,
+        firstLight,
+    };
+}
+
+/** Nights listed in the dossier before it summarises the rest. */
+const MAX_NIGHT_LINES = 14;
+
+/**
+ * One moonlight line per night underway: hours of civil dark at the planned
+ * position, the hours the moon is up in it, and illumination × those hours
+ * (hours of full-moon-equivalent light). Nights are dated by the evening
+ * they begin, on the departure port's clock.
+ */
+export function passageMoonlightLines(data: PassageBriefData): string[] {
+    const dep = Date.parse(data.departureTime);
+    const end = dep + data.estimatedDuration * HOUR_MS;
+    if (!Number.isFinite(dep) || !(end > dep)) return [];
+    const zone = resolveTimeZone(data.origin.lat, data.origin.lon);
+    // A half-hour floor: the minutes of dusk on a late arrival are the
+    // arrival note's business, not a "night".
+    const nights = moonlightByNight(dep, end, routePosition(data)).filter((n) => n.darkHours >= 0.5);
+    const lines = nights.slice(0, MAX_NIGHT_LINES).map((n, i) => {
+        const ratio = n.moonlightHours / n.darkHours;
+        const verdict = ratio >= 0.5 ? 'A bright night.' : ratio >= 0.15 ? 'Some moonlight.' : 'A dark night.';
+        const light = n.moonlightHours >= 1 ? n.moonlightHours.toFixed(1) : n.moonlightHours.toFixed(2);
+        const moon =
+            n.moonUpHours < 0.05
+                ? 'The moon stays below the horizon all night.'
+                : `Moon up ${n.moonUpHours.toFixed(1)} h of it at ${Math.round(n.illumination * 100)}% lit: ${light} h of full-moon light.`;
+        // Dated by the evening the night belongs to: 12 h before its middle (a
+        // pre-dawn departure's few dark hours belong to the evening before).
+        const evening = (n.startMs + n.endMs) / 2 - 12 * HOUR_MS;
+        return `Night ${i + 1} (${dayLabel(evening, zone)}): ${n.darkHours.toFixed(1)} h dark. ${moon} ${verdict}`;
+    });
+    if (nights.length > MAX_NIGHT_LINES) lines.push(`...and ${nights.length - MAX_NIGHT_LINES} more nights.`);
+    return lines;
 }
 
 // ── Main PDF Generator ──
@@ -140,14 +320,23 @@ export function generatePassagePdf(data: PassageBriefData): Blob {
     // ── Stats Grid (2×2) ──
     const statW = (contentW - 4) / 2;
     const statH = 18;
+    // Each end on its own clock, zone named (W1-06): the phone's clock read
+    // a Caribbean landfall in Brisbane time.
+    const originZone = resolveTimeZone(data.origin.lat, data.origin.lon);
+    const destZone = resolveTimeZone(data.destination.lat, data.destination.lon);
     const stats = [
         { label: 'DISTANCE', value: `${data.totalDistanceNM.toFixed(0)} NM`, color: COLORS.primary },
         { label: 'DURATION', value: formatDuration(data.estimatedDuration), color: COLORS.amber },
-        { label: 'DEPARTURE', value: formatDateTime(data.departureTime), color: COLORS.green },
         {
-            label: 'ESTIMATED ARRIVAL',
+            label: `DEPARTURE (${zoneName(originZone, Date.parse(data.departureTime))})`,
+            value: formatDateTime(data.departureTime, originZone),
+            color: COLORS.green,
+        },
+        {
+            label: `ESTIMATED ARRIVAL (${zoneName(destZone, Date.parse(data.departureTime) + data.estimatedDuration * HOUR_MS)})`,
             value: formatDateTime(
                 new Date(new Date(data.departureTime).getTime() + data.estimatedDuration * 3600_000).toISOString(),
+                destZone,
             ),
             color: COLORS.red,
         },
@@ -273,7 +462,7 @@ export function generatePassagePdf(data: PassageBriefData): Blob {
                 doc.setFontSize(6);
                 doc.setTextColor(...color);
                 doc.text(
-                    `${t.type.toUpperCase()} ${t.height.toFixed(1)}m @ ${formatDateTime(t.time)}`,
+                    `${t.type.toUpperCase()} ${t.height.toFixed(1)}m @ ${formatDateTime(t.time, originZone)}`,
                     margin + 8,
                     y + 5 + i * 4,
                 );
@@ -297,7 +486,7 @@ export function generatePassagePdf(data: PassageBriefData): Blob {
                 doc.setFontSize(6);
                 doc.setTextColor(...color);
                 doc.text(
-                    `${t.type.toUpperCase()} ${t.height.toFixed(1)}m @ ${formatDateTime(t.time)}`,
+                    `${t.type.toUpperCase()} ${t.height.toFixed(1)}m @ ${formatDateTime(t.time, destZone)}`,
                     margin + halfW + 12,
                     y + 5 + i * 4,
                 );
@@ -344,12 +533,10 @@ export function generatePassagePdf(data: PassageBriefData): Blob {
                   ? `An overnight passage of ${data.totalDistanceNM.toFixed(0)} NM at ${data.speed.toFixed(1)} kts — about ${formatDuration(hours)} underway. Run a formal watch schedule from the first evening.`
                   : `A multi-day passage of ${data.totalDistanceNM.toFixed(0)} NM at ${data.speed.toFixed(1)} kts — roughly ${Math.ceil(days)} days at sea. Provision, crew and rest accordingly; the first 48 hours are the hardest while everyone finds their sea legs.`;
 
-        const etaMs = new Date(data.departureTime).getTime() + hours * 3600_000;
-        const etaHour = new Date(etaMs).getHours();
-        const daylightArrival = etaHour >= 6 && etaHour < 18;
-        const arrivalNote = daylightArrival
-            ? `Estimated arrival ${formatDateTime(new Date(etaMs).toISOString())} — a daylight arrival.`
-            : `Estimated arrival ${formatDateTime(new Date(etaMs).toISOString())} — AFTER DARK. Consider adjusting departure or slowing down to make the approach in daylight.`;
+        // The destination's civil dusk and dawn on its own clock (W1-06).
+        const arrival = arrivalLightNote(data);
+        const daylightArrival = arrival.daylight;
+        const arrivalNote = arrival.text;
 
         doc.setFontSize(7);
         const charLines = doc.splitTextToSize(character, bodyWidth) as string[];
@@ -362,6 +549,25 @@ export function generatePassagePdf(data: PassageBriefData): Blob {
         doc.setTextColor(...(daylightArrival ? COLORS.green : COLORS.amber));
         doc.text(arrLines, margin + 6, by + 2 + charLines.length * 3.6 + 2);
         y = by + bodyH + 6;
+    }
+
+    // ── Moonlight (one line per night underway, W1-06) ──
+    {
+        const nightLines = passageMoonlightLines(data);
+        if (nightLines.length > 0) {
+            const intro = `Dark hours each night underway (sun more than 6° down) at the planned position, and how much of them the moon lights. Nights are dated by their evening, ${zoneName(originZone, Date.parse(data.departureTime))} time.`;
+            doc.setFontSize(7);
+            const introLines = doc.splitTextToSize(intro, bodyWidth) as string[];
+            const rows = nightLines.flatMap((l) => doc.splitTextToSize(l, bodyWidth - 2) as string[]);
+            const bodyH = (introLines.length + rows.length) * 3.6 + 6;
+            const by = sectionCard('MOONLIGHT', bodyH);
+            doc.setFontSize(7);
+            doc.setTextColor(...COLORS.muted);
+            doc.text(introLines, margin + 6, by + 2);
+            doc.setTextColor(...COLORS.primary);
+            doc.text(rows, margin + 8, by + 2 + introLines.length * 3.6 + 2);
+            y = by + bodyH + 6;
+        }
     }
 
     // ── Watch Schedule (crew-count derived, passages > 8h) ──
