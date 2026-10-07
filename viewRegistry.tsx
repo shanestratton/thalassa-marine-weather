@@ -301,6 +301,12 @@ export interface ViewContext {
     weatherGeneratedAt?: string;
     /** Place the current forecast is for — the Warnings page names it. */
     weatherLocationName?: string;
+    /** Where the current forecast is for — the Warnings page links that position's official issuer. */
+    weatherCoordinates?: { lat: number; lon: number };
+    /** The report's location type; 'offshore' sends the Warnings page to the METAREA warnings. */
+    weatherLocationType?: string;
+    /** The pipeline's model tag — each forecast alert card names the model. */
+    weatherModelUsed?: string;
     /** Unread Scuttlebutt DMs, the Vessel tab's badge; the Vessel page's
      *  Scuttlebutt card says it too. */
     chatUnread?: number;
@@ -376,6 +382,9 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
             alerts: ctx.weatherAlerts,
             checkedAt: ctx.weatherGeneratedAt,
             placeName: ctx.weatherLocationName,
+            coordinates: ctx.weatherCoordinates,
+            locationType: ctx.weatherLocationType,
+            modelUsed: ctx.weatherModelUsed,
         }),
     },
     chat: {

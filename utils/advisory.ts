@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { expandCompassDirection } from './format';
 import { calculateApparentTemp } from './math';
+import { FORECAST_ALERT_RULES as RULE } from './forecastAlerts';
 
 // Generates robust, non-AI advice when services are offline or keys are missing
 export const generateTacticalAdvice = (
@@ -107,8 +108,11 @@ export const generateTacticalAdvice = (
         summary += `Fresh breeze (${wind.toFixed(0)} kts) whistling in the rigging. Things are getting lively. Reefs may be needed soon. `;
     else if (wind < 25)
         summary += `Strong breeze (${wind.toFixed(0)} kts). Large wavelets and crests everywhere. Reduced sail area advised. `;
+    // A forecast, not a product: 'GALE WARNING in effect' read as if a
+    // weather service had issued one (build 123, W1-02). The band starts at
+    // 25 kts, still Beaufort 6, so it says strong to gale force, not near gale.
     else if (wind < 35)
-        summary += 'GALE WARNING in effect. High winds and spindrift. Difficult conditions for all craft. ';
+        summary += `Strong to gale-force winds (${wind.toFixed(0)} kts). High winds and spindrift. Difficult conditions for all craft. `;
     else summary += 'STORM CONDITIONS. Survival weather. Seek urgent shelter. ';
 
     // Sea State
@@ -137,9 +141,14 @@ export const generateTacticalAdvice = (
     } else {
         summary += '\n\nSkippers Advice: ';
         if (wind > 30 || wave > 10) summary += 'Vessel operations unsafe. Secure lines and fenders.';
-        else if (wind > 20 || wave > 6)
-            summary += 'Small craft advisory conditions. Only suitable for capable vessels and experienced hands.';
-        else if (wind > 10) summary += 'Good conditions for sailing or planing. Enjoy the water.';
+        else if (wind > 20 || wave > 6) {
+            // Name what crossed the line: a big swell on a light breeze is
+            // heavy seas, not strong wind (was 'Small craft advisory
+            // conditions', an official product's name; W1-02).
+            const cause =
+                wind > 20 && wave > 6 ? 'Strong wind and heavy seas' : wind > 20 ? 'Strong wind' : 'Heavy seas';
+            summary += `${cause} forecast. Only suitable for capable vessels and experienced hands.`;
+        } else if (wind > 10) summary += 'Good conditions for sailing or planing. Enjoy the water.';
         else summary += 'Tranquil conditions. Excellent for all activities.';
     }
 
@@ -217,6 +226,21 @@ export const checkForecastThresholds = (
     return alerts;
 };
 
+/** 'today' and 'tomorrow' read as words; any other day reads "on Tue". */
+const onDay = (day: string): string => (/^(today|tonight|tomorrow)$/i.test(day) ? day.toLowerCase() : `on ${day}`);
+
+/**
+ * Thalassa's own forecast check: the model forecast against fixed thresholds.
+ * Every line starts "Forecast:" and names the condition, never an official
+ * product ("GALE WARNING", "Small Craft Advisory", "STORM WATCH"): no weather
+ * service issued these (build 123, W1-02). The texts come from the rule table
+ * in forecastAlerts.ts, whose one classifier decides which are critical; the
+ * thresholds below are unchanged by the relabel.
+ *
+ * Units as the pipeline delivers them: wind and gust in kts, waves in ft,
+ * temperatures in °C. Visibility arrives in nm from StormGlass and in km from
+ * Open-Meteo, so 'under 1 nm' / 'under 3 nm' holds for both (1 km < 1 nm).
+ */
 export const generateSafetyAlerts = (
     current: WeatherMetrics,
     todayHigh?: number,
@@ -224,32 +248,40 @@ export const generateSafetyAlerts = (
 ): string[] => {
     const alerts: string[] = [];
     const wind = current.windSpeed || 0;
-    const gust = current.windGust || wind * 1.2;
+    // Only a REAL gust. This used to fall back to wind * 1.2, a gust no model
+    // forecast. That fallback never changed which alert fires (1.2x the wind
+    // crosses each gust line only above that alert's own wind line), so the
+    // change is in the words alone: a line names gusts only when the model
+    // published one that crossed the line.
+    const gust = current.windGust || 0;
     const wave = current.waveHeight || 0;
     const vis = current.visibility;
     const temp = current.airTemperature;
     const precip = current.precipitation || 0;
 
-    if (wind > 48 || gust > 60) alerts.push('STORM WARNING: Winds exceeding 48kts');
-    else if (wind > 34 || gust > 45) alerts.push('GALE WARNING: Winds exceeding 34kts');
-    else if (wind > 22 || gust > 30) alerts.push('Small Craft Advisory: Winds > 22kts');
+    if (wind > 48 || gust > 60)
+        alerts.push(wind > 48 ? `${RULE.stormForce.stem} wind, 48 kt+` : `${RULE.stormForce.stem} gusts, 60 kt+`);
+    else if (wind > 34 || gust > 45)
+        alerts.push(wind > 34 ? `${RULE.galeForce.stem} wind, 34 kt+` : `${RULE.galeForce.stem} gusts, 45 kt+`);
+    else if (wind > 22 || gust > 30)
+        alerts.push(wind > 22 ? `${RULE.strongWind.stem}, 22 kt+` : `${RULE.strongGusts.stem}, 30 kt+`);
 
-    if (wave > 15) alerts.push('DANGEROUS SEAS: Waves exceeding 15ft');
-    else if (wave > 8) alerts.push('Hazardous Seas Advisory: Waves > 8ft');
+    if (wave > 15) alerts.push(`${RULE.dangerousSeas.stem}, 15 ft+ (4.6 m)`);
+    else if (wave > 8) alerts.push(`${RULE.roughSeas.stem}, 8 ft+ (2.4 m)`);
 
     if (vis !== null && vis !== undefined) {
-        if (vis < 1) alerts.push('DENSE FOG ADVISORY: Visibility < 1nm');
-        else if (vis < 3) alerts.push('Low Visibility: < 3nm');
+        if (vis < 1) alerts.push(`${RULE.denseFog.stem}, visibility under 1 nm`);
+        else if (vis < 3) alerts.push(`${RULE.poorVisibility.stem}, under 3 nm`);
     }
 
     if (
         current.condition &&
         (current.condition.toLowerCase().includes('storm') || current.condition.toLowerCase().includes('thunder'))
     ) {
-        alerts.push('Severe Thunderstorm Potential');
+        alerts.push(`${RULE.thunderstorms.stem} possible`);
     }
 
-    if (precip > 8) alerts.push('Heavy Rainfall: Visibility Reduced');
+    if (precip > 8) alerts.push(`${RULE.heavyRain.stem}, visibility reduced`);
 
     if (dailyForecast && dailyForecast.length > 0) {
         const upcoming = dailyForecast.slice(0, 3);
@@ -263,9 +295,11 @@ export const generateSafetyAlerts = (
                 day.day === 'Today' ||
                 day.date === new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             if (!isToday || (isToday && !current.condition.toLowerCase().includes('storm'))) {
-                if (isStormy) alerts.push(`STORM WATCH: ${day.condition} forecast for ${day.day}`);
-                else if (isHighWind || isExtremeGust)
-                    alerts.push(`GALE WATCH: High winds (${day.windSpeed}kts) forecast for ${day.day}`);
+                if (isStormy) alerts.push(`${RULE.stormRisk.stem} ${onDay(day.day)} (${day.condition})`);
+                else if (isHighWind)
+                    alerts.push(`${RULE.galeForce.stem} wind ${onDay(day.day)}, ${Math.round(day.windSpeed ?? 0)} kt`);
+                else if (isExtremeGust)
+                    alerts.push(`${RULE.galeForce.stem} gusts ${onDay(day.day)}, ${Math.round(day.windGust ?? 0)} kt`);
             }
         });
     }
@@ -275,18 +309,19 @@ export const generateSafetyAlerts = (
         const feelC = apparent || temp;
         const maxThreatTemp = Math.max(feelC, todayHigh || -99);
 
-        if (maxThreatTemp >= 38) alerts.push('EXCESSIVE HEAT WARNING: Extreme Danger');
-        else if (maxThreatTemp >= 33) alerts.push('HEAT ADVISORY: Dangerous temperatures expected');
-        else if (maxThreatTemp >= 29) alerts.push('Heat Caution: Prolonged sun exposure risky');
+        if (maxThreatTemp >= 38) alerts.push(`${RULE.extremeHeat.stem}, 38 °C+ (100 °F)`);
+        else if (maxThreatTemp >= 33) alerts.push(`${RULE.highHeat.stem}, 33 °C+ (91 °F)`);
+        else if (maxThreatTemp >= 29) alerts.push(`${RULE.heat.stem} 29 °C+ (84 °F), limit sun exposure`);
 
-        if (temp < 0) alerts.push('FREEZING SPRAY WARNING: Icing risk');
-        else if (temp < 4) alerts.push('FREEZE WARNING: Hypothermia risk');
+        if (temp < 0) alerts.push(`${RULE.freezingSpray.stem}, air below 0 °C (32 °F)`);
+        else if (temp < 4) alerts.push(`${RULE.nearFreezing.stem} air, below 4 °C (39 °F)`);
     }
 
     // UV alert — only during daylight hours (forecast data carries stale daytime UV at night)
     const currentHour = new Date().getHours();
     const isDaytime = currentHour >= 6 && currentHour < 19;
-    if (isDaytime && current.uvIndex != null && current.uvIndex >= 8) alerts.push(`HIGH UV ALERT: Protection Required`);
+    if (isDaytime && current.uvIndex != null && current.uvIndex >= 8)
+        alerts.push(`${RULE.veryHighUv.stem}, protection needed`);
 
     return [...new Set(alerts)];
 };
