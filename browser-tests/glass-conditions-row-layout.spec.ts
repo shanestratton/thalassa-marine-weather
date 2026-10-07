@@ -108,3 +108,90 @@ for (const width of [375, 390]) {
         }
     });
 }
+
+/**
+ * FIT ONLY (build 123, W1-07). SWELL 2 now reads in the skipper's own Seas
+ * unit, so both the metric and the imperial readings have to sit inside
+ * their third of the offshore grid; and the day card's period caption, which
+ * read '{N}s swell' and ran 4 px past its fifth at 320 px in wide fonts with
+ * two digits, is now just '{N}s' on screen. Both are checked on the narrowest
+ * phone in wide fonts (Verdana on a Mac, DejaVu Sans on the Linux runner).
+ *
+ * The fixture hard-codes the readings (the widest each tile draws), so this
+ * proves they fit, NOT that production draws them: the arrow, unit and
+ * wording rules are pinned against the real components in
+ * tests/GlassSeaTiles.test.tsx and tests/GlassSeaWording.test.tsx.
+ */
+for (const seas of ['m', 'ft'] as const) {
+    for (const width of [320, 375, 390]) {
+        test(`offshore grid and day card readings fit their cells in ${seas} at ${width}px, wide fonts`, async ({
+            page,
+        }) => {
+            await page.route('**/*', (route) => {
+                const url = new URL(route.request().url());
+                return url.origin === 'http://127.0.0.1:4199' ? route.continue() : route.abort();
+            });
+            await page.addInitScript(() => {
+                document.addEventListener('DOMContentLoaded', () => {
+                    const wide = document.createElement('style');
+                    wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+                    document.head.append(wide);
+                });
+            });
+            await page.setViewportSize({ width, height: 1100 });
+            await page.goto(`/e2e/fixtures/glass-legibility.html${seas === 'ft' ? '?seas=ft' : ''}`);
+            await page.evaluate(() => document.fonts.ready);
+
+            const grid = page.getByTestId('secondary-metrics');
+            // The fixture drew the variant asked for (so the widths below are its).
+            const swell2 = grid.getByText('SWELL 2', { exact: true }).locator('xpath=../..');
+            await expect(swell2.locator('span').last()).toHaveText(seas);
+
+            const spills = await grid.evaluate((section) => {
+                const out: string[] = [];
+                for (const row of Array.from(section.querySelectorAll('.grid-cols-3'))) {
+                    for (const cell of Array.from(row.children) as HTMLElement[]) {
+                        const box = cell.getBoundingClientRect();
+                        for (const el of Array.from(cell.querySelectorAll('span')) as HTMLElement[]) {
+                            const r = el.getBoundingClientRect();
+                            if (r.width === 0) continue;
+                            if (
+                                r.left < box.left - 0.5 ||
+                                r.right > box.right + 0.5 ||
+                                r.top < box.top - 0.5 ||
+                                r.bottom > box.bottom + 0.5
+                            )
+                                out.push(
+                                    `"${el.textContent}" ${r.left.toFixed(1)}–${r.right.toFixed(1)} × ${r.top.toFixed(1)}–${r.bottom.toFixed(1)} outside ${box.left.toFixed(1)}–${box.right.toFixed(1)} × ${box.top.toFixed(1)}–${box.bottom.toFixed(1)}`,
+                                );
+                        }
+                    }
+                }
+                return out;
+            });
+            expect(spills, `offshore grid in ${seas} at ${width}px`).toEqual([]);
+
+            // The day card's readings, the two-digit '14s' period among them,
+            // stay inside their fifth of the row.
+            const day = page.getByTestId('daily-summary');
+            await expect(day.getByText('14s', { exact: true })).toBeVisible();
+            const daySpills = await day.getByTestId('day-metrics-row').evaluate((row) => {
+                const out: string[] = [];
+                for (const cell of Array.from(row.children) as HTMLElement[]) {
+                    const box = cell.getBoundingClientRect();
+                    for (const el of Array.from(cell.querySelectorAll('span')) as HTMLElement[]) {
+                        const r = el.getBoundingClientRect();
+                        // Spoken-only words are clipped to a pixel by design.
+                        if (r.width === 0 || el.closest('.sr-only')) continue;
+                        if (r.left < box.left - 0.5 || r.right > box.right + 0.5)
+                            out.push(
+                                `"${el.textContent}" ${r.left.toFixed(1)}–${r.right.toFixed(1)} outside ${box.left.toFixed(1)}–${box.right.toFixed(1)}`,
+                            );
+                    }
+                }
+                return out;
+            });
+            expect(daySpills, `day card readings in ${seas} at ${width}px`).toEqual([]);
+        });
+    }
+}

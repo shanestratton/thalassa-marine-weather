@@ -47,7 +47,7 @@ const Missing: React.FC = () => (
  * full card (188 px) was cut off (Shane's screenshot, 2026-10-02).
  *   full    — everything: condition, big High/Low, readings, tide.
  *   compact — the condition line goes, High/Low shrink onto one line.
- *   tight   — the High/Low and swell lines go too. The readings row and the
+ *   tight   — the High/Low and wave-period lines go too. The readings row and the
  *             tide times stay: the hero header right above already shows
  *             the day's high and low, and on a marine app the tide line is
  *             the one worth the room (2026-10-02).
@@ -55,10 +55,10 @@ const Missing: React.FC = () => (
  *
  * The card measures itself rather than trusting fixed thresholds: what a
  * density needs depends on the width (the readings' wraps) and the data (a
- * swell, a tide line). It draws the largest density whose measured height
+ * wave period, a tide line). It draws the largest density whose measured height
  * fits; a density not yet measured at this width is assumed to need its
  * estimate below (measured in the app, Chromium, 2026-10-02: full 188-198,
- * compact 122 px with a swell and a tide line; tight is the floor).
+ * compact 122 px with a wave period and a tide line; tight is the floor).
  */
 export type DayCardDensity = 'full' | 'compact' | 'tight';
 export const DAY_CARD_DENSITY_ESTIMATE_PX: Readonly<Record<DayCardDensity, number>> = Object.freeze({
@@ -135,8 +135,10 @@ const Metric: React.FC<{
     value: string | null;
     unit?: string;
     sub?: string;
+    /** Words for `sub` where its few characters say too little aloud. */
+    subSpoken?: string;
     density?: DayCardDensity;
-}> = ({ label, value, unit, sub, density = 'full' }) => (
+}> = ({ label, value, unit, sub, subSpoken, density = 'full' }) => (
     <div className="flex min-w-0 flex-col items-center text-center" data-testid="day-metric">
         <span
             className={`glass-forecast-caption text-xs font-semibold uppercase tracking-wider text-white/45 ${density === 'full' ? '' : 'leading-tight'}`}
@@ -162,10 +164,13 @@ const Metric: React.FC<{
                         ? 'sr-only'
                         : `glass-forecast-caption whitespace-nowrap text-xs text-white/55 ${density === 'full' ? '' : 'leading-tight'}`
                 }
+                aria-hidden={subSpoken ? true : undefined}
             >
                 {sub}
             </span>
         ) : null}
+        {/* Beside the caption, not in it: the caption's measured width stays its own. */}
+        {sub && subSpoken ? <span className="sr-only">{subSpoken}</span> : null}
     </div>
 );
 
@@ -222,7 +227,10 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
     const gust = daily.windGust != null ? convertSpeed(daily.windGust, units.speed) : null;
 
     const hasWave = !isLandlocked && daily.waveHeight !== null && daily.waveHeight !== undefined;
-    const wave = hasWave ? convertLength(daily.waveHeight as number, units.length) : null;
+    // The Seas setting, as the top row, SWELL 2 and the deep-dive read it;
+    // this converted and labelled with Lengths (W1-07).
+    const waveUnit = units.waveHeight || 'm';
+    const wave = hasWave ? convertLength(daily.waveHeight as number, waveUnit) : null;
     const rain =
         daily.precipChance !== undefined && daily.precipChance !== null ? `${Math.round(daily.precipChance)}` : null;
 
@@ -331,8 +339,15 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({
                         <Metric
                             label="Wave"
                             value={wave !== null ? String(wave) : null}
-                            unit={units.length}
-                            sub={daily.swellPeriod ? `${Math.round(daily.swellPeriod)}s swell` : undefined}
+                            unit={waveUnit}
+                            // The total sea's mean period, not a swell's: it read
+                            // '8s swell' (W1-07). Just the seconds on screen: a
+                            // fifth of a 320 pt row holds '14s' in wide fonts,
+                            // where '14s swell' already ran 4 px over its edge.
+                            sub={daily.swellPeriod ? `${Math.round(daily.swellPeriod)}s` : undefined}
+                            subSpoken={
+                                daily.swellPeriod ? `waves ${Math.round(daily.swellPeriod)} seconds apart` : undefined
+                            }
                             density={density}
                         />
                     ) : null}

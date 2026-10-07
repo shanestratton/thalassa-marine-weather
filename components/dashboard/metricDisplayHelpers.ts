@@ -58,7 +58,10 @@ export function getPinnedMetricDisplay(
         }
         case 'wave': {
             const w = data.waveHeight;
-            const label = data.swellDirection ? 'SWELL' : 'WAVE';
+            // The TOTAL sea (wind sea and every swell): WAVE, never SWELL.
+            // It said SWELL whenever swellDirection was set, which is the
+            // total sea's waveDirection, so nearly always (W1-07).
+            const label = 'WAVE';
             // Convert with the SAME unit the label shows — this converted with
             // units.length and labelled with units.waveHeight (audit 2026-09-02).
             const waveUnit = units.waveHeight || 'm';

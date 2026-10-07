@@ -42,7 +42,9 @@ describe('DailySummaryCard readings row (2026-10-02)', () => {
         expect(within(row).getAllByText('kts')).toHaveLength(2);
         expect(within(row).getByText('40')).toBeInTheDocument();
         expect(within(row).getByText('%')).toBeInTheDocument();
-        expect(within(row).getByText('8s swell')).toBeInTheDocument();
+        // The wave period: seconds on screen, in words for VoiceOver.
+        expect(within(row).getByText('8s')).toHaveAttribute('aria-hidden', 'true');
+        expect(within(row).getByText('waves 8 seconds apart')).toHaveClass('sr-only');
     });
 
     it('shows no unit under a missing reading and counts only the columns it draws', () => {
@@ -128,7 +130,8 @@ describe('DailySummaryCard density', () => {
             expect(within(row).getByText('12.5')).toBeInTheDocument();
             // Hidden from sight, never from VoiceOver.
             expect(within(card).getByText('Light Drizzle')).toHaveClass('sr-only');
-            expect(within(card).getByText('8s swell')).toHaveClass('sr-only');
+            expect(within(card).getByText('8s')).toHaveClass('sr-only');
+            expect(within(card).getByText('waves 8 seconds apart')).toBeInTheDocument();
             expect(within(card).getByText('Sat 3 Oct')).toHaveClass('sr-only');
             // The tide times stay on screen; the High/Low pair (repeated by
             // the hero header above) is the one spoken only (2026-10-02).
@@ -140,13 +143,13 @@ describe('DailySummaryCard density', () => {
         }
     });
 
-    it('on a 156 px slot draws the compact layout: no condition line, swell and tide kept', () => {
+    it('on a 156 px slot draws the compact layout: no condition line, wave period and tide kept', () => {
         const { restore } = renderInSlot(156, { full: 188, compact: 122, tight: 90 });
         try {
             const card = screen.getByRole('group', { name: 'Forecast for Sat 3 Oct' });
             expect(card).toHaveAttribute('data-density', 'compact');
             expect(within(card).getByText('Light Drizzle')).toHaveClass('sr-only');
-            expect(within(card).getByText('8s swell')).not.toHaveClass('sr-only');
+            expect(within(card).getByText('8s')).not.toHaveClass('sr-only');
             expect(within(card).getByText('High 08:12 · Low 14:30').parentElement).not.toHaveClass('sr-only');
         } finally {
             restore();

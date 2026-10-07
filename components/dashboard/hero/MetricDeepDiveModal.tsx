@@ -51,7 +51,7 @@ interface MetricConfig {
     /** Good/poor cut-offs (in the metric's raw pick units) for the 👍/🆗/👎
      *  window verdict. Direction is taken from lowerIsBetter (visibility, with
      *  no lowerIsBetter, is judged higher-is-better). Omit for metrics with no
-     *  clear good/bad (pressure, humidity, temp, swell period). */
+     *  clear good/bad (pressure, humidity, temp, wave period). */
     window?: { good: number; poor: number };
 }
 
@@ -143,7 +143,8 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         window: { good: 3.3, poor: 5.9 }, // ft (≈1.0 m / 1.8 m)
     },
     period: {
-        label: 'Swell period',
+        // The total sea's mean period (swellPeriod is wavePeriod), W1-07.
+        label: 'Wave period',
         accent: 'text-sky-300',
         pick: (h) => h.swellPeriod ?? null,
         fmt: (v) => `${Math.round(v)}`,
