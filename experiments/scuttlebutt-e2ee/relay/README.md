@@ -25,7 +25,8 @@ with the exact payload `[]`. The four-field receipt reports durable account poli
 not encryption or device permission. Existing peer-policy fields and signed-wire
 version/domain are unchanged. No downgrade API exists. Explicit native Research
 controls support both actions. Isolated hosted SQL/API support and positive
-disposable-actor checks are complete; native hosted acceptance remains separate.
+disposable-actor checks are complete. Bounded native hosted acceptance has separate
+evidence below; production cutover is not integrated.
 
 `privateNotifications.sql` and `legacyCutoverFixture.sql` install only into a
 fresh local fixture after `relay.sql`. They are not migrations. The first queues
@@ -150,7 +151,48 @@ SQL, but **synthetic ciphertext only**. It is not a native encrypted exchange,
 physical-device delivery or independent security review. Its receipt records
 local source hashes and the unchanged deployed function revision/bundle hash;
 these are execution identifiers, not independent binary/source attestation.
-The simulator Olm proof and the hosted relay proof remain separate milestones.
+Those earlier simulator and hosted smoke proofs remain separate milestones; the
+later native hosted mode below supplies a distinct encrypted exchange.
+
+## Native messages over the isolated hosted relay
+
+`../hosted/nativePmProof.mjs NATIVE_CACHE PGLITE_ARCHIVE PRIOR_EXCHANGE_RECEIPT`
+orchestrates the explicitly scoped `--hosted-native-pm` mode. Paths must be
+absolute; the cached four provider/binding artifacts must match the completed
+prior native exchange. The archive argument preserves the runner contract but
+is not opened in hosted mode. No primary app, physical device, system CA or
+production target is selected.
+
+The child compiles/boots/installs a fresh owned simulator before publishing a
+300-second READY deadline. The parent then validates an exact six-actor existing
+inventory, creates two new fixed `.invalid` accounts and persists private
+creation/restoration records. Every preparation request checks the deadline
+with a 30-second margin. The temporary two-participant allowlist is verified
+before a complete 0600 input is atomically published without replacement. Tokens
+are never command arguments or output, and native removes the input immediately.
+
+Two native directories use actual `/auth/v1/user`, system TLS, explicit enrollment,
+public-card pairing, native prekey claim and permanent protected-account selection.
+Opening/reply pass through `ResearchPrivateMessageAdapter`; a third successful
+hosted receipt is deliberately discarded before native application, followed by
+an exact adapter retry. Public summaries contain only bindings, IDs and hashes.
+Hosted SQL checks correlate the three accepted envelopes and preserve the old
+actors/catalog. Finally, the parent restores and verifies original participants
+and all secret fingerprints, refusing to overwrite unknown participant state.
+
+See [native hosted evidence](../review/native-hosted-2026-10-07.json) for the
+7 October run: 45 native assertions, three actual Olm messages and 1,730 Research
+tests. Both endpoints share one simulator/process; this is not two-phone,
+Capacitor/main-app UI, independent concurrency or external audit evidence.
+The successful owned simulator/keys were removed. Failure after observing input
+conservatively retains that exact simulator and sealed state; it must not prepare
+replacement hosted keys. Failure branches require their own executed evidence.
+
+**Do not blindly rerun this live command.** It now refuses the consumed eight-actor
+inventory. Accounts, keys, permanent policies and decisions remain on the isolated
+host; resetting them is not a reproduction step. An explicitly reviewed fresh
+fixture plan or recovery of retained failed state is required for a subsequent
+live run. Pure metadata tests can be rerun without hosted writes.
 
 ## HTTP and native network contract
 
@@ -409,8 +451,8 @@ refusal may settle via the original owner-only lease. A later remote change can
 occur during this bounded interval: authoritative SQL still decides new actions.
 This is research gating, not finished polling, trusted time across restart or a
 production latency policy. These SQL/gateway changes are deployed only to the
-isolated hosted pilot, with preservation and negative HTTP checks. No positive
-signed native-to-hosted policy exchange has run.
+isolated hosted pilot. The native hosted mode above supplies bounded positive
+policy/message evidence; production enforcement remains unimplemented.
 
 ## Separate native research app
 

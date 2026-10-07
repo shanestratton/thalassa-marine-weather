@@ -1,0 +1,182 @@
+{
+    "version": 1,
+    "date": "2026-10-07",
+    "baseCommit": "ddb2ceb0042917635061c6380be7cadcf59faac0",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "project": "kmtupdvwdgbhtssqqova",
+    "status": "bounded-native-hosted-acceptance-passed-not-release-ready",
+    "completedAtUTC": "2026-10-07T00:58:07.562Z",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/hosted/nativePmProof.mjs": "b9d61a99c6ce75ac98e6f48f31f227f6d7030a92e72817200265f752010fab46",
+        "experiments/scuttlebutt-e2ee/hosted/nativePmFixture.mjs": "73f99b55ad060c09eb15bf2c7022188659cd3b16bd78173bd68eb21836d2daad",
+        "experiments/scuttlebutt-e2ee/hosted/nativePmFixture.test.ts": "99f591dd02c3ecac9c361dad723d8ee0bb4edd020f51363368764ba8a6fcaf5f",
+        "experiments/scuttlebutt-e2ee/hosted/cutover.tsconfig.json": "b42937809031bb2daec763a29be36c27f2b64ba7d592db0c73f8807804d6086f",
+        "experiments/scuttlebutt-e2ee/relay/nativeExchangeProof.mjs": "2fbf4d0c9d51691420144e60ec1a6e31851a98832f55fe57b0c2f85130beb0a0",
+        "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs": "f8ee77373339be832a51c782087dc5bfa1d5b03fc52173ad7b890d998f04295c",
+        "experiments/scuttlebutt-e2ee/VodozemacHostedPmProbe.swift": "863867821165c6896bc968b64d0ac14aebd0554e277916d3716047fe6ecbca12",
+        "experiments/scuttlebutt-e2ee/VodozemacExchangeProbe.swift": "a16fa9b13675f27849119a2886e835e8d0e5e73b1ed9e2072e5b71e7dbec807d"
+    },
+    "runtimeSourceHashes": {
+        "experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+        "experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "1cd6ae52b3aaf7841f1f0ac4e772ba26de435bb26d871ad758ec98829b61cb75",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "64151767d92a25dc303cbdac2bfd08a43804653eb0f9ee9f357088b7d6facec0",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinatorProbe.swift": "aab199712b27347388b2db71616c002688642b5de16407962cbd1e642706dccf",
+        "experiments/scuttlebutt-e2ee/VodozemacEnrollmentIntentProbe.swift": "ddd8e2bec1fd22371a1c1ccc1c8d5d1c98850f64a5e8b757558a6ef784408920",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthProbe.swift": "e3b1d86811f2fdedaed397b3011acea4c14b824235c18c3fac46173a6678cbd7",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+        "experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectoryProbe.swift": "f5eeae2803e56f4a51ff50c19dab2b4a7e566c5bfde31622763ad9c8636464cd",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageAuthorityProbe.swift": "521b59afc7ba4e11eb287e32bb83f3af6dd81578938a836649ad1b0da85e1e6b",
+        "experiments/scuttlebutt-e2ee/VodozemacPairingHistoryProbe.swift": "79a9a695e1fe94e581b24e4d40aeee9c258fe3060115e4188f9386284905a5f6",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayProbe.swift": "ea16106150d1497e7ba9aefa9a4d030a970a7abe9001b46a75dcc5496e97f52a",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedEnrollmentProbe.swift": "882f030050f5d2c9102b20d3df240e268b3f888cad760541df493021e3b8b9fe",
+        "experiments/scuttlebutt-e2ee/VodozemacReadinessProbe.swift": "2a978a0cc1f557354e92a0a09ebedb81ae049a5d4b3cdcadd7236633076b7588",
+        "experiments/scuttlebutt-e2ee/VodozemacResearchBridgeProbe.swift": "54b9ddb9ebc04009257666fefd22e556ac796002b393c0609fda7baeb92cb3a6",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountModeProbe.swift": "a38f054a40b0477a77c718f817dd5eb8f576e21509b9908b087c3c4b88ab6860",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountModeExchangeProbe.swift": "a86f95b56b1eb4eca95a7bff04d554f10dfa4091655f6f2896bdb82c3e9f1946",
+        "experiments/scuttlebutt-e2ee/VodozemacHostedPmProbe.swift": "863867821165c6896bc968b64d0ac14aebd0554e277916d3716047fe6ecbca12",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResultProbe.swift": "0675a941c9b681f34f1db2bbcb6b54d61a3a96185a84c3e26fde34e807dea81b",
+        "experiments/scuttlebutt-e2ee/VodozemacLifecycleProbe.swift": "a3d6447bc36c04553b2d53e20b29fa27ca8d0c1d0252893de77741296fa27d1d",
+        "experiments/scuttlebutt-e2ee/VodozemacUnresolvedProbe.swift": "03a470db22b047124a1288368685140173d3cfad4edc09f828e2ef848cee04a1",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayClient.swift": "0d31e6979b68b11b071920b1686c28a8a87af933d7e7c2e37a9b9f8bd353e68c",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "28408a37cb00f98a194c27b2fcebc18b0528f5c8dc6d30c667d9331c09b340e8",
+        "experiments/scuttlebutt-e2ee/VodozemacExchangeProbe.swift": "a16fa9b13675f27849119a2886e835e8d0e5e73b1ed9e2072e5b71e7dbec807d",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "0c365e197988be26234cf773fec80e822e08fb170e7b77346b8065f69ced385d",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36"
+    },
+    "cachedArtifactHashes": {
+        "target/aarch64-apple-ios-sim/debug/libthalassa_vodozemac_native.a": "ce81b9cf0723a108c42f8eb2bd03f001aa4800739000aac525dd7e03461d8c0f",
+        "bindings/thalassa_vodozemac_native.swift": "f26c6256b43c383209f9d8da64afe2c87ea84cd647a312a9be322d4f403fa62e",
+        "bindings/thalassa_vodozemac_nativeFFI.h": "e135cfea1701a0e760f6741edd7c848f8197907cdbf2683a2a923742be31fb11",
+        "bindings/thalassa_vodozemac_nativeFFI.modulemap": "c7d5f877e8d06da086653661f8052ab5fec7d136061edcad1bfcd504ea295f41"
+    },
+    "artifacts": {
+        "orchestration": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-hosted-pm-67udFn/orchestrator-receipt.json",
+            "sha256": "e5d3ddb9b5508a005eea8aede778bac61fa0608c7b27d2070db1fa79bd7a689a"
+        },
+        "nativeExchange": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-a74BNg/exchange-run.json",
+            "sha256": "cc0d53be222024992d46f9dd20d9a70e1de348eb498b46f67ba08565368ab9bd"
+        },
+        "nativeSummary": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-exchange-a74BNg/native-hosted-summary-83bf6ef3-6074-4ce7-a4e8-301f7090b95f.json",
+            "sha256": "77c293f1b5d59927686c35795e03f205437fe38907d47d62649d8aea67cfe579"
+        },
+        "publicFixture": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-hosted-pm-67udFn/native-fixture-public-receipt.json",
+            "sha256": "dc02c43796125b75ed4242b333f18059dcbf65d52029d51359dbe9a8e999b0ad"
+        },
+        "restorationJournal": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-native-hosted-pm-67udFn/native-fixture-restore-journal.json",
+            "sha256": "a5d1cceb32828dce006b4ea17f4a8ba4e011469c63ea96060c247c0727ae101b"
+        }
+    },
+    "evidence": {
+        "nativeAssertions": 45,
+        "actualOlmMessages": 3,
+        "endpoints": 2,
+        "simulators": 1,
+        "nativeProcesses": 1,
+        "nativeAuth": "real Supabase /auth/v1/user with dedicated fixture principals",
+        "transport": "ordinary URLSession HTTPS with system trust; no URLProtocol/local relay/custom CA",
+        "openingAndReply": "ResearchPrivateMessageAdapter send/receive",
+        "thirdMessage": "closed native prepare + real hosted send; successful receipt deliberately discarded before application; ordinary adapter retries saved ID/envelope",
+        "hostedVerification": {
+            "nativeBindings": 2,
+            "protectedAccounts": 2,
+            "prekeyClaims": 1,
+            "acceptedMessageDecisions": 3,
+            "oldActorsPreserved": 6,
+            "allSixOldRelayTableDiagnosticsPreserved": true,
+            "installedCatalogPreserved": true,
+            "storedEnvelopeAndDecodedProviderCanariesAbsent": true
+        },
+        "pairing": "fixture-controlled full public-card comparison; not human out-of-band proof",
+        "disposableSimulatorAndOwnedNativeKeysRemoved": true,
+        "hostedAccountsAndImmutableRowsRetainedConsumed": true,
+        "restoration": {
+            "verified": true,
+            "remainingObligation": false,
+            "allOriginalSecretMetadataMatched": true,
+            "initialRevision": {
+                "slug": "scuttlebutt-e2ee-pilot",
+                "id": "216b6be1-0d2f-46c7-b70b-79dbb573128d",
+                "version": 29,
+                "status": "ACTIVE",
+                "verifyJwt": true,
+                "bundleSha256": "76e5f15426709dbab2426450c91a44c250173fe32f6d98859ee8cf127c384a25"
+            },
+            "selectedRevision": {
+                "slug": "scuttlebutt-e2ee-pilot",
+                "id": "216b6be1-0d2f-46c7-b70b-79dbb573128d",
+                "version": 30,
+                "status": "ACTIVE",
+                "verifyJwt": true,
+                "bundleSha256": "76e5f15426709dbab2426450c91a44c250173fe32f6d98859ee8cf127c384a25"
+            },
+            "restoredRevision": {
+                "slug": "scuttlebutt-e2ee-pilot",
+                "id": "216b6be1-0d2f-46c7-b70b-79dbb573128d",
+                "version": 31,
+                "status": "ACTIVE",
+                "verifyJwt": true,
+                "bundleSha256": "76e5f15426709dbab2426450c91a44c250173fe32f6d98859ee8cf127c384a25"
+            }
+        },
+        "independentlyVerifiedProviderProvenance": false,
+        "independentlyAttestedRemoteCompiledSource": false,
+        "networkDropExperiment": false,
+        "processDeathExperiment": false,
+        "physicalDeviceExecution": false,
+        "capacitorOrMainAppUiAcceptance": false
+    },
+    "verification": {
+        "newPureMetadataTests": 111,
+        "researchTests": 1730,
+        "researchSuites": 23,
+        "focusedTypeScript": "passed; allowJs/checkJs false means JS bodies not statically checked",
+        "namedLint": "passed with max-warnings0 after console.log→console.info correction",
+        "namedFormatting": "checked separately before commit",
+        "nodeSyntax": "new parent/helper and changed native runner checked",
+        "initialFailures": [
+            "Named lint max-warnings0 refused seven console.log warnings; corrected without wire changes.",
+            "Focused TypeScript rejected inferred-null default inventory arguments; explicit unknown JSDoc inputs corrected."
+        ],
+        "preExecutionReviewCorrections": [
+            "READY filename match, selected function revision handling and bounded deadline guard.",
+            "Complete private packet fsynced then atomic no-replace publication; no partial input visibility.",
+            "Failure parent waits for native child; observed handoffs retain native state."
+        ],
+        "reviewCategory": "internal source review, not independent security audit"
+    },
+    "freshOnlyReproduction": {
+        "command": "node experiments/scuttlebutt-e2ee/hosted/nativePmProof.mjs NATIVE_CACHE PGLITE_ARCHIVE PRIOR_EXCHANGE_RECEIPT",
+        "currentRunNotRepeatable": true,
+        "reason": "Initial exact six-actor precondition is now consumed eight; no account/key/policy reset or replacement is permitted.",
+        "failureBranchesExecuted": false,
+        "hardTerminationRecoveryGuarantee": false
+    },
+    "remainingGates": [
+        "Actual SDK/Capacitor/native authority integration and durable fail-closed main-app cold-start admission.",
+        "Production legacy-table and generic-notification enforcement, reviewed separately before deployment.",
+        "Device/prekey lifecycle, explicit loss/reinstall/recovery and durable inbox retention/progress.",
+        "Full correlated physical-device acceptance of final integrated candidate.",
+        "Independent PostgreSQL concurrency/adversarial verification.",
+        "Provider/binary provenance and dependency licence/notice obligations.",
+        "Independent external security review, fixes/retest and separate owner release decision."
+    ],
+    "ordinaryBuildEncryptionEnabled": false,
+    "masterMergedOrPushed": false,
+    "primaryCheckoutEditedOrSynced": false,
+    "productionTouched": false,
+    "humanResearchAccountsDevicesOrKeysChanged": false,
+    "externalReviewerContacted": false
+}
