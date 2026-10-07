@@ -465,4 +465,59 @@ describe('persons onboard roster', () => {
         expect(text).toContain('1. Real Person');
         expect(text).not.toContain('Crew, 30');
     });
+
+    describe('in rank order (Shane 2026-10-07: "order the punters on board by their rank")', () => {
+        // The order the sheet's rows arrived in: a punter invited first, the
+        // profile's people, then the co-skipper invitee.
+        const roster = [
+            { name: 'Pat Example', role: 'Guest' },
+            { name: 'Ben Cole', role: 'Deckhand' },
+            { name: 'Priya Nair', role: 'First mate' },
+            { name: 'Ana Reyes', role: 'Skipper', age: 52 },
+            { name: 'Lena Park', role: 'Navigator' },
+            { name: 'Tom Okafor', role: 'Co-skipper' },
+        ];
+        const ranked = ['Ana Reyes', 'Tom Okafor', 'Priya Nair', 'Lena Park', 'Ben Cole', 'Pat Example'];
+
+        it.each(['generic', 'email', 'whatsapp'] as const)('the %s plan lists everyone by rank', (channel) => {
+            const text = createFloatPlanSharePayload({ ...base, personsRoster: roster } as never, channel).text;
+            const at = ranked.map((name) => text.indexOf(name));
+            expect(at.every((index) => index >= 0)).toBe(true);
+            expect(at).toEqual([...at].sort((a, b) => a - b));
+        });
+
+        it('numbers people after they are put in rank order', () => {
+            const text = brief(roster);
+            expect(text).toContain('1. Ana Reyes — Skipper, 52');
+            expect(text).toContain('2. Tom Okafor — Co-skipper');
+            expect(text).toContain('3. Priya Nair — First mate');
+            expect(text).toContain('4. Lena Park — Navigator');
+            expect(text).toContain('5. Ben Cole — Deckhand');
+            expect(text).toContain('6. Pat Example — Guest');
+        });
+
+        it('reads a typed rank and keeps it as typed; an unknown or missing one ranks with the crew', () => {
+            const text = brief([
+                { name: 'Gil Guest', role: 'passenger' },
+                { name: 'Zed Helm', role: 'Helmsman' },
+                { name: 'Amy Nobody' },
+                { name: 'Ana Reyes', role: 'captain' },
+                { name: 'Cy Cook', role: 'Cook' },
+            ]);
+            expect(text).toContain('1. Ana Reyes — captain');
+            expect(text).toContain('2. Cy Cook — Cook');
+            expect(text).toContain('3. Amy Nobody');
+            expect(text).toContain('4. Zed Helm — Helmsman');
+            expect(text).toContain('5. Gil Guest — passenger');
+        });
+
+        it('ranks a plan saved before roles were a field by its note', () => {
+            const text = brief([
+                { name: 'Kim Lee', note: 'guest, non-swimmer' },
+                { name: 'Old Skipper', note: 'skipper' },
+            ]);
+            expect(text).toContain('1. Old Skipper — skipper');
+            expect(text).toContain('2. Kim Lee — guest, non-swimmer');
+        });
+    });
 });
