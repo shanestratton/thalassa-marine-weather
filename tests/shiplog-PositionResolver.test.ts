@@ -4,14 +4,28 @@
  * BgGeoManager / NmeaGpsProvider.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getGpsNavData, getGpsStatus } from '../services/shiplog/PositionResolver';
+import { getBestPosition, getGpsNavData, getGpsStatus } from '../services/shiplog/PositionResolver';
 import type { CachedPosition } from '../services/BgGeoManager';
+
+const lanes = vi.hoisted(() => ({
+    bus: null as null | Record<string, unknown>,
+    pi: null as null | Record<string, unknown>,
+    cloud: null as null | Record<string, unknown>,
+    freshPhone: null as unknown,
+}));
 
 vi.mock('../services/BgGeoManager', () => ({
     BgGeoManager: {
         getLastPosition: () => null,
-        getFreshPosition: vi.fn(),
+        getFreshPosition: vi.fn(async () => lanes.freshPhone),
     },
+}));
+vi.mock('../services/NmeaGpsProvider', () => ({
+    NmeaGpsProvider: { getPosition: () => lanes.bus },
+}));
+vi.mock('../services/boatPositionChain', () => ({
+    piFix: async () => lanes.pi,
+    cloudFix: async () => lanes.cloud,
 }));
 
 function makeFix(ageMs: number, overrides: Partial<CachedPosition> = {}): CachedPosition {
@@ -89,5 +103,87 @@ describe('getGpsNavData', () => {
         expect(getGpsNavData(fixNoHdg, false).cogDeg).toBeNull();
         const fixNeg = makeFix(5_000, { heading: -1 });
         expect(getGpsNavData(fixNeg, false).cogDeg).toBeNull();
+    });
+});
+
+// ── Build 123, package VL: entries obey the phone hold, and say whose fix ──
+//
+// A Voyage End or a manual note used to fall through to the phone even while
+// the track was refusing it (voyagelog.md, whyWrong 3d): the entry pinned at a
+// car park while the track sat with the boat.
+describe('getBestPosition — the phone hold and the fix source', () => {
+    // Nouméa: the boat in Port Moselle, the phone at the airport.
+    const PORT_MOSELLE = { latitude: -22.2796, longitude: 166.4389 };
+    const TONTOUTA = { latitude: -22.0146, longitude: 166.2129 };
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-10-07T05:00:00Z'));
+        lanes.bus = null;
+        lanes.pi = null;
+        lanes.cloud = null;
+        lanes.freshPhone = null;
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('with every boat lane silent and the phone held, returns null — never the phone', async () => {
+        const phone = makeFix(2_000, TONTOUTA);
+        lanes.freshPhone = makeFix(500, TONTOUTA);
+        await expect(getBestPosition(phone, true, { phoneAllowed: () => false })).resolves.toBeNull();
+    });
+
+    it('with the phone allowed (no boat, or a tagged stand-in), the cached phone fix is used and tagged phone', async () => {
+        const phone = makeFix(2_000, TONTOUTA);
+        const best = await getBestPosition(phone, true, { phoneAllowed: () => true });
+        expect(best?.latitude).toBe(TONTOUTA.latitude);
+        expect(best?.fixSource).toBe('phone');
+    });
+
+    it('a fresh phone fetch is tagged phone too', async () => {
+        lanes.freshPhone = makeFix(500, TONTOUTA);
+        const best = await getBestPosition(null, true);
+        expect(best?.fixSource).toBe('phone');
+    });
+
+    it('the bus answers as the vessel; the Pi direct and her cloud row as the vessel relayed', async () => {
+        lanes.bus = {
+            ...PORT_MOSELLE,
+            accuracy: 5,
+            heading: 90,
+            speed: 0,
+            timestamp: Date.now() - 1_000,
+            source: 'nmea',
+        };
+        expect((await getBestPosition(null, true, { phoneAllowed: () => false }))?.fixSource).toBe('vessel');
+
+        lanes.bus = null;
+        lanes.pi = { ...PORT_MOSELLE, timestamp: Date.now() - 2_000, rung: 'pi' };
+        expect((await getBestPosition(null, true, { phoneAllowed: () => false }))?.fixSource).toBe('vessel-relay');
+
+        lanes.pi = null;
+        lanes.cloud = { ...PORT_MOSELLE, timestamp: Date.now() - 20_000, rung: 'cloud', sogKts: 0, cogDeg: null };
+        const relayed = await getBestPosition(null, true, { phoneAllowed: () => false });
+        expect(relayed?.latitude).toBe(PORT_MOSELLE.latitude);
+        expect(relayed?.fixSource).toBe('vessel-relay');
+    });
+
+    it('her bus reached over a private network from elsewhere is tagged as the track tags it: vessel-relay', async () => {
+        // Build 123 review: an entry from the same lane as the track must not
+        // claim 'vessel' while the track's points from it say 'vessel-relay'.
+        lanes.bus = {
+            ...PORT_MOSELLE,
+            accuracy: 5,
+            heading: 90,
+            speed: 0,
+            timestamp: Date.now() - 1_000,
+            source: 'nmea',
+        };
+        const best = await getBestPosition(null, true, {
+            phoneAllowed: () => false,
+            classifyBusFix: () => 'vessel-relay',
+        });
+        expect(best?.fixSource).toBe('vessel-relay');
     });
 });

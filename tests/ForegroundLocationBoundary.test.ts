@@ -177,7 +177,12 @@ describe('foreground location privacy boundary', () => {
         expect(anchor).toContain("BgGeoManager.requireAlwaysLocationAuthorization('anchor-watch')");
         expect(anchor).toContain('BgGeoManager.requestStart()');
         expect(anchor).toContain('GpsService.getCurrentPositionIfGranted(');
-        expect(shipLog).toContain("BgGeoManager.requireAlwaysLocationAuthorization('voyage-log')");
+        // Voyage logging asks for what its track source needs (build 123,
+        // package VL): nothing for a Pi-recorded boat, While Using for a
+        // gateway-only boat, Always advised for a phone-only log. Anchor
+        // Watch's Always gate above is unchanged.
+        expect(shipLog).toContain('BgGeoManager.requireVoyageBackgroundLocation(');
+        expect(shipLog).not.toContain("BgGeoManager.requireAlwaysLocationAuthorization('voyage-log')");
         expect(shipLog).toContain('BgGeoManager.requestStart()');
     });
 });

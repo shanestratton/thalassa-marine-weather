@@ -16,6 +16,7 @@ import { calculateDistance as gcDistance, calculateBearing as gcBearing } from '
 import { loadLargeDataSync, DATA_CACHE_KEY } from '../nativeStorage';
 
 import { createLogger } from '../../utils/createLogger';
+import { isFixSource } from './trackSourcePlan';
 
 const log = createLogger('helpers');
 
@@ -225,6 +226,9 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
         linkedPlanId: row.linked_plan_id,
         savedRouteId: row.saved_route_id,
         legNumber: row.leg_number ?? undefined,
+        // Read when the column exists (migration 20261007183000); absent or
+        // null is "unknown". Writing it is the offline queue's, behind a probe.
+        positionSource: isFixSource(row.position_source) ? row.position_source : undefined,
     };
 }
 

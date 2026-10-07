@@ -10,6 +10,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react';
 import { Preferences } from '@capacitor/preferences';
+import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { triggerHaptic } from '../utils/system';
 
@@ -33,7 +34,8 @@ import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
-import { useGpsHealth, gpsHealthMessage } from '../hooks/useGpsHealth';
+import { useGpsHealth, gpsHealthMessage, openDeviceSettings } from '../hooks/useGpsHealth';
+import { BgGeoManager, isVoyageLocationError } from '../services/BgGeoManager';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import { useLogPageState } from '../hooks/useLogPageState';
@@ -61,6 +63,10 @@ import { formatEndpointCoordinates } from './log/useEndpointNames';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
 import { GpsDisclaimerModal } from './log/GpsDisclaimerModal';
+import { StandInQuestionModal } from './log/StandInQuestionModal';
+import { resolveTrackSourcePlan } from '../services/shiplog/trackSourceInputs';
+import { applyStandInAnswer, type TrackSourcePlan } from '../services/shiplog/trackSourcePlan';
+import type { StartTrackingOptions } from '../hooks/useLogPageState';
 import { SkipperClaimNotice } from './log/SkipperClaimNotice';
 import { ImportSheet } from './log/ImportSheet';
 import { ShareSheet } from './log/ShareSheet';
@@ -162,11 +168,27 @@ const dismissedFollowVoyages = new Set<string>();
  */
 let liveMapExpandedMemo = false;
 
+/**
+ * A Start's source plan (build 123, package VL) stays good this long: the
+ * Continue / New dialog straight after a Start, and the follow sheet's warm-up,
+ * reuse it instead of asking the Pi — or the skipper — again.
+ */
+const PLAN_REUSE_MS = 120_000;
+
+/** Voyages whose location advisory card the skipper has put away ("Got it"). Module scope: it survives a tab-bounce. */
+const dismissedAdvisoryVoyages = new Set<string>();
+
+/** The live voyage's stand-in question (build 123 review), as an external store. */
+const subscribeStandInQuestion = (listener: () => void) => ShipLogService.subscribeStandInQuestion(listener);
+const readStandInQuestion = () => ShipLogService.isStandInQuestionPending();
+const serverStandInQuestion = () => false;
+
 /** Test-only: the guards outlive component instances BY DESIGN, which also
  *  makes them outlive test cases — each spec must start unprompted. */
 export function resetFollowPromptGuardsForTest(): void {
     confirmedFollowVoyages.clear();
     dismissedFollowVoyages.clear();
+    dismissedAdvisoryVoyages.clear();
     liveMapExpandedMemo = false;
 }
 
@@ -1633,6 +1655,44 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // GPS Disclaimer modal state
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
     const pendingStartRef = useRef<(() => void) | null>(null);
+    // The one stand-in question (build 123, package VL): her GPS silent at Start.
+    const [standInQuestionOpen, setStandInQuestionOpen] = useState(false);
+    const standInAnswerRef = useRef<((answer: 'phone' | 'wait' | null) => void) | null>(null);
+    /** The plan the last verified Start settled; the Continue / New dialog that can follow reuses it. */
+    const decidedPlanRef = useRef<{ plan: TrackSourcePlan; at: number } | null>(null);
+    /** A plan resolved while the follow sheet was open (beginCastOff), so the Start does not ask the Pi twice. */
+    const warmPlanRef = useRef<{ promise: Promise<TrackSourcePlan>; at: number } | null>(null);
+
+    const askStandIn = useCallback(
+        () =>
+            new Promise<'phone' | 'wait' | null>((resolve) => {
+                standInAnswerRef.current?.(null);
+                standInAnswerRef.current = resolve;
+                setStandInQuestionOpen(true);
+            }),
+        [],
+    );
+    const answerStandIn = useCallback((answer: 'phone' | 'wait' | null) => {
+        const resolve = standInAnswerRef.current;
+        standInAnswerRef.current = null;
+        setStandInQuestionOpen(false);
+        resolve?.(answer);
+    }, []);
+    // The same question for a voyage started anywhere else — the Cast Off
+    // handoff lands here, a Start while her lane was still connecting — that
+    // has never heard her and has the phone held for want of any fix of hers
+    // (build 123 review). Without it, that voyage records nothing and says
+    // nothing. Put away with Cancel, it stays away for that voyage.
+    const liveStandInPending = useSyncExternalStore(
+        subscribeStandInQuestion,
+        readStandInQuestion,
+        serverStandInQuestion,
+    );
+    const [liveStandInDismissedFor, setLiveStandInDismissedFor] = useState<string | null>(null);
+    /** The phone notice's Always line, only when Location is not already Always. */
+    const [alwaysAdvice, setAlwaysAdvice] = useState(false);
+    /** Re-render after "Got it" on the location advisory card. */
+    const [, setAdvisoryDismissals] = useState(0);
 
     const checkGpsDisclaimer = useCallback(
         async (onProceed: () => void) => {
@@ -1644,6 +1704,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 if (value === 'true') {
                     onProceed();
                 } else {
+                    // The Always line tells the skipper something only when
+                    // Location is not Always already (iOS; a read, never a prompt).
+                    const always = Capacitor.getPlatform() === 'ios' ? await BgGeoManager.hasAlwaysLocation() : true;
+                    if (!isAuthIdentityScopeCurrent(actionScope)) return;
+                    setAlwaysAdvice(!always);
                     pendingStartRef.current = onProceed;
                     setShowGpsDisclaimer(true);
                 }
@@ -1671,14 +1736,21 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     );
 
     /**
-     * A voyage is not declared "Live Recording" until the page proves this
-     * device can supply a fresh position. ShipLogService still owns the
+     * A voyage is not declared "Live Recording" until the page proves its
+     * SOURCE can supply a fresh position. ShipLogService still owns the
      * long-lived capture gate; this is the fail-closed user-facing preflight
      * that prevents permission denial or a GPS-less browser from entering an
      * optimistic recording state indefinitely.
+     *
+     * Build 123, package VL (Shane 2026-10-07: "we need it to use the vessel
+     * gps if and when available"): the source is decided first. Her GPS
+     * answering means this phone is asked for nothing — no fix, no notice.
+     * Her GPS silent at Start (and not from ashore) asks the one stand-in
+     * question. Only when the phone is the source does it have to prove a
+     * fresh fix, and only a fix from the phone's own chip earns the notice.
      */
     const verifyGpsAndStart = useCallback(
-        async (onProceed: () => void | Promise<void>, showDisclaimer: boolean) => {
+        async (onProceed: (options?: StartTrackingOptions) => void | Promise<void>, showDisclaimer: boolean) => {
             if (startGpsCheckRef.current) return;
             const actionScope = identityScope;
             if (!isAuthIdentityScopeCurrent(actionScope)) return;
@@ -1687,6 +1759,78 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             setCheckingStartGps(true);
             setTrackingStartFailure(null);
             try {
+                // 1. Which receiver feeds this voyage. The Continue / New
+                //    dialog straight after a Start reuses that Start's answer.
+                const decided = decidedPlanRef.current;
+                const reuse =
+                    !showDisclaimer && decided && Date.now() - decided.at <= PLAN_REUSE_MS ? decided.plan : null;
+                const warm = warmPlanRef.current;
+                warmPlanRef.current = null;
+                let plan =
+                    reuse ??
+                    (warm && Date.now() - warm.at <= PLAN_REUSE_MS
+                        ? await warm.promise
+                        : await resolveTrackSourcePlan());
+                if (!isAuthIdentityScopeCurrent(actionScope)) return;
+
+                // 2. Her GPS silent at Start: ask once. From ashore the plan
+                //    already says "never", and nothing is asked.
+                if (!reuse && plan.source === 'vessel-silent' && plan.standIn === 'ask') {
+                    const answer = await askStandIn();
+                    if (!isAuthIdentityScopeCurrent(actionScope) || !answer) return;
+                    plan = applyStandInAnswer(plan, answer);
+                }
+                decidedPlanRef.current = { plan, at: Date.now() };
+                const sourcePlan = plan;
+                // A refusal from the service's own location preflight lands in
+                // this page's start card, never as a toast (build 123 review).
+                const onFailed = (error: unknown): boolean => {
+                    if (!isVoyageLocationError(error) || !isAuthIdentityScopeCurrent(actionScope)) return false;
+                    setTrackingStartFailure({
+                        kind: error.kind === 'services-off' ? 'services-off' : 'permission',
+                        title:
+                            error.kind === 'services-off'
+                                ? 'Location Services are off'
+                                : error.kind === 'deferred'
+                                  ? 'Tracking will start when Thalassa is open'
+                                  : 'Location is off for Thalassa',
+                        detail: `Tracking did not start. ${error.message}`,
+                        actionable: error.kind !== 'deferred',
+                    });
+                    triggerHaptic('medium');
+                    return true;
+                };
+                const start = () => onProceed({ sourcePlan, onFailed });
+
+                // 3. The boat feeds the log: this phone is asked for no fix.
+                //    Aboard, its Location keeps her lanes recording with the
+                //    screen locked (While Using is enough; her Pi's own track
+                //    cannot fill a voyage's gaps until phase 2) — said here,
+                //    in the page's card, never as a toast. A Start from ashore
+                //    needs nothing.
+                if (plan.source === 'vessel' || plan.source === 'vessel-silent') {
+                    if (
+                        plan.keepAlive === 'when-in-use' &&
+                        gpsHealth &&
+                        (gpsHealth.reason === 'denied' || gpsHealth.reason === 'services-off')
+                    ) {
+                        setTrackingStartFailure({
+                            kind: gpsHealth.reason === 'denied' ? 'permission' : 'services-off',
+                            title:
+                                gpsHealth.reason === 'denied'
+                                    ? 'Location is off for Thalassa'
+                                    : 'Location Services are off',
+                            detail: "Tracking did not start. To keep logging your boat's GPS with the screen locked, Thalassa needs Location — While Using is enough. The track comes from your boat; this phone's position is only a backup.",
+                            actionable: gpsHealth.actionable,
+                        });
+                        triggerHaptic('medium');
+                        return;
+                    }
+                    await start();
+                    return;
+                }
+
+                // 4. The phone is the source: it must supply a fresh fix.
                 const position = await acquireFreshOwnshipPosition({
                     maxGpsAgeMs: 30_000,
                     timeoutSec: 12,
@@ -1720,14 +1864,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 }
 
                 setTrackingStartFailure(null);
-                if (showDisclaimer) await checkGpsDisclaimer(onProceed);
-                else await onProceed();
+                // The notice is about a phone's own chip on the water: never
+                // for a fix her receiver supplied ('nmea'), never for a Bad
+                // Elf / MFi receiver (plan.showPhoneNotice is false for it).
+                if (showDisclaimer && plan.showPhoneNotice && position.source === 'gps') {
+                    await checkGpsDisclaimer(() => void start());
+                } else await start();
             } finally {
                 startGpsCheckRef.current = false;
                 if (isAuthIdentityScopeCurrent(actionScope)) setCheckingStartGps(false);
             }
         },
-        [checkGpsDisclaimer, gpsBlocked, gpsHealth, identityScope],
+        [askStandIn, checkGpsDisclaimer, gpsBlocked, gpsHealth, identityScope],
     );
     // Render-time ref assignment (idempotent) so the follow sheet's pre-start
     // answers — declared far above — can fire the verified start without a
@@ -1750,14 +1898,23 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             void verifyGpsAndStart(handleStartTracking, true);
             return;
         }
-        // Warm the fix while the skipper reads the sheet — the post-answer
-        // preflight then finds a fresh position already cached instead of
-        // starting a cold acquisition. Fire-and-forget by design.
-        void acquireFreshOwnshipPosition({
-            maxGpsAgeMs: 30_000,
-            timeoutSec: 12,
-            locationAccess: 'background-safety',
-        }).catch(() => null);
+        // Warm the source while the skipper reads the sheet — the post-answer
+        // preflight then finds its plan (and, for a phone log, a fresh fix)
+        // already in hand instead of starting cold. Her GPS answering means
+        // this phone is never asked (build 123). Fire-and-forget by design.
+        const warmPlan = resolveTrackSourcePlan();
+        warmPlanRef.current = { promise: warmPlan, at: Date.now() };
+        void warmPlan
+            .then((plan) =>
+                plan.source === 'phone' || plan.source === 'phone-accessory'
+                    ? acquireFreshOwnshipPosition({
+                          maxGpsAgeMs: 30_000,
+                          timeoutSec: 12,
+                          locationAccess: 'background-safety',
+                      })
+                    : null,
+            )
+            .catch(() => null);
         setFollowBlockNotice(null);
         setFollowPromptChoices(followSheetChoices);
         // A fresh sheet is a fresh attempt. Without this, a route that once
@@ -1825,6 +1982,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         gpsStatus,
         filters: _filters,
     } = state;
+
+    // Build 123 review: the live voyage's stand-in question and its location
+    // caution, read from the Ship's Log (both null/false when not tracking).
+    const liveStandInOpen =
+        isTracking &&
+        liveStandInPending &&
+        !standInQuestionOpen &&
+        liveStandInDismissedFor !== (currentVoyageId ?? null);
+    const liveLocationAdvisory =
+        isTracking && currentVoyageId && !dismissedAdvisoryVoyages.has(currentVoyageId)
+            ? ShipLogService.getLocationAdvisory()
+            : null;
 
     // Overflow (kebab) menu — a titled dialog with the Route Planner actions
     // dialog's discipline: trap focus, land it on Close, Escape dismisses, focus
@@ -1988,6 +2157,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setLiveMapExpanded(false);
         setShowGpsDisclaimer(false);
         pendingStartRef.current = null;
+        standInAnswerRef.current?.(null);
+        standInAnswerRef.current = null;
+        setStandInQuestionOpen(false);
+        setLiveStandInDismissedFor(null);
+        dismissedAdvisoryVoyages.clear();
+        setAlwaysAdvice(false);
+        decidedPlanRef.current = null;
+        warmPlanRef.current = null;
         startGpsCheckRef.current = false;
         setCheckingStartGps(false);
         setTrackingStartFailure(null);
@@ -2131,6 +2308,40 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             castOffHandoff.publishState === 'queued') && (
                             <CastOffHandoffNotices castOffHandoff={castOffHandoff} isTracking={isTracking} />
                         )}
+
+                    {/* The location preflight's one caution for the live voyage
+                        (build 123): recording only while open, or Always
+                        advised for a phone log. A card, never a toast. */}
+                    {liveLocationAdvisory && currentVoyageId && (
+                        <div className="px-4 mb-2">
+                            <div
+                                role="status"
+                                data-testid="voyage-location-advisory"
+                                className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 space-y-2"
+                            >
+                                <p className="text-sm text-amber-100">{liveLocationAdvisory}</p>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={openDeviceSettings}
+                                        className="min-h-[44px] rounded-xl border border-amber-300/25 bg-amber-400/15 px-3 py-2 text-xs font-black text-amber-100"
+                                    >
+                                        Open location settings
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            dismissedAdvisoryVoyages.add(currentVoyageId);
+                                            setAdvisoryDismissals((n) => n + 1);
+                                        }}
+                                        className="min-h-[44px] rounded-xl border border-amber-300/20 px-3 py-2 text-xs font-black text-amber-200/80"
+                                    >
+                                        Got it
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {isTracking ? (
                         <>
@@ -2308,10 +2519,26 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* Toast Notifications */}
             <toast.ToastContainer />
 
-            {/* GPS Accuracy Disclaimer Modal */}
+            {/* The phone notice: only when this phone is the voyage's source */}
             <GpsDisclaimerModal
                 isOpen={showGpsDisclaimer}
                 onDismiss={async (dontShowAgain) => dismissGpsDisclaimer(dontShowAgain)}
+                alwaysAdvice={alwaysAdvice}
+            />
+
+            {/* Her GPS silent: log from this phone, or wait for her — at the
+                Start, or for a live voyage that never heard her */}
+            <StandInQuestionModal
+                isOpen={standInQuestionOpen || liveStandInOpen}
+                boatName={_settings?.vessel?.name}
+                onAnswer={(answer) => {
+                    if (standInQuestionOpen) answerStandIn(answer);
+                    else void ShipLogService.answerStandInQuestion(answer);
+                }}
+                onCancel={() => {
+                    if (standInQuestionOpen) answerStandIn(null);
+                    else setLiveStandInDismissedFor(currentVoyageId ?? null);
+                }}
             />
 
             {/* Manual Entry Modal */}

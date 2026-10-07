@@ -27,6 +27,8 @@ export interface OwnshipNavigationInput {
     longitude?: OwnshipMetric;
     sog?: OwnshipMetric;
     cog?: OwnshipMetric;
+    /** NmeaStore's remote feed, when there is one: which lane, and when the Pi reported. */
+    remote?: { via?: string; reportedAt?: number; positionSampleAt?: number } | null;
 }
 
 export interface SelectedLocationInput {
@@ -42,7 +44,18 @@ export interface OwnshipPosition {
     sog: number;
     cog: number;
     timestamp: number;
+    /**
+     * 'nmea' is the BOAT — her own receiver, by any lane (the chart, the
+     * passage HUD and the diary all read it that way). 'gps' is this phone.
+     */
     source: 'nmea' | 'gps';
+    /**
+     * Present only when the boat's fix came down the Pi's cloud row: relayed,
+     * not the bus, and `timestamp` is when this phone READ it. `reportedAt` is
+     * when her receiver (else the Pi) said it — the honest age (build 123,
+     * package VL: a minute-old relayed fix must never pass as the live bus).
+     */
+    relay?: { reportedAt: number };
 }
 
 export interface OwnshipPositionOptions {
@@ -123,6 +136,12 @@ export function resolveOwnshipPosition(
         isFreshMetric(nmeaLon, now, maxNmeaAgeMs) &&
         validCoordinates(nmeaLat.value!, nmeaLon.value!)
     ) {
+        const relayedAt =
+            nmea.remote?.via === 'cloud'
+                ? [nmea.remote.positionSampleAt, nmea.remote.reportedAt].find(
+                      (at): at is number => typeof at === 'number' && Number.isFinite(at) && at > 0,
+                  )
+                : undefined;
         return {
             lat: nmeaLat.value!,
             lon: nmeaLon.value!,
@@ -130,6 +149,7 @@ export function resolveOwnshipPosition(
             cog: safeMovementMetric(nmea.cog, now, maxNmeaAgeMs, 360),
             timestamp: Math.min(nmeaLat.lastUpdated, nmeaLon.lastUpdated),
             source: 'nmea',
+            ...(relayedAt !== undefined ? { relay: { reportedAt: relayedAt } } : {}),
         };
     }
 

@@ -52,6 +52,8 @@ import { ShoreZoneResolver } from './shiplog/ShoreZoneResolver';
 import type { WaterCheckResult } from './shiplog/waterDetection';
 import { AdaptiveScheduler } from './shiplog/AdaptiveScheduler';
 import { GpsSubscriptionManager, type PhoneHold } from './shiplog/GpsSubscriptionManager';
+import { applyStandInAnswer, planTrackSource, standInPolicyOf, type TrackSourcePlan } from './shiplog/trackSourcePlan';
+import { createPhoneFixClassifier } from './shiplog/phoneFixClassifier';
 import {
     captureImmediate as _captureImmediate,
     captureLog as _captureLog,
@@ -220,6 +222,21 @@ class ShipLogServiceClass {
     private gpsSubs = new GpsSubscriptionManager();
     /** Why the phone's fixes are refused for the track right now (the log follows the boat). */
     private phoneHold: PhoneHold | null = null;
+    /** Which receiver feeds the live voyage, decided at Start (build 123, package VL). */
+    private trackSourcePlan: TrackSourcePlan | null = null;
+    /** One honest line from the location preflight (a phone-only log at While Using), or null. */
+    private locationAdvisory: string | null = null;
+    /** gwstate's link reader, loaded lazily: how her data reaches this phone, and whether it is with her. */
+    private boatLinkReader: (() => { kind: string; phoneStandsInForBoat: boolean }) | null = null;
+    private boatLinkCache: { at: number; viaVpn: boolean; withBoat: boolean } | null = null;
+    /**
+     * Which of this phone's receivers produced each fix: its own chip, or a
+     * Bad Elf / MFi accessory confirmed live for that fix (build 123 review —
+     * an accessory can die mid-passage, so it is asked per fix, not at Start).
+     */
+    private phoneFixClassifier = createPhoneFixClassifier();
+    /** Listeners for "her GPS is silent and this voyage never heard her: ask the skipper". */
+    private standInQuestionListeners = new Set<() => void>();
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
     /** Last lifecycle publication: excludes provisional state inside an unfinished start/recovery. */
     private publishedTrackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
@@ -807,6 +824,7 @@ class ShipLogServiceClass {
                     schedulerRunning: this.scheduler.isRunning(),
                     nativeTrackingEnabled,
                     currentVoyageId: this.trackingState.currentVoyageId,
+                    leaselessVoyage: this.trackingState.keepAliveLease === false,
                 });
 
                 if (decision.action === 'resume') {
@@ -815,7 +833,7 @@ class ShipLogServiceClass {
                     // release the (in-memory only) flag first; we deliberately
                     // do NOT persist a stopped state or an end time here.
                     log.warn(
-                        `[init] native GPS still live after JS reload — resuming voyage ${decision.voyageId.slice(0, 12)} in place (no stop, no new id)`,
+                        `[init] ${this.trackingState.keepAliveLease === false ? 'leaseless voyage' : 'native GPS still live'} after JS reload — resuming voyage ${decision.voyageId.slice(0, 12)} in place (no stop, no new id)`,
                     );
                     this.trackingState.isTracking = false;
                     this.trackingOwnerScope = null;
@@ -1250,6 +1268,12 @@ class ShipLogServiceClass {
          * passed as continueVoyageId. GPS recovery alone is not a departure.
          */
         freshDeparture: boolean = false,
+        /**
+         * The Log page's source plan, with the skipper's answer to the
+         * stand-in question applied (build 123, package VL). Absent: the
+         * service resolves one itself (the cast-off handoff, a reload resume).
+         */
+        options: { sourcePlan?: TrackSourcePlan } = {},
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const stopping = this.stopOperation;
@@ -1265,7 +1289,7 @@ class ShipLogServiceClass {
         if (inFlight && this.sameScope(inFlight.scope, scope)) return inFlight.promise;
 
         const requestedVoyageId = continueVoyageId ?? (resume ? this.trackingState.currentVoyageId : undefined);
-        const promise = this.performStartTracking(resume, continueVoyageId, scope, freshDeparture);
+        const promise = this.performStartTracking(resume, continueVoyageId, scope, freshDeparture, options.sourcePlan);
         this.startOperation = { scope, voyageId: requestedVoyageId, promise };
         try {
             await promise;
@@ -1279,6 +1303,7 @@ class ShipLogServiceClass {
         continueVoyageId: string | undefined,
         scope: AuthIdentityScope,
         freshDeparture: boolean,
+        suppliedPlan: TrackSourcePlan | undefined,
     ): Promise<void> {
         if (!isAuthIdentityScopeCurrent(scope)) return;
         const stateBeforeStart = this.trackingState;
@@ -1325,6 +1350,23 @@ class ShipLogServiceClass {
         const previousTrackGpsGateOpen = this.trackGpsGateOpen;
         let nativeLeaseAcquired = false;
         let liveTrickleStarted = false;
+        // Which receiver feeds this voyage (build 123, package VL). A resumed
+        // voyage (a Resume, a cast-off retry, a reload) keeps the plan it was
+        // started with — the skipper's answer included — and asks the
+        // network nothing; a new one is planned now.
+        const resumingVoyageId = continueVoyageId ?? (resume ? previousState.currentVoyageId : undefined);
+        const keptPlan =
+            resumingVoyageId && previousState.currentVoyageId === resumingVoyageId
+                ? previousState.sourcePlan
+                : undefined;
+        const sourcePlan = suppliedPlan ?? keptPlan ?? (await this.resolveStartPlan());
+        if (!startIsCurrent()) return;
+        // A voyage that was already recording without a keep-alive lease (a
+        // boat-only Start from ashore with no location grant) carries on as it
+        // was when a reload or a background resume restarts it.
+        const resumeLeaseless = keptPlan !== undefined && previousState.keepAliveLease === false;
+        let locationAdvisory: string | null = null;
+        let keepAliveLease = true;
 
         try {
             // Initialize GPS engine (native-only: Transistorsoft BgGeo).
@@ -1360,25 +1402,44 @@ class ShipLogServiceClass {
                 // the real pre-start state for transactional rollback only now.
                 previousNativeLeaseScope = this.nativeLeaseScope;
                 const tReady = performance.now();
-                await BgGeoManager.requireAlwaysLocationAuthorization('voyage-log');
+                // Ask iOS only for what this voyage's source needs (build 123,
+                // package VL): nothing from ashore, While Using when her GPS
+                // feeds the log through this phone, Always ADVISED (never
+                // demanded) for a phone-only log. The check still precedes the
+                // lease and any committed state.
+                const voyageLocation = await BgGeoManager.requireVoyageBackgroundLocation(sourcePlan.keepAlive, {
+                    background: typeof document !== 'undefined' && document.visibilityState === 'hidden',
+                    resumeLeaseless,
+                });
                 if (!startIsCurrent()) return;
-                let leaseState = this.sameScope(previousNativeLeaseScope, scope)
-                    ? await BgGeoManager.getLeaseState()
-                    : null;
-                if (leaseState && leaseState.activeLeaseCount > 0 && !leaseState.active) {
-                    leaseState = await BgGeoManager.revalidateExistingLease();
-                }
-                if (!leaseState?.active || !leaseState.nativeTrackingEnabled) {
-                    // A prior final-stop failure deliberately leaves this
-                    // service's ownership marker intact. Reuse a verified live
-                    // lease; only acquire a new one when no such lease exists.
-                    this.nativeLeaseScope = null;
-                    leaseState = await BgGeoManager.requestStart();
-                    nativeLeaseAcquired = true;
-                    this.nativeLeaseScope = scope;
-                }
-                if (!leaseState.active || !leaseState.nativeTrackingEnabled) {
-                    throw new Error('Voyage logging could not verify that background GPS is active. Please try again.');
+                locationAdvisory = voyageLocation.advisory;
+                keepAliveLease = voyageLocation.lease;
+                if (voyageLocation.lease) {
+                    let leaseState = this.sameScope(previousNativeLeaseScope, scope)
+                        ? await BgGeoManager.getLeaseState()
+                        : null;
+                    if (leaseState && leaseState.activeLeaseCount > 0 && !leaseState.active) {
+                        leaseState = await BgGeoManager.revalidateExistingLease();
+                    }
+                    if (!leaseState?.active || !leaseState.nativeTrackingEnabled) {
+                        // A prior final-stop failure deliberately leaves this
+                        // service's ownership marker intact. Reuse a verified live
+                        // lease; only acquire a new one when no such lease exists.
+                        this.nativeLeaseScope = null;
+                        leaseState = await BgGeoManager.requestStart();
+                        nativeLeaseAcquired = true;
+                        this.nativeLeaseScope = scope;
+                    }
+                    if (!leaseState.active || !leaseState.nativeTrackingEnabled) {
+                        throw new Error(
+                            'Voyage logging could not verify that background GPS is active. Please try again.',
+                        );
+                    }
+                } else {
+                    // A boat-only Start from ashore with no location grant:
+                    // nothing to keep this phone awake with. It records her
+                    // lanes while Thalassa is open, and the Log page says so.
+                    log.warn('voyage starts without a keep-alive lease: it records while Thalassa is open');
                 }
                 if (!startIsCurrent()) throw new StartTrackingCancelledError();
                 log.warn(
@@ -1477,8 +1538,21 @@ class ShipLogServiceClass {
                           : undefined,
                 voyageStartCapture: departureCaptureState(previousState, voyageId, isFreshDeparture),
                 lastMovementTime: new Date().toISOString(),
+                // The plan travels with the voyage (a reload resumes it;
+                // build 123, package VL).
+                sourcePlan,
+                // A leaseless voyage is resumed by a reload, not ended for want
+                // of a native engine it never had.
+                ...(this.isNative && !keepAliveLease ? { keepAliveLease: false } : {}),
             };
             const sessionState = this.trackingState;
+            this.trackSourcePlan = sourcePlan;
+            // A hold belongs to the session that saw it: the new manager
+            // session reports its own.
+            this.phoneHold = null;
+            this.locationAdvisory = locationAdvisory;
+            if (locationAdvisory) log.warn(`voyage location advisory: ${locationAdvisory}`);
+            this.loadBoatLinkReader();
             const initialProfile = getPlottingProfile('nearshore');
             sessionState.loggingZone = initialProfile.zone;
             sessionState.currentIntervalMs = initialProfile.intervalMs;
@@ -1551,8 +1625,17 @@ class ShipLogServiceClass {
             // subscription manager ensures GPS is ALWAYS fresh.
             this.gpsSubs.start({
                 onPhoneHeld: (hold) => {
+                    const asked = this.isStandInQuestionPending();
                     this.phoneHold = hold;
+                    if (asked !== this.isStandInQuestionPending()) this.notifyStandInQuestion();
                 },
+                // Build 123, package VL: the stand-in is the skipper's to
+                // give, and every point says which receiver produced it.
+                standIn: () =>
+                    standInPolicyOf(this.ownerIsCurrent(scope, sessionState) ? sessionState.sourcePlan : null),
+                classifyPhoneFix: (pos) => this.phoneFixClassifier.classify(pos, this.isNative),
+                classifyBusFix: () => this.classifyBusFix(),
+                phoneWithBoat: () => this.boatLinkFacts().withBoat,
                 isNative: this.isNative,
                 trackBuffer: this.trackBuffer,
                 isActive: () =>
@@ -1731,6 +1814,134 @@ class ShipLogServiceClass {
     /** Why the phone is refused for the track, or null — only meaningful while tracking. */
     getPhoneHold(): PhoneHold | null {
         return this.trackingState.isTracking ? this.phoneHold : null;
+    }
+
+    /** Which receiver feeds the live voyage, as decided at Start (build 123). Null when not tracking. */
+    getTrackSourcePlan(): TrackSourcePlan | null {
+        return this.trackingState.isTracking ? this.trackSourcePlan : null;
+    }
+
+    /** The location preflight's one advisory line for the live voyage, or null. */
+    getLocationAdvisory(): string | null {
+        return this.trackingState.isTracking ? this.locationAdvisory : null;
+    }
+
+    /**
+     * Ask the skipper "her GPS isn't answering — wait, or log from this
+     * phone?" now (build 123 review)? Only the Log page's own Start asks it
+     * up front. A voyage started anywhere else — the Cast Off handoff, a Start
+     * while her lane was still connecting — that has never heard her, past
+     * the dead dwell, with the phone held for want of any fix of hers, has
+     * nobody to opt in: it would record nothing, and say nothing.
+     */
+    isStandInQuestionPending(): boolean {
+        const plan = this.trackSourcePlan;
+        if (!this.trackingState.isTracking || !plan) return false;
+        if (plan.source !== 'vessel' && plan.source !== 'vessel-silent') return false;
+        if (plan.standIn === 'never' || plan.standInOptIn) return false;
+        return this.phoneHold?.reason === 'no-boat-fix';
+    }
+
+    subscribeStandInQuestion(listener: () => void): () => void {
+        this.standInQuestionListeners.add(listener);
+        return () => {
+            this.standInQuestionListeners.delete(listener);
+        };
+    }
+
+    private notifyStandInQuestion(): void {
+        for (const listener of this.standInQuestionListeners) {
+            try {
+                listener();
+            } catch (error) {
+                log.warn('stand-in question listener threw', error);
+            }
+        }
+    }
+
+    /**
+     * The skipper's answer for the live voyage: "Wait for the boat" makes it
+     * hers alone; "Log from this phone" lets the phone stand in at once, every
+     * point tagged. The GPS manager reads the voyage's plan per fix, so the
+     * answer takes effect on the next one. Persisted with the voyage.
+     */
+    async answerStandInQuestion(answer: 'phone' | 'wait'): Promise<void> {
+        const scope = this.trackingOwnerScope;
+        const state = this.trackingState;
+        const plan = state.sourcePlan ?? this.trackSourcePlan;
+        if (!scope || !this.ownerIsCurrent(scope, state) || !state.isTracking || !plan) return;
+        const next = applyStandInAnswer(plan, answer);
+        state.sourcePlan = next;
+        this.trackSourcePlan = next;
+        log.warn(`stand-in answered for the live voyage: ${answer === 'phone' ? 'log from this phone' : 'wait'}`);
+        this.notifyStandInQuestion();
+        await this.saveTrackingState(scope);
+    }
+
+    /**
+     * The plan when no page supplied one (the cast-off handoff, a reload
+     * resume). Its gatherer never throws or asks the phone for anything; if
+     * it cannot even load, the facts are "nothing known" — a phone plan,
+     * which advises Always and never demands it.
+     */
+    private async resolveStartPlan(): Promise<TrackSourcePlan> {
+        try {
+            const { resolveTrackSourcePlan } = await import('./shiplog/trackSourceInputs');
+            return await resolveTrackSourcePlan();
+        } catch (error) {
+            log.warn('source plan unavailable; starting as a phone log:', error);
+            return planTrackSource({
+                boatConfigured: false,
+                piRecorderOn: false,
+                link: { where: 'unknown', lane: 'none', kind: 'none', data: 'none' },
+                boatPosition: null,
+                phoneAccessory: false,
+            });
+        }
+    }
+
+    /** Load gwstate's link reader without putting it on this module's import path. */
+    private loadBoatLinkReader(): void {
+        if (this.boatLinkReader) return;
+        void import('./boatLink/BoatLinkService')
+            .then(({ BoatLinkService }) => {
+                // evaluate() with its normal notify: a change it sees is a
+                // real change every watcher should hear about.
+                this.boatLinkReader = () => BoatLinkService.evaluate(Date.now());
+            })
+            .catch(() => undefined);
+    }
+
+    /**
+     * gwstate's LINK and WHERE for the track, read at most every 15 s (a fix
+     * arrives every few seconds; the answers change on a Wi-Fi join or a
+     * mooring, not per fix). viaVpn: her LAN reached over a private network
+     * from elsewhere, so her bus points are 'vessel-relay'. withBoat:
+     * BoatLinkService.phoneStandsInForBoat. Unknown reads as her own Wi-Fi
+     * and NOT with her — the conservative answer for each.
+     */
+    private boatLinkFacts(now = Date.now()): { viaVpn: boolean; withBoat: boolean } {
+        const cached = this.boatLinkCache;
+        if (cached && now - cached.at < 15_000) return cached;
+        let facts = { viaVpn: false, withBoat: false };
+        try {
+            const snapshot = this.boatLinkReader?.();
+            if (snapshot) {
+                facts = {
+                    viaVpn: snapshot.kind === 'private-network',
+                    withBoat: snapshot.phoneStandsInForBoat === true,
+                };
+            }
+        } catch {
+            /* unknown: her bus, and not proven aboard */
+        }
+        this.boatLinkCache = { at: now, ...facts };
+        return facts;
+    }
+
+    /** Her bus over her own Wi-Fi is 'vessel'; her LAN reached over a private network from elsewhere is 'vessel-relay'. */
+    private classifyBusFix(): 'vessel' | 'vessel-relay' {
+        return this.boatLinkFacts().viaVpn ? 'vessel-relay' : 'vessel';
     }
 
     getGpsStatus(): 'locked' | 'stale' | 'none' {
@@ -2446,6 +2657,16 @@ class ShipLogServiceClass {
             // user-created manual note during initial acquisition), but it
             // can never displace an established voyage track vertex.
             getCachedFix: () => this.lastAcceptedLocation ?? this.lastBgLocation,
+            // Entries obey the track's phone hold (build 123, package VL). The
+            // manager keeps the voyage's own rule past stop(), so the Voyage
+            // End entry written after the subscriptions are down is judged by
+            // it too. Paused: no live rule to consult, but a boat-only voyage
+            // still never takes the phone. No voyage: the phone answers.
+            phoneMayStandIn: () =>
+                state.isTracking
+                    ? (this.gpsSubs.phoneMayStandIn?.() ?? true)
+                    : !(state.isPaused && state.sourcePlan?.standIn === 'never'),
+            classifyBusFix: () => this.classifyBusFix(),
             setCachedFix: (pos) => {
                 if (!isAuthIdentityScopeCurrent(scope) || state !== this.trackingState) return;
                 this.lastBgLocation = pos;

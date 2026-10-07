@@ -769,6 +769,34 @@ describe('useLogPageState identity boundary', () => {
         },
     );
 
+    // Build 123 review: a refusal the Log page can explain in its own start
+    // card goes there — the hook leaves the toast to everything else.
+    it.each(['handleStartTracking', 'startTrackingWithNewVoyage', 'continueLastVoyage'] as const)(
+        '%s hands a failed start to the page first, and toasts only what the page did not take',
+        async (handler) => {
+            mocks.getCachedSummaries.mockResolvedValue([]);
+            mocks.getSummaries.mockResolvedValue([]);
+            const { result } = renderHook(() => useLogPageState());
+            await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+            const refusal = new Error('Thalassa needs Location — While Using is enough.');
+            mocks.startTracking.mockRejectedValueOnce(refusal);
+            const onFailed = vi.fn(() => true);
+            await act(async () => {
+                await result.current[handler]({ onFailed });
+            });
+            await waitFor(() => expect(onFailed).toHaveBeenCalledWith(refusal));
+            expect(result.current.state.isTracking).toBe(false);
+            expect(mocks.toastError).not.toHaveBeenCalled();
+
+            mocks.startTracking.mockRejectedValueOnce(new Error('Background GPS did not confirm.'));
+            await act(async () => {
+                await result.current[handler]({ onFailed: () => false });
+            });
+            await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('Background GPS did not confirm.'));
+        },
+    );
+
     it('does not commit a previous account’s deferred recording choice', async () => {
         const start = deferred<void>();
         mocks.startTracking.mockReturnValueOnce(start.promise);

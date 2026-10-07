@@ -10,6 +10,15 @@ export interface VoyageHazard {
     description: string;
 }
 
+/**
+ * Which receiver produced a logged position (build 123): her bus, her
+ * receivers relayed (the Pi direct, her cloud row, her LAN over a VPN), her
+ * Pi's own recorded track, this phone, or a Bad Elf / MFi receiver feeding
+ * this phone. ship_logs.position_source holds the same words; null/absent on
+ * older rows means unknown.
+ */
+export type PositionSource = 'vessel' | 'vessel-relay' | 'vessel-pi-log' | 'phone' | 'phone-accessory';
+
 export interface ShipLogEntry {
     id: string;
     /** Server read-back of the capture operation, used to reconcile queued and uploaded points. */
@@ -39,6 +48,8 @@ export interface ShipLogEntry {
     watchPeriod?: 'middle' | 'morning' | 'forenoon' | 'afternoon' | 'firstDog' | 'secondDog' | 'first';
     entryType: 'auto' | 'manual' | 'waypoint';
     source?: 'device' | 'gpx_import' | 'community_download' | 'planned_route';
+    /** Which receiver produced this position (not the row's provenance, which is `source`). */
+    positionSource?: PositionSource;
     eventCategory?:
         | 'navigation'
         | 'weather'

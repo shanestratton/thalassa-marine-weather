@@ -56,6 +56,7 @@ import { calculateBearing, calculateDistanceNM, formatPositionDMS, getWeatherSna
 import { getLastPosition, saveLastPosition, type TrackingState } from './TrackingStateStore';
 import { type GpsTrackBuffer } from './GpsTrackBuffer';
 import { getBestPosition } from './PositionResolver';
+import { isPhoneFixSource } from './trackSourcePlan';
 import { GpsPrecision } from './GpsPrecisionTracker';
 import {
     accrualFields,
@@ -70,6 +71,25 @@ import { isAuthIdentityScopeCurrent, type AuthIdentityScope } from '../authIdent
 import { voyageLifecycleOperationId } from './voyageLifecycle';
 
 const log = createLogger('ShipLog.Capture');
+
+/**
+ * The resolver's rules, from the context (always passed, so they travel with
+ * every entry): the phone's stand-in rule, and how the track tags her bus.
+ */
+function phoneRule(ctx: CaptureContext): {
+    phoneAllowed: () => boolean;
+    classifyBusFix?: () => 'vessel' | 'vessel-relay';
+} {
+    return {
+        phoneAllowed: () => ctx.phoneMayStandIn?.() ?? true,
+        ...(ctx.classifyBusFix ? { classifyBusFix: ctx.classifyBusFix } : {}),
+    };
+}
+
+/** A fix this entry may use: any boat receiver, or the phone when the track would take it. */
+function usableForEntry(ctx: CaptureContext, pos: CachedPosition): boolean {
+    return !isPhoneFixSource(pos.fixSource ?? 'phone') || (ctx.phoneMayStandIn?.() ?? true);
+}
 
 const GPS_STALE_LIMIT_MS = 60_000;
 const STATIONARY_THRESHOLD_NM = 0.05;
@@ -116,6 +136,18 @@ export interface CaptureContext {
      */
     getAcceptedFix?: () => CachedPosition | null;
     getCachedFix: () => CachedPosition | null;
+    /**
+     * May an entry take this phone's position right now? The track's own
+     * stand-in rule (GpsSubscriptionManager.phoneMayStandIn, build 123
+     * package VL). Absent = allowed, as before.
+     */
+    phoneMayStandIn?: () => boolean;
+    /**
+     * How the track tags her bus right now ('vessel-relay' over a private
+     * network from elsewhere), so an entry tags the same lane the same way.
+     * Absent = 'vessel'.
+     */
+    classifyBusFix?: () => 'vessel' | 'vessel-relay';
     setCachedFix: (pos: CachedPosition | null) => void;
 
     trackBuffer: GpsTrackBuffer;
@@ -235,9 +267,15 @@ export async function captureImmediate(
     };
     let needsGpsRetry = false;
     let bestPos: CachedPosition | null = isVoyageStart ? getVettedStartFix() : ctx.trackBuffer.peek();
-    if (!bestPos && !isVoyageStart) {
+    // A Voyage End never falls back to a raw phone fix the track is refusing
+    // (build 123, package VL): the cached fix counts only if it is hers or the
+    // phone may stand in, and the blocking phone fetch only in the latter case.
+    const cachedForEntry = (): CachedPosition | null => {
         const cached = ctx.getCachedFix();
-        if (isFreshFix(cached)) bestPos = cached;
+        return isFreshFix(cached) && usableForEntry(ctx, cached) ? cached : null;
+    };
+    if (!bestPos && !isVoyageStart) {
+        bestPos = cachedForEntry();
     }
     if (!bestPos) {
         let triedBlockingFetch = false;
@@ -251,19 +289,23 @@ export async function captureImmediate(
                 break;
             }
             if (!isVoyageStart) {
-                const cached = ctx.getCachedFix();
-                if (isFreshFix(cached)) {
+                const cached = cachedForEntry();
+                if (cached) {
                     bestPos = cached;
                     break;
                 }
-                if (!triedBlockingFetch && Date.now() - startedAtMs > GPS_WARMUP_MAX_MS / 2) {
+                if (
+                    !triedBlockingFetch &&
+                    (ctx.phoneMayStandIn?.() ?? true) &&
+                    Date.now() - startedAtMs > GPS_WARMUP_MAX_MS / 2
+                ) {
                     triedBlockingFetch = true;
                     const fetched = ctx.isNative
                         ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
                         : await webGetFreshPosition();
                     if (!contextIsCurrent(ctx)) return null;
                     if (isFreshFix(fetched)) {
-                        bestPos = fetched;
+                        bestPos = { ...fetched, fixSource: fetched.fixSource ?? 'phone' };
                         break;
                     }
                 }
@@ -277,6 +319,7 @@ export async function captureImmediate(
         entry.latitude = bestPos.latitude;
         entry.longitude = bestPos.longitude;
         entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);
+        if (bestPos.fixSource) entry.positionSource = bestPos.fixSource;
 
         if (typeof bestPos.heading === 'number' && Number.isFinite(bestPos.heading)) {
             entry.courseDeg = Math.round(bestPos.heading);
@@ -361,7 +404,8 @@ export async function captureImmediate(
         if (!contextIsCurrent(ctx)) return null;
     }
 
-    if (!wasOffline && needsGpsRetry && entryId) {
+    // The background retry fetches the phone: only when the phone may stand in.
+    if (!wasOffline && needsGpsRetry && entryId && (ctx.phoneMayStandIn?.() ?? true)) {
         retryGpsAndUpdateEntry(entryId, ctx.identityScope, () => contextIsCurrent(ctx));
     }
 
@@ -481,7 +525,7 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
 
     let persistedEntry: ShipLogEntry | null = null;
     try {
-        const bestPos = fixOverride ?? (await getBestPosition(ctx.getCachedFix(), ctx.isNative));
+        const bestPos = fixOverride ?? (await getBestPosition(ctx.getCachedFix(), ctx.isNative, phoneRule(ctx)));
         if (!contextIsCurrent(ctx)) return { status: 'stale' };
         if (!bestPos) {
             // No GPS — skip this auto entry (will retry on next tick).
@@ -655,6 +699,9 @@ async function captureLogWithOutcome(ctx: CaptureContext, opts: CaptureLogOption
             notes,
             waypointName: effectiveWaypointName,
             isOnWater: ctx.getLastWaterStatus(),
+            // Whose fix this is (build 123). A turn pin's coordinates are a
+            // past position, not this fix: it says nothing rather than guess.
+            ...(!isPinOverride && bestPos?.fixSource ? { positionSource: bestPos.fixSource } : {}),
         };
 
         if (!contextIsCurrent(ctx)) return { status: 'stale' };
@@ -765,13 +812,14 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
 
     let manualAccrual: ReturnType<typeof freshAccrual> | null = null;
     try {
-        const bestPos = await getBestPosition(ctx.getCachedFix(), ctx.isNative);
+        const bestPos = await getBestPosition(ctx.getCachedFix(), ctx.isNative, phoneRule(ctx));
         if (!contextIsCurrent(ctx)) return null;
         if (bestPos) {
             const { latitude, longitude, heading } = bestPos;
             entry.latitude = latitude;
             entry.longitude = longitude;
             entry.positionFormatted = formatPositionDMS(latitude, longitude);
+            if (bestPos.fixSource) entry.positionSource = bestPos.fixSource;
 
             if (typeof heading === 'number' && Number.isFinite(heading)) {
                 entry.courseDeg = Math.round(heading);

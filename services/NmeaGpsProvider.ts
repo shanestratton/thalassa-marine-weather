@@ -137,6 +137,13 @@ class NmeaGpsProviderClass {
     // ── Internal ──
 
     private onStoreUpdate(state: NmeaStoreState): void {
+        // The same boat-feed gate as getFeedStatus(), now on the WRITE side
+        // too (build 123, package VL). The Pi's cloud row is the boat seen from
+        // a distance, stamped with this phone's read time: fanned out here it
+        // reached the Ship's Log as a bus ('nmea') point, interleaved with the
+        // manager's own 'remote' poll of the same row. The cloud lane has its
+        // own rung (boatPositionChain.cloudFix), dated by the Pi.
+        if (!NmeaStore.isBoatFeed()) return;
         const lat = state.latitude.value;
         const lon = state.longitude.value;
         if (lat === null || lon === null) return;

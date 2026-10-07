@@ -133,6 +133,8 @@ describe('GpsSubscriptionManager', () => {
             onPlottingProfileChanged?: GpsSubscriptionOptions['onPlottingProfileChanged'];
             onPlotPointBuffered?: GpsSubscriptionOptions['onPlotPointBuffered'];
             onAcceptedFix?: GpsSubscriptionOptions['onAcceptedFix'];
+            classifyPhoneFix?: GpsSubscriptionOptions['classifyPhoneFix'];
+            classifyBusFix?: GpsSubscriptionOptions['classifyBusFix'];
         } = {},
     ) {
         const plottingProfileOptions: Pick<GpsSubscriptionOptions, 'getPlottingProfile' | 'onPlottingProfileChanged'> =
@@ -166,6 +168,8 @@ describe('GpsSubscriptionManager', () => {
                 opts.onPlotPointBuffered ??
                 (onPlotPointBuffered as unknown as (pos: CachedPosition, profile: PlottingProfile) => void),
             ...plottingProfileOptions,
+            ...(opts.classifyPhoneFix ? { classifyPhoneFix: opts.classifyPhoneFix } : {}),
+            ...(opts.classifyBusFix ? { classifyBusFix: opts.classifyBusFix } : {}),
         });
     }
 
@@ -809,6 +813,49 @@ describe('GpsSubscriptionManager', () => {
                 capturedLocationHandler!(makeFix({ speed: 1, timestamp: Date.now() + i }));
             }
             expect(onSpeedTierChanged).not.toHaveBeenCalled();
+        });
+    });
+
+    // Build 123, package VL: every point says which receiver produced it, so a
+    // stand-in can never pass as the boat (thalassa-vessel-gps-truth: "modal
+    // opt-in AND per-point tagging").
+    describe('fix source tags', () => {
+        function openPhoneSession() {
+            const t0 = Date.now();
+            capturedLocationHandler!(makeFix({ speed: 0, timestamp: t0, receivedAt: t0 }));
+            capturedLocationHandler!(
+                makeFix({ latitude: -27.50001, speed: 0, timestamp: t0 + 5_000, receivedAt: t0 + 5_000 }),
+            );
+        }
+
+        it('tags phone points phone', () => {
+            startMgr();
+            vi.advanceTimersByTime(5_001);
+            openPhoneSession();
+            expect(trackBuffer.length).toBe(1);
+            expect(trackBuffer.peek()?.fixSource).toBe('phone');
+        });
+
+        it('tags a Bad Elf / MFi accessory phone-accessory, not phone', () => {
+            startMgr({ classifyPhoneFix: () => 'phone-accessory' });
+            vi.advanceTimersByTime(5_001);
+            openPhoneSession();
+            expect(trackBuffer.peek()?.fixSource).toBe('phone-accessory');
+        });
+
+        it('tags the bus (a gateway socket, or the Pi on her LAN) vessel', () => {
+            startMgr();
+            capturedNmeaHandler!(makeNmeaFix());
+            expect(trackBuffer.length).toBe(1);
+            expect(trackBuffer.peek()?.fixSource).toBe('vessel');
+            // What the UI is handed carries the tag too.
+            expect((onFix.mock.calls.at(-1)?.[0] as CachedPosition).fixSource).toBe('vessel');
+        });
+
+        it('tags her LAN reached over a private network from ashore vessel-relay', () => {
+            startMgr({ classifyBusFix: () => 'vessel-relay' });
+            capturedNmeaHandler!(makeNmeaFix());
+            expect(trackBuffer.peek()?.fixSource).toBe('vessel-relay');
         });
     });
 
