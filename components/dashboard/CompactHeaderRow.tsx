@@ -7,6 +7,7 @@ import { CheckIcon, AlertTriangleIcon, SunIcon, SunriseIcon, SunsetIcon } from '
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { isGoldenHour } from '../../utils/goldenHour';
+import { SUN_STAYS_DOWN, SUN_STAYS_UP } from '../../utils/celestial';
 import type { DashboardMode } from '../../types';
 // Critical alerts CANNOT be dismissed: the one classifier AlertsBanner and
 // WarningDetails share, so the three surfaces can never disagree.
@@ -95,6 +96,9 @@ export const CompactHeaderRow = ({
     const activeAlerts = (alerts || []).filter((a) => isCritical(a) || !dismissed.has(a));
     const hasWarnings = activeAlerts.length > 0;
 
+    // Polar day or night (W1-06): the sun neither rises nor sets that day,
+    // so the chip says which instead of two '--:--' that never clear.
+    const sunAllDay = [sunrise, sunset].find((s) => s === SUN_STAYS_UP || s === SUN_STAYS_DOWN);
     // A time is known when it has a digit: '', '--' and '--:--' are pending.
     const riseKnown = !!sunrise && /\d/.test(sunrise);
     const setKnown = !!sunset && /\d/.test(sunset);
@@ -189,6 +193,23 @@ export const CompactHeaderRow = ({
                             Golden hour
                         </span>
                         <span className="sr-only">{withComma('Golden hour', !!moonPhase)}</span>
+                    </div>
+                ) : sunAllDay ? (
+                    // No wider than the two times it stands in for, wide fonts included
+                    // (browser-tests/glass-conditions-row-layout.spec.ts).
+                    <div
+                        className="flex items-center gap-1.5"
+                        data-sun-all-day={sunAllDay === SUN_STAYS_UP ? 'up' : 'down'}
+                    >
+                        <SunIcon
+                            className={`w-3.5 h-3.5 ${sunAllDay === SUN_STAYS_UP ? 'text-amber-400' : 'text-slate-400'}`}
+                        />
+                        <span aria-hidden="true" className="text-xs leading-4 font-bold text-white whitespace-nowrap">
+                            {/* Short enough for the chip at 320 pt, where the
+                                fluid times shrink and these words do not. */}
+                            {sunAllDay === SUN_STAYS_UP ? 'No sunset' : 'No sunrise'}
+                        </span>
+                        <span className="sr-only">{withComma(`${sunAllDay} all day`, !!moonPhase)}</span>
                     </div>
                 ) : (
                     <>

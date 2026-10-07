@@ -108,3 +108,63 @@ for (const width of [375, 390]) {
         }
     });
 }
+
+/**
+ * Polar day and night (build 123, W1-06): the header's sun chip says 'No sunset'
+ * / 'No sunrise' where it showed '--:--' that never cleared.
+ * In wide fonts (Verdana on a Mac, DejaVu Sans on the Linux runner) the words
+ * stay on one line inside the chip, and the chip is no wider than the
+ * two-time chip it stands in for, so the alerts pill beside it keeps its room.
+ */
+for (const width of [320, 375, 390]) {
+    test(`polar sun chip fits where the two times did at ${width}px, wide fonts`, async ({ page }, info) => {
+        await page.route('**/*', (route) => {
+            const url = new URL(route.request().url());
+            return url.origin === 'http://127.0.0.1:4199' ? route.continue() : route.abort();
+        });
+        await page.addInitScript(() => {
+            document.addEventListener('DOMContentLoaded', () => {
+                const wide = document.createElement('style');
+                wide.textContent = ":root { --font-sans: Verdana, 'DejaVu Sans', sans-serif !important; }";
+                document.head.append(wide);
+            });
+        });
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/e2e/fixtures/glass-legibility.html?sun=polar');
+        await page.evaluate(() => document.fonts.ready);
+        await expect(page.getByTestId('sun-chip-up').getByText('No sunset', { exact: true })).toBeVisible();
+        await expect(page.getByTestId('sun-chip-down').getByText('No sunrise', { exact: true })).toBeVisible();
+
+        const measure = (id: string) =>
+            page.getByTestId(id).evaluate((wrap) => {
+                const row = wrap.firstElementChild!.getBoundingClientRect();
+                const chip = wrap.querySelector('[role="group"]')!.getBoundingClientRect();
+                const words = wrap.querySelector('[data-sun-all-day] span[aria-hidden="true"]');
+                const w = words?.getBoundingClientRect();
+                const font = words ? getComputedStyle(words).fontFamily : '';
+                return {
+                    chipWidth: chip.width,
+                    chipInRow: chip.left >= row.left - 0.5 && chip.right <= row.right + 0.5,
+                    wordsInChip: !w || (w.left >= chip.left - 0.5 && w.right <= chip.right + 0.5),
+                    wordsLines: w ? Math.round(w.height / 16) : 1,
+                    font,
+                };
+            });
+        const pending = await measure('sun-chip-pending');
+        for (const id of ['sun-chip-up', 'sun-chip-down']) {
+            const m = await measure(id);
+            expect(m.font, `${id}: the house wide-font rule`).toMatch(/^(Verdana|"DejaVu Sans"|DejaVu Sans)/);
+            expect(m.chipInRow, `${id} chip inside the header row at ${width}px`).toBe(true);
+            expect(m.wordsInChip, `${id} words inside the chip at ${width}px`).toBe(true);
+            expect(m.wordsLines, `${id} words on one line at ${width}px`).toBe(1);
+            expect(m.chipWidth, `${id} chip no wider than the two-time chip at ${width}px`).toBeLessThanOrEqual(
+                pending.chipWidth + 0.5,
+            );
+        }
+        if (width === 320) {
+            const path = info.outputPath('sun-chip-rows-320.png');
+            await page.getByTestId('sun-chip-rows').screenshot({ path });
+            await info.attach('sun-chip-rows-320', { path, contentType: 'image/png' });
+        }
+    });
+}

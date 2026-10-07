@@ -1,6 +1,6 @@
 import React from 'react';
 import { createLogger } from '../../../utils/createLogger';
-import { getMoonPhase } from '../../../utils/celestial';
+import { getMoonPhase, SUN_STAYS_DOWN, SUN_STAYS_UP } from '../../../utils/celestial';
 
 const log = createLogger('CelestialComponents');
 import { ArrowUpIcon, ArrowDownIcon } from '../../Icons';
@@ -120,6 +120,11 @@ export const SolarArc = ({
 
     const sunrise = formatTimeStr(rawSunrise);
     const sunset = formatTimeStr(rawSunset);
+    // Polar day or night (W1-06): no sunrise or sunset that day. The arc used
+    // to time a made-up 06:00–18:00 day against the words, drawing a midday
+    // sun beside 'Sun stays down'. Now the sun sits at the top of the arc all
+    // day, or on the horizon, and one label says which.
+    const allDay = [rawSunrise, rawSunset].find((s) => s === SUN_STAYS_UP || s === SUN_STAYS_DOWN);
 
     const parseTime = (tStr: string) => {
         if (!tStr || tStr === '--:--') return null;
@@ -165,12 +170,12 @@ export const SolarArc = ({
     const current = getNowMins();
 
     const dayLength = ss - sr;
-    const progress = Math.min(Math.max((current - sr) / dayLength, 0), 1);
+    const progress = allDay ? 0.5 : Math.min(Math.max((current - sr) / dayLength, 0), 1);
 
     // Simplified Day Logic with Fallback for visual continuity
     const dayStarted = progress > 0;
     const dayEnded = progress < 1;
-    const isDay = dayStarted && dayEnded;
+    const isDay = allDay ? allDay === SUN_STAYS_UP : dayStarted && dayEnded;
 
     // Calculate position on arc (0 to 180 degrees)
     const angle = 180 - progress * 180;
@@ -181,13 +186,25 @@ export const SolarArc = ({
     const cx = 50;
     const cy = 50; // Bottom center of arc
     const x = cx + r * Math.cos(rad);
-    const y = cy - r * Math.sin(rad);
+    // Polar night: on the horizon below the arc's top, not up in it.
+    const y = allDay === SUN_STAYS_DOWN ? cy : cy - r * Math.sin(rad);
 
     const heightClass = size === 'large' ? 'h-32' : 'h-12';
 
     return (
-        <div className={`flex items-center gap-4 w-full ${size === 'large' ? 'flex-col justify-center' : ''}`}>
-            {showTimes && size === 'normal' && (
+        <div
+            className={`flex items-center gap-4 w-full ${size === 'large' ? 'flex-col justify-center' : ''}`}
+            data-sun-all-day={allDay ? (allDay === SUN_STAYS_UP ? 'up' : 'down') : undefined}
+        >
+            {allDay && (showTimes || size === 'large') && (
+                <div className="flex flex-col items-center">
+                    <span className="text-sm text-gray-400 uppercase tracking-wider mb-1">Sun</span>
+                    <span className="text-sm font-bold text-white whitespace-nowrap">
+                        {allDay === SUN_STAYS_UP ? 'Stays up all day' : 'Stays down all day'}
+                    </span>
+                </div>
+            )}
+            {showTimes && !allDay && size === 'normal' && (
                 <div className="flex flex-col items-center">
                     <span className="text-sm text-gray-400 uppercase tracking-wider mb-1">Sunrise</span>
                     <span className="text-sm font-bold text-white flex items-center gap-1">
@@ -231,7 +248,7 @@ export const SolarArc = ({
                 </svg>
             </div>
 
-            {showTimes && size === 'normal' && (
+            {showTimes && !allDay && size === 'normal' && (
                 <div className="flex flex-col items-center">
                     <span className="text-sm text-gray-400 uppercase tracking-wider mb-1">Sunset</span>
                     <span className="text-sm font-bold text-white flex items-center gap-1">
@@ -240,7 +257,7 @@ export const SolarArc = ({
                 </div>
             )}
 
-            {size === 'large' && (
+            {size === 'large' && !allDay && (
                 <div className="flex justify-between w-full px-8 -mt-2">
                     <div className="flex flex-col items-start">
                         <span className="text-sm text-gray-400 uppercase tracking-wider mb-1">Sunrise</span>

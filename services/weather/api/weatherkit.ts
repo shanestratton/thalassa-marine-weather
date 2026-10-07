@@ -2,7 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics, MetricSource } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
-import { getSolarTimes, getMoonData } from '../../../utils/celestial';
+import { getSolarTimes, getSolarTimesForDate, getMoonData } from '../../../utils/celestial';
 import { resolveTimeZone } from '../../../utils/timezone';
 import { piCache } from '../../PiCacheService';
 import { getAuthenticatedFunctionHeaders } from '../../supabaseAuth';
@@ -595,17 +595,18 @@ export function buildReportFromWeatherKit(
     // Resolve target-location tz (WeatherKit itself doesn't return one).
     const timeZone = resolveTimeZone(lat, lon);
 
-    // SunCalc: compute sunrise/sunset + moon offline for current day, formatted
-    // in the target tz so the SolarArc card shows LOCAL-TO-LOCATION time.
+    // SunCalc: compute sunrise/sunset + moon offline for the location's
+    // current day, formatted in the target tz so the cards show
+    // LOCAL-TO-LOCATION time (W1-06: the location's day, not the phone's).
     const now = new Date();
     const solar = getSolarTimes(now, lat, lon, timeZone);
     const moon = getMoonData(now, lat, lon, timeZone);
 
-    // SunCalc: override sunrise/sunset on each forecast day
+    // SunCalc: override sunrise/sunset on each forecast day — the row's date
+    // is the location's date, so anchor at the location's noon.
     for (const day of wk.daily) {
         if (day.isoDate || day.date) {
-            const dayDate = new Date((day.isoDate || day.date) + 'T12:00:00');
-            const daySolar = getSolarTimes(dayDate, lat, lon, timeZone);
+            const daySolar = getSolarTimesForDate(day.isoDate || day.date, lat, lon, timeZone);
             day.sunrise = daySolar.sunrise;
             day.sunset = daySolar.sunset;
         }

@@ -19,6 +19,7 @@ import { CompactHeaderRow } from '../components/dashboard/CompactHeaderRow';
 import { HeroHeader } from '../components/dashboard/HeroHeader';
 import { HeroWidgets } from '../components/dashboard/HeroWidgets';
 import * as helpers from '../components/dashboard/hero/heroSlideHelpers';
+import { SUN_STAYS_DOWN, SUN_STAYS_UP } from '../utils/celestial';
 import type { UnitPreferences, WeatherMetrics } from '../types';
 
 const units: UnitPreferences = {
@@ -148,6 +149,27 @@ describe('warnings pill and sun chip', () => {
         const chip = screen.getByRole('group', { name: 'Sun and moon' });
         expect(chip.textContent).toMatch(/^--:--Sunrise and sunset not yet known,--:--.*full moon$/);
         expect(chip.textContent).not.toMatch(/^,/);
+    });
+
+    it('says the sun stays up or down all day in polar day and night, not “not yet known” (W1-06)', () => {
+        // Tromsø 21 Jun and 21 Dec 2026 (USNO: sun continuously above / below
+        // the horizon): celestial hands the chip words, which have no digit.
+        const cases = [
+            { word: SUN_STAYS_UP, shown: 'No sunset', spoken: 'Sun stays up all day,', state: 'up' },
+            { word: SUN_STAYS_DOWN, shown: 'No sunrise', spoken: 'Sun stays down all day,', state: 'down' },
+        ];
+        for (const c of cases) {
+            const { unmount } = render(
+                <CompactHeaderRow alerts={[]} sunrise={c.word} sunset={c.word} moonPhase="🌕" moonPhaseName="Full" />,
+            );
+            const chip = screen.getByRole('group', { name: 'Sun and moon' });
+            expect(chip).not.toHaveTextContent('--:--');
+            expect(chip).not.toHaveTextContent(/not yet known/);
+            expect(chip.querySelector(`[data-sun-all-day="${c.state}"]`)).toHaveTextContent(c.shown);
+            const spoken = Array.from(chip.querySelectorAll('.sr-only')).map((el) => el.textContent);
+            expect(spoken).toEqual([c.spoken, 'full moon']);
+            unmount();
+        }
     });
 
     it('keeps the live region on the warnings, not on the sunrise times', () => {
