@@ -14,9 +14,10 @@ const section = readFileSync('components/settings/FleetSharingSection.tsx', 'utf
 describe('NMEA Gateway page — plain words, fewer toggles', () => {
     it('the Pi card speaks for any gateway, not the YDWG-02', () => {
         expect(page).not.toMatch(/three TCP slots/);
-        expect(page).toContain('Your Pi is paired, so this phone reads the boat&rsquo;s instruments through it.');
-        expect(page).toContain('the gateway settings are only for');
-        expect(page).toContain('when the Pi is down.');
+        // How the boat reaches the phone is the line above the box now
+        // (services/boatLink); the box keeps only what the page itself does.
+        expect(page).toContain('Your Pi is paired, so nothing on this page connects on its own');
+        expect(page).toContain('settings are only for when the Pi is down.');
     });
 
     it('"Share what you hear" has left the gateway page for Settings → Preferences', () => {

@@ -71,7 +71,6 @@ describe('the status FAB', () => {
             directStatus: 'error',
             deviceLabel: 'YDWG-02',
             lastError,
-            viaRemoteAccess: false,
         });
 
     it('shows the diagnosis instead of the flat "Not connected"', () => {

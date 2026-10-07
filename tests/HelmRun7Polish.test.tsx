@@ -92,8 +92,14 @@ describe('NMEA Gateway', () => {
     });
 
     it('says No gateway when none was ever saved, the Instrument Panel’s word', () => {
+        // The pill's words come from the one boat-link model every screen
+        // reads (services/boatLink), so the page and the panel cannot differ.
         expect(nmea).toContain('const gatewaySaved = NmeaListenerService.getSavedConfig() !== null;');
-        expect(nmea).toMatch(/gatewaySaved\s*\?\s*'Disconnected'\s*:\s*'No gateway'/);
+        expect(nmea).toContain('status={<BoatLinkPill pill={link.pill}');
+        const model = readFileSync('services/boatLink/boatLinkModel.ts', 'utf8');
+        expect(model).toMatch(
+            /anySetup\s*\?\s*pillOf\('Not connected', 'grey', 'grey', true\)\s*:\s*pillOf\('No gateway', 'grey', 'grey', false\)/,
+        );
     });
 
     it('names the receiver in plain words, not Apple certification jargon', () => {

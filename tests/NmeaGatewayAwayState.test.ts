@@ -19,18 +19,17 @@ describe('the gateway surfaces say how the boat is being read', () => {
         expect(hook).toContain('prev.status === next.status &&');
     });
 
-    it('the Vessel hub row reads Connected, Aboard or Away via the Pi, or Not connected', () => {
+    it('the Vessel hub row reads the shared boat link: Aboard or Away by position, never by lane', () => {
         const hub = read('components/VesselHub.tsx');
         // The state rides in the row's right-hand slot, as the Settings rows
-        // show theirs, and the subtitle stays a description (UX scorecard run
-        // 10): it was inline after a dot ('Instruments & AIS · connect when aboard').
-        expect(hub).toContain(
-            "const gatewayStatus = nmeaLink.status === 'remote' ? 'Reading her via the Pi' : 'Instruments & AIS';",
-        );
-        expect(hub).toContain("? 'Connected'");
-        expect(hub).toContain("? 'Aboard'");
-        expect(hub).toContain(": 'Away'");
-        expect(hub).toContain(": 'Not connected'");
+        // show theirs, and the subtitle names the route (UX scorecard run 10).
+        // Since 2026-10-07 both come from services/boatLink, which decides
+        // where the phone is by position: "Aboard" whenever the Pi answered
+        // directly was false over a VPN that carries the boat's network.
+        expect(hub).toContain('const boatLink = useBoatLink();');
+        expect(hub).toContain('const gatewayStatus = boatLink.hub.status;');
+        expect(hub).toContain('const gatewayState = boatLink.hub.value;');
+        expect(hub).not.toMatch(/remote\?\.via === 'lan'/);
         // Shane 2026-09-07: "calypso is not the boat name. it is the internal pi
         // name" — the hostname never reaches a user-facing string.
         expect(hub).not.toContain('reading her via ${');
@@ -38,11 +37,12 @@ describe('the gateway surfaces say how the boat is being read', () => {
         expect(hub).toContain('value={gatewayState}');
     });
 
-    it('the gateway page shows an Away badge instead of a fault while the cloud feeds the panel', () => {
+    it('the gateway page says where and how fresh in one pill, from the shared boat link', () => {
         const page = read('components/vessel/NmeaPage.tsx');
-        expect(page).toContain("const readingViaCloud = storeLink.status === 'remote';");
-        expect(page).toContain('Away · via the Pi');
-        expect(page).not.toContain('Away · via {storeLink.remote?.deviceLabel');
-        expect(page).toContain('readingViaCloud && !isConnected && !isConnecting');
+        expect(page).toContain('const link = useBoatLink();');
+        expect(page).toContain('status={<BoatLinkPill pill={link.pill}');
+        expect(page).not.toContain('Away · via the Pi');
+        expect(page).not.toContain('Aboard · via the Pi');
+        expect(page).not.toMatch(/remote\?\.via === 'lan'/);
     });
 });

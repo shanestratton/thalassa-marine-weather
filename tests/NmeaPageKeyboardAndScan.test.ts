@@ -82,6 +82,8 @@ describe('the scan card is gone', () => {
         // The factory address as the default, and an error that names what
         // actually went wrong.
         expect(page).toContain("'192.168.1.151'");
-        expect(page).toContain('<GatewayRouteNote host={host} />');
+        // How the gateway is reached, said from where the phone actually is
+        // (services/boatLink), replaced the /24-guessing route note on 2026-10-07.
+        expect(page).toContain('data-testid="gateway-link-line"');
     });
 });

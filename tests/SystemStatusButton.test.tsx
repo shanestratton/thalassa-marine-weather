@@ -19,6 +19,8 @@ const instruments = vi.hoisted(() => ({
     direct: 'disconnected' as NmeaConnectionStatus,
     lastError: null as string | null,
     viaRemoteAccess: false,
+    /** Which saved Pi address answered, as the Pi lane records it (services/boatLink reads it). */
+    piPath: { answeredVia: null as 'lan-host' | 'tailnet-host' | null, seenFrom: null as string | null },
     piReachable: false,
     storeListeners: new Set<(state: NmeaStoreState) => void>(),
     socketListeners: new Set<() => void>(),
@@ -74,7 +76,15 @@ vi.mock('../services/NmeaListenerService', () => ({
     NmeaListenerService: {
         getStatus: () => instruments.direct,
         getLastError: () => instruments.lastError,
-        getConnectionInfo: () => ({ deviceLabel: 'Yacht Devices YDWG-02' }),
+        getConnectionInfo: () => ({
+            status: instruments.direct,
+            enabled: instruments.direct !== 'disconnected',
+            host: '192.0.2.151',
+            port: 1457,
+            deviceLabel: 'Yacht Devices YDWG-02',
+        }),
+        getSavedConfig: () => ({ host: '192.0.2.151', port: 1457 }),
+        isReconnecting: () => false,
         onStatusChange: (cb: () => void) => {
             instruments.socketListeners.add(cb);
             return () => instruments.socketListeners.delete(cb);
@@ -85,7 +95,15 @@ vi.mock('../services/CloudTelemetryService', () => ({
     CloudTelemetryService: { retain: instruments.retain, release: instruments.release },
     CLOUD_TELEMETRY_LIVE_MAX_AGE_MS: 60_000,
 }));
-vi.mock('../services/PiTelemetryService', () => ({ PI_TELEMETRY_LIVE_MAX_AGE_MS: 20_000 }));
+vi.mock('../services/PiTelemetryService', () => ({
+    PI_TELEMETRY_LIVE_MAX_AGE_MS: 20_000,
+    PiTelemetryService: {
+        pathInfo: () => instruments.piPath,
+        getState: () => 'off',
+        isPresent: () => false,
+        subscribe: () => () => {},
+    },
+}));
 vi.mock('../services/PiCacheService', () => ({
     piCache: {
         get viaRemoteAccess() {
@@ -168,6 +186,7 @@ vi.mock('../stores/followRouteStore', () => ({
 }));
 
 import { SystemStatusButton, plainBuildLabel } from '../components/SystemStatusButton';
+import { BoatLinkService } from '../services/boatLink/BoatLinkService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 
 describe('SystemStatusButton', () => {
@@ -192,6 +211,7 @@ describe('SystemStatusButton', () => {
         instruments.direct = 'disconnected';
         instruments.lastError = null;
         instruments.viaRemoteAccess = false;
+        instruments.piPath = { answeredVia: null, seenFrom: null };
         instruments.piReachable = false;
         instruments.piStatus = null;
         instruments.piWatchSession = null;
@@ -211,6 +231,7 @@ describe('SystemStatusButton', () => {
         instruments.store = emptyInstrumentState();
         setAuthIdentityScope(null);
         localStorage.clear();
+        BoatLinkService.resetForTests();
         getTrackingStatus.mockReturnValue({ isTracking: false, isMoving: false });
         followRouteState.isFollowing = false;
         followRouteState.voyagePlan = null;
@@ -245,8 +266,8 @@ describe('SystemStatusButton', () => {
             qualityLabel: 'DGPS',
         };
         openStatus();
-        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
-        expect(screen.getAllByRole('heading', { name: 'Boat GPS · Pi LAN' })).toHaveLength(1);
+        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi direct' }));
+        expect(screen.getAllByRole('heading', { name: 'Boat GPS · Pi direct' })).toHaveLength(1);
         // The receiver row keeps the link; the card has satellites but no
         // position, and 'Live via the Pi' beside that was a second clock
         // (UX referee run 8, gps-one-truth).
@@ -444,7 +465,7 @@ describe('SystemStatusButton', () => {
             }),
         );
         fireEvent.click(screen.getByRole('button', { name: /^System status/ }));
-        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
+        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi direct' }));
         expect(boat.getByText('Position just now')).toBeInTheDocument();
         expect(boat.getByText('25')).toBeInTheDocument();
         expect(boat.getByText('Differential GPS')).toBeInTheDocument();
@@ -470,12 +491,13 @@ describe('SystemStatusButton', () => {
         act(() => {
             vi.advanceTimersByTime(14_000);
         });
-        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi LAN' }));
+        const boat = within(screen.getByRole('region', { name: 'Boat GPS · Pi direct' }));
         expect(boat.queryByText('25')).toBeNull();
         expect(boat.queryByText('±1.2 m')).toBeNull();
         expect(boat.getAllByText('Stale')).toHaveLength(2);
         fireEvent.click(screen.getByRole('button', { name: 'Close system status' }));
-        expect(instruments.storeListeners.size).toBe(1);
+        // The header's own watch, and the boat link's (it lives as long as the header).
+        expect(instruments.storeListeners.size).toBe(2);
     });
 
     it('opens forecast details and the squall key from the existing blue info button, and closes normally', () => {
@@ -610,7 +632,7 @@ describe('SystemStatusButton', () => {
             openStatus();
 
             expect(
-                screen.getByText(via === 'lan' ? 'Connected via the Pi' : 'Receiving instruments via the Pi · cloud'),
+                screen.getByText(via === 'lan' ? 'Pi direct · live' : 'Pi through the cloud · live'),
             ).toBeInTheDocument();
             expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
             expect(screen.queryByRole('button', { name: 'View NMEA gateway' })).not.toBeInTheDocument();
@@ -621,9 +643,10 @@ describe('SystemStatusButton', () => {
 
     it('recognises the paired Pi over tailnet', () => {
         seedPi('lan');
-        instruments.viaRemoteAccess = true;
+        // The Pi's own tailnet address answered (PiTelemetryService.pathInfo).
+        instruments.piPath = { answeredVia: 'tailnet-host', seenFrom: null };
         openStatus();
-        expect(screen.getByText(/Connected via the Pi.*tailnet/i)).toBeInTheDocument();
+        expect(screen.getByText('Pi over Tailscale · live')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
     });
 
@@ -643,7 +666,7 @@ describe('SystemStatusButton', () => {
             seedPi('cloud');
             instruments.storeListeners.forEach((cb) => cb(instruments.store));
         });
-        expect(screen.getByText('Receiving instruments via the Pi · cloud')).toBeInTheDocument();
+        expect(screen.getByText('Pi through the cloud · live')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'View NMEA gateway' })).not.toBeInTheDocument();
     });
 
@@ -654,7 +677,7 @@ describe('SystemStatusButton', () => {
         instruments.piReachable = true;
         openStatus();
         expect(screen.getByRole('button', { name: 'View NMEA gateway' })).toBeInTheDocument();
-        expect(screen.queryByText(/Receiving instruments via the Pi/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Pi through the cloud · live/)).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
     });
 
@@ -677,7 +700,8 @@ describe('SystemStatusButton', () => {
             instruments.socketListeners.forEach((cb) => cb());
         });
         expect(screen.queryByRole('button', { name: 'Fix NMEA gateway' })).not.toBeInTheDocument();
-        expect(screen.getByText(/waiting for instrument/i)).toBeInTheDocument();
+        // Connected, and nothing current on the bus yet.
+        expect(screen.getByText('YDWG-02 direct · boat quiet')).toBeInTheDocument();
         expect(screen.getByText('GPS sentences / sec')).toBeInTheDocument();
     });
 
