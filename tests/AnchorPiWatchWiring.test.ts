@@ -251,6 +251,39 @@ describe('the Pi can actually be handed the shore watch', () => {
         expect(accept).toMatch(/await AnchorWatchSyncService\.createSession\(\)/);
     });
 
+    it('moving the anchor on this phone never touches the Pi’s watch', () => {
+        // Build 123 (must-do #3) moves the centre of THIS phone's watch. The Pi
+        // keeps its own watch, and moving that one (re-POSTing the assignment)
+        // is a separate, later path. Nothing on the phone's relocation path may
+        // begin, end or even name the Pi's keeper.
+        const service = read('services/AnchorWatchService.ts');
+        expect(service).not.toMatch(/anchorPiWatchKeeper|AnchorPiWatchKeeper|anchorPiHandoff/);
+        const relocate = service.slice(
+            service.indexOf('private async relocateAnchorLocked'),
+            service.indexOf('/** Stop watching and return to idle */'),
+        );
+        expect(relocate.length).toBeGreaterThan(0);
+        expect(relocate).not.toMatch(/stopWatch|stopGpsMonitoring|rollbackFailedSetup/);
+        const sheet = read('components/anchor-watch/MoveAnchorSheet.tsx');
+        expect(sheet).not.toMatch(/AnchorPiWatchKeeper|anchorPiWatchKeeper|anchorPiHandoff/);
+        expect(sheet).toMatch(/AnchorWatchService\.relocateAnchor\(/);
+
+        const page = read('components/AnchorWatchPage.tsx');
+        // Still exactly two end() calls, both in weigh-anchor handlers.
+        expect(page.match(/AnchorPiWatchKeeper\.end\(\)/g) ?? []).toHaveLength(2);
+        // The chip is offered only while this phone keeps the watch…
+        expect(page).toMatch(
+            /const canMoveAnchor =[\s\S]{0,600}!piKeepingWatch &&\s*!AnchorPiWatchKeeper\.isKeeping\(\)/,
+        );
+        // …and opening or finishing the sheet calls nothing on the Pi.
+        const sheetUse = page.slice(
+            page.indexOf('<MoveAnchorSheet'),
+            page.indexOf('/>', page.indexOf('<MoveAnchorSheet')),
+        );
+        expect(sheetUse.length).toBeGreaterThan(0);
+        expect(sheetUse).not.toMatch(/AnchorPiWatchKeeper|stopWatch|leaveSession/);
+    });
+
     it('UNMOUNTING the page must not end the Pi’s watch', () => {
         // The point of handing the watch to the Pi is that the skipper can
         // pocket the phone and leave the boat — so the anchor page going away

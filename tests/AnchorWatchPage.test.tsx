@@ -68,6 +68,8 @@ vi.mock('../services/AnchorWatchService', () => ({
         getConfig: vi.fn().mockReturnValue({ radius: 30, lat: -33.8, lon: 151.2 }),
         subscribe: vi.fn().mockReturnValue(vi.fn()),
     },
+    // The Move anchor sheet waits for a boat fix no older than this.
+    ANCHOR_RELOCATE_FIX_MAX_AGE_MS: 30_000,
 }));
 
 vi.mock('../services/AnchorWatchSyncService', () => ({
@@ -415,6 +417,66 @@ describe('AnchorWatchPage', () => {
         expect(screen.getByText('Blocked recovery — cleanup only')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Retry Anchor Watch monitoring' })).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Stop Watch' })).toHaveTextContent('Weigh Anchor');
+    });
+
+    // Build 123 must-do #3: the anchor can be moved after it is down, from a
+    // chip on the radar card — but only while THIS phone keeps the watch.
+    // Moving the Pi's watch is a different path (124), never this one.
+    describe('Move anchor', () => {
+        function showWatch(snapshot: AnchorWatchSnapshot) {
+            vi.mocked(AnchorWatchService.restoreWatchState).mockResolvedValue(true);
+            vi.mocked(AnchorWatchService.getSnapshot).mockReturnValue(snapshot as never);
+            vi.mocked(AnchorWatchService.subscribe).mockImplementation((listener) => {
+                listener(snapshot);
+                return vi.fn();
+            });
+            render(<AnchorWatchPage {...defaultProps} />);
+        }
+        const watching = (): AnchorWatchSnapshot => ({
+            ...makePausedSnapshot(),
+            state: 'watching',
+            setupError: null,
+        });
+
+        it('offers Move anchor on the radar card while this phone keeps the watch', async () => {
+            showWatch(watching());
+            fireEvent.click(await screen.findByRole('button', { name: 'Move anchor' }));
+            expect(screen.getByRole('dialog', { name: 'Move anchor' })).toBeInTheDocument();
+            // 30 m of chain in 5 m: a 29.6 m reach less its sag, which is the
+            // 35 m circle less its 10 m margin.
+            expect(screen.getByRole('textbox', { name: /distance from the boat to the anchor/i })).toHaveValue('25');
+        });
+
+        it('never offers it while the Pi keeps the watch', async () => {
+            const keeping = vi.spyOn(AnchorPiWatchKeeper, 'isKeeping').mockReturnValue(true);
+            try {
+                showWatch(watching());
+                expect(await screen.findByText('Anchor Deployed')).toBeInTheDocument();
+                expect(screen.queryByRole('button', { name: 'Move anchor' })).not.toBeInTheDocument();
+            } finally {
+                keeping.mockRestore();
+            }
+        });
+
+        it.each([
+            ['a blocked watch with no fix to measure from', { vesselPosition: null }],
+            [
+                'a corrupt saved watch',
+                {
+                    setupError:
+                        'Saved Anchor Watch is blocked and was not armed. The saved anchor configuration is invalid.',
+                },
+            ],
+        ])('offers no move on %s', async (_label, overrides) => {
+            showWatch({ ...makePausedSnapshot(), ...overrides } as AnchorWatchSnapshot);
+            expect(await screen.findByRole('alert')).toHaveTextContent('Not monitoring — act now');
+            expect(screen.queryByRole('button', { name: 'Move anchor' })).not.toBeInTheDocument();
+        });
+
+        it('a paused watch that still has a fix can be moved, so Retry then watches the right spot', async () => {
+            showWatch(makePausedSnapshot());
+            expect(await screen.findByRole('button', { name: 'Move anchor' })).toBeInTheDocument();
+        });
     });
 
     it('renders disconnected vessel values explicitly as last-known, never Holding', async () => {

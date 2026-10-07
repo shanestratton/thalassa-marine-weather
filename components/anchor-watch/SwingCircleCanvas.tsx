@@ -8,6 +8,9 @@
  * - Vessel position with glowing pulse marker
  * - GPS accuracy circle
  * - Anchor icon at center
+ * - Optionally, a previewed new anchor (Move anchor): the view centres on it,
+ *   so the boat is seen against the circle it would have, and the anchor as
+ *   it stands now is drawn faint
  *
  * Extracted from AnchorWatchPage.tsx for modularity.
  */
@@ -27,19 +30,51 @@ export interface AisTargetDot {
     statusColor: string;
 }
 
+type LatLon = { latitude: number; longitude: number };
+
+/**
+ * East (dx) and north (dy) metres of `point` from `anchor`, on the flat local
+ * plane the radar draws. The longitude difference is wrapped into ±180°: an
+ * anchor at 179.9999°E with the boat at 179.9999°W is a few metres apart, not
+ * a whole world (it was drawn 40 000 km off screen before, in Fiji or anywhere
+ * else on the antimeridian).
+ */
+export function offsetFromAnchorM(anchor: LatLon, point: LatLon): { dx: number; dy: number } {
+    const dLon = ((((point.longitude - anchor.longitude) % 360) + 540) % 360) - 180;
+    return {
+        dx: dLon * 111320 * Math.cos((anchor.latitude * Math.PI) / 180),
+        dy: (point.latitude - anchor.latitude) * 110540,
+    };
+}
+
 interface SwingCircleCanvasProps {
     snapshot: AnchorWatchSnapshot | null;
     aisTargets?: AisTargetDot[];
     className?: string;
     ariaLabel?: string;
+    /** A proposed new anchor: drawn at the centre with the swing circle around it. */
+    previewAnchor?: LatLon | null;
 }
 
-export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, aisTargets, className, ariaLabel }) => {
+export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({
+    snapshot,
+    aisTargets,
+    className,
+    ariaLabel,
+    previewAnchor,
+}) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const previewLat = previewAnchor?.latitude;
+    const previewLon = previewAnchor?.longitude;
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas || !snapshot?.anchorPosition) return;
+        const anchorNow = snapshot.anchorPosition;
+        const previewing = Number.isFinite(previewLat) && Number.isFinite(previewLon);
+        // Everything is drawn relative to the centre: the anchor as it stands,
+        // or the previewed one.
+        const centre: LatLon = previewing ? { latitude: previewLat!, longitude: previewLon! } : anchorNow;
 
         let rafId: number;
 
@@ -183,22 +218,30 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             ctx.fillStyle = 'rgba(245, 158, 11, 0.85)';
             ctx.fillText('⚓', cx, cy);
 
+            // ── Previewing a move: where the anchor stands now, faint, joined to the new one ──
+            if (previewing) {
+                const now = offsetFromAnchorM(centre, anchorNow);
+                const ox = cx + now.dx * scale;
+                const oy = cy - now.dy * scale;
+                ctx.beginPath();
+                ctx.moveTo(ox, oy);
+                ctx.lineTo(cx, cy);
+                ctx.strokeStyle = daylight ? 'rgba(180, 83, 9, 0.55)' : 'rgba(251, 191, 36, 0.45)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([3, 3]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.globalAlpha = 0.4;
+                ctx.fillText('⚓', ox, oy);
+                ctx.globalAlpha = 1;
+            }
+
             // ── Position history trail — gradient heat map ──
-            if (snapshot.positionHistory.length > 1 && snapshot.anchorPosition) {
+            if (snapshot.positionHistory.length > 1) {
                 const histLen = snapshot.positionHistory.length;
                 for (let i = 1; i < histLen; i++) {
-                    const prev = snapshot.positionHistory[i - 1];
-                    const curr = snapshot.positionHistory[i];
-                    const pDx =
-                        (prev.longitude - snapshot.anchorPosition!.longitude) *
-                        111320 *
-                        Math.cos((snapshot.anchorPosition!.latitude * Math.PI) / 180);
-                    const pDy = (prev.latitude - snapshot.anchorPosition!.latitude) * 110540;
-                    const cDx =
-                        (curr.longitude - snapshot.anchorPosition!.longitude) *
-                        111320 *
-                        Math.cos((snapshot.anchorPosition!.latitude * Math.PI) / 180);
-                    const cDy = (curr.latitude - snapshot.anchorPosition!.latitude) * 110540;
+                    const { dx: pDx, dy: pDy } = offsetFromAnchorM(centre, snapshot.positionHistory[i - 1]);
+                    const { dx: cDx, dy: cDy } = offsetFromAnchorM(centre, snapshot.positionHistory[i]);
 
                     const t = i / histLen; // 0=old, 1=new
                     const alpha = 0.15 + t * 0.55;
@@ -218,12 +261,8 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             }
 
             // ── Vessel position with glowing marker ──
-            if (snapshot.vesselPosition && snapshot.anchorPosition) {
-                const dx =
-                    (snapshot.vesselPosition.longitude - snapshot.anchorPosition.longitude) *
-                    111320 *
-                    Math.cos((snapshot.anchorPosition.latitude * Math.PI) / 180);
-                const dy = (snapshot.vesselPosition.latitude - snapshot.anchorPosition.latitude) * 110540;
+            if (snapshot.vesselPosition) {
+                const { dx, dy } = offsetFromAnchorM(centre, snapshot.vesselPosition);
                 const vx = cx + dx * scale;
                 const vy = cy - dy * scale;
 
@@ -272,17 +311,16 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             }
 
             // ── AIS targets ──
-            if (aisTargets && aisTargets.length > 0 && snapshot.anchorPosition) {
-                const ancLat = snapshot.anchorPosition.latitude;
-                const ancLon = snapshot.anchorPosition.longitude;
-                const cosAncLat = Math.cos((ancLat * Math.PI) / 180);
+            if (aisTargets && aisTargets.length > 0) {
                 // Max visible radius in meters
                 const maxVisibleM = snapshot.swingRadius * 1.3;
 
                 for (const target of aisTargets) {
                     // Offset from anchor in meters
-                    const tdx = (target.lon - ancLon) * 111320 * cosAncLat;
-                    const tdy = (target.lat - ancLat) * 110540;
+                    const { dx: tdx, dy: tdy } = offsetFromAnchorM(centre, {
+                        latitude: target.lat,
+                        longitude: target.lon,
+                    });
 
                     // Skip if too far from anchor to be visible
                     const distM = Math.sqrt(tdx * tdx + tdy * tdy);
@@ -367,7 +405,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             observer.disconnect();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [snapshot]);
+    }, [snapshot, previewLat, previewLon]);
 
     return (
         <canvas
