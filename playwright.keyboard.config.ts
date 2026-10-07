@@ -33,6 +33,9 @@ export default defineConfig({
         // Scale-ordered chart drawing: a detailed chart's water over an
         // overview's land (e2e/fixtures/enc-scale-order.tsx, item f).
         'enc-scale-order.spec.ts',
+        // An offline MBTiles chart opens and draws under the app's real CSP,
+        // index.html's and vercel.json's (e2e/fixtures/mbtiles-csp.ts, W1-FX).
+        'mbtiles-csp.spec.ts',
         'shore-watch-layout.spec.ts',
         'passage-log-layout.spec.ts',
         'passage-recording-layout.spec.ts',

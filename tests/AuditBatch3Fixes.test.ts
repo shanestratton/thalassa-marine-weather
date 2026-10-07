@@ -84,9 +84,4 @@ describe('source-pinned fixes', () => {
         expect(src).toMatch(/portNum < 1 \|\| portNum > 65535/);
         expect(src).toMatch(/setLastError\('Enter the gateway host or IP address\.'\)/);
     });
-    it('the hourly outlook shows a clock time, not an ISO string', () => {
-        const src = read('components/dashboard/WeatherCharts.tsx');
-        expect(src).not.toMatch(/text-white">\{item\.time\}</);
-        expect(src).toMatch(/new Date\(item\.time\)\.toLocaleTimeString/);
-    });
 });

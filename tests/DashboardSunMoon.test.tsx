@@ -69,7 +69,6 @@ vi.mock('../components/dashboard/HeroHeader', () => ({ HeroHeader: () => <div />
 vi.mock('../components/dashboard/HeroWidgets', () => ({ HeroWidgets: () => <div /> }));
 vi.mock('../components/dashboard/CurrentConditionsCard', () => ({ CurrentConditionsCard: () => <div /> }));
 vi.mock('../components/dashboard/RainForecastCard', () => ({ RainForecastCard: () => <div /> }));
-vi.mock('../components/WidgetRenderer', () => ({ DashboardWidgetContext: React.createContext({}) }));
 vi.mock('../services/weather/api/weatherkit', () => ({
     fetchMinutelyRainWithSummary: vi.fn().mockResolvedValue(null),
 }));

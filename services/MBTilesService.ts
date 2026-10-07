@@ -13,6 +13,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { looksGzipped, sniffImageMime } from '../utils/imageBytes';
+import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js';
 
@@ -42,13 +43,15 @@ export interface OpenChart {
 
 type Listener = () => void;
 
-// ── Transparent 1x1 PNG (reserved for missing tile fallback) ──
-const _EMPTY_TILE = new Uint8Array([
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
-    0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49,
-    0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xe5, 0x27, 0xde, 0xfc, 0x00, 0x00, 0x00,
-    0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-]);
+/**
+ * A transparent 1×1 PNG, the tile useMapInit hands Mapbox for a square a chart
+ * does not hold. The data URL it used before was malformed (153 base64
+ * characters, a bad IDAT CRC): Chromium ("Failed to fetch") and WebKit ("Load
+ * failed") both refused it, so every hole in a chart raised a map error
+ * (measured 2026-10-08, browser-tests/mbtiles-csp.spec.ts).
+ */
+export const TRANSPARENT_TILE_DATA_URL =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII=';
 
 // ── Service ──
 
@@ -144,7 +147,13 @@ class MBTilesServiceImpl {
             directory: Directory.Cache,
         });
 
-        const response = await fetch(uri.uri);
+        // On iOS getUri answers file:///…, and the app's CSP refuses a file:
+        // fetch ("Refused to connect to file:///… because it does not appear
+        // in the connect-src directive", WebKit, 2026-10-08): CapacitorHttp
+        // leaves non-HTTP URLs to the WebView's own fetch. convertFileSrc
+        // serves the same file from the app's own origin, which connect-src
+        // 'self' allows; on the web it returns the path unchanged.
+        const response = await fetch(Capacitor.convertFileSrc(uri.uri));
         if (!response.ok) {
             throw new Error(`Failed to read ${fileName}: HTTP ${response.status}`);
         }
