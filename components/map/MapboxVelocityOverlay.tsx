@@ -39,7 +39,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
 import { particleScale } from '../../utils/deviceTier';
-import { NmeaStore } from '../../services/NmeaStore';
+import { NmeaStore, type TimestampedMetric } from '../../services/NmeaStore';
 import { BoatLinkService } from '../../services/boatLink/BoatLinkService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
@@ -57,6 +57,7 @@ import {
     boatWindZoomFor,
     closeInModeFor,
     isWindScrubAtNow,
+    PI_LAN_WIND_MAX_AGE_MS,
     pickBoatTrueWind,
     resolveCloseInWind,
     sampleWindGridAt,
@@ -392,10 +393,35 @@ function boatPosition(): { lat: number; lon: number } | null {
  * closed. Her cloud row is read through the boat chain instead, with the Pi's
  * own sample time (followedBoatCloudWind).
  */
-function storeBoatWind(): ReturnType<typeof pickBoatTrueWind> {
+function storeBoatWind(now: number = Date.now()): ReturnType<typeof pickBoatTrueWind> {
     const state = NmeaStore.getState();
     if (state.remote?.via === 'cloud' || !boatInstrumentsFollowed()) return null;
-    return pickBoatTrueWind(state);
+    // The model check's own gates (components/map/boatModelCheck assessHerWind),
+    // so the field never paints 'Boat' from a reading that card would refuse.
+    if (state.connectionStatus === 'connected') {
+        // The store keeps a replaced remote feed's values for their 13 s,
+        // stamped on receipt and perhaps never dated by the Pi: not the socket's.
+        const after = NmeaStore.getRemoteFeedEndedAt();
+        const own = (m: TimestampedMetric): TimestampedMetric => (m.lastUpdated > after ? m : { ...m, value: null });
+        return pickBoatTrueWind(
+            {
+                tws: own(state.tws),
+                twd: own(state.twd),
+                twaSigned: own(state.twaSigned),
+                headingTrue: own(state.headingTrue),
+            },
+            now,
+        );
+    }
+    if (state.remote?.via === 'lan') {
+        // Only a TWS the Pi itself dated: an undated one may be Signal K's
+        // cached value from an instrument that is off, re-stamped on receipt.
+        const sample = NmeaStore.getRemoteWindSample();
+        if (!sample || sample.via !== 'lan' || sample.kts !== state.tws.value) return null;
+        const age = now - sample.at;
+        if (age < -1_000 || age > PI_LAN_WIND_MAX_AGE_MS) return null;
+    }
+    return pickBoatTrueWind(state, now);
 }
 
 /**

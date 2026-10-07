@@ -6,6 +6,7 @@ import {
     BOAT_WIND_EXIT_ZOOM,
     BOAT_WIND_MIN_ZOOM,
     boatWindZoomFor,
+    PI_LAN_WIND_MAX_AGE_MS,
     CLOSE_IN_CALM_KT,
     CLOSE_IN_ENTER_CELLS,
     CLOSE_IN_EXIT_CELLS,
@@ -30,6 +31,7 @@ import {
     windGridSpacingDeg,
 } from '../components/map/closeInWind';
 import { OBS_VESSEL_ZOOM } from '../components/map/useObsStartupCamera';
+import { MODEL_CHECK_LAN_MAX_AGE_MS } from '../components/map/boatModelCheck';
 import type { WindGrid } from '../services/weather/windGridEncoding';
 import type { TimestampedMetric } from '../services/NmeaStore';
 
@@ -354,6 +356,11 @@ describe('close-in source arbitration', () => {
         ).toBeNull();
     });
 
+    it('dates her LAN wind on the same line as the model check', () => {
+        // The field and the card must agree on when a Pi-dated TWS is hers now.
+        expect(PI_LAN_WIND_MAX_AGE_MS).toBe(MODEL_CHECK_LAN_MAX_AGE_MS);
+    });
+
     it('counts 14 and closer as her zoom, with a hair of slack and no flicker at the edge', () => {
         // In at 14, and anywhere past it (the map zooms to 22).
         for (const zoom of [14, 14.5, 16, 22]) {
@@ -441,9 +448,18 @@ describe('close-in readout', () => {
         expect(getCloseInWindReadout()).toBe(first);
         setCloseInWindReadout({ kt: 8.04, fromDeg: 135.4, source: 'boat', stale: false });
         setCloseInWindReadout(null);
+        // The pill's words change at lines a fixed 0.1 kt / 1 deg band missed
+        // (windchip review): Calm at 1 kt, and a 16-point compass edge.
+        setCloseInWindReadout({ kt: 0.97, fromDeg: 90, source: 'model', stale: false });
+        setCloseInWindReadout({ kt: 1.0, fromDeg: 90, source: 'model', stale: false });
+        expect(formatCloseInWind(getCloseInWindReadout()!, 'kts')).toBe('1 kt E');
+        setCloseInWindReadout({ kt: 8, fromDeg: 101.2, source: 'model', stale: false });
+        setCloseInWindReadout({ kt: 8, fromDeg: 101.3, source: 'model', stale: false });
+        expect(formatCloseInWind(getCloseInWindReadout()!, 'kts')).toBe('8 kt ESE');
+        setCloseInWindReadout(null);
         setCloseInWindReadout(null);
         expect(getCloseInWindReadout()).toBeNull();
-        expect(calls).toBe(3);
+        expect(calls).toBe(8);
         unsubscribe();
     });
 });

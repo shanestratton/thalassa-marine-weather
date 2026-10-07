@@ -274,6 +274,13 @@ export function pickBoatTrueWind(state: BoatWindMetrics, now: number = Date.now(
  */
 export const CLOUD_WIND_MAX_AGE_MS = 60_000;
 
+/**
+ * The Pi dates a TWS sample (extra.wind_tws_at_ms) only while it is this
+ * fresh; over the boat LAN an older one is not hers now. Pinned equal to the
+ * model check's MODEL_CHECK_LAN_MAX_AGE_MS by a test.
+ */
+export const PI_LAN_WIND_MAX_AGE_MS = 20_000;
+
 /** The wind fields of her cloud row as the boat chain carries it (services/weatherPosition WeatherFix). */
 export interface CloudWindRow {
     twsKts?: number;
@@ -434,14 +441,20 @@ export function formatCloseInWind(wind: LocalWind, speedUnit: string | undefined
 let readout: CloseInWind | null = null;
 const readoutListeners = new Set<() => void>();
 
+const READOUT_UNITS = Object.keys(UNIT_LABEL);
+
+/**
+ * Same words in every speed unit the pill can show. A fixed dead band (0.1 kt,
+ * 1 deg) missed the lines the words actually change at: Calm at 1 kt, whole
+ * km/h or m/s rounding, a 16-point compass edge, so the pill could still say
+ * Calm over a 1 kt field (windchip review, 2026-10-07).
+ */
 function sameReadout(a: CloseInWind | null, b: CloseInWind | null): boolean {
     if (a === null || b === null) return a === b;
-    const deg = (d: number | null) => (d === null ? null : Math.round(d) % 360);
     return (
         a.source === b.source &&
         a.stale === b.stale &&
-        Math.round(a.kt * 10) === Math.round(b.kt * 10) &&
-        deg(a.fromDeg) === deg(b.fromDeg)
+        READOUT_UNITS.every((unit) => formatCloseInWind(a, unit) === formatCloseInWind(b, unit))
     );
 }
 

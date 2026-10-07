@@ -401,6 +401,38 @@ describe('Obs close-in wind: the followed boat’s own wind, from whichever lane
         expect(await settled()).toMatchObject({ source: 'model' });
     });
 
+    it('aboard, the Pi over the boat LAN: a wind the Pi never dated is not shown as hers', async () => {
+        const now = Date.now();
+        // Signal K's cached value from an instrument that is off reaches the
+        // store re-stamped on receipt; only the Pi's own sample time proves it.
+        NmeaStore.ingestRemote({
+            source: 'pi',
+            via: 'lan',
+            deviceLabel: 'Pi',
+            reportedAt: now,
+            lat: MARINA.lat,
+            lon: MARINA.lng,
+            sogKts: 0,
+            cogDeg: null,
+            headingDeg: null,
+            stwKts: null,
+            twsKts: 9,
+            twaDeg: null,
+            twdDeg: 170,
+            awsKts: null,
+            awaDeg: null,
+            depthM: null,
+            heelDeg: null,
+            pitchDeg: null,
+            waterTempC: null,
+            rudderDeg: null,
+            rpm: null,
+            voltageV: null,
+        });
+        renderObs(MARINA);
+        expect(readout()?.source).not.toBe('boat');
+    });
+
     it('aboard, the Pi over the boat LAN: the LAN’s wind beats her cloud row', async () => {
         const now = Date.now();
         NmeaStore.ingestRemote({
@@ -408,6 +440,8 @@ describe('Obs close-in wind: the followed boat’s own wind, from whichever lane
             via: 'lan',
             deviceLabel: 'Pi',
             reportedAt: now,
+            windSampleAt: now - 1_000,
+            windSampleSource: 'masthead',
             lat: MARINA.lat,
             lon: MARINA.lng,
             sogKts: 0,

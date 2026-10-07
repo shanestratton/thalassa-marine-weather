@@ -119,6 +119,8 @@ const nmea = vi.hoisted(() => {
     const store = {
         state: {} as Record<string, unknown>,
         boatFeed: false,
+        remoteWindSample: null as null | { kts: number; at: number; via: 'lan' | 'cloud' },
+        remoteFeedEndedAt: 0,
         reset() {
             store.state = {
                 tws: empty(),
@@ -132,6 +134,8 @@ const nmea = vi.hoisted(() => {
                 connectionStatus: 'disconnected',
             };
             store.boatFeed = false;
+            store.remoteWindSample = null;
+            store.remoteFeedEndedAt = 0;
         },
         live(patch: Record<string, number>) {
             const now = Date.now();
@@ -143,6 +147,8 @@ const nmea = vi.hoisted(() => {
         NmeaStore: {
             getState: () => store.state,
             isBoatFeed: () => store.boatFeed,
+            getRemoteWindSample: () => store.remoteWindSample,
+            getRemoteFeedEndedAt: () => store.remoteFeedEndedAt,
             subscribe: (listener: () => void) => {
                 listeners.add(listener);
                 return () => listeners.delete(listener);
@@ -844,6 +850,49 @@ describe('MapboxVelocityOverlay close-in mode', () => {
         // Past 14, in at the pens, she holds.
         settleAt(mapbox, 17);
         expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
+        view.unmount();
+    });
+
+    it('paints "Boat" only from a wind the model check would accept: dated over the LAN, the socket\'s own on the gateway', async () => {
+        mocks.releasePlugin();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+        const mapbox = phoneHarness(14);
+        const props = {
+            mapboxMap: mapbox.map as never,
+            visible: true,
+            windGrid: airlieGrid(8, 135, 20),
+            boatInstruments: true,
+        };
+        // The Pi over the LAN with a TWS it never dated (Signal K's cached
+        // value from an instrument that is off, re-stamped on receipt): the model.
+        nmea.state.remote = { via: 'lan' };
+        nmea.live({ tws: 31, twd: 200, latitude: AIRLIE.lat, longitude: AIRLIE.lng });
+        const view = render(<MapboxVelocityOverlay {...props} windHour={0} windNowIdx={0} />);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        // The Pi dated it: hers.
+        nmea.remoteWindSample = { kts: 31, at: Date.now() - 2_000, via: 'lan' };
+        act(() => nmea.live({ tws: 31 }));
+        expect(getCloseInWindReadout()).toMatchObject({ kt: 31, source: 'boat' });
+        // A dated sample past the Pi's own 20 s line is not hers now.
+        nmea.remoteWindSample = { kts: 31, at: Date.now() - 25_000, via: 'lan' };
+        act(() => nmea.live({ tws: 31 }));
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        // A sample for another value (the store moved on) does not date this one.
+        nmea.remoteWindSample = { kts: 30, at: Date.now() - 1_000, via: 'lan' };
+        act(() => nmea.live({ tws: 31 }));
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+
+        // The gateway socket takes over: the LAN feed's leftover, stamped before
+        // that feed ended, is not the socket's.
+        delete nmea.state.remote;
+        nmea.state.connectionStatus = 'connected';
+        nmea.remoteFeedEndedAt = Date.now() + 1;
+        act(() => nmea.live({ tws: 31, twd: 200 }));
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        // The socket's own sentence, after: hers.
+        nmea.remoteFeedEndedAt = Date.now() - 1;
+        act(() => nmea.live({ tws: 14, twd: 210 }));
+        expect(getCloseInWindReadout()).toMatchObject({ kt: 14, fromDeg: 210, source: 'boat' });
         view.unmount();
     });
 
