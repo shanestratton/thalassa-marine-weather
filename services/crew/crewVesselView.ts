@@ -39,6 +39,7 @@ import {
     type AboardPerson,
     type FloatPlanSelfDetails,
 } from './floatPlanPeople';
+import { sortByCrewRank } from './crewRank';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CrewVesselView');
@@ -166,24 +167,28 @@ export function crewVesselName(
 
 /**
  * Who is aboard the skipper's boat, each person once (2026-10-04): his
- * profile roster's names and ranks, then the app crew not already on it. The
- * caller's own row carries their own name, phone and age from their Settings
- * (`self`); everyone else is a name and a role.
+ * profile roster's names and ranks and the app crew not already on it, in
+ * rank order (Shane 2026-10-07: "order the punters on board by their rank"),
+ * the same sortByCrewRank his own float plan uses. The caller's own row
+ * carries their own name, phone and age from their Settings (`self`) and sits
+ * at their rank like anyone else's; everyone else is a name and a role.
  */
 export function crewVesselPeople(
     view: CrewVesselView | null | undefined,
     self?: FloatPlanSelfDetails | null,
 ): AboardPerson[] {
     if (!view) return [];
-    return mergeAboard(
-        view.roster.map((person) => ({ name: person.name, role: person.rank })),
-        view.manifest.map((entry) => ({
-            appName: entry.name,
-            role: crewRoleLabel(entry.role),
-            isSkipper: entry.isSkipper,
-            isSelf: entry.isSelf,
-            ...(entry.isSelf && self ? { ownName: self.name, phone: self.phone, age: self.age } : {}),
-        })),
+    return sortByCrewRank(
+        mergeAboard(
+            view.roster.map((person) => ({ name: person.name, role: person.rank })),
+            view.manifest.map((entry) => ({
+                appName: entry.name,
+                role: crewRoleLabel(entry.role),
+                isSkipper: entry.isSkipper,
+                isSelf: entry.isSelf,
+                ...(entry.isSelf && self ? { ownName: self.name, phone: self.phone, age: self.age } : {}),
+            })),
+        ),
     );
 }
 

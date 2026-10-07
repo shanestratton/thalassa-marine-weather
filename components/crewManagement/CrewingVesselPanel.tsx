@@ -20,10 +20,11 @@
  * crew not already among them, merged exactly as the float plan card merges
  * them (crewVesselPeople). It used to list the app crew alone, so anyone the
  * skipper typed but never invited was missing here while the card counted
- * them. The order is the skipper's own profile order (his Skipper row is
- * usually first, but not if he put someone above it), then app crew he never
- * typed; an app skipper with no Skipper row heads the list. Names and roles
- * only: never a phone or an age, yours included.
+ * them. The order is rank (Shane 2026-10-07: "order the punters on board by
+ * their rank"): Skipper, Co-skipper, First mate and on down to the guests,
+ * by name within a rank, the one sortByCrewRank (services/crew/crewRank.ts)
+ * that the skipper's float plan uses too. You sit at your rank, not on top.
+ * Names and roles only: never a phone or an age, yours included.
  *
  * Presentational: CrewManagement decides what switching does. Never an email:
  * the skipper appears by name.

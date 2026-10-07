@@ -66,9 +66,10 @@ function aboardRows(): string[] {
 }
 
 describe('Crew aboard, on the invitee’s device', () => {
-    it("lists the skipper's own people as well as the app crew: captain, first mate and you", () => {
+    it("lists the skipper's own people as well as the app crew, by rank: captain, you the co-skipper, first mate", () => {
         panel(VIEW);
-        expect(aboardRows()).toEqual(['Ana ReyesSkipper', 'Priya NairFirst mate', 'Tom Okafor (you)Co-skipper']);
+        // Shane 2026-10-07: "order the punters on board by their rank".
+        expect(aboardRows()).toEqual(['Ana ReyesSkipper', 'Tom Okafor (you)Co-skipper', 'Priya NairFirst mate']);
     });
 
     it('names and roles only: never your phone or age, nor anyone else’s', () => {
@@ -89,8 +90,8 @@ describe('Crew aboard, on the invitee’s device', () => {
             ]);
         expect(card).toEqual([
             ['Ana Reyes', 'Skipper'],
-            ['Priya Nair', 'First mate'],
             ['Tom Okafor', 'Co-skipper'],
+            ['Priya Nair', 'First mate'],
         ]);
         expect(aboardRows()).toEqual(
             card.map(([name, role]) => `${name}${name === 'Tom Okafor' ? ' (you)' : ''}${role}`),
@@ -106,10 +107,10 @@ describe('Crew aboard, on the invitee’s device', () => {
 
     it('without your Settings details, you are named as the app names you', () => {
         panel(VIEW, null);
-        expect(aboardRows()).toEqual(['Ana ReyesSkipper', 'Priya NairFirst mate', 'Tom O (you)Co-skipper']);
+        expect(aboardRows()).toEqual(['Ana ReyesSkipper', 'Tom O (you)Co-skipper', 'Priya NairFirst mate']);
     });
 
-    it('degraded mode (no roster) still lists the app crew, the skipper first', () => {
+    it('degraded mode (no roster) still lists the app crew by rank, the skipper first', () => {
         panel(
             {
                 ...VIEW,
@@ -123,7 +124,40 @@ describe('Crew aboard, on the invitee’s device', () => {
             },
             null,
         );
-        expect(aboardRows()).toEqual(['SkipperSkipper', 'Lena "Lee" ParkCrew', 'YouCo-skipper']);
+        expect(aboardRows()).toEqual(['SkipperSkipper', 'YouCo-skipper', 'Lena "Lee" ParkCrew']);
+    });
+
+    it('a punter who joined first still lists after the First mate, and agrees with the card', () => {
+        const view: CrewVesselView = {
+            ...VIEW,
+            roster: [
+                { name: 'Ana Reyes', rank: 'Captain' },
+                { name: 'Sam Example', rank: 'Guest' },
+                { name: 'Priya Nair', rank: 'mate' },
+            ],
+            manifest: [
+                { isSkipper: true, isSelf: false, role: 'skipper', name: 'Capt Ana Reyes' },
+                // The first to accept, and the reader.
+                { isSkipper: false, isSelf: true, role: 'punter', name: 'Tom O' },
+                { isSkipper: false, isSelf: false, role: 'navigator', name: 'Lena Park' },
+                { isSkipper: false, isSelf: false, role: 'deckhand', name: 'Ben Cole' },
+            ],
+        };
+        panel(view);
+        render(<CrewFloatPlanCard boatName="Wandering Albatross" view={view} passage={null} self={SELF} />);
+        // The skipper typed "Captain" and "mate": read as Skipper and First mate, shown as typed.
+        expect(aboardRows()).toEqual([
+            'Ana ReyesCaptain',
+            'Priya Nairmate',
+            'Lena ParkNavigator',
+            'Ben ColeDeckhand',
+            'Sam ExampleGuest',
+            'Tom Okafor (you)Punter',
+        ]);
+        const card = within(screen.getByRole('list', { name: 'People aboard' }))
+            .getAllByRole('listitem')
+            .map((item) => item.querySelector('span')?.firstChild?.textContent ?? '');
+        expect(card).toEqual(['Ana Reyes', 'Priya Nair', 'Lena Park', 'Ben Cole', 'Sam Example', 'Tom Okafor']);
     });
 
     it('says the list is not available while there is no view', () => {

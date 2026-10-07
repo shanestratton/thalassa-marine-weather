@@ -21,6 +21,7 @@
 import type { VesselProfile } from '../types/vessel';
 import { calculateBearing, calculateDistance } from '../utils/navigationCalculations';
 import { convertVolume } from './GlobalUnitService';
+import { sortByCrewRank } from './crew/crewRank';
 
 export interface FloatPlanRoute {
     /** Route name, e.g. "Newport - Lady Musgrave". */
@@ -296,7 +297,14 @@ export function prepareFloatPlan(input: FloatPlanInput): FloatPlanDocument {
     // differently from a name alone, and a box labelled "Role · age · medical"
     // gets filled in five different formats by five different skippers. `note`
     // survives for plans saved before the split.
-    const rosterLines = (input.personsRoster ?? [])
+    // In rank order (Shane 2026-10-07), the one sortByCrewRank every list of
+    // people aboard uses, so the text, the email, the PDF made from it and the
+    // sheet agree on who comes first. A plan saved before roles were a field
+    // ranks by its free-text note ("skipper", "crew").
+    const rosterLines = sortByCrewRank(input.personsRoster ?? [], (person) => ({
+        role: oneLine(person.role) || oneLine(person.note),
+        name: oneLine(person.name),
+    }))
         .map((person) => {
             const age = Number.isFinite(person.age) && (person.age ?? 0) > 0 ? `${person.age}` : '';
             const phone = oneLine(person.phone) ? `mobile ${oneLine(person.phone)}` : '';

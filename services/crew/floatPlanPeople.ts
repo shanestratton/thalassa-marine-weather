@@ -17,7 +17,9 @@
  * How senior each app crew role is, for the one role a person with several
  * vessel_crew rows carries: the order get_crew_vessel_view (20261003120000)
  * ranks them in. One map for both devices, so the skipper's float plan and
- * the crew's own view of the boat cannot drift apart.
+ * the crew's own view of the boat cannot drift apart. The order a LIST of
+ * people is shown in is crewRank.ts; tests/crewRank.test.ts holds the two in
+ * step.
  */
 export const CREW_ROLE_SENIORITY: Readonly<Record<string, number>> = Object.freeze({
     'co-skipper': 4,
