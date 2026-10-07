@@ -328,6 +328,19 @@ final class VodozemacDmCoordinator {
                         blockedByMe: blockedByMe, blockedEitherDirection: blocked,
                         canSend: canSend && !blocked))
                 }
+            case .privateAdmissionState:
+                return try withState { _, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil else {
+                        throw DmCoordinatorError.unavailable
+                    }
+                    return .privateAdmissionState(Self.privateAdmission(state))
+                }
+            case .privateAdmissionGuard(let expected):
+                return try withState { _, state in
+                    guard context.peerGeneration == nil, state.authProjectOrigin != nil,
+                          Self.privateAdmission(state) == expected else { throw DmCoordinatorError.unavailable }
+                    return .privateAdmissionState(expected)
+                }
             case .relayEnrollmentState:
                 return try withState { _, state in .enrollmentState(try Self.enrollmentState(state)) }
             case .invalidateRelayPolicy:
@@ -712,6 +725,13 @@ final class VodozemacDmCoordinator {
         guard seconds.isFinite, seconds >= 1,
               seconds <= Double(DmRelayCodec.maxSafeInteger - 240) else { throw DmCoordinatorError.unavailable }
         return Int64(seconds)
+    }
+
+    private static func privateAdmission(_ state: State) -> DmNativePrivateAdmissionState {
+        // Desired selection survives expiry, changed credential epochs and
+        // historical generations. Missing local facts are UNKNOWN, never a
+        // claim that the server still allows plaintext or legacy operations.
+        state.protectedAccountIntent != nil || state.protectedAccountConfirmed == true ? .protectedRequired : .unknown
     }
 
     private func accountModeCompletionTime(_ request: DmNativeRelayAccountModeRequest) throws -> Int64 {

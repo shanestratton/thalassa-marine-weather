@@ -40,7 +40,7 @@ export interface ResearchPrivateMessagePluginBindings {
 
 export interface ResearchPrivateMessageNativePlugin extends PrivateMessageNativePlugin {
     /** Use the existing Research Auth host; do not create a second SDK/fence loop. */
-    connectCurrentAccount(): Promise<NativePrivateMessageReadiness>;
+    connectCurrentAccount(expectedCredentialBinding?: string): Promise<NativePrivateMessageReadiness>;
     /** View-only privacy fence. This does not perform native logout. */
     invalidateView(): void;
 }
@@ -341,9 +341,14 @@ export function createResearchPrivateMessageNativePlugin(
         invalidateView() {
             reset();
         },
-        async connectCurrentAccount() {
+        async connectCurrentAccount(expectedCredentialBinding?: string) {
             const ticket = reset();
-            if (ticket !== revision || !native.currentAccount) return closed();
+            if (
+                ticket !== revision ||
+                !native.currentAccount ||
+                (expectedCredentialBinding !== undefined && !id(expectedCredentialBinding))
+            )
+                return closed();
             try {
                 // This read is native-owned, not an SDK account label supplied
                 // by the view. Native issue still requires the full sealed pair.
@@ -358,7 +363,9 @@ export function createResearchPrivateMessageNativePlugin(
                     !id(result.account.accountId) ||
                     !id(result.account.deviceId) ||
                     !id(result.account.credentialBinding) ||
-                    result.account.serverVerified !== true
+                    result.account.serverVerified !== true ||
+                    (expectedCredentialBinding !== undefined &&
+                        result.account.credentialBinding !== expectedCredentialBinding)
                 )
                     return closed();
                 const descriptor = {

@@ -27,6 +27,8 @@ export default {
             'tests/GuardianPage.test.tsx',
             'tests/PrivateMessagePilot.test.ts',
             'tests/NativePrivateMessagePilot.test.ts',
+            'tests/PrivateMessageStartupAdmission.test.ts',
+            'tests/E2eeResearchPrivateAdmissionSource.test.ts',
             'tests/hooks/ChatDMEncryptionPilot.test.tsx',
             'tests/hooks/ChatDMBlocking.test.tsx',
             'tests/ChatPage.test.tsx',

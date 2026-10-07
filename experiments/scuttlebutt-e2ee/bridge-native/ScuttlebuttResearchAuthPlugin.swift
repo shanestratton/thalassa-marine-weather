@@ -13,6 +13,7 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "authenticate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "currentAccount", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "messagePrivateAdmission", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messagePairingCard", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageInspectPeerCard", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "messageConfirmPeer", returnType: CAPPluginReturnPromise),
@@ -139,6 +140,9 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     // URLs, wires, response bodies, records or native capabilities from JS.
     @objc public func messageState(_ call: CAPPluginCall) {
         message(call, names: []) { try $0.messageState(credentialBinding: $1) }
+    }
+    @objc public func messagePrivateAdmission(_ call: CAPPluginCall) {
+        message(call, names: []) { try $0.privateAdmissionState(credentialBinding: $1) }
     }
     @objc public func messagePairingCard(_ call: CAPPluginCall) {
         message(call, names: []) { try $0.pairingCard(credentialBinding: $1) }

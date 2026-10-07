@@ -76,6 +76,7 @@ describe('private-message cutover denial and original-scope permits', () => {
             'isLegacyPrivateMessageAbortSignalCurrent',
             'isLegacyPrivateMessageAbortSignalOwned',
             'isLegacyPrivateMessagePermitCurrent',
+            'requireNativePrivateMessagesForProcess',
             'requireNativePrivateMessagesForScope',
             'subscribePrivateMessageCutover',
         ]);
@@ -89,6 +90,7 @@ describe('private-message cutover denial and original-scope permits', () => {
             'isLegacyPrivateMessageAbortSignalOwned',
             'isLegacyPrivateMessagePermitCurrent',
             'isPrivateMessageLegacyUnavailable',
+            'requireNativePrivateMessagesForProcess',
             'requireNativePrivateMessagesForScope',
             'subscribePrivateMessageCutover',
         ]);
@@ -502,7 +504,6 @@ describe('owned original-permit abort scopes', () => {
         const current = scopeFor(alice);
         let nesting = false,
             started = false;
-        let permit: unknown;
         const nested: Array<ReturnType<PrivateMessageCutoverPolicy['captureLegacyPrivateMessageAbortScope']>> = [];
         const policy = createPrivateMessageCutoverPolicy(() => {
             if (started && !nesting) {
@@ -513,7 +514,7 @@ describe('owned original-permit abort scopes', () => {
             }
             return current;
         });
-        permit = policy.captureLegacyPrivateMessagePermit(current, bob);
+        const permit = policy.captureLegacyPrivateMessagePermit(current, bob);
         started = true;
         const outer = policy.captureLegacyPrivateMessageAbortScope(permit);
         const admitted = [outer, ...nested].filter((value) => value !== null);
@@ -529,12 +530,11 @@ describe('bounded signal-only cutover subscription fixtures', () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const cancelled = vi.fn();
         const survivor = vi.fn();
-        let cancel!: () => void;
         policy.subscribePrivateMessageCutover(() => {
             cancel();
             throw new Error('Raw listener detail');
         });
-        cancel = policy.subscribePrivateMessageCutover(cancelled);
+        const cancel = policy.subscribePrivateMessageCutover(cancelled);
         policy.subscribePrivateMessageCutover(survivor);
         expect(() => policy.requireNativePrivateMessagesForScope(current())).not.toThrow();
         expect(cancelled).not.toHaveBeenCalled();
@@ -574,12 +574,11 @@ describe('bounded signal-only cutover subscription fixtures', () => {
     it('does not replay a notification into a newly added listener, and self-cancellation persists', () => {
         const { policy, current, select } = fixture();
         const late = vi.fn();
-        let stop!: () => void;
         const first = vi.fn(() => {
             stop();
             policy.subscribePrivateMessageCutover(late);
         });
-        stop = policy.subscribePrivateMessageCutover(first);
+        const stop = policy.subscribePrivateMessageCutover(first);
         policy.requireNativePrivateMessagesForScope(current());
         expect(first).toHaveBeenCalledTimes(1);
         expect(late).not.toHaveBeenCalled();

@@ -77,9 +77,12 @@ export type ResearchAuthUnavailableReason = 'verification_failed' | 'verificatio
 
 // One Capacitor proxy for the one native host. Messaging projects its own
 // research-only method interface onto this proxy, never registers a second one.
-export const researchNativePlugin = registerPlugin<ResearchAuthNativePlugin & ResearchPrivateMessagePluginBindings>(
-    RESEARCH_PLUGIN_NAME,
-);
+export const researchNativePlugin = registerPlugin<
+    ResearchAuthNativePlugin &
+        ResearchPrivateMessagePluginBindings & {
+            messagePrivateAdmission(options: { credentialBinding: string }): Promise<unknown>;
+        }
+>(RESEARCH_PLUGIN_NAME);
 
 const runtime: ResearchAuthDependencies = {
     native: researchNativePlugin,

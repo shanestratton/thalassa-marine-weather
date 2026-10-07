@@ -326,18 +326,59 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
         expect(native.authenticate.mock.calls[0][0].accessToken).toBe(RENEWED_BEARER_A);
         expect((await session.runtime.getInbox(getAuthIdentityScope())).status).toBe('ok');
     });
-    it('deactivates native authority on a confirmed absent SDK session while the local identity still names A', async () => {
+    it('fences native credentials without quarantining the owner on absent SDK hydration', async () => {
         const { session, native, setSdk, authority } = fixture();
         setSdk(null);
         session.start();
         await settle();
         expect(getAuthIdentityScope().userId).toBe(ACCOUNT_A);
         expect(session.state()).toBe('signed_out');
-        expect(native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['verify', 'sign_out']);
+        expect(native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['verify']);
         expect(native.authenticate).not.toHaveBeenCalled();
         expect(authority()).toBeNull();
         expect((await session.runtime.getInbox(getAuthIdentityScope())).status).toBe('unavailable');
         expect(native.getInbox).not.toHaveBeenCalled();
+    });
+    it('does not treat an anonymous provisional boot as explicit native logout', async () => {
+        setAuthIdentityScope(null);
+        const { session, native, auth } = fixture();
+        session.start();
+        await settle();
+        expect(native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['verify']);
+        expect(auth.getSession).not.toHaveBeenCalled();
+        expect(native.authenticate).not.toHaveBeenCalled();
+        expect((await session.runtime.getInbox(getAuthIdentityScope())).status).toBe('unavailable');
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(native.fenceSession.mock.calls.every(([options]) => options.mode === 'verify')).toBe(true);
+        await session.dispose();
+        expect(native.fenceSession.mock.calls.every(([options]) => options.mode === 'verify')).toBe(true);
+    });
+    it('preserves native owner on empty INITIAL_SESSION and can later refresh the SDK token', async () => {
+        const { session, auth, native, authUnsubscribe } = fixture();
+        auth.onAuthStateChange.mockImplementationOnce((listener) => {
+            listener('INITIAL_SESSION', null);
+            return { data: { subscription: { unsubscribe: authUnsubscribe } } };
+        });
+        session.start();
+        await settle();
+        expect(session.state()).toBe('signed_out');
+        expect(native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['verify']);
+        expect(native.authenticate).not.toHaveBeenCalled();
+        // A later explicit SDK read follows the same owner, without native logout.
+        await session.refresh();
+        expect(session.state()).toBe('ready');
+        expect(native.fenceSession.mock.calls.every(([options]) => options.mode === 'verify')).toBe(true);
+    });
+    it('native subscription failure closes access without authorizing durable logout', async () => {
+        const { session, auth, native } = fixture();
+        auth.onAuthStateChange.mockImplementationOnce(() => {
+            throw new Error('fixture unavailable');
+        });
+        session.start();
+        await settle();
+        expect(session.state()).toBe('unavailable');
+        expect(native.fenceSession.mock.calls.map(([options]) => options.mode)).toEqual(['verify']);
+        expect(native.authenticate).not.toHaveBeenCalled();
     });
     it('never invokes native authenticate when native fencing rejects', async () => {
         const { session, native, auth } = fixture();
@@ -759,6 +800,7 @@ describe('SDK-to-native pilot session — fake Auth/native authority, not live E
         expect(native.authenticate).toHaveBeenCalledTimes(2);
         expect(await session.dispose()).toBe(true);
         expect(session.state()).toBe('stopped');
+        expect(native.fenceSession.mock.calls.at(-1)?.[0].mode).toBe('verify');
         expect(authUnsubscribe).toHaveBeenCalledTimes(1);
         expect(vi.getTimerCount()).toBe(0);
         const fenceCount = native.fenceSession.mock.calls.length;

@@ -55,7 +55,7 @@ export interface NativePrivateMessagePilotSession {
     start(): void;
     /** Reverify current token, for foreground/resume or explicit retry. */
     refresh(): Promise<void>;
-    /** Closes this pilot, not the Supabase account. Returns local native outcome. */
+    /** Closes view/credential access, not Supabase or durable native owner history. */
     dispose(): Promise<boolean>;
     state(): NativePrivateMessageSessionState;
     subscribeState(listener: (state: NativePrivateMessageSessionState) => void): () => void;
@@ -197,7 +197,10 @@ export function createNativePrivateMessagePilotSession(options: {
         if (!started || disposed) return;
         const scope = getAuthIdentityScope();
         const ticket = fenceView(scope.userId ? 'checking' : 'signed_out');
-        const fence = nativeFence(scope.userId ? 'verify' : 'sign_out');
+        // An absent provisional browser identity is NOT explicit native logout.
+        // Fence credentials while preserving the sealed owner/generation. A
+        // missing last-user mirror must not quarantine pending ciphertext.
+        const fence = nativeFence('verify');
         // Always consume a rejected native fence even when SDK boot also fails.
         const guardedFence = fence.catch(() => closed());
         if (!scope.userId) {
@@ -218,15 +221,9 @@ export function createNativePrivateMessagePilotSession(options: {
             if (!current(ticket) || !isAuthIdentityScopeCurrent(scope)) return;
             if (result.error || !result.data?.session) {
                 await guardedFence;
-                // A confirmed absent SDK session is logout, not a failed
-                // verification that may retain the sealed active generation.
-                if (!result.error && current(ticket)) {
-                    const ended = await native.fenceSession({ mode: 'sign_out' });
-                    if (current(ticket) && ended.status !== 'fenced') {
-                        publish('unavailable');
-                        return;
-                    }
-                }
+                // Empty SDK hydration is not an explicit logout command. Its
+                // verify fence already removed native credential access, while
+                // the selected sealed owner remains available for fresh login.
                 if (current(ticket)) publish(result.error ? 'unavailable' : 'signed_out');
                 return;
             }
@@ -239,10 +236,10 @@ export function createNativePrivateMessagePilotSession(options: {
     function onAuth(event: string, session: PilotSessionToken | null) {
         if (!started || disposed) return;
         const scope = getAuthIdentityScope();
-        const signedOut = event === 'SIGNED_OUT' || !session;
-        const ticket = fenceView(signedOut ? 'signed_out' : 'checking');
-        const fence = nativeFence(signedOut ? 'sign_out' : 'verify');
-        if (signedOut) {
+        const explicitSignedOut = event === 'SIGNED_OUT';
+        const ticket = fenceView(explicitSignedOut || !session ? 'signed_out' : 'checking');
+        const fence = nativeFence(explicitSignedOut ? 'sign_out' : 'verify');
+        if (explicitSignedOut || !session) {
             void fence
                 .then((result) => {
                     if (current(ticket) && result.status !== 'fenced') publish('unavailable');
@@ -410,7 +407,7 @@ export function createNativePrivateMessagePilotSession(options: {
                 }, interval);
             } catch {
                 fenceView('unavailable');
-                void nativeFence('sign_out').catch(() => undefined);
+                void nativeFence('verify').catch(() => undefined);
             }
         },
         refresh,
@@ -431,7 +428,7 @@ export function createNativePrivateMessagePilotSession(options: {
             if (timer) clearInterval(timer);
             fenceView('stopped');
             try {
-                const result = await native.fenceSession({ mode: 'sign_out' });
+                const result = await native.fenceSession({ mode: 'verify' });
                 if (result.status === 'fenced') return true;
             } catch {
                 /* No error contents or credentials leave this boundary. */

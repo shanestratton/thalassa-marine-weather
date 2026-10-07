@@ -263,6 +263,7 @@ try {
             'VodozemacReadinessProbe.swift',
             'VodozemacResearchBridgeProbe.swift',
             'VodozemacAccountModeProbe.swift',
+            'VodozemacPrivateAdmissionProbe.swift',
             'VodozemacAccountModeExchangeProbe.swift',
             'VodozemacHostedPmProbe.swift',
             'VodozemacRelayPolicy.swift',
@@ -491,9 +492,13 @@ try {
             Date.now() +
             (phase === 'prepare'
                 ? 600_000
-                : ['private-messages', 'account-mode', 'account-mode-exchange', 'hosted-private-messages'].includes(
-                        phase,
-                    )
+                : [
+                        'private-messages',
+                        'private-admission',
+                        'account-mode',
+                        'account-mode-exchange',
+                        'hosted-private-messages',
+                    ].includes(phase)
                   ? 180_000
                   : 60_000);
         let status;
@@ -586,6 +591,13 @@ try {
             );
             receipt.nativeAccountModeFixtureAssertions = status.accountModeFixtureAssertions;
         }
+        if (phase === 'private-admission') {
+            assert(
+                Number.isSafeInteger(status.privateAdmissionFixtureAssertions) &&
+                    status.privateAdmissionFixtureAssertions > 0,
+            );
+            receipt.nativePrivateAdmissionFixtureAssertions = status.privateAdmissionFixtureAssertions;
+        }
         if (phase === 'account-mode-exchange') {
             assert(
                 Number.isSafeInteger(status.accountModeExchangeAssertions) && status.accountModeExchangeAssertions > 0,
@@ -657,10 +669,11 @@ try {
         receipt.hostedRecoveryRequired = false;
         receipt.recoveryGate = 'parent-hosted-sql-verification-and-allowlist-restoration-required';
     } else if (accountModeOnly) {
+        await launch('private-admission');
         await launch('account-mode');
         await launch('private-messages');
         receipt.status = 'passed';
-        receipt.observation = 'native-account-mode-and-private-message-fixtures-passed';
+        receipt.observation = 'native-private-admission-account-mode-and-private-message-fixtures-passed';
     } else {
         await launch('tls-refuse');
         const beforeTrust = relay.counters();
@@ -769,7 +782,7 @@ console.info(
     hostedNativePm
         ? 'PASS actual native Auth and Olm PM over ordinary hosted HTTPS; parent SQL verification remains separate.'
         : accountModeOnly
-          ? 'PASS native account mode and private-message synthetic fixtures; no SQL/network/CA proof.'
+          ? 'PASS native denial-only admission, account mode and private-message synthetic fixtures; no SQL/network/CA proof.'
           : accountModeExchangeOnly
             ? 'PASS native-issued account mode -> ordinary TLS -> signed local SQL, exact uncertain retry and SQL reopen.'
             : 'PASS native Olm ↔ ordinary TLS ↔ SQL with restarts and unresolved/retry checks.',

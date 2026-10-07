@@ -24,7 +24,7 @@ private struct ExchangeArguments {
     static func read() throws -> ExchangeArguments {
         let args = CommandLine.arguments
         guard args.count == 7, args[1] == "--exchange",
-              ["tls-refuse", "prepare", "private-messages", "account-mode", "account-mode-exchange", "hosted-private-messages", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
+              ["tls-refuse", "prepare", "private-messages", "private-admission", "account-mode", "account-mode-exchange", "hosted-private-messages", "opening", "retry", "reply", "successor", "verify", "recovery", "cleanup"].contains(args[2]),
               let run = UUID(uuidString: args[3]), let alice = UUID(uuidString: args[4]), let bob = UUID(uuidString: args[5]),
               alice != bob else { throw ExchangeFailure.configuration }
         return ExchangeArguments(phase: args[2], run: run, alice: alice, bob: bob, origin: args[6])
@@ -48,7 +48,8 @@ private struct ExchangeArguments {
             "scopedEnrollmentFixtureAssertions": scopedEnrollmentFixtureAssertions,
             "readinessFixtureAssertions": readinessFixtureAssertions,
             "bridgeFixtureAssertions": bridgeFixtureAssertions,
-            "privateMessageFixtureAssertions": ["account-mode", "account-mode-exchange", "hosted-private-messages"].contains(phase) ? 0 : privateMessageFixtureAssertions,
+            "privateMessageFixtureAssertions": ["private-admission", "account-mode", "account-mode-exchange", "hosted-private-messages"].contains(phase) ? 0 : privateMessageFixtureAssertions,
+            "privateAdmissionFixtureAssertions": phase == "private-admission" ? privateMessageFixtureAssertions : 0,
             "accountModeFixtureAssertions": phase == "account-mode" ? privateMessageFixtureAssertions : 0,
             "accountModeExchangeAssertions": phase == "account-mode-exchange" ? privateMessageFixtureAssertions : 0,
             "hostedPmAssertions": phase == "hosted-private-messages" ? privateMessageFixtureAssertions : 0,
@@ -116,6 +117,13 @@ private func runExchange(_ args: ExchangeArguments) async throws -> (Int, Int, I
     var readinessFixtureAssertions = 0
     var bridgeFixtureAssertions = 0
     var privateMessageFixtureAssertions = 0
+    if args.phase == "private-admission" {
+        let count = try await runDmPrivateAdmissionProbe(progressForResearch: { label in
+            try? args.status("running", stage: "private-admission-" + label)
+        })
+        print("PASS isolated native denial-only private admission assertions: \(count)")
+        return (0, 0, 0, 0, 0, 0, 0, 0, 0, count)
+    }
     if args.phase == "hosted-private-messages" {
         try exchangeRequire(args.origin == "https://kmtupdvwdgbhtssqqova.supabase.co", "hosted-project-origin")
         let input = args.documents.appendingPathComponent("native-hosted-input-" + args.run.uuidString.lowercased() + ".json")
@@ -461,6 +469,7 @@ private final class ExchangeScene: UIResponder, UIWindowSceneDelegate {
                 else if case DmAccountModeProbeError.assertion(let label) = error { stage = "account-mode-check-" + label }
                 else if case DmAccountModeExchangeProbeError.assertion(let label) = error { stage = "account-mode-exchange-check-" + label }
                 else if case DmHostedPmProbeError.assertion(let label) = error { stage = "hosted-pm-check-" + label }
+                else if case DmPrivateAdmissionProbeError.assertion(let label) = error { stage = "private-admission-check-" + label }
                 else if error is DmCoordinatorError { stage = "native-state-or-result-refused" }
                 else if error is DmRelayTransportError { stage = "network-unresolved" }
                 else if error is VodozemacSealedStoreError { stage = "sealed-store-refused" }

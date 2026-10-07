@@ -27,6 +27,7 @@ export default {
             'tests/E2eeResearchPrivateMessageView.test.ts',
             'tests/E2eeResearchScenePrivacy.test.ts',
             'experiments/scuttlebutt-e2ee/hosted/nativePmFixture.test.ts',
+            'tests/E2eeResearchPrivateAdmissionSource.test.ts',
         ],
         maxWorkers: 1,
         fileParallelism: false,
