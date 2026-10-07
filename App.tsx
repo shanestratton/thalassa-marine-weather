@@ -1129,8 +1129,8 @@ const App: React.FC = () => {
                       (c) The Glass page already shows a tasteful wifi-slash
                           chip inside the location pill; the strip was
                           redundant on top of that.
-                    Replaced with a small wifi-slash icon next to the "The
-                    Sailor's Assistant" subtitle (see header below) and a
+                    Replaced with a small wifi-slash icon next to the tagline
+                    under the wordmark (see header below) and a
                     matching tiny chip on the map page. The map's floating
                     equivalent was removed at the same time. */}
 
@@ -1284,7 +1284,7 @@ const App: React.FC = () => {
                                                 : ''
                                         }`}
                                     >
-                                        <span className="min-w-0 flex-1 truncate">The Sailor&apos;s Assistant</span>
+                                        <span className="min-w-0 flex-1 truncate">Keeps watch with you</span>
                                         {/* Subtle offline indicator — tiny amber wifi-slash next
                                             to the tagline, matching the chip already inside the
                                             Glass page's location pill. Replaces the loud
