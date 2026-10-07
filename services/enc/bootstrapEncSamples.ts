@@ -40,7 +40,8 @@ let bootstrapPromise: Promise<void> | null = null;
 const SAMPLE_CELLS: string[] = ['US5GA22M'];
 
 export function isEncDemoSampleOptedIn(): boolean {
-    const explicit = String(import.meta.env?.VITE_ENABLE_ENC_DEMO_SAMPLES ?? 'false').toLowerCase() === 'true';
+    // Literal, so production's define ("false") folds the whole import out.
+    const explicit = import.meta.env.VITE_ENABLE_ENC_DEMO_SAMPLES === 'true';
     const mode = String(import.meta.env?.MODE ?? 'production').toLowerCase();
     return explicit && (import.meta.env?.DEV === true || mode === 'test' || mode === 'demo');
 }

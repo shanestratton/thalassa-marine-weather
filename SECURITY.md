@@ -34,6 +34,8 @@ CSP is defined in both `index.html` (meta tag) and `vercel.json` (HTTP header).
 | `style-src 'unsafe-inline'`                       | Medium | The shell and runtime map/UI libraries still generate inline styles.                                               |
 | `img-src https: http:` (configured hosted policy) | Medium | User-selected chart/map imagery spans many providers; active content remains blocked.                              |
 | `connect-src http:` (native shell)                | Medium | Retained for local development; production Pi traffic uses the native pinned-HTTPS verifier with no HTTP fallback. |
+| `script-src 'wasm-unsafe-eval'`                   | Low    | Compiles WebAssembly only (sql.js, the on-device MBTiles chart reader); JavaScript `eval` stays blocked.           |
+| `connect-src blob:`                               | Low    | Mapbox fetches each offline MBTiles chart tile as a same-origin `blob:` URL the app itself created.                |
 
 ### Mitigations configured in source
 

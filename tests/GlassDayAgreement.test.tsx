@@ -21,7 +21,7 @@ vi.mock('../components/dashboard/ModelComparisonMatrix', () => ({
         <div data-testid="matrix" data-param={props.initialParam ?? ''} data-day={props.initialDay ?? ''} />
     ),
 }));
-vi.mock('../components/dashboard/TideAndVessel', () => ({
+vi.mock('../components/dashboard/tide/TideGraph', () => ({
     TideGraph: () => <div data-testid="tide-graph" />,
 }));
 vi.mock('../context/WeatherContext', () => ({

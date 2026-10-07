@@ -85,3 +85,52 @@ describe('the coastline mirrors are allowed, and only those two', () => {
         }
     });
 });
+
+describe('offline MBTiles charts can open and draw under both policies (W1-FX)', () => {
+    // A chart on the phone runs three loads the CSP decides, measured refused
+    // in WebKit and Chromium on 2026-10-08 (browser-tests/mbtiles-csp.spec.ts):
+    //  1. sql.js compiles its WebAssembly: script-src needs 'wasm-unsafe-eval'
+    //     ("Refused to create a WebAssembly object", every chart open failed);
+    //  2. Mapbox fetch()es each tile as the blob: URL useMapInit's
+    //     transformRequest hands it: connect-src needs blob: ("Refused to
+    //     connect to blob:...");
+    //  3. the chart file itself is read same-origin through
+    //     Capacitor.convertFileSrc, so connect-src never needs file:.
+    const directives = (policy: string): Map<string, string[]> =>
+        new Map(
+            policy
+                .split(';')
+                .map((d) => d.trim().split(/\s+/).filter(Boolean))
+                .filter((parts) => parts.length > 0)
+                .map(([name, ...sources]) => [name, sources]),
+        );
+    const nativeShell = indexHtml.match(/http-equiv="Content-Security-Policy"\s+content="([^"]+)"/)?.[1] ?? '';
+    const policies = [
+        ['index.html (native shell)', nativeShell],
+        ['vercel.json (web app)', deployedCsp ?? ''],
+    ] as const;
+
+    it.each(policies)('%s lets WebAssembly compile, and only WebAssembly', (_name, policy) => {
+        const scriptSrc = directives(policy).get('script-src') ?? [];
+        expect(scriptSrc).toContain("'wasm-unsafe-eval'");
+        // The narrow grant: compiling WebAssembly, never eval() of JavaScript.
+        expect(scriptSrc).not.toContain("'unsafe-eval'");
+    });
+
+    it.each(policies)('%s lets Mapbox fetch the blob: tiles, and still not file:', (_name, policy) => {
+        const connectSrc = directives(policy).get('connect-src') ?? [];
+        expect(connectSrc).toContain('blob:');
+        expect(connectSrc).not.toContain('file:');
+        expect(connectSrc).not.toContain('*');
+    });
+
+    it('keeps the beta gate’s pinned connect-src prefix intact', () => {
+        expect(indexHtml).toContain("connect-src 'self' data: http: https://thalassawx.vercel.app");
+    });
+
+    it('reads the chart file through convertFileSrc, never a raw file:// fetch', () => {
+        const service = readFileSync(resolve(process.cwd(), 'services/MBTilesService.ts'), 'utf8');
+        expect(service).toContain('Capacitor.convertFileSrc(uri.uri)');
+        expect(service).not.toMatch(/fetch\(uri\.uri\)/);
+    });
+});

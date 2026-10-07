@@ -11,7 +11,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/weather/openMeteoProxy', () => ({ fetchOpenMeteoProxy: vi.fn() }));
-vi.mock('../components/dashboard/TideAndVessel', () => ({
+vi.mock('../components/dashboard/tide/TideGraph', () => ({
     TideGraph: () => <div data-testid="tide-graph" />,
 }));
 vi.mock('../context/WeatherContext', () => ({
