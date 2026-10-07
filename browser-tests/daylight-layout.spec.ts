@@ -217,9 +217,10 @@ for (const { viewport, pane } of [
             );
         const initialGeometry = await geometry();
         expect(initialGeometry[0]).toEqual({ width: pane - 16, height: 163 });
-        const activeWarning = page.getByRole('button', { name: '1 active weather warnings' });
+        // 'Alerts', not 'Warnings': Thalassa's own forecast checks (build 123, W1-02).
+        const activeWarning = page.getByRole('button', { name: '1 active forecast alert' });
         const warningText = activeWarning.locator(':scope > span, :scope > div');
-        await expect(warningText).toHaveText(['Warnings', '1']);
+        await expect(warningText).toHaveText(['Alerts', '1']);
         const warningSize = await activeWarning.evaluate((el) => ({ width: el.clientWidth, height: el.clientHeight }));
         const canvas = page.locator('canvas');
         const originalCanvas = await canvas.elementHandle();

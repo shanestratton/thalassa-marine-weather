@@ -160,7 +160,9 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (current.waveHeight && current.waveHeight >= notifications.waves.threshold) {
                 checkAndNotify(
                     'waves',
-                    `🌊 High Surf Advisory: ${formatWave(current.waveHeight, units)}`,
+                    // 'High seas', the row's own name in Settings → Alerts, not
+                    // 'High Surf Advisory': that is a weather service's product (W1-02).
+                    `🌊 High Seas Alert: ${formatWave(current.waveHeight, units)}`,
                     `Wave height at ${weatherData.locationName} is above your ${formatWave(notifications.waves.threshold, units)} limit.`,
                 );
             }

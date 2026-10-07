@@ -51,7 +51,18 @@ interface ThresholdSpec {
     icon: React.ComponentType<{ className?: string }>;
     iconClass: string;
     switchLabel: string;
+    /** Where the intro's promise does not hold, the row says so. */
+    note?: string;
 }
+
+// The server job (supabase/functions/check-weather-alerts) checks wind, gusts,
+// visibility, UV, temperature and rain. It has no wave or swell-period check,
+// so those two alarms fire only from the in-app check, while Thalassa is open;
+// they used to sit under the intro's every-30-min promise as if covered
+// (build 123, W1-02). W2-03 adds the server check and drops this note.
+// Short enough for one line beside the value well at 375 pt (109 px at 12 px
+// system-ui, where 'Air temperature above' is 126).
+const OPEN_APP_ONLY = 'Only with app open';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const same = (label: string): ThresholdUnit => ({ label, toDisplay: (n) => n, toStored: (n) => n });
@@ -140,6 +151,7 @@ const THRESHOLDS: ThresholdSpec[] = [
         icon: WaveIcon,
         iconClass: 'bg-sky-500/20 text-sky-300',
         switchLabel: 'High seas alert',
+        note: OPEN_APP_ONLY,
     },
     {
         key: 'swellPeriod',
@@ -149,6 +161,7 @@ const THRESHOLDS: ThresholdSpec[] = [
         icon: WavePeriodIcon,
         iconClass: 'bg-sky-500/20 text-sky-300',
         switchLabel: 'Long period swell alert',
+        note: OPEN_APP_ONLY,
     },
     {
         key: 'visibility',
@@ -405,8 +418,10 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                     number field and the switch are never nested inside another
                     control. Every value well has the same shape (no "<" prefix —
                     above/below lives in the trigger line) so the values align. */}
-                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel }) => {
+                {THRESHOLDS.map(({ key, title, trigger, unit, icon: Icon, iconClass, switchLabel, note }) => {
                     const armed = settings.notifications[key].enabled;
+                    const triggerId = `${idBase}-${key}-trigger`;
+                    const noteId = `${idBase}-${key}-note`;
                     return (
                         <Row key={key}>
                             <div className="flex min-w-0 items-center gap-3">
@@ -416,17 +431,25 @@ export const AlertsTab: React.FC<AlertsTabProps> = ({ settings, onSave, onOpenAc
                                 <div className="min-w-0">
                                     <p className={`font-bold ${armed ? 'text-white' : DISARMED_INK}`}>{title}</p>
                                     <p
-                                        id={`${idBase}-${key}-trigger`}
+                                        id={triggerId}
                                         className={`text-xs leading-snug ${armed ? 'text-gray-400' : DISARMED_INK}`}
                                     >
                                         {trigger}
                                     </p>
+                                    {note && (
+                                        <p
+                                            id={noteId}
+                                            className={`text-xs leading-snug ${armed ? 'text-gray-400' : DISARMED_INK}`}
+                                        >
+                                            {note}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex shrink-0 items-center gap-3">
                                 <ThresholdField
                                     title={title}
-                                    describedBy={`${idBase}-${key}-trigger`}
+                                    describedBy={note ? `${triggerId} ${noteId}` : triggerId}
                                     stored={settings.notifications[key].threshold}
                                     unit={unit(settings.units ?? {})}
                                     armed={armed}
