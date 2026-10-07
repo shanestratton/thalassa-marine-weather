@@ -10,9 +10,10 @@
  *
  * Source data is CC BY 4.0, except the UK Met Office's, which is CC BY-SA 4.0
  * (share-alike: showing it with credit is fine; keep it out of any blend we
- * redistribute). Anything user-visible that shows these models' numbers must
- * carry attribution — use MODEL_ATTRIBUTION_LINE, or forecastDataCredit() for
- * the providers actually on screen.
+ * redistribute), NOAA's (a US Government work: public domain) and ECCC's (its
+ * own Data Services End-use Licence). Anything user-visible that shows these
+ * models' numbers must carry attribution — use MODEL_ATTRIBUTION_LINE, or
+ * forecastDataCredit() for the providers actually on screen.
  */
 import type { OffshoreModel, WeatherModel } from '../../types';
 
@@ -142,7 +143,38 @@ export const SELECTABLE_MODELS: ForecastModelInfo[] = [
     // To restore: sync ncep_gfs013 as well and switch this entry to
     // `gfs_seamless`, which the API already accepts and resolves to the 0.13°
     // grid; verify wind_speed_10m is non-null BEFORE re-listing it here.
+    // (The comparison sheet already shows GFS: see SPREAD_EXTRA_MODELS.)
 ];
+
+/** A member of the model comparison. Comparison-only ids (GEM) are not
+ *  WeatherModel values: the Glass can't be pinned to them. */
+export type CompareModelInfo = Pick<ForecastModelInfo, 'label' | 'provider' | 'hex' | 'missing'> & { id: string };
+
+/**
+ * The two models the comparison adds to the picker's five, so it keeps at
+ * least five members to day 9.5 (ICON stops near day 7, UKMO near 6.5).
+ * Through the commercial proxy only: the tailnet wx server has no wind for
+ * either. Measured through proxy-openmeteo at Fiji on 2026-10-07, non-null
+ * 10 m wind hours of 240: GFS 240, GEM 227. Not offered in the picker, so the
+ * Glass and the model-check card keep their five.
+ *
+ * "Seamless" means not purely global: Open-Meteo serves gfs_seamless from
+ * NOAA's 3 km HRRR over the contiguous US (and nearby Canada) for the first
+ * 18–48 h, and gem_seamless from ECCC's HRDPS/RDPS over Canada and North
+ * America, before each hands over to its global run. The sheet therefore
+ * says "7 models", never "7 global models". The providers, and so the
+ * credits, are the same either way.
+ *
+ * Like IFS, AIFS and JMA, the late hours arrive 3- or 6-hourly upstream and
+ * Open-Meteo interpolates them to hourly; the app itself never fills a gap.
+ */
+export const SPREAD_EXTRA_MODELS: CompareModelInfo[] = [
+    { id: 'gfs_seamless', label: 'GFS', provider: 'NOAA', hex: '#fbbf24' },
+    { id: 'gem_seamless', label: 'GEM', provider: 'Environment and Climate Change Canada', hex: '#a3e635' },
+];
+
+/** The seven models in the ten-day comparison, in legend order. */
+export const COMPARE_MODELS: CompareModelInfo[] = [...SELECTABLE_MODELS, ...SPREAD_EXTRA_MODELS];
 
 /** Wave models for the spread chart's WAVE/PER. params. The marine endpoint
  *  has its own model set — atmospheric ids are meaningless there. Same ids
@@ -154,22 +186,42 @@ export const WAVE_SPREAD_MODELS: { id: string; label: string; provider: string; 
     { id: 'ncep_gfswave025', label: 'GFS Wave', provider: 'NOAA', hex: '#fbbf24' },
 ];
 
-export type ForecastDataLicence = 'CC BY 4.0' | 'CC BY-SA 4.0';
+/** ECCC's licence, by its own name (v2.1.1, August 2026), and where it lives:
+ *  it asks for the statement "Data Source: Environment and Climate Change
+ *  Canada" and, where possible, a link to the licence. */
+export const ECCC_LICENCE = 'ECCC Data Services End-use Licence';
+export const ECCC_LICENCE_URL = 'https://eccc-msc.github.io/open-data/licence/readme_en/';
+const ECCC_STATEMENT = 'Data Source: Environment and Climate Change Canada';
 
-/** UK Met Office open data, under either name the app uses for it. */
-const SHARE_ALIKE_PROVIDERS = new Set(['UK Met Office', 'UKMO']);
+const LICENCES = ['CC BY 4.0', 'CC BY-SA 4.0', 'public domain', ECCC_LICENCE] as const;
+export type ForecastDataLicence = (typeof LICENCES)[number];
+
+/** Providers whose data is not CC BY 4.0, under each name the app uses:
+ *  - UK Met Office open data is share-alike.
+ *  - NOAA's is a US Government work, public domain (weather.gov/disclaimer).
+ *  - ECCC's comes under its own end-use licence (ECCC_LICENCE above). */
+const OTHER_LICENCES: Record<string, ForecastDataLicence> = {
+    'UK Met Office': 'CC BY-SA 4.0',
+    UKMO: 'CC BY-SA 4.0',
+    NOAA: 'public domain',
+    'Environment and Climate Change Canada': ECCC_LICENCE,
+    ECCC: ECCC_LICENCE,
+};
 
 /** The licence a provider's open model data carries. */
 export function providerLicence(provider: string): ForecastDataLicence {
-    return SHARE_ALIKE_PROVIDERS.has(provider.trim()) ? 'CC BY-SA 4.0' : 'CC BY 4.0';
+    return OTHER_LICENCES[provider.trim()] ?? 'CC BY 4.0';
 }
 
 /**
  * The one credit format for model output: each provider once, in the order
  * given, grouped under its licence — "Forecast data: DWD, ECMWF (CC BY 4.0);
- * UK Met Office (CC BY-SA 4.0)". `lead` replaces "Forecast data" where the
- * line must also name the distributor ("Data via Open-Meteo"). Null when there
- * is nobody to credit.
+ * UK Met Office (CC BY-SA 4.0); NOAA (public domain)". ECCC is credited in
+ * the words its licence specifies, "Data Source: Environment and Climate
+ * Change Canada (ECCC Data Services End-use Licence)", whichever name the
+ * caller used. `lead` replaces "Forecast data" where the line must also name
+ * the distributor ("Data via Open-Meteo"). Null when there is nobody to
+ * credit.
  */
 export function forecastDataCredit(providers: readonly string[], lead = 'Forecast data'): string | null {
     const groups = new Map<ForecastDataLicence, string[]>();
@@ -181,9 +233,9 @@ export function forecastDataCredit(providers: readonly string[], lead = 'Forecas
         if (!names.includes(p)) names.push(p);
         groups.set(licence, names);
     }
-    const parts = (['CC BY 4.0', 'CC BY-SA 4.0'] as const)
-        .filter((licence) => groups.has(licence))
-        .map((licence) => `${groups.get(licence)!.join(', ')} (${licence})`);
+    const parts = LICENCES.filter((licence) => groups.has(licence)).map(
+        (licence) => `${licence === ECCC_LICENCE ? ECCC_STATEMENT : groups.get(licence)!.join(', ')} (${licence})`,
+    );
     return parts.length ? `${lead}: ${parts.join('; ')}` : null;
 }
 

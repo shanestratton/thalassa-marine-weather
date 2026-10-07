@@ -6,19 +6,28 @@
  * cell anywhere (inshore/coastal/offshore), which lands pre-tabbed on that
  * metric via `initialParam`.
  *
- * Renders an SVG line chart with each model as an overlapping sparkline —
- * the shape of convergence / divergence reads visually at a glance. One
- * tab per grid metric; every tab is served by the same two-request
- * multi-model fetch (ModelSpreadService), so switching tabs never refetches.
+ * Renders a continuous hourly SVG line chart to ten days, one line per
+ * model, so convergence and divergence read at a glance. One tab per grid
+ * metric; every tab is served by the same two-request multi-model fetch
+ * (ModelSpreadService), so switching tabs never refetches.
  *
- * Atmospheric tabs plot the six selectable forecast models; WAVE / PER.
- * plot the four wave models (the marine endpoint has its own model set).
- * The user's pinned forecast model gets a thicker line + glow.
+ * Atmospheric tabs plot the seven models of COMPARE_MODELS (the picker's
+ * five plus GFS and GEM, whose first two days can come from their regional
+ * nests: see forecastModels); WAVE / PER. plot the four wave models (the
+ * marine endpoint has its own model set). The user's pinned forecast model
+ * gets a thicker line + glow and is drawn on top.
  *
- * Where models don't publish a variable (e.g. UV on the wx server) their
- * series is dropped for that tab, and an honest empty state replaces the
- * chart when nothing publishes it. No mock data — if the fetch fails the
- * chart says so.
+ * Honest about coverage: an hour a model doesn't have is a gap in its line
+ * (the app never fills one in; the smooth late hours of the 3- and 6-hourly
+ * runs are Open-Meteo's own interpolation), and the member strip under the
+ * chart counts the models with data each hour, so the drop after day 7
+ * (ICON and UKMO end) shows. A day with only a few members left is drawn
+ * thin, because fewer lines can look like more agreement. The headline
+ * verdict covers the next three days only; one model alone is said in
+ * words, never called agreement. Where no model publishes a variable an
+ * honest empty state replaces the chart, and a leg the servers never
+ * answered says so instead. No mock data. Days and times are the location's
+ * own, not the phone's.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -30,7 +39,8 @@ import {
     type AtmosVar,
     type MarineVar,
 } from '../../services/weather/ModelSpreadService';
-import { MODEL_ATTRIBUTION_LINE } from '../../services/weather/forecastModels';
+import { ECCC_LICENCE, ECCC_LICENCE_URL, forecastDataCredit } from '../../services/weather/forecastModels';
+import { resolveTimeZone } from '../../utils/timezone';
 import { useLocationCoords } from '../../stores/LocationStore';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 
@@ -66,7 +76,10 @@ interface ParamSpec {
     /** Spread thresholds: below hi → high confidence, below mod → moderate. */
     hi: number;
     mod: number;
-    /** Degrees — plot unwrapped, spread measured circularly. */
+    /** Degrees — plotted on a 360° window centred on the compass point
+     *  nearest the models' mean bearing, the line lifted only where it
+     *  crosses the window's edge (opposite the consensus); spread measured
+     *  circularly. */
     circular?: boolean;
 }
 
@@ -92,7 +105,7 @@ const PARAMS: ParamSpec[] = [
         variable: 'wind_direction_10m',
         padMin: 0,
         padMax: 360,
-        tickStep: 45,
+        tickStep: 90,
         decimals: 0,
         hi: 20,
         mod: 45,
@@ -218,33 +231,18 @@ const PARAMS: ParamSpec[] = [
     },
 ];
 
-// ── Time axis ──
+const specFor = (param: MatrixParam) => PARAMS.find((p) => p.id === param)!;
 
-interface TimeColumn {
-    label: string;
-    offsetHours: number;
-}
+// ── Series shape ──
 
-const TIME_COLS: TimeColumn[] = [
-    { label: 'Now', offsetHours: 0 },
-    { label: '+12h', offsetHours: 12 },
-    { label: '+24h', offsetHours: 24 },
-    { label: '+36h', offsetHours: 36 },
-    { label: '+48h', offsetHours: 48 },
-    { label: '+72h', offsetHours: 72 },
-];
-
-// ── Series shape after sampling ──
-
-interface ModelSeries {
+export interface HourlySeries {
     id: string;
     label: string;
     provider: string;
     hex: string;
-    /** One value per TIME_COL; null where the model has no data. */
+    /** One value per hour of the block, in display units; null where the
+     *  model has no data that hour (a gap, never filled in). */
     values: (number | null)[];
-    /** For circular params: values unwrapped for plotting continuity. */
-    plotValues: (number | null)[];
 }
 
 interface Props {
@@ -260,7 +258,7 @@ interface Props {
     coordinates?: { lat: number; lon: number };
 }
 
-// ── Sampling helpers (exported for tests) ──
+// ── Pure helpers (exported for tests) ──
 
 /** Nearest-sample lookup by epoch ms. Returns null when the closest sample
  *  is more than 90 minutes away (off the end of a short series). */
@@ -279,30 +277,6 @@ export function sampleAt(times: number[], values: (number | null)[], targetMs: n
     return values[best] ?? null;
 }
 
-/** Unwrap a degree series so lines don't jump 350°→10° across the chart.
- *  Each value is shifted by ±360 to sit within 180° of its predecessor.
- *  `anchor` (when given) seeds the first value's reference so SEPARATE
- *  series stay comparable — without it, models at 350° and 10° would plot
- *  340 apart despite being 20° apart circularly. */
-export function unwrapDegrees(values: (number | null)[], anchor?: number | null): (number | null)[] {
-    const out: (number | null)[] = [];
-    let prev: number | null = anchor ?? null;
-    for (const v of values) {
-        if (v == null) {
-            out.push(null);
-            continue;
-        }
-        let adj = v;
-        if (prev != null) {
-            while (adj - prev > 180) adj -= 360;
-            while (adj - prev < -180) adj += 360;
-        }
-        out.push(adj);
-        prev = adj;
-    }
-    return out;
-}
-
 /** Max pairwise circular difference in degrees. */
 export function circularSpread(vals: number[]): number {
     let max = 0;
@@ -316,37 +290,224 @@ export function circularSpread(vals: number[]): number {
     return max;
 }
 
-function buildSeries(spread: ModelSpreadResult | null, spec: ParamSpec, nowMs: number): ModelSeries[] {
-    const block = spec.block === 'atmos' ? spread?.atmos : spread?.marine;
-    if (!block) return [];
-    const conv = spec.convert ?? ((v: number) => v);
+/** The models' mean bearing in degrees [0, 360), or 180 (a plain 0–360
+ *  window) when there is none or the bearings cancel out. */
+export function circularMean(vals: number[]): number {
+    let sin = 0;
+    let cos = 0;
+    for (const v of vals) {
+        sin += Math.sin((v * Math.PI) / 180);
+        cos += Math.cos((v * Math.PI) / 180);
+    }
+    if (Math.hypot(sin, cos) < 1e-6 * Math.max(1, vals.length)) return 180;
+    return ((Math.atan2(sin, cos) * 180) / Math.PI + 360) % 360;
+}
 
-    const series: ModelSeries[] = [];
-    // Circular params share one unwrap anchor across models, so all series
-    // plot in the same 360°-window and circular closeness reads as closeness.
-    let circularAnchor: number | null = null;
+/** A bearing placed in the 360° window [lo, lo + 360). */
+export function intoWindow(v: number, lo: number): number {
+    return lo + ((((v - lo) % 360) + 360) % 360);
+}
+
+/** Every hour of every model that publishes this tab's metric, on the block's
+ *  own clock. A model with no value at all for the metric is left out. */
+export function seriesFor(
+    spread: ModelSpreadResult | null,
+    param: MatrixParam,
+): { times: number[]; series: HourlySeries[] } {
+    const spec = specFor(param);
+    const block = spec.block === 'atmos' ? spread?.atmos : spread?.marine;
+    if (!block) return { times: [], series: [] };
+    const conv = spec.convert ?? ((v: number) => v);
+    const series: HourlySeries[] = [];
     for (const m of block.models) {
-        const raw = (m.values as Record<string, (number | null)[]>)[spec.variable];
-        if (!raw) continue;
-        const values = TIME_COLS.map((col) => {
-            const v = sampleAt(block.times, raw, nowMs + col.offsetHours * 3600_000);
-            return v == null ? null : conv(v);
-        });
-        if (values.every((v) => v == null)) continue;
-        if (spec.circular && circularAnchor == null) {
-            circularAnchor = values.find((v) => v != null) ?? null;
-        }
+        const raw = (m.values as Record<string, (number | null)[] | undefined>)[spec.variable];
+        if (!raw?.some((v) => v != null)) continue;
         series.push({
             id: m.id,
             label: m.label,
             provider: m.provider,
             hex: m.hex,
-            values,
-            plotValues: spec.circular ? unwrapDegrees(values, circularAnchor) : values,
+            values: raw.map((v) => (v == null ? null : conv(v))),
         });
     }
-    return series;
+    return { times: block.times, series };
 }
+
+/** Hours further apart than this are missing hours, not one step. */
+const MAX_STEP_MS = 90 * 60 * 1000;
+
+/**
+ * SVG path through a model's hours. The pen lifts at every missing value and
+ * every missing hour, so a gap is drawn as a gap: never interpolated. A
+ * direction line (values already in its window) also lifts where it jumps
+ * more than half the window, i.e. across the window's edge. A lone hour gets
+ * a zero-length stroke, which the round cap draws as a dot.
+ */
+export function chartPath(
+    times: number[],
+    values: (number | null)[],
+    x: (t: number) => number,
+    y: (v: number) => number,
+    circular = false,
+): string {
+    let out = '';
+    let prevT = 0;
+    let prevV: number | null = null;
+    let runLen = 0;
+    let lastPt = '';
+    const lift = () => {
+        if (runLen === 1) out += `L${lastPt}`;
+        runLen = 0;
+    };
+    values.forEach((v, i) => {
+        const t = times[i];
+        if (v == null || t == null) {
+            lift();
+            prevV = null;
+            return;
+        }
+        const breaks = prevV == null || t - prevT > MAX_STEP_MS || (circular && Math.abs(v - prevV) > 180);
+        if (breaks) lift();
+        lastPt = `${x(t).toFixed(1)} ${y(v).toFixed(1)}`;
+        out += (breaks ? 'M' : 'L') + lastPt;
+        runLen = breaks ? 1 : runLen + 1;
+        prevT = t;
+        prevV = v;
+    });
+    lift();
+    return out;
+}
+
+/** How many models have a value at each hour. */
+export function memberCounts(series: HourlySeries[], length: number): number[] {
+    return Array.from({ length }, (_, i) => series.reduce((n, s) => n + (s.values[i] != null ? 1 : 0), 0));
+}
+
+/** Runs of equal member count (end inclusive). */
+export function countRuns(counts: number[]): { start: number; end: number; count: number }[] {
+    const runs: { start: number; end: number; count: number }[] = [];
+    counts.forEach((count, i) => {
+        const last = runs[runs.length - 1];
+        if (last && last.count === count) last.end = i;
+        else runs.push({ start: i, end: i, count });
+    });
+    return runs;
+}
+
+/** A formatter on the location's clock; UTC if the zone is unknown here. */
+function zoneFormat(timeZone: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+    try {
+        return new Intl.DateTimeFormat('en-GB', { ...options, timeZone });
+    } catch {
+        return new Intl.DateTimeFormat('en-GB', { ...options, timeZone: 'UTC' });
+    }
+}
+
+/** Indexes of the first hour of each new local day after the first, in the
+ *  location's time zone, so a clock change gives a 23- or 25-hour day. */
+export function localDayStarts(times: number[], timeZone: string): number[] {
+    const day = zoneFormat(timeZone, { year: 'numeric', month: 'numeric', day: 'numeric' });
+    const starts: number[] = [];
+    let prev = '';
+    times.forEach((t, i) => {
+        const d = day.format(t);
+        if (i > 0 && d !== prev) starts.push(i);
+        prev = d;
+    });
+    return starts;
+}
+
+/** Under this many members a day is "thin": fewer lines can only narrow the
+ *  range, so a calm-looking day 9 may just be a day with fewer models. */
+const THIN_BELOW = 5;
+const HOUR_MS = 60 * 60 * 1000;
+/** The headline verdict covers this much from now; the day bars carry the rest. */
+const NEAR_TERM_MS = 72 * HOUR_MS;
+
+type Level = 'high' | 'moderate' | 'low';
+
+export interface DayAgreement {
+    /** Mean spread across the day's hours with at least two members. */
+    variance: number | null;
+    level: Level | 'none';
+    /** The fewest members in the hours that were compared, or (when none
+     *  could be) the most the day had: 0 or 1. */
+    members: number;
+    /** Compared with fewer members than the tab can field (under five, or
+     *  under its own peak when it has fewer models than that). */
+    thin: boolean;
+}
+
+/** Spread among the models with a value at hour i; null under two members. */
+function hourSpread(series: HourlySeries[], i: number, spec: ParamSpec): number | null {
+    const vals = series.map((s) => s.values[i]).filter((v): v is number => v != null);
+    if (vals.length < 2) return null;
+    return spec.circular ? circularSpread(vals) : Math.max(...vals) - Math.min(...vals);
+}
+
+const levelOf = (variance: number, spec: ParamSpec): Level =>
+    variance < spec.hi ? 'high' : variance < spec.mod ? 'moderate' : 'low';
+
+/** Agreement per local day: [0, starts[0]), [starts[0], starts[1]), … to length. */
+export function agreementByDay(
+    series: HourlySeries[],
+    starts: number[],
+    length: number,
+    param: MatrixParam,
+): DayAgreement[] {
+    const spec = specFor(param);
+    const counts = memberCounts(series, length);
+    const peak = Math.max(0, ...counts);
+    const bounds = [0, ...starts, length];
+    return bounds.slice(1).map((end, d) => {
+        let sum = 0;
+        let n = 0;
+        let fewest = Infinity;
+        let most = 0;
+        for (let i = bounds[d]; i < end; i++) {
+            most = Math.max(most, counts[i]);
+            const spread = hourSpread(series, i, spec);
+            if (spread != null) {
+                sum += spread;
+                n++;
+                fewest = Math.min(fewest, counts[i]);
+            }
+        }
+        if (!n) return { variance: null, level: 'none', members: most, thin: false };
+        const variance = sum / n;
+        return {
+            variance,
+            level: levelOf(variance, spec),
+            members: fewest,
+            thin: fewest < Math.min(THIN_BELOW, peak),
+        };
+    });
+}
+
+/** The headline: mean spread over the hours from `fromMs` to 72 h on that
+ *  have two or more members. Null when no hour can be compared (one model). */
+export function nearTermAgreement(
+    series: HourlySeries[],
+    times: number[],
+    fromMs: number,
+    param: MatrixParam,
+): { variance: number; level: Level } | null {
+    const spec = specFor(param);
+    let sum = 0;
+    let n = 0;
+    times.forEach((t, i) => {
+        if (t + HOUR_MS <= fromMs || t >= fromMs + NEAR_TERM_MS) return;
+        const spread = hourSpread(series, i, spec);
+        if (spread != null) {
+            sum += spread;
+            n++;
+        }
+    });
+    return n ? { variance: sum / n, level: levelOf(sum / n, spec) } : null;
+}
+
+/** "1 model", "7 models". */
+const models = (n: number) => `${n} model${n === 1 ? '' : 's'}`;
 
 // ── Chart geometry ──
 
@@ -358,41 +519,23 @@ const CHART_PAD_T = 12;
 const CHART_PAD_B = 20;
 const PLOT_W = CHART_W - CHART_PAD_L - CHART_PAD_R;
 const PLOT_H = CHART_H - CHART_PAD_T - CHART_PAD_B;
-
-/** SVG path through the non-null points, breaking the line across gaps. */
-function makeLinePath(values: (number | null)[], minY: number, maxY: number): string {
-    const span = maxY - minY || 1;
-    const parts: string[] = [];
-    let pen = false;
-    values.forEach((v, i) => {
-        if (v == null) {
-            pen = false;
-            return;
-        }
-        const x = CHART_PAD_L + (i / (values.length - 1)) * PLOT_W;
-        const y = CHART_PAD_T + PLOT_H - ((v - minY) / span) * PLOT_H;
-        parts.push(`${pen ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`);
-        pen = true;
-    });
-    return parts.join(' ');
-}
-
-// ── Confidence ──
-
-interface ColumnConfidence {
-    variance: number | null;
-    level: 'high' | 'moderate' | 'low' | 'none';
-}
-
-function calcConfidence(series: ModelSeries[], spec: ParamSpec): ColumnConfidence[] {
-    return TIME_COLS.map((_, colIdx) => {
-        const vals = series.map((s) => s.values[colIdx]).filter((v): v is number => v != null);
-        if (vals.length < 2) return { variance: null, level: 'none' };
-        const variance = spec.circular ? circularSpread(vals) : Math.max(...vals) - Math.min(...vals);
-        const level = variance < spec.hi ? 'high' : variance < spec.mod ? 'moderate' : 'low';
-        return { variance, level };
-    });
-}
+/** The agreement row: one coloured bar under each local day. */
+const AGREE_H = 6;
+/** The member strip: count numerals above bars whose height is the count. */
+const STRIP_H = 24;
+const STRIP_BAR_MAX = 12;
+const COMPASS = ['N', 'E', 'S', 'W'];
+const LEVEL_FILL: Record<DayAgreement['level'], string> = {
+    none: 'fill-white/10',
+    high: 'fill-emerald-400/60',
+    moderate: 'fill-amber-400/60',
+    low: 'fill-red-400/60',
+};
+const LEVEL_ICON: Record<Level, string> = {
+    high: 'M5 13l4 4L19 7',
+    moderate: 'M12 9v2m0 4h.01',
+    low: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
+};
 
 // ── Component ──
 
@@ -411,7 +554,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
             initialFocusRef: closeButtonRef,
             onEscape: onClose,
         });
-        // Sampling anchor — fixed per open so tab switches don't reflow columns.
+        // "Now" for the legend's values — fixed per open so tab switches agree.
         const [nowMs, setNowMs] = useState(() => Date.now());
 
         // Land on the long-pressed metric's tab each time the sheet opens.
@@ -430,11 +573,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
             setIsLoading(true);
             setFailed(false);
 
-            // 78h, not 72: forecast_hours=72 ends at t0+71h (t0 = start of the
-            // current hour), which drifts outside sampleAt's 90-min tolerance
-            // for the +72h column once the clock passes half-past — worse on
-            // memo-served reopens. Six hours of headroom keeps it honest.
-            queryModelSpread(lat, lon, 78)
+            queryModelSpread(lat, lon)
                 .then((result) => {
                     if (cancelled) return;
                     setSpread(result);
@@ -452,57 +591,113 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
             };
         }, [visible, lat, lon]);
 
-        const spec = useMemo(() => PARAMS.find((p) => p.id === param)!, [param]);
-        const series = useMemo(() => buildSeries(spread, spec, nowMs), [spread, spec, nowMs]);
-        const confidence = useMemo(() => calcConfidence(series, spec), [series, spec]);
+        const spec = specFor(param);
+        const timeZone = useMemo(() => (lat == null || lon == null ? 'UTC' : resolveTimeZone(lat, lon)), [lat, lon]);
+        const { times, series } = useMemo(() => seriesFor(spread, param), [spread, param]);
+        const dayStarts = useMemo(() => localDayStarts(times, timeZone), [times, timeZone]);
+        const days = useMemo(
+            () => agreementByDay(series, dayStarts, times.length, param),
+            [series, dayStarts, times.length, param],
+        );
+        const runs = useMemo(() => countRuns(memberCounts(series, times.length)), [series, times.length]);
 
-        // Y-axis range across all models' PLOT values (unwrapped for dir).
-        const { minY, maxY, ticks } = useMemo(() => {
-            const flat = series.flatMap((s) => s.plotValues).filter((v): v is number => v != null);
+        // Y-axis range across every model's hours. Direction gets a 360° window
+        // round the models' mean bearing, so lines that agree near north stay
+        // whole in the middle instead of splitting across both edges.
+        const { minY, maxY, ticks, plotted } = useMemo(() => {
+            const flat = series.flatMap((s) => s.values).filter((v): v is number => v != null);
+            if (spec.circular) {
+                // Centred on the compass point nearest the mean: the seam stays at
+                // least 135° from the consensus and the ticks are always five.
+                const lo = Math.round(circularMean(flat) / 90) * 90 - 180;
+                return {
+                    minY: lo,
+                    maxY: lo + 360,
+                    ticks: [0, 1, 2, 3, 4].map((k) => lo + 90 * k),
+                    plotted: series.map((s) => s.values.map((v) => (v == null ? null : intoWindow(v, lo)))),
+                };
+            }
             const rawMin = flat.length ? Math.min(...flat) : spec.padMin;
             const rawMax = flat.length ? Math.max(...flat) : spec.padMax;
             // Pad degenerate ranges so a flat consensus doesn't collapse the chart
-            const spanMin = spec.circular ? 45 : spec.tickStep;
             const mid = (rawMin + rawMax) / 2;
-            const lo = Math.min(rawMin, mid - spanMin / 2);
-            const hiV = Math.max(rawMax, mid + spanMin / 2);
+            const lo = Math.min(rawMin, mid - spec.tickStep / 2);
+            const hiV = Math.max(rawMax, mid + spec.tickStep / 2);
             const min = Math.floor(lo / spec.tickStep) * spec.tickStep;
             const max = Math.ceil(hiV / spec.tickStep) * spec.tickStep;
             const tickCount = Math.min(5, Math.max(2, Math.round((max - min) / spec.tickStep) + 1));
             const step = (max - min) / (tickCount - 1);
             const tickArr = Array.from({ length: tickCount }, (_, i) => min + i * step);
-            return { minY: min, maxY: max, ticks: tickArr };
+            return { minY: min, maxY: max, ticks: tickArr, plotted: series.map((s) => s.values) };
         }, [series, spec]);
 
         if (!visible) return null;
 
-        const isSelected = (s: ModelSeries) => s.id === selectedModel;
+        const isSelected = (s: HourlySeries) => s.id === selectedModel;
         const hasData = series.length > 0;
+        // A leg the servers never answered is "unavailable", not "no model publishes".
+        const blockFailed = failed || !!spread?.unreachable?.includes(spec.block);
+        // The pinned model is drawn last, so it sits on top.
+        const drawOrder = series
+            .map((s, k) => ({ s, values: plotted[k] }))
+            .sort((a, b) => Number(isSelected(a.s)) - Number(isSelected(b.s)));
 
-        // Overall convergence for the summary strip (columns with data only)
-        const withData = confidence.filter((c) => c.variance != null);
-        const avgVariance = withData.length ? withData.reduce((a, c) => a + (c.variance ?? 0), 0) / withData.length : 0;
-        const overallLevel: 'high' | 'moderate' | 'low' = withData.every((c) => c.level === 'high')
-            ? 'high'
-            : withData.some((c) => c.level === 'low')
-              ? 'low'
-              : 'moderate';
+        // Time → x across the block's hours; value → y.
+        const t0 = times[0] ?? 0;
+        const span = (times[times.length - 1] ?? 0) - t0 || 1;
+        const xOf = (t: number) => CHART_PAD_L + ((t - t0) / span) * PLOT_W;
+        const yOf = (v: number) => CHART_PAD_T + PLOT_H - ((v - minY) / (maxY - minY || 1)) * PLOT_H;
+        const weekday = zoneFormat(timeZone, { weekday: 'short' });
+        const atHour = zoneFormat(timeZone, { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+        // Local days as [start, end) hour ranges, for the axis and the day bars.
+        const dayBounds = [0, ...dayStarts, times.length];
+        const dayName = (d: number) => weekday.format(times[dayBounds[d]]);
+        /** x of the k-th day boundary (the last is the chart's right edge). */
+        const dayX = (k: number) => (dayBounds[k] < times.length ? xOf(times[dayBounds[k]]) : CHART_W - CHART_PAD_R);
+
+        // Members per hour: the strip's bars, sized by count, on the hours' own scale.
+        const maxCount = Math.max(1, ...runs.map((r) => r.count));
+        const hourX = (i: number) => CHART_PAD_L + (i / Math.max(1, times.length)) * PLOT_W;
+        const stripLabel = `Models with data: ${runs
+            .map((r, k) => (k === 0 ? `${r.count} from the start` : `${r.count} from ${atHour.format(times[r.start])}`))
+            .join(', ')}`;
+
+        // Each provider on screen, credited under its own licence.
+        const credit = forecastDataCredit(
+            series.map((s) => s.provider),
+            'Data via Open-Meteo',
+        );
+
+        // The headline covers the next three days; the day bars carry the rest.
+        const verdict = nearTermAgreement(series, times, nowMs, param);
+        const overallLevel = verdict?.level;
         const overallColor =
             overallLevel === 'high'
                 ? 'text-emerald-400'
                 : overallLevel === 'moderate'
                   ? 'text-amber-400'
                   : 'text-red-400';
-        const overallLabel =
-            overallLevel === 'high'
-                ? 'Strong agreement'
-                : overallLevel === 'moderate'
-                  ? 'Some divergence'
-                  : 'Models disagree';
+        const overallLabel = !overallLevel
+            ? series.length === 1
+                ? `Only ${series[0].label} publishes ${spec.short} here, so there is nothing to compare`
+                : 'Too few models overlap to compare'
+            : overallLevel === 'high'
+              ? 'Strong agreement'
+              : overallLevel === 'moderate'
+                ? 'Some divergence'
+                : 'Models disagree';
+        /** A day bar's words: its level, and its member count when thin or alone. */
+        const dayWords = (c: DayAgreement, d: number, spreadText = false) =>
+            `${dayName(d)}: ${
+                c.level === 'none'
+                    ? c.members
+                        ? models(c.members)
+                        : 'no data'
+                    : `${spreadText ? `±${c.variance!.toFixed(spec.decimals)}` : c.level}${c.thin ? `, only ${models(c.members)}` : ''}`
+            }`;
 
-        /** Tick label — degrees fold back into 0-360. */
-        const tickLabel = (t: number) =>
-            spec.circular ? `${((Math.round(t) % 360) + 360) % 360}` : t.toFixed(spec.decimals);
+        /** Tick label — compass points for direction. */
+        const tickLabel = (t: number) => (spec.circular ? COMPASS[(((t / 90) % 4) + 4) % 4] : t.toFixed(spec.decimals));
 
         return createPortal(
             <div
@@ -523,7 +718,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     <div className="h-[2px] bg-linear-to-r from-transparent via-sky-500/60 to-transparent" />
 
                     {/* Header */}
-                    <div className="flex items-center justify-between px-5 pt-4 pb-3">
+                    <div className="flex items-center justify-between px-5 pt-3 pb-2">
                         <div>
                             <h2
                                 id="model-comparison-title"
@@ -535,8 +730,9 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                                 )}
                             </h2>
                             <p className="text-[11px] text-gray-400 mt-0.5">
-                                72-hour outlook ·{' '}
-                                {spec.block === 'marine' ? 'wave models side-by-side' : 'global models side-by-side'}
+                                10 days · {hasData ? `${series.length} ` : ''}
+                                {spec.block === 'marine' ? 'wave ' : ''}
+                                {series.length === 1 ? 'model' : 'models'}
                             </p>
                         </div>
                         <button
@@ -557,13 +753,14 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     </div>
 
                     {/* Parameter tabs — one per grid metric, horizontally scrollable */}
-                    <div className="px-5 pb-3">
+                    <div className="px-5 pb-2">
                         <div className="flex items-center gap-1 bg-white/4 border border-white/6 rounded-xl p-1 overflow-x-auto no-scrollbar">
                             {PARAMS.map((p) => {
                                 const active = p.id === param;
                                 return (
                                     <button
                                         key={p.id}
+                                        aria-pressed={active}
                                         onClick={() => setParam(p.id)}
                                         className={`px-2.5 py-1.5 min-h-[44px] rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${
                                             active
@@ -581,95 +778,178 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                     {/* Chart / empty states */}
                     <div className="px-5 pb-3">
                         {hasData ? (
-                            <svg
-                                viewBox={`0 0 ${CHART_W} ${CHART_H}`}
-                                className="w-full h-auto overflow-visible"
-                                role="img"
-                            >
-                                {/* Y-axis ticks + horizontal grid */}
-                                {ticks.map((t, i) => {
-                                    const y = CHART_PAD_T + PLOT_H - ((t - minY) / (maxY - minY || 1)) * PLOT_H;
-                                    return (
-                                        <g key={i}>
-                                            <line
-                                                x1={CHART_PAD_L}
-                                                y1={y}
-                                                x2={CHART_W - CHART_PAD_R}
-                                                y2={y}
-                                                stroke="var(--day-ui-grid, rgba(255,255,255,0.06))"
-                                                strokeDasharray="2 3"
-                                            />
-                                            <text
-                                                x={CHART_PAD_L - 5}
-                                                y={y + 3}
-                                                textAnchor="end"
-                                                className="fill-gray-400"
-                                                style={{ fontSize: '11px', fontFamily: 'monospace' }}
-                                            >
-                                                {tickLabel(t)}
-                                            </text>
-                                        </g>
-                                    );
-                                })}
-
-                                {/* Model lines */}
-                                {series.map((s) => (
-                                    <path
-                                        key={`line-${s.id}`}
-                                        d={makeLinePath(s.plotValues, minY, maxY)}
-                                        stroke={s.hex}
-                                        strokeWidth={isSelected(s) ? 2.5 : 1.5}
-                                        strokeOpacity={isSelected(s) ? 1 : 0.65}
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        fill="none"
-                                        style={isSelected(s) ? { filter: `drop-shadow(0 0 4px ${s.hex})` } : undefined}
-                                    />
-                                ))}
-
-                                {/* Point markers on the selected model */}
-                                {series.filter(isSelected).flatMap((s) =>
-                                    s.plotValues.map((v, i) => {
-                                        if (v == null) return null;
-                                        const x = CHART_PAD_L + (i / (s.plotValues.length - 1)) * PLOT_W;
-                                        const y = CHART_PAD_T + PLOT_H - ((v - minY) / (maxY - minY || 1)) * PLOT_H;
+                            <>
+                                <svg
+                                    viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+                                    className="w-full h-auto overflow-visible"
+                                    role="img"
+                                    aria-label={`${spec.short} from ${models(series.length)}, hourly for ten days`}
+                                >
+                                    {/* Y-axis ticks + horizontal grid */}
+                                    {ticks.map((t, i) => {
+                                        const y = yOf(t);
                                         return (
-                                            <circle
-                                                key={`m-${s.id}-${i}`}
-                                                cx={x}
-                                                cy={y}
-                                                r={2.5}
-                                                fill={s.hex}
-                                                stroke="var(--day-ui-surface, rgba(15,23,42,0.95))"
-                                                strokeWidth={1.5}
-                                            />
+                                            <g key={i}>
+                                                <line
+                                                    x1={CHART_PAD_L}
+                                                    y1={y}
+                                                    x2={CHART_W - CHART_PAD_R}
+                                                    y2={y}
+                                                    stroke="var(--day-ui-grid, rgba(255,255,255,0.06))"
+                                                    strokeDasharray="2 3"
+                                                />
+                                                <text
+                                                    x={CHART_PAD_L - 5}
+                                                    y={y + 3}
+                                                    textAnchor="end"
+                                                    className="fill-gray-400"
+                                                    style={{ fontSize: '11px', fontFamily: 'monospace' }}
+                                                >
+                                                    {tickLabel(t)}
+                                                </text>
+                                            </g>
                                         );
-                                    }),
+                                    })}
+
+                                    {/* The unit, in the corner under the value axis */}
+                                    <text
+                                        x={CHART_PAD_L - 5}
+                                        y={CHART_H - 4}
+                                        textAnchor="end"
+                                        className="fill-gray-500"
+                                        style={{ fontSize: '11px', fontFamily: 'monospace' }}
+                                    >
+                                        {spec.circular ? '' : spec.unit}
+                                    </text>
+
+                                    {/* Local midnights, and each day's name centred in its span */}
+                                    {dayBounds.slice(0, -1).map((start, d) => {
+                                        const left = dayX(d);
+                                        const right = dayX(d + 1);
+                                        return (
+                                            <g key={start}>
+                                                {d > 0 && (
+                                                    <line
+                                                        x1={left}
+                                                        y1={CHART_PAD_T}
+                                                        x2={left}
+                                                        y2={CHART_PAD_T + PLOT_H}
+                                                        stroke="var(--day-ui-grid, rgba(255,255,255,0.06))"
+                                                    />
+                                                )}
+                                                {right - left >= 22 && (
+                                                    <text
+                                                        x={(left + right) / 2}
+                                                        y={CHART_H - 4}
+                                                        textAnchor="middle"
+                                                        className="fill-gray-400"
+                                                        style={{
+                                                            fontSize: '11px',
+                                                            fontFamily: 'monospace',
+                                                            fontWeight: 700,
+                                                        }}
+                                                    >
+                                                        {dayName(d)}
+                                                    </text>
+                                                )}
+                                            </g>
+                                        );
+                                    })}
+
+                                    {/* Model lines — a missing hour is a gap, never joined */}
+                                    {drawOrder.map(({ s, values }) => (
+                                        <path
+                                            key={s.id}
+                                            data-model={s.id}
+                                            d={chartPath(times, values, xOf, yOf, spec.circular)}
+                                            stroke={s.hex}
+                                            strokeWidth={isSelected(s) ? 2.5 : 1.25}
+                                            strokeOpacity={isSelected(s) ? 1 : 0.6}
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            fill="none"
+                                            style={
+                                                isSelected(s) ? { filter: `drop-shadow(0 0 4px ${s.hex})` } : undefined
+                                            }
+                                        />
+                                    ))}
+                                </svg>
+
+                                {/* Agreement by day, a bar under each day's name; a day left
+                                    with few members is drawn thin. Nothing to agree with one model. */}
+                                {series.length > 1 && (
+                                    <svg
+                                        viewBox={`0 0 ${CHART_W} ${AGREE_H}`}
+                                        className="w-full h-auto"
+                                        role="img"
+                                        aria-label={`Agreement by day — ${days.map((c, d) => dayWords(c, d)).join(', ')}`}
+                                    >
+                                        {days.map((c, d) => (
+                                            <rect
+                                                key={d}
+                                                data-thin={c.thin || undefined}
+                                                x={dayX(d) + 1}
+                                                y={c.thin ? 2 : 1}
+                                                width={Math.max(0, dayX(d + 1) - dayX(d) - 2)}
+                                                height={c.thin ? 2 : AGREE_H - 2}
+                                                rx={1}
+                                                className={LEVEL_FILL[c.level]}
+                                            >
+                                                <title>{dayWords(c, d, true)}</title>
+                                            </rect>
+                                        ))}
+                                    </svg>
                                 )}
 
-                                {/* X-axis labels */}
-                                {TIME_COLS.map((col, i) => {
-                                    const x = CHART_PAD_L + (i / (TIME_COLS.length - 1)) * PLOT_W;
-                                    return (
-                                        <text
-                                            key={col.label}
-                                            x={x}
-                                            y={CHART_H - 4}
-                                            textAnchor="middle"
-                                            className="fill-gray-400"
-                                            style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 700 }}
-                                        >
-                                            {col.label}
-                                        </text>
-                                    );
-                                })}
-                            </svg>
+                                {/* Member strip — how many models have data, hour by hour */}
+                                <svg
+                                    viewBox={`0 0 ${CHART_W} ${STRIP_H}`}
+                                    className="w-full h-auto"
+                                    role="img"
+                                    aria-label={stripLabel}
+                                >
+                                    {runs.map((r, k) => {
+                                        const left = hourX(r.start);
+                                        const width = hourX(r.end + 1) - left;
+                                        const h = (STRIP_BAR_MAX * r.count) / maxCount;
+                                        // The first run says what the numbers count.
+                                        const label = k === 0 && width >= 56 ? models(r.count) : `${r.count}`;
+                                        return (
+                                            <g key={r.start}>
+                                                <rect
+                                                    data-count={r.count}
+                                                    x={left}
+                                                    y={STRIP_H - h}
+                                                    width={Math.max(0.5, width - 0.5)}
+                                                    height={h}
+                                                    className="fill-sky-400/50"
+                                                />
+                                                {r.count > 0 && width >= 10 && (
+                                                    <text
+                                                        x={left + width / 2}
+                                                        y={STRIP_H - STRIP_BAR_MAX - 3}
+                                                        textAnchor="middle"
+                                                        className="fill-gray-300"
+                                                        style={{
+                                                            fontSize: '11px',
+                                                            fontFamily: 'monospace',
+                                                            fontWeight: 700,
+                                                        }}
+                                                    >
+                                                        {label}
+                                                    </text>
+                                                )}
+                                            </g>
+                                        );
+                                    })}
+                                </svg>
+                            </>
                         ) : (
                             <div className="h-[120px] flex items-center justify-center text-center px-6">
                                 <p className="text-[11px] text-gray-500 leading-relaxed">
                                     {isLoading
                                         ? 'Fetching model data…'
-                                        : failed
+                                        : blockFailed
                                           ? 'Model data unavailable — offline or the forecast servers are unreachable.'
                                           : `No model publishes ${spec.short} here.`}
                                 </p>
@@ -677,131 +957,104 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(
                         )}
                     </div>
 
-                    {/* Legend + current values */}
+                    {/* Legend: each model's value now (unit on the chart), four to a row
+                        whatever the value's length, so seven models take two rows */}
                     {hasData && (
-                        <div className="px-5 pb-3">
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                                {series.map((s) => {
-                                    const current = s.values[0];
-                                    return (
+                        <div className="px-4 pb-2 grid grid-cols-4 gap-1 leading-tight">
+                            {series.map((s) => {
+                                const current = sampleAt(times, s.values, nowMs);
+                                return (
+                                    <div
+                                        key={s.id}
+                                        data-model-chip={s.id}
+                                        className={`min-w-0 border-l-2 pl-1 pr-0.5 py-0.5 rounded-r-md ${
+                                            isSelected(s) ? 'bg-white/8' : ''
+                                        }`}
+                                        style={{ borderColor: s.hex }}
+                                    >
                                         <div
-                                            key={s.id}
-                                            className={`flex items-center gap-2 py-1 px-2 rounded-lg ${
-                                                isSelected(s) ? 'bg-white/5' : ''
+                                            className={`text-[11px] font-bold ${
+                                                isSelected(s) ? 'text-white' : 'text-gray-400'
                                             }`}
                                         >
-                                            <span
-                                                className="w-3 h-0.5 rounded-full shrink-0"
-                                                style={{ backgroundColor: s.hex }}
-                                            />
-                                            <span
-                                                className={`text-[11px] font-bold ${
-                                                    isSelected(s) ? 'text-white' : 'text-gray-400'
-                                                }`}
-                                            >
-                                                {s.label}
-                                            </span>
-                                            <span className="ml-auto text-[11px] font-mono text-gray-300 tabular-nums">
-                                                {current == null ? '—' : current.toFixed(spec.decimals)}
-                                                <span className="text-gray-500 ml-0.5">{spec.unit}</span>
-                                            </span>
+                                            {s.label}
                                         </div>
-                                    );
-                                })}
-                            </div>
+                                        <div className="text-[11px] font-mono text-gray-300 tabular-nums">
+                                            {current == null ? '—' : current.toFixed(spec.decimals)}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
 
-                    {/* Convergence summary */}
-                    {hasData && (
-                        <div className="mx-5 mb-3 p-3 rounded-xl bg-white/3 border border-white/5 flex items-center gap-3">
-                            <div
-                                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                                    overallLevel === 'high'
-                                        ? 'bg-emerald-500/20'
-                                        : overallLevel === 'moderate'
-                                          ? 'bg-amber-500/20'
-                                          : 'bg-red-500/20'
-                                }`}
-                            >
-                                {overallLevel === 'high' ? (
+                    {/* Convergence summary: the next three days, or why there is none */}
+                    {hasData &&
+                        (overallLevel ? (
+                            <div className="mx-5 mb-2 px-3 py-0.5 rounded-xl bg-white/3 border border-white/5 flex items-center gap-2">
+                                <div
+                                    className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                                        overallLevel === 'high'
+                                            ? 'bg-emerald-500/20'
+                                            : overallLevel === 'moderate'
+                                              ? 'bg-amber-500/20'
+                                              : 'bg-red-500/20'
+                                    }`}
+                                >
                                     <svg
-                                        className={`w-4 h-4 ${overallColor}`}
+                                        className={`w-3 h-3 ${overallColor}`}
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"
                                         strokeWidth={3}
-                                    >
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                ) : overallLevel === 'moderate' ? (
-                                    <svg
-                                        className={`w-4 h-4 ${overallColor}`}
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={3}
-                                    >
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01" />
-                                    </svg>
-                                ) : (
-                                    <svg
-                                        className={`w-4 h-4 ${overallColor}`}
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={3}
+                                        aria-hidden="true"
                                     >
                                         <path
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
-                                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                                            d={LEVEL_ICON[overallLevel]}
                                         />
                                     </svg>
-                                )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <div className={`text-[11px] font-black uppercase tracking-wider ${overallColor}`}>
-                                    {overallLabel}
                                 </div>
-                                <div className="text-[10px] text-gray-500">
-                                    Avg spread · {avgVariance.toFixed(spec.decimals)} {spec.unit || 'idx'}
+                                <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-2">
+                                    <span className={`text-[11px] font-black uppercase tracking-wider ${overallColor}`}>
+                                        {overallLabel}
+                                    </span>
+                                    <span className="text-[10px] text-gray-500">
+                                        3-day avg spread ±{verdict!.variance.toFixed(spec.decimals)}{' '}
+                                        {spec.unit || 'idx'}
+                                    </span>
                                 </div>
                             </div>
-                            <div
-                                role="img"
-                                aria-label={`Confidence by horizon — ${confidence
-                                    .map((c, i) => `${TIME_COLS[i].label}: ${c.level === 'none' ? 'no data' : c.level}`)
-                                    .join(', ')}`}
-                                className="flex items-center gap-1 text-[9px] font-mono text-gray-500"
-                            >
-                                {confidence.map((c, i) => (
-                                    <span
-                                        key={i}
-                                        className={`w-1.5 h-4 rounded-xs ${
-                                            c.level === 'none'
-                                                ? 'bg-white/10'
-                                                : c.level === 'high'
-                                                  ? 'bg-emerald-400/60'
-                                                  : c.level === 'moderate'
-                                                    ? 'bg-amber-400/60'
-                                                    : 'bg-red-400/60'
-                                        }`}
-                                        title={
-                                            c.variance == null
-                                                ? `${TIME_COLS[i].label}: no data`
-                                                : `${TIME_COLS[i].label}: ±${c.variance.toFixed(spec.decimals)}`
-                                        }
-                                    />
+                        ) : (
+                            <p className="mx-5 mb-2 px-3 py-0.5 text-[11px] text-gray-400 text-center">
+                                {overallLabel}.
+                            </p>
+                        ))}
+
+                    {/* Attribution — a licence condition, not a courtesy: the models on screen */}
+                    {credit && (
+                        <div className="px-5 pb-3">
+                            <p data-testid="matrix-credit" className="text-[9px] text-gray-400 text-center">
+                                {/* ECCC's licence asks for a link to it where possible. */}
+                                {credit.split(ECCC_LICENCE).map((part, i) => (
+                                    <React.Fragment key={i}>
+                                        {i > 0 && (
+                                            <a
+                                                href={ECCC_LICENCE_URL}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="underline underline-offset-2"
+                                            >
+                                                {ECCC_LICENCE}
+                                            </a>
+                                        )}
+                                        {part}
+                                    </React.Fragment>
                                 ))}
-                            </div>
+                            </p>
                         </div>
                     )}
-
-                    {/* Attribution — CC-BY-4.0 licence condition, not a courtesy */}
-                    <div className="px-5 pb-4">
-                        <p className="text-[9px] text-gray-400 text-center">{MODEL_ATTRIBUTION_LINE}</p>
-                    </div>
                 </div>
             </div>,
             portalTarget!,

@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
     AUTO_MODEL,
     SELECTABLE_MODELS,
+    COMPARE_MODELS,
+    SPREAD_EXTRA_MODELS,
     WAVE_SPREAD_MODELS,
+    getForecastModelInfo,
     SPITFIRE_MODEL,
     isConcreteModel,
     isSpitfire,
@@ -14,6 +17,8 @@ import {
     MODEL_ATTRIBUTION_LINE,
     forecastDataCredit,
     providerLicence,
+    ECCC_LICENCE,
+    ECCC_LICENCE_URL,
 } from './forecastModels';
 
 describe('forecastModels', () => {
@@ -92,6 +97,29 @@ describe('forecastModels', () => {
         });
     });
 
+    it('compares seven models: the picker five plus GFS and GEM', () => {
+        expect(COMPARE_MODELS.map((m) => m.id)).toEqual([
+            'dwd_icon',
+            'ecmwf_ifs025',
+            'ecmwf_aifs025_single',
+            'ukmo_global_deterministic_10km',
+            'jma_gsm',
+            'gfs_seamless',
+            'gem_seamless',
+        ]);
+        expect(SPREAD_EXTRA_MODELS.map((m) => [m.label, m.provider])).toEqual([
+            ['GFS', 'NOAA'],
+            ['GEM', 'Environment and Climate Change Canada'],
+        ]);
+        // Every member draws in its own colour.
+        expect(new Set(COMPARE_MODELS.map((m) => m.hex.toLowerCase())).size).toBe(7);
+        // Comparison-only: the Glass picker and the model-check card keep their five.
+        for (const m of SPREAD_EXTRA_MODELS) {
+            expect(isConcreteModel(m.id as never)).toBe(false);
+            expect(getForecastModelInfo(m.id as never)).toBeNull();
+        }
+    });
+
     it('wave models are distinct from atmospheric models (marine endpoint set)', () => {
         const atmosIds = new Set(SELECTABLE_MODELS.map((m) => m.id as string));
         for (const w of WAVE_SPREAD_MODELS) {
@@ -100,14 +128,45 @@ describe('forecastModels', () => {
     });
 
     describe('licences in the credit', () => {
-        // UK Met Office open data is CC BY-SA 4.0 (share-alike); everything
-        // else these models publish through Open-Meteo is CC BY 4.0. The credit
-        // said CC-BY-4.0 for all of them.
+        // UK Met Office open data is CC BY-SA 4.0 (share-alike). NOAA's is a
+        // US Government work, public domain (weather.gov/disclaimer). ECCC's
+        // GEM comes under its own Data Services End-use Licence, whose
+        // attribution is "Data Source: Environment and Climate Change Canada"
+        // (eccc-msc.github.io/open-data/licence, v2.1.1). The rest are CC BY 4.0.
         it('knows the UK Met Office is share-alike, under either of its names', () => {
             expect(providerLicence('UK Met Office')).toBe('CC BY-SA 4.0');
             expect(providerLicence('UKMO')).toBe('CC BY-SA 4.0');
-            for (const p of ['ECMWF', 'DWD', 'JMA', 'Météo-France', 'NOAA'])
-                expect(providerLicence(p)).toBe('CC BY 4.0');
+            for (const p of ['ECMWF', 'DWD', 'JMA', 'Météo-France']) expect(providerLicence(p)).toBe('CC BY 4.0');
+        });
+
+        it('credits NOAA as public domain and ECCC under its own end-use licence', () => {
+            expect(providerLicence('NOAA')).toBe('public domain');
+            expect(providerLicence('Environment and Climate Change Canada')).toBe('ECCC Data Services End-use Licence');
+            expect(providerLicence('ECCC')).toBe('ECCC Data Services End-use Licence');
+        });
+
+        it('credits all seven comparison members, each under its own licence', () => {
+            expect(
+                forecastDataCredit(
+                    COMPARE_MODELS.map((m) => m.provider),
+                    'Data via Open-Meteo',
+                ),
+            ).toBe(
+                'Data via Open-Meteo: DWD, ECMWF, JMA (CC BY 4.0); UK Met Office (CC BY-SA 4.0); NOAA (public domain); ' +
+                    'Data Source: Environment and Climate Change Canada (ECCC Data Services End-use Licence)',
+            );
+        });
+
+        it('credits ECCC in the words its licence specifies, whichever name the caller used, with the licence link', () => {
+            for (const name of ['ECCC', 'Environment and Climate Change Canada'])
+                expect(forecastDataCredit([name])).toBe(
+                    'Forecast data: Data Source: Environment and Climate Change Canada (ECCC Data Services End-use Licence)',
+                );
+            expect(forecastDataCredit(['ECCC', 'Environment and Climate Change Canada'])).toBe(
+                'Forecast data: Data Source: Environment and Climate Change Canada (ECCC Data Services End-use Licence)',
+            );
+            expect(ECCC_LICENCE).toBe('ECCC Data Services End-use Licence');
+            expect(ECCC_LICENCE_URL).toBe('https://eccc-msc.github.io/open-data/licence/readme_en/');
         });
 
         it('every Glass model resolves a licence', () => {
@@ -127,9 +186,9 @@ describe('forecastModels', () => {
             expect(forecastDataCredit([])).toBeNull();
         });
 
-        it('the full attribution line credits UKMO under CC BY-SA 4.0, not CC BY', () => {
+        it('the full attribution line credits UKMO under CC BY-SA 4.0 and NOAA as public domain', () => {
             expect(MODEL_ATTRIBUTION_LINE).toBe(
-                'Forecast data: ECMWF, DWD, JMA, Météo-France, NOAA (CC BY 4.0); UKMO (CC BY-SA 4.0)',
+                'Forecast data: ECMWF, DWD, JMA, Météo-France (CC BY 4.0); UKMO (CC BY-SA 4.0); NOAA (public domain)',
             );
         });
     });

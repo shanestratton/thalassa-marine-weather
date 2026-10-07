@@ -65,7 +65,7 @@ const SLIDES: Slide[] = [
     {
         title: 'Compare the Models',
         subtitle:
-            'Long-press any metric in the grid to see six global models — ICON, ECMWF, AIFS, UKMO, JMA and GFS — plotted side-by-side for that metric. Pick your preferred model with the pill at the bottom of the page.',
+            'Long-press any metric in the grid to see seven models — ICON, ECMWF, AIFS, UKMO, JMA, GFS and GEM — hour by hour for ten days. Pick your preferred model with the pill at the bottom of the page.',
         visual: <OffshoreModelsVisual />,
         gradient: 'from-violet-500/20 to-fuchsia-500/10',
     },
