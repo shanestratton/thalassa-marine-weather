@@ -398,14 +398,84 @@ test.describe('Plan front door keeps every item', () => {
             await expect(menu).toHaveCount(0);
 
             if (state !== 'empty') {
-                // A trip opens its legs, with the next leg to plot.
+                // A trip opens its legs, with the next leg to plot and the way
+                // home (2026-10-07): the return trip and a ⇄ per leg.
                 await trip.selectOption({ label: 'Harbour - Sandy Cove (2 legs)' });
                 const legs = page.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
-                await expect(legs.getByText('2 legs — tap one to open it on the chart')).toBeVisible();
+                await expect(
+                    legs.getByText('2 legs — tap one to open it on the chart, ⇄ to plan the way back from it'),
+                ).toBeVisible();
                 await expect(legs.getByRole('button', { name: /Plot the 3rd leg from/ })).toBeVisible();
+                await expect(legs.getByRole('button', { name: /^Plan the return trip/ })).toBeVisible();
+                await expect(
+                    legs.getByRole('button', { name: 'Return from Sandy Cove: legs 2 to 1 reversed', exact: true }),
+                ).toBeVisible();
+                await expect(
+                    legs.getByRole('button', { name: 'Return from Bay Point: leg 1 reversed', exact: true }),
+                ).toBeVisible();
                 await legs.getByRole('button', { name: 'Close', exact: true }).click();
                 await expect(legs).toHaveCount(0);
             }
+        });
+    }
+});
+
+test.describe('Trip · Legs keeps the way home within reach', () => {
+    for (const size of [
+        { name: '320x568', width: 320, height: 568 },
+        { name: 'SE +insets', width: 375, height: 662 },
+        { name: '390x844', width: 390, height: 844 },
+        { name: '1024x768 split', width: 1024, height: 768 },
+    ]) {
+        test(`the legs, their ⇄ and the return trip fit at ${size.name}`, async ({ page, baseURL }) => {
+            await open(page, baseURL, size.width, size.height, 'planning');
+            await page
+                .getByRole('combobox', { name: 'Trip · Legs: pick a trip or route to continue', exact: true })
+                .selectOption({ label: 'Harbour - Sandy Cove (2 legs)' });
+            const dialog = page.getByRole('dialog', { name: /Harbour - Sandy Cove/ });
+            await expect(dialog).toBeVisible();
+            await dialog.getByRole('button', { name: /^Plan the return trip/ }).scrollIntoViewIfNeeded();
+            const m = await dialog.evaluate((box) => {
+                const frame = box.getBoundingClientRect();
+                const targets = [...box.querySelectorAll<HTMLElement>('button')].map((button) => {
+                    const r = button.getBoundingClientRect();
+                    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                    return {
+                        name: button.getAttribute('aria-label') ?? button.textContent?.trim().slice(0, 30),
+                        width: r.width,
+                        height: r.height,
+                        inside: r.left >= frame.left - 0.5 && r.right <= frame.right + 0.5,
+                        hit: !!hit && (hit === button || button.contains(hit)),
+                        // A leg name truncates rather than wrapping the row.
+                        clipped: [...button.querySelectorAll<HTMLElement>('span')].some(
+                            (span) => !span.classList.contains('truncate') && span.scrollWidth > span.clientWidth + 1,
+                        ),
+                    };
+                });
+                const scroller = box.querySelector<HTMLElement>('.overflow-y-auto')!;
+                return {
+                    overflowX: box.scrollWidth - box.clientWidth,
+                    scrollerX: scroller.scrollWidth - scroller.clientWidth,
+                    withinViewport: frame.top >= 0 && frame.bottom <= window.innerHeight,
+                    targets,
+                };
+            });
+            expect(m.overflowX, 'the dialog never scrolls sideways').toBeLessThanOrEqual(0);
+            expect(m.scrollerX, 'the legs list never scrolls sideways').toBeLessThanOrEqual(0);
+            expect(m.withinViewport, 'the dialog sits inside the screen').toBe(true);
+            const chips = m.targets.filter((t) => t.name?.startsWith('Return from'));
+            expect(chips).toHaveLength(2);
+            for (const target of m.targets) {
+                expect(target.height, `${target.name} is a 44 pt target`).toBeGreaterThanOrEqual(44 - 0.5);
+                expect(target.inside, `${target.name} stays inside the dialog`).toBe(true);
+                expect(target.clipped, `${target.name} is not clipped`).toBe(false);
+            }
+            for (const chip of chips) {
+                expect(chip.width, `${chip.name} is 44 pt wide`).toBeGreaterThanOrEqual(44 - 0.5);
+                expect(chip.hit, `${chip.name} is not covered`).toBe(true);
+            }
+            const returnRow = m.targets.find((t) => t.name?.startsWith('⇄Plan the return trip'));
+            expect(returnRow?.hit, 'the return-trip row is not covered').toBe(true);
         });
     }
 });

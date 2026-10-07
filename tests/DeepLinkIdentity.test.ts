@@ -48,6 +48,19 @@ describe('tracer deep-link identity fence', () => {
         expect(consumeTracerAction()).toBeNull();
     });
 
+    it('refuses a return-trip request staged under a previous generation', () => {
+        const staleA = getAuthIdentityScope();
+        setAuthIdentityScope('account-b');
+        requestTracerOpen({ kind: 'return-trip', tripId: 'account-a-trip', fromOrdinal: 2 }, staleA);
+        expect(peekTracerOpenRequest()).toBe(false);
+        expect(consumeTracerAction()).toBeNull();
+
+        const eventB = captureNextTracerEvent();
+        requestTracerOpen({ kind: 'return-trip', tripId: 'account-b-trip' });
+        expect(consumeTracerOpenRequest(eventB.read())).toBe(true);
+        expect(consumeTracerAction()).toEqual({ kind: 'return-trip', tripId: 'account-b-trip' });
+    });
+
     it('clears an action even after the open half was claimed by A', () => {
         const eventA = captureNextTracerEvent();
         requestTracerOpen({ kind: 'load-voyage', choice: voyageChoice('voyage-a') });
