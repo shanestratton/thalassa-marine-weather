@@ -38,9 +38,23 @@ vi.mock('../services/IsochroneRouter', () => ({
 vi.mock('../services/isochrone/geodesy', () => ({ cumulativeLegs: vi.fn(() => []) }));
 vi.mock('../services/BathymetryCache', () => ({ preloadBathymetry: vi.fn() }));
 vi.mock('../services/weather/WindFieldAdapter', () => ({ createWindFieldFromGrid: vi.fn() }));
-vi.mock('../services/defaultPolar', () => ({ DEFAULT_CRUISING_POLAR: {} }));
-vi.mock('../services/SmartPolarStore', () => ({
-    SmartPolarStore: { exportToPolarData: vi.fn(() => null) },
+// The one routing-polar resolver (W1-03); this suite never reaches the isochrone.
+vi.mock('../services/routingPolar', () => ({
+    resolveRoutingPolar: vi.fn(async () => ({
+        polar: {
+            windSpeeds: [6, 12],
+            angles: [0, 25, 30],
+            matrix: [
+                [0, 0],
+                [0, 0],
+                [3, 4],
+            ],
+        },
+        source: 'default',
+        label: 'Generic cruising polar',
+        reason: 'no polar chosen',
+        signature: '00000000',
+    })),
 }));
 vi.mock('../stores/WindStore', () => ({
     WindStore: {

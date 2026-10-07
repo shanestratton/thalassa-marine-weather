@@ -213,4 +213,77 @@ describe('PassageBanner', () => {
         expect(screen.getByRole('button', { name: 'Save to Log' })).toBeEnabled();
         expect(screen.queryByTestId('passage-route-unverified')).not.toBeInTheDocument();
     });
+    // W1-03 slice 1b: the banner says plainly which polar the ETA was sailed on.
+    describe('which polar the route sailed by', () => {
+        it('names a database polar and the cruising speed its shape was scaled to', () => {
+            render(
+                <PassageBanner
+                    {...baseProps}
+                    passage={{
+                        ...baseProps.passage,
+                        routingPolarLabel: 'Beneteau Oceanis 38.1 (shape scaled to 6.5 kn)',
+                    }}
+                    isoProgress={null}
+                />,
+            );
+            expect(screen.getByTestId('passage-routing-polar')).toHaveTextContent(
+                'Polar: Beneteau Oceanis 38.1 (shape scaled to 6.5 kn)',
+            );
+        });
+
+        it('says so when the generic polar was used, and when the learned one was', () => {
+            const { rerender } = render(
+                <PassageBanner
+                    {...baseProps}
+                    passage={{ ...baseProps.passage, routingPolarLabel: 'Generic cruising polar' }}
+                    isoProgress={null}
+                />,
+            );
+            expect(screen.getByTestId('passage-routing-polar')).toHaveTextContent('Polar: Generic cruising polar');
+            rerender(
+                <PassageBanner
+                    {...baseProps}
+                    passage={{ ...baseProps.passage, routingPolarLabel: 'Learned (blended)' }}
+                    isoProgress={null}
+                />,
+            );
+            expect(screen.getByTestId('passage-routing-polar')).toHaveTextContent('Polar: Learned (blended)');
+        });
+
+        it('a long file name with no spaces wraps inside the card instead of being clipped', () => {
+            // An imported polar is named after its file, and the card is
+            // overflow-x-hidden: at 320 px a 40-character token ran off the
+            // edge mid-word. jsdom has no layout, so pin the wrap rule itself.
+            const label = 'Fair_Wind_Expedition_polar_export_2026_final.pol (imported)';
+            render(
+                <PassageBanner
+                    {...baseProps}
+                    passage={{ ...baseProps.passage, routingPolarLabel: label }}
+                    isoProgress={null}
+                />,
+            );
+            const line = screen.getByTestId('passage-routing-polar');
+            expect(line).toHaveTextContent(`Polar: ${label}`);
+            expect(line.className).toContain('[overflow-wrap:anywhere]');
+            expect(line.className).toContain('min-w-0');
+        });
+
+        it('no line while the route is cooking, or for a route no polar sailed (inshore, short hops)', () => {
+            const { rerender } = render(
+                <PassageBanner
+                    {...baseProps}
+                    passage={{ ...baseProps.passage, routingPolarLabel: 'Generic cruising polar' }}
+                />,
+            );
+            expect(screen.queryByTestId('passage-routing-polar')).not.toBeInTheDocument();
+            rerender(
+                <PassageBanner
+                    {...baseProps}
+                    passage={{ ...baseProps.passage, routingPolarLabel: null }}
+                    isoProgress={null}
+                />,
+            );
+            expect(screen.queryByTestId('passage-routing-polar')).not.toBeInTheDocument();
+        });
+    });
 });

@@ -1,4 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const routing = vi.hoisted(() => ({
+    resolveRoutingPolar: vi.fn(),
+    warn: vi.fn(),
+}));
+vi.mock('../utils/createLogger', () => ({
+    createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: routing.warn, error: vi.fn() }),
+}));
+// The real toEdgePolar; only the resolver's store reads are replaced (W1-03).
+vi.mock('../services/routingPolar', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../services/routingPolar')>()),
+    resolveRoutingPolar: routing.resolveRoutingPolar,
+}));
+
+import { resolveRoutingPolarFrom, toEdgePolar } from '../services/routingPolar';
+import { supabase } from '../services/supabase';
 import {
     enhanceVoyagePlanWithWeather,
     fetchWeatherRoute,
@@ -263,5 +279,140 @@ describe('weatherRouter', () => {
         await expect(enhanceVoyagePlanWithWeather(incomplete, vessel, '2026-07-23T00:00:00.000Z')).resolves.toBe(
             incomplete,
         );
+    });
+});
+
+// W1-03: the edge router is sent the boat's own polar, resolved once, and a
+// polar the shared request contract would refuse is dropped (with a warning)
+// rather than losing the whole weather route to a 400.
+describe('weatherRouter — the polar on the wire', () => {
+    const DEPART = '2026-11-01T06:00:00.000Z';
+    const sloop: VesselProfile = { ...vessel, name: 'Fair Wind', type: 'sail', cruisingSpeed: 6.5 };
+    const marseilleBonifacio = [
+        { lat: 43.3, lon: 5.37, name: 'Marseille' },
+        { lat: 41.39, lon: 9.16, name: 'Bonifacio' },
+    ];
+    const imported = resolveRoutingPolarFrom({
+        settings: {
+            polarSource_type: 'file_import',
+            polarBoatModel: 'Fair Wind 2025.pol',
+            polarData: {
+                windSpeeds: [6, 10, 16, 25],
+                angles: [40, 60, 90, 120, 150, 180],
+                matrix: [
+                    [3.9, 5.2, 6.0, 6.1],
+                    [4.6, 6.1, 7.0, 7.3],
+                    [5.0, 6.6, 7.6, 8.2],
+                    [4.7, 6.4, 7.6, 8.6],
+                    [3.9, 5.5, 7.0, 8.4],
+                    [3.2, 4.7, 6.2, 7.6],
+                ],
+            },
+        },
+        vessel: sloop,
+        learned: null,
+    });
+    const sentBody = (fetchMock: ReturnType<typeof vi.fn>) => JSON.parse(fetchMock.mock.calls[0][1].body as string);
+
+    beforeEach(() => {
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://thalassa.example');
+        vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key');
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(DEPART));
+        routing.resolveRoutingPolar.mockReset();
+        routing.warn.mockReset();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it("a sailing boat's weather route carries her resolved polar — and the dead vessel_polars table is never read", async () => {
+        routing.resolveRoutingPolar.mockResolvedValue(imported);
+        vi.mocked(supabase!.auth.getUser).mockResolvedValue({ data: { user: { id: 'skipper-1' } } } as never);
+        const fetchMock = vi.fn().mockResolvedValue(new Response('busy', { status: 503 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const plan = {
+            ...voyagePlan,
+            origin: 'Marseille',
+            destination: 'Bonifacio',
+            originCoordinates: marseilleBonifacio[0],
+            destinationCoordinates: marseilleBonifacio[1],
+        };
+        await enhanceVoyagePlanWithWeather(plan, sloop, DEPART);
+
+        expect(routing.resolveRoutingPolar).toHaveBeenCalledWith({ vessel: sloop });
+        expect(sentBody(fetchMock).vessel.polar_data).toEqual(toEdgePolar(imported));
+        expect(vi.mocked(supabase!.from).mock.calls.map(([table]) => table)).not.toContain('vessel_polars');
+    });
+
+    it('the generic polar goes out as null, so the edge keeps its own cruise-scaled fallback', async () => {
+        routing.resolveRoutingPolar.mockResolvedValue(
+            resolveRoutingPolarFrom({ settings: {}, vessel: sloop, learned: null }),
+        );
+        const fetchMock = vi.fn().mockResolvedValue(new Response('busy', { status: 503 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const plan = {
+            ...voyagePlan,
+            originCoordinates: marseilleBonifacio[0],
+            destinationCoordinates: marseilleBonifacio[1],
+        };
+        await enhanceVoyagePlanWithWeather(plan, sloop, DEPART);
+
+        expect(sentBody(fetchMock).vessel.polar_data).toBeNull();
+    });
+
+    it('a power boat is never sent a polar (unchanged)', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response('busy', { status: 503 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const plan = {
+            ...voyagePlan,
+            originCoordinates: marseilleBonifacio[0],
+            destinationCoordinates: marseilleBonifacio[1],
+        };
+        await enhanceVoyagePlanWithWeather(plan, vessel, DEPART);
+
+        expect(routing.resolveRoutingPolar).not.toHaveBeenCalled();
+        expect(sentBody(fetchMock).vessel.polar_data).toBeNull();
+    });
+
+    it('a polar the shared contract accepts is sent unchanged', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response('busy', { status: 503 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await fetchWeatherRoute(marseilleBonifacio, DEPART, sloop, toEdgePolar(imported));
+
+        expect(sentBody(fetchMock).vessel.polar_data).toEqual(toEdgePolar(imported));
+        expect(routing.warn).not.toHaveBeenCalled();
+    });
+
+    it('a polar the shared contract would refuse is dropped to null with a warning, not lost to a 400', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response('busy', { status: 503 }));
+        vi.stubGlobal('fetch', fetchMock);
+        // 31 angle rows: over the contract's 30-row ceiling.
+        const angles = Array.from({ length: 31 }, (_, i) => i * 6);
+        const tooFine = {
+            windSpeeds: [6, 12, 20],
+            angles,
+            matrix: angles.map((a) => (a < 36 ? [0, 0, 0] : [4, 6, 7])),
+        };
+
+        await fetchWeatherRoute(marseilleBonifacio, DEPART, sloop, tooFine);
+
+        expect(sentBody(fetchMock).vessel.polar_data).toBeNull();
+        expect(routing.warn).toHaveBeenCalledWith(expect.stringMatching(/polar/i));
+    });
+
+    it('a request refused for another reason does not blame (or strip) the polar', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response('busy', { status: 503 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        // Ten days out: past the contract's forecast window, polar or no polar.
+        await fetchWeatherRoute(marseilleBonifacio, '2026-11-11T06:00:00.000Z', sloop, toEdgePolar(imported));
+
+        expect(sentBody(fetchMock).vessel.polar_data).toEqual(toEdgePolar(imported));
+        expect(routing.warn).not.toHaveBeenCalled();
     });
 });

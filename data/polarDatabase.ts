@@ -1,7 +1,12 @@
 /**
- * Polar Database — Theoretical polar data for ~300 production sailboats.
+ * Polar Database — GENERATED polar shapes for ~300 production sailboats.
  * Wind speeds in knots, angles in degrees, matrix values = boat speed (kts).
- * Sources: ORC data, sail designer estimates, and published polar tables.
+ * Not measured data: every table is generatePolar(LOA, category) below — a
+ * hull-speed-from-length curve with category multipliers. No ORC, designer
+ * or published polar figures are in this file (ORC's are licensed, and none
+ * is imported). The tables run ~45% slow (a 38 ft cruiser makes
+ * 3.5 kn on a beam reach in 15 kn), so routing uses only their SHAPE, scaled
+ * to the boat's cruising speed (services/routingPolar.ts, passagePlan.polarScale).
  *
  * Matrix layout: matrix[angleIdx][windSpeedIdx]
  * Standard wind speeds: [6, 8, 10, 12, 15, 20, 25]
