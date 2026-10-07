@@ -86,8 +86,18 @@ module.exports = {
                 // growth the bundle-size budget moved for on the same day.
                 // 850000 is ~10% over the CI observation, so the next
                 // ACCIDENTAL 100 KB in the shell path still fails loudly.
-                // TARGET 524288 stands as the aspiration.
-                'total-byte-weight': ['error', { maxNumericValue: 850000 }],
+                // 900000, was 850000 (2026-10-08, build 123). Master 850c70a9
+                // measured 843,557 on CI; build 123 measured 852,092 (+8,535):
+                // the boat-link service that says whether this phone is aboard
+                // (BoatLinkService +7,675, loaded by the always-mounted status
+                // button and the instrument policy) and the shell's own +3,569,
+                // less MaintenanceService (-3,878) and vendor-dnd (-1,867) no
+                // longer loaded at boot. Deliberate features, no accidental
+                // lodger (the build-123 bundle audit found none). 900000 keeps
+                // an accidental 100 KB failing. Ratchet back once the boat link
+                // loads only for a phone with a Pi or gateway configured
+                // (queued for build 124). TARGET 524288 stands as the aspiration.
+                'total-byte-weight': ['error', { maxNumericValue: 900000 }],
             },
         },
     },
