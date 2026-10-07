@@ -8,8 +8,14 @@ import {
     computeCardDisplayValues,
     computeTrends,
     resolveHeroRowTemperatureRange,
+    daySky,
+    locationDayIso,
+    activeRowIsoDate,
+    MODEL_COMPARE_EVENT,
+    requestModelComparison,
 } from '../components/dashboard/hero/heroSlideHelpers';
 import { HourlyForecast, SourcedWeatherMetrics } from '../types';
+import { NO_TRUE_NIGHT, SUN_STAYS_UP } from '../utils/celestial';
 
 const baseData: Partial<SourcedWeatherMetrics> = {
     airTemperature: 24,
@@ -320,5 +326,128 @@ describe('rain chance never shows an invented value (UX scorecard run 7)', () =>
     it('shows -- for a day total the model did not supply', () => {
         const noAmount = { ...baseData, precipitation: null } as unknown as SourcedWeatherMetrics;
         expect(computeCardDisplayValues(noAmount, metricUnits, 0, false).precip).toBe('--');
+    });
+});
+
+// ── Build 123, W1-09: the day card's sun & moon row, its own date, and the
+// one way a day card asks the comparison to open ──
+
+describe('daySky — first light, the sun, last light and the moon for the place’s own day', () => {
+    const minutes = (hhmm: string) => {
+        const [h, m] = hhmm.split(':').map(Number);
+        return h * 60 + m;
+    };
+    const near = (got: string | null, usno: string, tolerance = 2) =>
+        expect(Math.abs(minutes(got ?? '') - minutes(usno))).toBeLessThanOrEqual(tolerance);
+
+    // USNO rstt/oneday, 2026-10-07 (the W1-06 almanac fixtures).
+    it('Airlie Beach, Whitsundays (AEST)', () => {
+        const sky = daySky('2026-10-07', -20.27, 148.72, 'Australia/Brisbane')!;
+        near(sky.firstLight, '05:19');
+        near(sky.sunrise, '05:42');
+        near(sky.sunset, '18:05');
+        near(sky.lastLight, '18:27');
+        near(sky.moonrise, '03:13');
+        near(sky.moonset, '14:57');
+        expect(sky.illumination).toBeGreaterThan(0.06);
+        expect(sky.illumination).toBeLessThan(0.2);
+        expect(sky.phaseName).toBe('Waning Crescent');
+    });
+
+    it('Marseille (CEST), Sint Maarten (AST) and Suva (FJT), whatever the phone’s clock', () => {
+        const marseille = daySky('2026-10-07', 43.3, 5.37, 'Europe/Paris')!;
+        near(marseille.firstLight, '07:14');
+        near(marseille.lastLight, '19:38');
+        near(marseille.moonset, '17:38');
+        const sxm = daySky('2026-10-07', 18.03, -63.08, 'America/Lower_Princes')!;
+        near(sxm.sunrise, '06:04');
+        near(sxm.lastLight, '18:18');
+        const suva = daySky('2026-10-07', -18.14, 178.42, 'Pacific/Fiji')!;
+        near(suva.firstLight, '05:22');
+        near(suva.moonrise, '03:08');
+    });
+
+    it('says what happens at Tromsø midsummer instead of --:--', () => {
+        const sky = daySky('2026-06-21', 69.65, 18.96, 'Europe/Oslo')!;
+        expect(sky.sunrise).toBe(SUN_STAYS_UP);
+        expect(sky.sunset).toBe(SUN_STAYS_UP);
+        expect(sky.firstLight).toBe(NO_TRUE_NIGHT);
+        expect(sky.lastLight).toBe(NO_TRUE_NIGHT);
+    });
+
+    it('has nothing to say for an unplaced report at 0°, 0°', () => {
+        expect(daySky('2026-10-07', 0, 0, 'UTC')).toBeNull();
+    });
+});
+
+describe('locationDayIso — the Glass rows count from the place’s today', () => {
+    it('is the place’s calendar, not the phone’s', () => {
+        const now = new Date('2026-10-07T20:00:00Z'); // 06:00 on the 8th in Brisbane, 22:00 on the 7th in Paris
+        expect(locationDayIso(0, 'Australia/Brisbane', now)).toBe('2026-10-08');
+        expect(locationDayIso(2, 'Australia/Brisbane', now)).toBe('2026-10-10');
+        expect(locationDayIso(1, 'Europe/Paris', now)).toBe('2026-10-08');
+        expect(locationDayIso(30, 'America/Halifax', now)).toBe('2026-11-06');
+    });
+});
+
+describe('activeRowIsoDate — the sun & moon sheet opens on the row on screen (W1-09 review)', () => {
+    const now = new Date('2026-10-08T08:00:00Z'); // 10:00 in Simon's Town, 03:00 in Halifax
+    it('takes the day row’s own date, even where rows skip a day', () => {
+        expect(activeRowIsoDate({ isoDate: '2026-10-14' }, 2, 'Africa/Johannesburg', now)).toBe('2026-10-14');
+    });
+    it('takes an hourly card’s hour on the place’s clock', () => {
+        // 01:00 on Wed 14 Oct in Halifax is still the 14th there, the 14th in UTC too.
+        expect(activeRowIsoDate({ time: '2026-10-14T04:00:00Z' }, 2, 'America/Halifax', now)).toBe('2026-10-14');
+        // 23:30 on Tue 13 Oct in Halifax is the 14th in UTC: the place's date wins.
+        expect(activeRowIsoDate({ time: '2026-10-14T02:30:00Z' }, 2, 'America/Halifax', now)).toBe('2026-10-13');
+    });
+    it('counts from the place’s today only when the row has no date, and row 0 is always today', () => {
+        expect(activeRowIsoDate(null, 3, 'America/Halifax', now)).toBe('2026-10-11');
+        expect(activeRowIsoDate({ isoDate: '2026-10-07' }, 0, 'Africa/Johannesburg', now)).toBe('2026-10-08');
+    });
+});
+
+describe('the day overview knows its own date', () => {
+    it('from its hours, on the place’s calendar (Marseille read on any phone)', () => {
+        // 00:00–23:00 CEST on Sat 10 Oct.
+        const hours = Array.from({ length: 24 }, (_, h) => ({
+            time: new Date(Date.UTC(2026, 9, 9, 22 + h)).toISOString(),
+            temperature: 19,
+            windSpeed: 12,
+            windGust: 16,
+            windDegree: 320,
+            condition: 'Clear',
+        })) as unknown as HourlyForecast[];
+        const slides = buildSlides(
+            { ...baseData, isoDate: '2026-10-10', date: '2026-10-10' } as SourcedWeatherMetrics,
+            2,
+            hours,
+            [],
+            'Europe/Paris',
+        );
+        expect(slides[0].type).toBe('daily');
+        expect(slides[0].daily?.isoDate).toBe('2026-10-10');
+    });
+
+    it('from the row itself when the day has no hours (Fiji, past the hourly range)', () => {
+        const slides = buildSlides(
+            { ...baseData, isoDate: '2026-10-15', date: '2026-10-15' } as SourcedWeatherMetrics,
+            8,
+            [],
+            [],
+            'Pacific/Fiji',
+        );
+        expect(slides[0].daily?.isoDate).toBe('2026-10-15');
+    });
+});
+
+describe('requestModelComparison — the one way a day card opens the comparison', () => {
+    it('asks on one window event, with the day and the tab', () => {
+        const seen: unknown[] = [];
+        const on = (event: Event) => seen.push((event as CustomEvent).detail);
+        window.addEventListener(MODEL_COMPARE_EVENT, on);
+        requestModelComparison({ dayMs: Date.parse('2026-10-10T12:00:00+02:00'), param: 'dir' });
+        window.removeEventListener(MODEL_COMPARE_EVENT, on);
+        expect(seen).toEqual([{ dayMs: Date.parse('2026-10-10T12:00:00+02:00'), param: 'dir' }]);
     });
 });

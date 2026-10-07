@@ -18,6 +18,7 @@ import {
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useDraggable } from '@dnd-kit/core';
 import { lazyRetry } from '../../utils/lazyRetry';
+import { MODEL_COMPARE_EVENT, type ModelCompareRequest } from './hero/heroSlideHelpers';
 
 const ModelComparisonMatrix = lazyRetry(
     () => import('./ModelComparisonMatrix').then((module) => ({ default: module.ModelComparisonMatrix })),
@@ -579,6 +580,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     // pre-tabbed to that metric.
     const [showMatrix, setShowMatrix] = useState(false);
     const [matrixParam, setMatrixParam] = useState<MatrixParam | undefined>(undefined);
+    // The day a Glass day card's agreement chip asked for (W1-09); unset otherwise.
+    const [matrixDay, setMatrixDay] = useState<number | undefined>(undefined);
     const glassModel = resolveForecastModel(useSettingsStore((s) => s.settings.forecastModel));
 
     // A long-press release can be followed by a browser-synthesised click on
@@ -612,9 +615,25 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         if (!spreadMetric) return;
         suppressTapUntilRef.current = Date.now() + 600;
         setMatrixParam(spreadMetric as MatrixParam);
+        setMatrixDay(undefined);
         setShowMatrix(true);
         onSpreadHandled?.();
     }, [spreadMetric, onSpreadHandled]);
+
+    // A day card's agreement chip opens this same comparison on its day, on the
+    // tab that decided its verdict: one sheet, not one per day row (W1-09).
+    useEffect(() => {
+        const onCompare = (event: Event) => {
+            const request = (event as CustomEvent<ModelCompareRequest>).detail;
+            if (!request) return;
+            suppressTapUntilRef.current = Date.now() + 600;
+            setMatrixParam(request.param);
+            setMatrixDay(request.dayMs);
+            setShowMatrix(true);
+        };
+        window.addEventListener(MODEL_COMPARE_EVENT, onCompare);
+        return () => window.removeEventListener(MODEL_COMPARE_EVENT, onCompare);
+    }, []);
 
     // ── Pin-to-hero: pinned metric ID + temp display value ──
     // When the user pins a metric to the hero slot, THAT cell in the grid
@@ -634,6 +653,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         ? () => {
               if (Date.now() < suppressTapUntilRef.current) return;
               setMatrixParam(undefined);
+              setMatrixDay(undefined);
               setShowMatrix(true);
           }
         : undefined;
@@ -662,6 +682,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 // tap is deliberately inert.
                 if (isOffshore) {
                     setMatrixParam(undefined);
+                    setMatrixDay(undefined);
                     setShowMatrix(true);
                 }
             }}
@@ -969,6 +990,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                             onClose={() => setShowMatrix(false)}
                             selectedModel={glassModel}
                             initialParam={matrixParam}
+                            initialDay={matrixDay}
                             coordinates={coordinates}
                         />
                     </Suspense>

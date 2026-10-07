@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CompactHeaderRow');
@@ -68,6 +68,7 @@ export const CompactHeaderRow = ({
     moonPhaseName,
     dashboardMode: _dashboardMode,
     onToggleDashboardMode: _onToggleDashboardMode,
+    onOpenSunMoon,
 }: {
     alerts?: string[];
     sunrise?: string;
@@ -78,8 +79,11 @@ export const CompactHeaderRow = ({
     moonPhaseName?: string;
     dashboardMode?: DashboardMode;
     onToggleDashboardMode?: () => void;
+    /** Opens the sun & moon sheet (W1-09); the chip is then a button. */
+    onOpenSunMoon?: () => void;
 }) => {
     const { setPage } = useUI();
+    const sunMoonHintId = useId();
 
     // Read dismissed state from sessionStorage (shared with AlertsBanner + WarningDetails)
     const getDismissed = (): Set<string> => {
@@ -116,6 +120,20 @@ export const CompactHeaderRow = ({
     // When both are pending the sunset is said with the sunrise.
     const setWords = setKnown ? `sunset ${sunset}` : riseKnown ? 'sunset not yet known' : '';
     const withComma = (words: string, more: boolean) => (more ? `${words},` : words);
+
+    // Where the Glass can open the sun & moon sheet (W1-09) the chip is its
+    // button, named by its own spoken words; otherwise a group, Sun and moon.
+    const SunChip = onOpenSunMoon ? 'button' : 'div';
+    const sunChipRole: React.HTMLAttributes<HTMLElement> = onOpenSunMoon
+        ? {
+              onClick: () => {
+                  void triggerHaptic('light');
+                  onOpenSunMoon();
+              },
+              'aria-haspopup': 'dialog',
+              'aria-describedby': sunMoonHintId,
+          }
+        : { role: 'group', 'aria-label': 'Sun and moon' };
 
     return (
         <div className="w-full flex items-center gap-2">
@@ -178,10 +196,10 @@ export const CompactHeaderRow = ({
             {/* CELESTIAL CARD - Sunrise, Sunset, Moon, Golden Hour.
                 The times and the moon glyph said nothing to a screen reader
                 ('05:42 17:53 🌕'), so each carries its words. */}
-            <div
-                className={`${goldenHour ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] in-data-[glass-rhythm]:h-8 flex items-center gap-2.5 shrink-0 transition-colors duration-500`}
-                role="group"
-                aria-label="Sun and moon"
+            <SunChip
+                {...sunChipRole}
+                {...(onOpenSunMoon ? { type: 'button' as const } : {})}
+                className={`${goldenHour ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] in-data-[glass-rhythm]:h-8 flex items-center gap-2.5 shrink-0 transition-colors duration-500${onOpenSunMoon ? ' hit-target-44 cursor-pointer active:scale-[0.97]' : ''}`}
             >
                 {/* Golden Hour Badge - replaces sunrise/sunset when active */}
                 {goldenHour ? (
@@ -249,7 +267,12 @@ export const CompactHeaderRow = ({
                         </span>
                     </span>
                 )}
-            </div>
+                {onOpenSunMoon && (
+                    <span id={sunMoonHintId} hidden>
+                        Sun and moon details
+                    </span>
+                )}
+            </SunChip>
         </div>
     );
 };
