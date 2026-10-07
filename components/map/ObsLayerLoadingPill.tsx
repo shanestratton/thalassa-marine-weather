@@ -1,7 +1,7 @@
 import type React from 'react';
 import type { WeatherLayer } from './mapConstants';
 
-type ObsLayerLoadingKind = 'wind' | 'rain' | 'weather';
+type ObsLayerLoadingKind = 'wind' | 'rain' | 'satellite' | 'weather';
 
 interface ObsLayerLoadingPillProps {
     activeLayers: ReadonlySet<WeatherLayer>;
@@ -12,6 +12,8 @@ interface ObsLayerLoadingPillProps {
     windError: unknown;
     rainLoading: boolean;
     rainImageLoading: boolean;
+    /** The satellite cloud has no frame painted yet (its later swaps keep the old frame up). */
+    satLoading?: boolean;
 }
 
 /**
@@ -33,15 +35,22 @@ export function getObsLayerLoadingKind({
     windError,
     rainLoading,
     rainImageLoading,
+    satLoading = false,
 }: ObsLayerLoadingPillProps): ObsLayerLoadingKind | null {
     const windActive = activeLayers.has('wind') || activeLayers.has('velocity');
     const windIsLoading = windActive && !windError && ((windLoading && !windHasGrid) || !windReady);
     const rainIsLoading = activeLayers.has('rain') && (rainLoading || rainImageLoading);
+    const satIsLoading = activeLayers.has('satIR') && satLoading;
 
-    if (windIsLoading && rainIsLoading) return 'weather';
-    if (windIsLoading) return 'wind';
-    if (rainIsLoading) return 'rain';
-    return null;
+    const loading = (
+        [
+            [windIsLoading, 'wind'],
+            [rainIsLoading, 'rain'],
+            [satIsLoading, 'satellite'],
+        ] as const
+    ).filter(([on]) => on);
+    if (loading.length > 1) return 'weather';
+    return loading[0]?.[1] ?? null;
 }
 
 export function ObsLayerLoadingPill(props: ObsLayerLoadingPillProps): React.ReactElement | null {

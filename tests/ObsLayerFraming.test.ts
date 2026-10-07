@@ -24,6 +24,7 @@ import {
     getActiveLayerFrameZoom,
     type WeatherLayer,
 } from '../components/map/mapConstants';
+import { withWeatherLayerAdded } from '../components/map/useWeatherLayers';
 
 const set = (...layers: WeatherLayer[]): ReadonlySet<WeatherLayer> => new Set(layers);
 
@@ -88,11 +89,10 @@ describe('the Sky section stacks', () => {
     const menu = readFileSync('components/map/RadialHelmMenu.tsx', 'utf8');
     const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
     const snap = readFileSync('components/map/mapHub/useLayerFrameSnap.ts', 'utf8');
-    const layers = readFileSync('components/map/useWeatherLayers.ts', 'utf8');
     const sky = menu.slice(menu.indexOf("id: 'atmosphere'"), menu.indexOf('// ── Routes / charts'));
 
     it('gives every Sky entry a plain toggle', () => {
-        for (const id of ['wind', 'rain', 'pressure', 'clouds', 'temperature']) {
+        for (const id of ['wind', 'rain', 'pressure', 'clouds', 'satIR', 'temperature']) {
             expect(sky, `${id} missing from Sky`).toContain(`id: '${id}'`);
         }
         // Mutual exclusion is what made wind + rain impossible.
@@ -100,11 +100,15 @@ describe('the Sky section stacks', () => {
         expect(sky).not.toContain('ATMOSPHERE_LAYERS');
     });
 
-    it('raises the cap high enough for all five to be on at once', () => {
-        // A cap of 4 makes "turn them all on" silently impossible — the fifth
-        // tap evicts one of the others, which reads as a broken toggle.
-        const cap = /const MAX_LAYERS = (\d+);/.exec(layers)?.[1];
-        expect(Number(cap)).toBeGreaterThanOrEqual(5);
+    it('raises the cap high enough for all six to be on at once', () => {
+        // A cap below the Sky count makes "turn them all on" silently
+        // impossible — the last tap evicts one of the others, which reads as a
+        // broken toggle. Six since the observed satellite cloud (W1-10).
+        let on = new Set<WeatherLayer>();
+        for (const id of ['wind', 'rain', 'pressure', 'clouds', 'satIR', 'temperature'] as const) {
+            on = withWeatherLayerAdded(on, id);
+        }
+        expect([...on].sort()).toEqual(['clouds', 'pressure', 'rain', 'satIR', 'temperature', 'wind']);
     });
 
     it('frames the zoom about the water on screen, never flying to the location box', () => {

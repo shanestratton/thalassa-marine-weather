@@ -198,6 +198,60 @@ export function enforceCmemsMarineExclusivity(
     return next;
 }
 
+/**
+ * How many layers may be up at once.
+ *
+ * FIVE, because the AIR section had exactly five entries (wind, rain,
+ * pressure, clouds, temperature) when they all became independently
+ * toggleable on 2026-08-24 at Shane's request. A cap of 4 would have made
+ * "turn them all on" quietly impossible — the fifth tap silently evicts one
+ * of the others through LAYER_EVICTION_ORDER, which reads as the toggle being
+ * broken rather than as a limit.
+ *
+ * SIX only when one of them is the observed satellite cloud (W1-10), so all
+ * six Sky entries can be on together. Its sixth slot holds one fixed-size
+ * image (a 3072x1288 frame, ~16 MB decoded plus one texture) that never grows
+ * like a tile cache, so five tiled layers plus a CMEMS sea layer still cannot
+ * all be up at once (the 2 GB WebContent jetsam; the six-up worst case belongs
+ * in the device memory census owed at 123 assembly).
+ *
+ * It stays a cap: the eviction order still stops an unbounded stack once
+ * sea-state layers join in, and it evicts static rasters before the
+ * interactive engines.
+ */
+export const MAX_LAYERS = 5;
+
+export function weatherLayerCap(layers: ReadonlySet<WeatherLayer>, adding?: WeatherLayer): number {
+    return layers.has('satIR') || adding === 'satIR' ? MAX_LAYERS + 1 : MAX_LAYERS;
+}
+
+/** Static rasters first, the interactive engines last. */
+const LAYER_EVICTION_ORDER: readonly WeatherLayer[] = [
+    'sea',
+    'clouds',
+    'temperature',
+    'satIR',
+    'pressure',
+    'rain',
+    'velocity',
+    'wind',
+];
+
+/** `layer` switched on, evicting until the set fits its cap (without CMEMS exclusivity). */
+export function withWeatherLayerAdded(prev: ReadonlySet<WeatherLayer>, layer: WeatherLayer): Set<WeatherLayer> {
+    const next = new Set(prev);
+    while (next.size >= weatherLayerCap(next, layer)) {
+        const candidate =
+            LAYER_EVICTION_ORDER.find((c) => next.has(c) && c !== layer) ??
+            // Fallback: remove the oldest (first)
+            [...next].find((c) => c !== layer);
+        if (!candidate) break;
+        next.delete(candidate);
+    }
+    next.add(layer);
+    return next;
+}
+
 /** Chart layers the passage look-ahead cannot move, in the words the scrubber uses. */
 const PASSAGE_UNSYNCED_LAYER_NAMES: readonly (readonly [WeatherLayer, string])[] = [
     ['currents', 'currents'],
@@ -208,6 +262,8 @@ const PASSAGE_UNSYNCED_LAYER_NAMES: readonly (readonly [WeatherLayer, string])[]
     ['mld', 'mixed layer'],
     ['temperature', 'temperature'],
     ['clouds', 'cloud'],
+    // Observed imagery cannot stand at a future moment (W1-10).
+    ['satIR', 'satellite cloud'],
 ];
 
 const SESSION_LAYERS_KEY = 'thalassa_active_layers';
@@ -300,19 +356,8 @@ export function useWeatherLayers(
     const windState = useWindStore();
     const windForecastHours = useMemo(() => windForecastHoursForGrid(windState.grid), [windState.grid]);
 
-    // Multi-layer support — users can toggle multiple layers simultaneously.
-    //
-    // FIVE, because the AIR section has exactly five entries (wind, rain,
-    // pressure, clouds, temperature) and they all became independently
-    // toggleable on 2026-08-24 at Shane's request. A cap of 4 would have made
-    // "turn them all on" quietly impossible — the fifth tap silently evicts one
-    // of the others through EVICTION_ORDER below, which reads as the toggle
-    // being broken rather than as a limit.
-    //
-    // It stays a cap: the eviction order still stops an unbounded stack once
-    // sea-state layers join in, and it evicts static rasters before the
-    // interactive engines.
-    const MAX_LAYERS = 5;
+    // Multi-layer support — users can toggle multiple layers simultaneously,
+    // up to weatherLayerCap (five, six with the satellite cloud).
     const STORAGE_KEY = 'thalassa_active_layers';
     /**
      * THE PUNTER'S SELECTION — persisted, and the only thing the toggles write.
@@ -345,37 +390,9 @@ export function useWeatherLayers(
     const toggleLayer = useCallback((layer: WeatherLayer) => {
         setUserLayers((prev) => {
             if (layer === 'none') return new Set<WeatherLayer>();
-            const next = new Set(prev);
-            if (next.has(layer)) {
-                next.delete(layer);
-            } else {
-                if (next.size >= MAX_LAYERS) {
-                    // At limit — prefer evicting static layers (temp, clouds, sea) over interactive (wind, rain)
-                    const EVICTION_ORDER: WeatherLayer[] = [
-                        'sea',
-                        'clouds',
-                        'temperature',
-                        'pressure',
-                        'rain',
-                        'velocity',
-                        'wind',
-                    ];
-                    let evicted = false;
-                    for (const candidate of EVICTION_ORDER) {
-                        if (next.has(candidate) && candidate !== layer) {
-                            next.delete(candidate);
-                            evicted = true;
-                            break;
-                        }
-                    }
-                    if (!evicted) {
-                        // Fallback: remove the oldest (first)
-                        const first = next.values().next().value;
-                        if (first) next.delete(first);
-                    }
-                }
-                next.add(layer);
-            }
+            const next = prev.has(layer)
+                ? new Set([...prev].filter((l) => l !== layer))
+                : withWeatherLayerAdded(prev, layer);
             return enforceCmemsMarineExclusivity(next, layer);
         });
     }, []);
@@ -390,7 +407,7 @@ export function useWeatherLayers(
             }
             next.add(layer);
             const exclusive = enforceCmemsMarineExclusivity(next, layer);
-            while (exclusive.size > MAX_LAYERS) {
+            while (exclusive.size > weatherLayerCap(exclusive)) {
                 const oldestOther = [...exclusive].find((candidate) => candidate !== layer);
                 if (!oldestOther) break;
                 exclusive.delete(oldestOther);

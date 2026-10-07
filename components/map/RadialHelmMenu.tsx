@@ -592,6 +592,17 @@ function buildCategories(
                     layerKey: 'clouds',
                 },
                 {
+                    // OBSERVED cloud: NOAA's global infrared mosaic (W1-10).
+                    // "Clouds" above is a model field and stays: one is what a
+                    // forecast expects, this is what the satellites saw an hour
+                    // or two ago. "Sat cloud", not "Satellite", so it is never
+                    // read as the Satellite base map.
+                    id: 'satIR',
+                    label: 'Sat cloud',
+                    icon: <SatCloudIcon />,
+                    layerKey: 'satIR',
+                },
+                {
                     id: 'temperature',
                     label: 'Temp',
                     icon: <TempIcon />,
@@ -1761,6 +1772,17 @@ const CloudsIcon = () => (
             strokeLinejoin="round"
             d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z"
         />
+    </svg>
+);
+
+const SatCloudIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M2.25 17.25a3.75 3.75 0 003.75 3.75h9a3 3 0 00.75-5.906 4.5 4.5 0 00-8.69-1.62A3.75 3.75 0 002.25 17.25z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16 6.5l2-2 2 2-2 2zM14 2.5l1.5 1.5M20.5 9l1.5 1.5" />
     </svg>
 );
 

@@ -193,6 +193,28 @@ describe('map provider attribution contract', () => {
             expect(yieldRule).toContain(surface);
     });
 
+    it('credits the satellite cloud on the chart’s credits strip whenever it is up', () => {
+        // An image source cannot carry a Mapbox attribution, so the credit is
+        // ours to show: NOAA/NESDIS and every agency whose satellite is in the
+        // mosaic, on the same strip as RainViewer and Copernicus, cut out of the
+        // layer menu's scrim (data-map-credit) like every licence credit.
+        const imagery = read('components/map/satelliteImagery.ts');
+        expect(imagery).toContain(
+            "export const SAT_IR_CREDIT = 'NOAA/NESDIS GMGSI: GOES, Meteosat (EUMETSAT), Himawari (JMA)';",
+        );
+        const credit = read('components/map/SatelliteIrCredit.tsx');
+        expect(credit).toContain('{SAT_IR_CREDIT}');
+        expect(credit).toContain('data-map-credit');
+        expect(credit).toContain('CREDITS_STRIP_POSITION_CLASS');
+        const hub = read('components/map/MapHub.tsx');
+        const at = hub.indexOf('<SatelliteIrCredit');
+        expect(at).toBeGreaterThan(-1);
+        expect(hub.slice(at, at + 600)).toContain('creditsStripTop(');
+        // The legend says the colours are ours: altered NOAA imagery must not be
+        // presented as the unaltered product (NODD terms).
+        expect(read('components/map/ObsLayerKey.tsx')).toMatch(/colours added by Thalassa/i);
+    });
+
     it('keeps the compact ⓘ toggle wired on every Log Leaflet map', () => {
         // The CSS collapse above is licence-legal only while a tap can
         // expand it. That tap lives in installCompactAttribution — so each
