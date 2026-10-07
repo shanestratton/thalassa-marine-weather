@@ -2923,10 +2923,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     usePiTileAutoCache({ weatherCoords, embedded, pickerMode, isPinView });
 
     // ── Own ship: the boat, from the chain the camera centres on (ownshipBoatFix) ──
-    // It asks her Pi and her cloud row only while Obs is on screen.
+    // It asks her Pi and her cloud row only while Obs is on screen. Her own
+    // wind rides on it, in the user's speed unit, wherever the wind field is
+    // not showing it (W1-WC; MapboxVelocityOverlay publishes it).
     const ownship = useVesselTracker(mapRef, mapReady, effectiveVesselTrackingVisible && !planningSurface, {
         names: obsBoatNames,
         lookUp: obsShowing,
+        windSpeedUnit: settings.units?.speed,
     });
 
     // ── The phone's own dot: Current Location only, while the marker is a boat ──

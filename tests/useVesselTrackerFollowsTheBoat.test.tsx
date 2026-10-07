@@ -150,6 +150,7 @@ import {
 } from '../components/map/obsCentre';
 import { useVesselTracker } from '../components/map/useVesselTracker';
 import { phoneDotWanted, useLocationDot } from '../components/map/useLocationDot';
+import { setBoatWindReadout, type BoatWindReadout } from '../components/map/boatWindReadout';
 import {
     __resetOwnshipBoatFixForTests,
     ownshipMarkerSubject,
@@ -271,16 +272,23 @@ function fakeMap() {
 }
 
 /** Obs as MapHub mounts it: the startup camera, the own-ship marker, and (when wanted) the phone dot. */
-function mountObs(target: ObsStartTarget = OBS_START_FOLLOW, phoneDot = false) {
+function mountObs(target: ObsStartTarget = OBS_START_FOLLOW, phoneDot = false, windSpeedUnit?: string) {
     const map = fakeMap();
     const mapRef = { current: map as unknown as mapboxgl.Map | null };
     const dotRef = { current: null as mapboxgl.Marker | null };
-    const view = renderHook(() => {
-        useObsStartupCamera(mapRef, true, true, target);
-        const tracker = useVesselTracker(mapRef, true, true, { names: NAMES, lookUp: true });
-        useLocationDot(mapRef, dotRef, true, phoneDot);
-        return tracker;
-    });
+    const view = renderHook(
+        ({ unit }: { unit?: string }) => {
+            useObsStartupCamera(mapRef, true, true, target);
+            const tracker = useVesselTracker(mapRef, true, true, {
+                names: NAMES,
+                lookUp: true,
+                windSpeedUnit: unit,
+            });
+            useLocationDot(mapRef, dotRef, true, phoneDot);
+            return tracker;
+        },
+        { initialProps: { unit: windSpeedUnit } },
+    );
     return { map, mapRef, dotRef, view };
 }
 
@@ -695,6 +703,124 @@ describe('the badge reads the one anchor-watch truth, for this boat only', () =>
         await settle();
         act(() => vi.advanceTimersByTime(1_000));
         expect(badge()).toBe('Stopped');
+    });
+});
+
+/**
+ * Build 123, W1-WC (Shane 2026-10-07: "as soon as the punter zooms out from
+ * there, then the wind models kick in"): wherever Obs's wind field is not
+ * showing her wind, her own reading rides on her own marker. The overlay
+ * publishes it (boatWindReadout); the marker shows it only on the boat it is
+ * for, and never while the field already shows it. Fictional values.
+ */
+describe('her own wind on her own marker', () => {
+    const HERS: BoatWindReadout = {
+        wind: { kt: 14, fromDeg: 200, stale: false },
+        boat: { crewOwnerId: null },
+        fieldShowsHers: false,
+    };
+    const windChip = () => vesselMarker()?.element.querySelector<HTMLElement>('.vessel-wind-chip') ?? null;
+    /** What her wind chip says, or null while it is hidden. */
+    const windText = () => {
+        const chip = windChip();
+        return !chip || chip.style.display === 'none'
+            ? null
+            : (chip.querySelector('.vessel-wind-text')?.textContent ?? null);
+    };
+    const name = () => vesselMarker()?.element.getAttribute('aria-label') ?? null;
+
+    beforeEach(() => {
+        follow('boat');
+        deps.piBaseUrl = 'https://pi.test:3001';
+        cloudRow(cloudFixAt(BOAT, NOW - 5_000, { sogKts: 0.1 }));
+    });
+    afterEach(() => setBoatWindReadout(null));
+
+    it('her reading on her marker, after her own words in its name; gone when the field takes it over', async () => {
+        mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        expect(windText()).toBeNull();
+        act(() => setBoatWindReadout(HERS));
+        expect(windText()).toBe('14 kt SSW');
+        expect(name()).toBe('Kittiwake, stopped; heading unavailable; boat wind 14 knots from south-south-west');
+        // The badge keeps its words.
+        expect(badge()).toBe('Stopped');
+        // Zoomed back in to 14: the field paints her wind, and her marker lets go.
+        act(() => setBoatWindReadout({ ...HERS, fieldShowsHers: true }));
+        expect(windText()).toBeNull();
+        expect(name()).toBe('Kittiwake, stopped; heading unavailable');
+        // Out again; then her reading gone (aged out, scrubbed away, wind off).
+        act(() => setBoatWindReadout(HERS));
+        expect(windText()).toBe('14 kt SSW');
+        act(() => setBoatWindReadout(null));
+        expect(windText()).toBeNull();
+    });
+
+    it('in the user’s own speed unit, repainted when it changes', async () => {
+        const { view } = mountObs(OBS_START_FOLLOW, false, 'kmh');
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        act(() => setBoatWindReadout(HERS));
+        expect(windText()).toBe('26 km/h SSW');
+        expect(name()).toMatch(/; boat wind 26 kilometres per hour from south-south-west$/);
+        view.rerender({ unit: 'mps' });
+        expect(windText()).toBe('7.2 m/s SSW');
+    });
+
+    it('a marker drawn after her reading arrived wears it at once', async () => {
+        act(() => setBoatWindReadout(HERS));
+        mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        expect(vesselMarker()).toBeDefined();
+        expect(windText()).toBe('14 kt SSW');
+    });
+
+    it('another boat’s wind never rides on her', async () => {
+        mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        act(() => setBoatWindReadout({ ...HERS, boat: { crewOwnerId: SKIPPER } }));
+        expect(windText()).toBeNull();
+        expect(name()).toBe('Kittiwake, stopped; heading unavailable');
+    });
+
+    it('the boat crewed on wears her own wind, not the own boat’s', async () => {
+        crewOnWindDancer();
+        follow('crew');
+        deps.cloudFix.mockImplementation(async (_now, owner) =>
+            owner === SKIPPER ? cloudFixAt(CREWED) : owner === 'self' ? cloudFixAt(BOAT) : null,
+        );
+        mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(1_000));
+        act(() => setBoatWindReadout(HERS));
+        expect(windText()).toBeNull();
+        act(() =>
+            setBoatWindReadout({
+                wind: { kt: 22, fromDeg: 90, stale: false },
+                boat: { crewOwnerId: SKIPPER },
+                fieldShowsHers: false,
+            }),
+        );
+        expect(windText()).toBe('22 kt E');
+        expect(name()).toMatch(/^Wind Dancer, stopped; .*; boat wind 22 knots from east$/);
+    });
+
+    it('the phone’s own marker never wears a boat’s wind', async () => {
+        follow('phone');
+        deps.piBaseUrl = null;
+        deps.cloudFix.mockImplementation(async () => null);
+        phoneLive(HOME);
+        const { view } = mountObs();
+        await settle();
+        act(() => vi.advanceTimersByTime(2_000));
+        emitPhone(HOME);
+        expect(view.result.current.subject).toBe('phone');
+        act(() => setBoatWindReadout(HERS));
+        expect(windText()).toBeNull();
+        expect(name()).toBe('Own ship, stopped; heading unavailable');
     });
 });
 
