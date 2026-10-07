@@ -1,0 +1,13 @@
+{
+  "table": {
+    "columnNames": ["station_id", "longitude", "latitude", "time", "WaveHeight", "WavePeriod", "MeanWaveDirection", "Hmax", "Tp", "SeaTemperature", "QC_Flag"],
+    "columnTypes": ["String", "double", "double", "String", "double", "double", "double", "double", "double", "double", "int"],
+    "columnUnits": [null, "degrees_east", "degrees_north", "UTC", "meters", "seconds", "degrees_true", "meters", "seconds", "degrees_C", null],
+    "rows": [
+      ["M2", -5.4302, 53.4836, "2026-10-07T16:00:00Z", 1.289, 3.867, 328, 1.875, 4.336, 14.778, 0],
+      ["M3", -10.548261, 51.215956, "2026-10-07T16:00:00Z", 2.695, 5.859, 319, 4.219, 11.133, 15.251, 0],
+      ["M5", -6.704336, 51.690425, "2026-10-07T16:00:00Z", 1.406, 4.219, 357, 2.188, 4.57, 16.062, 0],
+      ["M6", -15.88135, 53.07482, "2026-10-07T16:00:00Z", 2.93, 7.852, 318, 5.156, 11.133, 14.436, 0]
+    ]
+  }
+}

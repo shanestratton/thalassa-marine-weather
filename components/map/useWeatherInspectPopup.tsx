@@ -38,6 +38,8 @@ import { createRoot } from 'react-dom/client';
 import { triggerHaptic } from '../../utils/system';
 import { coordName } from './mapHubHelpers';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
+import type { NearestBuoyResult } from '../../services/weather/buoys/types';
+import type { BuoyLineUnits } from '../../services/weather/buoys/describe';
 import {
     buildRemoveLocationPatch,
     buildSaveLocationPatch,
@@ -62,6 +64,8 @@ const getWeatherInspectPopup = async () => {
 interface InspectSettings {
     savedLocations?: string[];
     savedLocationCoords?: Record<string, { lat: number; lon: number }>;
+    /** Wave-height and distance units for the nearest-buoy line. */
+    units?: BuoyLineUnits;
 }
 
 export interface WeatherInspectPopup {
@@ -128,12 +132,14 @@ export function useWeatherInspectPopup(
                 error: string | null;
                 suggestedName: string;
                 savedAs: string | null;
+                buoy: NearestBuoyResult | 'checking' | null;
             } = {
                 data: null,
                 loading: true,
                 error: null,
                 suggestedName: coordName(lat, lon),
                 savedAs: findSavedAt(settingsRef.current.savedLocationCoords, lat, lon),
+                buoy: 'checking',
             };
 
             // Reverse geocode ONCE, and only when the punter opens the name
@@ -169,6 +175,8 @@ export function useWeatherInspectPopup(
                             error={view.error}
                             onRetry={() => loadWeather()}
                             onClose={closePopup}
+                            buoy={view.buoy}
+                            units={settingsRef.current.units}
                             save={{
                                 suggestedName: view.suggestedName,
                                 savedAs: view.savedAs,
@@ -307,6 +315,23 @@ export function useWeatherInspectPopup(
             };
 
             loadWeather();
+
+            // MEASURED, NOT MODELLED (build 123, W1-11): the nearest wave buoy
+            // within 50 NM, fetched alongside the forecast and painted when it
+            // lands. Lazy: the feeds and their parsers stay out of the map
+            // chunk until someone taps the sea.
+            void import('../../services/weather/buoys/feed')
+                .then(({ findNearestWaveBuoy }) => findNearestWaveBuoy(lat, lon))
+                .then((result) => {
+                    if (inspectRootRef.current !== root) return;
+                    view.buoy = result;
+                    paint();
+                })
+                .catch(() => {
+                    if (inspectRootRef.current !== root) return;
+                    view.buoy = null;
+                    paint();
+                });
         },
         [mapRef, settingsRef, updateSettings, closeWeatherInspect],
     );
