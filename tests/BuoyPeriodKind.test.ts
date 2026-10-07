@@ -21,10 +21,13 @@ vi.mock('../services/PiCacheService', () => ({ piCache: pi }));
 
 import { findAndFetchNearestBeacon } from '../services/weather/api/beaconService';
 import { MAJOR_BUOYS } from '../services/weather/config';
+import { resetBuoyFeedCache } from '../services/weather/buoys/feed';
 
 beforeEach(() => {
     pi.passthroughJson.mockReset();
     pi.passthroughText.mockReset();
+    // The Queensland feed is cached for 10 min across calls (W1-11).
+    resetBuoyFeedCache();
 });
 
 const at = (id: string) => {
@@ -33,10 +36,24 @@ const at = (id: string) => {
     return b;
 };
 
+// The live feed's shape (W1-11): the site's live name, its position and the
+// Seconds epoch the reader times it by, half an hour ago.
 const waveRecord = (fields: Record<string, string>) => ({
     success: true,
     result: {
-        records: [{ Site: 'Fictional', Hs: '1.42', Direction: '110', SST: '22.1', ...fields }],
+        records: [
+            {
+                Site: 'Mooloolaba',
+                SiteNumber: '4',
+                Seconds: String(Math.round(Date.now() / 1000) - 1800),
+                Latitude: '-26.56611',
+                Longitude: '153.18102',
+                Hs: '1.42',
+                Direction: '110',
+                SST: '22.1',
+                ...fields,
+            },
+        ],
     },
 });
 

@@ -13,6 +13,8 @@ import { ThermometerIcon, WaveIcon, WindIcon } from '../icons/WeatherIcons';
 import { GaugeIcon } from '../icons/MaritimeIcons';
 import { CheckIcon, RefreshIcon, StarIcon } from '../icons/UIIcons';
 import { GustIcon, WavePeriodIcon } from '../icons/GlassGlyphs';
+import { describeNearestBuoy, type BuoyLineUnits } from '../../services/weather/buoys/describe';
+import type { NearestBuoyResult } from '../../services/weather/buoys/types';
 
 /**
  * Save affordance. The popup renders in its OWN React root (MapHub calls
@@ -46,6 +48,13 @@ interface Props {
     onClose: () => void;
     /** Omitted where saving makes no sense (e.g. no settings owner). */
     save?: InspectSaveProps;
+    /**
+     * The nearest wave buoy: 'checking' while the feeds load, the answer once
+     * they have, null (or omitted) when there is no check to show.
+     */
+    buoy?: NearestBuoyResult | 'checking' | null;
+    /** The user's wave-height and distance units, for the buoy line. */
+    units?: BuoyLineUnits;
 }
 
 // ── Direction helpers ──
@@ -225,7 +234,7 @@ const SaveRow: React.FC<{ save: InspectSaveProps }> = ({ save }) => {
 
 // ── Main component ──
 
-export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onRetry, onClose, save }) => {
+export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onRetry, onClose, save, buoy, units }) => {
     const hasMarine = data && data.waveHeightM != null && data.waveHeightM > 0;
     /**
      * The sea half is still in the air. The atmospherics now paint as soon as
@@ -495,6 +504,14 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, error, onR
                             >
                                 Marine wave data could not be reached. Wind and pressure above are still available.
                             </div>
+                        )}
+
+                        {/* Measured, not modelled: the nearest wave buoy, owner
+                            credited. Not on land, and nothing when no check ran. */}
+                        {data && !loading && buoy && data.marineStatus !== 'land' && (
+                            <p role="status" aria-live="polite" className="mt-2 text-xs leading-relaxed text-white/70">
+                                {buoy === 'checking' ? 'Checking wave buoys…' : describeNearestBuoy(buoy, units)}
+                            </p>
                         )}
 
                         {data && !loading && (

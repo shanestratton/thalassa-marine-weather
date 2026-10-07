@@ -1,0 +1,174 @@
+{
+ "help": "https://www.data.qld.gov.au/api/3/action/help_show?name=datastore_search",
+ "success": true,
+ "result": {
+  "records_format": "objects",
+  "resource_id": "2bbef99e-9974-49b9-a316-57402b00609c",
+  "records": [
+   {
+    "_id": 724,
+    "Site": "North Moreton Bay",
+    "SiteNumber": "52",
+    "Seconds": "1791342000",
+    "DateTime": "2026-10-07T13:00:00",
+    "Latitude": "-26.89825",
+    "Longitude": "153.28129",
+    "Hsig": "1.141",
+    "Hmax": "2.090",
+    "Tp": "3.850",
+    "Tz": "4.082",
+    "SST": "21.90",
+    "Direction": "156.10",
+    "Current Speed": "-99.90",
+    "Current Direction": "-99.90"
+   },
+   {
+    "_id": 2159,
+    "Site": "Townsville",
+    "SiteNumber": "10",
+    "Seconds": "1791342000",
+    "DateTime": "2026-10-07T13:00:00",
+    "Latitude": "-19.17581",
+    "Longitude": "147.07462",
+    "Hsig": "0.367",
+    "Hmax": "0.540",
+    "Tp": "3.030",
+    "Tz": "2.878",
+    "SST": "24.40",
+    "Direction": "90.24",
+    "Current Speed": "-99.90",
+    "Current Direction": "-99.90"
+   },
+   {
+    "_id": 4778,
+    "Site": "Brisbane Mk4",
+    "SiteNumber": "4183",
+    "Seconds": "1791340200",
+    "DateTime": "2026-10-07T12:30:00",
+    "Latitude": "-27.48926",
+    "Longitude": "153.63314",
+    "Hsig": "2.520",
+    "Hmax": "4.850",
+    "Tp": "6.900",
+    "Tz": "5.430",
+    "SST": "22.23",
+    "Direction": "162.67",
+    "Current Speed": "0.25",
+    "Current Direction": "190.33"
+   },
+   {
+    "_id": 723,
+    "Site": "North Moreton Bay",
+    "SiteNumber": "52",
+    "Seconds": "1791340200",
+    "DateTime": "2026-10-07T12:30:00",
+    "Latitude": "-26.89798",
+    "Longitude": "153.28172",
+    "Hsig": "1.121",
+    "Hmax": "1.960",
+    "Tp": "3.850",
+    "Tz": "3.960",
+    "SST": "21.90",
+    "Direction": "153.30",
+    "Current Speed": "-99.90",
+    "Current Direction": "-99.90"
+   },
+   {
+    "_id": 2158,
+    "Site": "Townsville",
+    "SiteNumber": "10",
+    "Seconds": "1791340200",
+    "DateTime": "2026-10-07T12:30:00",
+    "Latitude": "-19.17572",
+    "Longitude": "147.07494",
+    "Hsig": "0.358",
+    "Hmax": "0.700",
+    "Tp": "3.570",
+    "Tz": "2.878",
+    "SST": "24.25",
+    "Direction": "84.54",
+    "Current Speed": "-99.90",
+    "Current Direction": "-99.90"
+   },
+   {
+    "_id": 4777,
+    "Site": "Brisbane Mk4",
+    "SiteNumber": "4183",
+    "Seconds": "1791338400",
+    "DateTime": "2026-10-07T12:00:00",
+    "Latitude": "-27.48926",
+    "Longitude": "153.63323",
+    "Hsig": "2.300",
+    "Hmax": "4.020",
+    "Tp": "6.250",
+    "Tz": "5.250",
+    "SST": "22.27",
+    "Direction": "174.63",
+    "Current Speed": "0.29",
+    "Current Direction": "184.88"
+   }
+  ],
+  "fields": [
+   {
+    "id": "_id",
+    "type": "int"
+   },
+   {
+    "id": "Site",
+    "type": "text"
+   },
+   {
+    "id": "SiteNumber",
+    "type": "text"
+   },
+   {
+    "id": "Seconds",
+    "type": "text"
+   },
+   {
+    "id": "DateTime",
+    "type": "text"
+   },
+   {
+    "id": "Latitude",
+    "type": "text"
+   },
+   {
+    "id": "Longitude",
+    "type": "text"
+   },
+   {
+    "id": "Hsig",
+    "type": "text"
+   },
+   {
+    "id": "Hmax",
+    "type": "text"
+   },
+   {
+    "id": "Tp",
+    "type": "text"
+   },
+   {
+    "id": "Tz",
+    "type": "text"
+   },
+   {
+    "id": "SST",
+    "type": "text"
+   },
+   {
+    "id": "Direction",
+    "type": "text"
+   },
+   {
+    "id": "Current Speed",
+    "type": "text"
+   },
+   {
+    "id": "Current Direction",
+    "type": "text"
+   }
+  ]
+ }
+}

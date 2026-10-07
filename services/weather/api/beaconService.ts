@@ -1,5 +1,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { BeaconObservation, BuoyStation } from '../../../types';
+import type { BuoyObs } from '../buoys/types';
+import { BUOY_MAX_AGE_MS } from '../buoys/qc';
 import { MAJOR_BUOYS } from '../config';
 import { piCache } from '../../PiCacheService';
 
@@ -10,21 +12,40 @@ const _log = createLogger('beaconService');
 
 // --- CONSTANTS ---
 const NDBC_BASE_URL = 'https://www.ndbc.noaa.gov/data/realtime2';
-const QLD_WAVE_API_BASE = 'https://www.data.qld.gov.au/api/3/action/datastore_search';
 const MAX_BEACON_DISTANCE_NM = 10; // nautical miles
+/**
+ * A MAJOR_BUOYS entry may stand for a buoy some miles off (Cape Byron reads
+ * the Tweed Offshore buoy, 25 NM north), but never for one further than the
+ * app calls "nearby" (the popup's 50 NM, W1-11). The M5 entry sits at Belmullet
+ * while the live M5 buoy is ~200 NM away off Wexford.
+ */
+const MAX_STAND_IN_NM = 50;
+/**
+ * NDBC buoys alternate met-only rows with wave rows minutes apart (CDIP every
+ * 30 min). A wave row further back than this belongs to an earlier sea, not to
+ * the reading it would be stamped with.
+ */
+const NDBC_WAVE_ROW_WINDOW_MS = 60 * 60 * 1000;
 
-// Queensland wave buoy master resource ID (all sites in one dataset)
-const QLD_WAVE_MASTER_RESOURCE = '2bbef99e-9974-49b9-a316-57402b00609c';
-
-// Map buoy IDs to Queensland site names for filtering
+// MAJOR_BUOYS ids → the Queensland wave feed's LIVE site names (checked
+// against the feed 2026-10-07). 'Brisbane', 'Gold Coast' and 'Tweed River'
+// no longer exist there (the Mk4 replacements carry new names), so those three
+// never matched; and Double Island Point was mapped to Caloundra, 50 NM south,
+// when the Wide Bay buoy sits 10 NM off the point.
 const QLD_SITE_MAPPING: Record<string, string> = {
-    Moreton: 'Brisbane',
+    Moreton: 'Brisbane Mk4',
     MB_Cent: 'North Moreton Bay',
     Spitfire: 'North Moreton Bay',
     Mooloolaba: 'Mooloolaba',
-    GoldCoast: 'Gold Coast',
-    Byron: 'Tweed River',
-    DoubleIsland: 'Caloundra',
+    GoldCoast: 'Gold Coast Mk4',
+    Byron: 'Tweed Offshore',
+    DoubleIsland: 'Wide Bay',
+    // Unmapped until 2026-10-08, so these four read nothing although a live
+    // site is a few miles off (the measured distance is what the app shows).
+    Stradbroke: 'Brisbane Mk4',
+    Townsville: 'Townsville',
+    Cairns: 'Cairns Mk4',
+    Gladstone: 'Gladstone',
 };
 
 // --- NDBC (NOAA) BUOY FETCHING ---
@@ -35,10 +56,14 @@ interface NDBCRawData {
     windGust?: number;
     waveHeight?: number;
     dominantWavePeriod?: number;
+    /** Direction the WAVES come from — never the wind's. */
+    waveDirection?: number;
     waterTemp?: number;
     airTemp?: number;
     pressure?: number;
     timestamp?: string;
+    /** The station that actually measured it, when it is not the MAJOR_BUOYS entry itself. */
+    station?: { name: string; lat: number; lon: number };
 }
 
 /**
@@ -101,44 +126,68 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
             return null;
         }
 
-        // Line 1: Headers, Line 2: Units, Line 3+: Data
-        const headers = lines[0].split(/\s+/);
-        const dataLine = lines[2].split(/\s+/);
+        // Line 1: Headers, Line 2: Units, Line 3+: Data, newest first. The
+        // header's first column is '#YY' and the year has four digits; keying
+        // on 'YY' meant no NDBC reading ever had a time (and "now" stood in).
+        const headers = lines[0].replace(/^#/, '').trim().split(/\s+/);
+        const rowAt = (index: number): Record<string, string> => {
+            const cells = (lines[index] ?? '').trim().split(/\s+/);
+            const row: Record<string, string> = {};
+            headers.forEach((header: string, i: number) => {
+                row[header] = cells[i];
+            });
+            return row;
+        };
+        const data = rowAt(2);
+        const rowTime = (row: Record<string, string>): number | null => {
+            if (!row.YY || !row.MM || !row.DD || !row.hh || !row.mm) return null;
+            const year = row.YY.length === 2 ? 2000 + Number(row.YY) : Number(row.YY);
+            const ms = Date.UTC(year, Number(row.MM) - 1, Number(row.DD), Number(row.hh), Number(row.mm));
+            return Number.isFinite(ms) ? ms : null;
+        };
 
-        // Parse into object
-        const data: Record<string, string> = {};
-        headers.forEach((header: string, i: number) => {
-            data[header] = dataLine[i];
-        });
+        // A station that stops reporting keeps its last rows in the file for
+        // days (41002 'South Hatteras' last reported 2026-10-03 and was still
+        // served on 10-07). Older than 3 h, or untimed, is not a measurement
+        // to merge as current.
+        const newestAt = rowTime(data);
+        if (newestAt === null || Date.now() - newestAt > BUOY_MAX_AGE_MS) {
+            return null;
+        }
 
         // Extract relevant metrics (handle missing data marked as "MM" or 9999)
-        const parseValue = (val: string, missing: string = 'MM'): number | undefined => {
+        const parseValue = (val: string | undefined, missing: string = 'MM'): number | undefined => {
             if (!val || val === missing || val === '9999') return undefined;
             const parsed = parseFloat(val);
             return isNaN(parsed) ? undefined : parsed;
         };
 
-        // Build timestamp from YYYY MM DD hh mm
-        let timestamp: string | undefined;
-        if (data.YY && data.MM && data.DD && data.hh && data.mm) {
-            const year = `20${data.YY}`;
-            const month = data.MM.padStart(2, '0');
-            const day = data.DD.padStart(2, '0');
-            const hour = data.hh.padStart(2, '0');
-            const minute = data.mm.padStart(2, '0');
-            timestamp = `${year}-${month}-${day}T${hour}:${minute}:00Z`;
+        // NDBC's own buoys alternate met-only rows with wave rows, so the
+        // waves come from the newest row that has them, but only within the
+        // hour of the stamped reading: a sensor that has been down for hours
+        // gives no waves rather than old ones under a new time.
+        let waves: Record<string, string> = {};
+        for (let i = 2; i < lines.length; i++) {
+            const row = rowAt(i);
+            const at = rowTime(row);
+            if (at === null || newestAt - at > NDBC_WAVE_ROW_WINDOW_MS) break;
+            if (parseValue(row.WVHT) !== undefined) {
+                waves = row;
+                break;
+            }
         }
 
         return {
             windSpeed: parseValue(data.WSPD),
             windDirection: parseValue(data.WDIR),
             windGust: parseValue(data.GST),
-            waveHeight: parseValue(data.WVHT),
-            dominantWavePeriod: parseValue(data.DPD),
+            waveHeight: parseValue(waves.WVHT),
+            dominantWavePeriod: parseValue(waves.DPD),
+            waveDirection: parseValue(waves.MWD),
             waterTemp: parseValue(data.WTMP),
             airTemp: parseValue(data.ATMP),
             pressure: parseValue(data.PRES),
-            timestamp,
+            timestamp: new Date(newestAt).toISOString(),
         };
     } catch (error) {
         return null;
@@ -148,63 +197,41 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
 // --- BOM / QUEENSLAND GOVERNMENT BUOY FETCHING ---
 
 /**
- * Fetch real-time observation from Queensland Government wave buoy
- * Uses data.qld.gov.au API with CKAN datastore
+ * A reading from the shared buoy feed (services/weather/buoys), which owns the
+ * parsing and QC: the height column under either name it goes by, sentinels,
+ * 0,0 positions, the Seconds epoch, and nothing older than 3 h.
+ */
+function fromBuoyFeed(obs: BuoyObs): NDBCRawData {
+    return {
+        waveHeight: obs.hsM ?? undefined,
+        // The peak period (Tp), never the mean zero-crossing Tz (W1-07).
+        dominantWavePeriod: obs.periodS ?? undefined,
+        waveDirection: obs.fromDeg ?? undefined,
+        waterTemp: obs.sstC ?? undefined,
+        timestamp: new Date(obs.time).toISOString(),
+        station: { name: obs.owner ? `${obs.label} (${obs.owner})` : obs.label, lat: obs.lat, lon: obs.lon },
+        // Wave buoys carry no anemometer here.
+        windSpeed: undefined,
+        windDirection: undefined,
+        windGust: undefined,
+        airTemp: undefined,
+        pressure: undefined,
+    };
+}
+
+/**
+ * Real-time observation from a Queensland Government wave buoy, read from the
+ * live wave feed (one cached request covers every site).
  */
 async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
     try {
-        // Map buoy ID to Queensland site name
         const siteName = QLD_SITE_MAPPING[buoyId];
         if (!siteName) {
             return null;
         }
-
-        // Queensland Government Open Data API with site filter
-        const filters = encodeURIComponent(JSON.stringify({ Site: siteName }));
-        const url = `${QLD_WAVE_API_BASE}?resource_id=${QLD_WAVE_MASTER_RESOURCE}&filters=${filters}&limit=1&sort=DateTime%20desc`;
-
-        // Pi first, direct on null — see the NDBC note above; the old
-        // `piUrl || url` form dropped the reading whenever the Pi answered.
-        let data = await piCache.passthroughJson<unknown>(url, 30 * 60 * 1000, 'qld-wave-buoy');
-        if (data === null) {
-            const response = await CapacitorHttp.get({
-                url,
-                headers: { Accept: 'application/json' },
-            });
-            if (response.status !== 200 || !response.data) {
-                return null;
-            }
-            data = response.data;
-        }
-
-        const parsed = data as {
-            success?: boolean;
-            result?: { records?: Array<Record<string, string>> };
-        };
-        if (!parsed.success || !parsed.result?.records || parsed.result.records.length === 0) {
-            return null;
-        }
-
-        const record = parsed.result.records[0];
-
-        // Parse Queensland wave data format
-        // Fields: Hs (significant wave height), Hmax, Tz (period), Tp, Direction, SST (sea surface temp)
-        return {
-            waveHeight: parseFloat(record.Hs) || undefined,
-            // Tp only: this field is the dominant (peak) period, and Tz, the
-            // mean zero-crossing period, arrived under that name and was
-            // captioned 'Peak period'. With no Tp the merger uses the model's
-            // mean period instead (W1-07).
-            dominantWavePeriod: parseFloat(record.Tp) || undefined,
-            windDirection: parseFloat(record.Direction) || undefined,
-            waterTemp: parseFloat(record.SST) || undefined,
-            timestamp: record.DateTime || new Date().toISOString(),
-            // Wind data not typically available from wave buoys
-            windSpeed: undefined,
-            windGust: undefined,
-            airTemp: undefined,
-            pressure: undefined,
-        };
+        const { getFreshNetworkObs } = await import('../buoys/feed');
+        const obs = (await getFreshNetworkObs('qld-des')).find((o) => o.label === siteName);
+        return obs ? fromBuoyFeed(obs) : null;
     } catch (error) {
         return null;
     }
@@ -420,56 +447,16 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
 // --- IRISH MARINE INSTITUTE (ERDDAP) FETCHING ---
 
 /**
- * Fetch real-time wave and wind data from Irish Marine Institute
- * Uses ERDDAP API for M-series weather buoys
- *
- * Buoys: M2 (Galway), M3 (SW Ireland), M4 (Donegal), M5 (Belmullet), M6 (Porcupine)
- * Data: Wave height, period, water temp, wind (some stations)
+ * Irish Weather Buoy Network (M2–M6) via the Marine Institute's ERDDAP
+ * dataset IWBNetwork. The old IMI-EATL-WAVE dataset answers 404 and the old
+ * query was unencoded; the shared feed asks correctly, and THIS buoy's own
+ * row is returned (the old reader handed back whichever row came first).
  */
-async function fetchIrishBuoy(_buoyId: string): Promise<NDBCRawData | null> {
+async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
     try {
-        // Irish Marine ERDDAP endpoint - get latest observation
-        // Dataset: IMI-TidyOceans_latestData
-        const url = `https://erddap.marine.ie/erddap/tabledap/IMI-EATL-WAVE.json?time,latitude,longitude,VHM0,VTPK,VTM02,VPED,VTZA&time>now-3hours&orderByMax("time")`;
-
-        const response = await CapacitorHttp.get({
-            url,
-            headers: { Accept: 'application/json' },
-        });
-
-        if (response.status !== 200 || !response.data) {
-            return null;
-        }
-
-        const data = response.data;
-
-        // ERDDAP returns { table: { columnNames: [...], rows: [[...], ...] } }
-        if (!data.table?.rows?.length) {
-            return null;
-        }
-
-        // Get the latest row
-        const row = data.table.rows[0];
-        const cols = data.table.columnNames;
-
-        const getValue = (colName: string): number | undefined => {
-            const idx = cols.indexOf(colName);
-            if (idx === -1) return undefined;
-            const val = row[idx];
-            return val !== null && !isNaN(parseFloat(val)) ? parseFloat(val) : undefined;
-        };
-
-        return {
-            waveHeight: getValue('VHM0'), // Significant wave height (m)
-            dominantWavePeriod: getValue('VTPK'), // Peak wave period (s)
-            waterTemp: undefined, // Not in this dataset
-            windSpeed: undefined, // Wave buoys don't have wind
-            windGust: undefined,
-            windDirection: undefined,
-            airTemp: undefined,
-            pressure: undefined,
-            timestamp: row[cols.indexOf('time')] || new Date().toISOString(),
-        };
+        const { getFreshNetworkObs } = await import('../buoys/feed');
+        const obs = (await getFreshNetworkObs('irish-mi')).find((o) => o.key === `irish-mi:${buoyId}`);
+        return obs ? fromBuoyFeed(obs) : null;
     } catch (error) {
         return null;
     }
@@ -573,18 +560,24 @@ export async function findAndFetchNearestBeacon(
             const data = await fetchBuoyData(buoy);
             if (data) {
                 // Convert to BeaconObservation
+                // Name and place the station that actually measured it: a
+                // MAJOR_BUOYS entry can stand for a buoy some miles away.
+                const at = data.station;
+                const measuredAt = at ? calculateDistance(lat, lon, at.lat, at.lon) : distance;
+                if (measuredAt > MAX_STAND_IN_NM) continue;
                 const observation: BeaconObservation = {
                     buoyId: buoy.id,
-                    name: buoy.name,
-                    lat: buoy.lat,
-                    lon: buoy.lon,
-                    distance: distance,
+                    name: at?.name ?? buoy.name,
+                    lat: at?.lat ?? buoy.lat,
+                    lon: at?.lon ?? buoy.lon,
+                    distance: measuredAt,
                     timestamp: data.timestamp || new Date().toISOString(),
                     windSpeed: data.windSpeed,
                     windDirection: data.windDirection,
                     windGust: data.windGust,
                     waveHeight: data.waveHeight,
                     swellPeriod: data.dominantWavePeriod,
+                    swellDirection: data.waveDirection,
                     waterTemperature: data.waterTemp,
                     airTemperature: data.airTemp,
                     pressure: data.pressure,
