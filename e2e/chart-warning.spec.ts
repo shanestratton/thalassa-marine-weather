@@ -38,8 +38,9 @@ type TideFixture = 'none' | 'available';
  *  1024x520 split pane and nine on a 320px phone. The fixture's own style
  *  carries it, so it shows whatever base the test picks. */
 const LONG_CREDIT =
-    'Seafloor relief derived from GEBCO Compilation Group (2026) GEBCO 2026 Grid; GBR 30 m © Commonwealth of ' +
-    'Australia (Geoscience Australia), CC BY 4.0; coastline © OpenStreetMap contributors. Not for navigation.';
+    'Seafloor relief derived from GEBCO Compilation Group (2026) GEBCO 2026 Grid; based on Great Barrier Reef ' +
+    'Bathymetry 2020 30 m by Geoscience Australia, © Commonwealth of Australia, CC BY 4.0 (subject to its section 5 ' +
+    'disclaimer of warranties); coastline © OpenStreetMap contributors. Not for navigation.';
 
 async function openEmptyChart(
     page: Page,

@@ -182,6 +182,17 @@ describe('relief tiles', () => {
         // The land mask is OSM's: the ODbL Produced Work notice rides with the relief.
         expect(RELIEF_ATTRIBUTION).toContain('coastline &copy; OpenStreetMap contributors');
         expect(RELIEF_ATTRIBUTION).toContain('Not for navigation');
+        // Geoscience Australia's wording for derivative material (Copyright@ga.gov.au,
+        // 2026-10-07): based on the titled, linked material, by GA, © Commonwealth
+        // of Australia, the licence named and linked, and its section 5 disclaimer.
+        expect(RELIEF_ATTRIBUTION).toContain(
+            'based on <a href="https://pid.geoscience.gov.au/dataset/ga/115066" target="_blank" rel="noopener noreferrer">Great Barrier Reef Bathymetry 2020 30 m</a> by Geoscience Australia',
+        );
+        expect(RELIEF_ATTRIBUTION).toContain('&copy; Commonwealth of Australia');
+        expect(RELIEF_ATTRIBUTION).toMatch(
+            /<a href="https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/"[^>]*>CC BY 4\.0<\/a>/,
+        );
+        expect(RELIEF_ATTRIBUTION).toContain('section 5 disclaimer of warranties');
     });
 
     // Review 2026-10-05: with the world colour gone at z11, the 30 m grid's

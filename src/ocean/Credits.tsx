@@ -28,8 +28,15 @@ export function Credits({ context }: { context: ContextFile | null }) {
                 <a href="https://doi.org/10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa" rel="noopener noreferrer">
                     GEBCO Compilation Group (2026) GEBCO 2026 Grid
                 </a>
-                ; GBR 30 m © Commonwealth of Australia (Geoscience Australia), <Licence name="CC BY 4.0" />; both
-                recoloured and shaded into map tiles by Thalassa. Coastline © OpenStreetMap contributors. Base map ©{' '}
+                ; and based on{' '}
+                <a href="https://pid.geoscience.gov.au/dataset/ga/115066" rel="noopener noreferrer">
+                    Great Barrier Reef Bathymetry 2020 30 m
+                </a>{' '}
+                by Geoscience Australia which is © Commonwealth of Australia and is provided under a{' '}
+                <Licence name="CC BY 4.0" url="https://creativecommons.org/licenses/by/4.0/" /> (Creative Commons
+                Attribution 4.0 International) licence and is subject to the disclaimer of warranties in section 5 of
+                that licence. Both recoloured and shaded into map tiles by Thalassa. Coastline © OpenStreetMap
+                contributors. Base map ©{' '}
                 <a href="https://www.mapbox.com/about/maps/" rel="noopener noreferrer">
                     Mapbox
                 </a>{' '}
