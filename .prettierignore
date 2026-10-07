@@ -19,3 +19,9 @@ scripts/anchorages/.cache/
 # Generated Thalassa Ocean context layer (scripts/ocean/build-context.mjs):
 # data, one record per line, rebuilt rather than hand-edited.
 public/ocean-data/
+
+# Captured public buoy responses (NDBC, Queensland CKAN, Marine Institute
+# ERDDAP), kept byte-for-byte as recorded evidence (build 123, W1-11). The
+# readers parse them from raw text, so reformatting would stop them being the
+# responses the providers actually sent.
+tests/fixtures/buoys/
