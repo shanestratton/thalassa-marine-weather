@@ -201,6 +201,21 @@ class NmeaStoreClass {
     private remoteWindHistory: WindHistorySummary | null = null;
     private remoteWindSensor: string | null = null;
     private remoteWindSensorAt = 0;
+    /**
+     * The remote TWS exactly as the Pi dated it (its own wind-leaf sample time),
+     * or null when the latest snapshot carried no valid time. The store stamps
+     * every remote metric with this phone's receipt time, so this is the only
+     * place a dated Pi wind can be told from a re-stamped one ("Her wind vs the
+     * models", components/map/boatModelCheck).
+     */
+    private remoteWindSample: { kts: number; at: number; via: RemoteVia } | null = null;
+    /**
+     * When the remote feed a gateway socket replaced last delivered (this
+     * phone's clock), or 0. The store keeps that feed's values for their 13 s
+     * after the socket comes up, each stamped with its receipt time; anything
+     * stamped at or before this is the feed's, not the socket's.
+     */
+    private remoteFeedEndedAt = 0;
 
     constructor() {
         // A singleton survives account changes. Previous crews' history must not.
@@ -231,6 +246,7 @@ class NmeaStoreClass {
             this.state.connectionStatus = status;
             if (status === 'connected') {
                 if (this.state.remote) {
+                    this.remoteFeedEndedAt = this.state.remote.receivedAt;
                     this.clearGpsDiagnostics();
                     this.clearTrueHeading();
                 }
@@ -259,6 +275,7 @@ class NmeaStoreClass {
     stop(): void {
         this.running = false;
         this.clearWindHistory();
+        this.remoteFeedEndedAt = 0;
         // Reset connection status and notify UI before unsubscribing
         this.state.connectionStatus = 'disconnected';
         this.retireAllMetrics();
@@ -320,6 +337,25 @@ class NmeaStoreClass {
         if (!known) return null;
         // Partial evidence after a dropout is not a newly received Pi summary.
         return { ...known, asOf: Math.max(this.remoteWindHistory?.asOf ?? 0, known.latestAt) };
+    }
+
+    /**
+     * The remote feed's TWS with the Pi's own sample time and lane, while a
+     * remote feed stands and its latest snapshot dated the wind; null otherwise
+     * (no time on it, too old for its lane, a late row from a replaced sensor,
+     * an account change). `kts` is the exact value the store holds in `tws`.
+     */
+    getRemoteWindSample(): { kts: number; at: number; via: RemoteVia } | null {
+        return this.state.remote && this.remoteWindSample ? { ...this.remoteWindSample } : null;
+    }
+
+    /**
+     * When the remote feed that a gateway socket replaced last delivered, or 0:
+     * a metric stamped at or before it is the feed's leftover, re-stamped on
+     * receipt, not the socket's own reading.
+     */
+    getRemoteFeedEndedAt(): number {
+        return this.remoteFeedEndedAt;
     }
 
     /** Subscribe to state changes. Returns unsubscribe function. */
@@ -523,6 +559,7 @@ class NmeaStoreClass {
         this.remoteWindHistory = null;
         this.remoteWindSensor = null;
         this.remoteWindSensorAt = 0;
+        this.remoteWindSample = null;
     }
 
     private clearTrueHeading(): void {
@@ -597,6 +634,8 @@ class NmeaStoreClass {
     }
 
     private ingestRemoteWind(snapshot: RemoteInstrumentSnapshot, now: number): void {
+        // Each snapshot is a complete report: undated wind must not keep an older time.
+        this.remoteWindSample = null;
         const identity = snapshot.windHistoryIdentity?.trim() || snapshot.deviceLabel?.trim() || 'unidentified';
         this.selectWindHistorySource(
             `${snapshot.source}:${identity}`,
@@ -654,7 +693,10 @@ class NmeaStoreClass {
         }
         // reportedAt describes the whole row: fresh GPS can coexist with stale
         // wind. Only an explicit original wind-leaf timestamp proves a sample.
-        if (validSampleAt) this.windHistory.add(snapshot.twsKts, validSampleAt, now);
+        if (validSampleAt) {
+            this.windHistory.add(snapshot.twsKts, validSampleAt, now);
+            this.remoteWindSample = { kts: snapshot.twsKts as number, at: validSampleAt, via: snapshot.via ?? 'cloud' };
+        }
     }
 
     /**
