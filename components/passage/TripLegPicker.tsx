@@ -42,6 +42,13 @@ import {
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import { ErrorBoundary } from '../ErrorBoundary';
+
+/** Cyclone season along the trip (W1-12): the card and its IBTrACS JSON load only when a trip's legs open. */
+const SeasonRiskCard = React.lazy(() => import('./SeasonRiskCard'));
+/** The card is optional: if its chunk 404s after a web deploy, show nothing rather than
+ *  crash the Plan page. (ErrorBoundary treats a null fallback as "show the crash card".) */
+const RENDER_NOTHING = <></>;
 
 // Grouping is the SHARED helper (groupTracesByTrip) so this Trip box and the
 // tracer card's "open a saved route" list can never drift (2026-07-17).
@@ -130,6 +137,11 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
     const countId = React.useId();
     const selected = trips.find((t) => t.key === selectedKey) ?? null;
     const lastLeg = selected ? selected.legs[selected.legs.length - 1] : null;
+    // Saved legs carry their own line (and no dates): the card shows the whole-year strip.
+    const seasonLegs = React.useMemo(
+        () => (selected ? selected.legs.map((leg) => ({ points: leg.points })) : []),
+        [selected],
+    );
     const seed = lastLeg ? nextLegSeed(lastLeg) : null;
     // The scope these rows were built under travels with the request, so a
     // tap that lands after a sign-out/sign-in is refused, not relabelled.
@@ -301,6 +313,14 @@ export const TripLegPicker: React.FC<{ onOpenChart: () => void }> = ({ onOpenCha
                                         </span>
                                     </button>
                                 )}
+                                {/* After the legs and their actions, never in front of them. */}
+                                <div className="pt-2">
+                                    <ErrorBoundary boundaryName="SeasonRiskCard" fallback={RENDER_NOTHING}>
+                                        <React.Suspense fallback={null}>
+                                            <SeasonRiskCard routeLegs={seasonLegs} />
+                                        </React.Suspense>
+                                    </ErrorBoundary>
+                                </div>
                             </div>
                         </div>
                     </div>,
