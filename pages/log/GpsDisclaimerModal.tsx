@@ -7,7 +7,8 @@
  * as a "WiFi gateway" (a Bad Elf is a Bluetooth receiver that feeds the
  * phone's own location). It now says which receiver is logging, honestly,
  * and how to use the boat instead. Centred and clear of the tab bar (the
- * modal rule, 2026-08-31).
+ * modal rule, 2026-08-31). Its two paragraphs are set at leading-normal so the
+ * whole notice, the Always advice included, fits 320x568 in wide fonts (fit123).
  */
 import React from 'react';
 import { OverlayPortal } from '../../components/ui/OverlayPortal';
@@ -52,13 +53,13 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
                         Logging from this phone
                     </h3>
                 </div>
-                <p id="gps-disclaimer-description" className="text-sm text-slate-300 leading-relaxed mb-2">
+                <p id="gps-disclaimer-description" className="text-sm text-slate-300 leading-normal mb-2">
                     A phone&apos;s GPS is less accurate on the water than a boat&apos;s own receiver. If your boat has a
                     GPS on an NMEA network — through a Wi-Fi gateway or a Thalassa Pi — connect it and the log will use
                     your boat instead.
                 </p>
                 {alwaysAdvice && (
-                    <p id="gps-disclaimer-always" className="text-sm text-slate-400 leading-relaxed mb-2">
+                    <p id="gps-disclaimer-always" className="text-sm text-slate-400 leading-normal mb-2">
                         To keep recording if iOS closes Thalassa, set Location to Always: Settings › Privacy &amp;
                         Security › Location Services › Thalassa › Always.
                     </p>

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { DIARY_DEVICES, type DiaryDevice } from '../e2e/fixtures/diary-compose-devices';
+import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 
 /**
  * "Her wind vs the models" (Shane 2026-10-07: "go with your recommendation big
@@ -7,13 +8,18 @@ import { DIARY_DEVICES, type DiaryDevice } from '../e2e/fixtures/diary-compose-d
  * fixture page with the app's tab bar (e2e/fixtures/model-check.tsx), in every
  * state it has. House rules measured, not assumed: centred and clear of the tab
  * bar, the whole card on one screen with no scroll on every phone from 320x568
- * up (the body may scroll only as a last resort in three named cells), 44 pt
+ * up (the body may scroll only as a last resort in two named cells), 44 pt
  * controls that hit-test, nothing under 12 px, nothing sideways.
  *
  * env() is 0 under Playwright, so the fixture paints each device's REAL insets
  * (DIARY_DEVICES) onto the overlay and the tab bar, and every cell also checks
  * the card's natural height against the band those insets leave:
  * H − max(16, top) − (64 + bottom + 16).
+ *
+ * Every cell is in wide fonts (Verdana on a Mac, DejaVu Sans on the Linux
+ * runner), the house fit rule: the CI runner draws the app's sans face as
+ * DejaVu Sans whatever the spec asks for, so a cell in the Mac's own face
+ * passed here and failed there (run 37683972847, the marina card at 320x568).
  */
 
 const PER_LOAD_MS = 5_000;
@@ -55,7 +61,6 @@ const CASES: { state: State; unit: Unit }[] = [
 
 interface Cell {
     device: DiaryDevice;
-    wide?: boolean;
     largeText?: boolean;
     /** Body scroll allowed as a last resort for these states (all when true). */
     mayScroll?: boolean | State[];
@@ -85,11 +90,13 @@ async function open(page: Page, cell: Cell) {
         bottom: String(device.bottom),
     });
     if (device.pane) query.set('pane', 'true');
-    if (cell.wide) query.set('fonts', 'wide');
+    query.set('fonts', 'wide');
     if (cell.largeText) query.set('largeText', '');
     await page.goto(`/e2e/fixtures/model-check.html?${query}`);
-    await expect(page.getByRole('dialog', { name: 'Her wind vs the models' })).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'Her wind vs the models' });
+    await expect(dialog).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
+    await expectWideFaceDrawn(dialog);
     return errors;
 }
 
@@ -239,7 +246,7 @@ async function expectCell(page: Page, cell: Cell, info: { state: State; unit: Un
 
 function cellName(cell: Cell): string {
     const d = cell.device;
-    return `${d.name} ${d.width}x${d.height} (${d.top}/${d.bottom})${cell.wide ? ', wide fonts' : ''}${cell.largeText ? ', large text' : ''}`;
+    return `${d.name} ${d.width}x${d.height} (${d.top}/${d.bottom}), wide fonts${cell.largeText ? ', large text' : ''}`;
 }
 
 /** Attached for review: the states a skipper sees most, and the heaviest. */
@@ -253,7 +260,7 @@ async function runCell(page: Page, cell: Cell, info: TestInfo) {
         await show(page, c.state, c.unit);
         await expectCell(page, cell, c);
         if (cell.shots && SHOTS.includes(c.state) && c.unit === (c.state === 'worst' ? 'kmh' : 'kts')) {
-            const name = `model-check-${c.state}-${c.unit}-${cell.device.width}x${cell.device.height}${cell.wide ? '-wide' : ''}`;
+            const name = `model-check-${c.state}-${c.unit}-${cell.device.width}x${cell.device.height}`;
             const path = info.outputPath(`${name}.png`);
             await page.screenshot({ path, animations: 'disabled' });
             await info.attach(name, { path, contentType: 'image/png' });
@@ -263,19 +270,13 @@ async function runCell(page: Page, cell: Cell, info: TestInfo) {
 }
 
 const MUST_FIT: Cell[] = [
+    // 320x568: every state, the marina and current notes included (fit123).
     { device: D['iphone-se-zoomed'], shots: true },
     { device: D['iphone-se'] },
     { device: D['iphone-14-zoomed'] },
     { device: D['iphone-16-zoomed'] },
     { device: D['iphone-14'], shots: true },
     { device: D['tablet-pane'], shots: true },
-    { device: D['iphone-se'], wide: true },
-    { device: D['iphone-14-zoomed'], wide: true },
-    { device: D['iphone-16-zoomed'], wide: true },
-    { device: D['iphone-14'], wide: true },
-    // 320x568 with wide fonts: every state but 'worst' (and the marina case, as heavy), which may
-    // scroll the body as a last resort; header and credit are still checked whole and hit-testable.
-    { device: D['iphone-se-zoomed'], wide: true, mayScroll: ['worst', 'marina'], shots: true },
 ];
 const LAST_RESORT: Cell[] = [
     { device: D['iphone-14-landscape'], mayScroll: true, shots: true },
@@ -356,10 +357,13 @@ for (const size of [
         // The page's clock, so the 6 s auto-hide can be stepped past rather than waited out:
         // the CI job these specs run in sits near its time cap.
         await page.clock.install();
+        // Wide fonts here too, so the panel wraps on a Mac as it does on CI.
+        await applyWideFonts(page);
         await page.goto('/e2e/fixtures/weather-controls.html?follow=boat');
         const panel = page.getByRole('region', { name: 'Weather controls', exact: true });
         await expect(panel).toBeVisible();
         await page.evaluate(() => document.fonts.ready);
+        await expectWideFaceDrawn(panel);
 
         // The Wind timeline is still whole on arrival: the row sits below it.
         const slider = page.getByRole('slider', { name: 'Wind timeline' });
