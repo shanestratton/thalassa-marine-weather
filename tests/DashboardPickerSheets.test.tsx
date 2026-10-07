@@ -142,7 +142,10 @@ describe('dashboard picker sheets', () => {
         // UK Met Office open data is share-alike, not plain CC BY.
         expect(forecastCreditLine('ukmo_global_deterministic_10km')).toBe('Forecast: UK Met Office · CC BY-SA 4.0');
         // Blends credit every source, each under its own licence.
-        expect(forecastCreditLine('best_match')).toMatch(/\(CC BY 4\.0\); UKMO \(CC BY-SA 4\.0\)$/);
+        // NOAA's data is a US Government work: public domain, not CC BY.
+        expect(forecastCreditLine('best_match')).toMatch(
+            /\(CC BY 4\.0\); UKMO \(CC BY-SA 4\.0\); NOAA \(public domain\)$/,
+        );
         expect(forecastCreditLine('dwd_icon', 'sg')).toBe('Forecast: StormGlass blend');
         expect(forecastCreditLine('dwd_icon', 'ecmwf')).toBe('Forecast: ECMWF via StormGlass');
     });

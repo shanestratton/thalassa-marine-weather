@@ -53,6 +53,9 @@ export default defineConfig({
         'ownship-boat-marker.spec.ts',
         // Her wind vs the models: card fits, centred above the tab bar (e2e/fixtures/model-check.tsx).
         'model-check-layout.spec.ts',
+        // The ten-day model comparison: seven models, the member strip and the
+        // credit fit one screen, centred above the tab bar (e2e/fixtures/model-compare.tsx).
+        'model-compare-layout.spec.ts',
         // Her GPS silent at Start: the stand-in question and the phone notice fit
         // at 320 × 568 with large text, centred above the tab bar (e2e/fixtures/stand-in-question.tsx).
         'stand-in-question-layout.spec.ts',
