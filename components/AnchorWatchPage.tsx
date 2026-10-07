@@ -33,6 +33,7 @@ import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWeighAnchorBar } from './anchor-watch/ShoreWeighAnchorBar';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { ShoreWatchReadings } from './anchor-watch/ShoreWatchReadings';
+import { MoveAnchorSheet } from './anchor-watch/MoveAnchorSheet';
 import { useAnchorRadarTargets } from './anchor-watch/anchorRadarTargets';
 import { PageHeader } from './ui/PageHeader';
 import { toast } from './Toast';
@@ -146,6 +147,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [piWatchReason, setPiWatchReason] = useState<string | null>(null);
     /** Whether the Pi HAS it. Mirrored into state because the keeper is not reactive. */
     const [piKeepingWatch, setPiKeepingWatch] = useState(false);
+    /** The Move anchor sheet (build 123, must-do #3). */
+    const [showMoveAnchor, setShowMoveAnchor] = useState(false);
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
     const [syncState, setSyncState] = useState<SyncState>(() => AnchorWatchSyncService.getState());
     const [shoreData, setShoreData] = useState<PositionBroadcast | null>(() =>
@@ -458,6 +461,38 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // Handing the watch over is an explicit choice. Giving it back is too.
 
     // Swing circle visualization extracted to SwingCircleCanvas component
+
+    // ── Move the anchor after it is down (build 123, must-do #3) ──
+    //
+    // The watch is armed wherever the GPS is, which is usually the boat, a
+    // rode-length from the hook. The chip on the radar card moves the centre
+    // of the watch THIS phone keeps, and only that one: while the Pi keeps the
+    // watch this phone is not the keeper, and moving the Pi's watch is a
+    // different path that re-posts its assignment. A blocked watch can still
+    // be moved while it has a fix to measure from, so Retry then watches the
+    // right spot; a corrupt one cannot (it has no valid circle). The service
+    // refuses anything else on its own (AnchorWatchService.relocateAnchor).
+    const canMoveAnchor =
+        viewMode === 'watching' &&
+        !!snapshot &&
+        !!snapshot.anchorPosition &&
+        snapshot.swingRadius > 0 &&
+        (snapshot.state === 'watching' ||
+            (snapshot.state === 'paused' &&
+                !!snapshot.vesselPosition &&
+                !snapshot.setupError?.startsWith('Saved Anchor Watch is blocked'))) &&
+        !piKeepingWatch &&
+        !AnchorPiWatchKeeper.isKeeping();
+    // An alarm, a hand-off or a weighed anchor closes the sheet, and it does
+    // not spring back open when the chip next appears.
+    useEffect(() => {
+        if (!canMoveAnchor) setShowMoveAnchor(false);
+    }, [canMoveAnchor]);
+    const handleAnchorMoved = useCallback(() => {
+        setShowMoveAnchor(false);
+        void triggerHaptic('medium');
+        toast.success('Anchor moved. The swing circle is centred on it now.');
+    }, []);
 
     // ── AIS targets for the anchor watch radar — boat receiver first,
     //    internet fill (shared with the Glass hero card; see
@@ -1791,6 +1826,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         aisTargets={showAisOnRadar ? aisTargets : undefined}
                         ariaLabel={`Anchor watch radar display. ${monitoringBlocked ? 'Monitoring is blocked; values are retained reference data only' : isHolding ? 'Vessel holding position' : 'Vessel drifting'}. Current distance from anchor: ${snapshot ? formatDistance(snapshot.distanceFromAnchor) : 'unknown'}. Swing radius: ${snapshot ? formatDistance(snapshot.swingRadius) : 'unknown'}.`}
                     />
+                    {canMoveAnchor && (
+                        <button
+                            type="button"
+                            onClick={() => setShowMoveAnchor(true)}
+                            className="absolute bottom-1.5 left-1.5 flex min-h-11 items-center gap-1.5 rounded-full border border-amber-400/30 bg-slate-900/80 px-3 text-sm font-bold text-amber-300 transition-all active:scale-[0.97]"
+                        >
+                            <AnchorIcon className="h-4 w-4 shrink-0" />
+                            Move anchor
+                        </button>
+                    )}
                 </div>
 
                 {/* Stats Grid — 2×3 */}
@@ -1904,6 +1949,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </div>
                 </div>
             </div>
+
+            {/* Move anchor: the watch THIS phone keeps (canMoveAnchor). */}
+            {showMoveAnchor && canMoveAnchor && snapshot && (
+                <MoveAnchorSheet
+                    snapshot={snapshot}
+                    onClose={() => setShowMoveAnchor(false)}
+                    onMoved={handleAnchorMoved}
+                />
+            )}
 
             {/* The Pi offer lives HERE, in the watching view — the only state
                 it means anything in. It was first placed beside the setup

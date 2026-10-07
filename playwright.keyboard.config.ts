@@ -38,6 +38,9 @@ export default defineConfig({
         'passage-recording-layout.spec.ts',
         // "Your draft is set at 2.40 m. Please confirm." (e2e/fixtures/draft-confirm.tsx).
         'draft-confirm-layout.spec.ts',
+        // "Anchor is 33 m from the boat, bearing 212 °T": the Move anchor sheet
+        // fits, centred above the tab bar and the keyboard (e2e/fixtures/move-anchor.tsx).
+        'move-anchor-layout.spec.ts',
         // Sightings: the page, quick log, species list and detail fit at 390,
         // 320 and in the split pane, centred above the tab bar
         // (e2e/fixtures/sightings.tsx).

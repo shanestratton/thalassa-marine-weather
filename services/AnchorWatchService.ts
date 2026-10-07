@@ -123,6 +123,9 @@ export interface AnchorWatchConfigLimits {
 
 export type AnchorWatchConfigValidation = { ok: true; config: AnchorWatchConfig } | { ok: false; error: string };
 
+/** What a move of the anchor came to. A refusal says why, in the skipper's words. */
+export type AnchorRelocateResult = { ok: true } | { ok: false; error: string };
+
 export type AnchorWatchState = 'idle' | 'setting' | 'watching' | 'alarm' | 'paused';
 
 export type GuardianAutoStatus = 'idle' | 'arming' | 'armed' | 'failed' | 'already_armed';
@@ -183,6 +186,24 @@ export const ANCHOR_WATCH_CONFIG_LIMITS: AnchorWatchConfigLimits = {
 const SCOPE_RATIO_TOLERANCE = 0.01;
 /** NMEA emits every five seconds; two missed emissions makes it stale. */
 const PRIMARY_SOURCE_FRESH_MS = 12_000;
+/**
+ * The oldest boat fix a move of the anchor may be checked against. A move is
+ * only refused or allowed by where the boat IS, so a fix from before the last
+ * swing cannot vouch for it.
+ */
+export const ANCHOR_RELOCATE_FIX_MAX_AGE_MS = 30_000;
+/**
+ * The longest one native fence step, or the save after it, may take inside a
+ * move of the anchor or a radius change. Both run on the queue that carries
+ * the drag, GPS-lost and geofence-EXIT alarms, and the geofence engine has
+ * hung in the field (2026-08-08, "deleted 0 of 1 geofences"): an edit that
+ * waits on it for ever holds every alarm behind it. The arm bounds the same
+ * calls the same way (stage()).
+ */
+const WATCH_EDIT_STEP_DEADLINE_MS = 15_000;
+
+/** A step of a move or a radius change that did not answer in time. */
+class WatchEditStepTimeout extends Error {}
 const DEFAULT_ANCHOR_CONFIG: AnchorWatchConfig = {
     rodeLength: 30,
     waterDepth: 5,
@@ -433,6 +454,12 @@ class AnchorWatchServiceClass {
     private bgGeoLeaseHeld = false;
     /** True only after this process installed/replaced the native swing fence. */
     private anchorGeofenceOwned = false;
+    /**
+     * Bumped when a fence step is given up on (refenceBounded). A fence call
+     * that answers after that claims nothing: by then the watch has already
+     * acted on not knowing where its fence is.
+     */
+    private fenceEpoch = 0;
     private setupError: string | null = null;
     /** Human-readable name of the arming step in flight. */
     private setupStage: string | null = null;
@@ -823,9 +850,9 @@ class AnchorWatchServiceClass {
 
         try {
             if ((this.state === 'watching' || this.state === 'alarm') && this.anchorPosition) {
-                await this.updateGeofence();
+                await this.refenceBounded('Moving the swing circle');
             }
-            await this.persistWatchStateRequired();
+            await this.boundedEditStep('Saving the swing circle', () => this.persistWatchStateRequired());
             this.setupError = null;
             this.notify();
             return true;
@@ -835,7 +862,7 @@ class AnchorWatchServiceClass {
             this.swingRadius = previousRadius;
 
             if ((this.state === 'watching' || this.state === 'alarm') && this.anchorPosition) {
-                await this.captureFailure(() => this.updateGeofence(), failures);
+                await this.captureFailure(() => this.refenceBounded('Putting the swing circle back'), failures);
             }
 
             if (failures.length > 1) {
@@ -850,10 +877,203 @@ class AnchorWatchServiceClass {
                     failures,
                 );
             }
-            await this.persistWatchState();
+            await this.persistWatchStateBounded();
             this.notify();
             return false;
         }
+    }
+
+    /**
+     * Move the anchor after it is down, on THIS phone's watch.
+     *
+     * The watch is armed wherever the GPS is at that moment, which is usually
+     * the boat, a rode-length from the hook. setAnchorAt could place it, but
+     * nothing called it and it refuses a running watch, so the only cure was
+     * to weigh anchor and arm again (build 123, must-do #3). This moves the
+     * centre of the running watch instead, as one transaction, the way a
+     * radius change is made (updateConfigLocked):
+     *
+     *  - Watching or paused only. Never idle or arming, and never while the
+     *    alarm sounds: silence it first, so moving the anchor can never be how
+     *    an alarm is made to go away.
+     *  - Never to a point that would put the boat's latest fix outside the
+     *    swing circle. That would alarm at once, and it is what stops a typo
+     *    (500 for 50) sending the anchor across the bay.
+     *  - The hook keeps its timestamp: it is the same anchor, set right.
+     *  - Drag counting and the jitter filter start afresh. The trail is kept,
+     *    and the worst swing is measured again from the new centre.
+     *  - The native fence follows, where the watch keeps one (a device; the
+     *    web watch runs on a live feed with no fence), and a failed move puts
+     *    the old one back. If even that fails, the watch says it is blocked
+     *    (paused) rather than claim a fence it may not have.
+     *  - Every native step and the save run under a deadline, so a geofence
+     *    engine that never answers cannot hold the alarms queued behind the
+     *    move. A step that times out is a failure like any other.
+     *
+     * The Pi keeps its own watch with its own keeper. Nothing here touches it.
+     */
+    async relocateAnchor(lat: number, lon: number): Promise<AnchorRelocateResult> {
+        return this.runExclusive(() => this.relocateAnchorLocked(lat, lon));
+    }
+
+    private async relocateAnchorLocked(lat: number, lon: number): Promise<AnchorRelocateResult> {
+        const refuse = (error: string): AnchorRelocateResult => ({ ok: false, error });
+        if (this.state === 'alarm') return refuse('Silence the alarm before moving the anchor.');
+        if (this.state === 'setting') return refuse('The anchor watch is still starting. Try again in a moment.');
+        const previous = this.anchorPosition;
+        if ((this.state !== 'watching' && this.state !== 'paused') || !previous) {
+            return refuse('There is no anchor watch on this phone to move.');
+        }
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+            return refuse('That is not a real position. Check the distance and bearing.');
+        }
+        if (!Number.isFinite(this.swingRadius) || this.swingRadius < MIN_ANCHOR_SWING_RADIUS_M) {
+            return refuse('This watch has no valid swing circle to move. Weigh anchor and set it again.');
+        }
+        const fix = this.vesselPosition;
+        if (!fix || !Number.isFinite(fix.timestamp) || Date.now() - fix.timestamp > ANCHOR_RELOCATE_FIX_MAX_AGE_MS) {
+            return refuse(
+                'The boat has no recent position fix, so the move cannot be checked. Wait for GPS and try again.',
+            );
+        }
+        // Written as a negated `<=` so a NaN distance refuses too.
+        if (!(haversineDistance(fix.latitude, fix.longitude, lat, lon) <= this.swingRadius)) {
+            return refuse(
+                'The boat would be outside the swing circle around that point, so the alarm would sound at once. Check the distance and bearing.',
+            );
+        }
+
+        const previousWorst = this.maxDistanceRecorded;
+        this.anchorPosition = { latitude: lat, longitude: lon, timestamp: previous.timestamp };
+        this.outsideCircleCount = 0;
+        this.jitterBuffer = [];
+        this.measureFromAnchor(true);
+        const failures: Error[] = [];
+
+        try {
+            if (this.state === 'watching') await this.refenceBounded('Moving the swing circle');
+            await this.boundedEditStep('Saving the move', () => this.persistWatchStateRequired());
+            // A paused watch keeps the reason it is blocked on screen.
+            if (this.state === 'watching') this.setupError = null;
+            this.notify();
+            return { ok: true };
+        } catch (error) {
+            failures.push(this.asError(error));
+            this.anchorPosition = { ...previous };
+            this.outsideCircleCount = 0;
+            this.jitterBuffer = [];
+            this.maxDistanceRecorded = previousWorst;
+            this.measureFromAnchor(false);
+
+            if (this.state === 'watching') {
+                await this.captureFailure(() => this.refenceBounded('Putting the swing circle back'), failures);
+            }
+
+            // One failure: the old anchor and its verified fence stand, so the
+            // watch is healthy and the refusal belongs to the sheet that asked.
+            // That holds when the forward step only timed out, too: the old
+            // fence was put back and read back AFTER it was given up on, and
+            // plugin calls answer in order, so a late answer from it lands
+            // before the fence that replaced it, not after (and claims nothing).
+            // Any failure to put it back, a timeout included, blocks the watch.
+            let message = this.failureMessage(
+                'The anchor was not moved. It stays where it was, inside its verified circle.',
+                failures,
+            );
+            if (failures.length > 1) {
+                this.state = 'paused';
+                message = this.failureMessage(
+                    'Moving the anchor failed and its previous swing circle could not be restored. Verified monitoring is blocked.',
+                    failures,
+                );
+                this.setupError = message;
+            }
+            await this.persistWatchStateBounded();
+            this.notify();
+            return refuse(message);
+        }
+    }
+
+    /**
+     * One step of a move or a radius change, under WATCH_EDIT_STEP_DEADLINE_MS.
+     * A step that does not answer throws a named error, so the caller's
+     * rollback runs and the queue moves on to any alarm waiting behind it.
+     */
+    private async boundedEditStep<T>(name: string, run: () => Promise<T>): Promise<T> {
+        try {
+            return await withDeadline(run(), WATCH_EDIT_STEP_DEADLINE_MS, name);
+        } catch (error) {
+            if (error instanceof DeadlineExceeded) {
+                throw new WatchEditStepTimeout(
+                    `${name} did not respond within ${Math.round(WATCH_EDIT_STEP_DEADLINE_MS / 1000)}s.`,
+                );
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Put the native swing fence on the anchor and radius as they now stand,
+     * where the watch keeps a fence, under a deadline.
+     *
+     * Only a device watch has one: startGpsMonitoring installs it only on a
+     * native platform. A web watch runs on a live NMEA or Pi feed, and the web
+     * geofence engine registers nothing, so asking it for a fence could only
+     * fail, and the rollback with it, pausing a healthy watch.
+     *
+     * A fence step that times out is given up on (fenceEpoch), so if it
+     * answers later it cannot claim a fence the watch has already stopped
+     * vouching for.
+     */
+    private async refenceBounded(name: string): Promise<void> {
+        if (!Capacitor.isNativePlatform()) return;
+        try {
+            await this.boundedEditStep(name, () => this.updateGeofence());
+        } catch (error) {
+            if (error instanceof WatchEditStepTimeout) this.fenceEpoch++;
+            throw error;
+        }
+    }
+
+    /** The best-effort save after a refused edit, bounded like the steps before it. */
+    private async persistWatchStateBounded(): Promise<boolean> {
+        try {
+            return await withDeadline(this.persistWatchState(), WATCH_EDIT_STEP_DEADLINE_MS, 'Saving the watch');
+        } catch (error) {
+            log.warn('Saving the watch after a refused edit did not answer:', String(error));
+            return false;
+        }
+    }
+
+    /**
+     * Distance, bearing and worst swing against the anchor as it now stands.
+     * `remeasure` rebuilds the worst swing from the kept trail, for a new
+     * centre; otherwise the recorded worst stands and can only grow.
+     */
+    private measureFromAnchor(remeasure: boolean): void {
+        const anchor = this.anchorPosition;
+        if (!anchor) return;
+        let worst = remeasure ? 0 : this.maxDistanceRecorded;
+        if (remeasure) {
+            for (const point of this.positionHistory) {
+                worst = Math.max(
+                    worst,
+                    haversineDistance(point.latitude, point.longitude, anchor.latitude, anchor.longitude),
+                );
+            }
+        }
+        const boat = this.vesselPosition;
+        if (boat) {
+            this.distanceFromAnchor = haversineDistance(
+                boat.latitude,
+                boat.longitude,
+                anchor.latitude,
+                anchor.longitude,
+            );
+            this.bearingToAnchor = bearing(boat.latitude, boat.longitude, anchor.latitude, anchor.longitude);
+            worst = Math.max(worst, this.distanceFromAnchor);
+        }
+        this.maxDistanceRecorded = worst;
     }
 
     /** Stop watching and return to idle */
@@ -1589,6 +1809,7 @@ class AnchorWatchServiceClass {
     /** Create or update the swing-circle geofence */
     private async updateGeofence(): Promise<void> {
         if (!this.anchorPosition) throw new Error('Cannot install an anchor geofence without an anchor position.');
+        const epoch = this.fenceEpoch;
 
         // Validate before removing the prior verified fence. A rejected update
         // therefore cannot turn a working watch into an unbounded one.
@@ -1622,6 +1843,8 @@ class AnchorWatchServiceClass {
         if (!(await BgGeoManager.geofenceExists(GEOFENCE_ID))) {
             throw new Error('The anchor swing-circle geofence could not be registered. Anchor Watch was not armed.');
         }
+        // A call given up on (refenceBounded) answers too late to claim it.
+        if (epoch !== this.fenceEpoch) throw new Error('The anchor geofence answered after it was given up on.');
         this.anchorGeofenceOwned = true;
     }
 
