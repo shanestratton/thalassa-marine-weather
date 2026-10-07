@@ -59,7 +59,7 @@ describe('CrewFloatPlanCard', () => {
         expect(card.textContent).not.toMatch(/Send|Copy|PDF|Share/);
     });
 
-    it("lists the skipper's profile roster first, then the app crew not on it — you included", () => {
+    it("lists the skipper's profile roster and the app crew not on it — you included — in rank order", () => {
         const { rerender } = render(<CrewFloatPlanCard boatName="Wandering Albatross" view={VIEW} passage={null} />);
         let people = within(screen.getByRole('list', { name: 'People aboard' })).getAllByRole('listitem');
         expect(people.map((item) => item.textContent)).toEqual(['Capt Ana ReyesSkipper', 'Tom Okafor (you)Deckhand']);
@@ -79,10 +79,11 @@ describe('CrewFloatPlanCard', () => {
         );
         people = within(screen.getByRole('list', { name: 'People aboard' })).getAllByRole('listitem');
         // Shane 2026-10-04: the POB "needs to include the invitee as well as the others on board".
+        // Shane 2026-10-07: by rank, so the Guest is after the Deckhand.
         expect(people.map((item) => item.textContent)).toEqual([
             'Ana ReyesSkipper',
-            'Sam ExampleGuest',
             'Tom Okafor (you)Deckhand',
+            'Sam ExampleGuest',
         ]);
         expect(screen.getByText('People aboard: 3')).toBeInTheDocument();
     });
@@ -145,9 +146,9 @@ describe('CrewFloatPlanCard', () => {
                     .map((item) => item.textContent),
             ).toEqual([
                 'Ana ReyesSkipper',
-                'Sam ExampleGuest',
-                'Thomas Okafor (you)0491 570 156 · age 34Deckhand',
                 'Lena ParkNavigator',
+                'Thomas Okafor (you)0491 570 156 · age 34Deckhand',
+                'Sam ExampleGuest',
             ]);
             // Four people, though the skipper's profile still says two.
             expect(screen.getByText('People aboard: 4')).toBeInTheDocument();

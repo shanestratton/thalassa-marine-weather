@@ -40,6 +40,7 @@ import {
     type FloatPlanRosterSeed,
 } from '../../services/floatPlanCrew';
 import { aboardCount } from '../../services/crew/floatPlanPeople';
+import { sortByCrewRank } from '../../services/crew/crewRank';
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from '../../services/authIdentityScope';
 
 const log = createLogger('FloatPlanSheet');
@@ -71,6 +72,8 @@ export interface FloatPlanPreset {
 type RosterRowSource = 'skipper' | 'crew' | 'invite' | 'manual' | 'profile';
 
 interface RosterRow {
+    /** Stable React key: rows move when they are put in rank order. */
+    id: number;
     name: string;
     role: string;
     age: string;
@@ -81,8 +84,32 @@ interface RosterRow {
     crewUserId?: string | null;
 }
 
+let rosterRowSerial = 0;
+function nextRosterRowId(): number {
+    rosterRowSerial += 1;
+    return rosterRowSerial;
+}
+
+/**
+ * The roster in rank order (Shane 2026-10-07: "order the punters on board by
+ * their rank"), with the same sortByCrewRank the plan it sends and the crew's
+ * own view of the boat use. Applied whenever rows arrive (seeded, refreshed,
+ * added from an invite), a role changes, or the skipper leaves a row he was
+ * typing in; never mid-keystroke, so a row does not jump out from under his
+ * thumb. The text, email and PDF sort again on the way out, so what is sent is
+ * always in rank order.
+ *
+ * Hands back the same array when nobody moves: the crew-list merge reads an
+ * unchanged array as "the skipper has not touched the roster yet".
+ */
+function inRankOrder(rows: RosterRow[]): RosterRow[] {
+    const sorted = sortByCrewRank(rows);
+    return sorted.every((row, index) => row === rows[index]) ? rows : sorted;
+}
+
 function rosterRowFromSeed(seed: FloatPlanRosterSeed): RosterRow {
     return {
+        id: nextRosterRowId(),
         name: seed.name,
         role: seed.role,
         age: seed.shared?.age ? String(seed.shared.age) : '',
@@ -293,9 +320,10 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
     // coordinator decides what to send. Optional — empty rows are dropped.
     // A re-opened saved plan seeds its own names; otherwise the crew-list
     // prefill below fills it once the load resolves.
-    const [personsRoster, setPersonsRoster] = useState<RosterRow[]>(
-        () =>
+    const [personsRoster, setPersonsRoster] = useState<RosterRow[]>(() =>
+        inRankOrder(
             preset?.personsRoster?.map((person) => ({
+                id: nextRosterRowId(),
                 name: person.name,
                 role: person.role ?? '',
                 age: Number.isFinite(person.age) ? String(person.age) : '',
@@ -303,6 +331,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 medical: person.medical ?? '',
                 source: 'manual' as const,
             })) ?? [],
+        ),
     );
     // Pending invitees offered as "Add <name>" chips — never pre-listed, because
     // an unaccepted invite is not a person aboard (Shane 2026-09-08).
@@ -462,10 +491,12 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         const profileSeeds = rosterSeedsFromVesselProfile(vessel);
         const seededFromProfile = profileSeeds.length > 0;
         const unnamedBeyond = (listed: number) => Math.max(0, aboardCount(listed, vessel?.crewCount) - listed);
-        const profileRows: RosterRow[] = profileSeeds.map((seed) => ({
-            ...rosterRowFromSeed(seed),
-            age: seed.age === null ? '' : String(seed.age),
-        }));
+        const profileRows: RosterRow[] = inRankOrder(
+            profileSeeds.map((seed) => ({
+                ...rosterRowFromSeed(seed),
+                age: seed.age === null ? '' : String(seed.age),
+            })),
+        );
         if (seededFromProfile) {
             setPersonsRoster(profileRows);
             // Now, not after the render: the crew merge below compares against it.
@@ -484,9 +515,11 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 // an invitee with their own name, phone and age (Shane
                 // 2026-10-04). Not once the skipper has started editing it.
                 if (personsRosterRef.current === profileRows) {
+                    // Already in rank order: mergeProfileWithCrew sorts.
                     const merged = mergeProfileWithCrew(profileSeeds, result.aboard);
                     setPersonsRoster(
                         merged.map((person) => ({
+                            id: nextRosterRowId(),
                             name: person.name,
                             role: person.role,
                             age: person.age ? String(person.age) : '',
@@ -512,7 +545,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
             if (personsRosterRef.current.length > 0) return;
             const named = result.aboard.filter((seed) => seed.name.trim().length > 0);
             if (result.aboard.length > 0) {
-                setPersonsRoster(result.aboard.map(rosterRowFromSeed));
+                setPersonsRoster(inRankOrder(result.aboard.map(rosterRowFromSeed)));
                 setRosterFromCrew(named.length > 0);
                 // An unnamed skipper placeholder alone says nothing about souls
                 // aboard, so the vessel-profile count stands in that case.
@@ -582,6 +615,8 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
             return existing
                 ? {
                       ...row,
+                      // The same row on screen, so React keeps its fields in place.
+                      id: existing.id,
                       age: row.age || existing.age,
                       phone: row.phone || existing.phone,
                       medical: existing.medical,
@@ -592,7 +627,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
         const kept = previous.filter(
             (row) => !isCrewSeededRow(row) && !(row.crewUserId && aboardIds.has(row.crewUserId)),
         );
-        const next = [...seeded, ...kept];
+        const next = inRankOrder([...seeded, ...kept]);
         setPersonsRoster(next);
         setCrewInvitedFor(invitedElsewhere(result.aboard));
         setRosterFromCrew(result.aboard.some((seed) => seed.name.trim().length > 0));
@@ -608,7 +643,7 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
 
     const addInvitedToRoster = (seed: FloatPlanRosterSeed) => {
         triggerHaptic('light');
-        setPersonsRoster((rows) => [...rows, rosterRowFromSeed(seed)]);
+        setPersonsRoster((rows) => inRankOrder([...rows, rosterRowFromSeed(seed)]));
         setInvitedCrew((chips) => chips.filter((chip) => chip !== seed));
     };
 
@@ -999,7 +1034,17 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                 <div className="space-y-2">
                     {personsRoster.map((person, index) => (
                         <div
-                            key={index}
+                            key={person.id}
+                            // A typed name, or a row added with no role, settles
+                            // into rank order once the skipper leaves the row
+                            // (review 2026-10-07), so the list he edits agrees
+                            // with the plan below it. Moving between this row's
+                            // own fields does not count as leaving it.
+                            onBlur={(event) => {
+                                const next = event.relatedTarget;
+                                if (next instanceof Node && event.currentTarget.contains(next)) return;
+                                setPersonsRoster(inRankOrder);
+                            }}
                             className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-3 space-y-2"
                         >
                             {/* Name gets its own line. Sharing a row with the
@@ -1015,8 +1060,8 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                     value={person.name}
                                     onChange={(event) =>
                                         setPersonsRoster((rows) =>
-                                            rows.map((row, i) =>
-                                                i === index ? { ...row, name: event.target.value } : row,
+                                            rows.map((row) =>
+                                                row.id === person.id ? { ...row, name: event.target.value } : row,
                                             ),
                                         )
                                     }
@@ -1026,7 +1071,9 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                 <button
                                     type="button"
                                     aria-label={`Remove person ${index + 1}`}
-                                    onClick={() => setPersonsRoster((rows) => rows.filter((_, i) => i !== index))}
+                                    onClick={() =>
+                                        setPersonsRoster((rows) => rows.filter((row) => row.id !== person.id))
+                                    }
                                     className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-white/5"
                                 >
                                     ×
@@ -1037,9 +1084,12 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                     aria-label={`Person ${index + 1} role`}
                                     value={person.role}
                                     onChange={(event) =>
+                                        // A new rank moves the person to it (Shane 2026-10-07).
                                         setPersonsRoster((rows) =>
-                                            rows.map((row, i) =>
-                                                i === index ? { ...row, role: event.target.value } : row,
+                                            inRankOrder(
+                                                rows.map((row) =>
+                                                    row.id === person.id ? { ...row, role: event.target.value } : row,
+                                                ),
                                             ),
                                         )
                                     }
@@ -1061,8 +1111,8 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                     value={person.age}
                                     onChange={(event) =>
                                         setPersonsRoster((rows) =>
-                                            rows.map((row, i) =>
-                                                i === index
+                                            rows.map((row) =>
+                                                row.id === person.id
                                                     ? { ...row, age: event.target.value.replace(/[^0-9]/g, '') }
                                                     : row,
                                             ),
@@ -1079,8 +1129,8 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                 value={person.phone}
                                 onChange={(event) =>
                                     setPersonsRoster((rows) =>
-                                        rows.map((row, i) =>
-                                            i === index ? { ...row, phone: event.target.value } : row,
+                                        rows.map((row) =>
+                                            row.id === person.id ? { ...row, phone: event.target.value } : row,
                                         ),
                                     )
                                 }
@@ -1093,8 +1143,8 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                                 value={person.medical}
                                 onChange={(event) =>
                                     setPersonsRoster((rows) =>
-                                        rows.map((row, i) =>
-                                            i === index ? { ...row, medical: event.target.value } : row,
+                                        rows.map((row) =>
+                                            row.id === person.id ? { ...row, medical: event.target.value } : row,
                                         ),
                                     )
                                 }
@@ -1108,7 +1158,15 @@ export const FloatPlanSheet: React.FC<FloatPlanSheetProps> = ({ voyage, preset, 
                         onClick={() =>
                             setPersonsRoster((rows) => [
                                 ...rows,
-                                { name: '', role: '', age: '', phone: '', medical: '', source: 'manual' },
+                                {
+                                    id: nextRosterRowId(),
+                                    name: '',
+                                    role: '',
+                                    age: '',
+                                    phone: '',
+                                    medical: '',
+                                    source: 'manual',
+                                },
                             ])
                         }
                         className="min-h-11 w-full rounded-xl border border-dashed border-violet-500/30 text-sm font-semibold text-violet-200 hover:bg-violet-500/10"

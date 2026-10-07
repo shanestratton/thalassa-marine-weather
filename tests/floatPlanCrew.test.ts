@@ -316,7 +316,7 @@ describe('loadFloatPlanCrew', () => {
             expect(result!.invited).toEqual([]);
         });
 
-        it("joins the skipper's Skipper and First mate: three aboard, each once, by role", async () => {
+        it("joins the skipper's Skipper and First mate: three aboard, each once, in rank order", async () => {
             tables({ crew: scoped, members: { data: [], error: null }, details });
             const profile = rosterSeedsFromVesselProfile({
                 crewRoster: [
@@ -327,10 +327,12 @@ describe('loadFloatPlanCrew', () => {
 
             const merged = mergeProfileWithCrew(profile, (await loadFloatPlanCrew(null))!.aboard);
 
+            // Shane 2026-10-07: "order the punters on board by their rank" — the
+            // co-skipper invitee is second, above the profile's First mate.
             expect(merged.map((person) => [person.name, person.role, person.age, person.added])).toEqual([
                 ['Ana Reyes', 'Skipper', 52, false],
-                ['Priya Nair', 'First mate', 38, false],
                 ['Tom Okafor', 'Co-skipper', 41, true],
+                ['Priya Nair', 'First mate', 38, false],
             ]);
             expect(aboardCount(merged.length, undefined)).toBe(3);
         });
@@ -686,7 +688,7 @@ describe('loadFloatPlanCrew', () => {
             expect(details.select).not.toHaveBeenCalled();
         });
 
-        it("merges accepted crew into the skipper's own list once, with their details", () => {
+        it("merges accepted crew into the skipper's own list once, with their details, in rank order", () => {
             const profile = rosterSeedsFromVesselProfile({
                 crewCount: 3,
                 crewRoster: [
@@ -706,11 +708,38 @@ describe('loadFloatPlanCrew', () => {
                 },
                 { name: 'Lee', role: 'Navigator', source: 'crew', crewUserId: 'u-lee' },
             ]);
+            // Lee joined from the crew list last, but a Navigator outranks Crew and Guest.
             expect(merged.map((person) => [person.name, person.role, person.age, person.phone])).toEqual([
                 ['Ana Reyes', 'Skipper', 51, null],
+                ['Lee', 'Navigator', null, null],
                 ['Thomas Okafor', 'Crew', 34, '0491 570 156'],
                 ['Aunt Beryl', 'Guest', 71, null],
-                ['Lee', 'Navigator', null, null],
+            ]);
+        });
+
+        it('a punter invited first still lists after the First mate (Shane 2026-10-07)', () => {
+            const profile = rosterSeedsFromVesselProfile({
+                crewRoster: [
+                    { name: 'Ana Reyes', age: 51, rank: 'Skipper' },
+                    { name: 'Priya Nair', age: 38, rank: 'First mate' },
+                ],
+            });
+            const merged = mergeProfileWithCrew(profile, [
+                { name: 'Capt. Ana Reyes', role: 'Skipper', source: 'skipper', crewUserId: OWNER },
+                // Invited first, so the crew list (oldest first) has them first.
+                { name: 'Pat Example', role: crewRoleToFloatPlanRole('punter'), source: 'crew', crewUserId: 'u-pat' },
+                {
+                    name: 'Tom Okafor',
+                    role: crewRoleToFloatPlanRole('co-skipper'),
+                    source: 'crew',
+                    crewUserId: 'u-tom',
+                },
+            ]);
+            expect(merged.map((person) => [person.name, person.role])).toEqual([
+                ['Ana Reyes', 'Skipper'],
+                ['Tom Okafor', 'Co-skipper'],
+                ['Priya Nair', 'First mate'],
+                ['Pat Example', 'Guest'],
             ]);
         });
     });

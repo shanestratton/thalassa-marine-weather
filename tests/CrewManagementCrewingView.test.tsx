@@ -517,12 +517,16 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         mocks.loadCrewVesselView.mockImplementation(async () => ({ status: 'fresh', view }));
         renderPage();
 
-        const aboard = await screen.findByRole('list', { name: 'Crew aboard Wandering Albatross' });
-        expect(
-            within(aboard)
-                .getAllByRole('listitem')
-                .map((item) => item.textContent),
-        ).toEqual(['Ana ReyesSkipper', 'Priya NairFirst mate', 'Tom Okafor (you)Co-skipper']);
+        await screen.findByRole('list', { name: 'Crew aboard Wandering Albatross' });
+        // In rank order (Shane 2026-10-07): you, the co-skipper, above the First
+        // mate. Read live: the page may replace the list while it settles.
+        await waitFor(() =>
+            expect(
+                within(screen.getByRole('list', { name: 'Crew aboard Wandering Albatross' }))
+                    .getAllByRole('listitem')
+                    .map((item) => item.textContent),
+            ).toEqual(['Ana ReyesSkipper', 'Tom Okafor (you)Co-skipper', 'Priya NairFirst mate']),
+        );
         const card = screen.getByTestId('crew-float-plan-card');
         expect(within(card).getByText('People aboard: 3')).toBeInTheDocument();
         expect(within(card).getByText('Priya Nair')).toBeInTheDocument();
