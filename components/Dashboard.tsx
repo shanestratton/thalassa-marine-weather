@@ -45,7 +45,6 @@ import { useSettings } from '../context/SettingsContext';
 // useWeather removed with the old freshness strip — re-add if a new Glass-page
 // element needs error / loading / refreshData hooks.
 
-import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
@@ -137,15 +136,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         data,
         current,
         hourly,
-        boatingAdvice,
-        lockerItems,
         isLandlocked,
-        isPro,
-        isPlaying,
 
         // Actions
-        handleAudioBroadcast,
-        shareReport,
         staleRefresh,
         // `error` and `refreshData` were pulled only for the freshness strip
         // removed 2026-08-13. StatusBadges takes both straight from
@@ -957,7 +950,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Use Global Settings for Units
     // Fallback to defaults only if settings are missing (rare)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const units: UnitPreferences = settings?.units || {
         speed: 'kts',
         length: 'ft',
@@ -966,60 +958,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         distance: 'nm',
         tideHeight: 'm',
     };
-
-    const contextValue = React.useMemo(
-        () => ({
-            current,
-            forecast: data?.forecast,
-            hourly,
-            tides: data?.tides || [],
-            tideHourly: data?.tideHourly || [],
-            boatingAdvice: boatingAdvice || '',
-            lockerItems: lockerItems,
-            // WeatherContext owns GPS-follow naming and updates this snapshot
-            // without starting the background-location engine at launch.
-            locationName: data?.locationName,
-            timeZone: data?.timeZone,
-            modelUsed: data?.modelUsed,
-            isLandlocked: isLandlocked,
-            locationType: data?.locationType,
-            isPro: isPro,
-
-            units: units,
-
-            // UI State
-            isSpeaking: isPlaying,
-            isBuffering: false,
-            isAudioPreloading: false,
-            isNightMode: props.isNightMode,
-            backgroundUpdating: props.isRefreshing || false,
-            handleAudioBroadcast: handleAudioBroadcast,
-            shareReport: shareReport,
-            onTriggerUpgrade: props.onTriggerUpgrade,
-            onOpenMap: props.onOpenMap,
-
-            settings: {},
-            weatherData: data,
-            tideGUIDetails: data?.tideGUIDetails,
-        }),
-        [
-            current,
-            data,
-            hourly,
-            boatingAdvice,
-            lockerItems,
-            isLandlocked,
-            isPro,
-            units,
-            props.isNightMode,
-            props.isRefreshing,
-            isPlaying,
-            handleAudioBroadcast,
-            shareReport,
-            props.onTriggerUpgrade,
-            props.onOpenMap,
-        ],
-    );
 
     const moon = getMoonPhase(new Date(widgetCardTime));
 
@@ -1076,34 +1014,33 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     }
 
     return (
-        <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
-            <DndContext
-                sensors={dndSensors}
-                onDragStart={handleDndDragStart}
-                onDragOver={handleDndDragOver}
-                onDragEnd={handleDndDragEnd}
-            >
-                {/* ── OFFSHORE BOUNDARY TOAST ── */}
-                <OffshoreBoundaryToast visible={offshore.justCrossed} modelName={offshore.offshoreModel} />
+        <DndContext
+            sensors={dndSensors}
+            onDragStart={handleDndDragStart}
+            onDragOver={handleDndDragOver}
+            onDragEnd={handleDndDragEnd}
+        >
+            {/* ── OFFSHORE BOUNDARY TOAST ── */}
+            <OffshoreBoundaryToast visible={offshore.justCrossed} modelName={offshore.offshoreModel} />
 
-                {/* First-time tutorial coach marks — shows once per install
+            {/* First-time tutorial coach marks — shows once per install
                 (gated internally via localStorage) with 3 slides covering
                 chevron → Essential mode + horizontal hour swipe + vertical
                 day swipe gestures. */}
-                <Suspense fallback={null}>
-                    <GlassTutorial />
-                </Suspense>
+            <Suspense fallback={null}>
+                <GlassTutorial />
+            </Suspense>
 
-                <div
-                    className={`${landscapeFlow ? 'min-h-dvh' : 'h-dvh overflow-hidden'} w-full flex flex-col relative bg-slate-950`}
-                    // Which glassLayout rhythm is in force, for cards that must size
-                    // themselves to its trimmed slots (warnings row 32, conditions
-                    // header 56) via Tailwind's in-data-[glass-rhythm=…] variants.
-                    data-glass-rhythm={shortPortrait ? 'short' : landscapeFlow ? 'landscape' : undefined}
-                >
-                    {' '}
-                    {/* Flex Root */}
-                    {/* ── REFRESH IN PROGRESS ──
+            <div
+                className={`${landscapeFlow ? 'min-h-dvh' : 'h-dvh overflow-hidden'} w-full flex flex-col relative bg-slate-950`}
+                // Which glassLayout rhythm is in force, for cards that must size
+                // themselves to its trimmed slots (warnings row 32, conditions
+                // header 56) via Tailwind's in-data-[glass-rhythm=…] variants.
+                data-glass-rhythm={shortPortrait ? 'short' : landscapeFlow ? 'landscape' : undefined}
+            >
+                {' '}
+                {/* Flex Root */}
+                {/* ── REFRESH IN PROGRESS ──
                         This used to be a full-screen backdropFilter: blur(8px).
                         The reasoning was sound — do not let anyone read a number
                         that is about to change — but the premise had rotted: the
@@ -1131,15 +1068,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         speed actually needs.
 
                         pointer-events-none: it must never eat a tap. */}
-                    {staleRefresh && (
-                        <div
-                            className="absolute inset-x-0 top-0 z-200 h-0.5 overflow-hidden pointer-events-none"
-                            aria-hidden="true"
-                        >
-                            <div className="h-full w-full animate-pulse bg-linear-to-r from-transparent via-sky-400/70 to-transparent" />
-                        </div>
-                    )}
-                    {/* ── THE STALENESS PILL (Shane, 2026-08-20) ──
+                {staleRefresh && (
+                    <div
+                        className="absolute inset-x-0 top-0 z-200 h-0.5 overflow-hidden pointer-events-none"
+                        aria-hidden="true"
+                    >
+                        <div className="h-full w-full animate-pulse bg-linear-to-r from-transparent via-sky-400/70 to-transparent" />
+                    </div>
+                )}
+                {/* ── THE STALENESS PILL (Shane, 2026-08-20) ──
                         "if the data is stale, it should show a small message in
                         the middle of the screen … beautifully laid out and not
                         some horrible toast message."
@@ -1156,128 +1093,128 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         it never obscures; it eats no taps. Age, not the word
                         "stale": age is honest and self-calibrating, a
                         judgement invites arguing with the app. */}
-                    {(() => {
-                        const ageMs = data?.generatedAt ? Date.now() - Date.parse(data.generatedAt) : 0;
-                        const ageMin = Math.floor(ageMs / 60_000);
-                        if (!(staleRefresh && ageMin >= 60)) return null;
-                        const ageLabel = ageMin >= 120 ? `${Math.floor(ageMin / 60)} h` : `${ageMin} min`;
-                        return (
+                {(() => {
+                    const ageMs = data?.generatedAt ? Date.now() - Date.parse(data.generatedAt) : 0;
+                    const ageMin = Math.floor(ageMs / 60_000);
+                    if (!(staleRefresh && ageMin >= 60)) return null;
+                    const ageLabel = ageMin >= 120 ? `${Math.floor(ageMin / 60)} h` : `${ageMin} min`;
+                    return (
+                        <div
+                            className="absolute inset-x-0 top-[38%] z-210 flex justify-center pointer-events-none animate-in fade-in duration-300"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <div className="flex items-center gap-2.5 rounded-full border border-sky-400/25 bg-slate-950/85 px-4 py-2 shadow-lg shadow-black/40 backdrop-blur-md">
+                                <span
+                                    className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-sky-400/30 border-t-sky-300"
+                                    aria-hidden="true"
+                                />
+                                <span className="text-[12px] font-semibold tracking-wide text-sky-100/90">
+                                    Updated {ageLabel} ago
+                                    <span className="text-sky-300/80"> — refreshing…</span>
+                                </span>
+                            </div>
+                        </div>
+                    );
+                })()}
+                {/* 2. Main Content Area */}
+                <div className="flex-1 relative w-full min-h-0">
+                    {/* MAIN CAROUSEL / GRID */}
+                    {!isDetailMode && (
+                        <div
+                            className={landscapeFlow ? 'relative w-full' : 'absolute inset-0'}
+                            style={
+                                landscapeFlow
+                                    ? {
+                                          // badges top + badge row + a breath, so the column scrolls to the footer
+                                          minHeight: glassSafeTopOffset(
+                                              (isExpanded
+                                                  ? glassTopLayout.heroContainerExpandedTopPx
+                                                  : glassTopLayout.heroContainerCollapsedTopPx) +
+                                                  landscapeHeroHeightPx +
+                                                  glassTopLayout.cardGapPx +
+                                                  12 +
+                                                  42 +
+                                                  24,
+                                          ),
+                                      }
+                                    : undefined
+                            }
+                        >
+                            {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall.
+                                    It starts one shared Glass gap below the location card. */}
                             <div
-                                className="absolute inset-x-0 top-[38%] z-210 flex justify-center pointer-events-none animate-in fade-in duration-300"
-                                role="status"
-                                aria-live="polite"
+                                className={`shrink-0 z-120 w-full bg-linear-to-b from-slate-950/80 [.display-light_&]:from-slate-200/80 to-transparent px-4 pb-0 ${glassLayerPos} left-0 right-0 pointer-events-none`}
+                                style={{ top: glassSafeTopOffset(glassTopLayout.compactHeaderTopPx) }}
                             >
-                                <div className="flex items-center gap-2.5 rounded-full border border-sky-400/25 bg-slate-950/85 px-4 py-2 shadow-lg shadow-black/40 backdrop-blur-md">
-                                    <span
-                                        className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-sky-400/30 border-t-sky-300"
-                                        aria-hidden="true"
+                                <div className="pointer-events-auto">
+                                    <CompactHeaderRow
+                                        alerts={data.alerts}
+                                        sunrise={activeDayData?.sunrise || current?.sunrise}
+                                        sunset={activeDayData?.sunset || current?.sunset}
+                                        moonPhase={moon.emoji}
+                                        moonPhaseName={moon.phase}
+                                        dashboardMode={userSettings.dashboardMode || 'full'}
+                                        onToggleDashboardMode={handleToggleDashboardMode}
+                                        onOpenSunMoon={sunMoonPlaced ? openSunMoon : undefined}
                                     />
-                                    <span className="text-[12px] font-semibold tracking-wide text-sky-100/90">
-                                        Updated {ageLabel} ago
-                                        <span className="text-sky-300/80"> — refreshing…</span>
-                                    </span>
+                                    {sunMoonDay && sunMoonPlaced && (
+                                        <Suspense fallback={null}>
+                                            <SunMoonSheet
+                                                onClose={closeSunMoon}
+                                                lat={data.coordinates!.lat}
+                                                lon={data.coordinates!.lon}
+                                                timeZone={data.timeZone}
+                                                isoDate={sunMoonDay.isoDate}
+                                                isToday={sunMoonDay.isToday}
+                                            />
+                                        </Suspense>
+                                    )}
                                 </div>
                             </div>
-                        );
-                    })()}
-                    {/* 2. Main Content Area */}
-                    <div className="flex-1 relative w-full min-h-0">
-                        {/* MAIN CAROUSEL / GRID */}
-                        {!isDetailMode && (
+
+                            {/* Covers the fixed card stack until the scrollable forecast deck. */}
                             <div
-                                className={landscapeFlow ? 'relative w-full' : 'absolute inset-0'}
-                                style={
-                                    landscapeFlow
-                                        ? {
-                                              // badges top + badge row + a breath, so the column scrolls to the footer
-                                              minHeight: glassSafeTopOffset(
-                                                  (isExpanded
-                                                      ? glassTopLayout.heroContainerExpandedTopPx
-                                                      : glassTopLayout.heroContainerCollapsedTopPx) +
-                                                      landscapeHeroHeightPx +
-                                                      glassTopLayout.cardGapPx +
-                                                      12 +
-                                                      42 +
-                                                      24,
-                                              ),
-                                          }
-                                        : undefined
-                                }
-                            >
-                                {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall.
-                                    It starts one shared Glass gap below the location card. */}
-                                <div
-                                    className={`shrink-0 z-120 w-full bg-linear-to-b from-slate-950/80 [.display-light_&]:from-slate-200/80 to-transparent px-4 pb-0 ${glassLayerPos} left-0 right-0 pointer-events-none`}
-                                    style={{ top: glassSafeTopOffset(glassTopLayout.compactHeaderTopPx) }}
-                                >
-                                    <div className="pointer-events-auto">
-                                        <CompactHeaderRow
-                                            alerts={data.alerts}
-                                            sunrise={activeDayData?.sunrise || current?.sunrise}
-                                            sunset={activeDayData?.sunset || current?.sunset}
-                                            moonPhase={moon.emoji}
-                                            moonPhaseName={moon.phase}
-                                            dashboardMode={userSettings.dashboardMode || 'full'}
-                                            onToggleDashboardMode={handleToggleDashboardMode}
-                                            onOpenSunMoon={sunMoonPlaced ? openSunMoon : undefined}
-                                        />
-                                        {sunMoonDay && sunMoonPlaced && (
-                                            <Suspense fallback={null}>
-                                                <SunMoonSheet
-                                                    onClose={closeSunMoon}
-                                                    lat={data.coordinates!.lat}
-                                                    lon={data.coordinates!.lon}
-                                                    timeZone={data.timeZone}
-                                                    isoDate={sunMoonDay.isoDate}
-                                                    isToday={sunMoonDay.isToday}
-                                                />
-                                            </Suspense>
-                                        )}
-                                    </div>
-                                </div>
+                                className={`${glassLayerPos} top-0 left-0 right-0 bg-slate-950 z-100 transition-all duration-300`}
+                                style={{
+                                    height: isExpanded
+                                        ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
+                                        : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
+                                }}
+                            ></div>
 
-                                {/* Covers the fixed card stack until the scrollable forecast deck. */}
-                                <div
-                                    className={`${glassLayerPos} top-0 left-0 right-0 bg-slate-950 z-100 transition-all duration-300`}
-                                    style={{
-                                        height: isExpanded
-                                            ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
-                                            : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
-                                    }}
-                                ></div>
-
-                                {/* Conditions header — held to the same 8px Glass rhythm.
+                            {/* Conditions header — held to the same 8px Glass rhythm.
                                     z-115, one step over the card layers below it: its
                                     first-run coach mark hangs off the card's foot over
                                     the grid instead of sitting on the temperature (UX
                                     scorecard run 7). The card itself stays in its slot. */}
-                                <div
-                                    className={`${glassLayerPos} left-0 right-0 z-115 px-4`}
-                                    style={{ top: glassSafeTopOffset(glassTopLayout.heroHeaderTopPx) }}
-                                >
-                                    {/* Section headings for VoiceOver's rotor: the Glass
+                            <div
+                                className={`${glassLayerPos} left-0 right-0 z-115 px-4`}
+                                style={{ top: glassSafeTopOffset(glassTopLayout.heroHeaderTopPx) }}
+                            >
+                                {/* Section headings for VoiceOver's rotor: the Glass
                                         had only its h1, so there was no jumping to the
                                         tides or the forecast source (UX scorecard run 9). */}
-                                    <h2 className="sr-only">
-                                        {activeDay === 0 && activeHour === 0 ? 'Conditions now' : 'Forecast conditions'}
-                                    </h2>
-                                    <HeroHeader
-                                        data={safeActive}
-                                        units={units}
-                                        isLive={activeDay === 0 && activeHour === 0}
-                                        isDay={isActiveDay}
-                                        dateLabel={getDateLabel(activeDay)}
-                                        timeLabel={getTimeLabel()}
-                                        timeZone={data.timeZone}
-                                        sources={safeActive.sources}
-                                        isExpanded={isExpanded}
-                                        locationType={data.locationType}
-                                        onToggleExpand={isInland || isOffshore ? undefined : handleToggleExpand}
-                                        onReturnToToday={activeDay > 0 ? handleReturnToToday : undefined}
-                                    />
-                                </div>
+                                <h2 className="sr-only">
+                                    {activeDay === 0 && activeHour === 0 ? 'Conditions now' : 'Forecast conditions'}
+                                </h2>
+                                <HeroHeader
+                                    data={safeActive}
+                                    units={units}
+                                    isLive={activeDay === 0 && activeHour === 0}
+                                    isDay={isActiveDay}
+                                    dateLabel={getDateLabel(activeDay)}
+                                    timeLabel={getTimeLabel()}
+                                    timeZone={data.timeZone}
+                                    sources={safeActive.sources}
+                                    isExpanded={isExpanded}
+                                    locationType={data.locationType}
+                                    onToggleExpand={isInland || isOffshore ? undefined : handleToggleExpand}
+                                    onReturnToToday={activeDay > 0 ? handleReturnToToday : undefined}
+                                />
+                            </div>
 
-                                {/* CURRENT CONDITIONS CARD - Collapsed mode only.
+                            {/* CURRENT CONDITIONS CARD - Collapsed mode only.
                                 Transition choreography:
                                 - 200ms ease-out per user spec (feels crisp, not laggy)
                                 - translateY(-14px) gives a perceptible glide without going too
@@ -1288,141 +1225,139 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                   instead of "glided". pointer-events + opacity cover
                                   functional hide; the element is invisible to screen-readers
                                   via opacity:0 and to clicks via pointer-events:none. */}
-                                <div
-                                    className={`${glassLayerPos} left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out`}
-                                    aria-hidden={isExpanded}
-                                    ref={(element) => {
-                                        if (element)
-                                            (element as HTMLDivElement & { inert: boolean }).inert = isExpanded;
-                                    }}
-                                    style={{
-                                        top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
-                                        opacity: !isExpanded ? 1 : 0,
-                                        transform: !isExpanded ? 'translateY(0)' : 'translateY(-14px)',
-                                        pointerEvents: !isExpanded ? 'auto' : 'none',
-                                        willChange: 'opacity, transform',
-                                    }}
-                                >
-                                    <CurrentConditionsCard data={current} units={units} timeZone={data.timeZone} />
-                                </div>
+                            <div
+                                className={`${glassLayerPos} left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out`}
+                                aria-hidden={isExpanded}
+                                ref={(element) => {
+                                    if (element) (element as HTMLDivElement & { inert: boolean }).inert = isExpanded;
+                                }}
+                                style={{
+                                    top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
+                                    opacity: !isExpanded ? 1 : 0,
+                                    transform: !isExpanded ? 'translateY(0)' : 'translateY(-14px)',
+                                    pointerEvents: !isExpanded ? 'auto' : 'none',
+                                    willChange: 'opacity, transform',
+                                }}
+                            >
+                                <CurrentConditionsCard data={current} units={units} timeZone={data.timeZone} />
+                            </div>
 
-                                {/* FIXED WIDGETS - Slide down when expanded.
+                            {/* FIXED WIDGETS - Slide down when expanded.
                                 Same transition semantics as CurrentConditionsCard above so the
                                 two layers cross-fade in sync. */}
-                                <div
-                                    className={`${glassLayerPos} left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out`}
-                                    aria-hidden={!isExpanded}
-                                    ref={(element) => {
-                                        if (element)
-                                            (element as HTMLDivElement & { inert: boolean }).inert = !isExpanded;
-                                    }}
-                                    style={{
-                                        top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
-                                        opacity: isExpanded ? 1 : 0,
-                                        transform: isExpanded ? 'translateY(0)' : 'translateY(-14px)',
-                                        pointerEvents: isExpanded ? 'auto' : 'none',
-                                        willChange: 'opacity, transform',
-                                    }}
-                                >
-                                    <HeroWidgets
-                                        data={safeActive}
-                                        units={units}
-                                        cardTime={widgetCardTime}
-                                        sources={widgetSources}
-                                        trends={widgetTrends}
-                                        trendAlarms={widgetTrendAlarms}
-                                        isLive={activeDay === 0 && activeHour === 0}
-                                        locationType={data.locationType}
-                                        hourly={hourly}
-                                        forecast={data.forecast}
-                                        coordinates={data.coordinates}
-                                        spreadMetric={spreadMetric}
-                                        onSpreadHandled={handleSpreadHandled}
-                                        emptyDayNote={activeDay > 0 ? shownDayRangeNote : null}
-                                    />
-                                </div>
+                            <div
+                                className={`${glassLayerPos} left-0 right-0 z-110 px-4 transition-[opacity,transform] duration-200 ease-out`}
+                                aria-hidden={!isExpanded}
+                                ref={(element) => {
+                                    if (element) (element as HTMLDivElement & { inert: boolean }).inert = !isExpanded;
+                                }}
+                                style={{
+                                    top: glassSafeTopOffset(glassTopLayout.primaryCardTopPx),
+                                    opacity: isExpanded ? 1 : 0,
+                                    transform: isExpanded ? 'translateY(0)' : 'translateY(-14px)',
+                                    pointerEvents: isExpanded ? 'auto' : 'none',
+                                    willChange: 'opacity, transform',
+                                }}
+                            >
+                                <HeroWidgets
+                                    data={safeActive}
+                                    units={units}
+                                    cardTime={widgetCardTime}
+                                    sources={widgetSources}
+                                    trends={widgetTrends}
+                                    trendAlarms={widgetTrendAlarms}
+                                    isLive={activeDay === 0 && activeHour === 0}
+                                    locationType={data.locationType}
+                                    hourly={hourly}
+                                    forecast={data.forecast}
+                                    coordinates={data.coordinates}
+                                    spreadMetric={spreadMetric}
+                                    onSpreadHandled={handleSpreadHandled}
+                                    emptyDayNote={activeDay > 0 ? shownDayRangeNote : null}
+                                />
+                            </div>
 
-                                {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space.
+                            {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space.
                                     Its top is calculated from the rendered card heights so it
                                     preserves the same 8px gap in either dashboard mode. */}
-                                <div
-                                    className={`${glassLayerPos} left-0 right-0 z-120 bg-slate-950 transition-[top] duration-300 flex flex-col pt-0 ${
-                                        // Clipping is fine when there is room. On a short
-                                        // viewport the hero would otherwise be a sliver with
-                                        // no scroll escape, so let it scroll instead.
-                                        glassTopLayout.isShortViewport ? 'overflow-y-auto' : 'overflow-hidden'
-                                    }`}
-                                    style={{
-                                        // Rain card to carousel on the same gap as the rest of
-                                        // the stack (6 on a 667 pt phone, where every point of
-                                        // tide card counts), not a fixed 8.
-                                        gap: `${glassTopLayout.cardGapPx}px`,
-                                        top: isExpanded
-                                            ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
-                                            : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
-                                        ...(landscapeFlow
-                                            ? { height: `${landscapeHeroHeightPx}px` }
-                                            : { bottom: glassHeroBottom }),
-                                    }}
-                                >
-                                    {/* STATIC RAIN FORECAST — always visible */}
-                                    <div className="shrink-0 px-4">
-                                        <h2 className="sr-only">Rain</h2>
-                                        <RainForecastCard
-                                            data={minutelyRain}
-                                            timeZone={data.timeZone}
-                                            rainSummary={rainSummary}
-                                            source={rainSource}
-                                            status={rainStatus}
-                                            // A nowcast: on another day or hour it says 'Right now:'.
-                                            isLive={activeDay === 0 && activeHour === 0}
-                                            coordinates={data.coordinates}
-                                        />
-                                    </div>
-                                    {/* A day past the model's range holds only its
-                                        'Beyond ICON's range' card and no tide, so the
-                                        heading says what is there (UX scorecard run 10). */}
-                                    <h2 className="sr-only">
-                                        {!isExpanded
-                                            ? 'Map'
-                                            : activeDay > 0 && shownDayRangeNote
-                                              ? 'Forecast by day'
-                                              : (data.locationType === 'coastal' || data.locationType === 'inshore') &&
-                                                  !isLandlocked
-                                                ? 'Tides'
-                                                : 'Hourly forecast'}
-                                    </h2>
-                                    <HeroSection
-                                        current={current}
-                                        forecasts={data.forecast}
-                                        units={units}
-                                        generatedAt={data.generatedAt}
-                                        locationName={props.displayTitle}
-                                        tides={data.tides}
-                                        tideHourly={data.tideHourly}
+                            <div
+                                className={`${glassLayerPos} left-0 right-0 z-120 bg-slate-950 transition-[top] duration-300 flex flex-col pt-0 ${
+                                    // Clipping is fine when there is room. On a short
+                                    // viewport the hero would otherwise be a sliver with
+                                    // no scroll escape, so let it scroll instead.
+                                    glassTopLayout.isShortViewport ? 'overflow-y-auto' : 'overflow-hidden'
+                                }`}
+                                style={{
+                                    // Rain card to carousel on the same gap as the rest of
+                                    // the stack (6 on a 667 pt phone, where every point of
+                                    // tide card counts), not a fixed 8.
+                                    gap: `${glassTopLayout.cardGapPx}px`,
+                                    top: isExpanded
+                                        ? glassSafeTopOffset(glassTopLayout.heroContainerExpandedTopPx)
+                                        : glassSafeTopOffset(glassTopLayout.heroContainerCollapsedTopPx),
+                                    ...(landscapeFlow
+                                        ? { height: `${landscapeHeroHeightPx}px` }
+                                        : { bottom: glassHeroBottom }),
+                                }}
+                            >
+                                {/* STATIC RAIN FORECAST — always visible */}
+                                <div className="shrink-0 px-4">
+                                    <h2 className="sr-only">Rain</h2>
+                                    <RainForecastCard
+                                        data={minutelyRain}
                                         timeZone={data.timeZone}
-                                        hourly={hourly}
-                                        modelUsed={data.modelUsed}
-                                        guiDetails={data.tideGUIDetails}
+                                        rainSummary={rainSummary}
+                                        source={rainSource}
+                                        status={rainStatus}
+                                        // A nowcast: on another day or hour it says 'Right now:'.
+                                        isLive={activeDay === 0 && activeHour === 0}
                                         coordinates={data.coordinates}
-                                        locationType={data.locationType}
-                                        utcOffset={data.utcOffset}
-                                        className="px-4"
-                                        onTimeSelect={handleTimeSelect}
-                                        onDayChange={handleDayChange}
-                                        onHourChange={handleHourChange}
-                                        onSlideIndexChange={handleSlideIndexChange}
-                                        onActiveDataChange={handleActiveDataChange}
-                                        isEssentialMode={!isExpanded}
-                                        vessel={userSettings.vessel}
-                                        minutelyRain={minutelyRain}
-                                        forecastModelLabel={forecastModelLabel}
-                                        compact={shortPortrait}
-                                        onShownDayChange={handleShownDayChange}
                                     />
                                 </div>
+                                {/* A day past the model's range holds only its
+                                        'Beyond ICON's range' card and no tide, so the
+                                        heading says what is there (UX scorecard run 10). */}
+                                <h2 className="sr-only">
+                                    {!isExpanded
+                                        ? 'Map'
+                                        : activeDay > 0 && shownDayRangeNote
+                                          ? 'Forecast by day'
+                                          : (data.locationType === 'coastal' || data.locationType === 'inshore') &&
+                                              !isLandlocked
+                                            ? 'Tides'
+                                            : 'Hourly forecast'}
+                                </h2>
+                                <HeroSection
+                                    current={current}
+                                    forecasts={data.forecast}
+                                    units={units}
+                                    generatedAt={data.generatedAt}
+                                    locationName={props.displayTitle}
+                                    tides={data.tides}
+                                    tideHourly={data.tideHourly}
+                                    timeZone={data.timeZone}
+                                    hourly={hourly}
+                                    modelUsed={data.modelUsed}
+                                    guiDetails={data.tideGUIDetails}
+                                    coordinates={data.coordinates}
+                                    locationType={data.locationType}
+                                    utcOffset={data.utcOffset}
+                                    className="px-4"
+                                    onTimeSelect={handleTimeSelect}
+                                    onDayChange={handleDayChange}
+                                    onHourChange={handleHourChange}
+                                    onSlideIndexChange={handleSlideIndexChange}
+                                    onActiveDataChange={handleActiveDataChange}
+                                    isEssentialMode={!isExpanded}
+                                    vessel={userSettings.vessel}
+                                    minutelyRain={minutelyRain}
+                                    forecastModelLabel={forecastModelLabel}
+                                    compact={shortPortrait}
+                                    onShownDayChange={handleShownDayChange}
+                                />
+                            </div>
 
-                                {/* STALENESS BANNER — REMOVED 2026-04-28
+                            {/* STALENESS BANNER — REMOVED 2026-04-28
                                     User feedback: "the layout stays exactly the
                                     same during no connection times as well as when
                                     connections. can we also remove the No Connection
@@ -1439,74 +1374,74 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     presents the same calm view regardless of
                                     connection state. */}
 
-                                {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
-                                {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.
+                            {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
+                            {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.
                                 Hero container bottom is 120px.
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
+                            <div
+                                ref={glassFooterRef}
+                                className={`${glassLayerPos} left-0 right-0 z-125 px-4`}
+                                style={
+                                    landscapeFlow
+                                        ? {
+                                              top: glassSafeTopOffset(
+                                                  (isExpanded
+                                                      ? glassTopLayout.heroContainerExpandedTopPx
+                                                      : glassTopLayout.heroContainerCollapsedTopPx) +
+                                                      landscapeHeroHeightPx +
+                                                      glassTopLayout.cardGapPx +
+                                                      12,
+                                              ),
+                                          }
+                                        : { bottom: `calc(env(safe-area-inset-bottom) + ${glassFooterBottomPx}px)` }
+                                }
+                            >
+                                <h2 className="sr-only">Forecast source</h2>
                                 <div
-                                    ref={glassFooterRef}
-                                    className={`${glassLayerPos} left-0 right-0 z-125 px-4`}
-                                    style={
-                                        landscapeFlow
-                                            ? {
-                                                  top: glassSafeTopOffset(
-                                                      (isExpanded
-                                                          ? glassTopLayout.heroContainerExpandedTopPx
-                                                          : glassTopLayout.heroContainerCollapsedTopPx) +
-                                                          landscapeHeroHeightPx +
-                                                          glassTopLayout.cardGapPx +
-                                                          12,
-                                                  ),
-                                              }
-                                            : { bottom: `calc(env(safe-area-inset-bottom) + ${glassFooterBottomPx}px)` }
-                                    }
+                                    className={`rounded-xl bg-black/40 ${t.border.default} ${shortPortrait ? 'px-2 py-1' : 'p-2'}`}
                                 >
-                                    <h2 className="sr-only">Forecast source</h2>
-                                    <div
-                                        className={`rounded-xl bg-black/40 ${t.border.default} ${shortPortrait ? 'px-2 py-1' : 'p-2'}`}
-                                    >
-                                        <StatusBadges
-                                            isLandlocked={isLandlocked}
-                                            locationName={props.displayTitle || ''}
-                                            displaySource={data.modelUsed || 'Model'}
-                                            nextUpdate={nextUpdateTime}
-                                            fallbackInland={false}
-                                            stationId={undefined}
-                                            locationType={data.locationType}
-                                            beaconName={beaconName}
-                                            buoyName={buoyName}
-                                            isOffshore={offshore.isOffshore}
-                                            sources={widgetSources}
-                                            activeData={safeActive}
-                                            isLive={activeDay === 0 && activeHour === 0}
-                                            modelUsed={data.modelUsed}
-                                            generatedAt={data.generatedAt}
-                                            coordinates={data.coordinates}
-                                        />
-                                    </div>
+                                    <StatusBadges
+                                        isLandlocked={isLandlocked}
+                                        locationName={props.displayTitle || ''}
+                                        displaySource={data.modelUsed || 'Model'}
+                                        nextUpdate={nextUpdateTime}
+                                        fallbackInland={false}
+                                        stationId={undefined}
+                                        locationType={data.locationType}
+                                        beaconName={beaconName}
+                                        buoyName={buoyName}
+                                        isOffshore={offshore.isOffshore}
+                                        sources={widgetSources}
+                                        activeData={safeActive}
+                                        isLive={activeDay === 0 && activeHour === 0}
+                                        modelUsed={data.modelUsed}
+                                        generatedAt={data.generatedAt}
+                                        coordinates={data.coordinates}
+                                    />
                                 </div>
+                            </div>
 
-                                {landscapeFlow && (
-                                    <>
-                                        {/* The column's last pixel: once it is on screen there is
+                            {landscapeFlow && (
+                                <>
+                                    {/* The column's last pixel: once it is on screen there is
                                             nothing more below, and the fold cue goes. */}
+                                    <div
+                                        ref={landscapeEndRef}
+                                        className="absolute bottom-0 left-0 h-px w-full pointer-events-none"
+                                        aria-hidden="true"
+                                    />
+                                    {landscapeMoreBelow && (
                                         <div
-                                            ref={landscapeEndRef}
-                                            className="absolute bottom-0 left-0 h-px w-full pointer-events-none"
+                                            data-testid="glass-fold-cue"
+                                            // A solid full-width band with a hairline top,
+                                            // not a fade: over the fade the chip sat inside
+                                            // the BARO cell, across the grid's bottom border
+                                            // and right under '1025' (UX scorecard run 10).
+                                            className="fixed inset-x-0 bottom-0 z-130 h-[calc(22px+env(safe-area-inset-bottom))] flex items-center justify-center pb-[env(safe-area-inset-bottom)] bg-slate-950 border-t border-white/12 [.display-light_&]:border-slate-300! pointer-events-none animate-in fade-in duration-300"
                                             aria-hidden="true"
-                                        />
-                                        {landscapeMoreBelow && (
-                                            <div
-                                                data-testid="glass-fold-cue"
-                                                // A solid full-width band with a hairline top,
-                                                // not a fade: over the fade the chip sat inside
-                                                // the BARO cell, across the grid's bottom border
-                                                // and right under '1025' (UX scorecard run 10).
-                                                className="fixed inset-x-0 bottom-0 z-130 h-[calc(22px+env(safe-area-inset-bottom))] flex items-center justify-center pb-[env(safe-area-inset-bottom)] bg-slate-950 border-t border-white/12 [.display-light_&]:border-slate-300! pointer-events-none animate-in fade-in duration-300"
-                                                aria-hidden="true"
-                                            >
-                                                {/* Words on a chip of its own: a bare chevron at
+                                        >
+                                            {/* Words on a chip of its own: a bare chevron at
                                                     the bottom centre sat in the BARO cell and read
                                                     as a BARO control (UX scorecard run 8). Sky-200
                                                     because daylight takes it to sky-700 (4.7:1 on
@@ -1514,55 +1449,54 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                     A 16 pt chip centred on its own 22 pt solid band,
                                                     below the grid's digits: over the grid it read as
                                                     BARO's (runs 9, 10). It bounces twice, then rests. */}
-                                                <span
-                                                    className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/90 py-0 pl-2.5 pr-2 text-xs leading-[14px] font-bold text-sky-200 animate-bounce-subtle"
-                                                    style={{ animationIterationCount: 2 }}
+                                            <span
+                                                className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-900/90 py-0 pl-2.5 pr-2 text-xs leading-[14px] font-bold text-sky-200 animate-bounce-subtle"
+                                                style={{ animationIterationCount: 2 }}
+                                            >
+                                                More below
+                                                <svg
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="2.5"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    className="h-3.5 w-3.5"
                                                 >
-                                                    More below
-                                                    <svg
-                                                        viewBox="0 0 24 24"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth="2.5"
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        className="h-3.5 w-3.5"
-                                                    >
-                                                        <polyline points="6 9 12 15 18 9" />
-                                                    </svg>
-                                                </span>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        )}
-
-                        {/* DETAILED GRIDS / LOG PAGE - Full height container for proper internal scrolling */}
-                        {isDetailMode && (
-                            <div className="absolute inset-0 overflow-hidden">
-                                <React.Suspense
-                                    fallback={
-                                        // Skeleton cards, not text — the house loading
-                                        // discipline (see LogPage's own rule).
-                                        <div className="h-full bg-slate-950 p-4 space-y-3 overflow-hidden">
-                                            {[0, 1, 2, 3].map((i) => (
-                                                <div
-                                                    key={i}
-                                                    className="rounded-2xl bg-white/5 border border-white/6 h-28 animate-pulse"
-                                                    style={{ animationDelay: `${i * 120}ms` }}
-                                                />
-                                            ))}
+                                                    <polyline points="6 9 12 15 18 9" />
+                                                </svg>
+                                            </span>
                                         </div>
-                                    }
-                                >
-                                    <LogPage />
-                                </React.Suspense>
-                            </div>
-                        )}
-                    </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {/* DETAILED GRIDS / LOG PAGE - Full height container for proper internal scrolling */}
+                    {isDetailMode && (
+                        <div className="absolute inset-0 overflow-hidden">
+                            <React.Suspense
+                                fallback={
+                                    // Skeleton cards, not text — the house loading
+                                    // discipline (see LogPage's own rule).
+                                    <div className="h-full bg-slate-950 p-4 space-y-3 overflow-hidden">
+                                        {[0, 1, 2, 3].map((i) => (
+                                            <div
+                                                key={i}
+                                                className="rounded-2xl bg-white/5 border border-white/6 h-28 animate-pulse"
+                                                style={{ animationDelay: `${i * 120}ms` }}
+                                            />
+                                        ))}
+                                    </div>
+                                }
+                            >
+                                <LogPage />
+                            </React.Suspense>
+                        </div>
+                    )}
                 </div>
-            </DndContext>
-        </DashboardWidgetContext.Provider>
+            </div>
+        </DndContext>
     );
 });

@@ -61,9 +61,11 @@ export function satIrTropicalHistogram(blob: Blob): Promise<Uint32Array> {
 }
 
 /**
- * The frame's bytes as a data: URL for updateImage. Not a blob: URL: Mapbox
- * loads an image source with fetch(), and the app's CSP allows data: in
- * connect-src but not blob:. ~0.5 MB a frame, kept while the frame is listed.
+ * The frame's bytes as a data: URL for updateImage. Mapbox loads an image
+ * source with fetch(), so the URL must pass connect-src; data: always has.
+ * (blob: is allowed too since W1-FX, for offline MBTiles tiles; switching the
+ * frames to blob: URLs is possible but not needed.) ~0.5 MB a frame, kept
+ * while the frame is listed.
  */
 export function satIrDataUrl(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {

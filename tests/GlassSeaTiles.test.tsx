@@ -18,28 +18,9 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../components/dashboard/TideAndVessel', () => ({
+vi.mock('../components/dashboard/tide/TideGraph', () => ({
     TideGraph: () => <div data-testid="tide-graph" />,
-    SunMoonWidget: () => <div />,
-    VesselWidget: () => <div />,
-    VesselStatusWidget: () => <div />,
-    TideWidget: () => <div />,
-    MoonVisual: () => <div />,
-    SolarArc: () => <div />,
-    getMoonPhaseData: () => ({ phase: 'Full Moon', illumination: 100, emoji: '🌕' }),
 }));
-vi.mock('../components/dashboard/WeatherGrid', () => ({
-    MetricsWidget: () => <div />,
-    DetailedMetricsWidget: () => <div />,
-    BeaufortWidget: () => <div />,
-    AlertsBanner: () => <div />,
-}));
-vi.mock('../components/dashboard/WeatherCharts', () => ({
-    HourlyWidget: () => <div />,
-    DailyWidget: () => <div />,
-    MapWidget: () => <div />,
-}));
-vi.mock('../components/dashboard/Advice', () => ({ AdviceWidget: () => <div /> }));
 vi.mock('../context/WeatherContext', () => ({
     useWeather: () => ({ nextUpdate: Date.now() + 60000, weatherData: null, loading: false }),
 }));

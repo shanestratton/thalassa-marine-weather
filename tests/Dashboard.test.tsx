@@ -105,10 +105,6 @@ vi.mock('../components/dashboard/WeatherHelpers', () => ({
     getMoonPhase: () => ({ phase: 'Full Moon', illumination: 100, emoji: '🌕' }),
 }));
 
-vi.mock('../components/WidgetRenderer', () => ({
-    DashboardWidgetContext: React.createContext({}),
-}));
-
 vi.mock('../services/weather/api/weatherkit', () => ({
     fetchMinutelyRainWithSummary: vi.fn().mockResolvedValue(null),
 }));

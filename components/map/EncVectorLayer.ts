@@ -882,8 +882,8 @@ function mountTrackAidLayers(
     // Colour comes from `_lightColor` pre-baked at merge time (first
     // code of the comma-split S-57 COLOUR — multi-colour lights no
     // longer fall to yellow). Declutter: minor lights (VALNMR < 10
-    // or missing) only render from z10; major lights always show and
-    // win collision placement via the VALNMR sort key.
+    // or missing) only render from z10; major lights always show. No
+    // light is ever dropped for collision (see icon-allow-overlap).
     if (!map.getLayer(ENC_VEC_LAYERS.LIGHTS)) {
         map.addLayer(
             {
@@ -930,10 +930,19 @@ function mountTrackAidLayers(
                         ['case', ['==', ['get', '_lightTier'], 'major'], 'sm-light-major', 'sm-light-minor'],
                     ]),
                     'icon-size': ['interpolate', ['linear'], ['zoom'], 7, 0.28, 11, 0.42, 15, 0.6],
-                    // Collision-cull minor lights instead of stamping
-                    // them all from z7 — the sort key keeps the
-                    // longest-range lights when space is tight.
-                    'icon-allow-overlap': false,
+                    // NEVER collision-culled (S-52: an aid to navigation is
+                    // not decluttered by collision, only by zoom and SCAMIN).
+                    // This layer shares the navaid source with the name
+                    // labels, which sit above it and are placed first, so at
+                    // `false` a nearby mark's name hid a lit beacon's flare,
+                    // and of two close minor lights one vanished (W1-01b).
+                    // Declutter stays where it was: minor lights from z10
+                    // (the filter above), SCAMIN, and the detail scrubber.
+                    'icon-allow-overlap': true,
+                    // …and the flare, offset beside its structure, never
+                    // costs a neighbouring mark its name: labels still give
+                    // way to each other, not to a flare.
+                    'icon-ignore-placement': true,
                     'icon-anchor': 'center',
                     // Flare OFFSET from the structure, S-52 style — stamped
                     // dead-centre it painted the flare directly over the
