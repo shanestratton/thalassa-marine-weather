@@ -29,8 +29,9 @@ export interface CollapsedRoute<T> {
     reversible: boolean;
 }
 
-/** Endpoints this close are the same place — berth-scale, not passage-scale. */
-const SAME_PLACE_NM = 0.25;
+/** Endpoints this close are the same place — berth-scale, not passage-scale.
+ *  Shared with the tracer's reversed-leg joins (services/tripReverse.ts). */
+export const SAME_PLACE_NM = 0.25;
 
 const haversineNM = calculateDistance;
 

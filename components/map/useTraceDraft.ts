@@ -9,8 +9,16 @@ import {
     type Dispatch,
     type SetStateAction,
 } from 'react';
-import type { NextLegSeed } from '../../services/routeTracer';
-import { reverseRouteName } from '../../services/routeNameParts';
+import type { NextLegSeed, SavedTrace } from '../../services/routeTracer';
+import { reversedLegName, stripRouteBadges } from '../../services/routeNameParts';
+import {
+    activeReversalNote,
+    parseReturnPlan,
+    parseReversalMark,
+    reversedLegForSlot,
+    type ReturnPlan,
+    type ReversalMark,
+} from '../../services/tripReverse';
 import {
     authScopedStorageKey,
     getAuthIdentityScope,
@@ -36,6 +44,10 @@ const STORAGE_KEYS = {
     legAnchor: 'thalassa_trace_wip_leg_anchor',
     origin: 'thalassa_trace_wip_origin',
     destination: 'thalassa_trace_wip_dest',
+    /** "Plan the return trip" cursor (services/tripReverse.ts ReturnPlan). */
+    returnPlan: 'thalassa_trace_wip_return_plan',
+    /** Where a reversed draft came from — its "check this direction" note. */
+    reversedFrom: 'thalassa_trace_wip_reversed_from',
 } as const;
 
 const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
@@ -110,6 +122,8 @@ interface TraceDraftData {
     legAnchor: NextLegSeed | null;
     traceOrigin: TraceFramePoint | null;
     traceDest: TraceFramePoint | null;
+    returnPlan: ReturnPlan | null;
+    reversedFrom: ReversalMark | null;
 }
 
 interface ScopedTraceDraft {
@@ -129,7 +143,20 @@ function readDraft(scope: AuthIdentityScope): TraceDraftData {
         legAnchor: readLegAnchor(scope),
         traceOrigin: readFramePoint(STORAGE_KEYS.origin, scope),
         traceDest: readFramePoint(STORAGE_KEYS.destination, scope),
+        returnPlan: parseReturnPlan(readJson<unknown>(STORAGE_KEYS.returnPlan, scope)),
+        reversedFrom: parseReversalMark(readJson<unknown>(STORAGE_KEYS.reversedFrom, scope)),
     };
+}
+
+/** One draft replaced wholesale by a reversed leg (return-trip flow). */
+export interface ReversedLegDraft {
+    points: TracePoint[];
+    name: string;
+    /** Name the auto-namer may keep rewriting; '' leaves the name as given. */
+    autoName?: string;
+    legAnchor: NextLegSeed | null;
+    reversedFrom: ReversalMark | null;
+    returnPlan: ReturnPlan | null;
 }
 
 function resolveAction<T>(action: SetStateAction<T>, current: T): T {
@@ -194,8 +221,27 @@ export function useTraceDraft() {
         (action) => updateDraft((current) => ({ ...current, traceName: resolveAction(action, current.traceName) })),
         [updateDraft],
     );
+    // Every door that opens another route (a saved route, a passage, a pasted
+    // or logged track, "Plot the next leg", Clear-abandon) declares the draft's
+    // chain identity through here. A return-trip cursor and a reversal note
+    // describe the draft being replaced, so they end with it — one rule here
+    // rather than a reset at each of those doors.
     const setLegAnchor = useCallback<Dispatch<SetStateAction<NextLegSeed | null>>>(
-        (action) => updateDraft((current) => ({ ...current, legAnchor: resolveAction(action, current.legAnchor) })),
+        (action) =>
+            updateDraft((current) => ({
+                ...current,
+                legAnchor: resolveAction(action, current.legAnchor),
+                returnPlan: null,
+                reversedFrom: null,
+            })),
+        [updateDraft],
+    );
+    const setReturnPlan = useCallback<Dispatch<SetStateAction<ReturnPlan | null>>>(
+        (action) => updateDraft((current) => ({ ...current, returnPlan: resolveAction(action, current.returnPlan) })),
+        [updateDraft],
+    );
+    const clearReturnContext = useCallback(
+        () => updateDraft((current) => ({ ...current, returnPlan: null, reversedFrom: null })),
         [updateDraft],
     );
     const setTraceOrigin = useCallback<Dispatch<SetStateAction<TraceFramePoint | null>>>(
@@ -206,22 +252,105 @@ export function useTraceDraft() {
         (action) => updateDraft((current) => ({ ...current, traceDest: resolveAction(action, current.traceDest) })),
         [updateDraft],
     );
-    const reverseDirection = useCallback(() => {
-        if (!isAuthIdentityScopeCurrent(identityScope)) return;
-        if (draft.capturedCoords.length < 2 || draft.legAnchor) return;
-        // Geometry and its labels are one edit. Previously only pins/title
-        // reversed, leaving the departure/destination frame pointing outbound.
-        const autoName = reverseRouteName(lastAutoNameRef.current);
-        lastAutoNameRef.current = autoName;
-        updateDraft((current) => ({
-            ...current,
-            capturedCoords: [...current.capturedCoords].reverse(),
-            traceName: reverseRouteName(current.traceName),
-            autoName,
-            traceOrigin: current.traceDest,
-            traceDest: current.traceOrigin,
-        }));
-    }, [draft.capturedCoords.length, draft.legAnchor, identityScope, updateDraft]);
+    /**
+     * ⇄ on an unlocked draft. Geometry and its labels are one edit (only
+     * pins/title used to reverse, leaving the departure/destination frame
+     * pointing outbound). The name loses its trip badges: a reversed "(2nd
+     * Leg)" is a new route, and the stale badge seeded Cast Off as leg 2 and
+     * offered "Plot the 3rd leg" (2026-10-07). `sourceLabel` names what was
+     * reversed for the "check this direction" note; reversing a reversal is
+     * the original direction again, so its note goes. Any return-trip cursor
+     * ends: the draft is no longer that return leg.
+     *
+     * `detach` is for a chained leg that has been SAVED and still shows its
+     * locked start (Save keeps the anchor). Its reversal is a copy too, so
+     * the lock goes in the same edit; without it a locked draft is refused.
+     */
+    const reverseDirection = useCallback(
+        (sourceLabel?: string | null, options: { detach?: boolean } = {}) => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return;
+            if (draft.capturedCoords.length < 2 || (draft.legAnchor && !options.detach)) return;
+            const autoName = reversedLegName(lastAutoNameRef.current);
+            lastAutoNameRef.current = autoName;
+            updateDraft((current) => {
+                const reversed = [...current.capturedCoords].reverse();
+                const end = reversed[reversed.length - 1];
+                const backToOriginal = activeReversalNote(current.capturedCoords, current.reversedFrom) !== null;
+                const label = sourceLabel?.trim() || stripRouteBadges(current.traceName) || 'the outbound line';
+                return {
+                    ...current,
+                    capturedCoords: reversed,
+                    traceName: reversedLegName(current.traceName),
+                    autoName,
+                    legAnchor: options.detach ? null : current.legAnchor,
+                    traceOrigin: current.traceDest,
+                    traceDest: current.traceOrigin,
+                    reversedFrom: backToOriginal || !end ? null : { label, end: { lat: end.lat, lon: end.lon } },
+                    returnPlan: null,
+                };
+            });
+        },
+        [draft.capturedCoords.length, draft.legAnchor, identityScope, updateDraft],
+    );
+
+    /**
+     * ⇄ on a locked-start ("Plot the next leg") draft: drop a saved leg that
+     * arrives at the locked pin in reversed, pin 0 on the exact anchor. False
+     * when there is no locked start or the leg does not reach it. The flipped
+     * name is the skipper's own words, so the auto-namer stands down.
+     */
+    const fillSlotWithReversed = useCallback(
+        (source: SavedTrace): boolean => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return false;
+            const anchor = draft.legAnchor;
+            if (!anchor) return false;
+            const slot = reversedLegForSlot(source, anchor.anchor);
+            if (!slot) return false;
+            lastAutoNameRef.current = '';
+            updateDraft((current) =>
+                current.legAnchor
+                    ? {
+                          ...current,
+                          capturedCoords: slot.points,
+                          traceName: slot.name,
+                          autoName: '',
+                          traceOrigin: null,
+                          traceDest: null,
+                          reversedFrom: { label: slot.sourceLabel, end: { ...slot.points[slot.points.length - 1] } },
+                      }
+                    : current,
+            );
+            return true;
+        },
+        [draft.legAnchor, identityScope, updateDraft],
+    );
+
+    /** Replace the draft with one return leg in a single edit (the return-trip
+     *  flow's open/next steps). The departure goes too: one set while the
+     *  outbound trip was on screen would grade this leg's tide gates and be
+     *  stamped on its Passage Planning row. A return leg falls back to now
+     *  until the skipper sets its own. */
+    const openReversedLeg = useCallback(
+        (next: ReversedLegDraft): boolean => {
+            if (!isAuthIdentityScopeCurrent(identityScope)) return false;
+            const autoName = next.autoName ?? '';
+            lastAutoNameRef.current = autoName;
+            updateDraft((current) => ({
+                ...current,
+                capturedCoords: next.points.map((point) => ({ lat: point.lat, lon: point.lon })),
+                departureMs: null,
+                traceName: next.name,
+                autoName,
+                legAnchor: next.legAnchor,
+                traceOrigin: null,
+                traceDest: null,
+                reversedFrom: next.reversedFrom,
+                returnPlan: next.returnPlan,
+            }));
+            return true;
+        },
+        [identityScope, updateDraft],
+    );
 
     useEffect(() => {
         const scope = identityScope;
@@ -238,6 +367,11 @@ export function useTraceDraft() {
             sessionStorage.setItem(scopedStorageKey(STORAGE_KEYS.legAnchor, scope), JSON.stringify(draft.legAnchor));
             sessionStorage.setItem(scopedStorageKey(STORAGE_KEYS.name, scope), draft.traceName);
             sessionStorage.setItem(scopedStorageKey(STORAGE_KEYS.autoName, scope), lastAutoNameRef.current);
+            sessionStorage.setItem(scopedStorageKey(STORAGE_KEYS.returnPlan, scope), JSON.stringify(draft.returnPlan));
+            sessionStorage.setItem(
+                scopedStorageKey(STORAGE_KEYS.reversedFrom, scope),
+                JSON.stringify(draft.reversedFrom),
+            );
         } catch {
             /* quota/private-mode — the draft just doesn't survive reloads */
         }
@@ -259,5 +393,11 @@ export function useTraceDraft() {
         traceDest: draft.traceDest,
         setTraceDest,
         reverseDirection,
+        returnPlan: draft.returnPlan,
+        setReturnPlan,
+        reversedFrom: draft.reversedFrom,
+        clearReturnContext,
+        fillSlotWithReversed,
+        openReversedLeg,
     };
 }

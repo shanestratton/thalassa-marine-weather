@@ -78,6 +78,8 @@ import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useTraceHistory } from './useTraceHistory';
 import { useTraceDraft } from './useTraceDraft';
+import { useReturnTripFlow } from './useReturnTripFlow';
+import { reversedLegName } from '../../services/routeNameParts';
 import { useMapHubLayerVisibility } from './useMapHubLayerVisibility';
 import { useAnchorageLayer } from './useAnchorageLayer';
 import { useCruisingReferenceLayer } from './useCruisingReferenceLayer';
@@ -141,17 +143,13 @@ import {
     deleteTrace,
     tracePinBlocked,
     rdpTracePoints,
-    reverseRouteName,
     bearingDegBetween,
     courseArrow,
     commonDepartureWindowLabel,
     nextLegSeed,
     ordinalLegLabel,
-    withLegBadge,
+    stripLegBadge,
     buildTripPassageRollups,
-    destNameFromRouteName,
-    retroBadgeFirstLeg,
-    healTripChain,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
     splitLegForDepthGrid,
@@ -238,6 +236,9 @@ import { TracerInputRows } from './tracer/TracerInputRows';
 import { TracerWaypointList } from './tracer/TracerWaypointList';
 import { TracerSavedRoutePicker } from './tracer/TracerSavedRoutePicker';
 import { TracerPinEditor } from './tracer/TracerPinEditor';
+import { TracerReturnStrip } from './tracer/TracerReturnStrip';
+import { commitTraceSave, decideTraceSave } from '../../services/traceSave';
+import { activeReversalNote, followedSavedRouteIds, legInSlot, reverseTapDecision } from '../../services/tripReverse';
 import { CoachMark } from '../ui/CoachMark';
 import { PerfGuardian, consumePerfDowntierToast } from '../../services/PerfGuardian';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
@@ -380,6 +381,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         traceDest,
         setTraceDest,
         reverseDirection,
+        returnPlan,
+        setReturnPlan,
+        reversedFrom,
+        clearReturnContext,
+        fillSlotWithReversed,
+        openReversedLeg,
     } = useTraceDraft();
 
     // Every pin edit feeds the same history hook, regardless of whether it
@@ -590,6 +597,22 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
         },
         [],
+    );
+    // Reversed legs and the trip home (Shane 2026-10-07). The logic lives in
+    // services/tripReverse.ts and useReturnTripFlow; this file only wires it.
+    // The tracer-open handler below is a mount-time closure, so it reaches the
+    // flow through a ref.
+    const returnFlow = useReturnTripFlow({ returnPlan, setReturnPlan, openReversedLeg }, { flash: flashTraceFeedback });
+    const returnFlowRef = useRef(returnFlow);
+    returnFlowRef.current = returnFlow;
+    /** ⇄ in a locked-start leg found several saved legs arriving there. */
+    const [slotChoices, setSlotChoices] = useState<SavedTrace[] | null>(null);
+    /** ⇄ fills only an EMPTY locked-start slot; a saved leg N (Save keeps its
+     *  lock) flips into a copy like any other line. */
+    const fillsLockedSlot = useMemo(() => !!legAnchor && !legInSlot(savedTraces, legAnchor), [legAnchor, savedTraces]);
+    const reversalNoteText = useMemo(
+        () => activeReversalNote(capturedCoords, reversedFrom),
+        [capturedCoords, reversedFrom],
     );
     /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
      *  "Sail anyway?" and only the second tap sails. Never a hard block. */
@@ -818,6 +841,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                     flashTraceFeedback(
                         `${ordinalLegLabel(seed.ordinal)} departs ${seed.fromName} — first pin locked 🔒`,
                     );
+                }
+            } else if (action?.kind === 'return-trip') {
+                // The trip home (Shane 2026-10-07): return leg 1 is the chosen
+                // outbound leg reversed, as an unlocked draft; useReturnTripFlow
+                // carries the cursor from there. The outbound trip is only read.
+                rebaseHistoryRef.current = true; // a different route → Undo floor
+                const points = returnFlowRef.current.start(action.tripId, action.fromOrdinal);
+                if (!points) {
+                    rebaseHistoryRef.current = false;
+                } else {
+                    setSelectedPin(null);
+                    setOverwriteArm(null);
+                    setSlotChoices(null);
+                    setSavedTraces(loadSavedTraces());
+                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, points);
+                    if (mapRef.current) {
+                        if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                    } else {
+                        const timer = window.setTimeout(() => {
+                            tracerHandoffTimersRef.current.delete(timer);
+                            if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                        }, 1_200);
+                        tracerHandoffTimersRef.current.add(timer);
+                    }
                 }
             }
         };
@@ -1133,46 +1180,50 @@ export const MapHub: React.FC<MapHubProps> = ({
             traceNameInputRef.current?.focus();
             return;
         }
-        // Chained leg (Shane 2026-07-17): the stored name carries the ordinal
-        // badge — "woorim - timbuktu" saves as "woorim - timbuktu (2nd Leg)".
-        // withLegBadge strips any existing badge first, so re-saves never
-        // stack "(2nd Leg) (2nd Leg)".
+        // Name, collision, "Overwrite?" arm and the chain bookkeeping are
+        // services/traceSave.ts — the same decision the return-trip tests
+        // drive. A chained leg saves badged ("woorim - timbuktu (2nd Leg)");
+        // the same name as a stored route asks before replacing it in place.
         const anchor = legAnchor;
-        const finalName = anchor ? withLegBadge(traceName.trim(), anchor.ordinal) : traceName.trim();
-        // Saving under an EXISTING route's name updates that route in place
-        // — same id locally and on the account, so "Bay run" never breeds
-        // "Bay run", "Bay run"… twins. Never silently though (Shane
-        // 2026-07-15: "of course it needs to ask me first"): the first tap
-        // arms the button as "Overwrite?", the second replaces.
-        const wantedName = finalName.toLowerCase();
-        const existing = wantedName ? savedTraces.find((t) => t.name.trim().toLowerCase() === wantedName) : undefined;
-        if (existing && overwriteArm !== existing.id) {
-            triggerHaptic('medium');
-            setOverwriteArm(existing.id);
-            flashTraceFeedback(`"${existing.name}" exists — tap again to overwrite it`);
+        const follow = useFollowRouteStore.getState();
+        const decision = decideTraceSave({
+            name: traceName,
+            points: capturedCoords,
+            anchor,
+            savedTraces,
+            overwriteArm,
+            followedIds: followedSavedRouteIds(savedTraces, follow),
+        });
+        if (decision.kind === 'refuse') {
+            // Never reverse a trip leg or the followed route in place: that
+            // rewrote rows a boat may be steering by and dragged the next
+            // leg's start (2026-10-07). The return run gets its own name.
+            triggerHaptic('heavy');
+            setOverwriteArm(null);
+            flashTraceFeedback(decision.reason);
+            traceNameInputRef.current?.focus();
             return;
         }
+        if (decision.kind === 'confirm-overwrite') {
+            triggerHaptic('medium');
+            setOverwriteArm(decision.existing.id);
+            flashTraceFeedback(`"${decision.existing.name}" exists — tap again to overwrite it`);
+            return;
+        }
+        const { finalName, existing } = decision;
         setOverwriteArm(null);
         triggerHaptic('medium');
         const saveScope = getAuthIdentityScope();
-        const { trace, persisted, cloud } = saveTrace(finalName, capturedCoords, {
-            ...(existing ? { overwriteId: existing.id } : {}),
-            ...(anchor
-                ? {
-                      tripId: anchor.tripId,
-                      legOrdinal: anchor.ordinal,
-                      destName: destNameFromRouteName(finalName) ?? undefined,
-                  }
-                : {}),
-            verification,
-        });
         // The trip becomes REAL at leg 2's save: leg 1 retro-earns its
         // "(1st Leg)" badge + chain fields (Shane's call: retro, not
-        // upfront — day-sail routes never carry trip baggage).
-        const retro = persisted && anchor ? retroBadgeFirstLeg(anchor.tripId) : null;
-        // AUTO-HEAL (Shane's call): if this save moved a leg's arrival and a
-        // later leg departs from it, that leg's locked start follows.
-        const healed = persisted ? healTripChain(trace) : null;
+        // upfront — day-sail routes never carry trip baggage). AUTO-HEAL
+        // (Shane's call): if this save moved a leg's arrival and a later
+        // leg departs from it, that leg's locked start follows.
+        const { trace, persisted, cloud, retro, healed } = commitTraceSave(decision, capturedCoords, verification);
+        // The reversal note travels with the leg into its Passage Planning
+        // record, read before the flow moves the draft on.
+        const reversalNoteAtSave = reversalNoteText;
+        const returnTripNews = persisted ? returnFlowRef.current.onSaved(trace) : null;
         setSavedTraces(loadSavedTraces());
         if (anchor) setTraceName(finalName); // show the badged name; re-save arms overwrite
         if (persisted) {
@@ -1186,11 +1237,13 @@ export const MapHub: React.FC<MapHubProps> = ({
             flashTraceFeedback(
                 healed
                     ? `${ack} — ${healed}`
-                    : retro
-                      ? `${ack} — trip chained, leg 1 is now "${retro.name}"`
-                      : anchor
-                        ? `${ack} — ${ordinalLegLabel(anchor.ordinal)} of the trip`
-                        : ack,
+                    : returnTripNews
+                      ? `${ack} — ${returnTripNews}`
+                      : retro
+                        ? `${ack} — trip chained, leg 1 is now "${retro.name}"`
+                        : anchor
+                          ? `${ack} — ${ordinalLegLabel(anchor.ordinal)} of the trip`
+                          : ack,
             );
             // This saved state is the new Undo FLOOR (Shane 2026-07-16: undo
             // "right up to when it was last saved"). Save does not replace
@@ -1219,6 +1272,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         import('../../utils/deadline'),
                     ]);
                     const plan = traceAsVoyagePlan(finalName, capturedCoords, verification.legGrades, verification);
+                    if (reversalNoteAtSave) plan.overview = `${plan.overview} ${reversalNoteAtSave}.`;
                     const mirrorSave = savePassagePlanToLogbookWithLinks(plan, {
                         savedRouteId: trace.id,
                         ...(trace.passageVoyageId ? { existingPassageVoyageId: trace.passageVoyageId } : {}),
@@ -1273,6 +1327,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         savedTraces,
         overwriteArm,
         legVerdicts,
+        reversalNoteText,
         getTraceReleaseGate,
         flashTraceFeedback,
         resetTraceHistory,
@@ -1284,35 +1339,139 @@ export const MapHub: React.FC<MapHubProps> = ({
     // |last suffix moves, solo-lateral advisory ownership follows travel
     // direction), so reversed legs re-grade honestly instead of reusing
     // outbound verdicts — the water is the same but the reads aren't.
+    //
+    // Reverse always makes something NEW (Shane 2026-10-07: "i can reverse the
+    // first leg. but i cannot reverse the 2nd leg"). An opened leg flips into
+    // a return copy — badges and chain gone, saved as its own route. A chained
+    // leg's first pin is bolted to the previous arrival, so there ⇄ fills the
+    // leg instead: a saved leg that ARRIVES at that pin, dropped in reversed.
+    const fillReversedSlot = useCallback(
+        (source: SavedTrace) => {
+            const anchor = legAnchorRef.current;
+            const hadPins = capturedCoords.length > 1;
+            // A chooser can outlive the empty slot it was offered for (Save
+            // with it open). Filling a saved leg N would add a second one.
+            const occupant = anchor ? legInSlot(loadSavedTraces(), anchor) : null;
+            if (anchor && occupant) {
+                setSlotChoices(null);
+                flashTraceFeedback(
+                    `Leg ${anchor.ordinal} of this trip is already saved as "${stripLegBadge(occupant.name)}"`,
+                );
+                return;
+            }
+            if (!anchor || !fillSlotWithReversed(source)) {
+                flashTraceFeedback(`${source.name} doesn't reach this leg's locked start`);
+                return;
+            }
+            triggerHaptic('medium');
+            setSlotChoices(null);
+            setSelectedPin(null);
+            setInsertAfter(null);
+            insertAfterRef.current = null;
+            setOverwriteArm(null);
+            if (mapRef.current) fitTraceBounds(mapRef.current, [anchor.anchor, ...source.points]);
+            flashTraceFeedback(
+                `Reversed into ${ordinalLegLabel(anchor.ordinal).toLowerCase()} from ${anchor.fromName}${
+                    hadPins ? ' — Undo puts your pins back' : ''
+                }`,
+            );
+        },
+        [capturedCoords.length, fillSlotWithReversed, flashTraceFeedback, legAnchorRef],
+    );
     const reverseTrace = useCallback(() => {
-        if (capturedCoords.length < 2) return;
-        // A chained leg can't flip — its start is bolted to the previous
-        // leg's arrival. (Reverse the whole TRIP leg-by-leg later instead.)
-        if (legAnchorRef.current) {
-            flashTraceFeedback(`Chained leg — the start is locked to ${legAnchorRef.current.fromName}`);
+        const anchor = legAnchorRef.current;
+        // services/tripReverse.ts decides: an EMPTY locked-start slot fills
+        // with a saved leg reversed; everything else, including a chained leg
+        // that has been saved and still shows its lock, flips into a copy.
+        const traces = loadSavedTraces();
+        const tap = reverseTapDecision({
+            traces,
+            anchor,
+            points: capturedCoords,
+            preferTripId: returnPlan?.sourceTripId ?? null,
+        });
+        if (anchor) setSavedTraces(traces);
+        if (tap.kind === 'nothing') return;
+        if (tap.kind === 'slot-taken') {
+            setSlotChoices(null);
+            flashTraceFeedback(
+                `Leg ${tap.ordinal} of this trip is already saved as "${stripLegBadge(tap.occupant.name)}" — Clear again to start something new`,
+            );
+            return;
+        }
+        if (tap.kind === 'no-candidates') {
+            setSlotChoices(null);
+            if (anchor) {
+                flashTraceFeedback(
+                    `${ordinalLegLabel(anchor.ordinal)} starts locked at ${anchor.fromName}. No saved leg arrives there to reverse — use ⇄ Plan the return trip in Trip · Legs`,
+                );
+            }
+            return;
+        }
+        if (tap.kind === 'fill') {
+            if (tap.candidates.length === 1) {
+                fillReversedSlot(tap.candidates[0]);
+                return;
+            }
+            triggerHaptic('light');
+            setSlotChoices(tap.candidates.slice(0, 6));
             return;
         }
         triggerHaptic('medium');
         setSelectedPin(null);
         setInsertAfter(null);
         insertAfterRef.current = null;
+        setSlotChoices(null);
         // The name flips with the pins ("Newport - Lady Musgrave" →
-        // "Lady Musgrave - Newport", Shane 2026-07-15) — so saving the
-        // return run creates ITS OWN route instead of colliding with
-        // the outbound's overwrite guard. No-op for separator-less names.
-        const flipped = reverseRouteName(traceName);
-        reverseDirection();
+        // "Lady Musgrave - Newport", Shane 2026-07-15) and loses its trip
+        // badges, so saving the return run creates ITS OWN route instead of
+        // colliding with the outbound's overwrite guard. A saved chained leg
+        // drops its lock in the same edit: its reversal is a copy, not leg N.
+        const flipped = reversedLegName(traceName);
+        reverseDirection(tap.source?.label, { detach: tap.detach });
         setFromQuery(toQuery);
         setToQuery(fromQuery);
         setOverwriteArm(null);
         // Say the new name out loud — "name is not flipping" turned out
         // to be an empty box being flipped; now the flash proves it.
         flashTraceFeedback(
-            flipped.trim() && flipped !== traceName
-                ? `Reversed — "${flipped.trim()}"`
-                : 'Reversed — checking the return run now',
+            tap.source
+                ? `Reversed copy — ${tap.source.unchanged}`
+                : flipped.trim() && flipped !== traceName
+                  ? `Reversed — "${flipped.trim()}"`
+                  : 'Reversed — checking the return run now',
         );
-    }, [capturedCoords.length, traceName, flashTraceFeedback, legAnchorRef, reverseDirection, fromQuery, toQuery]);
+    }, [
+        capturedCoords,
+        traceName,
+        returnPlan,
+        flashTraceFeedback,
+        fillReversedSlot,
+        legAnchorRef,
+        reverseDirection,
+        fromQuery,
+        toQuery,
+    ]);
+    // A chooser belongs to the locked start it was offered for.
+    useEffect(() => setSlotChoices(null), [legAnchor]);
+    const openNextReturnLeg = useCallback(() => {
+        rebaseHistoryRef.current = true; // the next leg home is a new route → Undo floor
+        const points = returnFlowRef.current.openNext();
+        if (!points) {
+            rebaseHistoryRef.current = false;
+            return;
+        }
+        triggerHaptic('medium');
+        setSelectedPin(null);
+        setInsertAfter(null);
+        insertAfterRef.current = null;
+        setOverwriteArm(null);
+        setSlotChoices(null);
+        setSavedTraces(loadSavedTraces());
+        if (!mapRef.current) return;
+        if (points.length > 1) fitTraceBounds(mapRef.current, points);
+        else mapRef.current.flyTo({ center: [points[0].lon, points[0].lat], zoom: 13.5, duration: 900 });
+    }, [rebaseHistoryRef]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
         try {
@@ -4022,6 +4181,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 {traceFeedback}
                                             </div>
                                         )}
+                                        {/* Reversed legs and the trip home (2026-10-07). */}
+                                        <TracerReturnStrip
+                                            note={reversalNoteText}
+                                            slotChoices={slotChoices}
+                                            slotFromName={legAnchor?.fromName ?? null}
+                                            onPickSlot={fillReversedSlot}
+                                            onCancelSlot={() => setSlotChoices(null)}
+                                            progress={returnFlow.progress}
+                                            nextReturnLeg={returnFlow.nextReturnLeg}
+                                            onNextReturnLeg={openNextReturnLeg}
+                                            onStopReturnTrip={returnFlow.stop}
+                                        />
                                         {/* Guided builder ⚡ Auto-to-destination — PARKED with
                                 the course frame (COURSE_FRAME_VISIBLE). */}
                                         {COURSE_FRAME_VISIBLE &&
@@ -4186,7 +4357,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         );
                                                         return;
                                                     }
+                                                    // Abandoning the draft ends any trip home it was
+                                                    // part of; the legs already saved stay.
                                                     if (anchor) setLegAnchor(null);
+                                                    else clearReturnContext();
                                                     setCapturedCoords([]);
                                                     // An AUTO name belongs to the cleared route —
                                                     // wipe it with the pins. A typed name survives.
@@ -4198,12 +4372,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 Clear
                                             </button>
                                             {/* Return-trip flip: start↔finish swap, legs
-                                                re-grade for the opposite heading. */}
+                                                re-grade for the opposite heading. On a
+                                                locked-start leg it fills the leg with a
+                                                saved leg arriving there, reversed — so it
+                                                works from the lone locked pin too. */}
                                             <button
                                                 onClick={reverseTrace}
-                                                disabled={capturedCoords.length < 2}
-                                                aria-label="Reverse route — plot the return trip"
-                                                title="Reverse route"
+                                                disabled={capturedCoords.length < 2 && !legAnchor}
+                                                aria-label={
+                                                    fillsLockedSlot
+                                                        ? 'Reverse a saved leg into this one'
+                                                        : 'Reverse route — plot the return trip'
+                                                }
+                                                title={
+                                                    fillsLockedSlot
+                                                        ? 'Reverse a saved leg into this one'
+                                                        : 'Reverse route'
+                                                }
                                                 className="min-h-[44px] rounded-lg bg-white/5 px-2.5 py-1.5 text-[13px] font-black text-sky-300 active:scale-95 disabled:opacity-40"
                                             >
                                                 ⇄
