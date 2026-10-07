@@ -128,11 +128,13 @@ export function ModelCheckCard({ view, details, onToggleDetails, onClose, speedU
                                 </p>
                             )}
                             {showRows && (
+                                // Rows on their 20 px line, unpadded: with both notes (the marina
+                                // card) the whole card fits 320x568 in wide fonts (fit123).
                                 <ol aria-label="Models, closest first" className="mt-1">
                                     {view.rows.map((row) => (
                                         <li
                                             key={row.id}
-                                            className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-2 py-px text-sm leading-5 tabular-nums"
+                                            className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-2 text-sm leading-5 tabular-nums"
                                         >
                                             <span
                                                 className={`min-w-0 truncate ${row.mark ? 'font-black' : 'font-semibold'} ${row.onChart ? 'text-sky-300' : 'text-slate-100'}`}

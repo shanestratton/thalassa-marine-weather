@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { applyWideFonts, expectWideFaceDrawn } from '../e2e/helpers/wideFonts';
 
 /**
  * Her GPS silent at Start: "Log from this phone / Wait for the boat" (build
@@ -8,6 +9,11 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
  * centred, clear of the tab bar, every button fully visible, at least 44 pt
  * tall and hit-testable, nothing overflowing — at 320 × 568 with large text
  * and a long boat name too.
+ *
+ * Every size is in wide fonts (Verdana on a Mac, DejaVu Sans on the Linux
+ * runner), the house fit rule: the CI runner draws the app's sans face as
+ * DejaVu Sans whatever the spec asks for, so a size in the Mac's own face
+ * passed here and failed there (run 37683972847, the phone notice at 320x568).
  */
 
 const sizes = [
@@ -27,10 +33,13 @@ async function open(page: Page, size: { width: number; height: number }, query: 
             ? route.continue()
             : route.abort();
     });
+    await applyWideFonts(page);
     await page.setViewportSize({ width: size.width, height: size.height });
     await page.goto(`/e2e/fixtures/stand-in-question.html${query ? `?${query}` : ''}`);
-    await expect(page.getByRole('button', { name: 'Slide to Start Tracking' })).toBeVisible();
+    const slide = page.getByRole('button', { name: 'Slide to Start Tracking' });
+    await expect(slide).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
+    await expectWideFaceDrawn(slide);
     return errors;
 }
 

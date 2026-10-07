@@ -383,6 +383,18 @@ for (const device of SHEET_PHONES) {
                 const url = new URL(route.request().url());
                 return url.origin === 'http://127.0.0.1:4199' ? route.continue() : route.abort();
             });
+            // Deterministic (fit123; CI run 37683972847 timed out opening a context).
+            // The sheet's full-screen backdrop blur is redrawn in software
+            // (SwiftShader) on every frame the Glass beneath it animates: the
+            // alert icon's endless pulse and the metric icons held Chromium's GPU
+            // process at ~7 cores on a Mac (1-3 % once still). On the two-worker
+            // CI runner these tests took 11-31 s each until one got no context in
+            // 30 s. Reduced motion (the app's own rule) stills the page once it
+            // has drawn. And noon on the page's clock: within half an hour of the
+            // 07:43 sunrise or 19:09 sunset the chip is named 'Golden hour', not
+            // 'Sunrise 07:43'.
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+            await page.clock.setFixedTime(new Date(2026, 9, 7, 12, 0));
             await page.setViewportSize({ width: device.width, height: device.height });
             await page.goto(
                 `/e2e/fixtures/glass-legibility.html?sunmoon=1&top=${device.top}&bottom=${device.bottom}${wide ? '&fonts=wide' : ''}`,
@@ -391,6 +403,12 @@ for (const device of SHEET_PHONES) {
             const dialog = page.getByRole('dialog', { name: 'Sun and moon' });
             await expect(dialog).toBeVisible();
             await expect(dialog.getByRole('table', { name: 'Twilight' })).toBeVisible();
+            // Measured once nothing moves: the sheet's zoom-in scales its box.
+            await expect
+                .poll(() =>
+                    page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length),
+                )
+                .toBe(0);
             const issues = await page.evaluate(
                 ({ top, bottom, mustFit }) => {
                     const out: string[] = [];
