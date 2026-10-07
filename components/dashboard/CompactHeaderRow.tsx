@@ -8,20 +8,9 @@ import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { isGoldenHour } from '../../utils/goldenHour';
 import type { DashboardMode } from '../../types';
-
-// Critical warnings that CANNOT be dismissed (must match AlertsBanner/WarningDetails)
-const CRITICAL_PATTERNS = [
-    'STORM WARNING',
-    'GALE WARNING',
-    'DANGEROUS SEAS',
-    'FREEZING SPRAY',
-    'FREEZE WARNING',
-    'EXCESSIVE HEAT',
-    'DENSE FOG',
-    'STORM WATCH',
-    'GALE WATCH',
-];
-const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
+// Critical alerts CANNOT be dismissed: the one classifier AlertsBanner and
+// WarningDetails share, so the three surfaces can never disagree.
+import { isCriticalForecastAlert as isCritical } from '../../utils/forecastAlerts';
 
 /**
  * The moon as a line glyph in the chip's icon style: an outlined disc with
@@ -141,7 +130,11 @@ export const CompactHeaderRow = ({
                         void triggerHaptic('light');
                         setPage('warnings');
                     }}
-                    aria-label={hasWarnings ? `${activeAlerts.length} active weather warnings` : 'No forecast alerts'}
+                    aria-label={
+                        hasWarnings
+                            ? `${activeAlerts.length} active forecast ${activeAlerts.length === 1 ? 'alert' : 'alerts'}`
+                            : 'No forecast alerts'
+                    }
                     className={`${
                         hasWarnings
                             ? 'glass-warning-status bg-red-700 hover:bg-red-800 border-red-400/50'
@@ -151,8 +144,11 @@ export const CompactHeaderRow = ({
                     {hasWarnings ? (
                         <>
                             <AlertTriangleIcon className="w-4 h-4 glass-warning-label animate-pulse" />
+                            {/* 'Alerts', not 'Warnings': these are Thalassa's own
+                                forecast checks, and the page it opens is Forecast
+                                alerts. 'WARNINGS' read as official ones (W1-02). */}
                             <span className="glass-warning-label font-bold uppercase tracking-wider text-sm">
-                                Warnings
+                                Alerts
                             </span>
                             <div className="bg-white text-red-700 font-bold text-sm w-5 h-5 flex items-center justify-center rounded-full shadow-md group-hover:scale-110 transition-transform ml-auto">
                                 {activeAlerts.length}

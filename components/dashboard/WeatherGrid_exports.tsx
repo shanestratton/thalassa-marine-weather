@@ -9,22 +9,9 @@ import { WeatherMetrics, UnitPreferences } from '../../types';
 import { CardDisplayValues } from './hero/types';
 
 import { useUI } from '../../context/UIContext';
-
-// Critical warnings that CANNOT be dismissed (life/vessel safety).
-// Module scope, matching CompactHeaderRow and WarningDetails: this array and
-// its closure were being rebuilt on every render of the banner.
-const CRITICAL_PATTERNS = [
-    'STORM WARNING',
-    'GALE WARNING',
-    'DANGEROUS SEAS',
-    'FREEZING SPRAY',
-    'FREEZE WARNING',
-    'EXCESSIVE HEAT',
-    'DENSE FOG',
-    'STORM WATCH',
-    'GALE WATCH',
-];
-const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
+// Critical alerts CANNOT be dismissed (life/vessel safety): the one classifier
+// CompactHeaderRow and WarningDetails share.
+import { isCriticalForecastAlert as isCritical } from '../../utils/forecastAlerts';
 
 export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
     const { setPage } = useUI();
@@ -62,7 +49,9 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
                     <CheckIcon className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div className="flex flex-col">
-                    <span className="text-emerald-100 font-bold text-sm uppercase tracking-wider">No Warnings</span>
+                    <span className="text-emerald-100 font-bold text-sm uppercase tracking-wider">
+                        No forecast alerts
+                    </span>
                     <span className="text-emerald-500/60 text-sm uppercase tracking-widest font-medium">
                         Conditions Stable
                     </span>
@@ -74,22 +63,22 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
     return (
         <div className="w-full bg-red-500 border border-red-400/50 rounded-xl p-3 flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 mb-2 group relative">
             <button
-                aria-label={`View ${activeAlerts.length} weather ${activeAlerts.length === 1 ? 'warning' : 'warnings'}`}
+                aria-label={`View ${activeAlerts.length} forecast ${activeAlerts.length === 1 ? 'alert' : 'alerts'}`}
                 onClick={() => setPage('warnings')}
                 className="hit-target-44 flex items-center gap-2.5 flex-1 cursor-pointer"
             >
                 <AlertTriangleIcon className="w-5 h-5 text-white animate-pulse" />
                 <span className="text-white font-bold uppercase tracking-wider text-sm">
-                    {activeAlerts.length === 1 ? activeAlerts[0] : `${activeAlerts.length} Warnings Active`}
+                    {activeAlerts.length === 1 ? activeAlerts[0] : `${activeAlerts.length} forecast alerts`}
                 </span>
             </button>
             <div className="flex items-center gap-2">
                 {dismissableCount > 0 && (
                     <button
-                        aria-label="Dismiss non-critical warnings"
+                        aria-label="Dismiss non-critical forecast alerts"
                         onClick={handleDismiss}
                         className="min-h-[44px] bg-white/20 hover:bg-white/30 active:bg-white/40 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
-                        title="Dismiss non-critical warnings"
+                        title="Dismiss non-critical forecast alerts"
                     >
                         OK
                     </button>

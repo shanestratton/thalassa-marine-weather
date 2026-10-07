@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WarningDetails');
@@ -10,13 +10,9 @@ import { useUI } from '../context/UIContext';
 import { useThemeStore } from '../stores/themeStore';
 import { touchTarget } from '../theme';
 import { openExternalUrl } from '../services/externalLinks';
-
-/**
- * The Bureau's warnings page. The 2025 site redirects every old state and
- * marine warnings URL here; the page lists Marine Wind Warnings with its own
- * state filter, so one address serves every coast.
- */
-export const BOM_WARNINGS_URL = 'https://www.bom.gov.au/weather-and-climate/warnings-and-alerts';
+import { servedModelDisplayName } from '../services/weather/servedModelName';
+import { forecastAlertRule, isCriticalForecastAlert as isCritical } from '../utils/forecastAlerts';
+import { officialWarningsSource } from '../utils/officialWarningsSource';
 
 interface WarningDetailsProps {
     alerts: string[];
@@ -24,23 +20,54 @@ interface WarningDetailsProps {
     checkedAt?: string;
     /** The place the forecast was checked for, so the clear state says where. */
     placeName?: string;
+    /** Where the forecast is for: picks the official warnings issuer to link. */
+    coordinates?: { lat: number; lon: number };
+    /** The report's own judgement of the position; 'offshore' links the METAREA warnings. */
+    locationType?: string;
+    /** The pipeline's model tag ('wx:ecmwf_ifs025', …), named on each card. */
+    modelUsed?: string;
 }
 
-// Critical warnings that CANNOT be dismissed (life/vessel safety)
-const CRITICAL_PATTERNS = [
-    'STORM WARNING',
-    'GALE WARNING',
-    'DANGEROUS SEAS',
-    'FREEZING SPRAY',
-    'FREEZE WARNING',
-    'EXCESSIVE HEAT',
-    'DENSE FOG',
-    'STORM WATCH',
-    'GALE WATCH',
-];
-const isCritical = (alert: string) => CRITICAL_PATTERNS.some((p) => alert.toUpperCase().includes(p));
+/**
+ * The model one card may name, or null. The tag names whatever served the
+ * Glass, which is not always what raised the alert, so a card names it only
+ * where the tag can vouch for it:
+ *   - a '+fallback:' blend carries the fallback report's alerts too
+ *     (blendOffshoreForecast), and the Spitfire overlay rewrites the wind
+ *     after the base report raised its alerts: no card names a model;
+ *   - sea state comes from a wave model, never the atmospheric one named;
+ *   - '+wk' borrows visibility and UV from WeatherKit;
+ *   - a legacy text from a cached report has no rule to say what it reads.
+ */
+function cardModelName(alert: string, modelUsed: string | undefined): string | null {
+    const name = servedModelDisplayName(modelUsed);
+    if (!name || !modelUsed) return null;
+    if (modelUsed.includes('+fallback:') || /\bspitfire\b/i.test(modelUsed)) return null;
+    const rule = forecastAlertRule(alert);
+    if (!rule || rule.reads === 'sea') return null;
+    if ((rule.reads === 'visibility' || rule.reads === 'uv') && /(?:^|\+)wk(?:\+|$)/.test(modelUsed)) return null;
+    return name;
+}
 
-export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedAt, placeName }) => {
+const sourceLine = (modelName: string | null): string =>
+    `Thalassa forecast check · ${modelName ? `${modelName} · ` : ''}not an official warning`;
+
+export const WarningDetails: React.FC<WarningDetailsProps> = ({
+    alerts,
+    checkedAt,
+    placeName,
+    coordinates,
+    locationType,
+    modelUsed,
+}) => {
+    // These are Thalassa's own model checks, never official warnings (build
+    // 123, W1-02). Each card says so, and the onward link goes to the
+    // official issuer for this position anywhere in the world: it used to
+    // send every boat, one in the Med included, to the Bureau of Meteorology.
+    const source = useMemo(
+        () => officialWarningsSource(coordinates?.lat, coordinates?.lon, { offshore: locationType === 'offshore' }),
+        [coordinates?.lat, coordinates?.lon, locationType],
+    );
     // Age, not clock time: 'checked at 08:01' read as this morning after a
     // night with the app closed. Re-rendered each minute so it stays honest.
     const [now, setNow] = useState(() => Date.now());
@@ -122,7 +149,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                             // mis-taps, so the name says what it clears.
                             <Button
                                 variant="secondary"
-                                aria-label="Dismiss all dismissable weather warnings"
+                                aria-label="Dismiss all dismissable forecast alerts"
                                 onClick={dismissAll}
                                 className="shrink-0 text-white"
                             >
@@ -153,15 +180,20 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                                                     isCritical(alert) ? 'bg-red-600' : 'bg-amber-500'
                                                 }`}
                                             >
-                                                {isCritical(alert) ? 'Critical' : 'Advisory'}
+                                                {/* 'Caution', not 'Advisory': an advisory is a
+                                                    weather service's product (W1-02). */}
+                                                {isCritical(alert) ? 'Critical' : 'Caution'}
                                             </span>
                                         </div>
                                         <p className="text-lg font-medium text-red-100 leading-relaxed">{alert}</p>
+                                        <p className="mt-2 text-sm text-slate-300">
+                                            {sourceLine(cardModelName(alert, modelUsed))}
+                                        </p>
                                     </div>
                                     {!isCritical(alert) && (
                                         <Button
                                             variant="secondary"
-                                            aria-label={`Dismiss warning: ${alert}`}
+                                            aria-label={`Dismiss forecast alert: ${alert}`}
                                             onClick={() => dismiss(alert)}
                                             className="mt-1 shrink-0 text-white"
                                         >
@@ -183,7 +215,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                                 <CheckCircleIcon className="w-12 h-12 text-emerald-400" />
                             </div>
                             {/* Not an all-clear: these are Thalassa's own forecast
-                                thresholds, never the Bureau's warnings (UX scorecard run 6).
+                                thresholds, never official warnings (UX scorecard run 6).
                                 An h2, so heading navigation reaches the page's answer. */}
                             <h2 className="text-base font-semibold text-slate-200 text-center text-balance">
                                 {placeName ? `No forecast alerts for ${placeName}` : 'No forecast alerts'}
@@ -196,27 +228,27 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts, checkedA
                                 heading and the link stay centred (UX scorecard run 9). */}
                             <p className="mt-4 max-w-xs text-left text-sm leading-relaxed text-slate-400">
                                 Thalassa checks the forecast for gale, storm, fog and heat thresholds. It is not an
-                                official warning service, so check the Bureau of Meteorology&rsquo;s marine warnings
-                                too.
+                                official warning service, so check {source.checkPhrase} too.
                             </p>
                             {dismissed.size > 0 && (
                                 <p className="text-gray-400 text-sm mt-2">
-                                    {dismissed.size} warning{dismissed.size > 1 ? 's' : ''} dismissed this session
+                                    {dismissed.size} alert{dismissed.size > 1 ? 's' : ''} dismissed this session
                                 </p>
                             )}
                         </div>
                         {/* The one onward step goes somewhere (UX scorecard run 7): a real
-                            link, opened over the app like every other external page. */}
+                            link, opened over the app like every other external page, to
+                            the official issuer for this position (W1-02). */}
                         <a
-                            href={BOM_WARNINGS_URL}
+                            href={source.url}
                             onClick={(e) => {
                                 e.preventDefault();
-                                void openExternalUrl(BOM_WARNINGS_URL);
+                                void openExternalUrl(source.url);
                             }}
                             className={`${buttonTheme.secondary} ${touchTarget.button} mt-4 text-sky-300`}
                         >
-                            Open BoM warnings
-                            <span className="sr-only"> (Bureau of Meteorology website)</span>
+                            Open {source.shortName} warnings
+                            <span className="sr-only"> ({source.name} website)</span>
                             <ExternalLinkIcon className="h-4 w-4 shrink-0" />
                         </a>
                     </div>
