@@ -1,27 +1,26 @@
 /**
- * ModelSpreadService — one-request multi-model forecasts for the Glass
- * convergence chart.
+ * ModelSpreadService — one-request multi-model forecasts for the Glass's
+ * ten-day model comparison (and, from W1-09, the day cards' agreement chip).
  *
  * Unlike MultiModelWeatherService (one request per model, four params), this
- * asks Open-Meteo for ALL selectable models in a single call and parses the
+ * asks Open-Meteo, through the proxy-openmeteo edge function, for all seven
+ * comparison models (COMPARE_MODELS) in a single call and parses the
  * model-suffixed response keys (`wind_speed_10m_dwd_icon`, …), plus a second
- * call to the marine endpoint for the wave models. Against the self-hosted
- * wx server that's two round-trips of a few ms; against the commercial API
- * it's still 2 requests instead of 7+.
+ * call to the marine endpoint for the wave models: 2 requests instead of 11.
+ *
+ * Always ten days (240 h) and memoised per 0.1° cell for 30 minutes, so every
+ * caller at the Glass point shares one answer: the sheet and the day cards
+ * cannot disagree, and reopening the sheet costs nothing.
  *
  * Times are requested as `timeformat=unixtime` so parsing is exact epoch
  * math — ISO strings without a zone suffix get parsed as LOCAL time by
  * `new Date()`, which silently shifts every sample by the device's UTC
  * offset (a live bug class in the older per-model fetchers).
  */
-import { CapacitorHttp } from '@capacitor/core';
 import { pruneMap } from '../../utils/boundedMap';
 
 import { fetchOpenMeteoProxy } from './openMeteoProxy';
-import { SELECTABLE_MODELS, WAVE_SPREAD_MODELS } from './forecastModels';
-import { createLogger } from '../../utils/createLogger';
-
-const log = createLogger('ModelSpreadService');
+import { COMPARE_MODELS, WAVE_SPREAD_MODELS } from './forecastModels';
 
 export const ATMOS_VARS = [
     'wind_speed_10m',
@@ -58,28 +57,29 @@ export interface SpreadBlock<V extends string> {
 export interface ModelSpreadResult {
     atmos: SpreadBlock<AtmosVar> | null;
     marine: SpreadBlock<MarineVar> | null;
+    /** The legs whose request failed (offline, timeout, a refusal): their
+     *  block is null because no server answered, not because no model
+     *  publishes there. Absent when both answered, as on every memoised
+     *  result. */
+    unreachable?: ('atmos' | 'marine')[];
 }
 
-const FETCH_TIMEOUT_MS = 15_000;
-const MEMO_TTL_MS = 5 * 60 * 1000;
+/** Ten days: ICON and UKMO end near day 7, GEM near day 9.5, and the rest
+ *  run the whole way (the proxy allows up to 384 h). */
+const SPREAD_HOURS = 240;
+/** Models run every 6 h, so half an hour stays fresh and keeps the comparison
+ *  to two proxy calls per place per half hour, however often it opens. */
+const MEMO_TTL_MS = 30 * 60 * 1000;
 
 const memo = new Map<string, { at: number; data: ModelSpreadResult }>();
 const inflight = new Map<string, Promise<ModelSpreadResult>>();
 
-async function getJson(url: string): Promise<Record<string, unknown> | null> {
-    try {
-        const res = await Promise.race([
-            CapacitorHttp.get({ url, connectTimeout: FETCH_TIMEOUT_MS, readTimeout: FETCH_TIMEOUT_MS }),
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('spread fetch timeout')), FETCH_TIMEOUT_MS),
-            ),
-        ]);
-        if (!res || res.status !== 200 || !res.data) return null;
-        return typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-    } catch (e) {
-        log.warn('spread fetch failed:', (e as Error)?.message || e);
-        return null;
-    }
+/** The 0.1° cell (~11 km) a point falls in. The antimeridian's two sides share
+ *  a cell, and so do ±0. Exported for tests. */
+export function spreadCellKey(lat: number, lon: number): string {
+    const cell = (v: number) => Math.round(v * 10) / 10 || 0;
+    const lonCell = cell(lon);
+    return `${cell(lat).toFixed(1)},${(lonCell === 180 ? -180 : lonCell).toFixed(1)}`;
 }
 
 /**
@@ -118,71 +118,70 @@ export function parseSuffixedHourly<V extends string>(
     return out.length ? { times, models: out } : null;
 }
 
-async function fetchSpread(
-    lat: number,
-    lon: number,
-    hours: number,
-): Promise<{ data: ModelSpreadResult; complete: boolean }> {
+async function fetchSpread(lat: number, lon: number): Promise<{ data: ModelSpreadResult; complete: boolean }> {
+    // Deliberately no cell_selection yet: sea cells must change the Glass and
+    // this comparison together (W2-01), or they would disagree at the coast.
     const common = {
         latitude: lat.toFixed(4),
         longitude: lon.toFixed(4),
-        forecast_hours: String(hours),
+        forecast_hours: String(SPREAD_HOURS),
         timeformat: 'unixtime',
     };
-
-    const atmosParams = new URLSearchParams({
-        ...common,
-        hourly: ATMOS_VARS.join(','),
-        models: SELECTABLE_MODELS.map((m) => m.id).join(','),
-        wind_speed_unit: 'kn',
-    });
-    const marineParams = new URLSearchParams({
-        ...common,
-        hourly: MARINE_VARS.join(','),
-        models: WAVE_SPREAD_MODELS.map((m) => m.id).join(','),
-    });
     const [atmosRaw, marineRaw] = await Promise.all([
-        fetchOpenMeteoProxy<Record<string, unknown>>('forecast', Object.fromEntries(atmosParams.entries())).catch(
-            () => null,
-        ),
-        fetchOpenMeteoProxy<Record<string, unknown>>('marine', Object.fromEntries(marineParams.entries())).catch(
-            () => null,
-        ),
+        fetchOpenMeteoProxy<Record<string, unknown>>('forecast', {
+            ...common,
+            hourly: ATMOS_VARS.join(','),
+            models: COMPARE_MODELS.map((m) => m.id).join(','),
+            wind_speed_unit: 'kn',
+        }).catch(() => null),
+        fetchOpenMeteoProxy<Record<string, unknown>>('marine', {
+            ...common,
+            hourly: MARINE_VARS.join(','),
+            models: WAVE_SPREAD_MODELS.map((m) => m.id).join(','),
+        }).catch(() => null),
     ]);
 
+    const unreachable: ('atmos' | 'marine')[] = [];
+    if (atmosRaw === null) unreachable.push('atmos');
+    if (marineRaw === null) unreachable.push('marine');
     return {
         // Both endpoints ANSWERED (a 200 with legitimately-empty data — e.g.
         // marine inland — still counts). Distinct from data presence: only
         // complete results are safe to memoise.
-        complete: atmosRaw !== null && marineRaw !== null,
+        complete: unreachable.length === 0,
         data: {
             atmos: parseSuffixedHourly(
                 atmosRaw?.hourly as Record<string, unknown> | undefined,
                 ATMOS_VARS,
-                SELECTABLE_MODELS.map((m) => ({ id: m.id, label: m.label, provider: m.provider, hex: m.hex })),
+                COMPARE_MODELS.map((m) => ({ id: m.id, label: m.label, provider: m.provider, hex: m.hex })),
             ),
             marine: parseSuffixedHourly(
                 marineRaw?.hourly as Record<string, unknown> | undefined,
                 MARINE_VARS,
                 WAVE_SPREAD_MODELS,
             ),
+            ...(unreachable.length ? { unreachable } : {}),
         },
     };
 }
 
-/** Memoised + inflight-deduped spread fetch. */
-export async function queryModelSpread(lat: number, lon: number, hours = 72): Promise<ModelSpreadResult> {
-    const key = `${lat.toFixed(2)},${lon.toFixed(2)},${hours}`;
+/**
+ * The ten-day spread for the 0.1° cell holding (lat, lon): memoised for 30
+ * minutes and in-flight-deduped per cell. The first caller's exact point is
+ * the one fetched; later callers in the same cell share that answer.
+ */
+export async function queryModelSpread(lat: number, lon: number): Promise<ModelSpreadResult> {
+    const key = spreadCellKey(lat, lon);
     const hit = memo.get(key);
     if (hit && Date.now() - hit.at < MEMO_TTL_MS) return hit.data;
     const pending = inflight.get(key);
     if (pending) return pending;
 
-    const promise = fetchSpread(lat, lon, hours)
+    const promise = fetchSpread(lat, lon)
         .then(({ data, complete }) => {
             // Only memoise when BOTH endpoints answered — a transient failure
             // on either leg must not lock in a false "no model publishes
-            // this" empty state for 5 minutes.
+            // this" empty state for half an hour.
             if (complete) {
                 memo.set(key, { at: Date.now(), data });
                 pruneMap(memo, 8, (entry) => Date.now() - entry.at >= MEMO_TTL_MS);
