@@ -45,6 +45,9 @@ const LAYERS: WeatherLayer[] = [
     'mld',
     'sea',
     'satellite',
+    // The observed satellite cloud (W1-10) has no frame: switching it on
+    // must not touch the camera at all.
+    'satIR',
 ];
 
 // The Glass location box is far from where the skipper is looking (the boat).

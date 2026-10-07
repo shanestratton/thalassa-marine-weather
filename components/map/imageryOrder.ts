@@ -1,11 +1,12 @@
 /**
  * imageryOrder — where the opaque base imagery sits in the style.
  *
- * Pure, React-free and mapbox-free on purpose: TWO subsystems mount an
- * infrared cloud raster over this map — useSquallMap's NASA GIBS layer and
- * SatelliteImageryService's RealEarth layer, driven by useCycloneLayer — and
- * both must anchor against the SAME reference or one of them ends up under an
- * opaque satellite tile, painting perfectly and visible to nobody.
+ * Pure, React-free and mapbox-free on purpose: several subsystems mount a
+ * cloud raster over this map — useSquallMap and useCycloneLayer (the shared
+ * cloudOverlay), and useSatelliteLayer's observed infrared cloud (W1-10; the
+ * dead SatelliteImageryService it replaced is deleted) — and all must anchor
+ * against the SAME reference or one of them ends up under an opaque satellite
+ * tile, painting perfectly and visible to nobody.
  *
  * Why not 'the first symbol layer', which is what both used to do: that is not
  * a stable landmark in this style. The imagery raster is added with

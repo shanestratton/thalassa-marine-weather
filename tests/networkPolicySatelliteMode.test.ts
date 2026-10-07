@@ -93,6 +93,7 @@ describe('every heavy fetcher consults the policy (audit item 12)', () => {
     const cases: Array<[string, string, number]> = [
         ['components/dashboard/hero/radarGlassEngine.ts', "satelliteModeBlocks('raster')", 1],
         ['components/map/useSquallMap.ts', "satelliteModeBlocks('raster')", 1],
+        ['components/map/useSatelliteLayer.ts', "satelliteModeBlocks('raster')", 1],
         ['services/weather/api/rainbowPrecip.ts', "satelliteModeBlocks('raster')", 1],
         ['services/weather/CycloneTrackingService.ts', "satelliteModeBlocks('grib')", 2],
         ['services/weather/WindDataController.ts', "satelliteModeBlocks('grib')", 1],

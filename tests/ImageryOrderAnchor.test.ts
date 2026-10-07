@@ -1,9 +1,10 @@
 /**
- * Both cloud overlays must anchor against the SAME reference.
+ * Every cloud overlay must anchor against the SAME reference.
  *
- * Thalassa mounts two independent infrared cloud rasters: useSquallMap's NASA
- * GIBS layer, and the RealEarth layer useCycloneLayer mounts through
- * SatelliteImageryService. Until 2026-08-23 each guessed its own anchor, and
+ * Thalassa mounted two independent infrared cloud rasters: useSquallMap's NASA
+ * GIBS layer, and the RealEarth layer useCycloneLayer mounted through
+ * SatelliteImageryService (deleted, dead, with W1-10; the observed satellite
+ * cloud is now useSatelliteLayer). Until 2026-08-23 each guessed its own anchor, and
  * both guessed "the style's first symbol layer" — which is not a landmark
  * here. useMapInit adds the opaque satellite raster with `beforeId =
  * encBottom`, and an undefined encBottom APPENDS IT TO THE TOP. At the zoom
@@ -14,7 +15,7 @@
  * imagery. That is the intermittency Shane reported.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { IMAGERY_LAYER_IDS, cloudOverlayBeforeId, imageryTopIndex } from '../components/map/imageryOrder';
 
 // Style-layer fixtures. 'place-*' / '*-label' are the style's symbol layers;
@@ -77,20 +78,27 @@ describe('cloudOverlayBeforeId', () => {
 });
 
 describe('every overlay defers to it', () => {
-    it('neither cloud layer re-derives an anchor of its own', () => {
+    it('no cloud layer re-derives an anchor of its own', () => {
         const squall = readFileSync('components/map/useSquallMap.ts', 'utf8');
         const cyclone = readFileSync('components/map/useCycloneLayer.ts', 'utf8');
-        const service = readFileSync('services/weather/SatelliteImageryService.ts', 'utf8');
+        const satellite = readFileSync('components/map/useSatelliteLayer.ts', 'utf8');
 
         expect(squall).toContain("from './imageryOrder'");
         expect(cyclone).toContain("from './imageryOrder'");
         expect(cyclone).toContain('cloudOverlayBeforeId(satLayers)');
 
-        // The service takes the anchor as an argument — services/ must not
-        // import components/, and a service guessing map order is what caused
-        // this. Its own first-symbol lookup must be gone.
-        expect(service).toContain('beforeId?: string');
-        expect(service).not.toContain("layers?.find((l) => l.type === 'symbol')");
+        // The observed satellite cloud (W1-10) sits under the chart and ENC
+        // like every other cloud: mounted against the shared anchor, and lifted
+        // back above the imagery only when a restyle has put it underneath.
+        expect(satellite).toContain("from './imageryOrder'");
+        expect(satellite).toContain('cloudOverlayBeforeId(');
+        expect(satellite).toContain('imageryTopIndex(');
+        expect(satellite).not.toContain("find((l) => l.type === 'symbol')");
+
+        // SatelliteImageryService (IEM/RealEarth) had no importers and was
+        // deleted with W1-10; nothing may bring a second, self-anchoring
+        // satellite raster back.
+        expect(existsSync('services/weather/SatelliteImageryService.ts')).toBe(false);
     });
 
     it('the squall PRECIP half carries no bare first-symbol anchor either', () => {
