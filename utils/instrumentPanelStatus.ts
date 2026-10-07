@@ -21,6 +21,7 @@
  */
 import type { NmeaConnectionStatus } from '../services/NmeaListenerService';
 import type { DataFreshness } from '../services/NmeaStore';
+import type { Tone } from '../services/boatLink/boatLinkModel';
 
 export interface PanelMetric {
     value: number | null;
@@ -71,6 +72,13 @@ export function diagnosePanel(params: {
      * 'none' for a skipper, or anyone who crews on nothing.
      */
     crewShare?: 'none' | 'shared' | 'not-shared';
+    /**
+     * Where this phone is and how the boat reaches it (services/boatLink): the
+     * header pill's words ('Away · Live') and the one-line route. The panel
+     * says what every other screen says. Without it the words name no place,
+     * because a lane cannot tell where the phone is.
+     */
+    link?: { pill: { text: string; tone: Tone }; line: string | null } | null;
 }): PanelDiagnosis {
     const {
         gatewayConfigured,
@@ -79,30 +87,48 @@ export function diagnosePanel(params: {
         secondsSinceConnect = null,
         remote = null,
         crewShare = 'none',
+        link = null,
     } = params;
 
-    // No socket, but the boat is reporting through the cloud — say so, and say
-    // how old. Not 'live' and not 'no gateway': a crew phone on the train has
-    // neither a gateway nor a fault.
+    // No socket, but the boat is reporting through the Pi — directly, or
+    // through its internet updates. Say so, and say how old. Not 'no gateway':
+    // a crew phone on the train has neither a gateway nor a fault.
+    //
+    // Never a PLACE from the lane (Shane 2026-10-07): this said 'Live · Pi —
+    // on the boat network' whenever the Pi answered directly, which it does
+    // from 900 km away over a VPN that carries the boat's network. Where the
+    // phone is comes from `link`, which decides it by position.
     if (connectionStatus === 'remote') {
         // The Pi's hostname (deviceLabel) stays out of the punter's eye —
         // Shane 2026-09-07: it is the internal Pi name, not the boat's.
         const who = remote?.source === 'device' ? 'the skipper’s phone' : 'the Pi';
         const age = remote ? Math.max(0, Math.round(remote.ageSeconds)) : null;
-        // Over the boat LAN the Pi IS the boat at bus latency: that is live,
-        // and the gateway's TCP slots stay the Pi's (Shane 2026-09-07).
+        const reported = `${age === null ? 'moments' : `${age} s`} ago`;
+        // A row the skipper's phone published is a lane of its own in the
+        // link too ('Reading the boat through the skipper’s phone'), so the
+        // panel and the Vessel row say the same thing for it.
+        if (link) {
+            return {
+                state: panelStateForTone(link.pill.tone),
+                label: link.pill.text,
+                detail: `${link.line ? `${link.line} ` : ''}Reported ${reported}.`,
+                actionable: false,
+            };
+        }
+        // Direct from the Pi is the boat at bus latency: live, and the
+        // gateway's TCP slots stay the Pi's (Shane 2026-09-07).
         if (remote?.via === 'lan') {
             return {
                 state: 'live',
-                label: 'Live · Pi',
-                detail: `Reading the boat through the Pi on the boat network — reported ${age === null ? 'moments' : `${age} s`} ago.`,
+                label: 'Live',
+                detail: `Reading the boat directly from the Pi — reported ${reported}.`,
                 actionable: false,
             };
         }
         return {
             state: 'remote',
-            label: 'Remote',
-            detail: `Reading the boat through the cloud — ${who} reported ${age === null ? 'moments' : `${age} s`} ago.`,
+            label: 'Live',
+            detail: `Reading the boat through the cloud — ${who} reported ${reported}.`,
             actionable: false,
         };
     }
@@ -185,7 +211,20 @@ export function diagnosePanel(params: {
         };
     }
 
+    // Live off a socket: the same words as every other screen when we have
+    // them ('Aboard · Live', 'Away · Live').
+    if (link && (link.pill.tone === 'green' || link.pill.tone === 'sky')) {
+        return { state: panelStateForTone(link.pill.tone), label: link.pill.text, detail: null, actionable: false };
+    }
     return { state: 'live', label: 'Live', detail: null, actionable: false };
+}
+
+/** The panel's colour states, by the boat link's tone: green live aboard, sky live from away. */
+function panelStateForTone(tone: Tone): PanelState {
+    if (tone === 'sky') return 'remote';
+    if (tone === 'amber') return 'stale';
+    if (tone === 'green') return 'live';
+    return 'waiting';
 }
 
 /**

@@ -15,7 +15,7 @@ import { CheckCircleIcon } from '../Icons';
 import { piCache, type PiRemoteAccessStatus } from '../../services/PiCacheService';
 import { Browser } from '@capacitor/browser';
 import { triggerHaptic } from '../../utils/system';
-import { assessHostRoute } from '../../services/network/networkContext';
+import { useBoatLink } from '../../hooks/useBoatLink';
 
 export const RemoteAccessSection: React.FC = () => {
     const reachable = useSyncExternalStore(
@@ -27,30 +27,20 @@ export const RemoteAccessSection: React.FC = () => {
     /**
      * Aboard, with Tailscale still on, LAN traffic to the Pi can round-trip
      * out to the internet and back — it shows up as lag and dropped
-     * connections, and gets rediagnosed as broken hardware. The banner that
-     * used to say this lived on the NMEA card and fired on a subnet match
-     * alone, so it blamed the VPN for failures it had nothing to do with.
-     * Here it is scoped to the one case where it is actually true: a tunnel
-     * is up AND we are already reaching the Pi directly on the LAN, so the
-     * tunnel can only be adding a detour.
+     * connections, and gets rediagnosed as broken hardware.
+     *
+     * Said only when it is PROVEN (services/boatLink hairpinProven): this
+     * phone is aboard by position and on the boat's Wi-Fi (an address on the
+     * Pi's own /24), a tunnel is up, and the Pi saw the request arrive from
+     * somewhere other than this phone. On cellular alone the tunnel is the
+     * only way to the Pi, and turning it off would cut the link. It used to fire on "a
+     * tunnel is up and the Pi answered at its boat address" — which is true at
+     * home over a subnet route, so it told Shane, 900 km from the boat, to
+     * turn off his only link to her (2026-10-07).
      */
-    const [vpnUpOnLan, setVpnUpOnLan] = useState(false);
-    useEffect(() => {
-        let alive = true;
-        const check = () => {
-            void assessHostRoute(null).then((r) => {
-                if (alive) setVpnUpOnLan(r.vpnActive && !piCache.viaRemoteAccess);
-            });
-        };
-        check();
-        // Toggling the VPN is exactly what this asks for, so it has to notice
-        // them doing it and clear itself.
-        const timer = setInterval(check, 20_000);
-        return () => {
-            alive = false;
-            clearInterval(timer);
-        };
-    }, []);
+    const boatLink = useBoatLink();
+    const vpnUpOnLan = boatLink.hairpin;
+    const overTailnetNow = boatLink.lane === 'pi-direct' && boatLink.kind === 'private-network';
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const refresh = useCallback(async () => {
@@ -126,7 +116,7 @@ export const RemoteAccessSection: React.FC = () => {
                             <p className="text-sm font-medium text-white">Reachable away from the boat</p>
                             <p className="text-xs text-gray-400 mt-0.5 break-all">
                                 {ra.dnsName?.replace(/\.$/, '') || ra.tailscaleIps?.[0]}
-                                {piCache.viaRemoteAccess ? ' · connected via Tailscale now' : ''}
+                                {overTailnetNow ? ` · reaching it over ${boatLink.networkName} now` : ''}
                             </p>
                             <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">
                                 Your phone needs the free Tailscale app signed into the same account to reach the Pi

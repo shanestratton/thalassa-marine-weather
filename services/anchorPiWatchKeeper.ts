@@ -89,7 +89,9 @@ function describeTransportFailure(message: string): string {
     const offline = /offline|not connected to the internet|network is unreachable|no route to host/i.test(message);
     const timedOut = /timed? ?out/i.test(message);
     if (offline) {
-        return 'Your phone cannot reach the boat network — check Tailscale is on, or join the boat’s Wi-Fi';
+        // Any VPN, not one brand: most boats reach their network from ashore
+        // some other way, or not at all (Thalassa is a global app).
+        return 'Your phone cannot reach the boat’s network — join the boat’s Wi-Fi, or turn on the VPN you use to reach her';
     }
     if (timedOut) {
         return 'The Pi did not answer in time — it may be asleep or off the network';

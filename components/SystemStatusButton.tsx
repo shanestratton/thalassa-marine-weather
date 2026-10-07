@@ -16,6 +16,7 @@ import { NmeaListenerService } from '../services/NmeaListenerService';
 import { NmeaStore } from '../services/NmeaStore';
 import { CloudTelemetryService } from '../services/CloudTelemetryService';
 import { deriveNmeaBackboneStatus } from '../utils/nmeaBackboneStatus';
+import { BoatLinkService } from '../services/boatLink/BoatLinkService';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
 import { GpsReceiverStatusService, type GpsReceiverStatus } from '../services/GpsReceiverStatusService';
 import { NmeaRateSparkline } from './NmeaRateSparkline';
@@ -633,14 +634,18 @@ const SystemStatusModal: React.FC<{
 
 // ── Individual System Row ──
 
-/** Read the instrument route, not just the intentionally-idle phone socket. */
+/**
+ * Read the instrument route, not just the intentionally-idle phone socket —
+ * in the words every screen uses for where this phone is and how the boat
+ * reaches it (services/boatLink).
+ */
 function readNmeaBackboneStatus(): SystemState['nmea'] {
     return deriveNmeaBackboneStatus({
         store: NmeaStore.getState(),
         directStatus: NmeaListenerService.getStatus(),
         deviceLabel: NmeaListenerService.getConnectionInfo().deviceLabel,
         lastError: NmeaListenerService.getLastError(),
-        viaRemoteAccess: piCache.viaRemoteAccess,
+        link: BoatLinkService.getSnapshot(),
     });
 }
 
@@ -679,9 +684,12 @@ const SystemRow: React.FC<{
             {/* Text */}
             <div className="flex-1 min-w-0">
                 <p className={`text-sm font-semibold ${active ? 'text-white' : 'text-slate-300'}`}>{label}</p>
-                {/* Two lines, not one truncated: the NMEA fault sentence and the
-                    anchor distance are the whole point of the row. */}
-                <p className="text-xs leading-snug mt-0.5 line-clamp-2 text-slate-300">{detail}</p>
+                {/* Up to three lines, never one truncated: the NMEA fault
+                    sentence, the anchor distance, and the NMEA row's place ·
+                    path · age are the whole point of the row. At 320 pt with
+                    wide fonts 'Aboard · YDWG-02 not connected · 12 min old'
+                    lost its age to a two-line clamp (2026-10-07). */}
+                <p className="text-xs leading-snug mt-0.5 line-clamp-3 text-slate-300">{detail}</p>
             </div>
 
             {/* Action button */}
@@ -890,6 +898,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
         };
         const nmeaUnsub = NmeaListenerService.onStatusChange(refreshNmea);
         const instrumentsUnsub = NmeaStore.subscribe(refreshNmea);
+        const linkUnsub = BoatLinkService.subscribe(refreshNmea);
 
         let disposed = false;
         const refresh = () => {
@@ -957,6 +966,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({
             unsub();
             nmeaUnsub();
             instrumentsUnsub();
+            linkUnsub();
             clearInterval(id);
             document.removeEventListener('visibilitychange', onVisibility);
         };

@@ -20,6 +20,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import './instrumentDaylight.css';
 import { CLOCK_MAX_WIDTH, POSITION_FONT_SIZE, WIND_CELL_STYLE, windHeroStyle } from './instrumentLayout';
 import { useCrewInstrumentShare } from '../../hooks/useCrewInstrumentShare';
+import { useBoatLink } from '../../hooks/useBoatLink';
+import { BoatLinkPill } from '../vessel/BoatLinkPill';
 import { BarometerGauge } from './gauges/BarometerGauge';
 import { ShipsBellClock } from './gauges/ShipsBellClock';
 import { ShipsBellChime } from '../../services/ShipsBellChime';
@@ -698,10 +700,27 @@ const SectionPlate = React.memo(SectionPlateComponent);
 // THE GLASS PAGE
 // ══════════════════════════════════════════════
 
+/** The "there is more behind this" chevron at the end of the status pill. */
+const DetailChevron: React.FC = () => (
+    <svg
+        aria-hidden="true"
+        className="h-3 w-3 shrink-0"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2.5}
+    >
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+    </svg>
+);
+
 export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, breadcrumbs }) => {
     const state = useNmeaStore();
     // Crew only: whether the skipper has shared the panel (invite-only, 2026-09-07).
     const crewShare = useCrewInstrumentShare();
+    // Where this phone is and how the boat reaches it: the pill says what the
+    // NMEA Gateway page and the System status box say (services/boatLink).
+    const boatLink = useBoatLink();
     const deviceClass = useDeviceClass();
     // 0 (no DOM) reads as a tall phone, as the hook documents.
     const viewportHeight = useViewportHeight();
@@ -1238,6 +1257,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
         metrics: panelMetrics,
         secondsSinceConnect: connectedAt === null ? null : (nowMs - connectedAt) / 1000,
         crewShare,
+        link: boatLink,
         remote: state.remote
             ? {
                   source: state.remote.source,
@@ -1248,6 +1268,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
             : null,
     });
     const panelStatus = diagnosis.label;
+    // When the panel's words are the boat link's ('Away · Live'), draw them as
+    // the same WHERE and DATA chips the NMEA Gateway page uses.
+    const linkPill = diagnosis.label === boatLink.pill.text && boatLink.pill.place ? boatLink.pill : null;
     // No gateway ever set up is how a phone-only skipper uses the app, not a
     // fault: neutral grey, the same 'No gateway' the NMEA Gateway page shows.
     // Red stays for a configured gateway that has dropped (UX scorecard run 7).
@@ -1321,27 +1344,28 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack, backLabel, b
                                 aria-label={`Instrument status: ${panelStatus}. Show details`}
                                 className="-my-[9px] flex min-h-[44px] items-center"
                             >
-                                <span
-                                    className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${panelStatusPill}`}
-                                >
-                                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${panelStatusDot}`} />
-                                    {panelStatus}
-                                    <svg
-                                        aria-hidden="true"
-                                        className="h-3 w-3 shrink-0"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2.5}
+                                {linkPill ? (
+                                    <BoatLinkPill
+                                        pill={linkPill}
+                                        asStatus={false}
+                                        pulse={diagnosis.state === 'live' || diagnosis.state === 'remote'}
+                                        trailing={<DetailChevron />}
+                                    />
+                                ) : (
+                                    <span
+                                        className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${panelStatusPill}`}
                                     >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M8.25 4.5l7.5 7.5-7.5 7.5"
-                                        />
-                                    </svg>
-                                </span>
+                                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${panelStatusDot}`} />
+                                        {panelStatus}
+                                        <DetailChevron />
+                                    </span>
+                                )}
                             </button>
+                        ) : linkPill ? (
+                            <BoatLinkPill
+                                pill={linkPill}
+                                pulse={diagnosis.state === 'live' || diagnosis.state === 'remote'}
+                            />
                         ) : (
                             <span
                                 role="status"

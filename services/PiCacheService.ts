@@ -480,6 +480,15 @@ class PiCacheServiceImpl {
         void this.ping();
     }
 
+    /**
+     * The Pi's own boat-network address as saved (never the tailnet one), or
+     * null. services/boatLink compares this phone's Wi-Fi address with it:
+     * on the same /24 is the boat's network, not a VPN to it.
+     */
+    getLanHost(): string | null {
+        return this.config.host || null;
+    }
+
     /** Get the current Pi Cache status. */
     getStatus(): PiCacheStatus {
         return { ...this.status };
