@@ -481,7 +481,7 @@ test('a hanging Overpass that never answers is aborted at its deadline after the
     assert.equal(await fs.readFile(file, 'utf8'), before);
     const ok = overpass([reply({ elements: [WATER_WAY] })]);
     let fresh = { state: 'stale' } as Awaited<ReturnType<typeof getOsmOverlay>>;
-    for (let attempt = 0; attempt < 40 && fresh.state !== 'fresh'; attempt++) {
+    for (let attempt = 0; attempt < 40 && fresh.state === 'stale'; attempt++) {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 25));
         // A call made while the aborted refresh is still being cleared up
         // answers 'stale' WITHOUT asking Overpass, so ok.queries stays exact.
@@ -496,7 +496,12 @@ test('a hanging Overpass that never answers is aborted at its deadline after the
             },
         );
     }
-    assert.equal(fresh.state, 'fresh');
+    // On a loaded runner a call's 20 ms wait can run out before Overpass
+    // answers (CI run 37678438362, 2026-10-08): that call says 'stale' while
+    // its refresh lands and saves, and the next call is served the new copy
+    // as 'cache'. Either way the copy is the one new Overpass reply's.
+    assert.ok(fresh.state === 'fresh' || fresh.state === 'cache', `state ${fresh.state}`);
+    assert.equal(fresh.fetchedAt, T0 + 30 * DAY);
     assert.equal(ok.queries.length, 1);
 });
 
