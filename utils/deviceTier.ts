@@ -67,7 +67,13 @@ export function getDeviceTier(): DeviceTier {
 }
 
 /** Multiplier to apply to particle counts and other density-scaling
- *  constants. 1.0 on top-tier hardware, 0.4 on bottom tier. */
+ *  constants. 1.0 on top-tier hardware, 0.4 on bottom tier.
+ *
+ *  Free to call (it only fills getDeviceTier's cache), so it is annotated as
+ *  such: WaveParticleLayer sizes NUM_PARTICLES with it at module load, and
+ *  without the annotation Rollup kept that one call when the waves flag
+ *  compiles the renderer off (tests/BundleStructuralTrims.test.ts). */
+/* #__NO_SIDE_EFFECTS__ */
 export function particleScale(): number {
     const tier = getDeviceTier();
     return tier === 'low' ? 0.4 : tier === 'mid' ? 0.7 : 1.0;

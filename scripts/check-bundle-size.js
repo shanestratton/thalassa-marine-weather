@@ -54,6 +54,13 @@ const BUDGETS = {
     // 10.25 leaves ~51 KB (0.5%): small enough that an accidental lodger
     // still trips it.
     // 2026-10-05: measured 10,286,520 B (9.81 MiB) after the dead-code trim freed 448,908 B; line unchanged.
+    // 2026-10-08: measured 10,561,325 B (10.07 MiB) on b123 after two structural trims:
+    // output.hoistTransitiveImports=false (-75,114 B of hoisted import"./x.js" glue; Vite's
+    // preload lists still name every chunk) and literal build-time gates so Rollup drops layers
+    // that are compiled off (-82,267 B: CMEMS waves/sea-ice/MLD renderers, MPA, Blitzortung;
+    // guarded in vite.config.ts), plus the client polar check using only validatePolarData
+    // (-3,018 B). Line unchanged: ~187 KB headroom stays below the ~300 KB an accidental
+    // dependency adds, so the tripwire still trips.
     javascript: 10.25 * MIB,
     mainRaw: 800 * KIB,
     mainGzip: 250 * KIB,

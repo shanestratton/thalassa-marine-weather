@@ -35,13 +35,18 @@ import {
     monitorCmemsLayerDeactivation,
     removeCmemsLayerAndProveAbsent,
 } from './cmemsLayerOwnership';
-import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
 import { deactivateFailedCmemsRenderer } from './cmemsLayerFailure';
 
 const log = createLogger('WaveParticleLayer');
 
 const LAYER_ID = 'cmems-waves-particles';
-const FEATURE_ENABLED = isCmemsFeatureEnabled('waves');
+// Read directly, not through the isCmemsFeatureEnabled helper: a production
+// build defines the flag as exactly "true" or "false", so this literal
+// comparison folds to a constant and, while the flag is off, Rollup drops
+// WaveParticleLayer (2026-10-08). A helper call cannot fold. The build fails
+// if the renderer ships while the flag is off (scripts/parked-lazy-pages.mjs).
+// Tests and the dev server still read the env var.
+const FEATURE_ENABLED = import.meta.env.VITE_CMEMS_WAVES_ENABLED === 'true';
 
 // ── Live-debug state mirror ────────────────────────────────────────────
 // Production builds strip `console.*` via esbuild.drop, so any log path

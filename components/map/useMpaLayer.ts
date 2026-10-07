@@ -36,7 +36,10 @@ import {
 
 const log = createLogger('useMpaLayer');
 
-const FEATURE_ENABLED = String(import.meta.env.VITE_MPA_ENABLED ?? 'false').toLowerCase() === 'true';
+// A literal comparison so the build folds it: while the flag is off, Rollup
+// drops MpaLayer and the dataset client (2026-10-08). A production build that
+// still ships the dataset client fails (scripts/parked-lazy-pages.mjs).
+const FEATURE_ENABLED = import.meta.env.VITE_MPA_ENABLED === 'true';
 
 /** Neutral indicative protection class → user-facing popup context. */
 const PROTECTION_CLASS_LABEL: Record<string, { label: string; tone: string; hint: string }> = {

@@ -130,9 +130,12 @@ function releaseMinifyPublicScripts(): Plugin {
 
 /**
  * Pages parked behind a build-time flag (the Calypso console, the offline-area
- * modal) must not come back as chunks nothing can load: the build fails if
- * one does. See scripts/parked-lazy-pages.mjs. Flag files are read from this
- * repo, not config.root, so a tool that moves the root reads the same flags.
+ * modal) must not come back as chunks nothing can load, and map renderers a
+ * false public-beta profile flag compiles off (CMEMS waves, sea ice, mixed
+ * layer, protected areas, and Blitzortung's strike socket) must not ship any
+ * bytes: the build fails if one does. See scripts/parked-lazy-pages.mjs.
+ * Flag files are read from this repo, not config.root, so a tool that moves
+ * the root reads the same flags.
  */
 function releaseParkedPagesStayOut(): Plugin {
     return {
@@ -610,6 +613,14 @@ export default defineConfig(({ mode }) => {
                     warn(warning);
                 },
                 output: {
+                    // Rollup otherwise copies every transitive static import
+                    // into each chunk as `import"./x.js"` glue (2026-10-08:
+                    // 75,114 B of the JavaScript budget). The glue only told
+                    // the browser to fetch those chunks early, and Vite's
+                    // modulepreload lists (build.modulePreload, left on) still
+                    // name every chunk a lazy import needs, so nothing loads
+                    // one after another. tests/BundleStructuralTrims.test.ts.
+                    hoistTransitiveImports: false,
                     manualChunks(id) {
                         const moduleId = id.replaceAll('\\', '/');
                         // Vite's dynamic-import preload helper and modulepreload

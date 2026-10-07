@@ -22,13 +22,14 @@ import {
     monitorCmemsLayerDeactivation,
     removeCmemsLayerAndProveAbsent,
 } from './cmemsLayerOwnership';
-import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
 import { deactivateFailedCmemsRenderer } from './cmemsLayerFailure';
 
 const log = createLogger('SeaIceRasterLayer');
 
 const LAYER_ID = 'cmems-seaice-raster';
-const FEATURE_ENABLED = isCmemsFeatureEnabled('seaice');
+// Read directly so the build can fold it and drop the renderer while the
+// flag is off; see useOceanWaveParticleLayer and scripts/parked-lazy-pages.mjs.
+const FEATURE_ENABLED = import.meta.env.VITE_CMEMS_SEAICE_ENABLED === 'true';
 
 export function useSeaIceRasterLayer(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,

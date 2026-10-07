@@ -2,7 +2,11 @@ import type { WeatherLayer } from './mapConstants';
 import { isParkedLayer } from './mapConstants';
 import type { CmemsLayerId } from './CmemsAttribution';
 
-const flag = (value: unknown): boolean => String(value ?? 'false').toLowerCase() === 'true';
+// Production builds define every profile flag as exactly "true" or "false"
+// (scripts/public-beta-feature-profile.mjs), so only the word true turns a
+// product on. The renderer hooks for products that can be compiled off read
+// their own flag the same way, directly: see useOceanWaveParticleLayer.
+const flag = (value: unknown): boolean => value === 'true';
 
 const CMEMS_FEATURE_FLAGS: Record<CmemsLayerId, boolean> = {
     currents: flag(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED),

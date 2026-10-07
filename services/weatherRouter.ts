@@ -15,7 +15,7 @@ import { VoyagePlan, VesselProfile, PolarData, Waypoint } from '../types';
 import { supabase } from './supabase';
 import { vesselDraftMetres, vesselMaxWaveHeightMetres } from './units';
 import { resolveRoutingPolar, toEdgePolar } from './routingPolar';
-import { validateWeatherRouteRequest } from '../supabase/functions/_shared/route-weather-safety';
+import { validatePolarData } from '../supabase/functions/_shared/route-weather-safety';
 import type { SpatiotemporalPayload } from '../types/spatiotemporal';
 const log = createLogger('WxRouter');
 
@@ -238,29 +238,25 @@ function validateWeatherRoutePayload(
 }
 
 /**
- * The request as sent, minus a polar the shared edge contract
- * (validateWeatherRouteRequest) would refuse: a 400 would lose the whole
- * weather route, while without the polar the edge still routes on its own
- * cruise-scaled curve. A request refused for any other reason goes as it is.
+ * The request as sent, minus a polar the shared edge contract would refuse
+ * (its own polar rule, validatePolarData): a 400 would lose the whole weather
+ * route, while without the polar the edge still routes on its own
+ * cruise-scaled curve. Only the polar is checked here, so the app does not
+ * bundle the whole request validator; anything else the edge refuses, it
+ * refuses as before, polar and all.
  */
 function withContractSafePolar(body: WeatherRouteRequest): WeatherRouteRequest {
     if (!body.vessel.polar_data) return body;
     try {
-        validateWeatherRouteRequest(body);
+        validatePolarData(body.vessel.polar_data);
         return body;
-    } catch (withPolar) {
-        const without = { ...body, vessel: { ...body.vessel, polar_data: null } };
-        try {
-            validateWeatherRouteRequest(without);
-        } catch {
-            return body; // not the polar's fault
-        }
+    } catch (refused) {
         log.warn(
             `[WeatherRouter] Boat polar not accepted by the route-weather contract (${
-                withPolar instanceof Error ? withPolar.message : String(withPolar)
+                refused instanceof Error ? refused.message : String(refused)
             }); sending none, so the edge routes on its own cruise-scaled polar`,
         );
-        return without;
+        return { ...body, vessel: { ...body.vessel, polar_data: null } };
     }
 }
 

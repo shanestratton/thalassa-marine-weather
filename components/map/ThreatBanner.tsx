@@ -90,7 +90,8 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
     flyTo,
     onShowingChange,
 }) => {
-    const lightningActive = lightningRequested && isBlitzortungEnabled();
+    // Flag first, so a build with the Blitzortung flag off drops the strike feed.
+    const lightningActive = isBlitzortungEnabled() && lightningRequested;
     const [threat, setThreat] = useState<Threat | null>(null);
     const showing = visible && threat !== null;
     useEffect(() => {

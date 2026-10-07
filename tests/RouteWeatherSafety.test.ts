@@ -15,6 +15,7 @@ import {
     densifyCenterlineForMesh,
     MAX_CENTERLINE_POINTS,
     RouteWeatherSafetyError,
+    validatePolarData,
     validateWeatherRouteRequest,
 } from '../supabase/functions/_shared/route-weather-safety';
 
@@ -326,6 +327,75 @@ describe('route-weather request validation', () => {
                 NOW_MS,
             ),
         ).toThrow(/row count/);
+    });
+});
+
+// Exported (build 123) so the app checks a boat polar against the edge's own
+// rule without bundling the whole request validator: services/weatherRouter.ts
+// imports only this.
+describe('route-weather polar validation on its own', () => {
+    const polar = {
+        windSpeeds: [6, 12, 20],
+        angles: [45, 90, 135],
+        matrix: [
+            [4.1, 5.6, 6.3],
+            [5.0, 6.8, 7.6],
+            [4.4, 6.2, 7.4],
+        ],
+    };
+
+    it('is the same check the full request validator runs on vessel.polar_data', () => {
+        const request = {
+            centerline: [
+                { lat: 43.3, lon: 5.37 },
+                { lat: 41.39, lon: 9.16 },
+            ],
+            departure_time: new Date(NOW_MS).toISOString(),
+            vessel: {
+                type: 'sail',
+                cruising_speed_kts: 6,
+                max_wind_kts: 30,
+                max_wave_m: 3,
+                draft_m: 2,
+                polar_data: polar,
+            },
+        };
+        expect(validatePolarData(polar)).toEqual(validateWeatherRouteRequest(request, NOW_MS).vessel.polar_data);
+    });
+
+    it('passes no polar through as null', () => {
+        expect(validatePolarData(null)).toBeNull();
+        expect(validatePolarData(undefined)).toBeNull();
+    });
+
+    it.each([
+        ['31 angle rows', { windSpeeds: [6, 12], angles: Array.from({ length: 31 }, (_, i) => i * 6), matrix: [] }],
+        ['angles that go backwards', { ...polar, angles: [45, 135, 90] }],
+        [
+            'a short matrix row',
+            {
+                ...polar,
+                matrix: [
+                    [4, 5, 6],
+                    [5, 6],
+                    [4, 6, 7],
+                ],
+            },
+        ],
+        [
+            'a 95 kn boat speed',
+            {
+                ...polar,
+                matrix: [
+                    [4, 5, 6],
+                    [5, 95, 7],
+                    [4, 6, 7],
+                ],
+            },
+        ],
+        ['no matrix', { windSpeeds: [6, 12], angles: [45, 90] }],
+    ])('refuses %s', (_label, value) => {
+        expect(() => validatePolarData(value)).toThrow(RouteWeatherSafetyError);
     });
 });
 

@@ -167,7 +167,12 @@ export function densifyCenterlineForMesh(
     return dense;
 }
 
-function validatePolarData(value: unknown): ValidatedPolarData | null {
+/**
+ * The contract's rule for vessel.polar_data, on its own. Exported so the app
+ * (services/weatherRouter.ts) can drop a polar the edge would refuse without
+ * bundling the whole request validator.
+ */
+export function validatePolarData(value: unknown): ValidatedPolarData | null {
     if (value === undefined || value === null) return null;
     if (
         !isRecord(value) ||
