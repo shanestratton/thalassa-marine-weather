@@ -14,6 +14,7 @@ import type { PassageStatus } from '../services/PassagePlanService';
 import type { Voyage } from '../services/VoyageService';
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 import { readLastPassageStatus } from '../services/crew/lastPassageStatus';
+import { clearStaleWindowEvent } from './helpers/clearStaleWindowEvent';
 
 const mocks = vi.hoisted(() => ({
     activePassageId: '' as string,
@@ -256,18 +257,28 @@ const SAM = crewRow({
     shared_registers: ['stores', 'passage_checklist', 'passage_chat'],
 });
 
-/** Every getPassageStatus call waits for `release`. */
+/**
+ * Every getPassageStatus call for a passage waits for `release`, as on a
+ * stalled link. Once released the server has answered: the checks waiting get
+ * that answer, and so does any check the page starts after it. The page
+ * re-checks access once your memberships load, and on a slow render that
+ * re-check can start either side of the release; a check nobody answers would
+ * leave its paint up.
+ */
 function holdPassageStatus() {
     const waiting: Array<(status: PassageStatus) => void> = [];
+    let answer: PassageStatus | null = null;
     mocks.getPassageStatus.mockImplementation(
         (id: string | null) =>
             new Promise<PassageStatus>((resolve) => {
                 if (!id) resolve(NONE);
+                else if (answer) resolve(answer);
                 else waiting.push(resolve);
             }),
     );
     return (status: PassageStatus) =>
         act(async () => {
+            answer = status;
             for (const resolve of waiting.splice(0)) resolve(status);
         });
 }
@@ -283,6 +294,7 @@ const renderPage = () => render(<CrewManagement onBack={vi.fn()} />);
 
 describe('Crew & Float Plan, the tier-1 look', () => {
     beforeEach(() => {
+        clearStaleWindowEvent();
         localStorage.clear();
         setAuthIdentityScope(null);
         setAuthIdentityScope('skipper-1');
@@ -343,9 +355,11 @@ describe('Crew & Float Plan, the tier-1 look', () => {
             ).toBeTruthy(),
         );
         const invite = screen.getByRole('button', { name: 'Invite crew member' });
-        expect(invite.closest('section')).not.toContainElement(disband);
+        expect(invite.closest('section')).not.toContainElement(
+            screen.getByRole('button', { name: 'Disband Entire Group' }),
+        );
 
-        fireEvent.click(disband);
+        fireEvent.click(screen.getByRole('button', { name: 'Disband Entire Group' }));
         const dialog = screen.getByRole('region', { name: 'Disband Group' });
         expect(within(dialog).getByText('Type DISBAND to confirm')).toBeInTheDocument();
         expect(within(dialog).getByRole('button', { name: 'Confirm Disband' })).toBeDisabled();
@@ -375,7 +389,7 @@ describe('Crew & Float Plan, the tier-1 look', () => {
         expect(screen.queryByTestId('readiness-stack')).not.toBeInTheDocument();
 
         await release(OWNER);
-        expect(await screen.findByTestId('readiness-stack')).toHaveAttribute('data-owner', 'true');
+        await waitFor(() => expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-owner', 'true'));
         expect(screen.queryByText('Checking passage access…')).not.toBeInTheDocument();
         expect(readLastPassageStatus(getAuthIdentityScope(), 'voyage-1')).toEqual(OWNER);
     });

@@ -18,6 +18,7 @@ import type { CrewVesselView, CrewVesselViewResult } from '../services/crew/crew
 import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
 import { readLastPassageStatus } from '../services/crew/lastPassageStatus';
 import { reloadSharedBindersFromStorage } from '../services/vessel/sharedBinders';
+import { clearStaleWindowEvent } from './helpers/clearStaleWindowEvent';
 
 const binderSync = vi.hoisted(() => ({ requestFullReconciliation: vi.fn() }));
 vi.mock('../services/vessel/SyncService', () => ({
@@ -366,19 +367,6 @@ const albatrossRows = () => [
 
 const renderPage = () => render(<CrewManagement onBack={vi.fn()} />);
 
-/**
- * Forget a click React left in window.event. After React 18's development
- * build handles a click it writes window.event back (invokeGuardedCallbackDev),
- * and under vitest that write lands in the global's own setter, so
- * window.event reads as that click for the rest of the file. React ranks an
- * update made outside any event by window.event, so every later fetch answer
- * rendered as if clicked, synchronously: the tests after the first click
- * never met the scheduling a phone, or a cold CI runner, gives them.
- */
-function clearStaleWindowEvent() {
-    (window as unknown as { event: Event | undefined }).event = undefined;
-}
-
 /** The skipper shares a planning, an active and a finished passage; another skipper and your own route mix in. */
 function shareSkipperPassages() {
     const planning = voyage('voyage-plan', 'skipper-1', 'Harbour to Far Island');
@@ -537,9 +525,14 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
     it('says nothing about sharing before the server can take your details', async () => {
         mocks.shareFloatPlanDetails.mockResolvedValue('unavailable');
         renderPage();
-        const card = await screen.findByTestId('crew-float-plan-card');
+        await screen.findByTestId('crew-float-plan-card');
         await waitFor(() => expect(mocks.shareFloatPlanDetails).toHaveBeenCalled());
-        await waitFor(() => expect(within(card).queryByText(/skippers you crew for see them/)).toBeNull());
+        // Read the card afresh: a node held from first sight says nothing once it is replaced.
+        await waitFor(() =>
+            expect(
+                within(screen.getByTestId('crew-float-plan-card')).queryByText(/skippers you crew for see them/),
+            ).toBeNull(),
+        );
     });
 
     it('says nothing about sharing until the server has answered, and nothing after a failed share', async () => {
@@ -555,14 +548,17 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
             }),
         );
         renderPage();
-        const card = await screen.findByTestId('crew-float-plan-card');
+        await screen.findByTestId('crew-float-plan-card');
         await waitFor(() => expect(mocks.shareFloatPlanDetails).toHaveBeenCalled());
+        // The card is read afresh each time: a node held from first sight says
+        // nothing once it is replaced.
+        const card = () => screen.getByTestId('crew-float-plan-card');
         // Still waiting: no claim yet.
-        expect(within(card).queryByText(/skippers you crew for see them/)).toBeNull();
+        expect(within(card()).queryByText(/skippers you crew for see them/)).toBeNull();
         await act(async () => answer('failed'));
-        expect(within(card).queryByText(/skippers you crew for see them/)).toBeNull();
+        expect(within(card()).queryByText(/skippers you crew for see them/)).toBeNull();
         // Your own details still show on your own row.
-        expect(within(card).getByText('0491 570 156 · age 34')).toBeInTheDocument();
+        expect(within(card()).getByText('0491 570 156 · age 34')).toBeInTheDocument();
     });
 
     it("lists only that skipper's planning or active passages, labelled From <boat>", async () => {
@@ -786,10 +782,11 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
     it('a stale cached view says when it was last updated', async () => {
         mocks.loadCrewVesselView.mockImplementation(async () => ({ status: 'stale', view: VIEW }));
         renderPage();
-        const panel = await screen.findByRole('region', { name: 'Crewing on Wandering Albatross' });
-        expect(await within(panel).findByText(/^Last updated /)).toBeInTheDocument();
+        // The panel is read afresh each time, in case it is replaced meanwhile.
+        const panel = () => screen.getByRole('region', { name: 'Crewing on Wandering Albatross' });
+        await waitFor(() => expect(within(panel()).getByText(/^Last updated /)).toBeInTheDocument());
         // Still the cached people, offline.
-        expect(within(panel).getByText(/Tom Okafor/)).toBeInTheDocument();
+        expect(within(panel()).getByText(/Tom Okafor/)).toBeInTheDocument();
     });
 
     it('degraded mode (RPC not pushed) still names the boat and its people', async () => {

@@ -15,16 +15,22 @@ import type { CrewMember } from '../services/CrewService';
 import type { PassageStatus } from '../services/PassagePlanService';
 import type { Voyage } from '../services/VoyageService';
 import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
+import { clearStaleWindowEvent } from './helpers/clearStaleWindowEvent';
 
 /** Where the mocked Summary card rolls a past departure forward to. */
 const ROLLED_DEPARTURE = '2026-12-01T21:00:00.000Z';
 
 const mocks = vi.hoisted(() => ({
     getPassageStatus: vi.fn(),
+    getMyMemberships: vi.fn(),
     updateVoyage: vi.fn(),
     galley: vi.fn(),
     watch: vi.fn(),
     weather: vi.fn(),
+    // How long each Summary card render takes, in ms. Past React's 5 ms slice
+    // the effects of the commit that painted the card run a turn later, as on
+    // a loaded CI runner with coverage on.
+    summaryRenderMs: 0,
 }));
 
 vi.mock('../services/vessel/SyncService', () => ({ requestFullReconciliation: vi.fn(async () => ({})) }));
@@ -79,7 +85,7 @@ vi.mock('../services/CrewService', () => ({
     disbandGroup: vi.fn(),
     updateCrewPermissions: vi.fn(),
     getMyInvites: vi.fn(async () => []),
-    getMyMemberships: vi.fn(async () => []),
+    getMyMemberships: mocks.getMyMemberships,
     acceptInvite: vi.fn(),
     declineInvite: vi.fn(),
     leaveVessel: vi.fn(),
@@ -200,6 +206,10 @@ vi.mock('../components/passage/PassageSummaryCard', () => ({
         onDepartureTimeChange?: DepartureHandler;
         allowFloatPlan?: boolean;
     }) => {
+        const until = performance.now() + mocks.summaryRenderMs;
+        while (performance.now() < until) {
+            // A slow render: hold the thread, as a busy runner would.
+        }
         // PassageSummaryCard.tsx's automaticDepartureRef, in miniature.
         const fired = React.useRef<string | null>(null);
         React.useEffect(() => {
@@ -265,14 +275,33 @@ const OWNER: PassageStatus = {
     canViewChecklist: true,
 };
 
-/** Every getPassageStatus call waits for `release`. */
+/**
+ * Every getPassageStatus call waits for `release`, as on a stalled link. Once
+ * released the server has answered: the checks waiting get that answer, and
+ * so does any check the page starts after it. The page re-checks access once
+ * your memberships load, and on a slow render that re-check can start either
+ * side of the release; a check nobody answers would leave its paint up.
+ */
 function holdPassageStatus() {
     const waiting: Array<(status: PassageStatus) => void> = [];
-    mocks.getPassageStatus.mockImplementation(() => new Promise<PassageStatus>((resolve) => waiting.push(resolve)));
+    let answer: PassageStatus | null = null;
+    mocks.getPassageStatus.mockImplementation(() =>
+        answer ? Promise.resolve(answer) : new Promise<PassageStatus>((resolve) => waiting.push(resolve)),
+    );
     return (status: PassageStatus) =>
         act(async () => {
+            answer = status;
             for (const resolve of waiting.splice(0)) resolve(status);
         });
+}
+
+const MEMORY_KEY = 'thalassa_crew_page_passage_status_v1';
+
+/** This device last verified the owner's grant for voyage-1. Returns the key it is kept under. */
+function rememberOwnerGrant() {
+    const key = authScopedStorageKey(MEMORY_KEY);
+    localStorage.setItem(key, JSON.stringify({ version: 1, userId: 'skipper-1', voyageId: 'voyage-1', status: OWNER }));
+    return key;
 }
 
 // The Summary card's roll-forward, written through the page's departure
@@ -286,12 +315,48 @@ const departureWrites = () =>
 
 const last = (mock: ReturnType<typeof vi.fn>) => mock.mock.calls[mock.mock.calls.length - 1]?.[0];
 
+/**
+ * From the painted card (fake timers on): 6 s with no answer from the check
+ * that is out, then its late answer.
+ */
+async function noAnswerForSixSecondsThenLate(release: ReturnType<typeof holdPassageStatus>, key: string) {
+    // Let the page finish what painting the card started before the clock
+    // moves. A render past React's 5 ms slice runs its effects a turn later,
+    // and one of them can be the re-check your memberships start once they
+    // land: a fresh check with its own 6 s. Moved before that turn, the clock
+    // timed out the check before it, and the fresh check painted again (CI run
+    // 37556214853). An async `act` resolves only after a task turn, behind the
+    // one React queued for those effects.
+    await act(async () => {});
+    const checks = mocks.getPassageStatus.mock.calls.length;
+
+    await act(async () => {
+        vi.advanceTimersByTime(6000);
+    });
+    // 6 s with no answer from the check that is out, and no new check since.
+    expect(mocks.getPassageStatus).toHaveBeenCalledTimes(checks);
+    expect(screen.queryByTestId('summary-card')).not.toBeInTheDocument();
+    expect(screen.getByText('Checking passage access…')).toBeInTheDocument();
+    expect(screen.getByText(/No answer yet/)).toBeInTheDocument();
+    // No answer is not a denial: the next visit still paints at once.
+    expect(localStorage.getItem(key)).not.toBeNull();
+    expect(departureWrites()).toHaveLength(0);
+
+    await release(OWNER);
+    await waitFor(() => expect(screen.getByTestId('summary-card')).toHaveAttribute('data-can-edit', 'true'));
+    expect(screen.queryByText('Checking passage access…')).not.toBeInTheDocument();
+    await waitFor(() => expect(departureWrites()).toHaveLength(1));
+}
+
 describe('Crew & Float Plan: painted passage access hands the cards no write', () => {
     beforeEach(() => {
+        clearStaleWindowEvent();
         localStorage.clear();
         setAuthIdentityScope(null);
         setAuthIdentityScope('skipper-1');
         vi.clearAllMocks();
+        mocks.summaryRenderMs = 0;
+        mocks.getMyMemberships.mockImplementation(async () => []);
         mocks.updateVoyage.mockResolvedValue({ voyage: null });
     });
 
@@ -305,7 +370,8 @@ describe('Crew & Float Plan: painted passage access hands the cards no write', (
         expect(await screen.findByText('Checking passage access…')).toBeInTheDocument();
 
         await release(OWNER);
-        expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'true');
+        await waitFor(() => expect(screen.getByTestId('summary-card')).toHaveAttribute('data-can-edit', 'true'));
+        expect(screen.queryByText('Checking passage access…')).not.toBeInTheDocument();
         await waitFor(() => expect(departureWrites()).toHaveLength(1));
         expect(departureWrites()[0]).toEqual([
             'voyage-1',
@@ -314,10 +380,7 @@ describe('Crew & Float Plan: painted passage access hands the cards no write', (
     });
 
     it('repeat visit: the cards paint at once with no write, then the roll-forward lands once verified', async () => {
-        localStorage.setItem(
-            authScopedStorageKey('thalassa_crew_page_passage_status_v1'),
-            JSON.stringify({ version: 1, userId: 'skipper-1', voyageId: 'voyage-1', status: OWNER }),
-        );
+        rememberOwnerGrant();
         const release = holdPassageStatus();
         render(<CrewManagement onBack={vi.fn()} />);
 
@@ -351,33 +414,34 @@ describe('Crew & Float Plan: painted passage access hands the cards no write', (
         // getPassageStatus has no deadline (a stalled link at sea): a
         // possibly-revoked grant must not stay on screen while it stalls.
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
-        const key = authScopedStorageKey('thalassa_crew_page_passage_status_v1');
-        localStorage.setItem(
-            key,
-            JSON.stringify({ version: 1, userId: 'skipper-1', voyageId: 'voyage-1', status: OWNER }),
-        );
+        const key = rememberOwnerGrant();
         const release = holdPassageStatus();
         render(<CrewManagement onBack={vi.fn()} />);
         expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'false');
 
-        await act(async () => {
-            vi.advanceTimersByTime(6000);
-        });
-        expect(screen.queryByTestId('summary-card')).not.toBeInTheDocument();
-        expect(screen.getByText('Checking passage access…')).toBeInTheDocument();
-        expect(screen.getByText(/No answer yet/)).toBeInTheDocument();
-        // No answer is not a denial: the next visit still paints at once.
-        expect(localStorage.getItem(key)).not.toBeNull();
-        expect(departureWrites()).toHaveLength(0);
+        await noAnswerForSixSecondsThenLate(release, key);
+    });
 
-        await release(OWNER);
-        expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'true');
-        expect(screen.queryByText('Checking passage access…')).not.toBeInTheDocument();
-        await waitFor(() => expect(departureWrites()).toHaveLength(1));
+    it('drops the paint 6 s after the check out when your memberships land late, on a slow render', async () => {
+        // The order CI run 37556214853 met: your memberships answer after the
+        // page's first check is out, and the render that paints the card runs
+        // past React's 5 ms slice, so the re-check those memberships start
+        // (with its own 6 s) runs a turn after the card is on screen.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+        mocks.summaryRenderMs = 25;
+        mocks.getMyMemberships.mockImplementation(
+            () => new Promise<CrewMember[]>((resolve) => setTimeout(() => resolve([]), 60)),
+        );
+        const key = rememberOwnerGrant();
+        const release = holdPassageStatus();
+        render(<CrewManagement onBack={vi.fn()} />);
+        expect(await screen.findByTestId('summary-card')).toHaveAttribute('data-can-edit', 'false');
+
+        await noAnswerForSixSecondsThenLate(release, key);
     });
 
     it('an answered denial forgets the grant; the same "no access" while offline does not', async () => {
-        const key = authScopedStorageKey('thalassa_crew_page_passage_status_v1');
+        const key = authScopedStorageKey(MEMORY_KEY);
         const remembered = JSON.stringify({ version: 1, userId: 'skipper-1', voyageId: 'voyage-1', status: OWNER });
         const NO_ACCESS: PassageStatus = {
             ...OWNER,
