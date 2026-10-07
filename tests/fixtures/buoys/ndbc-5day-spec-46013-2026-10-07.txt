@@ -1,0 +1,6 @@
+#YY  MM DD hh mm WVHT  SwH  SwP  WWH  WWP SwD WWD  STEEPNESS  APD MWD
+#yr  mo dy hr mn    m    m  sec    m  sec  -  degT     -      sec degT
+2026 10 07 16 40  1.4  1.4 12.9  0.4  3.4  SW   W      SWELL  6.4 227
+2026 10 07 16 10  1.6  1.5  8.3  0.4  4.0  NW WNW    AVERAGE  6.5 306
+2026 10 07 15 40  1.6  1.6  8.3  0.4  3.8  NW  NW    AVERAGE  6.6 310
+2026 10 07 15 10  1.5  1.4 10.0  0.4  3.8 WNW WNW      SWELL  6.6 297
