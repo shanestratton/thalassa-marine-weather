@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const routing = vi.hoisted(() => ({
@@ -403,6 +405,14 @@ describe('weatherRouter — the polar on the wire', () => {
 
         expect(sentBody(fetchMock).vessel.polar_data).toBeNull();
         expect(routing.warn).toHaveBeenCalledWith(expect.stringMatching(/polar/i));
+    });
+
+    it("checks the polar with the edge contract's own polar rule, without bundling the whole request validator", () => {
+        const source = readFileSync(resolve(process.cwd(), 'services/weatherRouter.ts'), 'utf8');
+        expect(source).toContain(
+            "import { validatePolarData } from '../supabase/functions/_shared/route-weather-safety';",
+        );
+        expect(source).not.toMatch(/validateWeatherRouteRequest\(/);
     });
 
     it('a request refused for another reason does not blame (or strip) the polar', async () => {

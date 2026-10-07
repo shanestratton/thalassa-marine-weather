@@ -22,13 +22,14 @@ import {
     monitorCmemsLayerDeactivation,
     removeCmemsLayerAndProveAbsent,
 } from './cmemsLayerOwnership';
-import { isCmemsFeatureEnabled } from './cmemsFeatureAvailability';
 import { deactivateFailedCmemsRenderer } from './cmemsLayerFailure';
 
 const log = createLogger('MldRasterLayer');
 
 const LAYER_ID = 'cmems-mld-raster';
-const FEATURE_ENABLED = isCmemsFeatureEnabled('mld');
+// Read directly so the build can fold it and drop the renderer while the
+// flag is off; see useOceanWaveParticleLayer and scripts/parked-lazy-pages.mjs.
+const FEATURE_ENABLED = import.meta.env.VITE_CMEMS_MLD_ENABLED === 'true';
 
 export function useMldRasterLayer(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,

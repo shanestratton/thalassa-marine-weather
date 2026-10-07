@@ -2145,10 +2145,12 @@ export function useWeatherLayers(
         // below, otherwise toggling off the last layer skips cleanup.
         // When the CMEMS particle layer is enabled, `currents` is served by
         // useOceanCurrentParticleLayer instead of the Xweather raster tile.
-        const cmemsCurrentsEnabled =
-            String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
-        const cmemsWavesEnabled = String(import.meta.env.VITE_CMEMS_WAVES_ENABLED ?? 'false').toLowerCase() === 'true';
-        const cmemsSstEnabled = String(import.meta.env.VITE_CMEMS_SST_ENABLED ?? 'false').toLowerCase() === 'true';
+        // Read exactly as the CMEMS renderer hooks read them (only the word
+        // true), so in dev a value such as TRUE cannot hide the tile here
+        // while the CMEMS layer stays off.
+        const cmemsCurrentsEnabled = import.meta.env.VITE_CMEMS_CURRENTS_ENABLED === 'true';
+        const cmemsWavesEnabled = import.meta.env.VITE_CMEMS_WAVES_ENABLED === 'true';
+        const cmemsSstEnabled = import.meta.env.VITE_CMEMS_SST_ENABLED === 'true';
         // Note: chlorophyll isn't in this gate — it's a net-new CMEMS
         // layer with no Xweather tile equivalent to replace.
         const TILE_LAYERS: WeatherLayer[] = [

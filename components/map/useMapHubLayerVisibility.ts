@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { MobService } from '../../services/MobService';
+import { isBlitzortungEnabled } from '../../services/weather/api/lightningLicence';
 import { useActiveCyclones } from './useActiveCyclones';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 
@@ -90,7 +91,9 @@ export function useMapHubLayerVisibility({
     const browseAnchorageVisible = anchorageVisible && !planningSurface;
     const browseMooringsVisible = mooringsVisible && !planningSurface;
     const browseTideStationsVisible = tideStationsVisible && !planningSurface;
-    const browseLightningVisible = lightningVisible && !planningSurface;
+    // The flag first: only its menu item can turn lightning on, and a build
+    // with it off then drops the strike layer's credit strip as well.
+    const browseLightningVisible = isBlitzortungEnabled() && lightningVisible && !planningSurface;
 
     return {
         aisVisible,

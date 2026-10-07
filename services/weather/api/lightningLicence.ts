@@ -28,7 +28,12 @@
 export const BLITZORTUNG_LICENCE = 'CC BY-SA 4.0';
 export const BLITZORTUNG_LICENCE_URL = 'https://creativecommons.org/licenses/by-sa/4.0/';
 
-/** Read at call time, so a test can flip it; Vite inlines it in a build. */
+/**
+ * Read at call time, so a test can flip it; Vite inlines it in a build. A
+ * production build defines the flag as exactly "true" or "false", so this
+ * literal comparison folds to a constant, and callers that test it FIRST
+ * (`isBlitzortungEnabled() && requested`) let Rollup drop the code behind it.
+ */
 export function isBlitzortungEnabled(): boolean {
-    return String(import.meta.env.VITE_BLITZORTUNG_ENABLED ?? 'false').toLowerCase() === 'true';
+    return import.meta.env.VITE_BLITZORTUNG_ENABLED === 'true';
 }

@@ -118,8 +118,9 @@ export function useLightningLayer(
     const unsubRef = useRef<(() => void) | null>(null);
     const rafRef = useRef<number | null>(null);
     const isSetUp = useRef(false);
-    // Behind the Blitzortung licence flag: off, the layer is never drawn.
-    const visible = requested && isBlitzortungEnabled();
+    // Behind the Blitzortung licence flag: off, the layer is never drawn. The
+    // flag goes first so a build with it off drops the drawing code.
+    const visible = isBlitzortungEnabled() && requested;
 
     useEffect(() => {
         const map = mapRef.current;
