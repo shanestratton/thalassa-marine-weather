@@ -11,6 +11,19 @@ const keys = {
     legAnchor: 'thalassa_trace_wip_leg_anchor',
     origin: 'thalassa_trace_wip_origin',
     destination: 'thalassa_trace_wip_dest',
+    returnPlan: 'thalassa_trace_wip_return_plan',
+    reversedFrom: 'thalassa_trace_wip_reversed_from',
+};
+
+const BAY_POINT = { lat: -29.9, lon: 160.1 };
+const SANDY_COVE = { lat: -29.8, lon: 160.2 };
+const MIDWAY = { lat: -29.847, lon: 160.15 };
+const PLAN = {
+    sourceTripId: 'trip-out',
+    sourceLabel: 'Harbour - Cape Grey',
+    sourceLegIds: ['out-3', 'out-2', 'trip-out'],
+    nextIndex: 2,
+    chainFromId: null,
 };
 
 describe('useTraceDraft', () => {
@@ -161,5 +174,109 @@ describe('useTraceDraft', () => {
         act(() => staleReverse());
         expect(result.current.traceName).toBe('B origin → B destination');
         expect(result.current.lastAutoNameRef.current).toBe('B origin → B destination');
+    });
+
+    it('strips the trip badge when an opened leg or passage is reversed (2026-10-07)', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        act(() => {
+            result.current.setCapturedCoords([BAY_POINT, MIDWAY, SANDY_COVE]);
+            result.current.setTraceName('Bay Point - Sandy Cove (2nd Leg)');
+        });
+        act(() => result.current.reverseDirection());
+        expect(result.current.traceName).toBe('Sandy Cove - Bay Point');
+        act(() => result.current.setTraceName('Harbour - Cape Grey (Passage)'));
+        act(() => result.current.reverseDirection());
+        expect(result.current.traceName).toBe('Cape Grey - Harbour');
+        act(() => result.current.setTraceName('Bay run (2nd Leg)'));
+        act(() => result.current.reverseDirection());
+        expect(result.current.traceName).toBe('Bay run');
+    });
+
+    it('marks a reversed draft with where it came from, until it is reversed back', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        act(() => {
+            result.current.setCapturedCoords([BAY_POINT, MIDWAY, SANDY_COVE]);
+            result.current.setTraceName('Bay Point - Sandy Cove (2nd Leg)');
+        });
+        act(() => result.current.reverseDirection('Bay Point - Sandy Cove (Leg 2)'));
+        expect(result.current.reversedFrom).toEqual({ label: 'Bay Point - Sandy Cove (Leg 2)', end: BAY_POINT });
+        expect(JSON.parse(sessionStorage.getItem(key(keys.reversedFrom))!)).toEqual(result.current.reversedFrom);
+        act(() => result.current.reverseDirection());
+        expect(result.current.reversedFrom).toBeNull();
+        // A draft with no name and no source still carries the warning.
+        act(() => result.current.setTraceName(''));
+        act(() => result.current.reverseDirection());
+        expect(result.current.reversedFrom?.label).toBe('the outbound line');
+    });
+
+    it('keeps the return-trip cursor and reversal mark per account, and drops damaged ones', () => {
+        const accountA = getAuthIdentityScope();
+        sessionStorage.setItem(key(keys.returnPlan), JSON.stringify(PLAN));
+        sessionStorage.setItem(key(keys.reversedFrom), JSON.stringify({ label: 'Leg 2', end: BAY_POINT }));
+        const { result } = renderHook(() => useTraceDraft());
+        expect(result.current.returnPlan).toEqual(PLAN);
+        expect(result.current.reversedFrom).toEqual({ label: 'Leg 2', end: BAY_POINT });
+
+        act(() => {
+            setAuthIdentityScope('account-b');
+        });
+        expect(result.current.returnPlan).toBeNull();
+        expect(result.current.reversedFrom).toBeNull();
+        expect(JSON.parse(sessionStorage.getItem(authScopedStorageKey(keys.returnPlan, accountA))!)).toEqual(PLAN);
+
+        sessionStorage.setItem(key(keys.returnPlan), JSON.stringify({ ...PLAN, nextIndex: 9 }));
+        const { result: reloaded } = renderHook(() => useTraceDraft());
+        expect(reloaded.current.returnPlan).toBeNull();
+    });
+
+    it('fills a locked-start slot with a saved leg reversed — and only with a locked start', () => {
+        const { result } = renderHook(() => useTraceDraft());
+        const source = {
+            id: 'out-2',
+            name: 'Bay Point - Sandy Cove (2nd Leg)',
+            createdAt: '2026-10-01T00:00:00.000Z',
+            points: [BAY_POINT, MIDWAY, SANDY_COVE],
+            tripId: 'trip-out',
+            legOrdinal: 2,
+        };
+        act(() => result.current.setCapturedCoords([SANDY_COVE]));
+        let filled = true;
+        act(() => {
+            filled = result.current.fillSlotWithReversed(source);
+        });
+        expect(filled).toBe(false);
+        expect(result.current.capturedCoords).toEqual([SANDY_COVE]);
+
+        const seed = { tripId: 'ret-1', ordinal: 2, fromName: 'Sandy Cove', anchor: { lat: -29.8001, lon: 160.2 } };
+        act(() => result.current.setLegAnchor(seed));
+        act(() => result.current.setReturnPlan({ ...PLAN, chainFromId: null }));
+        act(() => {
+            filled = result.current.fillSlotWithReversed(source);
+        });
+        expect(filled).toBe(true);
+        expect(result.current.capturedCoords).toEqual([seed.anchor, MIDWAY, BAY_POINT]);
+        expect(result.current.traceName).toBe('Sandy Cove - Bay Point');
+        // The flipped name is the skipper's own words, not ours to re-geocode.
+        expect(result.current.lastAutoNameRef.current).toBe('');
+        expect(result.current.legAnchor).toEqual(seed);
+        expect(result.current.reversedFrom).toEqual({ label: 'Bay Point - Sandy Cove (Leg 2)', end: BAY_POINT });
+        expect(result.current.returnPlan).toEqual(PLAN);
+        // The locked leg itself still never flips.
+        act(() => result.current.reverseDirection());
+        expect(result.current.capturedCoords).toEqual([seed.anchor, MIDWAY, BAY_POINT]);
+    });
+
+    it('declaring another route ends the return-trip flow and its note', () => {
+        sessionStorage.setItem(key(keys.returnPlan), JSON.stringify(PLAN));
+        sessionStorage.setItem(key(keys.reversedFrom), JSON.stringify({ label: 'Leg 2', end: BAY_POINT }));
+        const { result } = renderHook(() => useTraceDraft());
+        act(() => result.current.setLegAnchor(null));
+        expect(result.current.returnPlan).toBeNull();
+        expect(result.current.reversedFrom).toBeNull();
+        expect(JSON.parse(sessionStorage.getItem(key(keys.returnPlan))!)).toBeNull();
+
+        act(() => result.current.setReturnPlan(PLAN));
+        act(() => result.current.clearReturnContext());
+        expect(result.current.returnPlan).toBeNull();
     });
 });
