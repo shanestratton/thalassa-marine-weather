@@ -218,6 +218,47 @@ describe('queryModelSpread — ten-day, seven-member comparison', () => {
         expect(proxy).toHaveBeenCalledTimes(4);
     });
 
+    // Review 2026-10-08: the day cards' chip asks on every day swipe, and an
+    // answer with a failed leg was never kept, so a 429ing marine leg cost a
+    // pair of ten-day requests per swipe.
+    it('lets a passive reader (the day chip) reuse a recent incomplete answer, while the sheet still retries', async () => {
+        const { proxy, svc } = await loadSpread();
+        proxy.mockImplementation(((op: string, params: Record<string, string>) =>
+            op === 'marine' ? Promise.reject(new Error('request failed (429)')) : fakeProxy(op, params)) as never);
+        const first = await svc.queryModelSpread(13.1, -61.2, { passive: true }); // the Grenadines
+        expect(first.unreachable).toEqual(['marine']);
+        expect(proxy).toHaveBeenCalledTimes(2);
+        // Four more swipes inside five minutes: no more requests.
+        for (let k = 0; k < 4; k++) {
+            vi.setSystemTime(Date.now() + 60_000);
+            expect(await svc.queryModelSpread(13.1, -61.2, { passive: true })).toBe(first);
+        }
+        expect(proxy).toHaveBeenCalledTimes(2);
+        // The sheet opening asks again.
+        await svc.queryModelSpread(13.1, -61.2);
+        expect(proxy).toHaveBeenCalledTimes(4);
+        // And after five minutes the chip asks again too.
+        vi.setSystemTime(Date.now() + 5 * 60_000);
+        await svc.queryModelSpread(13.1, -61.2, { passive: true });
+        expect(proxy).toHaveBeenCalledTimes(6);
+        // A complete answer is kept for everyone, as before.
+        proxy.mockImplementation(fakeProxy as never);
+        vi.setSystemTime(Date.now() + 5 * 60_000);
+        const whole = await svc.queryModelSpread(13.1, -61.2, { passive: true });
+        expect(whole.unreachable).toBeUndefined();
+        expect(await svc.queryModelSpread(13.1, -61.2)).toBe(whole);
+        expect(proxy).toHaveBeenCalledTimes(8);
+    });
+
+    it('keeps a both-legs failure from a passive reader for five minutes too', async () => {
+        const { proxy, svc } = await loadSpread();
+        proxy.mockRejectedValue(new Error('timeout'));
+        const none = await svc.queryModelSpread(41.2, -70.1, { passive: true });
+        expect(none.unreachable).toEqual(['atmos', 'marine']);
+        await svc.queryModelSpread(41.2, -70.1, { passive: true });
+        expect(proxy).toHaveBeenCalledTimes(2);
+    });
+
     it('names the leg the servers never answered, so the sheet can say "unavailable", not "no model"', async () => {
         const { proxy, svc } = await loadSpread();
         proxy.mockImplementation(((op: string, params: Record<string, string>) =>

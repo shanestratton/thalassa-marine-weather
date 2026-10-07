@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { DIARY_DEVICES } from '../e2e/fixtures/diary-compose-devices';
 
 /**
  * The Glass's compact conditions row keeps every reading inside its own
@@ -252,6 +253,200 @@ for (const seas of ['m', 'ft'] as const) {
                 return out;
             });
             expect(daySpills, `day card readings in ${seas} at ${width}px`).toEqual([]);
+        });
+    }
+}
+
+/**
+ * Build 123, W1-09: the day card's model-agreement chip and its sun & moon
+ * row fit the carousel slot each phone gives the card (e2e/fixtures/
+ * glass-legibility.tsx ?w109=), in normal and wide fonts: nothing cut off;
+ * the chip whole, inside the card and the top thing at its own centre (its
+ * words on screen, or at the tight step the glyph alone in the corner, clear
+ * of the readings); the sun & moon row drawn only where there is room for it.
+ * The chip must not cost a 393 pt phone its full card, nor a 375x812 its
+ * condition line (there it moves to the corner: the snug step).
+ */
+const W109_PHONES: { key: string; width: number; app?: string }[] = [
+    { key: 'iphone-15', width: 393, app: 'full' },
+    { key: 'iphone-pro-max', width: 430, app: 'roomy' },
+    // 162 px: the full card fits only without the chip's own line (W1-09 review),
+    // so the chip goes to the corner and the condition line stays.
+    { key: 'iphone-13-mini', width: 375, app: 'snug' },
+    { key: 'iphone-se', width: 375, app: 'tight' },
+    { key: 'iphone-16-zoomed', width: 320, app: 'tight' },
+];
+
+for (const phone of W109_PHONES) {
+    for (const wide of [false, true]) {
+        test(`day card agreement chip and sun & moon row fit ${phone.key} (${phone.width} px)${wide ? ', wide fonts' : ''}`, async ({
+            page,
+        }) => {
+            await page.route('**/*', (route) => {
+                const url = new URL(route.request().url());
+                return url.origin === 'http://127.0.0.1:4199' ? route.continue() : route.abort();
+            });
+            await page.setViewportSize({ width: phone.width, height: 1400 });
+            await page.goto(`/e2e/fixtures/glass-legibility.html?w109=${phone.key}${wide ? '&fonts=wide' : ''}`);
+            await page.evaluate(() => document.fonts.ready);
+            const frames = page.getByTestId('w109-cards').locator(':scope > [data-testid^="w109-"]');
+            const count = await frames.count();
+            expect(count).toBeGreaterThanOrEqual(2);
+            for (let i = 0; i < count; i++) {
+                const frame = frames.nth(i);
+                await frame.scrollIntoViewIfNeeded();
+                // Let the card settle on its density (it measures, then steps).
+                await page.waitForTimeout(50);
+                const report = await frame.evaluate((node) => {
+                    const issues: string[] = [];
+                    const box = node.getBoundingClientRect();
+                    const card = node.querySelector<HTMLElement>('[role="group"]')!;
+                    const density = card.dataset.density ?? '';
+                    const content = node.querySelector('[data-testid="day-card-content"]')!.getBoundingClientRect();
+                    if (content.bottom > box.bottom + 0.5)
+                        issues.push(
+                            `cut off: content ends ${(content.bottom - box.bottom).toFixed(1)} px below the card`,
+                        );
+                    const chip = node.querySelector<HTMLElement>('[data-placement]');
+                    if (!chip) return { density, issues: [...issues, 'no chip'], placement: '' };
+                    const c = chip.getBoundingClientRect();
+                    if (
+                        c.left < box.left - 0.5 ||
+                        c.right > box.right + 0.5 ||
+                        c.top < box.top - 0.5 ||
+                        c.bottom > box.bottom + 0.5
+                    )
+                        issues.push('chip outside the card');
+                    const placement = chip.dataset.placement ?? '';
+                    // (The corner glyph has no words; its 44 px ::before hit box overhangs by design.)
+                    if (placement === 'line' && chip.scrollWidth > chip.clientWidth + 1)
+                        issues.push('chip words overflow the chip');
+                    const hit = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
+                    if (!hit || !(hit === chip || chip.contains(hit))) issues.push('chip covered at its centre');
+                    if (placement === 'line' && !/Models (agree|split)|Some spread/.test(chip.textContent ?? ''))
+                        issues.push('chip words not drawn');
+                    if (placement === 'corner') {
+                        // Clear of every reading and word it sits beside.
+                        for (const el of Array.from(
+                            node.querySelectorAll<HTMLElement>('[data-testid="day-card-content"] span'),
+                        )) {
+                            if (el.closest('.sr-only')) continue;
+                            const r = el.getBoundingClientRect();
+                            if (r.width === 0) continue;
+                            if (r.left < c.right && r.right > c.left && r.top < c.bottom && r.bottom > c.top)
+                                issues.push(`corner chip overlaps "${el.textContent}"`);
+                        }
+                    }
+                    const sky = node.querySelector<HTMLElement>('[data-testid="day-sky"]')!;
+                    if (density === 'roomy') {
+                        const s = sky.getBoundingClientRect();
+                        if (sky.classList.contains('sr-only')) issues.push('sky row hidden at roomy');
+                        if (s.bottom > box.bottom + 0.5) issues.push('sky row cut off');
+                        if (sky.scrollWidth > sky.clientWidth + 1) issues.push('sky row overflows sideways');
+                    } else if (!sky.classList.contains('sr-only')) issues.push(`sky row drawn at ${density}`);
+                    return { density, issues, placement };
+                });
+                const id = await frame.getAttribute('data-testid');
+                expect(report.issues, `${id} at ${phone.key}${wide ? ', wide fonts' : ''} (${report.density})`).toEqual(
+                    [],
+                );
+                expect(report.placement).toBe(['tight', 'snug'].includes(report.density) ? 'corner' : 'line');
+                if (id === 'w109-app' && phone.app) expect(report.density, `${id} at ${phone.key}`).toBe(phone.app);
+            }
+            expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+        });
+    }
+}
+
+/**
+ * Build 123, W1-09: the header's Sun and moon chip is a button, and the sheet
+ * it opens is centred on the screen, clear of the tab bar, whole on one
+ * screen with no scroll on every phone from 375x667 up and on a zoomed
+ * 320x693 with either generation's insets (320x568 may scroll as a last
+ * resort), nothing sideways, in normal and wide fonts.
+ */
+const SHEET_PHONES = [
+    DIARY_DEVICES['iphone-se'],
+    DIARY_DEVICES['iphone-13-mini'],
+    DIARY_DEVICES['iphone-15'],
+    DIARY_DEVICES['iphone-16-pro-max'],
+    DIARY_DEVICES['iphone-14-zoomed'],
+    DIARY_DEVICES['iphone-16-zoomed'],
+    DIARY_DEVICES['iphone-se-zoomed'],
+];
+for (const device of SHEET_PHONES) {
+    for (const wide of [false, true]) {
+        test(`sun and moon sheet fits ${device.name} (${device.width}x${device.height})${wide ? ', wide fonts' : ''}`, async ({
+            page,
+        }) => {
+            await page.route('**/*', (route) => {
+                const url = new URL(route.request().url());
+                return url.origin === 'http://127.0.0.1:4199' ? route.continue() : route.abort();
+            });
+            await page.setViewportSize({ width: device.width, height: device.height });
+            await page.goto(
+                `/e2e/fixtures/glass-legibility.html?sunmoon=1&top=${device.top}&bottom=${device.bottom}${wide ? '&fonts=wide' : ''}`,
+            );
+            await page.evaluate(() => document.fonts.ready);
+            const dialog = page.getByRole('dialog', { name: 'Sun and moon' });
+            await expect(dialog).toBeVisible();
+            await expect(dialog.getByRole('table', { name: 'Twilight' })).toBeVisible();
+            const issues = await page.evaluate(
+                ({ top, bottom, mustFit }) => {
+                    const out: string[] = [];
+                    const W = window.innerWidth;
+                    const H = window.innerHeight;
+                    // The root font is fluid under 768 px (index.css), as in the app.
+                    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+                    const sheet = document.querySelector<HTMLElement>('[aria-labelledby="sun-moon-title"]')!;
+                    const nav = document.querySelector('nav[aria-label="Main"]')!.getBoundingClientRect();
+                    const box = sheet.getBoundingClientRect();
+                    const bandTop = Math.max(rem, top);
+                    const band = H - bandTop - (5 * rem + bottom);
+                    if (mustFit && sheet.scrollHeight > band + 0.5)
+                        out.push(`sheet needs ${sheet.scrollHeight}px, the band is ${band.toFixed(1)}px`);
+                    if (mustFit && sheet.scrollHeight > sheet.clientHeight + 1)
+                        out.push(`sheet scrolls (${sheet.scrollHeight} > ${sheet.clientHeight})`);
+                    if (box.height > band + 0.5) out.push(`sheet taller than its band (${box.height} > ${band})`);
+                    if (Math.abs(box.left - (W - box.right)) > 1)
+                        out.push(`not centred across: ${box.left.toFixed(1)} vs ${(W - box.right).toFixed(1)}`);
+                    const middle = (box.top + box.bottom) / 2;
+                    if (Math.abs(middle - (bandTop + band / 2)) > 1)
+                        out.push(`not centred in its band: ${middle.toFixed(1)} vs ${(bandTop + band / 2).toFixed(1)}`);
+                    if (box.top < 0) out.push('sheet starts above the screen');
+                    if (box.bottom > nav.top + 0.5)
+                        out.push(`sheet runs under the tab bar (${box.bottom} > ${nav.top})`);
+                    if (sheet.scrollWidth > sheet.clientWidth + 1) out.push('sheet overflows sideways');
+                    for (const el of Array.from(
+                        sheet.querySelectorAll<HTMLElement>('h2, h3, p, table, [data-testid]'),
+                    )) {
+                        const r = el.getBoundingClientRect();
+                        if (r.left < box.left - 1 || r.right > box.right + 1)
+                            out.push(`${el.tagName} "${el.textContent?.trim().slice(0, 24)}" escapes the sheet`);
+                        if (el.scrollWidth > el.clientWidth + 1 && el.tagName !== 'TABLE')
+                            out.push(`${el.tagName} "${el.textContent?.trim().slice(0, 24)}" overflows`);
+                        if (mustFit && (r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5))
+                            out.push(`${el.tagName} "${el.textContent?.trim().slice(0, 24)}" is cut off`);
+                    }
+                    return out;
+                },
+                { top: device.top, bottom: device.bottom, mustFit: device.mustFit },
+            );
+            expect(issues).toEqual([]);
+            // The chip that opens it: a button, whole in its row, the same
+            // height as the alerts pill beside it (one row of pills).
+            const chip = page.getByTestId('sun-moon-chip').getByRole('button', { name: /^Sunrise 07:43/ });
+            await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
+            const fits = await page.getByTestId('sun-moon-chip').evaluate((wrap) => {
+                const row = wrap.firstElementChild!.getBoundingClientRect();
+                const chipBox = wrap.querySelector('[aria-haspopup="dialog"]')!.getBoundingClientRect();
+                const pill = wrap.querySelector('button[aria-label="No forecast alerts"]')!.getBoundingClientRect();
+                return {
+                    inRow: chipBox.left >= row.left - 0.5 && chipBox.right <= row.right + 0.5,
+                    pillHeight: Math.abs(chipBox.height - pill.height) <= 0.5,
+                };
+            });
+            expect(fits).toEqual({ inRow: true, pillHeight: true });
         });
     }
 }

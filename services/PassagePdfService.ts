@@ -13,6 +13,7 @@ import { getFirstLight, getLastLight, moonlightByNight, sunAltitudeDeg } from '.
 import { createLogger } from '../utils/createLogger';
 import { calculateDistance } from '../utils/navigationCalculations';
 import { resolveTimeZone } from '../utils/timezone';
+import { readableZoneName } from '../utils/zoneLabel';
 import type { PassageBriefData } from './PassageBriefService';
 
 const log = createLogger('PassagePDF');
@@ -83,22 +84,8 @@ function dayLabel(ms: number, timeZone: string): string {
     return `${p.weekday} ${p.day} ${p.month}`;
 }
 
-/** A zone as a reader takes it: the IANA name, except the open-ocean zones
- *  tz-lookup returns ('Etc/GMT+3' is POSIX-signed: it means UTC-3), shown as
- *  the real offset. ASCII minus: the PDF's standard fonts have no U+2212. */
-function zoneName(timeZone: string, atMs: number): string {
-    if (!timeZone.startsWith('Etc/') && timeZone !== 'UTC') return timeZone;
-    try {
-        const offset = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'shortOffset' })
-            .formatToParts(atMs)
-            .find((p) => p.type === 'timeZoneName')?.value;
-        if (!offset) return timeZone;
-        const utc = offset.replace(/^GMT/, 'UTC');
-        return /^UTC([+-]0)?$/.test(utc) ? 'UTC' : utc;
-    } catch {
-        return timeZone;
-    }
-}
+/** A zone as a reader takes it ('Etc/GMT+3' printed as UTC-3): shared with the Glass's sun & moon sheet. */
+const zoneName = readableZoneName;
 
 type LatLon = { lat: number; lon: number };
 

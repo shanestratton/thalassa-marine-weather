@@ -7,6 +7,8 @@
  *
  * ?tab=wind|dir|gust|wave|vis …  &top=<px>&bottom=<px> (the device's safe-area
  * insets)  &fonts=wide  &largeText  &state=ready|failed
+ * &day=<n>: opened from a Glass day card's agreement chip, on the day n days
+ * from now (W1-09): that day banded and its verdict heading the sheet.
  *
  * env() is 0 in a desktop browser, so the device's real insets are painted
  * where the app's env() would put them: the overlay's band and the tab bar.
@@ -130,6 +132,7 @@ function Fixture() {
                 onClose={() => undefined}
                 selectedModel="ecmwf_ifs025"
                 initialParam={(params.get('tab') ?? 'wind') as Tab}
+                initialDay={params.has('day') ? Date.now() + Number(params.get('day')) * 86_400_000 : undefined}
                 coordinates={{ lat: 38.52, lon: -28.7 }}
             />
             {/* The real tab bar's geometry (App.tsx): fixed, z-900, 4rem above the home indicator. */}
