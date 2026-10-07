@@ -15,6 +15,7 @@ import {
 import { UnitPreferences, SourcedWeatherMetrics, HourlyForecast } from '../../../types';
 import { ShipLogService } from '../../../services/ShipLogService';
 import { circularMean } from '../../../utils/circularStats';
+import { SUN_STAYS_DOWN, SUN_STAYS_UP } from '../../../utils/celestial';
 
 // ── Sun Phase Helper ────────────────────────────────────────────────
 
@@ -43,6 +44,11 @@ export function computeSunPhase(cardData: SourcedWeatherMetrics | null, cardTime
     const sRise = cardData.sunrise;
     const sSet = cardData.sunset;
 
+    // Polar day / night say so in words (W1-06): the sun is up, or down, all day.
+    if (sRise === SUN_STAYS_UP || sSet === SUN_STAYS_UP) return { isDay: true, label: 'Sunset', time: SUN_STAYS_UP };
+    if (sRise === SUN_STAYS_DOWN || sSet === SUN_STAYS_DOWN) {
+        return { isDay: false, label: 'Sunrise', time: SUN_STAYS_DOWN };
+    }
     if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') return fallbackCheck(currentTs);
 
     try {

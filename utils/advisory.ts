@@ -10,6 +10,7 @@ import {
 import { expandCompassDirection } from './format';
 import { calculateApparentTemp } from './math';
 import { FORECAST_ALERT_RULES as RULE } from './forecastAlerts';
+import { SUN_STAYS_DOWN, SUN_STAYS_UP } from './celestial';
 
 // Generates robust, non-AI advice when services are offline or keys are missing
 export const generateTacticalAdvice = (
@@ -53,7 +54,12 @@ export const generateTacticalAdvice = (
 
     // --- 2. DAYLIGHT ANALYSIS ---
     let sunMsg = '';
-    if (sunsetTime && sunsetTime !== '--:--') {
+    // Polar day / night arrive as words, not a time (W1-06).
+    if (sunsetTime === SUN_STAYS_UP) {
+        sunMsg = '\n\n☀️ Daylight: the sun stays up all day here. ';
+    } else if (sunsetTime === SUN_STAYS_DOWN) {
+        sunMsg = '\n\n🌙 Polar night: the sun stays down all day here. Navigation lights required. ';
+    } else if (sunsetTime && sunsetTime !== '--:--') {
         const today = new Date().toISOString().split('T')[0];
         const sunsetDate = new Date(`${today}T${sunsetTime.length === 5 ? sunsetTime : '18:00'}:00`);
         const minsUntilDark = (sunsetDate.getTime() - now.getTime()) / 60000;
