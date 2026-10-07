@@ -15,7 +15,8 @@ import type { CrewMember, SharedRegister } from '../services/CrewService';
 import type { AuthorizedSharedVoyagesResult, PassageStatus } from '../services/PassagePlanService';
 import type { Voyage } from '../services/VoyageService';
 import type { CrewVesselView, CrewVesselViewResult } from '../services/crew/crewVesselView';
-import { authScopedStorageKey, setAuthIdentityScope } from '../services/authIdentityScope';
+import { authScopedStorageKey, getAuthIdentityScope, setAuthIdentityScope } from '../services/authIdentityScope';
+import { readLastPassageStatus } from '../services/crew/lastPassageStatus';
 import { reloadSharedBindersFromStorage } from '../services/vessel/sharedBinders';
 
 const binderSync = vi.hoisted(() => ({ requestFullReconciliation: vi.fn() }));
@@ -42,6 +43,12 @@ const mocks = vi.hoisted(() => ({
     loadCrewVesselView: vi.fn(),
     shareFloatPlanDetails: vi.fn(),
     vessel: { name: 'Kestrel', type: 'sail', crewCount: 2, cruisingSpeed: 6 } as Record<string, unknown>,
+    // How long each readiness-stack render takes, in ms. Past React's 5 ms
+    // slice the event loop is handed back between painting the stack and the
+    // effects that follow, as on a loaded CI runner with coverage on.
+    stackRenderMs: 0,
+    // The shared passages each readiness-stack render was given, in order.
+    stackVoyagesRendered: [] as string[],
 }));
 
 vi.mock('../theme', () => ({
@@ -198,17 +205,25 @@ interface MockReadinessProps {
 }
 
 vi.mock('../components/crew/ReadinessCardStack', () => ({
-    ReadinessCardStack: (props: MockReadinessProps) => (
-        <div
-            data-testid="readiness-stack"
-            data-selected={props.selectedPassageId}
-            data-owner={String(props.passageStatus.isOwner)}
-            data-voyages={props.draftVoyages.map((voyage) => voyage.id).join(',')}
-            data-plan-crew={String(props.planCrewCount)}
-            data-standing-crew={String(props.standingCrewAboard)}
-            data-crew-vessel={props.crewVesselProfile?.name ?? ''}
-        />
-    ),
+    ReadinessCardStack: (props: MockReadinessProps) => {
+        const voyages = props.draftVoyages.map((voyage) => voyage.id).join(',');
+        mocks.stackVoyagesRendered.push(voyages);
+        const until = performance.now() + mocks.stackRenderMs;
+        while (performance.now() < until) {
+            // A slow render: hold the thread, as a busy runner would.
+        }
+        return (
+            <div
+                data-testid="readiness-stack"
+                data-selected={props.selectedPassageId}
+                data-owner={String(props.passageStatus.isOwner)}
+                data-voyages={voyages}
+                data-plan-crew={String(props.planCrewCount)}
+                data-standing-crew={String(props.standingCrewAboard)}
+                data-crew-vessel={props.crewVesselProfile?.name ?? ''}
+            />
+        );
+    },
 }));
 
 vi.mock('../components/Icons', () => {
@@ -343,25 +358,61 @@ const ALBATROSS = {
     lastAcceptedAt: '2026-10-01T00:00:00.000Z',
 };
 
+/** Your two accepted rows on the skipper's boat: one boat-wide, one for a finished passage. */
+const albatrossRows = () => [
+    membership('skipper-1', 'row-global', 'deckhand', ['stores', 'passage_chat']),
+    membership('skipper-1', 'row-scoped', 'co-skipper', ['passage_checklist'], 'voyage-done'),
+];
+
 const renderPage = () => render(<CrewManagement onBack={vi.fn()} />);
+
+/**
+ * Forget a click React left in window.event. After React 18's development
+ * build handles a click it writes window.event back (invokeGuardedCallbackDev),
+ * and under vitest that write lands in the global's own setter, so
+ * window.event reads as that click for the rest of the file. React ranks an
+ * update made outside any event by window.event, so every later fetch answer
+ * rendered as if clicked, synchronously: the tests after the first click
+ * never met the scheduling a phone, or a cold CI runner, gives them.
+ */
+function clearStaleWindowEvent() {
+    (window as unknown as { event: Event | undefined }).event = undefined;
+}
+
+/** The skipper shares a planning, an active and a finished passage; another skipper and your own route mix in. */
+function shareSkipperPassages() {
+    const planning = voyage('voyage-plan', 'skipper-1', 'Harbour to Far Island');
+    const active = voyage('voyage-active', 'skipper-1', 'Far Island to Reef', 'active');
+    const completed = voyage('voyage-done', 'skipper-1', 'Last week’s run', 'completed');
+    const otherSkipper = voyage('voyage-other', 'skipper-9', 'Someone else’s passage');
+    const own = voyage('own-voyage', 'crew-user', 'My own route');
+    mocks.getDraftVoyages.mockResolvedValue([own]);
+    mocks.getAuthorizedSharedVoyages.mockResolvedValue({
+        voyages: [planning, active, completed, otherSkipper].map((row) => ({
+            voyage: row,
+            ownerEmail: `${row.user_id}@example.com`,
+        })),
+        complete: true,
+    });
+}
 
 describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
     beforeEach(() => {
+        clearStaleWindowEvent();
         localStorage.clear();
         mocks.authUserId = 'crew-user';
         setAuthIdentityScope(null);
         setAuthIdentityScope('crew-user');
         mocks.activePassageId = '';
         mocks.vessel = { name: 'Kestrel', type: 'sail', crewCount: 2, cruisingSpeed: 6 };
+        mocks.stackRenderMs = 0;
+        mocks.stackVoyagesRendered = [];
         vi.clearAllMocks();
         mocks.getMyCrew.mockResolvedValue([
             { ...membership('crew-user', 'own-crew-1', 'deckhand', ['stores']), crew_email: 'mate@example.com' },
         ]);
         mocks.getMyInvites.mockResolvedValue([]);
-        mocks.getMyMemberships.mockResolvedValue([
-            membership('skipper-1', 'row-global', 'deckhand', ['stores', 'passage_chat']),
-            membership('skipper-1', 'row-scoped', 'co-skipper', ['passage_checklist'], 'voyage-done'),
-        ]);
+        mocks.getMyMemberships.mockResolvedValue(albatrossRows());
         mocks.getDraftVoyages.mockResolvedValue([]);
         mocks.getCachedDraftVoyages.mockReturnValue([]);
         mocks.getAuthorizedSharedVoyages.mockResolvedValue({
@@ -404,11 +455,14 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         expect(screen.queryByText(/Disband/)).not.toBeInTheDocument();
         expect(screen.queryByText(/mate@example\.com/)).not.toBeInTheDocument();
         expect(screen.queryByText(/@example\.com/)).not.toBeInTheDocument();
-        // The readiness stack reads the skipper's boat.
-        const stack = await screen.findByTestId('readiness-stack');
-        expect(stack).toHaveAttribute('data-crew-vessel', 'Wandering Albatross');
-        expect(stack).toHaveAttribute('data-standing-crew', '4');
-        expect(stack).toHaveAttribute('data-plan-crew', '4');
+        // The readiness stack reads the skipper's boat. Read it afresh: it can
+        // step aside while passage access is re-checked, then paint again.
+        await waitFor(() => {
+            const stack = screen.getByTestId('readiness-stack');
+            expect(stack).toHaveAttribute('data-crew-vessel', 'Wandering Albatross');
+            expect(stack).toHaveAttribute('data-standing-crew', '4');
+            expect(stack).toHaveAttribute('data-plan-crew', '4');
+        });
         // The read-only float plan card, and the quiet way back to your own boat.
         expect(screen.getByTestId('crew-float-plan-card')).toBeInTheDocument();
         expect(
@@ -477,7 +531,7 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         const card = screen.getByTestId('crew-float-plan-card');
         expect(within(card).getByText('People aboard: 3')).toBeInTheDocument();
         expect(within(card).getByText('Priya Nair')).toBeInTheDocument();
-        expect(await screen.findByTestId('readiness-stack')).toHaveAttribute('data-standing-crew', '3');
+        await waitFor(() => expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-standing-crew', '3'));
     });
 
     it('says nothing about sharing before the server can take your details', async () => {
@@ -512,28 +566,16 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
     });
 
     it("lists only that skipper's planning or active passages, labelled From <boat>", async () => {
-        const planning = voyage('voyage-plan', 'skipper-1', 'Harbour to Far Island');
-        const active = voyage('voyage-active', 'skipper-1', 'Far Island to Reef', 'active');
-        const completed = voyage('voyage-done', 'skipper-1', 'Last week’s run', 'completed');
-        const otherSkipper = voyage('voyage-other', 'skipper-9', 'Someone else’s passage');
-        const own = voyage('own-voyage', 'crew-user', 'My own route');
-        mocks.getDraftVoyages.mockResolvedValue([own]);
-        mocks.getAuthorizedSharedVoyages.mockResolvedValue({
-            voyages: [planning, active, completed, otherSkipper].map((row) => ({
-                voyage: row,
-                ownerEmail: `${row.user_id}@example.com`,
-            })),
-            complete: true,
-        });
+        shareSkipperPassages();
 
         renderPage();
-        const stack = await screen.findByTestId('readiness-stack');
-        // The shared passages arrive after the membership, view and draft loads
-        // settle; on a loaded CI runner that took 1,086 ms against waitFor's
-        // 1 s default (run 37396349113, 2026-10-06), so allow longer.
-        await waitFor(() => expect(stack).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'), {
-            timeout: 5_000,
-        });
+        // Read the stack afresh on every try. It paints once your memberships
+        // load, steps aside while passage access is re-checked for them, and
+        // paints again; a stack held from first sight can be off the page by
+        // the time the passages land, and never updates.
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'),
+        );
         expect(screen.getByText('2 shared from Wandering Albatross')).toBeInTheDocument();
         expect(screen.queryByText(/yours/)).not.toBeInTheDocument();
 
@@ -544,6 +586,35 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         expect(options).toHaveLength(2);
         expect(options.every((text) => text.includes('From Wandering Albatross'))).toBe(true);
         expect(options.join(' ')).not.toMatch(/example\.com|My own route|Last week|Someone else/);
+    });
+
+    it("still lists that skipper's passages when your memberships answer after the access check, on a slow render", async () => {
+        // The order CI run 37548529698 met: the access check answers first
+        // (nothing selected needs no round trip), your memberships after it,
+        // and each render is slow enough for the event loop to turn between
+        // painting the stack and re-checking access for those memberships.
+        mocks.stackRenderMs = 25;
+        shareSkipperPassages();
+        let answerMemberships: () => void = () => undefined;
+        mocks.getMyMemberships.mockReturnValue(
+            new Promise<CrewMember[]>((resolve) => {
+                answerMemberships = () => resolve(albatrossRows());
+            }),
+        );
+
+        renderPage();
+        await waitFor(() => expect(mocks.getPassageStatus).toHaveBeenCalledWith(null));
+        await act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+        expect(screen.queryByTestId('readiness-stack')).not.toBeInTheDocument();
+
+        answerMemberships();
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-voyages', 'voyage-plan,voyage-active'),
+        );
+        // The stack was on screen before the shared passages came (the order
+        // pinned here), and they reached the stack that is on screen now.
+        expect(mocks.stackVoyagesRendered[0]).toBe('');
+        expect(screen.getByText('2 shared from Wandering Albatross')).toBeInTheDocument();
     });
 
     it('says so plainly when the skipper has shared no passage right now', async () => {
@@ -563,10 +634,17 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         );
 
         renderPage();
-        const stack = await screen.findByTestId('readiness-stack');
-        await waitFor(() => expect(mocks.getPassageStatus).toHaveBeenCalledWith(own.id));
-        expect(stack).toHaveAttribute('data-selected', '');
-        expect(stack).toHaveAttribute('data-owner', 'false');
+        // Wait for the verified answer (that you own it), or the checks below
+        // would pass on the "no access yet" placeholder. The page remembers a
+        // grant as it applies it.
+        await waitFor(() =>
+            expect(readLastPassageStatus(getAuthIdentityScope(), own.id)).toEqual(statusFor(own.id, 'crew-user')),
+        );
+        await waitFor(() => {
+            const stack = screen.getByTestId('readiness-stack');
+            expect(stack).toHaveAttribute('data-selected', '');
+            expect(stack).toHaveAttribute('data-owner', 'false');
+        });
         expect(mocks.clearPassagePlan).not.toHaveBeenCalled();
         expect(mocks.activePassageId).toBe(own.id);
         expect(screen.queryByRole('button', { name: 'Cast Off' })).not.toBeInTheDocument();
@@ -735,7 +813,7 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
                 .getByText(/Tom Okafor/)
                 .closest('li'),
         ).toHaveTextContent('Co-skipper');
-        expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-standing-crew', '3');
+        await waitFor(() => expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-standing-crew', '3'));
     });
 
     it("names the hull you are crew on, not the skipper's newly selected boat", async () => {
@@ -745,7 +823,9 @@ describe('Crew & Float Plan while crewing on a skipper’s boat', () => {
         renderPage();
         expect(await screen.findByRole('region', { name: 'Crewing on Wandering Albatross' })).toBeInTheDocument();
         expect(screen.queryByText(/Petrel/)).not.toBeInTheDocument();
-        expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-crew-vessel', 'Wandering Albatross');
+        await waitFor(() =>
+            expect(screen.getByTestId('readiness-stack')).toHaveAttribute('data-crew-vessel', 'Wandering Albatross'),
+        );
     });
 
     it("settles the passage picker even when your memberships can't be read (a slow satellite link)", async () => {
