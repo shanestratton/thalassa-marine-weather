@@ -33,6 +33,7 @@ import type { WindGrid } from '../../services/weather/windGridEncoding';
 import { createLogger } from '../../utils/createLogger';
 import { particleScale } from '../../utils/deviceTier';
 import { NmeaStore } from '../../services/NmeaStore';
+import { BoatLinkService } from '../../services/boatLink/BoatLinkService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
 import { LocationStore } from '../../stores/LocationStore';
 import { WEATHER_FOLLOW_TARGET_EVENT } from '../../services/weatherPosition';
@@ -351,12 +352,16 @@ function prefersReducedMotion(): boolean {
 /**
  * Where the boat is, for "is the boat on screen": its own GPS through the
  * store (any lane: the Pi reports the boat's fix), else this phone's GPS but
- * only when the instruments come from aboard (the gateway socket or the Pi on
- * the boat LAN). A phone reading the cloud row may be a hundred miles away.
+ * only when this phone is WITH her by position (services/boatLink). Reading
+ * her directly is not enough: the gateway or the Pi answers from 900 km away
+ * over a VPN that carries her network (Shane 2026-10-07), and the phone's fix
+ * then is the kitchen table's. The one exception is a bus with wind but no
+ * GPS, where "aboard" can never be decided: a live direct feed with this
+ * phone on the boat's own network and no VPN up stands in.
  */
 function boatPosition(): { lat: number; lon: number } | null {
     const location = LocationStore.getState();
-    const aboard = NmeaStore.isBoatFeed();
+    const aboard = BoatLinkService.phoneStandsInForBoat();
     const fix = resolveOwnshipPosition(NmeaStore.getState(), aboard ? location : { ...location, source: 'initial' });
     return fix ? { lat: fix.lat, lon: fix.lon } : null;
 }

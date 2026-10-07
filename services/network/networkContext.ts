@@ -69,3 +69,13 @@ export function __resetNetworkContextForTests(): void {
     cached = null;
     inFlight = null;
 }
+
+/**
+ * Test and fixture seam: answer with these interfaces until reset. A browser
+ * has no interface plugin, so the layout fixtures use this to stand a page on
+ * a home Wi-Fi with a VPN up, or on the boat's own Wi-Fi.
+ */
+export function __seedNetworkInterfacesForTests(interfaces: NetworkInterfaceInfo[]): void {
+    cached = { at: Number.MAX_SAFE_INTEGER, interfaces };
+    inFlight = null;
+}

@@ -161,6 +161,8 @@ const EMPTY_READ_PAUSE_MS = 150;
 
 export type NmeaConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type NmeaSampleCallback = (sample: NmeaSample) => void;
+/** What the socket is about to restart on its own (setResumeGate). */
+export type SocketRestartKind = 'parked' | 'retry' | 'rung';
 
 /**
  * The known transport endpoint, rather than a claim about the physical GPS
@@ -395,6 +397,8 @@ class NmeaListenerServiceClass {
     private lastLadderResetAt = 0;
     /** Last interface type the OS reported, to spot a change under a live socket. */
     private lastConnectionType = '';
+    /** The instrument policy's say over restarting a socket on its own (setResumeGate). */
+    private resumeGate: ((kind: SocketRestartKind) => boolean) | null = null;
 
     constructor() {
         this.registerCensusProbes();
@@ -406,6 +410,10 @@ class NmeaListenerServiceClass {
                 if (document.hidden) return;
 
                 if (this.parkedAfterGiveUp && !this.enabled) {
+                    if (!this.mayResume('parked')) {
+                        log.warn('Parked NMEA connection left parked on foreground: the instrument policy says no');
+                        return;
+                    }
                     log.warn('Retrying parked NMEA connection on app foreground');
                     // Retry at the BOTTOM of the ladder. Reopening the app is
                     // the strongest signal we get that the network just changed
@@ -425,6 +433,15 @@ class NmeaListenerServiceClass {
                 // single most visible part of "difficult to connect at times"
                 // (Shane, 2026-08-17). Collapse it and go now.
                 if (this.enabled && this.status !== 'connected' && this.reconnectTimer) {
+                    // Foregrounded somewhere else entirely — at home, after a
+                    // night suspended aboard — a silent Pi's fallback socket
+                    // must not leap to the gateway over a VPN that carries
+                    // her network. The ladder keeps its own pace; the policy
+                    // closes it once this phone is known to be ashore.
+                    if (!this.mayResume('retry')) {
+                        log.warn('App foregrounded: immediate NMEA retry held back — the instrument policy says no');
+                        return;
+                    }
                     log.info('App foregrounded while disconnected — retrying NMEA immediately');
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
@@ -436,6 +453,28 @@ class NmeaListenerServiceClass {
     }
 
     // ── Public API ──
+
+    /**
+     * Who may restart the socket on its own: a PARKED socket on app
+     * foreground or a network change ('parked'), an enabled one's immediate
+     * retry on the same triggers ('retry'), and each rung of the reconnect
+     * ladder ('rung'). The instrument policy sets this at boot: a socket it
+     * opened as a silent Pi's fallback restarts only where that fallback is
+     * still allowed — never from ashore, where it would take one of the
+     * gateway's few client slots from 900 km away (Shane 2026-10-07). With
+     * no gate, as before.
+     */
+    setResumeGate(gate: ((kind: SocketRestartKind) => boolean) | null): void {
+        this.resumeGate = gate;
+    }
+
+    private mayResume(kind: SocketRestartKind): boolean {
+        try {
+            return this.resumeGate ? this.resumeGate(kind) : true;
+        } catch {
+            return true;
+        }
+    }
 
     configure(host: string, port: number) {
         this.host = host || DEFAULT_HOST;
@@ -1047,6 +1086,15 @@ class NmeaListenerServiceClass {
         this.reconnectAttempts++;
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
+            // A rung that comes due where the policy says no (a fallback
+            // socket, this phone ashore — a timer overdue after a night
+            // suspended fires the moment the app wakes) is skipped, not
+            // dropped: the ladder climbs on, and parks at the give-up as
+            // ever, unless the policy closes the socket first.
+            if (!this.mayResume('rung')) {
+                this.scheduleReconnect();
+                return;
+            }
             this.connect();
         }, delay);
     }
@@ -1181,6 +1229,7 @@ class NmeaListenerServiceClass {
         // window and swallow the real transition a second behind it.
 
         if (this.parkedAfterGiveUp && !this.enabled) {
+            if (!this.mayResume('parked')) return;
             log.warn(`Network back (${connectionType}) — retrying parked NMEA connection`);
             this.lastNetworkNudgeAt = now;
             this.rewindLadderIfAllowed(now);
@@ -1189,6 +1238,9 @@ class NmeaListenerServiceClass {
         }
 
         if (this.enabled && this.status !== 'connected') {
+            // The same say as on foreground: a network change at home (a VPN
+            // coming up) is no reason for a fallback socket to try the boat.
+            if (!this.mayResume('retry')) return;
             log.info(`Network changed (${connectionType}) — retrying NMEA immediately`);
             this.lastNetworkNudgeAt = now;
             if (this.reconnectTimer) {

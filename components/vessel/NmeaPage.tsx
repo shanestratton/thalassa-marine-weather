@@ -10,7 +10,6 @@ import { getPairing } from '../../services/PiPairingService';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
-import { useNmeaConnectionStatus } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
@@ -20,7 +19,9 @@ import { GpsReceiverStatusService, type GpsReceiverStatus } from '../../services
 
 import { PageHeader } from '../ui/PageHeader';
 import { useKeyboardScroll } from '../../hooks/useKeyboardScroll';
-import { assessHostRoute, getInterfaces } from '../../services/network/networkContext';
+import { useBoatLink } from '../../hooks/useBoatLink';
+import type { Tone } from '../../services/boatLink/boatLinkModel';
+import { BoatLinkPill } from './BoatLinkPill';
 import { Button } from '../ui/Button';
 import { BoatIcon, GaugeIcon } from '../Icons';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
@@ -181,69 +182,13 @@ function clearLegacyGatewayDefaultsOnce(): void {
     }
 }
 
-/**
- * How this phone is placed relative to the gateway, right now.
- *
- * Deliberately modest about what it can know. iOS lets us see our own
- * interfaces and whether a tunnel is up; it does NOT let us enumerate which
- * subnets that tunnel carries. So when a VPN is running and we are not on the
- * gateway's LAN, the honest answer is "this works if your VPN carries that
- * network", not "you are connected".
- *
- * Renders nothing at all when we have no interface data — on web, and on any
- * failure. A false claim about the network is exactly what sent Shane looking
- * at the boat for a problem that was on his phone.
- */
-const GatewayRouteNote: React.FC<{ host: string }> = ({ host }) => {
-    const [state, setState] = useState<{ known: boolean; vpn: boolean; onLan: boolean; warning: string | null } | null>(
-        null,
-    );
-    useEffect(() => {
-        let alive = true;
-        const check = async () => {
-            const interfaces = await getInterfaces();
-            const route = await assessHostRoute(host, 'the NMEA gateway');
-            if (!alive) return;
-            setState({
-                known: interfaces.length > 0,
-                vpn: route.vpnActive,
-                onLan: route.onSameLan,
-                warning: route.warning,
-            });
-        };
-        void check();
-        // Joining boat Wi-Fi or toggling the VPN is exactly what this reports
-        // on, so it has to notice them doing it.
-        const timer = setInterval(() => void check(), 20_000);
-        return () => {
-            alive = false;
-            clearInterval(timer);
-        };
-    }, [host]);
-
-    if (!state || !state.known) return null;
-
-    // SILENT WHEN THERE IS NOTHING TO DO.
-    //
-    // This used to narrate all four states, including the two where everything
-    // was working: "connecting directly", and "a VPN is up, so this works if
-    // that VPN carries the boat's network". The second is the one Shane asked
-    // to lose — it appears precisely when the setup is fine, and it is written
-    // for someone who knows what a tunnel carries. "VPN's are for advanced
-    // users only, so they will not [need] this. also it is buggering up my
-    // screen" (2026-09-04). The hairpin nag went with it for the same reason.
-    //
-    // What is KEPT is the one state the skipper must act on: no route to the
-    // gateway at all. Dropping that too would make a real failure silent,
-    // which is the fault this whole page exists to prevent.
-    if (state.onLan || state.vpn) return null;
-
-    // Only one tone survives, because only one state still speaks.
-    return (
-        <div className="mb-3 rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-sm leading-snug text-amber-200">
-            You are not on {host}&apos;s network. Join the boat&apos;s Wi-Fi to reach the gateway.
-        </div>
-    );
+/** The gateway card's wash, by the boat link's tone: one state, one look. */
+const CARD_TONE: Record<Tone, string> = {
+    green: 'bg-emerald-500/10 border-emerald-500/20',
+    sky: 'bg-sky-500/10 border-sky-500/20',
+    amber: 'bg-white/3 border-white/6',
+    red: 'bg-white/3 border-white/6',
+    grey: 'bg-white/3 border-white/6',
 };
 
 export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
@@ -263,11 +208,12 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     // avoids the race condition where NmeaStore.start() misses the initial
     // 'connecting' status because NmeaListenerService.start() fires first.
     const [connStatus, setConnStatus] = useState(NmeaListenerService.getStatus());
-    // The store, not the socket: 'remote' means the Instrument Panel is being
-    // fed from the Pi's cloud snapshot because no socket is up. This page owns
-    // the socket, so it says so rather than reading as a fault.
-    const storeLink = useNmeaConnectionStatus();
-    const readingViaCloud = storeLink.status === 'remote';
+    // Where this phone is, how the boat reaches it, and how fresh — one
+    // answer for every screen (services/boatLink). Shane 2026-10-07, at home
+    // with the boat 900 km away over Tailscale: this page said "Aboard",
+    // "Away" and "Connected" in turn while nobody moved, because it read the
+    // place off whichever transport had answered last.
+    const link = useBoatLink();
     // Shane 2026-09-07: "no more signal k or ydwg-02 on the actual phone unless
     // there is no pi available." With a Pi paired the policy keeps this socket
     // shut and the phone reads her through the Pi; Connect here is the
@@ -327,19 +273,24 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     const hasFailed = connStatus === 'error';
     const [showDirect, setShowDirect] = useState(false);
     // With a Pi paired and no socket of the skipper's own, the card is about
-    // the Pi: the direct-connection controls roll up behind one link and no
-    // failure is shown — nothing is trying to connect (Shane 2026-09-08: "if
-    // we have a pi at the vessel, then nothing should try to connect").
-    const piMode = piPaired && !isConnected && !isConnecting;
+    // the Pi: the direct-connection controls roll up behind one link (Shane
+    // 2026-09-08: "if we have a pi at the vessel, then nothing should try to
+    // connect"). The layout follows WHO is in charge, not the socket's status
+    // from one second to the next: it used to swap to host:port with Retry
+    // and Cancel whenever the policy's fallback socket was mid-attempt, and
+    // back again when it failed — "gateway settings, sometime take over"
+    // (Shane 2026-10-07). A fallback socket is one line on the Pi card now.
+    const skipperSocket = link.socketOwner === 'skipper';
+    const piMode = piPaired && !skipperSocket;
     const rolledUp = piMode && !showDirect;
+    // The socket's own controls belong to a socket this page answers for: the
+    // skipper's, or a gateway-only boat's. Never the policy's fallback.
+    const socketControls = !piMode || skipperSocket;
+    const showConnected = isConnected && socketControls;
+    const showConnecting = isConnecting && socketControls;
+    const showFailed = hasFailed && socketControls;
     // The page's next step is Connect exactly when these controls show.
-    const connectShowing = !isConnected && !isConnecting && !rolledUp;
-    const piHeadline =
-        storeLink.status === 'remote'
-            ? storeLink.remote?.via === 'lan'
-                ? 'Aboard · via the Pi'
-                : 'Away · via the Pi'
-            : 'Via the Pi · waiting for her';
+    const connectShowing = !showConnected && !showConnecting && !rolledUp;
 
     // With nothing ever saved, there is no gateway to be disconnected from:
     // the same neutral 'No gateway' the Instrument Panel pill shows, so one
@@ -347,46 +298,12 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
     const gatewaySaved = NmeaListenerService.getSavedConfig() !== null;
     const hostIsDefault = !gatewaySaved && host === DEFAULT_GATEWAY_HOST;
 
-    // The connection state, said ONCE — in the header's status pill. The card
-    // used to repeat it as an h2 beside a second dot, under a pill that said
-    // it a third time (UX scorecard run 6).
-    const stateWord = isConnected
-        ? 'Connected'
-        : isConnecting
-          ? 'Connecting…'
-          : piMode
-            ? piHeadline
-            : hasFailed
-              ? 'Connection failed'
-              : gatewaySaved
-                ? 'Disconnected'
-                : 'No gateway';
-    // The red pill by day: opaque red-50 with red-800 text, not red-700 on a
-    // tint that measured 4.55:1 (UX scorecard run 7).
-    const statePill = isConnected
-        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-        : isConnecting
-          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-          : piMode
-            ? storeLink.status === 'remote' && storeLink.remote?.via === 'lan'
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
-            : hasFailed
-              ? 'bg-red-500/10 border-red-500/30 text-red-400 [.display-light_&]:bg-red-50! [.display-light_&]:text-red-800!'
-              : 'bg-white/5 border-white/15 text-gray-400';
-    const stateDot = isConnected
-        ? 'bg-emerald-400'
-        : isConnecting
-          ? 'bg-amber-400 animate-pulse'
-          : piMode
-            ? storeLink.status === 'remote'
-                ? storeLink.remote?.via === 'lan'
-                    ? 'bg-emerald-400'
-                    : 'bg-sky-400'
-                : 'bg-sky-400/50'
-            : hasFailed
-              ? 'bg-red-400'
-              : 'bg-gray-500';
+    // The connection state, said ONCE — in the header's status pill — and in
+    // the same words the Instrument Panel, the Vessel page and the System
+    // status box use: WHERE · DATA ('Away · Live', 'Aboard · 40 s old',
+    // 'Connection failed'), from link.pill. The card used to repeat it as an
+    // h2 beside a second dot, under a pill that said it a third time (UX
+    // scorecard run 6).
     const deviceSelectId = useId();
 
     // ── Position source ────────────────────────────────────────────────
@@ -487,15 +404,10 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                     // A status, not a control: in the action slot the chip
                     // squeezed NMEA GATEWAY onto two lines (four at 375 pt).
                     // PageHeader puts status on its own row under the title.
-                    status={
-                        <span
-                            role="status"
-                            className={`flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-xs font-extrabold uppercase tracking-widest ${statePill}`}
-                        >
-                            <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${stateDot}`} />
-                            {stateWord}
-                        </span>
-                    }
+                    // Said as WHERE and DATA chips (BoatLinkPill), so the
+                    // pair wraps at 320 pt rather than clipping; one reading
+                    // for a screen reader: link.pill.text.
+                    status={<BoatLinkPill pill={link.pill} pulse={link.data.state === 'connecting'} />}
                 />
 
                 {/* Content — fills viewport */}
@@ -565,12 +477,9 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
 
                     {/* ═══ CONNECTION CARD ═══ */}
                     <div
+                        data-testid="gateway-card"
                         className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all [@media(max-height:700px)]:mb-2 [@media(max-height:700px)]:p-3 ${
-                            isConnected
-                                ? 'bg-emerald-500/10 border-emerald-500/20'
-                                : piMode && storeLink.status === 'remote'
-                                  ? 'bg-sky-500/10 border-sky-500/20'
-                                  : 'bg-white/3 border-white/6'
+                            CARD_TONE[link.pill.tone]
                         }`}
                     >
                         {/* The card's eyebrow, as POSITION SOURCE has one (UX
@@ -580,22 +489,31 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             socket points, what it hears, and that the panel is
                             reading her through the Pi. */}
                         <h2 className="mb-2 text-xs font-black uppercase tracking-widest text-gray-400">Gateway</h2>
-                        {((readingViaCloud && !isConnected && !isConnecting && !piMode) ||
-                            ((isConnected || isConnecting || hasFailed) && !rolledUp)) && (
+                        {/* How the boat reaches this phone, in one sentence —
+                            the boat's Wi-Fi, a VPN to her network, the Pi's
+                            internet updates — and, when the place is unknown,
+                            why. The pill above says where and how fresh. */}
+                        {link.line && (
+                            <p
+                                data-testid="gateway-link-line"
+                                className="mb-2 text-sm leading-snug text-gray-200 [@media(max-height:700px)]:mb-1.5"
+                            >
+                                {link.line}
+                            </p>
+                        )}
+                        {link.whereNote && (
+                            <p data-testid="gateway-where-note" className="mb-2 text-xs leading-snug text-gray-400">
+                                {link.whereNote}
+                            </p>
+                        )}
+                        {(showConnected || showConnecting || showFailed) && !rolledUp && (
                             <div className="flex flex-wrap items-center gap-2 mb-3">
-                                {readingViaCloud && !isConnected && !isConnecting && !piMode && (
-                                    <span className="rounded-full border border-sky-400/30 bg-sky-500/15 px-2 py-0.5 text-xs font-bold text-sky-300">
-                                        {storeLink.remote?.via === 'lan' ? 'Aboard · via the Pi' : 'Away · via the Pi'}
-                                    </span>
-                                )}
                                 {/* Show host:port when connected or connecting */}
-                                {(isConnected || isConnecting || hasFailed) && !rolledUp && (
-                                    <span className="text-xs text-white/70 font-mono">
-                                        {host}:{port}
-                                    </span>
-                                )}
+                                <span className="text-xs text-white/70 font-mono">
+                                    {host}:{port}
+                                </span>
                                 {/* AIS target count badge */}
-                                {isConnected && aisCount > 0 && (
+                                {showConnected && aisCount > 0 && (
                                     <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/20 text-xs font-bold text-sky-400">
                                         <BoatIcon className="h-3.5 w-3.5" />
                                         {aisCount} AIS
@@ -608,7 +526,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             at 375 pt: "check the IP below" still wrapped "Connect."
                             onto a second (UX scorecard runs 8 and 9); the field
                             below is the Host IP. */}
-                        {!isConnected && !isConnecting && !hasFailed && !rolledUp && (
+                        {connectShowing && !showFailed && !link.line && (
                             <p className="mb-3 text-xs leading-snug text-gray-300 [@media(max-height:700px)]:mb-2">
                                 Join the boat&apos;s Wi-Fi, check the IP, then Connect.
                             </p>
@@ -616,38 +534,21 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
 
                         {/*
                          * "Enable remote access" USED to sit here, and it did
-                         * not belong (Shane 2026-08-28: "i can still reach the
-                         * ydwg-02 without it being connected??? so i am unsure
-                         * of its purpose").
-                         *
-                         * He was right to be unsure. That control runs
-                         * `tailscale up` ON THE PI — POST /api/remote-access/
-                         * enable against pi-cache — and makes the PI reachable
-                         * off the boat. It has nothing to do with the gateway.
-                         * He reaches the YDWG-02 from home because his RUTX50
-                         * advertises the boat's 192.168.1.0/24 to his tailnet
-                         * and the route is approved, which is a router setting
-                         * and is true whether the Pi is switched on, off, or
-                         * sitting on his bench at home.
-                         *
-                         * Worse, it was mounted here AND in the Boat Pi tab,
-                         * so one Pi setting had two switches on two screens. I
-                         * moved it here this morning on the strength of "this
-                         * is a better spot for it" and did not check what it
-                         * actually did. It lives in the Boat Pi tab only.
-                         *
-                         * What belongs on THIS card is the question this card
-                         * raises: can this phone reach THIS gateway from where
-                         * it is standing right now.
+                         * not belong (Shane 2026-08-28). That control runs
+                         * `tailscale up` ON THE PI and lives in the Boat Pi
+                         * tab only. A route note that guessed "you are not on
+                         * this network" from a /24 match lived here too until
+                         * 2026-10-07: 192.168.1.0/24 is the world's commonest
+                         * home network, so it went quiet at home and spoke on
+                         * the boat. The line above answers the same question
+                         * from where the phone actually is.
                          */}
-                        {!rolledUp && <GatewayRouteNote host={host} />}
 
                         {piMode && (
                             <div className="mb-3 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/15 text-xs leading-snug text-sky-200">
                                 <p>
-                                    Your Pi is paired, so this phone reads the boat&rsquo;s instruments through it.
-                                    Nothing on this page connects on its own &mdash; the gateway settings are only for
-                                    when the Pi is down.
+                                    Your Pi is paired, so nothing on this page connects on its own &mdash; the gateway
+                                    settings are only for when the Pi is down.
                                 </p>
                                 <button
                                     type="button"
@@ -671,7 +572,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             only informative token, the final digit, lives.
                             Also survives the 5-minute park now, so the reason
                             is still on screen when it is finally read. */}
-                        {(lastError || reconnectAttempts > 0) && !isConnected && !rolledUp && (
+                        {(lastError || reconnectAttempts > 0) && !isConnected && !rolledUp && socketControls && (
                             <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/15">
                                 {reconnectAttempts > 0 && (
                                     <p className="text-xs text-amber-300 font-medium">
@@ -686,7 +587,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                             </div>
                         )}
 
-                        {!isConnected && !isConnecting && !rolledUp && (
+                        {!showConnected && !showConnecting && !rolledUp && (
                             <div className="space-y-3 mb-3 [@media(max-height:700px)]:space-y-2 [@media(max-height:700px)]:mb-2">
                                 {/* Device preset selector */}
                                 <div>
@@ -758,7 +659,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     Connect
                                 </Button>
                             )}
-                            {isConnecting && (
+                            {showConnecting && (
                                 <Button
                                     variant="primary"
                                     onClick={handleConnect}
@@ -772,7 +673,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     Retry
                                 </Button>
                             )}
-                            {isConnected && (
+                            {showConnected && (
                                 <Button
                                     variant="danger"
                                     onClick={handleDisconnect}
@@ -782,7 +683,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                                     Disconnect
                                 </Button>
                             )}
-                            {isConnecting && (
+                            {showConnecting && (
                                 <Button
                                     variant="secondary"
                                     onClick={handleDisconnect}

@@ -1,6 +1,7 @@
 import type { NmeaConnectionStatus } from '../services/NmeaListenerService';
 import type { NmeaStoreState } from '../services/NmeaStore';
 import { NMEA_USABLE_MAX_AGE_MS } from '../services/nmea/nmeaCadence';
+import type { DataState } from '../services/boatLink/boatLinkModel';
 
 export interface NmeaBackboneStatus {
     active: boolean;
@@ -15,7 +16,14 @@ export interface NmeaBackboneStatusInput {
     directStatus: NmeaConnectionStatus;
     deviceLabel: string;
     lastError: string | null;
-    viaRemoteAccess: boolean;
+    /**
+     * Where this phone is, how the boat reaches it and how fresh, in the words
+     * every screen uses (services/boatLink): 'Away · Pi over Tailscale · live'.
+     * It replaced a '· tailnet' suffix read off the Pi cache's host ladder,
+     * which stayed silent whenever the boat's own address answered over a
+     * VPN, and so read as aboard from 900 km away (Shane 2026-10-07).
+     */
+    link?: { statusRow: string; data: { state: DataState } } | null;
     now?: number;
 }
 
@@ -97,15 +105,18 @@ export function deriveNmeaBackboneStatus({
     directStatus,
     deviceLabel,
     lastError,
-    viaRemoteAccess,
+    link = null,
     now = Date.now(),
 }: NmeaBackboneStatusInput): NmeaBackboneStatus {
     const usableReading = hasUsableReading(store, now);
+    const said = (fallback: string) => link?.statusRow ?? fallback;
 
     if (directStatus === 'connected') {
         return {
             active: true,
-            detail: `Connected via ${deviceLabel} · ${usableReading ? 'live vessel data' : 'waiting for instrument data'}`,
+            detail: said(
+                `Connected via ${deviceLabel} · ${usableReading ? 'live vessel data' : 'waiting for instrument data'}`,
+            ),
             faulted: false,
             showRates: true,
         };
@@ -130,7 +141,7 @@ export function deriveNmeaBackboneStatus({
         if (!withinAge(remote.reportedAt, now, maxAge) || !withinAge(remote.receivedAt, now, maxAge)) {
             return {
                 active: false,
-                detail: 'Pi instrument readings are out of date · waiting for fresh data',
+                detail: said('Pi instrument readings are out of date · waiting for fresh data'),
                 faulted: false,
                 showRates: false,
             };
@@ -139,7 +150,7 @@ export function deriveNmeaBackboneStatus({
         if (!usableReading) {
             return {
                 active: false,
-                detail: 'The Pi is reporting · no current instrument readings',
+                detail: said('The Pi is reporting · no current instrument readings'),
                 faulted: false,
                 showRates: false,
             };
@@ -147,10 +158,7 @@ export function deriveNmeaBackboneStatus({
 
         return {
             active: true,
-            detail:
-                remote.via === 'cloud'
-                    ? 'Receiving instruments via the Pi · cloud'
-                    : `Connected via the Pi${viaRemoteAccess ? ' · tailnet' : ''}`,
+            detail: said(remote.via === 'cloud' ? 'Receiving instruments via the Pi · cloud' : 'Connected via the Pi'),
             faulted: false,
             showRates: false,
         };
@@ -159,13 +167,25 @@ export function deriveNmeaBackboneStatus({
     if (directStatus === 'connecting') {
         return {
             active: false,
-            detail: `Connecting to ${deviceLabel}`,
+            detail: said(`Connecting to ${deviceLabel}`),
             faulted: false,
             showRates: false,
         };
     }
 
     const fault = shortFault(lastError);
+    if (link) {
+        // A failure is red only when it is the skipper's to fix — their own
+        // socket, or a Pi-less boat's gateway with this phone not shown to be
+        // away. From ashore an unreachable boat is not a fault.
+        const failed = link.data.state === 'failed';
+        return {
+            active: false,
+            detail: failed && fault ? fault : link.statusRow,
+            faulted: failed,
+            showRates: false,
+        };
+    }
     return {
         active: false,
         detail: fault ?? (directStatus === 'error' ? 'Gateway connection failed' : 'Not connected'),

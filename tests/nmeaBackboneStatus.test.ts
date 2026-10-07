@@ -63,7 +63,6 @@ function derive(overrides: Partial<NmeaBackboneStatusInput> = {}) {
         directStatus: 'disconnected',
         deviceLabel: 'YDWG-02',
         lastError: null,
-        viaRemoteAccess: false,
         now: NOW,
         ...overrides,
     });
@@ -82,17 +81,42 @@ describe('the NMEA backbone through the Pi', () => {
         },
     );
 
-    it('identifies the Pi over tailnet without claiming a phone gateway connection', () => {
-        expect(derive({ store: piStore(), viaRemoteAccess: true })).toEqual({
+    it('says where and which path in the boat link’s words, without claiming a phone gateway connection', () => {
+        // services/boatLink decides the place by position and the path by the
+        // phone's interfaces and the Pi's echo; '· tailnet' off the Pi cache's
+        // host ladder stayed silent over a subnet route (Shane 2026-10-07).
+        expect(
+            derive({
+                store: piStore(),
+                link: { statusRow: 'Away · Pi over Tailscale · live', data: { state: 'live' } },
+            }),
+        ).toEqual({
             active: true,
-            detail: 'Connected via the Pi · tailnet',
+            detail: 'Away · Pi over Tailscale · live',
             faulted: false,
             showRates: false,
         });
     });
 
+    it('an unreachable boat from away is no fault; a failure the skipper owns still is', () => {
+        expect(
+            derive({
+                directStatus: 'error',
+                lastError: 'No route to that network.',
+                link: { statusRow: 'Away · not connected', data: { state: 'none' } },
+            }),
+        ).toEqual({ active: false, detail: 'Away · not connected', faulted: false, showRates: false });
+        expect(
+            derive({
+                directStatus: 'error',
+                lastError: 'No route to that network.',
+                link: { statusRow: 'Aboard · YDWG-02 connection failed', data: { state: 'failed' } },
+            }),
+        ).toEqual({ active: false, detail: 'No route to that network.', faulted: true, showRates: false });
+    });
+
     it('names the Pi cloud lane without claiming a realtime connection or direct sentence rates', () => {
-        expect(derive({ store: piStore('cloud'), viaRemoteAccess: true })).toEqual({
+        expect(derive({ store: piStore('cloud') })).toEqual({
             active: true,
             detail: 'Receiving instruments via the Pi · cloud',
             faulted: false,

@@ -52,6 +52,7 @@ import {
 import { AnchorWatchRunner, currentFix, fixIsCurrent } from './anchorBroadcaster.js';
 import { fileAnchorWatchStore } from './anchorWatchStore.js';
 import { readLanTelemetry } from './lanTelemetry.js';
+import { requestPath } from './requestPath.js';
 import { createOnboardSupplement } from './onboardSensors.js';
 import { DiaryVideoRelay } from './diaryVideoRelay.js';
 import { loadOrCreateIdentity, readIdentityPrivateKeyPem } from './identity.js';
@@ -660,16 +661,21 @@ app.get('/api/gps', requireAppApi, async (_req, res) => {
  * the Pi's. Always 200: ashore with a quiet bus, `available: false` is the
  * honest answer, and an empty `ais` list is not an error.
  */
-app.get('/api/telemetry', requireAppApi, async (_req, res) => {
+app.get('/api/telemetry', requireAppApi, async (req, res) => {
+    // Where this request came from, so the phone can tell the boat's Wi-Fi
+    // from a VPN to her network (requestPath.ts, Shane 2026-10-07). An older
+    // app ignores the field; an older Pi simply does not send it.
+    const requestRoute = requestPath(req.socket.remoteAddress, req.socket.localAddress);
     try {
-        return res.json(
-            await readLanTelemetry({
+        return res.json({
+            ...(await readLanTelemetry({
                 fetchImpl: fetch,
                 signalkOrigin: SIGNALK_ORIGIN,
                 deviceLabel: os.hostname(),
                 supplement: onboardSupplement,
-            }),
-        );
+            })),
+            path: requestRoute,
+        });
     } catch {
         return res.json({
             available: false,
@@ -677,6 +683,7 @@ app.get('/api/telemetry', requireAppApi, async (_req, res) => {
             ais: [],
             served_at: new Date().toISOString(),
             reason: 'Signal K did not answer',
+            path: requestRoute,
         });
     }
 });

@@ -158,8 +158,10 @@ describe('probePiWatchCapability', () => {
         // Plain English, not iOS's. "The Internet connection appears to be
         // offline" sent Shane looking at his internet, which was fine — the
         // phone simply had no route to the boat network.
-        expect(cap.reason).toContain('cannot reach the boat network');
-        expect(cap.reason).toContain('Tailscale');
+        expect(cap.reason).toContain('cannot reach the boat’s network');
+        // Any VPN, not one brand: Thalassa is a global app (2026-10-07).
+        expect(cap.reason).toContain('join the boat’s Wi-Fi, or turn on the VPN you use to reach her');
+        expect(cap.reason).not.toContain('Tailscale');
         // Same address after the ladder — asking it twice would be pointless.
         expect(pinnedPiRequest).toHaveBeenCalledTimes(1);
     });

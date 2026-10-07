@@ -103,7 +103,7 @@ describe('reading the cloud row', () => {
     });
 });
 
-describe('the panel says Remote, not Live and not No gateway', () => {
+describe('the panel says the cloud lane is live, not No gateway, and never names a place from it', () => {
     it('diagnoses a remote feed with its age and source', () => {
         const d = diagnosePanel({
             gatewayConfigured: false,
@@ -112,7 +112,9 @@ describe('the panel says Remote, not Live and not No gateway', () => {
             remote: { source: 'pi', deviceLabel: 'calypso', ageSeconds: 7.4 },
         });
         expect(d.state).toBe('remote');
-        expect(d.label).toBe('Remote');
+        // No place from a lane (Shane 2026-10-07): 'Remote' was one of the
+        // words that flipped. With the boat link the panel says 'Away · Live'.
+        expect(d.label).toBe('Live');
         // The hostname stays out of the punter's eye (Shane 2026-09-07).
         expect(d.detail).toContain('the Pi reported 7 s ago');
         expect(d.detail).not.toContain('calypso');
