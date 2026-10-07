@@ -818,7 +818,25 @@ describe('MapboxVelocityOverlay close-in mode', () => {
         // A settle a hair under the line does not flick her off...
         settleAt(mapbox, 13.92);
         expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
-        // ...and past 14, in at the pens, she holds.
+        // ...nor does a scrub away and back at that same camera (review 2026-10-07:
+        // the slack belongs to the zoom, not to whichever wind was last shown).
+        view.rerender(<MapboxVelocityOverlay {...props} windHour={1} windNowIdx={0} />);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+        view.rerender(<MapboxVelocityOverlay {...props} windHour={0} windNowIdx={0} />);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
+
+        // A flyTo whose arc dips under the line: an instrument tick mid-flight holds her...
+        const map = mapbox.map as unknown as { isMoving?: () => boolean };
+        map.isMoving = () => true;
+        mapbox.map.getZoom.mockReturnValue(13.84);
+        act(() => nmea.live({ tws: 16, twd: 215 }));
+        expect(getCloseInWindReadout()).toMatchObject({ kt: 16, source: 'boat' });
+        // ...and the camera, once settled, decides.
+        map.isMoving = () => false;
+        settleAt(mapbox, 13.6);
+        expect(getCloseInWindReadout()).toMatchObject({ source: 'model' });
+
+        // Past 14, in at the pens, she holds.
         settleAt(mapbox, 17);
         expect(getCloseInWindReadout()).toMatchObject({ source: 'boat' });
         view.unmount();
