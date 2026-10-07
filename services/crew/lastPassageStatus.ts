@@ -16,7 +16,10 @@
  *   device is offline, because getPassageStatus fails closed with the same
  *   "no access" when it cannot reach the server.
  * - The live answer always replaces the paint when it lands, and the paint
- *   lasts no more than 6 s without one (CrewManagement). Every action on the
+ *   lasts no more than 6 s without one (CrewManagement). Those 6 s are one
+ *   window per account + passage, however many re-checks start inside it;
+ *   once it closes unanswered, the grant does not paint again until a check
+ *   verifies it (crewManagement/passagePaintWindows). Every action on the
  *   page that changes anything (departure, the Summary card's roll-forward,
  *   Cast Off, delegation, Galley purchases, the watch plan, a passage invite)
  *   still waits for that verified answer. The server's RLS checks every read
