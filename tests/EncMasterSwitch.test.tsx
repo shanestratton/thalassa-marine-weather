@@ -22,11 +22,12 @@
  * those is showing. As a menuitemradio it would tell a screen reader that
  * turning charts on turns the base map off.
  */
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { readFileSync } from 'node:fs';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, renderHook, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MapBaseSelector, type MapBaseKind } from '../components/map/MapBaseSelector';
+import { useEncAtOpen } from '../components/map/mapHub/useEncAtOpen';
 
 vi.mock('../utils/system', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../utils/system')>()),
@@ -54,9 +55,14 @@ function Harness({ encCellCount = 9, startOn = true }: { encCellCount?: number; 
 const openMenu = () => fireEvent.click(screen.getByRole('button', { name: /^Map base:/ }));
 
 describe('the ENC master switch', () => {
-    it('starts off with a real writer, not a persisted or hardcoded true', () => {
-        expect(hubCode).toContain('const [encVisible, setEncVisible] = useState(false)');
-        expect(hubCode).toMatch(/setEncVisible\(\(on\) => !on\)/);
+    it('starts off unless Preferences says otherwise, with a real writer, not a hardcoded true', () => {
+        // W1-01 slice 1b (build 123): the start state comes from the one
+        // Preferences switch (settings.obsEncOnOpen, off by default) and only
+        // on the Obs chart; the map-base row is the writer.
+        expect(hubCode).toContain(
+            'const { encVisible, toggleEnc } = useEncAtOpen(ownshipStartup, settings.obsEncOnOpen);',
+        );
+        expect(hubCode).not.toMatch(/const \[encVisible, setEncVisible\]/);
         expect(hubCode).not.toMatch(/const encVisible = true;/);
     });
 
@@ -65,7 +71,7 @@ describe('the ENC master switch', () => {
         const props = call.slice(0, call.indexOf('/>'));
         expect(props).toContain('encCellCount={encCellCount}');
         expect(props).toContain('encVisible={encVisible}');
-        expect(props).toContain('onToggleEnc={() => setEncVisible((on) => !on)}');
+        expect(props).toContain('onToggleEnc={toggleEnc}');
         // And the old home no longer carries it.
         const controls = readFileSync('components/map/ChartDepthControls.tsx', 'utf8');
         expect(controls).not.toContain('onToggleEncVisible');
@@ -147,5 +153,93 @@ describe('the ENC master switch', () => {
         expect(row).toHaveTextContent('None installed yet');
         expect(row).toHaveTextContent('Add ›');
         expect(row).not.toHaveTextContent('OFF');
+    });
+});
+
+/**
+ * W1-01 slice 1b (build 123): Settings → Preferences → Chart → "Show ENC
+ * charts when Obs opens". Off by default, so the off-at-start rule above
+ * (Release 119, the 2 GB WebContent jetsam) still holds for everyone who has
+ * not asked for it.
+ */
+describe('ENC charts when Obs opens', () => {
+    it('stays off at open when the switch is off or unset', () => {
+        for (const saved of [undefined, false, null, 'true', 1]) {
+            const { result } = renderHook(() => useEncAtOpen(true, saved));
+            expect(result.current.encVisible, String(saved)).toBe(false);
+        }
+    });
+
+    it('is on at open when the switch is on', () => {
+        const { result } = renderHook(() => useEncAtOpen(true, true));
+        expect(result.current.encVisible).toBe(true);
+    });
+
+    it('never turns charts on for a map that has not been the Obs page (pickers, planner, onboarding)', () => {
+        const { result } = renderHook(() => useEncAtOpen(false, true));
+        expect(result.current.encVisible).toBe(false);
+    });
+
+    it('turns on when the map first becomes Obs, and a picker or the plotting surface later does not turn it off', () => {
+        const { result, rerender } = renderHook(({ obs }) => useEncAtOpen(obs, true), {
+            initialProps: { obs: false },
+        });
+        expect(result.current.encVisible).toBe(false);
+        rerender({ obs: true });
+        expect(result.current.encVisible).toBe(true);
+        rerender({ obs: false });
+        expect(result.current.encVisible).toBe(true);
+    });
+
+    it('follows a late account sync until the skipper uses the menu row, then the row wins for the session', () => {
+        const { result, rerender } = renderHook(({ saved }) => useEncAtOpen(true, saved), {
+            initialProps: { saved: undefined as boolean | undefined },
+        });
+        expect(result.current.encVisible).toBe(false);
+        rerender({ saved: true }); // the account's settings arrive after Obs opened
+        expect(result.current.encVisible).toBe(true);
+        act(() => result.current.toggleEnc());
+        expect(result.current.encVisible).toBe(false);
+        rerender({ saved: true });
+        expect(result.current.encVisible).toBe(false);
+        act(() => result.current.toggleEnc());
+        expect(result.current.encVisible).toBe(true);
+        rerender({ saved: false });
+        expect(result.current.encVisible).toBe(true);
+    });
+
+    it('lives in Preferences → Chart, off by default, and saves obsEncOnOpen', async () => {
+        // Vite's build-time define, absent under vitest.
+        vi.stubGlobal('__BUILD_STAMP__', '2026-10-07 00:00Z');
+        const { GeneralTab } = await import('../components/settings/GeneralTab');
+        const { DEFAULT_SETTINGS } = await import('../stores/settingsStore');
+        expect(DEFAULT_SETTINGS.obsEncOnOpen).not.toBe(true);
+        const onSave = vi.fn();
+        const props = {
+            onSave,
+            onLocationSelect: vi.fn(),
+            onDetectLocation: vi.fn(),
+            onShowFactoryReset: vi.fn(),
+        };
+        const { unmount } = render(React.createElement(GeneralTab, { settings: DEFAULT_SETTINGS, ...props }));
+        const toggle = screen.getByRole('switch', { name: 'Show ENC charts when Obs opens' });
+        expect(toggle.getAttribute('aria-checked')).toBe('false');
+        // In the Chart section's card (toggle → row → card), beside the other
+        // chart switch, under the "Chart" heading.
+        const row = toggle.parentElement as HTMLElement;
+        const card = row.parentElement as HTMLElement;
+        expect(card.previousElementSibling?.textContent).toBe('Chart');
+        expect(card.textContent).toContain('Show charted leads');
+        // No country assumed: the charts are whatever ENC cells are on the phone.
+        expect(row.textContent).not.toMatch(/Australia|AusENC|AHO|BOM|Queensland/);
+        fireEvent.click(toggle);
+        expect(onSave).toHaveBeenCalledWith({ obsEncOnOpen: true });
+        unmount();
+        onSave.mockClear();
+        render(React.createElement(GeneralTab, { settings: { ...DEFAULT_SETTINGS, obsEncOnOpen: true }, ...props }));
+        const on = screen.getByRole('switch', { name: 'Show ENC charts when Obs opens' });
+        expect(on.getAttribute('aria-checked')).toBe('true');
+        fireEvent.click(on);
+        expect(onSave).toHaveBeenCalledWith({ obsEncOnOpen: false });
     });
 });

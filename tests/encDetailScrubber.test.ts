@@ -1,6 +1,15 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { applyChartDetailLevel, isScrubHidden, DETAIL_SCRUB_MAX } from '../components/map/encDetailScrubber';
-import { ENC_VEC_LAYERS } from '../components/map/encLayerIds';
+import {
+    applyChartDetailLevel,
+    browseDetailLevel,
+    isScrubHidden,
+    BROWSE_DECLUTTER_FLOOR,
+    DETAIL_SCRUB_MAX,
+    S52_STANDARD_NAVAID_LAYERS,
+} from '../components/map/encDetailScrubber';
+import { SCAMIN_CLAUSE } from '../components/map/encDepthStyle';
+import { ENC_VEC_LAYERS, S57_NAVAID_CLASSES } from '../components/map/encLayerIds';
 
 /**
  * The scrubber's restore side must yield to the stronger visibility owners
@@ -112,10 +121,231 @@ describe('applyChartDetailLevel — isolated-danger marks are never cut (closing
             expect(isScrubHidden(ENC_VEC_LAYERS.BOYISD)).toBe(false);
             expect(isScrubHidden(ENC_VEC_LAYERS.BCNISD)).toBe(false);
         }
-        // Control: the special-purpose minors they were wrongly grouped with
-        // are STILL cut at d ≥ 3 (the fix is scoped to isolated-danger).
+        // Control, FLIPPED by W1-01 (build 123): the special-purpose marks
+        // they were once grouped with are no longer cut at d ≥ 3. They are
+        // S-52 Standard display aids to navigation, so they now go only at
+        // the bare level, with the laterals.
         applyChartDetailLevel(makeMap(), 3, {});
+        expect(isScrubHidden(ENC_VEC_LAYERS.BOYSPP)).toBe(false);
+        expect(isScrubHidden(ENC_VEC_LAYERS.BCNSPP)).toBe(false);
+        applyChartDetailLevel(makeMap(), DETAIL_SCRUB_MAX, {});
         expect(isScrubHidden(ENC_VEC_LAYERS.BOYSPP)).toBe(true);
         expect(isScrubHidden(ENC_VEC_LAYERS.BCNSPP)).toBe(true);
+    });
+});
+
+/**
+ * W1-01 (build 123, must-do #1, gap browse-chart-enc-detail): the browsing
+ * chart's forced declutter floor hid ENC light sectors (cut at d ≥ 1) and
+ * the special-purpose and safe-water marks (cut at d ≥ 3), so they never
+ * showed on Obs at all. IHO S-52, the standard every ECDIS draws to, puts
+ * aids to navigation (buoys, beacons, lights and the sectors a light
+ * carries) in Standard display. The floor now leaves every one of them up;
+ * soundings density, names, badges and derived contours stay thinned.
+ *
+ * The list below is written out by hand on purpose: it is the oracle, not
+ * the module's own export read back.
+ */
+const NAVAIDS_BY_HAND = [
+    ENC_VEC_LAYERS.LIGHTS,
+    ENC_VEC_LAYERS.LIGHTSEC_LEG,
+    ENC_VEC_LAYERS.LIGHTSEC_ARC,
+    ENC_VEC_LAYERS.BOYLAT,
+    ENC_VEC_LAYERS.BCNLAT,
+    ENC_VEC_LAYERS.BOYCAR,
+    ENC_VEC_LAYERS.BCNCAR,
+    ENC_VEC_LAYERS.BOYSAW,
+    ENC_VEC_LAYERS.BCNSAW,
+    ENC_VEC_LAYERS.BOYSPP,
+    ENC_VEC_LAYERS.BCNSPP,
+    ENC_VEC_LAYERS.BOYISD,
+    ENC_VEC_LAYERS.BCNISD,
+];
+/** The navaids the bare level may still cut: all but the isolated-danger pair. */
+const CUT_AT_BARE = NAVAIDS_BY_HAND.filter((id) => id !== ENC_VEC_LAYERS.BOYISD && id !== ENC_VEC_LAYERS.BCNISD);
+/** Never written by the scrubber at any level (the safety floor). */
+const SAFETY_FLOOR = [
+    ENC_VEC_LAYERS.DEPARE,
+    ENC_VEC_LAYERS.DEPARE_GLAZE,
+    ENC_VEC_LAYERS.LNDARE,
+    ENC_VEC_LAYERS.COALNE,
+    ENC_VEC_LAYERS.DEPCNT_SAFETY,
+    ENC_VEC_LAYERS.OBSTRN,
+    ENC_VEC_LAYERS.WRECKS,
+    ENC_VEC_LAYERS.UWTROC,
+    ENC_VEC_LAYERS.BOYISD,
+    ENC_VEC_LAYERS.BCNISD,
+];
+
+describe('W1-01: the browse floor keeps every S-52 Standard display navaid', () => {
+    beforeEach(() => {
+        applyChartDetailLevel(makeMap(), 0);
+    });
+
+    it('keeps the floor at 3 and names the navaid layers it protects', () => {
+        expect(BROWSE_DECLUTTER_FLOOR).toBe(3);
+        // Every navaid class the chart mounts, plus the two light-sector
+        // layers drawn from LIGHTS. Derived from the class registry, so a
+        // navaid class added later is protected without another edit.
+        const fromRegistry = [
+            ...S57_NAVAID_CLASSES.map((c) => ENC_VEC_LAYERS[c]),
+            ENC_VEC_LAYERS.LIGHTSEC_LEG,
+            ENC_VEC_LAYERS.LIGHTSEC_ARC,
+        ];
+        expect([...S52_STANDARD_NAVAID_LAYERS].sort()).toEqual([...fromRegistry].sort());
+        for (const id of NAVAIDS_BY_HAND) expect(S52_STANDARD_NAVAID_LAYERS, id).toContain(id);
+        // Light characteristics text is lettering, not a mark: still thinned.
+        expect(S52_STANDARD_NAVAID_LAYERS).not.toContain(ENC_VEC_LAYERS.NAVAIDS_LABEL);
+    });
+
+    it('at d = 3 every navaid is visible and isScrubHidden says so for each', () => {
+        const map = makeMap();
+        applyChartDetailLevel(map, 3, {});
+        for (const id of NAVAIDS_BY_HAND) {
+            expect(map._vis(id), id).toBe('visible');
+            expect(isScrubHidden(id), id).toBe(false);
+        }
+        // The floor still thins what Shane asked it to (2026-07-22).
+        for (const id of [
+            ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
+            ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL,
+            ENC_VEC_LAYERS.VHF_BADGE,
+            ENC_VEC_LAYERS.VHF_BADGE_VTS,
+            ENC_VEC_LAYERS.RECTRC_LABEL,
+            ENC_VEC_LAYERS.POINTS_LABEL,
+            ENC_VEC_LAYERS.LNDARE_ISLET,
+        ]) {
+            expect(map._vis(id), id).toBe('none');
+            expect(isScrubHidden(id), id).toBe(true);
+        }
+    });
+
+    it('no navaid sits in any tier the floor reaches (d = 0 … floor)', () => {
+        for (let d = 0; d <= 3; d++) {
+            const map = makeMap();
+            applyChartDetailLevel(map, d, {});
+            for (const id of NAVAIDS_BY_HAND) {
+                expect(map._vis(id), `${id} at d=${d}`).toBe('visible');
+                expect(isScrubHidden(id), `${id} at d=${d}`).toBe(false);
+            }
+        }
+    });
+
+    it('cuts the sectors and the special-purpose and safe-water marks together with the laterals, at d = 6 only', () => {
+        const five = makeMap();
+        applyChartDetailLevel(five, 5, {});
+        for (const id of NAVAIDS_BY_HAND) expect(five._vis(id), `${id} at d=5`).toBe('visible');
+        const bare = makeMap();
+        applyChartDetailLevel(bare, DETAIL_SCRUB_MAX, {});
+        expect(DETAIL_SCRUB_MAX).toBe(6);
+        for (const id of CUT_AT_BARE) {
+            expect(bare._vis(id), `${id} at d=6`).toBe('none');
+            expect(isScrubHidden(id), `${id} at d=6`).toBe(true);
+        }
+    });
+
+    it('never cuts BOYISD/BCNISD and never writes any safety-floor layer, at any level', () => {
+        for (let d = 0; d <= DETAIL_SCRUB_MAX; d++) {
+            const map = makeMap();
+            applyChartDetailLevel(map, d, {});
+            for (const id of SAFETY_FLOOR) {
+                expect(
+                    map.writes.filter((w) => w.startsWith(`${id}=`)),
+                    `${id} at d=${d}`,
+                ).toEqual([]);
+                expect(isScrubHidden(id), `${id} at d=${d}`).toBe(false);
+            }
+        }
+    });
+
+    it('is silent on the second pass at the floor and at the bare level', () => {
+        for (const d of [3, DETAIL_SCRUB_MAX]) {
+            const map = makeMap();
+            applyChartDetailLevel(map, d, {});
+            map.writes.length = 0;
+            expect(applyChartDetailLevel(map, d, {}), `d=${d}`).toBe(false);
+            expect(map.writes, `d=${d}`).toHaveLength(0);
+        }
+    });
+
+    it('keeps the SCAMIN sounding bias at -0.9 virtual zoom per step', () => {
+        const zero = makeMap();
+        applyChartDetailLevel(zero, 0, {});
+        expect(zero.getFilter(ENC_VEC_LAYERS.SOUNDG)).toEqual(SCAMIN_CLAUSE);
+        const floor = makeMap();
+        applyChartDetailLevel(floor, 3, {});
+        expect(floor.getFilter(ENC_VEC_LAYERS.SOUNDG)).toEqual([
+            'any',
+            ['!', ['has', '_minZoom']],
+            ['>=', ['+', ['zoom'], 3 * -0.9], ['get', '_minZoom']],
+        ]);
+    });
+
+    it('still yields on the restore side: master off restores no navaid at the floor', () => {
+        const hidden = Object.fromEntries(NAVAIDS_BY_HAND.map((id) => [id, 'none']));
+        const map = makeMap(hidden);
+        applyChartDetailLevel(map, 3, { encMasterOff: true });
+        for (const id of NAVAIDS_BY_HAND) expect(map._vis(id), id).toBe('none');
+        expect(map.writes.filter((w) => w.endsWith('=visible'))).toEqual([]);
+    });
+
+    it('leaves HIDE_ONLY contours to their owner on the restore side', () => {
+        const map = makeMap({ [ENC_VEC_LAYERS.DEPCNT_LINE]: 'none', [ENC_VEC_LAYERS.DEPCNT_LABEL]: 'none' });
+        applyChartDetailLevel(map, 0, {});
+        expect(map._vis(ENC_VEC_LAYERS.DEPCNT_LINE)).toBe('none');
+        expect(map._vis(ENC_VEC_LAYERS.DEPCNT_LABEL)).toBe('none');
+    });
+});
+
+describe('W1-01: browsing draws at the floor, whatever plotting left the slider at', () => {
+    beforeEach(() => {
+        applyChartDetailLevel(makeMap(), 0);
+    });
+
+    it('plotting gets exactly the slider; browsing gets the floor at every slider value', () => {
+        for (let slider = 0; slider <= DETAIL_SCRUB_MAX; slider++) {
+            expect(browseDetailLevel(true, slider), `plotting, slider ${slider}`).toBe(slider);
+            expect(browseDetailLevel(false, slider), `browsing, slider ${slider}`).toBe(3);
+        }
+    });
+
+    it('a plotting "Clean" (6) does not follow the skipper back to Obs', () => {
+        // Review scenario: plot a leg with the slider at Clean, tap Done,
+        // go back to Obs. Obs and the Plan tab are the same kept-alive map
+        // and nothing resets the slider, so the old max(slider, floor) kept
+        // every light and buoy hidden on Obs for the rest of the session.
+        const map = makeMap();
+        applyChartDetailLevel(map, browseDetailLevel(true, DETAIL_SCRUB_MAX), {});
+        for (const id of CUT_AT_BARE) expect(map._vis(id), `${id} while plotting at 6`).toBe('none');
+        applyChartDetailLevel(map, browseDetailLevel(false, DETAIL_SCRUB_MAX), {});
+        for (const id of NAVAIDS_BY_HAND) {
+            expect(map._vis(id), `${id} browsing after 6`).toBe('visible');
+            expect(isScrubHidden(id), `${id} browsing after 6`).toBe(false);
+        }
+    });
+
+    it('a plotting 4 or 5 does not leave Obs without leads, names or light characteristics', () => {
+        for (const slider of [4, 5]) {
+            const map = makeMap();
+            applyChartDetailLevel(map, browseDetailLevel(true, slider), {});
+            applyChartDetailLevel(map, browseDetailLevel(false, slider), {});
+            for (const id of [ENC_VEC_LAYERS.RECTRC, ENC_VEC_LAYERS.NAVAIDS_LABEL, ...NAVAIDS_BY_HAND]) {
+                expect(map._vis(id), `${id} browsing after ${slider}`).toBe('visible');
+                expect(isScrubHidden(id), `${id} browsing after ${slider}`).toBe(false);
+            }
+        }
+    });
+});
+
+describe('W1-01: the browsing chart uses the exported floor', () => {
+    const hub = readFileSync('components/map/MapHub.tsx', 'utf8');
+    const hubCode = hub.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+    it('takes its level from browseDetailLevel instead of keeping its own floor', () => {
+        expect(hubCode).toMatch(/import \{[^}]*\bbrowseDetailLevel\b[^}]*\} from '\.\/encDetailScrubber';/);
+        expect(hubCode).not.toMatch(/const BROWSE_DECLUTTER_FLOOR\s*=/);
+        expect(hubCode).toContain('const effectiveDeclutter = browseDetailLevel(coordCaptureMode, declutter);');
+        // The slider's leftover value must not reach the browsing chart.
+        expect(hubCode).not.toMatch(/Math\.max\(\s*declutter\b/);
     });
 });

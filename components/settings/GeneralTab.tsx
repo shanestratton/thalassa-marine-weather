@@ -444,6 +444,27 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         }
                     />
                 </Row>
+                {/* Browse charts start off on every fresh Obs (Release 119:
+                    each ENC merge allocates about 25 MB, and the 2 GB jetsam
+                    of 2026-09-04 came with cells merging). This turns them on
+                    for a skipper who always wants them; off by default (W1-01,
+                    build 123). It applies to an Obs that is already open too,
+                    until the map-base menu's ENC row is used there; that row
+                    then wins for the session. */}
+                <Row>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium">Show ENC charts when Obs opens</p>
+                        <p className="text-xs text-gray-400">
+                            Obs draws the charts on this phone without waiting for the ENC row in the map-base menu. Off
+                            keeps Obs lighter on memory.
+                        </p>
+                    </div>
+                    <Toggle
+                        label="Show ENC charts when Obs opens"
+                        checked={settings.obsEncOnOpen === true}
+                        onChange={(on) => onSave({ obsEncOnOpen: on })}
+                    />
+                </Row>
             </Section>
 
             {/* Satellite mode, moved here from Account & Cloud, which keeps a
