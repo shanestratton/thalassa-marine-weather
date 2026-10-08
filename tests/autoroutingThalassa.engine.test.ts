@@ -66,8 +66,9 @@ vi.mock('../stores/settingsStore', () => ({
     useSettingsStore: { getState: () => ({ settings: { autorouteTrialEnabled: true } }) },
 }));
 
-import { calculateThalassaProposal } from '../services/autoroutingThalassa';
+import { calculateThalassaProposal, THALASSA_PLANNED_ONLY_WARNING } from '../services/autoroutingThalassa';
 import { setAuthIdentityScope } from '../services/authIdentityScope';
+import { isStandingRouteNote, routeNotesToReview } from '../services/autoroutingReview';
 
 const LON0 = 161.0;
 const LAT0 = -31.0;
@@ -197,6 +198,44 @@ function lagoonScene(): void {
             bar(ring.x0, lagoon.y0, lagoon.x0, lagoon.y1),
             bar(lagoon.x1, lagoon.y0, ring.x1, lagoon.y1),
         ]),
+    });
+}
+
+/**
+ * A dredged channel out into a uniform band (package 125-06; fictional, the
+ * shape of Shane's Port of Airlie → Nara Inlet route, 2026-10-08): a 54 m
+ * channel charted 1.8 m running north from a deep basin, 0–2 m flats either
+ * side, a 2–5 m band from 300 m short of its end, a 3.6–5 m pocket
+ * north-west, 5–10 m water from 1.1 km north. Surveyed A1 throughout. No
+ * lateral marks: the Seaway graph has no gates to route by, so this is the
+ * engine's route as Auto ships it (tests/engine/sameTideChord.test.ts is the
+ * engine's golden, marks and all).
+ */
+function channelScene(): void {
+    const HALF = 27;
+    const band = (d1: number, d2: number, x0: number, y0: number, x1: number, y1: number, holes: Polygon[] = []) =>
+        area(
+            'DEPARE',
+            {
+                type: 'Polygon',
+                coordinates: [rect(x0, y0, x1, y1).coordinates[0], ...holes.map((h) => h.coordinates[0])],
+            },
+            { DRVAL1: d1, DRVAL2: d2 },
+        );
+    install({
+        DEPARE: fc([
+            band(5, 10, -E, 1100, E, E),
+            band(2, 5, -E, 15, E, 1100, [rect(-1300, 620, -560, 1100)]),
+            band(3.6, 5, -1300, 620, -560, 1100),
+            band(2, 5, -E, -300, -HALF, 15),
+            band(1.8, 5, -HALF, -1500, HALF, 15),
+            band(2, 5, HALF, -300, E, 15),
+            band(0, 2, -E, -1500, -HALF, -300),
+            band(0, 2, HALF, -1500, E, -300),
+            band(5, 10, -E, -E, E, -1500),
+        ]),
+        DRGARE: fc([area('DRGARE', rect(-HALF, -1500, HALF, 15), { DRVAL1: 1.8 })]),
+        M_QUAL: fc([area('M_QUAL', rect(-E, -E, E, E), { CATZOC: 1 })]),
     });
 }
 
@@ -334,6 +373,40 @@ describe('Auto on the real engine, synthetic cells', { timeout: 180_000 }, () =>
 // back off a spit — destinationLandTailTrimM — used to excuse that read; the
 // excuse is gone. This scene does not reach that trim: measured, its relaxed
 // route ends at the pin and is vetoed for the land first.)
+// Package 125-06 (Shane, 2026-10-08, a fresh Auto route from Port of Airlie
+// to Nara Inlet: "8 route notes · review required", a dog-leg west at the
+// outer pair, "no reason to go to port here???"). Three of the notes are on
+// every Auto route whatever it finds — the proposal-only line, how it was
+// routed, and that beam and length are not used yet — and one explained the
+// dog-leg. Now the route runs straight on (the same tide as the turn), and
+// the count is of what this route found; the three are still listed.
+describe('a fresh Auto route out of a channel into a uniform band (125-06)', { timeout: 180_000 }, () => {
+    it('runs straight on, with no bend to explain', async () => {
+        channelScene();
+        const route = await auto([0, -1700], [3000, 9000]);
+        const line = route.coordinates.map(xy);
+        expect(Math.min(...line.filter(([, y]) => y > 40).map(([x]) => x))).toBeGreaterThan(-150);
+        expect(route.warnings.some((w) => /the route bends/.test(w))).toBe(false);
+    });
+
+    it('counts what the route found, not the lines every Auto route carries', async () => {
+        channelScene();
+        const route = await auto([0, -1700], [3000, 9000]);
+        const standing = route.warnings.filter((w) => isStandingRouteNote(w));
+        expect(standing).toEqual([
+            THALASSA_PLANNED_ONLY_WARNING,
+            'Routed on this phone by Thalassa from your installed charts: draft 2.40 m + 0.5 m under the keel at chart datum (LAT). Tide is shown, never assumed.',
+            'Beam and length are not used by the router yet.',
+        ]);
+        const toReview = routeNotesToReview(route.warnings);
+        expect(toReview).toEqual(route.warnings.filter((w) => !standing.includes(w)));
+        // What this route found: the channel's water (1.8 m) and the band's
+        // (2.0 m) under the 2.9 m it needs, and the channel edge it runs by.
+        expect(toReview.length).toBeLessThanOrEqual(route.warnings.length - 3);
+        for (const note of toReview) expect(isStandingRouteNote(note)).toBe(false);
+    });
+});
+
 describe('a water pin behind a bar no tide clears (owner decision 11)', { timeout: 180_000 }, () => {
     it('is routed in across the bar, red and named, not cut short — never over the land beside it (125-05)', async () => {
         lagoonScene();

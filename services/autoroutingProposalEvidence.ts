@@ -7,6 +7,8 @@ import {
     PROVIDER_HAZARD_MAX_TOTAL_VERTICES,
 } from '../supabase/functions/_shared/autorouting-provider-check';
 
+import { traceRegistryScope } from './traceRegistryScope';
+
 export const AUTOROUTING_PROPOSAL_MAX_POINTS = 10_000;
 export const AUTOROUTING_PROPOSAL_EVIDENCE_MAX_BYTES = 1_048_576;
 export interface AutoroutingReviewBasis {
@@ -59,6 +61,17 @@ const point = (v: unknown): boolean =>
     Math.abs(v.lat) <= 90 &&
     Math.abs(v.lon) <= 180;
 const keys = (v: Record<string, unknown>, allowed: string[]) => Object.keys(v).every((k) => allowed.includes(k));
+
+/**
+ * The charts round a proposal, as its review is bound to them (package
+ * 125-06): the route check's and Cast Off's own scope (traceRegistryScope).
+ * The review (useAutoroutingReview) and Save compare the same.
+ */
+export function autoroutingRegistryScope(
+    coordinates: readonly (readonly [number, number])[],
+): [number, number, number, number] | undefined {
+    return traceRegistryScope(coordinates.map(([lon, lat]) => ({ lat, lon })));
+}
 
 /** Exact ordered coordinates, without metre-rounding or removing duplicates. */
 export function autoroutingProposalGeometryKey(coordinates: readonly (readonly number[])[]): string {

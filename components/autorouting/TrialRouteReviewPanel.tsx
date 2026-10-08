@@ -9,6 +9,7 @@ import {
     type TrialRouteReview,
 } from '../../services/autoroutingReview';
 import type { TracePoint } from '../../services/routeTracer';
+import { isStandingRouteNote, routeNotesToReview } from '../../services/autoroutingNotes';
 import { NEEDS_TIDE_AMBER, SURVEY_DASH } from '../map/inshoreRouteState';
 import type { RouteRedStretch } from '../map/routeRedReasons';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
@@ -87,6 +88,8 @@ export function TrialRouteReviewPanel({
         return bySegment;
     }, [trackAdvisories]);
     const first = Math.floor(Math.max(0, Math.min(selected, waypoints.length - 1)) / PAGE_SIZE) * PAGE_SIZE;
+    const found = route ? routeNotesToReview(route.warnings) : [];
+    const standing = route ? route.warnings.filter(isStandingRouteNote) : [];
     const segmentCount = Math.max(0, coordinates.length - 1);
     const originalLegs = review?.legs.slice(0, segmentCount) ?? [];
     const done = originalLegs.filter(Boolean).length;
@@ -128,26 +131,41 @@ export function TrialRouteReviewPanel({
                 >
                     {/* The same words as the summary's count (round 2, 2026-10-02:
                         "4 route notes · review required" pointed at a list
-                        headed something else). */}
+                        headed something else), and the same count: what this
+                        route found, not the lines every Auto route carries
+                        (125-06), which are listed under their own heading. */}
                     <h3 className="font-bold text-amber-300">
-                        {route.warnings.length} route {route.warnings.length === 1 ? 'note' : 'notes'} · what this route
-                        must say
+                        {found.length === 0
+                            ? 'No route notes to review'
+                            : `${found.length} route ${found.length === 1 ? 'note' : 'notes'} · what this route must say`}
                     </h3>
                     {route.localEdit && (
                         <p className="font-semibold">
                             From the original route, before waypoint edits · historical, not checks of this line.
                         </p>
                     )}
-                    <ol className="space-y-1 text-amber-200">
-                        {route.warnings.map((warning, index) => (
-                            <li key={index}>
-                                <span className="font-semibold text-amber-300">
-                                    {routeNoteWhere(warning, waypoints.length)} ·{' '}
-                                </span>
-                                {warning}
-                            </li>
-                        ))}
-                    </ol>
+                    {found.length > 0 && (
+                        <ol className="space-y-1 text-amber-200" aria-label="What this route found">
+                            {found.map((warning, index) => (
+                                <li key={index}>
+                                    <span className="font-semibold text-amber-300">
+                                        {routeNoteWhere(warning, waypoints.length)} ·{' '}
+                                    </span>
+                                    {warning}
+                                </li>
+                            ))}
+                        </ol>
+                    )}
+                    {standing.length > 0 && (
+                        <>
+                            <h4 className="font-semibold text-gray-300">On every Auto route</h4>
+                            <ul className="space-y-1 text-gray-300" aria-label="On every Auto route">
+                                {standing.map((warning, index) => (
+                                    <li key={index}>{warning}</li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
                 </section>
             )}
             {routerColours && (

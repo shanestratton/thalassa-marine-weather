@@ -154,7 +154,11 @@ describe('offline Newport canal with the water pack (owner decision 2)', { timeo
         const r = routeInshore(layers, { ...fx.request, unchartedPolicy: 'strict' });
         expect('error' in r ? r : null).toBeNull();
         if ('error' in r) return;
-        within(r.distanceNM, 23.52, 0.02);
+        // RE-PIN 23.52 → 23.04 NM (package 125-06, the same-tide pull; own
+        // process): out of the Newport entrance over the 2–5 m band charted
+        // 2.0 m on the line it is going, not north-east to 5 m water first
+        // (engine/stringPull sameTideNoWorse). No land, as before.
+        within(r.distanceNM, 23.04, 0.02);
         expect(auditUnvouchedHardLand(layers, r.polyline).maxRunM).toBe(0);
         const [startLon, startLat] = r.polyline[0];
         expect(haversineM(ORIGIN.lat, ORIGIN.lon, startLat, startLon)).toBeLessThanOrEqual(50);

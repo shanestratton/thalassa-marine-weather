@@ -134,6 +134,7 @@ import {
     memoExposure,
     LINE_STATE,
     pullTaut,
+    straightenSameTide,
     threadGateCentres,
 } from './engine/stringPull';
 import { chartAreaIndexFor, chartedDepthAt, navLinesOnWater } from './routing/leadLandClip';
@@ -2443,6 +2444,7 @@ function routeInshoreOnceEnds(
                 finalPolyline = polyline;
             };
             let removed = 0;
+            const gates = lateralMarkGates(layers);
             const pull = (extraPins?: readonly boolean[]): void => {
                 const sh = shape();
                 const pulled = pullTaut(finalPolyline, {
@@ -2461,20 +2463,56 @@ function routeInshoreOnceEnds(
             // through its centre where that is at least as safe (Newport's
             // entrance: 12 m off mark 5 in a 54 m gate), and the route is
             // pulled again round the centres it now holds.
-            const gates = lateralMarkGates(layers);
+            const centres = new Set<string>();
             if (gates.length > 0 && finalPolyline.length >= 2) {
                 const sh = shape();
                 const th = threadGateCentres(finalPolyline, { ...sh, exposureOf, marks, corridorM, gates });
                 if (th.threaded > 0) {
                     adopt(th.polyline, th.fromSeg);
                     debug.gatesThreaded = th.threaded;
+                    th.polyline.forEach((p, i) => {
+                        if (th.onCentre[i]) centres.add(`${p[0]},${p[1]}`);
+                    });
                     pull(th.onCentre);
                 }
+            }
+            // A turn that buys no tide is no turn (package 125-06; Shane,
+            // 2026-10-08, Port of Airlie → Nara Inlet: "no reason to go to port
+            // here??? why not go straight??? the depth is the same"): the
+            // same-tide stage (engine/stringPull straightenSameTide) pulls once
+            // more where a chord needs no more tide than its run, threads a pair
+            // the route left the channel short of, and slides a turn left at a
+            // chord's end to the corner it must clear.
+            {
+                const sh = shape();
+                const st = straightenSameTide(finalPolyline, {
+                    pinnedOf: (pl) => {
+                        const onLead = leadVertexMask(pl, leads);
+                        return pl.map((p, i) => onLead[i] || anchorKeys.has(`${p[0]},${p[1]}`));
+                    },
+                    pullable: sh.pullable,
+                    runKey: sh.runKey,
+                    exposureOf,
+                    marks,
+                    corridorM,
+                    gates,
+                    centres: finalPolyline.map((p) => centres.has(`${p[0]},${p[1]}`)),
+                });
+                adopt(st.polyline, st.fromSeg);
+                removed += st.pulled;
+                if (st.pulled > 0) debug.sameTidePulled = st.pulled;
+                if (st.slid > 0) debug.sameTideSlid = st.slid;
+                if (st.threaded > 0) debug.gatesThreaded = (debug.gatesThreaded ?? 0) + st.threaded;
             }
             if (removed > 0) debug.stringPulled = removed;
             // A turn the pull kept because the straight line crosses more
             // water charted under the keel's need, and nothing else: the
-            // route notes say why (Port of Airlie, 2026-10-04).
+            // route notes say why (Port of Airlie, 2026-10-04). Since 125-06
+            // that is a turn the same-tide pull did not straighten: its chord
+            // is more than twice as long over that water or reaches it more
+            // than 2 km on — or fails some other test the pull holds a chord
+            // to (a mark passed nearer or on its other side, land, a band or
+            // bank nearer, the corridor), which the note does not tell apart.
             const bendBands = chartAreaIndexFor(layers).depth;
             const bend = depthBendOf(finalPolyline, {
                 ...shape(),

@@ -103,6 +103,20 @@ function liveScore(fixtureName: string): BaselineEntry {
 // Brisbane River mouth's -2.2..0 m band are honest caution (or drying land)
 // now: Rivergate crosses 30 m of charted drying ground instead of ~2.9 km,
 // with 3 more turns threading the mouth; more of both routes is red.
+//
+// REGENERATED (package 125-06, 2026-10-09) with REGEN_SCORECARD_BASELINE=1.
+// The committed rows had gone stale since (live at 5bc8d317: Rivergate
+// 1.7883 / 42976 m / 11 turns / 18112 m caution over 3 runs; Tangalooma
+// 1.3047 / 36984 m / 11 turns / 6662 m over 2 — its ratio 1.9% under the
+// pin). The same-tide pull (engine/stringPull sameTideNoWorse: a turn that
+// buys no tide is no turn; Shane, 2026-10-08) takes both out of the Newport
+// entrance over the 2–5 m band charted 2.0 m on the line they are going,
+// not north-east to 5 m water first:
+//   newport-rivergate  distanceRatio 1.7883 → 1.7807, lengthM 42976 → 42794,
+//                      turns 11 → 10, caution 18112 m / 3 runs → 18556 m / 3.
+//   newport-tangalooma distanceRatio 1.3047 → 1.2761, lengthM 36984 → 36173,
+//                      turns 11 → 11, caution 6662 m / 2 runs → 7542 m / 2.
+// The caution added is that band's own water, never shallower than 2.0 m.
 const FIXTURES = ['newport-rivergate.corridor.json.gz', 'newport-tangalooma.corridor.json.gz'];
 
 describe('scorecard baseline (golden fixtures)', () => {

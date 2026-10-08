@@ -5,6 +5,8 @@ import { pointInBbox, type TraceIssue, type TraceLegVerdict, type TracePoint, ty
 import type { AutoroutingReviewBasis } from './autoroutingProposalEvidence';
 import { displayWaypointLegRange, type TrialDisplayWaypoint } from './autoroutingDisplayWaypoints';
 
+export { isStandingRouteNote, routeNotesToReview } from './autoroutingNotes';
+
 export interface TrialLegReview {
     verdict: TraceLegVerdict;
     incomplete: boolean;
