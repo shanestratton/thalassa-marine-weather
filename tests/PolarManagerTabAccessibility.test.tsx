@@ -35,6 +35,7 @@ vi.mock('../services/SmartPolarService', () => ({
 vi.mock('../services/SmartPolarStore', () => ({
     SmartPolarStore: {
         initialize: vi.fn().mockResolvedValue(undefined),
+        ensureLoaded: vi.fn().mockResolvedValue(undefined),
         exportToPolarData: vi.fn(() => null),
         getStats: vi.fn(() => ({ totalSamples: 0, filledBuckets: 0, totalBuckets: 1 })),
         reset: vi.fn().mockResolvedValue(undefined),

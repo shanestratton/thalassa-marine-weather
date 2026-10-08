@@ -31,6 +31,7 @@ import { MODEL_ATTRIBUTION_LINE, SELECTABLE_MODELS } from '../../services/weathe
 import { triggerHaptic } from '../../utils/system';
 import { setPassageSpeedPref, usePassageSpeedPref } from '../../stores/passageHudStore';
 import { MOTOR_BELOW_FRACTION, MOTOR_UNDER_TWS_KTS } from '../../services/passagePlan';
+import { GENERIC_POLAR_LABEL, sailsHerOwnFigures, type ResolvedRoutingPolar } from '../../services/routingPolar';
 
 export interface PassageModelChoice {
     id: WeatherModelId;
@@ -74,8 +75,32 @@ export interface PassageModelModalProps {
     cruiseKts?: number;
     /** False for a power vessel: "by the wind" does not apply and is not offered. */
     isSail?: boolean;
-    /** The polar the wind option would use: the skipper's own boat model, or null for the generic table. */
-    polarName?: string | null;
+    /**
+     * The polar the wind option sails: the routers' own (services/routingPolar),
+     * named as the route banner names it. Absent: the generic table.
+     */
+    polar?: Pick<ResolvedRoutingPolar, 'source' | 'label'> | null;
+}
+
+/** "By the wind", in words: which polar, and whether it is scaled to her cruising speed. */
+export function byTheWindWords(polar: PassageModelModalProps['polar'], cruiseKts: number): string {
+    const cruise = `${cruiseKts.toFixed(1)} kn`;
+    const scaled = `scaled so a fair reaching breeze gives her ${cruise}.`;
+    const which = !polar
+        ? `A generic cruising polar, ${scaled}`
+        : polar.source === 'learned'
+          ? // Its label may name a scaled shape for the cells not yet learned; the learned ones are as sailed.
+            `${polar.label}: the polar her routes sail, her learned speeds as she sailed them.`
+          : sailsHerOwnFigures(polar.source)
+            ? `${polar.label}, unscaled: the polar her routes sail.`
+            : polar.source === 'database-scaled'
+              ? `${polar.label}: the polar her routes sail.`
+              : polar.label === GENERIC_POLAR_LABEL
+                ? `A generic cruising polar, ${scaled}`
+                : `${polar.label}, ${scaled}`;
+    return `${which} She tacks inside her close-hauled angle, and motors under ${MOTOR_UNDER_TWS_KTS} kn of wind or when sailing would give less than ${Math.round(
+        MOTOR_BELOW_FRACTION * 100,
+    )}% of her ${cruise} cruising speed. An estimate.`;
 }
 
 export const PassageModelModal: React.FC<PassageModelModalProps> = ({
@@ -83,7 +108,7 @@ export const PassageModelModal: React.FC<PassageModelModalProps> = ({
     onClose,
     cruiseKts = 0,
     isSail = true,
-    polarName = null,
+    polar = null,
 }) => {
     const current = useWindStore().model;
     const speedPref = usePassageSpeedPref();
@@ -158,11 +183,7 @@ export const PassageModelModal: React.FC<PassageModelModalProps> = ({
                                 id: 'polar' as const,
                                 title: 'By the wind',
                                 detail: isSail
-                                    ? `${polarName ? `${polarName} polar` : 'A generic cruising polar'}, scaled so a fair reaching breeze gives her ${cruiseKts.toFixed(
-                                          1,
-                                      )} kn. She tacks inside her close-hauled angle, and motors under ${MOTOR_UNDER_TWS_KTS} kn of wind or when sailing would give less than ${Math.round(
-                                          MOTOR_BELOW_FRACTION * 100,
-                                      )}% of that. An estimate.`
+                                    ? byTheWindWords(polar, cruiseKts)
                                     : 'For sailing vessels. A power vessel is planned at her cruising speed.',
                                 disabled: !isSail,
                             },

@@ -20,8 +20,13 @@
  *        passagePlan.polarScale — the Passage HUD's rule, and its speed
  *        (vesselCruisingSpeedKts: a stored 0 means "auto", sqrt(LOA) × 1.2);
  *        the generated tables run ~45% slow, raw they would cripple every ETA;
- *   4. otherwise the generic cruising polar — labelled as a refusal when she
- *      chose a polar it could not use, so the banner never hides that.
+ *   4. otherwise the generic cruising polar — its SHAPE scaled to her
+ *      cruising speed exactly as a database shape is (build 125, 125-08: it
+ *      was sailed raw, ~5.9 kn on a fair reach whatever the boat, while the
+ *      HUD scaled it, so a 40-footer's two ETAs were 22% apart), and labelled
+ *      as a refusal when she chose a polar it could not use, so the banner
+ *      never hides that. Still source 'default', so the route-weather edge
+ *      keeps its own cruise-scaled fallback.
  *
  * THE NO-GO ZONE LIVES HERE. createPolarSpeedLookup clamps any angle below a
  * table's first row to that row (tests/isochrone-polar pins it), so every
@@ -33,8 +38,17 @@
  * `label` is what the PassageBanner prints; `reason` is why (logged);
  * `signature` keys the isochrone precompute cache, so a polar changed inside
  * its five minutes never serves the old route.
+ *
+ * NOT ONLY THE ROUTERS (build 125, 125-08). The Passage HUD and Plan Your Day
+ * sail this same polar (hooks/useRoutingPolar → routingSpeedModel): every
+ * figure is the routers' own. And a Smart polar says how far it has got —
+ * "Learning (7 of 42 cells), sailing on …" — rather than wearing the factory
+ * polar's name as if it were the one she chose; with the learner switched off
+ * in Preferences (smartPolarsEnabled, a separate switch from "Routing uses:
+ * Smart") it says "learning off", never "Learning".
  */
 import type { PolarData } from '../types/navigation';
+import type { PassageSpeedModel } from './passagePlan';
 import type { UserSettings } from '../types/settings';
 import type { VesselProfile } from '../types/vessel';
 import { DEFAULT_CRUISING_POLAR } from './defaultPolar';
@@ -58,10 +72,20 @@ export interface ResolvedRoutingPolar {
     reason: string;
     /** Short hash of source + figures; keys the precompute cache. */
     signature: string;
+    /**
+     * Learned cells (of LEARNED_CELLS) when routing is set to Smart on a
+     * sailing boat — used or not yet; absent for a factory choice.
+     */
+    learnedCells?: number;
+    /** With learnedCells: whether the learner is switched on (settings.smartPolarsEnabled). */
+    learning?: boolean;
 }
 
 export type RoutingPolarSettings = Partial<
-    Pick<UserSettings, 'polarData' | 'polarBoatModel' | 'polarSource_type' | 'polarSource' | 'vessel'>
+    Pick<
+        UserSettings,
+        'polarData' | 'polarBoatModel' | 'polarSource_type' | 'polarSource' | 'smartPolarsEnabled' | 'vessel'
+    >
 >;
 
 /** What SmartPolarStore holds: its 42-cell export, and how many cells are learned. */
@@ -72,7 +96,8 @@ export interface LearnedPolarSnapshot {
 
 /** Below this many of the 42 learned cells, the learned polar is not used at all. */
 export const LEARNED_MIN_FILLED_CELLS = 8;
-const LEARNED_CELLS = 42;
+/** The learned grid's cells: SmartPolarStore exports 7 wind speeds × 6 angles. */
+export const LEARNED_CELLS = 42;
 /** The no-go ramp: zero speed this many degrees inside the first priced angle. */
 const NO_GO_RAMP_DEG = 5;
 /** Columns under this are dropped: the edge refuses them, and the router motors there. */
@@ -93,7 +118,9 @@ const EDGE_MAX_AXIS = 30;
 /** The edge prices nothing closer to the wind than this, whatever the polar says. */
 const EDGE_NO_GO_DEG = 35;
 
-const GENERIC = 'Generic cruising polar';
+/** The generic polar's name, as the banner prints it. */
+export const GENERIC_POLAR_LABEL = 'Generic cruising polar';
+const GENERIC = GENERIC_POLAR_LABEL;
 
 // ── Checking and shaping a polar ─────────────────────────────────
 
@@ -262,20 +289,58 @@ const REFUSED: Record<string, string> = {
     manual: 'your own polar figures',
 };
 
-function finish(polar: PolarData, source: RoutingPolarSource, label: string, reason: string): ResolvedRoutingPolar {
-    return { polar, source, label, reason, signature: signatureOf(source, polar) };
+function finish(
+    polar: PolarData,
+    source: RoutingPolarSource,
+    label: string,
+    reason: string,
+    learned?: { cells: number; learning: boolean },
+): ResolvedRoutingPolar {
+    const resolved: ResolvedRoutingPolar = { polar, source, label, reason, signature: signatureOf(source, polar) };
+    if (learned) {
+        resolved.learnedCells = learned.cells;
+        resolved.learning = learned.learning;
+    }
+    return resolved;
+}
+
+const scaleBy = (p: PolarData, scale: number): PolarData => ({
+    ...p,
+    matrix: p.matrix.map((r) => r.map((v) => v * scale)),
+});
+
+/**
+ * The generic polar for her: its shape scaled so a fair reaching breeze gives
+ * her cruising speed (vesselCruisingSpeedKts: a stored 0 is "auto"), as a
+ * database shape is. Raw only when no cruising speed can be matched to it
+ * (none and no length, or outside polarScale's band) — the HUD then plans her
+ * at her cruising speed flat. Not yet normalised.
+ */
+export function genericPolarFor(vessel: VesselProfile): { polar: PolarData; cruiseKts: number | null } {
+    const cruise = vesselCruisingSpeedKts(vessel, 0);
+    const scale = polarScale(DEFAULT_CRUISING_POLAR, cruise);
+    return scale === null
+        ? { polar: DEFAULT_CRUISING_POLAR, cruiseKts: null }
+        : { polar: scaleBy(DEFAULT_CRUISING_POLAR, scale), cruiseKts: cruise };
 }
 
 /** Steps 3–4: the skipper's chosen polar, else the generic one (not yet normalised). */
 function factoryPolar(settings: RoutingPolarSettings, vessel: VesselProfile): Omit<ResolvedRoutingPolar, 'signature'> {
     const kind = settings.polarSource_type ?? 'manual';
-    /** The generic polar; when she chose one it could not use, the label says so. */
-    const generic = (reason: string, refused = true) => ({
-        polar: DEFAULT_CRUISING_POLAR,
-        source: 'default' as const,
-        label: refused ? `${GENERIC} (${REFUSED[kind] ?? REFUSED.manual} could not be used)` : GENERIC,
-        reason,
-    });
+    /** The generic polar, scaled to her; when she chose one it could not use, the label says so. */
+    const generic = (reason: string, refused = true) => {
+        const { polar, cruiseKts } = genericPolarFor(vessel);
+        return {
+            polar,
+            source: 'default' as const,
+            label: refused ? `${GENERIC} (${REFUSED[kind] ?? REFUSED.manual} could not be used)` : GENERIC,
+            reason: `${reason}; ${
+                cruiseKts === null
+                    ? 'the generic polar, unscaled: no cruising speed to match it to'
+                    : `the generic shape, scaled so a fair reaching breeze gives her ${kn(cruiseKts)} kn`
+            }`,
+        };
+    };
     if (!settings.polarData) return generic('no polar chosen', false);
     const checked = checkPolar(settings.polarData);
     if ('why' in checked) return generic(`your polar is not usable: ${checked.why}`);
@@ -290,7 +355,7 @@ function factoryPolar(settings: RoutingPolarSettings, vessel: VesselProfile): Om
                 return generic(`the yacht database polar cannot be matched to a cruising speed of ${kn(cruise)} kn`);
             }
             return {
-                polar: { ...checked.polar, matrix: checked.polar.matrix.map((r) => r.map((v) => v * scale)) },
+                polar: scaleBy(checked.polar, scale),
                 source: 'database-scaled',
                 label: `${name || 'Yacht database polar'} (shape scaled to ${kn(cruise)} kn)`,
                 reason: `the yacht database shape, scaled so a fair reaching breeze gives her ${kn(cruise)} kn`,
@@ -330,18 +395,64 @@ export function resolveRoutingPolarFrom(input: {
     const factoryNormalised = normaliseRoutingPolar(factory.polar);
     if (settings.polarSource === 'smart') {
         const filled = input.learned?.polar ? input.learned.filledCells : 0;
+        // The learner is its own switch (Settings → Preferences), apart from
+        // "Routing uses: Smart": off — or never on — nothing is learning.
+        const learning = settings.smartPolarsEnabled === true;
+        const cells = `${filled} of ${LEARNED_CELLS} cells`;
+        const counted = learning ? cells : `${cells}, learning off`;
+        const learned = { cells: filled, learning };
         if (input.learned?.polar && filled >= LEARNED_MIN_FILLED_CELLS) {
             return finish(
                 normaliseRoutingPolar(blendLearned(input.learned.polar, factoryNormalised)),
                 'learned',
-                'Learned (blended)',
-                `learned in ${filled} of ${LEARNED_CELLS} cells; the rest from ${factory.label}`,
+                filled >= LEARNED_CELLS
+                    ? `Learned (${counted})`
+                    : `Learned (${counted}), the rest from ${factory.label}`,
+                `learned in ${counted}; the rest from ${factory.label}`,
+                learned,
             );
         }
-        const why = `the learned polar has too few samples (${filled} of ${LEARNED_CELLS} cells; it needs ${LEARNED_MIN_FILLED_CELLS})`;
-        return finish(factoryNormalised, factory.source, factory.label, `${why}, so ${factory.reason}`);
+        // Still filling: say so, and what she sails on meanwhile (never just the
+        // factory name, as if Smart had not been chosen).
+        const why = `the learned polar has too few samples (${counted}; it needs ${LEARNED_MIN_FILLED_CELLS})`;
+        return finish(
+            factoryNormalised,
+            factory.source,
+            `${learning ? 'Learning' : 'Smart polar'} (${counted}), sailing on ${factory.label}`,
+            `${why}, so ${factory.reason}`,
+            learned,
+        );
     }
     return finish(factoryNormalised, factory.source, factory.label, factory.reason);
+}
+
+/**
+ * What SmartPolarStore holds now, as routing counts it (buckets of
+ * ROUTING_MIN_BUCKET_SAMPLES+). Synchronous: the caller has loaded the store.
+ */
+export function learnedPolarSnapshot(): LearnedPolarSnapshot {
+    const polar = SmartPolarStore.exportToPolarData(ROUTING_MIN_BUCKET_SAMPLES);
+    return { polar, filledCells: polar ? polar.matrix.flat().filter((v) => v > 0).length : 0 };
+}
+
+/** Her own figures (imported, typed in, learned): sailed as given, by the routers and the HUD alike. */
+export function sailsHerOwnFigures(source: RoutingPolarSource): boolean {
+    return source === 'learned' || source === 'imported' || source === 'manual';
+}
+
+/**
+ * The Passage HUD's and Plan Your Day's speed model on the routers' polar: her
+ * own figures as given, ends held as the routers hold them ('figures'); a
+ * database or generic SHAPE as a shape ('shape'). The resolver has already
+ * scaled a shape to her cruising speed, so the HUD's own scaling is identity
+ * and its figures are the routers'; what it keeps are a shape's guards at the
+ * table's ends (passagePlan.passageSpeed).
+ */
+export function routingSpeedModel(
+    routing: Pick<ResolvedRoutingPolar, 'polar' | 'source'>,
+    base: Omit<PassageSpeedModel, 'polar' | 'polarKind'>,
+): PassageSpeedModel {
+    return { ...base, polar: routing.polar, polarKind: sailsHerOwnFigures(routing.source) ? 'figures' : 'shape' };
 }
 
 /**
@@ -361,10 +472,7 @@ export async function resolveRoutingPolar(
         if (settings.polarSource === 'smart' && vessel.type === 'sail') {
             try {
                 await SmartPolarStore.ensureLoaded();
-                learned = {
-                    polar: SmartPolarStore.exportToPolarData(ROUTING_MIN_BUCKET_SAMPLES),
-                    filledCells: SmartPolarStore.filledCellCount(ROUTING_MIN_BUCKET_SAMPLES),
-                };
+                learned = learnedPolarSnapshot();
             } catch (e) {
                 log.warn('learned polar unreadable; routing on the factory polar:', e);
             }
@@ -372,7 +480,7 @@ export async function resolveRoutingPolar(
         const resolved = resolveRoutingPolarFrom({ settings, vessel, learned });
         const line = `routing polar: ${resolved.label} — ${resolved.reason} [${resolved.signature}]`;
         // A refused choice is a warning: log.info is silent in production builds.
-        if (resolved.source === 'default' && resolved.label !== GENERIC) log.warn(line);
+        if (resolved.source === 'default' && resolved.label.includes('could not be used')) log.warn(line);
         else log.info(line);
         return resolved;
     } catch (e) {

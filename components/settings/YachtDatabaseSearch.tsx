@@ -2,7 +2,8 @@
  * YachtDatabaseSearch — Reusable yacht model search & select component.
  * Used in VesselTab (Settings) and OnboardingWizard to pick a yacht from
  * the polar database. Selecting a yacht provides the model name, LOA,
- * category, and polar performance data.
+ * category, and a polar SHAPE generated from length and type (not ORC or
+ * designer data); routing scales it to her cruising speed.
  *
  * Results only appear once the user types in the search box (min 2 chars).
  * Dropdown limited to 5 results for a clean, focused UX.
@@ -152,8 +153,10 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                 </div>
             )}
 
-            <p className="text-xs text-gray-400 mt-3 text-center">
-                {POLAR_DATABASE.length} boats available • Data from ORC/sail designer estimates
+            {/* The tables are generated from length and type (data/polarDatabase.ts):
+                never credit them to ORC or a designer (build 125, 125-08). */}
+            <p data-testid="yacht-database-credit" className="text-xs text-gray-400 mt-3 text-center">
+                {POLAR_DATABASE.length} boats available • Generated from length and type: not ORC or designer data
             </p>
         </div>
     );
