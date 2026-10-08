@@ -65,6 +65,7 @@ import {
     type AgreementLevel,
 } from '../weather/dayAgreement';
 import { getFirstLight, getLastLight, localNoon } from '../../utils/celestial';
+import type { PlotDayAction } from '../deepLink';
 import type { ComfortParams } from '../../types/settings';
 import type { VesselProfile } from '../../types/vessel';
 import type { Tide } from '../../types/weather';
@@ -1467,6 +1468,34 @@ export function routeCoords(start: LatLon, candidate: PlaceCandidate): LatLon[] 
             { lat: candidate.lat, lon: candidate.lon },
         ]
     );
+}
+
+/**
+ * "Plot on chart": the pins for the Manual plotter. A day trip is out and
+ * home, start → stop → start; an overnight stay is one way. A saved route
+ * that joins the two is used as drawn, turned round for the trip home (the
+ * stop is not dropped twice). The points are copies.
+ */
+export function plotDayAction(start: LatLon, candidate: PlaceCandidate, stay: StayOption): PlotDayAction {
+    const out = routeCoords(start, candidate).map((p) => ({ lat: p.lat, lon: p.lon }));
+    const points =
+        stay === 'overnight'
+            ? out
+            : [
+                  ...out,
+                  ...[...out]
+                      .reverse()
+                      .slice(1)
+                      .map((p) => ({ ...p })),
+              ];
+    const saved = candidate.distance.basis === 'saved' ? candidate.distance.route?.name : undefined;
+    return {
+        kind: 'plot-day',
+        points,
+        name: `${stay === 'overnight' ? 'Overnight' : 'Day out'}: ${candidate.name}`,
+        stop: candidate.name,
+        ...(saved ? { savedRoute: saved } : {}),
+    };
 }
 
 /** The headline series: the chart's model when it answered, else the first that did (named). */

@@ -166,7 +166,12 @@ import {
     type TracerContext,
     type SavedTrace,
 } from '../../services/routeTracer';
-import { consumeTracerOpenRequest, consumeTracerAction, peekTracerOpenRequest } from '../../services/deepLink';
+import {
+    consumeTracerOpenRequest,
+    consumeTracerAction,
+    peekTracerOpenRequest,
+    plotDayPins,
+} from '../../services/deepLink';
 import { loadLogbookRouteForEditing } from '../../services/savedRouteLibrary';
 import {
     getAuthIdentityScope,
@@ -785,6 +790,46 @@ export const MapHub: React.FC<MapHubProps> = ({
                         `Route Tracer asked to open saved route ${action.id}, which is not on this device — ` +
                             'the caller should fetch it from the account first',
                     );
+                }
+            } else if (action?.kind === 'plot-day') {
+                // Plan Your Day's "Plot on chart" (build 124): straight pins
+                // start → stop (→ start for a day trip), or the skipper's own
+                // saved route, as an UNSAVED draft in the Manual plotter. Both
+                // ⚡ buttons are parked, so the skipper drags the pins round
+                // the land and the Route report checks them against the
+                // charts. The departure was set before the request
+                // (services/planDeparture), so the tide windows follow it.
+                const plot = plotDayPins(action);
+                if (plot) {
+                    setLegAnchor(null); // a new route, edited standalone
+                    clearReturnContext(); // …and not part of a trip home
+                    setSelectedPin(null);
+                    setOverwriteArm(null);
+                    setTraceOrigin(null);
+                    setTraceDest(null);
+                    rebaseHistoryRef.current = true; // a different route → Undo floor
+                    setCapturedCoords(plot.points);
+                    // Our name, kept as the skipper's: moving a pin does not retitle it.
+                    setTraceName(plot.name);
+                    lastAutoNameRef.current = '';
+                    setSavedTraces(loadSavedTraces());
+                    const fly = () => mapRef.current && fitTraceBounds(mapRef.current, plot.points);
+                    if (mapRef.current) {
+                        if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                    } else {
+                        const timer = window.setTimeout(() => {
+                            tracerHandoffTimersRef.current.delete(timer);
+                            if (isAuthIdentityScopeCurrent(requestScope)) fly();
+                        }, 1_200);
+                        tracerHandoffTimersRef.current.add(timer);
+                    }
+                    flashTraceFeedback(
+                        plot.savedRoute
+                            ? `Your saved route to ${plot.stop}: Route report checks it against your charts`
+                            : `Straight lines to ${plot.stop}: drag pins round the land, then Route report checks your charts`,
+                    );
+                } else {
+                    log.warn('Plan Your Day asked to plot a day with unusable pins; nothing was loaded');
                 }
             } else if (action?.kind === 'load-trip-passage') {
                 // Derived "(Passage)" rollup: rebuilt fresh from the legs at

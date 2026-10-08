@@ -82,7 +82,58 @@ export type TracerOpenAction =
     /** Plan the trip home (Shane 2026-10-07): a NEW trip whose leg 1 is
      *  outbound leg `fromOrdinal` (default the last) reversed, built one
      *  checked leg at a time. The outbound trip is only read. */
-    | { kind: 'return-trip'; tripId: string; fromOrdinal?: number };
+    | { kind: 'return-trip'; tripId: string; fromOrdinal?: number }
+    | PlotDayAction;
+
+/**
+ * Plan Your Day's "Plot on chart" (build 124). Both ⚡ buttons in the chart's
+ * route plotter are parked, so this loads straight pins into the MANUAL
+ * plotter as an unsaved draft: start → stop (→ start for a day trip), or the
+ * skipper's own saved route when one joins the two. The skipper drags the
+ * pins round the land and the Route report checks them against the charts.
+ * It carries the boat's position, so it is identity-fenced like the rest.
+ */
+export interface PlotDayAction {
+    kind: 'plot-day';
+    points: { lat: number; lon: number }[];
+    /** "Day out: Cid Harbour", "Overnight: Cid Harbour". */
+    name: string;
+    /** The stop's name, for the chart's one-line note. */
+    stop: string;
+    /** Set when the pins are the skipper's saved route, not straight lines. */
+    savedRoute?: string;
+}
+
+/** More pins than any drawn route needs; a request over this is refused. */
+export const PLOT_DAY_MAX_POINTS = 500;
+
+/** What the chart accepts from a plot-day request: two to 500 real
+ *  positions, and a name. Null when the pins are not usable. */
+export function plotDayPins(
+    action: PlotDayAction,
+): { points: { lat: number; lon: number }[]; name: string; stop: string; savedRoute: string | null } | null {
+    const points = Array.isArray(action?.points) ? action.points : [];
+    if (points.length < 2 || points.length > PLOT_DAY_MAX_POINTS) return null;
+    const valid = points.every(
+        (p) =>
+            !!p &&
+            typeof p.lat === 'number' &&
+            typeof p.lon === 'number' &&
+            Number.isFinite(p.lat) &&
+            Number.isFinite(p.lon) &&
+            Math.abs(p.lat) <= 90 &&
+            Math.abs(p.lon) <= 180,
+    );
+    if (!valid) return null;
+    const text = (value: unknown, fallback: string) =>
+        (typeof value === 'string' && value.trim() ? value.trim() : fallback).slice(0, 120);
+    return {
+        points: points.map((p) => ({ lat: p.lat, lon: p.lon })),
+        name: text(action.name, 'Day out'),
+        stop: text(action.stop, 'the stop'),
+        savedRoute: typeof action.savedRoute === 'string' && action.savedRoute.trim() ? action.savedRoute.trim() : null,
+    };
+}
 
 export interface TracerOpenEventDetail {
     readonly requestId: number;
