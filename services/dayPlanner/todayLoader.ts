@@ -11,7 +11,9 @@
  *      Glass), the places (OpenStreetMap reference cells worldwide, the
  *      Queensland atlas, the OSM coastline for land-only shelter, the
  *      skipper's saved routes), WorldTides for the facts line, and the
- *      nearest tropical cyclone.
+ *      nearest tropical cyclone. The offline atlas's places are reported as
+ *      soon as it answers (placesStatus still 'loading'), and merged again
+ *      with OpenStreetMap and the coastline when those land.
  *   2. loadStopLegs(needsLegs): for the stops the engine names (at most
  *      three), ONE route spread (the passage HUD's five models, so the two
  *      share a cache) and ONE sea request along the one-way leg. The home
@@ -83,6 +85,7 @@ import {
     type CycloneNotice,
     type DayPlanInput,
     type DayWindow,
+    type PlacesStatus,
     type StopLegs,
 } from './today';
 
@@ -220,7 +223,7 @@ export interface TodayRequest {
     cruiseKts: number;
 }
 
-export type PlacesStatus = 'loading' | 'ok' | 'partial' | 'failed';
+export type { PlacesStatus } from './today';
 export type TidesStatus = 'loading' | 'ok' | 'none';
 
 export interface TodayBase {
@@ -235,8 +238,11 @@ export interface TodayBase {
     atmos: SpreadBlock<AtmosVar> | null;
     /** When this phone received the point block (the shared memo may be up to 30 min older). */
     weatherAtMs: number | null;
-    /** Null while loading, and when no place source answered at all. */
+    /** Null until the first source answers (the offline atlas, at once in
+     *  Queensland), and when no place source answered at all. */
     places: GatheredPlaces | null;
+    /** 'loading' until every source has answered or run out of time, even
+     *  once the atlas's places are in. */
     placesStatus: PlacesStatus;
     tides: Tide[] | null;
     /** WorldTides' station, for Sources. */
@@ -346,8 +352,46 @@ export async function loadToday(
 
         const places = (async () => {
             const { tiles } = dayPlanTiles(start, radiusNm);
+            let savedRoutes: SavedRouteLike[] = [];
+            try {
+                savedRoutes = deps.savedRoutes(f.scope);
+            } catch {
+                /* no saved routes: distances are estimates */
+            }
+            const atlasPart = f.part(
+                () => deps.loadAtlas(start.lat, start.lon, radiusNm),
+                null,
+                PART_DEADLINE_MS,
+                'atlas',
+            );
+            let settled = false;
+            // The offline atlas (and her saved routes) first: in Queensland its
+            // stops and the marina's name are ready at once, while OpenStreetMap
+            // and the coastline can take up to the deadline. Still 'loading'.
+            void atlasPart.then(
+                (atlas) => {
+                    if (settled || !atlas?.length) return;
+                    const early = gatherPlaces({
+                        start,
+                        nowMs,
+                        radiusNm,
+                        atlas,
+                        osm: [],
+                        coastline: null,
+                        savedRoutes,
+                    });
+                    emit({
+                        places: early,
+                        start: { ...start, name: nameStart(start, early.named, saved) },
+                        marina: marinaNear(start, early.marinas),
+                    });
+                },
+                () => {
+                    /* cancelled: the sheet closed or the account changed */
+                },
+            );
             const [atlas, cells, coastline] = await Promise.all([
-                f.part(() => deps.loadAtlas(start.lat, start.lon, radiusNm), null, PART_DEADLINE_MS, 'atlas'),
+                atlasPart,
                 Promise.all(
                     tiles.map((tile) =>
                         f.part(() => deps.loadReferenceTile(tile, f.signal), null, PART_DEADLINE_MS, 'places'),
@@ -355,12 +399,7 @@ export async function loadToday(
                 ),
                 f.part(() => deps.loadCoastline(start.lat, start.lon), null, PART_DEADLINE_MS, 'coastline'),
             ]);
-            let savedRoutes: SavedRouteLike[] = [];
-            try {
-                savedRoutes = deps.savedRoutes(f.scope);
-            } catch {
-                /* no saved routes: distances are estimates */
-            }
+            settled = true;
             f.check();
             const answered = cells.filter((cell): cell is ReferenceResult => !!cell);
             const cellsFailed = answered.length < cells.length;
@@ -368,6 +407,8 @@ export async function loadToday(
                 emit({ places: null, placesStatus: 'failed' });
                 return;
             }
+            // (Merged afresh: the coastline turns the atlas's ×1.3 guesses into
+            // ×1.15 or ×1.4, and OpenStreetMap adds what the atlas lacks.)
             const gathered = gatherPlaces({
                 start,
                 nowMs,
@@ -556,7 +597,7 @@ export async function loadLandingWindow(
 export function todayInput(
     base: TodayBase,
     args: Pick<DayPlanInput, 'stay' | 'limits' | 'speed' | 'usingDefaultVessel'> &
-        Partial<Pick<DayPlanInput, 'date' | 'plannedDepartureMs' | 'legs' | 'boatFixAgeMs' | 'nowMs'>>,
+        Partial<Pick<DayPlanInput, 'date' | 'legs' | 'boatFixAgeMs' | 'nowMs'>>,
 ): DayPlanInput {
     return {
         nowMs: args.nowMs ?? base.nowMs,
@@ -564,13 +605,13 @@ export function todayInput(
         start: base.start,
         date: args.date ?? null,
         stay: args.stay,
-        plannedDepartureMs: args.plannedDepartureMs ?? null,
         limits: args.limits,
         speed: args.speed,
         usingDefaultVessel: args.usingDefaultVessel,
         atmos: base.atmos,
         weather: base.weather,
         places: base.places,
+        placesStatus: base.placesStatus,
         tides: base.tidesStatus === 'ok' ? base.tides : null,
         legs: args.legs,
         boatFixAgeMs: args.boatFixAgeMs ?? null,

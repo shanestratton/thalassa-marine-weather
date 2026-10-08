@@ -24,6 +24,7 @@ import {
 } from '../services/deepLink';
 import { distanceEstimate, type PlaceCandidate, type SavedRouteMatch } from '../services/dayPlanner/places';
 import { plotDayAction } from '../services/dayPlanner/today';
+import { AUTOROUTING_PROPOSAL_MAX_POINTS } from '../services/autoroutingProposalEvidence';
 
 const START = { lat: -20.265, lon: 148.719 };
 const CID = { lat: -20.24511, lon: 148.94836 };
@@ -74,6 +75,38 @@ describe('plotDayAction: the pins Plot on chart drops', () => {
         expect(day.points.filter((p) => p.lat === CID.lat && p.lon === CID.lon)).toHaveLength(1);
         const night = plotDayAction(START, c, 'overnight');
         expect(night.points).toEqual(SAVED.points);
+    });
+
+    it('a long saved Auto route (300 points) plots there and back: the chart takes all 599 pins', () => {
+        const route: SavedRouteMatch = {
+            name: 'Auto: Airlie → Cid',
+            points: Array.from({ length: 300 }, (_, i) => ({
+                lat: START.lat + ((CID.lat - START.lat) * i) / 299,
+                lon: START.lon + ((CID.lon - START.lon) * i) / 299,
+            })),
+            lengthNm: 14.8,
+        };
+        const day = plotDayAction(START, candidate({ distance: distanceEstimate(START, CID, null, route) }), '2h');
+        expect(day.points).toHaveLength(599);
+        expect(day.savedRoute).toBe('Auto: Airlie → Cid');
+        expect(plotDayPins(day)?.points).toHaveLength(599);
+        // As long as any saved route may be (saved_routes holds 10,000 points), there and back.
+        expect(PLOT_DAY_MAX_POINTS).toBe(2 * AUTOROUTING_PROPOSAL_MAX_POINTS - 1);
+    });
+
+    it('a route longer than the chart takes there and back falls back to straight pins, never a refusal', () => {
+        const route: SavedRouteMatch = {
+            name: 'Far too long',
+            points: Array.from({ length: PLOT_DAY_MAX_POINTS }, (_, i) => ({
+                lat: START.lat + ((CID.lat - START.lat) * i) / (PLOT_DAY_MAX_POINTS - 1),
+                lon: START.lon + ((CID.lon - START.lon) * i) / (PLOT_DAY_MAX_POINTS - 1),
+            })),
+            lengthNm: 14.8,
+        };
+        const day = plotDayAction(START, candidate({ distance: distanceEstimate(START, CID, null, route) }), '2h');
+        expect(day.points).toEqual([START, CID, START]);
+        expect(day.savedRoute).toBeUndefined();
+        expect(plotDayPins(day)).not.toBeNull();
     });
 
     it('copies the points, so the plan cannot be edited through the chart', () => {
@@ -223,6 +256,12 @@ describe('MapHub opens a plot-day request in the Manual plotter', () => {
             '`Straight lines to ${plot.stop}: drag pins round the land, then Route report checks your charts`',
         );
         expect(branch).toContain('`Your saved route to ${plot.stop}: Route report checks it against your charts`');
+    });
+
+    it('says so on the chart when it cannot use the pins (the plotter is already open)', () => {
+        const refusal = branch.slice(branch.indexOf('} else {'));
+        expect(refusal).toContain('flashTraceFeedback(');
+        expect(refusal).toContain("Plan Your Day's pins didn't load");
     });
 
     it('never unparks the ⚡ buttons', () => {

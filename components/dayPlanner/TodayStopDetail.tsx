@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { PassageSpeedModel } from '../../services/passagePlan';
 import type { LatLon } from '../../services/dayPlanner/places';
 import {
+    LEAVING_MARINA,
     distanceLine,
+    parksNotes,
     shortDate,
     stopDetail,
     wallTime,
@@ -17,6 +19,8 @@ import { TodayModal } from './TodayModal';
 
 type Landing = { fromMs: number; toMs: number } | 'no-curve';
 
+const capitalFirst = (text: string) => (text ? text[0].toUpperCase() + text.slice(1) : text);
+
 /** The landing window at a reviewed stop (todayLoader.loadLandingWindow), asked only when its detail opens. */
 export type LandingLoader = (
     stop: LatLon,
@@ -29,10 +33,13 @@ export type LandingLoader = (
  * Plan Your Day, screen 2 (build 124): one stop, and how each time on screen
  * 1 was worked out — leave and there, ashore or at anchor, the landing tide
  * where Queensland Parks name one, home, the light, the sea, the distance and
- * how it was measured, and the marina line when she starts in one. The leave
- * chips are the best departure's window; a tap recomputes in place. "Plot on
- * chart" sets the departure and opens the Manual plotter with straight pins.
- * Fits 320 × 568 at normal text; it scrolls only at large text.
+ * how it was measured, and the marina line when she starts in one. A
+ * reviewed stop's own Parks notes (Cid Harbour's sharks) sit under the stay.
+ * The leave chips are the best departure's window; a tap recomputes in place.
+ * "Plot on chart" sets the departure and opens the Manual plotter with
+ * straight pins. Fits outright at normal text from 375 × 667; at 320 × 568 a
+ * reviewed stop's notes may push the later rows into a scroll (the first
+ * note in view as it opens), and anything may scroll at large text.
  */
 export function TodayStopDetail({
     row,
@@ -91,7 +98,8 @@ export function TodayStopDetail({
     }, [loadLanding, candidate.lat, candidate.lon, day, arriveMs, stayEndMs]);
 
     const zone = window.zone;
-    const detail = plan
+    // Times only from a route forecast that loaded (a failed leg's walk is in no wind).
+    const detail = plan?.weatherLoaded
         ? stopDetail({
               plan,
               departure: chosen,
@@ -106,15 +114,22 @@ export function TodayStopDetail({
               title: row.name,
               sub: `${shortDate(window.date, zone)} · times in ${zoneAbbrev(window.firstLightMs ?? wallTime(window.date, 12, 0, zone), zone)}`,
               rows: [
-                  row.pending ? 'Checking the weather along the way…' : 'Weather not checked: no forecast loaded.',
+                  row.pending
+                      ? 'Checking the weather along the way…'
+                      : plan
+                        ? "Weather not checked: the forecast along the way didn't load."
+                        : 'Weather not checked: no forecast loaded.',
+                  ...(row.reason && row.reason !== "weather didn't load" ? [capitalFirst(row.reason)] : []),
+                  ...parksNotes(candidate),
                   distanceLine(candidate.distance),
-                  ...(leavingMarina
-                      ? ['Leaving a marina: check its approach depth against the tide before you go.']
-                      : []),
+                  ...(leavingMarina ? [LEAVING_MARINA] : []),
               ],
               footnote: 'No times without a forecast. Depth and tide over the route are not checked. Not a clearance.',
               chips: [] as { ms: number; label: string; best: boolean }[],
           };
+
+    // A reviewed stop's own Parks notes stand out from the times around them.
+    const notes = new Set(parksNotes(candidate));
 
     return (
         <TodayModal
@@ -127,7 +142,7 @@ export function TodayStopDetail({
                     <button
                         type="button"
                         className="today-button today-primary"
-                        onClick={() => onPlot(chosen?.departureMs ?? null)}
+                        onClick={() => onPlot(plan?.weatherLoaded ? (chosen?.departureMs ?? null) : null)}
                     >
                         Plot on chart
                     </button>
@@ -139,7 +154,9 @@ export function TodayStopDetail({
         >
             <ul aria-label="How the day goes" className="today-rows">
                 {detail.rows.map((text) => (
-                    <li key={text}>{text}</li>
+                    <li key={text} data-parks={notes.has(text) || undefined}>
+                        {text}
+                    </li>
                 ))}
             </ul>
             {detail.chips.length > 0 && (

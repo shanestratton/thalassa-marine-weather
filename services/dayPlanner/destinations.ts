@@ -5,6 +5,7 @@
  * See docs/day-planner-destinations.md for provenance and maintenance rules.
  */
 export type DayPlannerActivity = 'snorkel' | 'beach' | 'walk' | 'lunch' | 'quiet' | 'explore';
+export type CompassPoint = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW';
 
 export interface DayPlannerDestination {
     id: string;
@@ -37,6 +38,12 @@ export interface DayPlannerDestination {
      *  prose says "mid to high tide". Plan Your Day turns it into an approximate
      *  window from the local tide curve; it never establishes a safe landing. */
     landingTide?: 'mid-to-high';
+    /** The winds the source's own access note says make access difficult,
+     *  machine-readable: set only where its prose names one (Chance Bay's
+     *  south-easterlies, Maureen's Cove's northerlies). Plan Your Day holds
+     *  the stop at "Some chop" when the wind is from there; the land around
+     *  it may say otherwise, and the note is the reviewed fact. */
+    accessWinds?: readonly CompassPoint[];
 }
 
 export interface ReviewedDayPlannerDestination extends DayPlannerDestination {
@@ -55,6 +62,18 @@ const WATER_NOTE =
     'Snorkelling visibility, currents, wildlife hazards and suitability for your group are not verified.';
 const PICNIC_NOTE = 'Lunch means a bring-your-own picnic; food service and table availability are not verified.';
 const QUIET_NOTE = 'Quiet is a preference match for a slower stop; crowd levels and calm water are not verified.';
+
+/** The catalogue's own boilerplate, true of every stop. Plan Your Day shows
+ *  each stop's OWN notes on its detail; these are said there once, as "Not a
+ *  clearance", and in Sources' "Not checked" (the activity tags they qualify
+ *  are not shown). */
+export const SHARED_DESTINATION_NOTES: ReadonlySet<string> = new Set([
+    POSITION_NOTE,
+    ACCESS_NOTE,
+    WATER_NOTE,
+    PICNIC_NOTE,
+    QUIET_NOTE,
+]);
 
 export const WHITSUNDAYS_DAY_DESTINATIONS: readonly ReviewedDayPlannerDestination[] = [
     {
@@ -127,6 +146,7 @@ export const WHITSUNDAYS_DAY_DESTINATIONS: readonly ReviewedDayPlannerDestinatio
         anchorageId: 'osm-node8925547809',
         anchorageName: 'Chance Bay',
         landingTide: 'mid-to-high',
+        accessWinds: ['SE'],
         referencePosition: 'existing-anchorage',
     },
     {
@@ -209,6 +229,7 @@ export const WHITSUNDAYS_DAY_DESTINATIONS: readonly ReviewedDayPlannerDestinatio
         anchorageId: 'osm-node2838870585',
         anchorageName: "Maureen's Cove",
         landingTide: 'mid-to-high',
+        accessWinds: ['N'],
         referencePosition: 'existing-anchorage',
     },
 ];

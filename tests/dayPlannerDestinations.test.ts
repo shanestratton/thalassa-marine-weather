@@ -69,6 +69,20 @@ describe('Whitsundays day-planner destination provenance', () => {
         ]);
     });
 
+    it('names a difficult-access wind only where the Parks prose names one (build 124)', () => {
+        const winds = Object.fromEntries(
+            WHITSUNDAYS_DAY_DESTINATIONS.filter((d) => d.accessWinds?.length).map((d) => [
+                d.anchorageName,
+                d.accessWinds,
+            ]),
+        );
+        expect(winds).toEqual({ 'Chance Bay': ['SE'], "Maureen's Cove": ['N'] });
+        for (const destination of WHITSUNDAYS_DAY_DESTINATIONS) {
+            const names = /south-easterly winds|northerlies/i.test(destination.accessNotes.join(' '));
+            expect(!!destination.accessWinds?.length, destination.id).toBe(names);
+        }
+    });
+
     it('marks a mid-to-high landing only where the Parks prose says so (build 124)', () => {
         const marked = WHITSUNDAYS_DAY_DESTINATIONS.filter((d) => d.landingTide === 'mid-to-high').map(
             (d) => d.anchorageName,

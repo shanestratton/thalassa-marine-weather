@@ -28,6 +28,7 @@ import { PLAN_DEPARTURE_EVENT, PLAN_DEPARTURE_KEY } from '../services/planDepart
 import { awaitSettingsLoaded, useSettingsStore } from '../stores/settingsStore';
 import type { VesselProfile } from '../types/vessel';
 import { DEFAULT_VESSEL } from '../utils/defaultVessel';
+import { resolveDayPlanLimits } from '../services/dayPlanner/today';
 import { H, MARINA, NOUMEA, NOW, fakeTodayDeps, type DayPlanScenario } from './helpers/dayPlanFixtures';
 
 const QLD_TILE = JSON.parse(readFileSync('public/anchorages/qld/t-22e148.geojson', 'utf8')) as {
@@ -125,7 +126,7 @@ describe('Screen 1: today at the boat, with no form', () => {
                     .map((c) => c.getAttribute('aria-label')),
             ).toEqual([
                 expect.stringMatching(
-                    /^Morning: south-east \d+( to \d+)? knots, gusts \d+, (inside|near) your limits$/,
+                    /^Morning: south-east \d+( to \d+)? knots, gusts \d+, (inside|near) your wind limits$/,
                 ),
                 expect.stringMatching(/^Afternoon: south-east/),
                 expect.stringMatching(/^Evening: south-east/),
@@ -208,6 +209,53 @@ describe('Screen 1: today at the boat, with no form', () => {
             for (const row of rows) expect(row.textContent).toMatch(/weather not checked/);
         });
         expect(within(dialog).getByTestId('day-plan-facts')).toHaveTextContent(/^☀ \d\d:\d\d–\d\d:\d\d/);
+    });
+
+    it('a Plan page departure never hides the morning, nor makes 06:30 "too late"', async () => {
+        // 17:00 today, left on the Plan page by another passage (or an earlier Plot on chart).
+        sessionStorage.setItem(
+            authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope()),
+            String(NOW + 10.5 * H),
+        );
+        const { dialog } = open();
+        const rows = await stopRows(dialog);
+        expect(within(dialog).getByTestId('day-plan-headline').textContent).not.toMatch(/Too late/);
+        const chips = within(within(dialog).getByRole('group', { name: 'Day' })).getAllByRole('button');
+        expect(chips[0]).toHaveAttribute('aria-pressed', 'true');
+        for (const row of rows) expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(/^Leave 0[7-9]:/);
+    });
+
+    it('thunder shows in the part it falls in, and stays out of the headline', async () => {
+        const { dialog } = open({ sheetIo: io({ scenario: 'thunder' }) });
+        const day = await within(dialog).findByRole('list', { name: 'The day' });
+        await waitFor(() => expect(within(day).getAllByRole('listitem')[1]).toHaveTextContent(/Thunder$/));
+        expect(within(day).getAllByRole('listitem')[1].getAttribute('aria-label')).toMatch(
+            /near your wind limits, thunder in 3 of 7 models$/,
+        );
+        expect(within(day).getAllByRole('listitem')[0]).toHaveTextContent(/Inside$/);
+        expect(within(dialog).getByTestId('day-plan-headline')).toHaveTextContent(
+            /^Morning's your window: inside your wind limits until about 12:00\. Afternoon gets near your limits\.$/,
+        );
+    });
+
+    it('places that could not be read say so: never an empty list that reads as fitting', async () => {
+        const fail = async () => {
+            throw new Error('Overpass unavailable');
+        };
+        const { dialog } = open({ sheetIo: io({ loader: { loadAtlas: fail, loadReferenceTile: fail } }) });
+        expect(await within(dialog).findByText("Places didn't load: OpenStreetMap didn't answer.")).toBeTruthy();
+        expect(within(dialog).getByRole('button', { name: /^All places/ })).toBeDisabled();
+        expect(within(dialog).queryByRole('list', { name: 'Stops' })).toBeNull();
+    });
+
+    it('while OpenStreetMap is still answering (no atlas here) it says it is finding places', async () => {
+        const { dialog } = open({
+            sheetIo: io({ loader: { loadAtlas: async () => [], loadReferenceTile: () => new Promise(() => {}) } }),
+        });
+        await waitFor(() => expect(within(dialog).getByTestId('day-plan-headline').textContent).toMatch(/kn/));
+        expect(within(dialog).getByTestId('day-plan-places')).toHaveTextContent('Finding places…');
+        expect(within(dialog).getByRole('button', { name: /^All places/ })).toBeDisabled();
+        expect(within(dialog).getByTestId('day-plan-headline').textContent).not.toMatch(/No anchorages mapped/);
     });
 
     it('closes when the account changes, and the close button closes it', async () => {
@@ -302,6 +350,55 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         expect(heard).toHaveLength(1);
     });
 
+    it("a reviewed stop keeps its own Parks notes, one per line under the stay: Cid Harbour's sharks", async () => {
+        const { dialog } = open();
+        const rows = await stopRows(dialog);
+        const cid = rows.find((r) => r.querySelector('.today-stop-name')!.textContent === 'Cid Harbour')!;
+        fireEvent.click(cid);
+        const detail = await screen.findByRole('dialog', { name: /^Cid Harbour/ });
+        const items = within(within(detail).getByRole('list', { name: 'How the day goes' }))
+            .getAllByRole('listitem')
+            .map((li) => li.textContent!);
+        const ashore = items.findIndex((t) => t.startsWith('Ashore '));
+        const shark = items.findIndex((t) =>
+            /^Do not swim in Cid Harbour: Queensland Parks warns of dangerous sharks/.test(t),
+        );
+        expect(ashore).toBeGreaterThan(-1);
+        expect(shark).toBeGreaterThan(ashore);
+        expect(items.some((t) => /The harbour reference is not a beach landing/.test(t))).toBe(true);
+    });
+
+    it("a stop whose route weather failed shows no times anywhere: it says the weather wasn't checked", async () => {
+        const fail = async () => {
+            throw new Error('proxy 503');
+        };
+        const { dialog, onPlot } = open({
+            sheetIo: io({ loader: { loadRouteSpread: fail, loadRouteForecast: fail } }),
+        });
+        const list = await within(dialog).findByRole('list', { name: 'Stops' });
+        await waitFor(() => {
+            const rows = within(list).getAllByRole('button');
+            expect(rows).toHaveLength(3);
+            for (const row of rows)
+                expect(row.querySelector('.today-stop-l2')!.textContent).toMatch(
+                    /^About \d+ NM · weather not checked$/,
+                );
+        });
+        fireEvent.click(within(list).getAllByRole('button')[0]);
+        const detail = await screen.findByRole('dialog', {
+            name: new RegExp(
+                `^${within(list).getAllByRole('button')[0].querySelector('.today-stop-name')!.textContent}`,
+            ),
+        });
+        expect(within(detail).getByText("Weather not checked: the forecast along the way didn't load.")).toBeTruthy();
+        expect(within(detail).queryByRole('group', { name: 'Leave at' })).toBeNull();
+        expect(within(detail).queryByText(/^Leave \d\d:\d\d → /)).toBeNull();
+        // Plot on chart still works, but sets no departure from a walk in no wind.
+        fireEvent.click(within(detail).getByRole('button', { name: 'Plot on chart' }));
+        expect(onPlot).toHaveBeenCalledOnce();
+        expect(sessionStorage.getItem(authScopedStorageKey(PLAN_DEPARTURE_KEY, getAuthIdentityScope()))).toBeNull();
+    });
+
     it('a leave chip recomputes the detail in place; Back returns to the day', async () => {
         const { dialog } = open();
         const [first] = await stopRows(dialog);
@@ -347,6 +444,9 @@ describe('All places', () => {
         const places = await screen.findByRole('dialog', { name: /^Places near / });
         expect(within(places).getByRole('heading', { name: 'Fits today' })).toBeTruthy();
         expect(within(places).getByRole('heading', { name: 'Not today' })).toBeTruthy();
+        // Beyond the best three the route weather was not checked: never listed as fitting.
+        expect(within(places).getByRole('heading', { name: 'Weather not checked' })).toBeTruthy();
+        expect(within(places).getAllByText(/ · about \d+ NM · route weather not checked$/).length).toBeGreaterThan(0);
         // Nara Inlet is closed for the week (Queensland Parks), whatever the weather.
         expect(within(places).getByText(/^Nara Inlet( · .+)? · closed 6–15 Oct \(Queensland Parks\)$/)).toBeTruthy();
         fireEvent.click(within(places).getByRole('button', { name: 'Close' }));
@@ -379,8 +479,28 @@ describe('Sources and limits', () => {
         expect(within(sources).getByRole('button', { name: /^Official warnings: Bureau of Meteorology/ })).toBeTruthy();
 
         fireEvent.click(within(sources).getByRole('button', { name: 'Change' }));
-        // The Comfort settings themselves, in place.
-        expect(within(sources).getByRole('button', { name: /Comfort/i })).toBeTruthy();
+        // The Comfort settings themselves, in place, starting from the limits in
+        // force (a typical cruiser's here), gusts included: never 35 kt / 4 m.
+        const limits = resolveDayPlanLimits(undefined, DEFAULT_VESSEL, true);
+        expect(within(sources).getByRole('button', { name: /Comfort/i })).toHaveTextContent(
+            `≤${limits.wind.poor}kt · gusts ≤${limits.gust.poor}kt · ≤${limits.wave.poor}m`,
+        );
+        expect(within(sources).getByRole('slider', { name: 'Max acceptable wind speed' })).toHaveValue(
+            String(limits.wind.poor),
+        );
+        expect(within(sources).getByRole('slider', { name: 'Max acceptable gust' })).toHaveValue(
+            String(limits.gust.poor),
+        );
+        expect(within(sources).getByRole('slider', { name: 'Max acceptable wave height' })).toHaveValue(
+            String(limits.wave.poor),
+        );
+        expect(within(sources).getByText('Sliders you haven’t moved show a typical cruiser’s limits.')).toBeTruthy();
+        // The angle bands are the router's alone.
+        expect(within(sources).queryByText(/Acceptable Wind Angles/i)).toBeNull();
+        fireEvent.change(within(sources).getByRole('slider', { name: 'Max acceptable gust' }), {
+            target: { value: '22' },
+        });
+        expect(useSettingsStore.getState().settings.comfortParams?.maxGustKts).toBe(22);
         act(() =>
             useSettingsStore.setState({
                 settings: { ...useSettingsStore.getState().settings, comfortParams: { maxWindKts: 12 } },

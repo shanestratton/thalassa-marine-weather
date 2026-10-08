@@ -11,10 +11,12 @@ if (!import.meta.env.DEV) throw new Error('The day-planner fixture is available 
 // provider or a boat. Fictional vessel, identity and places outside Queensland.
 //
 // ?mode= normal | split | over | offline | no-position | default-boat |
-// too-late | noumea | tromso. Opened at 06:30 on Thursday 8 October 2026 at
+// too-late | noumea | tromso | thunder. Opened at 06:30 on Thursday 8 October 2026 at
 // Airlie Beach, except too-late (16:00 that day) and tromso (08:00 CEST on
 // 21 June 2026, under the midnight sun). noumea and tromso are worldwide
 // starts: OpenStreetMap places only, no Queensland atlas, no coastline.
+// thunder is the default boat on a light morning with thunder in three models
+// from noon: the window headline at its longest, over the default-boat notice.
 class FixtureStorage implements Storage {
     private entries = new Map<string, string>();
     get length() {
@@ -48,7 +50,17 @@ window.fetch = async (input) => {
 };
 
 const params = new URLSearchParams(location.search);
-type Mode = 'normal' | 'split' | 'over' | 'offline' | 'no-position' | 'default-boat' | 'too-late' | 'noumea' | 'tromso';
+type Mode =
+    | 'normal'
+    | 'split'
+    | 'over'
+    | 'offline'
+    | 'no-position'
+    | 'default-boat'
+    | 'too-late'
+    | 'noumea'
+    | 'tromso'
+    | 'thunder';
 const MODES: Mode[] = [
     'normal',
     'split',
@@ -59,6 +71,7 @@ const MODES: Mode[] = [
     'too-late',
     'noumea',
     'tromso',
+    'thunder',
 ];
 const mode: Mode = MODES.find((m) => m === params.get('mode')) ?? 'normal';
 const pane = params.get('pane') === 'true';
@@ -95,7 +108,7 @@ const worldwide = mode === 'noumea' || mode === 'tromso';
 // Tromsø's OpenStreetMap cells were cached three days ago: used, with their date.
 const mappedMs = nowMs - 72 * data.H;
 const loader = data.fakeTodayDeps({
-    scenario: mode === 'over' || mode === 'offline' || mode === 'split' ? mode : 'normal',
+    scenario: mode === 'over' || mode === 'offline' || mode === 'split' || mode === 'thunder' ? mode : 'normal',
     nowMs,
     atlas: worldwide ? [] : atlas,
     osm:
@@ -135,10 +148,10 @@ if (mode === 'split') {
     const settings = useSettingsStore.getState().settings;
     useSettingsStore.setState({ settings: { ...settings, comfortParams: { maxWindKts: 30, maxGustKts: 40 } } });
 }
-const vessel =
-    mode === 'default-boat'
-        ? DEFAULT_VESSEL
-        : { ...DEFAULT_VESSEL, name: 'Synthetic yacht', length: 40, draft: 7.87, cruisingSpeed: 6 };
+const defaultBoat = mode === 'default-boat' || mode === 'thunder';
+const vessel = defaultBoat
+    ? DEFAULT_VESSEL
+    : { ...DEFAULT_VESSEL, name: 'Synthetic yacht', length: 40, draft: 7.87, cruisingSpeed: 6 };
 const io = {
     loader,
     readBoat: async () =>
@@ -186,7 +199,7 @@ function Fixture() {
                     {open && (
                         <TodaySheet
                             vessel={vessel}
-                            usingDefaultVessel={mode === 'default-boat'}
+                            usingDefaultVessel={defaultBoat}
                             onClose={() => setOpen(false)}
                             onPlot={(action) => {
                                 fixture.plotted.push(action);

@@ -25,6 +25,8 @@ Every position is copied exactly from the corresponding existing OpenStreetMap a
 
 `landingTide: 'mid-to-high'` is set where the Queensland Parks prose says shore access needs mid to high tide: Tongue Bay, Chance Bay, Cid Harbour and Maureen's Cove. Nara's note says mid-tide and Whitehaven's says nothing about the tide, so neither has it. Plan Your Day turns it into an approximate landing window from the tide curve, asked only when that stop's detail opens.
 
+`accessWinds` is set where the Parks prose names a wind that makes access difficult: Chance Bay (`SE`, "south-easterly winds can make access difficult") and Maureen's Cove (`N`, "exposure to strong northerlies"). Plan Your Day holds such a stop at "Some chop" when 10 kn or more blows from there during the stay, whatever its land fetch table says. Each stop's own `accessNotes` and `uncertaintyNotes` are shown on its Plan Your Day detail, one per line under the stay; the catalogue's shared boilerplate (`SHARED_DESTINATION_NOTES`) is left out there, said once as "Not a clearance" and in Sources.
+
 ## Meaning of activity tags
 
 Since build 124 the planner offers no activity choice and does not show these tags; they remain reviewed data.

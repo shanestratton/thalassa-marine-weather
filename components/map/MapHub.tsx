@@ -829,7 +829,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             : `Straight lines to ${plot.stop}: drag pins round the land, then Route report checks your charts`,
                     );
                 } else {
+                    // Never a silent dead end: the plotter is open, so say why it is empty.
                     log.warn('Plan Your Day asked to plot a day with unusable pins; nothing was loaded');
+                    flashTraceFeedback("Plan Your Day's pins didn't load: drop your own, or plot it again");
                 }
             } else if (action?.kind === 'load-trip-passage') {
                 // Derived "(Passage)" rollup: rebuilt fresh from the legs at
