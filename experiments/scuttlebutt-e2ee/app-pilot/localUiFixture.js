@@ -57,10 +57,20 @@
             configurable: false,
             writable: false,
             value: async (input, init) => {
-                const request = new Request(input, init);
+                let request;
+                try {
+                    request = new Request(input, init);
+                } catch {
+                    return denied();
+                }
                 if (request.url !== origin + '/auth/v1/token?grant_type=password' || request.method !== 'POST')
                     return denied();
-                const body = await request.json();
+                let body;
+                try {
+                    body = await request.json();
+                } catch {
+                    return denied();
+                }
                 if (
                     !body ||
                     body.email !== email ||

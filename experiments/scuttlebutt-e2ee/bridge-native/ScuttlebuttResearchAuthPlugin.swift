@@ -279,8 +279,17 @@ public final class ScuttlebuttResearchAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         Task {
             do {
                 let result = try await operation(adapter, version)
-                call.resolve(try result.publish())
-            } catch { call.resolve(Self.unavailable) }
+                let published = try result.publish()
+#if E2EE_PROTECTED_UI_FIXTURE
+                ResearchLocalUiFixture.notePmResult(method: call.methodName, status: published["status"] as? String ?? "unavailable")
+#endif
+                call.resolve(published)
+            } catch {
+#if E2EE_PROTECTED_UI_FIXTURE
+                ResearchLocalUiFixture.notePmResult(method: call.methodName, status: "unavailable")
+#endif
+                call.resolve(Self.unavailable)
+            }
         }
     }
 

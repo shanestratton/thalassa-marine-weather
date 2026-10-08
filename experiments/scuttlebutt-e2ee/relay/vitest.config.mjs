@@ -23,6 +23,7 @@ export default {
             'tests/E2eeResearchDeviceSigning.test.ts',
             'tests/E2eeResearchLaunchLifecycle.test.ts',
             'tests/E2eeResearchLocalUiFixture.test.ts',
+            'tests/E2eeProtectedUiFixture.test.ts',
             'tests/E2eeSimulatorEntitlements.test.ts',
             'tests/E2eeResearchNativePath.test.ts',
             'tests/E2eeResearchPrivateMessagePort.test.ts',

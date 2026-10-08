@@ -287,16 +287,23 @@ try {
         'Local UI proof requires its own bounded simulator evidence',
     );
     let localUi;
+    let protectedUi = false;
     if (localUiFile) {
         regular(localUiFile, 128 * 1024);
         localUi = JSON.parse(readFileSync(localUiFile, 'utf8'));
         assert(
-            Object.keys(localUi).sort().join(',') === 'runID,script,version' &&
-                localUi.version === 1 &&
+            ((Object.keys(localUi).sort().join(',') === 'runID,script,version' && localUi.version === 1) ||
+                (Object.keys(localUi).sort().join(',') === 'runID,scenario,script,version' &&
+                    localUi.version === 2 &&
+                    localUi.scenario === 'protected-exchange')) &&
                 typeof localUi.runID === 'string' &&
                 /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(localUi.runID),
         );
-        const script = readFileSync(join(EXPERIMENT, 'app-pilot/localUiFixture.js'), 'utf8');
+        protectedUi = localUi.version === 2;
+        const script = readFileSync(
+            join(EXPERIMENT, protectedUi ? 'app-pilot/protectedUiFixture.js' : 'app-pilot/localUiFixture.js'),
+            'utf8',
+        );
         assert(
             script.split('__RESEARCH_LOCAL_UI_RUN_ID__').length === 2 &&
                 localUi.script === script.replace('__RESEARCH_LOCAL_UI_RUN_ID__', localUi.runID),
@@ -467,6 +474,8 @@ try {
         ].map((name) => join(EXPERIMENT, name)),
     ];
     if (localUiFile) sourcePaths.push(join(HERE, 'ResearchLocalUiFixture.swift'));
+    if (protectedUi)
+        sourcePaths.push(join(HERE, 'ResearchProtectedUiRelay.swift'), join(HERE, 'ResearchProtectedUiFixture.swift'));
     sourcePaths.forEach((path) => regular(path, 1024 * 1024));
     scratch = mkdtempSync(join(tmpdir(), 'thalassa-messaging-build-'));
     chmodSync(scratch, 0o700);
@@ -515,6 +524,7 @@ try {
             'Any existing cached framework signatures are preserved; this runner performs no signing.',
         outputRoot: scratch,
         localUiFixture: !!localUiFile,
+        protectedUiFixture: protectedUi,
         localUiFrameworksReceiptSha256: localUiFile ? hash(frameworkReceiptFile) : null,
     };
     saveReceipt();
@@ -703,7 +713,12 @@ try {
             'MODULE_CACHE_DIR=' + join(scratch, 'Modules'),
             'SDK_STAT_CACHE_DIR=' + join(scratch, 'SDKStatCaches'),
             'COMPILATION_CACHE_ENABLE_CACHING=NO',
-            ...(localUiFile ? ['SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE'] : []),
+            ...(localUiFile
+                ? [
+                      'SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE' +
+                          (protectedUi ? ' E2EE_PROTECTED_UI_FIXTURE' : ''),
+                  ]
+                : []),
             'build',
         ],
         300_000,

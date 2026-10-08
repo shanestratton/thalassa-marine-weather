@@ -6,6 +6,15 @@ Two independent physical endpoints can expose custody, lifecycle and transport f
 
 ## Prerequisites and current blocks
 
+The [8 October protected UI fixture](../experiments/scuttlebutt-e2ee/review/protected-window-2026-10-08.json)
+passes an actual responder-role UI round trip in one new simulator with real
+native encryption/decryption and local Auth/relay responses. Sender/recipient
+hashes match all three accepted envelopes; UI displays incoming time/read status
+as unknown and no pending/unresolved records remain. This supplies no physical
+case, live SDK login, independent endpoints or process-death evidence. Retain the
+human installed candidate, keys and histories; these new sources have not been
+signed or installed on either human device.
+
 The [8 October native window fixture](../experiments/scuttlebutt-e2ee/review/native-window-2026-10-08.json)
 passes fresh, unregistered startup in a real WKWebView/Capacitor bridge on a new
 simulator, with the real SDK and native store but simulated Auth responses.

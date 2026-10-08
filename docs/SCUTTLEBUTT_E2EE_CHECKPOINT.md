@@ -121,6 +121,77 @@ Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
 
+### 8 October actual protected UI exchange with simulated services
+
+The local candidate adds a separate simulator-only protected scenario, retaining
+the cold startup control. A run-bound fixture action captures the same
+SDK-authenticated Research host and original binding, creates one fresh native
+peer, explicitly registers/protects/pins both endpoints, and claims only for the
+lower native device ID. No host send or inbox shortcut is supplied by the peer
+helper: those operations run through ordinary page controls.
+
+The stateful catch-all URLProtocol relay verifies registered public signatures,
+canonical request/record bytes and exact ciphertext receipts. It stores bounded
+opaque envelopes in memory and checks source-only canaries in JSON and decoded
+provider bytes. This is a synthetic relay, not hosted SQL or independent
+signature-code verification. Owned setup/reply tasks are tracked and canceled
+on early terminal reports; final counters wait for those tasks to settle. This
+does not establish settlement of every Capacitor plugin task. Fixed diagnostics
+contain no error bodies, credentials or message text.
+
+The **21-source protected simulator package compiles and runs in a real
+WKWebView/Capacitor/SDK window**. Sixteen DOM assertions, nine native guard
+groups and 55 measured native checks passed. The host's random device ID made
+it the responder: the peer sent an Olm opening; the actual UI inbox decrypted
+it; the compose/Send path encrypted a reply; the peer decrypted that exact
+envelope and sent a follow-up; the UI's Refresh control decrypted and displayed
+it. All three accepted envelope hashes matched committed sender and recipient
+rows. There were no pending or unresolved native rows, and both full
+fingerprints and original credential bindings remained current.
+
+The SDK used one local password response; the native host and peer each made
+two local verifier requests. The synthetic relay accepted two registrations,
+two explicit protection selections, one lower-device claim, three sends and
+three inbox scans. It verified two registration and 18 dispatch signatures;
+unexpected requests were zero. Canaries were absent from relay JSON and decoded
+provider bytes. Incoming UI time remained unknown and status was
+`Received · Read status unknown`; outgoing status was only `Relay accepted`.
+
+Retained failures include Swift callback-overload correction, an early setup
+refusal, an owned simulator boot refusal, shared-heavy-slot timeout and a
+premature send assertion. Accepted subscription rendering can precede draft
+clearance; the driver now waits for both and observes the current compose node
+after a remount. Progress receipts update safe counters rather than retaining
+initial zeros at timeout. Native counters measure permission checks (four paths
+can check twice), not one-for-one calls; PM result and relay/helper counters
+record actual outcomes/operations.
+
+Research regression passed **1,856 tests in 27 suites** and the overlapping
+app/pilot regression passed **689 in 32 suites**. The 24 new protected cases use
+DOM/SDK/control fakes and include delayed draft clearance and input remount for
+both roles; they are separate from the one actual responder-role run. Focused
+strict types and named lint passed. The
+[protected window manifest](../experiments/scuttlebutt-e2ee/review/protected-window-2026-10-08.json)
+links exact sources, successful artifacts, failures and remaining gates; the
+[earlier progress record](../experiments/scuttlebutt-e2ee/review/protected-window-progress-2026-10-08.json)
+retains the prior incomplete state.
+
+The separate real cold-startup control passed again: unregistered admission
+stays unknown and no setup or PM operation runs. The ordinary, unflagged
+**18-source Research physical-iOS compile passed unsigned**, excluding protected
+fixture sources/resources and simulated entitlement sections. It was not signed,
+installed or executed, and is not a shipping Thalassa build.
+
+This proves a bounded actual UI/provider round trip with synthetic Auth/relay,
+not live login/HTTPS/SQL, two physical endpoints, actual initiator-role UI,
+retry/process death, full-app cutover or independent security review. All owned
+simulators were removed; human devices/accounts and spent hosted actors were
+unchanged. Next is fail-closed full-app admission and scoped lifecycle/recovery
+work, keeping ordinary builds and production disabled. Device/prekey renewal,
+replacement, retention, independent concurrency, provenance/licence obligations,
+physical acceptance and external assessment remain release gates. No master,
+primary sync, hosted or production change occurred.
+
 ### 8 October actual iOS startup with simulated Auth
 
 The dedicated Research entry now runs in a real WKWebView with the real
