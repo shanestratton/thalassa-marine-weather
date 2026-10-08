@@ -8,6 +8,11 @@
  * bathymetric, isochrone or corridor route is drawn in its place, and the
  * plan carries the refusal whole, said again under its summary
  * (savedInshoreRouteCaveats).
+ *
+ * RE-PIN (package 125-05, Shane 2026-10-08: "better we just have red at the
+ * "dry" zones, rather than just shit caning the whole route"): the inshore
+ * router no longer refuses for water no tide clears — it routes through it,
+ * red and named — so only 'air-draft-blocked' is final here.
  */
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -252,7 +257,7 @@ async function calculate(): Promise<VoyagePlan[]> {
 }
 
 describe('a final inshore refusal draws no route in the voyage form', () => {
-    for (const code of ['no-tide-clears', 'air-draft-blocked'] as const) {
+    for (const code of ['air-draft-blocked'] as const) {
         it(`${code}: no bathymetric, isochrone or corridor route, and the refusal said whole`, async () => {
             mocks.tryInshore.mockResolvedValue({ error: REFUSAL, code });
             const saved = await calculate();

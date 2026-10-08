@@ -856,6 +856,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                                 waterPack: inshoreRes.waterPack,
                                                 // Too close to a shallow band (fix-up review, 2026-10-03).
                                                 nearShallow: nearShallowSummary(inshoreRes.chartedShallowSpans),
+                                                // Red where no tide clears it (package 125-05).
+                                                dryRuns: inshoreRes.dryRuns,
                                             }),
                                         },
                                     };

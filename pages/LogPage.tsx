@@ -123,6 +123,7 @@ import {
     deriveLiveStats,
     derivePlannedRouteLinkIds,
     derivePlannedVoyageIds,
+    plannedRouteDryReasons,
     refreshFollowSheetStatuses,
     sameFollowStatus,
 } from './log/logPageDerive';
@@ -658,6 +659,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         [followRouteIdentity.summaries, plannedRouteLinkIds, currentFix],
     );
 
+    // A plan the router drew red where no tide clears it is a red finding
+    // too (package 125-05), read off its resident notes.
+    const plannedDryReasons = React.useMemo(() => plannedRouteDryReasons(state.entries), [state.entries]);
+
     /**
      * EVERY planned route reaches the sheet, carrying its follow status. The
      * history matters: pick-then-refuse (Shane 2026-08-10: "just show tracks
@@ -671,11 +676,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * Two link sources, because entries may not be resident on a fresh boot:
      * the entry rows when loaded, else the local trace store's own
      * plannedRouteId mirror. An ordinary plan (no trace link) has no gate to
-     * fail and is always pickable.
+     * fail and is always pickable — unless the router drew it red where no
+     * tide clears it (package 125-05): its resident notes make it a red
+     * finding too (plannedDryReasons, above).
      */
     const followSheetChoices = React.useMemo(
-        () => buildFollowSheetChoices(plannedChoices, plannedRouteLinkIds),
-        [plannedChoices, plannedRouteLinkIds],
+        () => buildFollowSheetChoices(plannedChoices, plannedRouteLinkIds, undefined, plannedDryReasons),
+        [plannedChoices, plannedRouteLinkIds, plannedDryReasons],
     );
 
     // A historical mirror can be identified after the sheet opened. Refine
@@ -692,9 +699,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         setFollowPromptChoices((previous) => {
             const identity = reconcileFollowSnapshot(previous.map((choice) => choice.summary));
             const keep = new Set(identity.summaries.map((summary) => summary.voyageId));
+            // An ordinary plan's red (package 125-05) is its notes', not a
+            // check's: keep it, whether read from them or found at the pick.
+            const dry = new Map(plannedDryReasons);
+            for (const choice of previous)
+                if (!choice.savedRouteId && choice.followStatus?.tone === 'finding' && choice.followStatus.reason)
+                    dry.set(choice.summary.voyageId, choice.followStatus.reason);
             const next = buildFollowSheetChoices(
                 previous.filter((choice) => keep.has(choice.summary.voyageId)),
                 identity.links,
+                undefined,
+                dry,
             );
             const unchanged =
                 next.length === previous.length &&
@@ -719,6 +734,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         followPromptLoadingId,
         recheckingRouteId,
         ackReport,
+        plannedDryReasons,
     ]);
 
     /** A check landed or was recovered: re-read the open sheet's statuses. */
@@ -885,6 +901,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
      * state while this fetches the voyage. Summary endpoints alone are not
      * drawn because a straight chord can cross land or shoals.
      */
+    /** A red finding's deliberate second tap on a voyage card's Follow (the
+     *  sheet's rows accept through acceptFindingFor, the same set). */
+    const acceptPlannedRouteFinding = React.useCallback((voyageId: string) => {
+        acceptedFindingsRef.current.add(voyageId);
+    }, []);
+
     const followPlannedRouteLocally = React.useCallback(
         async (summary: VoyageSummary): Promise<boolean> => {
             const actionScope = identityScope;
@@ -948,6 +970,20 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 if (status.blocked) {
                     // The snapshot row may predate the finding: turn it red.
                     refreshFollowStatuses();
+                    // An ordinary plan's finding is its own notes' (package
+                    // 125-05: red where no tide clears it), not a check's.
+                    if (!steerRoute.savedRouteId) {
+                        const { blocked: _blocked, ...finding } = status;
+                        setFollowPromptChoices((prev) =>
+                            prev.map((choice) =>
+                                choice.summary.voyageId === voyageId &&
+                                !choice.savedRouteId &&
+                                !sameFollowStatus(choice.followStatus, finding)
+                                    ? { ...choice, followStatus: finding }
+                                    : choice,
+                            ),
+                        );
+                    }
                     throw new Error(
                         `${TRACE_ROUTE_USE_BLOCK_PREFIX}${status.reason ?? 'The route check found a problem'}. Tap the route twice to follow anyway.`,
                     );
@@ -1155,6 +1191,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (!summary) return;
         remoteHydratedRef.current = key;
         confirmedFollowVoyages.add(remotePassage.voyageId);
+        // The other device already follows it — a red finding (a plan red
+        // where no tide clears it, package 125-05) was accepted there, by
+        // its own second tap: draw it here too.
+        acceptedFindingsRef.current.add(link.planVoyageId);
         void followPlannedRouteLocally(summary).catch((error) => {
             log.warn('Could not draw the route the other device follows:', error);
         });
@@ -2435,6 +2475,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 onArchive={handleArchiveVoyage}
                                                 onShowMap={handleShowVoyageMap}
                                                 onFollowPlannedRoute={followPlannedRouteLocally}
+                                                onAcceptPlannedRouteFinding={acceptPlannedRouteFinding}
                                                 onNeedEntries={loadVoyageEntries}
                                                 filteredEntries={filteredEntries}
                                                 onDeleteEntry={handleDeleteEntry}

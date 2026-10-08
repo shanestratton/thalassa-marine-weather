@@ -12,7 +12,10 @@
  *     "Tide times not loaded — this route may cross water no tide clears.
  *     Check before you go." An all-deep route says nothing.
  *   • With the tide in and no way round, there is no route, and the refusal
- *     names the spot from the chart's own sea-area names.
+ *     names the spot from the chart's own sea-area names — RE-PINNED by
+ *     package 125-05 (Shane, 2026-10-08: "better we just have red at the
+ *     "dry" zones"): the route goes through, red, and names the spot instead
+ *     (InshoreRouteResult.dryRuns).
  *
  * A synthetic chart clear of every regional marker file (no network): two
  * 5–10 m basins joined only by a 300 m "Boat Passage" charted drying
@@ -188,15 +191,14 @@ describe('decision 11 through tryInshoreRoute', () => {
         }
     }, 60_000);
 
-    it('with the tide in (top 2.5 m) and no way round: no route, and the refusal names the Boat Passage', async () => {
+    it('with the tide in (top 2.5 m) and no way round: the route, red, names the Boat Passage (125-05)', async () => {
         mocks.curve.mockResolvedValue(curveTopping(2.5));
         const r = await tryInshoreRoute(FROM, TO, 2.4, 18);
-        expect(r && 'error' in r, r && 'polyline' in r ? `routed ${r.distanceNM.toFixed(2)} NM` : 'null').toBe(true);
-        if (!r || !('error' in r)) return;
-        expect(r.code).toBe('no-tide-clears');
-        expect(r.error).toBe(
-            'No route for 2.4 m draft: the only way through crosses the Boat Passage, charted to dry 2.2 m; ' +
-                'the highest tide in the next 14 days is 2.5 m and you need 2.9 m.',
+        expect(r && 'polyline' in r, r && 'error' in r ? `${r.code}: ${r.error}` : 'null').toBe(true);
+        if (!r || !('polyline' in r)) return;
+        expect(r.dryRuns?.map((d) => [d.place, d.shallowestM])).toEqual([['the Boat Passage', -2.2]]);
+        expect(inshoreRouteCaveats({ dryRuns: r.dryRuns })[0]).toMatch(
+            /^Red on this route: the Boat Passage dries 2\.2 m and you need 2\.9 m/,
         );
     }, 60_000);
 
@@ -241,8 +243,9 @@ describe('decision 11 through tryInshoreRoute', () => {
                 tideCeilings: [{ lat: -30.5, lon: 150.5, highestM: 3.0, days: 14 }],
             }),
         ]);
-        expect(low && 'error' in low ? low.code : 'routed').toBe('no-tide-clears');
-        expect(high && 'polyline' in high, high && 'error' in high ? high.error : 'null').toBe(true);
+        // Both route since 125-05; each names the tide it was handed.
+        expect(low && 'polyline' in low ? low.dryRuns?.[0]?.tide?.topM : 'refused').toBe(2.5);
+        expect(high && 'polyline' in high ? high.dryRuns?.[0]?.tide?.topM : 'refused').toBe(3.0);
     }, 60_000);
 
     it('a caller that hands in the ceilings is not re-fetched', async () => {
@@ -250,7 +253,8 @@ describe('decision 11 through tryInshoreRoute', () => {
             tideCeilings: [{ lat: -30.5, lon: 150.45, highestM: 2.5, days: 14 }],
         });
         expect(mocks.curve).not.toHaveBeenCalled();
-        expect(r && 'error' in r ? r.code : 'routed').toBe('no-tide-clears');
+        // Routed since 125-05, red and named by the tide it was handed.
+        expect(r && 'polyline' in r ? r.dryRuns?.[0]?.tide?.topM : 'refused').toBe(2.5);
     }, 60_000);
 });
 

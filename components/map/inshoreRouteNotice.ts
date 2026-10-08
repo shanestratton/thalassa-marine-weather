@@ -8,10 +8,12 @@ import {
     nearSpanBlocks,
     type ChartedShallowSpan,
     type DepthBend,
+    type DryRun,
     type PinOffWater,
     type PinTail,
     type SurveyRunInfo,
 } from '../../services/engine/types';
+import { dryRunCaveat, dryRunNoticeTitle, savedDryRuns } from '../../services/routing/dryRunWords';
 import { waterPackCaveats, type WaterPackEnd, type WaterPackUse } from '../../services/waterPack/waterPackWords';
 import { formatLatDegMin, formatLonDegMin } from '../../utils/formatDegMin';
 
@@ -50,6 +52,11 @@ export interface InshoreRouteNoticeInput {
     /** The route's turn off the straight line for deeper water
      *  (InshoreRouteResult.depthBend; Port of Airlie, 2026-10-04). */
     depthBend?: DepthBend;
+    /** The dry stretches the route crosses, red — water no tide clears, or
+     *  drying ground with no tide data to clear it — because there is no
+     *  deeper way round (InshoreRouteResult.dryRuns; package 125-05, Shane
+     *  2026-10-08: "better we just have red at the "dry" zones"). */
+    dryRuns?: readonly DryRun[];
     ntmLockBanner: PassageNotice | null;
 }
 
@@ -261,6 +268,12 @@ export function inshoreRouteCaveats(input: Omit<InshoreRouteNoticeInput, 'ntmLoc
     // offline pack or the Pi's stale copy is said first, with its date and
     // the OSM credit — it is the water the whole route stands on.
     const out: string[] = [...waterPackCaveats(input.waterPack)];
+    // Package 125-05 (Shane, 2026-10-08): the route goes through water no
+    // tide clears where there is no deeper way round, red — said next, each
+    // stretch with its charted depth against draft + UKC, instead of the
+    // refusal that used to stand in for the whole route.
+    const dry = dryRunCaveat(input.dryRuns);
+    if (dry) out.push(dry);
     const gaps = input.structuresUnknownCells?.length ?? 0;
     if (gaps > 0) {
         out.push(
@@ -375,41 +388,51 @@ export function inshoreRouteNotice(input: InshoreRouteNoticeInput): PassageNotic
     const shallowPinNote = [input.pinTail?.origin, input.pinTail?.destination].some(
         (t) => !!t && !t.direct && Number.isFinite(t.depthM) && Number.isFinite(t.needsM),
     );
+    // Red where no tide clears it (125-05) — unless it is red for want of
+    // tide data because the tide times did not load: that title says why.
+    const dryTitle =
+        input.tideCheck === 'not-loaded' && input.dryRuns?.some((r) => r.tide === null)
+            ? null
+            : dryRunNoticeTitle(input.dryRuns);
     return {
         severity: 'warn',
-        title:
-            gaps > 0
-                ? 'Bridges and power lines not checked'
-                : offWater
-                  ? 'Pin off the water'
-                  : input.tideCheck === 'not-loaded'
-                    ? 'Tide times not loaded'
-                    : pack
-                      ? input.waterPack?.source === 'none'
-                          ? 'Harbour water not saved'
-                          : 'Saved harbour water'
-                      : shallowPinNote
-                        ? 'Shallow pin'
-                        : nearShallowCaveat(input.nearShallow)
-                          ? 'Close to shallow water'
-                          : channelEdgeCaveat(input.nearShallow) &&
-                              (channelEdgeHeadlines(input.nearShallow) || surveyCaveats(input).length === 0)
-                            ? 'Close to the channel edge'
-                            : 'Survey quality',
+        title: dryTitle
+            ? dryTitle
+            : gaps > 0
+              ? 'Bridges and power lines not checked'
+              : offWater
+                ? 'Pin off the water'
+                : input.tideCheck === 'not-loaded'
+                  ? 'Tide times not loaded'
+                  : pack
+                    ? input.waterPack?.source === 'none'
+                        ? 'Harbour water not saved'
+                        : 'Saved harbour water'
+                    : shallowPinNote
+                      ? 'Shallow pin'
+                      : nearShallowCaveat(input.nearShallow)
+                        ? 'Close to shallow water'
+                        : channelEdgeCaveat(input.nearShallow) &&
+                            (channelEdgeHeadlines(input.nearShallow) || surveyCaveats(input).length === 0)
+                          ? 'Close to the channel edge'
+                          : 'Survey quality',
         message: caveats.join(' '),
     };
 }
 
 /**
  * A refusal no other router may draw past (decision 11 fix-up, 2026-10-01):
- * a bridge or power line the mast cannot clear ('air-draft-blocked'), or water
- * no tide clears for the keel with no way round ('no-tide-clears', owner
- * decision 11: "draw no route and say why"). The bathymetric, isochrone and
- * corridor routers know nothing of either, so a plan they drew in its place
- * went through the very water or under the very bridge the refusal named.
+ * a bridge or power line the mast cannot clear ('air-draft-blocked'). The
+ * bathymetric, isochrone and corridor routers know nothing of it, so a plan
+ * they drew in its place went under the very bridge the refusal named.
+ *
+ * Water no tide clears ('no-tide-clears') is no longer one (package 125-05;
+ * Shane, 2026-10-08: "better we just have red at the "dry" zones, rather than
+ * just shit caning the whole route"): the inshore router routes through it,
+ * red and named (InshoreRouteResult.dryRuns), and never refuses for it.
  */
 export function isFinalInshoreRefusal(code: unknown): boolean {
-    return code === 'no-tide-clears' || code === 'air-draft-blocked';
+    return code === 'air-draft-blocked';
 }
 
 /** A saved route's water-pack facts (inshoreRouteToGeoJSON), checked;
@@ -550,14 +573,19 @@ export function savedInshoreRouteCaveats(
             // the stretches themselves since the round-3 fix-up, else the
             // summary an older save kept.
             nearShallow: savedNearShallowSpans(p.nearShallowSpans) ?? savedNearShallow(p.nearShallow),
+            // The dry stretches, red (package 125-05).
+            dryRuns: savedDryRuns(p.dryRuns),
         });
     }
     const saved = plan.__inshoreRouting;
     // A final refusal is what the plan must say instead of a route (fix-up,
-    // 2026-10-01): whole — the spot, its depth, the tide and the need.
+    // 2026-10-01): whole — the spot, its depth, the tide and the need. So is
+    // a refusal for water no tide clears saved by build 124 or earlier
+    // (review fix-up, 2026-10-09): that plan drew no route, and its refusal
+    // is its only explanation until it is routed again.
     if (
         saved?.status === 'failed' &&
-        isFinalInshoreRefusal(saved.errorCode) &&
+        (isFinalInshoreRefusal(saved.errorCode) || saved.errorCode === 'no-tide-clears') &&
         typeof saved.error === 'string' &&
         saved.error.trim() !== ''
     ) {
