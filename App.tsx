@@ -46,6 +46,11 @@ import {
     captureLegacyPrivateMessagePermit,
     isLegacyPrivateMessagePermitCurrent,
 } from './services/chat/e2ee/privateMessageCutover';
+import {
+    getAppPrivateMessageSelection,
+    normalizeAppPrivateMessageSelection,
+    type AppPrivateMessageSelectionProps,
+} from './services/chat/e2ee/appPrivateMessageSelection';
 import { PageTransition } from './components/ui/PageTransition';
 import { BuilderDeepLink } from './components/BuilderDeepLink';
 import { PlanSignOutButton } from './components/PlanSignOutButton';
@@ -127,7 +132,19 @@ const SystemStatusFallback: React.FC = () => (
     />
 );
 
-const App: React.FC = () => {
+export type AppProps = AppPrivateMessageSelectionProps;
+
+const App: React.FC<AppProps> = (props) => {
+    // Explicit injection denies legacy before any hook/bootstrap work. Module
+    // imports have already evaluated; isolated entries must fence those first.
+    const requestedPrivateMessageSelection = getAppPrivateMessageSelection(props);
+    const privateMessageSelectionRequired = useRef(requestedPrivateMessageSelection !== undefined);
+    if (requestedPrivateMessageSelection !== undefined) privateMessageSelectionRequired.current = true;
+    // Once this mount selects the test lane, prop removal cannot reopen legacy
+    // routing. Account changes and invalid selections never reset this ref.
+    const privateMessageSelection =
+        requestedPrivateMessageSelection ??
+        (privateMessageSelectionRequired.current ? normalizeAppPrivateMessageSelection(undefined) : undefined);
     const privatePushTapPermit = captureLegacyPrivateMessagePermit(getAuthIdentityScope());
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData, positionSource } = useWeather();
@@ -1565,6 +1582,9 @@ const App: React.FC = () => {
                                                                         weatherLocationType: weatherData?.locationType,
                                                                         weatherModelUsed: weatherData?.modelUsed,
                                                                         chatUnread,
+                                                                        ...(privateMessageSelection === undefined
+                                                                            ? {}
+                                                                            : { privateMessageSelection }),
                                                                     };
                                                                     const viewProps =
                                                                         activeViewConfig.getProps?.(viewCtx) ?? {};

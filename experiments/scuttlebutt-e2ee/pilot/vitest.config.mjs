@@ -33,6 +33,7 @@ export default {
             'tests/hooks/ChatDMEncryptionPilot.test.tsx',
             'tests/hooks/ChatDMBlocking.test.tsx',
             'tests/ChatPage.test.tsx',
+            'tests/AppPrivateMessageSelection.test.tsx',
             'tests/PrivateMessagePilotImportIsolation.test.tsx',
             'tests/ChatModerationPrivacy.test.ts',
             'tests/KeyboardSafeSheets.test.ts',
