@@ -38,7 +38,7 @@ describe('Log follow steers the geometry it verified', () => {
         const identity = body.indexOf('const pickerTraceId = plannedRouteGeometryIds.get(voyageId)');
         const link = body.indexOf('const linkedRoute =');
         const substitute = body.indexOf('const steerRoute = tracedRouteFollowGeometry(linkedRoute)');
-        const check = body.indexOf('tracedRouteDirectUseBlockReason(');
+        const check = body.indexOf('tracedRouteDirectUseStatus(');
         expect(identity).toBeGreaterThan(-1);
         expect(link).toBeGreaterThan(identity);
         expect(body).toContain(
@@ -50,18 +50,20 @@ describe('Log follow steers the geometry it verified', () => {
     });
 
     it('verifies, plans and follows one and the same object', () => {
-        expect(body).toContain('tracedRouteDirectUseBlockReason(steerRoute)');
+        expect(body).toContain('tracedRouteDirectUseStatus(steerRoute, { acceptFinding })');
         expect(body).toContain('buildFollowRoutePlanFromRoute(steerRoute)');
         expect(body).toContain('startFollowing(exactPlan, voyageId, steerRoute.points)');
         // The raw log line must not reach any of the three.
-        expect(body).not.toContain('tracedRouteDirectUseBlockReason(logRoute)');
+        expect(body).not.toContain('tracedRouteDirectUseStatus(logRoute');
         expect(body).not.toContain('startFollowing(exactPlan, voyageId, logRoute.points)');
     });
 
     it('keeps the gate — substitution is not a bypass', () => {
         // Steering the checked line is what makes the check PASS honestly; it
-        // must not become a reason to stop checking.
+        // must not become a reason to stop checking. A red finding still
+        // refuses until the skipper accepts it with the second tap.
         expect(body).toContain('TRACE_ROUTE_USE_BLOCK_PREFIX');
+        expect(body).toContain('if (status.blocked)');
     });
 
     it('offers EVERY planned route, carrying the follow gate verdict per row', () => {
@@ -77,10 +79,12 @@ describe('Log follow steers the geometry it verified', () => {
         // Since the cast-off sheet learned trip legs (2026-09-08) the row builder
         // takes the gate through its deps so tests can seed it — the live deps
         // still wire the real gate, and every row still carries its verdict.
-        expect(code).toContain('blockReason: savedTraceFollowBlockReason');
-        expect(code).toContain('deps.blockReason(sid)');
+        // Build 124: the verdict is a three-state status (checked / amber /
+        // red), still wired from the real gate and carried on every row.
+        expect(code).toContain('followStatus: savedTraceFollowStatus');
+        expect(code).toContain('deps.followStatus(sid)');
         expect(code).toContain('setFollowPromptChoices(followSheetChoices);');
-        expect(code).toContain('blockReason={blockReason}');
+        expect(code).toContain('followStatus={followStatus}');
     });
 });
 

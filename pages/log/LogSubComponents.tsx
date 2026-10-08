@@ -25,6 +25,7 @@ import {
 } from '../../utils/voyageData';
 import { createLogger } from '../../utils/createLogger';
 import { usePersistedState } from '../../hooks/usePersistedState';
+import { traceCheckDayLabel, type TraceFollowStatus } from '../../services/traceVerification';
 
 const log = createLogger('LogPage');
 
@@ -100,30 +101,23 @@ export const FollowRouteChoice: React.FC<{
     summary: VoyageSummary;
     /** This route has a saved reverse, collapsed into this row. */
     reversible?: boolean;
-    /** Follow-gate refusal. Non-null renders the row as a ROUTE TO THE FIX
-     *  rather than a pickable choice — tapping opens Route Tracer on it.
-     *
-     *  Sheet design history, four versions now: pick-then-refuse (Shane
-     *  2026-08-10: "just show tracks that are ready to be followed"), then
-     *  hide-the-blocked (2026-08-13: "the saved routes do not show up"), then
-     *  show-them-disabled — which fixed visibility and left a list you could
-     *  read but not touch (2026-08-13: "i cannot actually accept it. it has
-     *  no way of selecting"). A disabled control with explanatory microcopy
-     *  is still a dead end. So a blocked row now DOES something: it takes you
-     *  to the one screen that can clear the block. */
-    blockReason?: string | null;
-    /** Called instead of onPick when blocked — opens Route Tracer on this
-     *  route. Without it a blocked row falls back to being inert. */
-    onCheckRoute?: () => void;
-    /** This row is fetching its waypoints from the account. Scoped to the row
-     *  on purpose — the sheet stays fully usable while it runs. */
+    /** The follow status (build 124; Shane 2026-10-08: "maybe just a warning
+     *  rather than having to almost start again"). Five designs in two months:
+     *  pick-then-refuse, hide-the-blocked, show-them-disabled, tap-to-fix, and
+     *  now three states — green follows; AMBER follows too, with its reason on
+     *  the row and a trailing Check now; RED (a real check's finding nobody
+     *  acknowledged) takes two taps, like Sail. null = an ordinary plan. */
+    followStatus?: TraceFollowStatus | null;
+    /** A background check of this route is running. */
     checking?: boolean;
-    /** Call-to-action under the block reason. Varies: the first tap runs the
-     *  check here, a later one opens the tracer. */
-    checkLabel?: string;
-    /** Live progress while checking — a cold recheck runs tens of seconds, and
-     *  an indefinite spinner on a 60-second wait reads as a hang. */
+    /** "Checking… 12 of 41" — a cold check can run minutes on a passage. */
     checkingLabel?: string;
+    onCheckNow?: () => void;
+    onStopCheck?: () => void;
+    /** Red and acknowledgeable here: opens the route report in place. */
+    onReview?: () => void;
+    /** Red and not acknowledgeable (land): the fix is an edit. */
+    onFixInTracer?: () => void;
     loading?: boolean;
     disabled?: boolean;
     /** This route is a LEG of a passage, sitting under its heading. Marked by
@@ -137,15 +131,18 @@ export const FollowRouteChoice: React.FC<{
      *  geocoded endpoint guess: it is the name the PLAN library shows, so the
      *  two surfaces agree about what a route is called (Shane 2026-09-02). */
     savedName?: string;
-    onPick: () => void;
+    /** `acceptFinding` is true only for a red row's armed second tap. */
+    onPick: (acceptFinding?: boolean) => void;
 }> = ({
     summary,
     reversible = false,
-    blockReason = null,
-    onCheckRoute,
+    followStatus = null,
     checking = false,
-    checkLabel = 'Tap to check it in Route Tracer →',
     checkingLabel,
+    onCheckNow,
+    onStopCheck,
+    onReview,
+    onFixInTracer,
     loading = false,
     disabled = false,
     isLeg = false,
@@ -156,11 +153,17 @@ export const FollowRouteChoice: React.FC<{
     const first = summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
     const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
     const { startLabel, endLabel } = useEndpointNames(first, last);
-    const blocked = blockReason !== null;
+    const tone = followStatus?.tone ?? null;
+    const red = tone === 'finding';
+    // Red: the first tap arms "Tap again to follow anyway" for 4 s — the
+    // pattern Sail uses for a route with no-go legs (MapHub).
+    const [armed, setArmed] = useState(false);
+    useEffect(() => {
+        if (!armed) return;
+        const timer = setTimeout(() => setArmed(false), 4_000);
+        return () => clearTimeout(timer);
+    }, [armed]);
 
-    // Round trips and single-fix plans collapse to one name instead of the
-    // silly "Newport → Newport". "Suggested route" survives only as the honest
-    // last resort when nothing resolved — offline, mid-ocean, or a bad fix.
     // The saved route's own name wins when it exists — endpoints are a guess
     // (two offshore fixes both geocoded to "Coral Sea" and collapsed to a
     // single word on the cast-off sheet, 2026-09-02). Round trips and
@@ -172,76 +175,109 @@ export const FollowRouteChoice: React.FC<{
             : (startLabel ?? endLabel ?? 'Suggested route');
     const routeName = savedName?.trim() || geocodedName;
 
+    const trailing = red
+        ? onReview
+            ? { label: 'Review', onClick: onReview }
+            : onFixInTracer
+              ? { label: 'Fix in tracer', onClick: onFixInTracer }
+              : null
+        : tone === 'unchecked' && followStatus?.code !== 'nodraft'
+          ? checking
+              ? onStopCheck
+                  ? { label: 'Stop', onClick: onStopCheck }
+                  : null
+              : onCheckNow
+                ? { label: 'Check now', onClick: onCheckNow }
+                : null
+          : null;
+    const detail = loading
+        ? 'Loading route…'
+        : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts${
+              tone === 'checked' && followStatus?.checkedAt
+                  ? ` · checked ${traceCheckDayLabel(followStatus.checkedAt)}`
+                  : ''
+          }`;
+    const note = tone === 'unchecked' && checking ? (checkingLabel ?? 'Checking…') : followStatus?.reason;
+
     return (
-        <button
-            onClick={blocked ? onCheckRoute : onPick}
-            // NOT disabled when blocked — only while another row is loading.
-            // Blocked rows stay tappable because tapping is how you fix them.
-            disabled={disabled || checking || (blocked && !onCheckRoute)}
-            aria-busy={loading || checking}
-            className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${
-                blocked ? 'border-amber-500/25 bg-amber-500/6' : 'border-white/10 bg-slate-800/60'
+        <div
+            data-follow-tone={tone ?? 'plain'}
+            className={`flex w-full items-stretch rounded-xl border ${
+                red
+                    ? 'border-red-500/40 bg-red-500/8'
+                    : tone === 'unchecked'
+                      ? 'border-amber-500/25 bg-amber-500/6'
+                      : 'border-white/10 bg-slate-800/60'
             }`}
         >
-            {/* The saved-routes grammar, shared with the Passage Planning
-                picker and the PLAN library (Shane 2026-08-30: that layout is
-                "the gold standard"). The glyph is its own element rather than
-                a character inside the name, and the ⇄ badge sits OUTSIDE the
-                truncating span — it used to live inside it, so a long route
-                name could eat the one mark telling you a direction had been
-                chosen on your behalf.
-
-                A pin for a day sail, the ↳ dog-leg for a leg under its
-                passage heading — the compass stays reserved for the passage
-                row itself. Trip structure arrives via the trace store join in
-                LogPage (tripIdentityByTraceId), not VoyageSummary. */}
-            <span aria-hidden="true" className="shrink-0 text-base leading-none">
-                {isLeg ? '↳' : '📍'}
-            </span>
-            <span className="min-w-0 flex-1">
-                <span
-                    className={`flex items-baseline gap-1.5 text-[13px] font-bold ${blocked ? 'text-gray-400' : 'text-gray-100'}`}
-                >
-                    <span className="min-w-0 truncate">{routeName}</span>
-                    {legBadge && <span className="shrink-0">{legBadge}</span>}
-                    {/* The return leg is a separate saved voyage, folded into this
-                        row. Marked rather than silently dropped — the direction shown
-                        is the one starting nearest the boat, and a skipper should be
-                        able to see that a choice was made on their behalf. */}
-                    {reversible && (
-                        <span className="shrink-0 text-[11px] font-black text-gray-500" title="Return leg also saved">
-                            ⇄
+            <button
+                type="button"
+                onClick={() => {
+                    if (red && !armed) {
+                        setArmed(true);
+                        return;
+                    }
+                    setArmed(false);
+                    onPick(red ? true : undefined);
+                }}
+                // Only while another row is loading — a row is never a dead end.
+                disabled={disabled}
+                aria-busy={loading || checking}
+                className="flex min-w-0 flex-1 items-start gap-2.5 px-3 py-2 text-left active:scale-[0.99] disabled:cursor-wait disabled:opacity-60"
+            >
+                {/* The saved-routes grammar, shared with the Passage Planning
+                    picker and the PLAN library (Shane 2026-08-30: "the gold
+                    standard"). A pin for a day sail, the ↳ dog-leg for a leg
+                    under its passage heading; the ⇄ badge sits OUTSIDE the
+                    truncating span so a long name cannot eat it. */}
+                <span aria-hidden="true" className="shrink-0 text-base leading-none">
+                    {isLeg ? '↳' : '📍'}
+                </span>
+                <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-1.5 text-[13px] font-bold text-gray-100">
+                        <span className="min-w-0 truncate">{routeName}</span>
+                        {legBadge && <span className="shrink-0">{legBadge}</span>}
+                        {/* The return leg is a separate saved voyage, folded into
+                            this row — marked, because a direction was chosen on
+                            the skipper's behalf. */}
+                        {reversible && (
+                            <span
+                                className="shrink-0 text-[11px] font-black text-gray-500"
+                                title="Return leg also saved"
+                            >
+                                ⇄
+                            </span>
+                        )}
+                    </span>
+                    {/* Distance and pins UNDER the name (Shane 2026-09-02). */}
+                    <span className="mt-0.5 block text-[11px] font-bold text-sky-300">{detail}</span>
+                    {note && (
+                        <span
+                            className={`mt-0.5 block text-[11px] leading-snug ${red ? 'text-red-200' : 'text-amber-200'}`}
+                        >
+                            {note}
+                        </span>
+                    )}
+                    {red && armed && (
+                        <span className="mt-0.5 block text-[11px] font-black text-red-300">
+                            Tap again to follow anyway
                         </span>
                     )}
                 </span>
-                {/* Distance and waypoints belong UNDER the name, not beside
-                    it (Shane 2026-09-02) — the saved-routes grammar the PLAN
-                    library already uses ("39 pins · saved 26 Aug"). Beside
-                    the name they competed with it for the same line and
-                    squeezed the truncation point on a narrow screen. */}
-                <span
-                    className={`mt-0.5 block text-[11px] font-bold ${blocked ? 'text-amber-300/70' : 'text-sky-300'}`}
+            </button>
+            {trailing && (
+                <button
+                    type="button"
+                    onClick={trailing.onClick}
+                    aria-label={`${trailing.label} — ${routeName}`}
+                    className={`min-h-[44px] w-14 shrink-0 rounded-r-xl border-l px-1 text-center text-[11px] font-black leading-tight active:scale-95 ${
+                        red ? 'border-red-500/30 text-red-200' : 'border-amber-500/25 text-amber-200'
+                    }`}
                 >
-                    {loading
-                        ? 'Loading route…'
-                        : checking
-                          ? (checkingLabel ?? 'Checking…')
-                          : `${summary.totalDistanceNM.toFixed(1)} NM · ${summary.entryCount} pts`}
-                </span>
-                {blocked && (
-                    <>
-                        <span className="mt-1 block text-[11px] leading-snug text-amber-200/75">{blockReason}</span>
-                        {/* The way out. Without this the row is a statement of
-                            a problem with no handle on it. */}
-                        {onCheckRoute && (
-                            <span className="mt-1.5 block text-[11px] font-bold text-amber-300">
-                                {checking ? (checkingLabel ?? 'Checking…') : checkLabel}
-                            </span>
-                        )}
-                    </>
-                )}
-            </span>
-        </button>
+                    {trailing.label}
+                </button>
+            )}
+        </div>
     );
 };
 
