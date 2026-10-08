@@ -18,6 +18,7 @@ import { GEBCO_MSL_TO_LAT_PESSIMISM_M, regionalGebcoDatumDeltaM } from '../Hazar
 import { CATZOC_LABELS, type EncAreaGraze, type EncCatzoc } from '../enc/types';
 import { cellsForBBox } from '../enc/EncCellMetadata';
 import { chartAgeYears, isChartStale } from '../enc/chartCurrency';
+import { RESTRN_ROUTE_CAUTION_CODES, restrnCodes, restrnMeaning } from '../enc/s57Restrn';
 import { grazeOutranks } from '../enc/hazardSeverity';
 import { createLogger } from '../../utils/createLogger';
 
@@ -706,43 +707,29 @@ export function describeCautionCrossings(areas: EncCautionArea[]): RouteAdvisory
         PIPARE: 'pipeline area',
         TSSLPT: 'traffic-separation lane',
     };
-    const RESTRN_LABEL: Record<string, string> = {
-        '1': 'anchoring prohibited',
-        '2': 'anchoring restricted',
-        '3': 'fishing prohibited',
-        '4': 'fishing restricted',
-        '5': 'trawling prohibited',
-        '6': 'trawling restricted',
-        '7': 'entry prohibited',
-        '8': 'entry restricted',
-        '14': 'no wake',
-        '27': 'no anchoring / no fishing',
-    };
-    // Entry-prohibited/-restricted crossings outrank the informational
-    // "check restrictions" note — transiting one can be an offence, not
-    // just a caveat (burn-down: severity tiers).
-    const ENTRY_CODES = new Set(['7', '8']);
+    // Entry prohibited / restricted (7/8) and an IMO area to be avoided (14)
+    // outrank the informational "check restrictions" note: transiting one can
+    // be an offence, or is what the routeing measure exists to stop, not just a
+    // caveat (burn-down: severity tiers; 14 since build 125, 125-04). The code
+    // meanings are the one shared IHO S-57 table the chart popup reads too.
     const seen = new Set<string>();
     const parts: string[] = [];
-    let entryProhibited = false;
+    let mustAvoid = false;
     for (const a of areas) {
         const label = CLS_LABEL[a.cls] ?? 'charted area';
         let detail = '';
-        if (a.restrn) {
-            const codes = a.restrn.split(',').map((r) => r.trim());
-            if (codes.some((c) => ENTRY_CODES.has(c))) entryProhibited = true;
-            // Unmapped codes must not vanish silently (burn-down: the raw
-            // S-57 code is still look-up-able on a paper chart).
-            const rs = codes.filter(Boolean).map((c) => RESTRN_LABEL[c] ?? `restriction code ${c}`);
-            if (rs.length) detail = ` (${rs.join(', ')})`;
-        }
+        const codes = restrnCodes(a.restrn);
+        if (codes.some((c) => RESTRN_ROUTE_CAUTION_CODES.has(c))) mustAvoid = true;
+        // Unmapped codes must not vanish silently (burn-down: the raw
+        // S-57 code is still look-up-able on a paper chart).
+        if (codes.length) detail = ` (${codes.map(restrnMeaning).join(', ')})`;
         const key = label + detail;
         if (seen.has(key)) continue;
         seen.add(key);
         parts.push(label + detail);
     }
     return {
-        severity: entryProhibited ? 'caution' : 'note',
+        severity: mustAvoid ? 'caution' : 'note',
         kind: 'caution-crossing',
         text: `Route crosses ${parts.join(' · ')} — check restrictions`,
     };

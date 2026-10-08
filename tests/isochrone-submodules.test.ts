@@ -576,7 +576,22 @@ describe('describeCautionCrossings', () => {
         expect(describeCautionCrossings([area('CBLARE')])!.severity).toBe('note'); // cable, no RESTRN
     });
 
+    it('grades an AREA TO BE AVOIDED (RESTRN 14) like entry prohibited/restricted (7/8), build 125', () => {
+        // S-57 14 is the IMO "area to be avoided" routeing measure: a route
+        // through one needs the same look as one through an entry-restricted
+        // area. It used to be labelled "no wake" (that is 13) and graded a note.
+        const atba = describeCautionCrossings([area('RESARE', '14')])!;
+        expect(atba.severity).toBe('caution');
+        expect(atba.text).toContain('restricted area (area to be avoided)');
+        expect(atba.text).not.toContain('no wake');
+        expect(describeCautionCrossings([area('RESARE', '13')])!.severity).toBe('note'); // no wake
+        expect(describeCautionCrossings([area('RESARE', '13')])!.text).toContain('(no wake)');
+        // A list carrying 14 anywhere grades as a caution too.
+        expect(describeCautionCrossings([area('RESARE', '1, 14')])!.severity).toBe('caution');
+    });
+
     it('UNMAPPED RESTRN codes surface as raw codes instead of vanishing', () => {
-        expect(describeCautionCrossings([area('RESARE', '23')])!.text).toContain('restriction code 23');
+        // 1-27 are all S-57 3.1 codes now (23 = cargo transhipment prohibited).
+        expect(describeCautionCrossings([area('RESARE', '28')])!.text).toContain('restriction code 28');
     });
 });

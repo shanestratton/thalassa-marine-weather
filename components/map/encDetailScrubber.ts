@@ -31,8 +31,9 @@
  * lead and hazard labels, derived contours and islet dots.
  *
  * SAFETY FLOOR — never touched at ANY level: depth bands + glaze,
- * land + coastline, the bold safety contour, every hazard layer
- * (OBSTRN / WRECKS / UWTROC), and the ISOLATED-DANGER marks
+ * land + coastline, the bold safety contour, the hazard layer (every
+ * wreck, rock and obstruction, one layer since 125-04, so the shallowest
+ * wins across classes), and the ISOLATED-DANGER marks
  * (BOYISD / BCNISD) that point AT those hazards — a BRB danger pointer
  * is danger indication, not furniture, so it outranks the laterals and
  * must never be cut (closing audit 2026-07-18: it was dropped at d ≥ 3
