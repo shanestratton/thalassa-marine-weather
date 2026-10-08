@@ -89,7 +89,6 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
             'get-marine',
             'osm-overlay',
             'proxy-amsa-msi',
-            'proxy-himawari-ir',
             'proxy-nga-msi',
             'proxy-openmeteo',
             'proxy-overpass',
@@ -97,7 +96,6 @@ describe('Supabase Edge-function trust-boundary contracts', () => {
             'proxy-tides',
             'proxy-ukho-msi',
             'route-bathymetric',
-            'satellite-tile',
         ];
         const authenticatedPaid = [
             'anthropic-proxy',
