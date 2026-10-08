@@ -414,3 +414,115 @@ export function collisionOpening(a: CollisionAssessment, prefs: CollisionPrefs =
     const limits = prefs[a.pair];
     return a.cpaNm >= 2 * limits.cpaNm || a.tcpaMin >= 2 * limits.tcpaMin;
 }
+
+// ── Distress beacons (build 125, 125-02) ────────────────────────────────────
+//
+// AIS-SART (a liferaft's search and rescue transmitter), AIS man-overboard and
+// EPIRB-AIS beacons. Their MMSIs start 970, 972 and 974 (ITU-R M.585). Active,
+// they report nav status 14 and send message 14 'SART ACTIVE' (MOB / EPIRB
+// ACTIVE); in a test, status 15 and 'SART TEST'. This classifier is what the
+// app's distress alarm and chart symbol use, and what the Pi's watch copies
+// (126-04). Display filters (128-02) must never hide a beacon.
+
+export type DistressKind = 'sart' | 'mob' | 'epirb';
+/** Active: alarms (from her own receiver). Test: shown, never an alarm. Caution: a beacon's MMSI, status unclear. */
+export type DistressState = 'active' | 'test' | 'caution';
+
+/** ITU nav status 14: 'AIS-SART (active), MOB-AIS, EPIRB-AIS'. */
+export const AIS_NAV_STATUS_DISTRESS_ACTIVE = 14;
+
+/** A beacon's kind from its MMSI (970 / 972 / 974 and six more digits), else null. */
+export function distressKindOfMmsi(mmsi: unknown): DistressKind | null {
+    const n = finite(mmsi);
+    if (n === null || !Number.isInteger(n) || n < 970_000_000 || n > 974_999_999) return null;
+    const prefix = Math.floor(n / 1_000_000);
+    return prefix === 970 ? 'sart' : prefix === 972 ? 'mob' : prefix === 974 ? 'epirb' : null;
+}
+
+/** A target the store must never drop: a beacon's MMSI, or any target reporting status 14. */
+export function aisTargetIsDistressBeacon(mmsi: unknown, navStatus: unknown): boolean {
+    return distressKindOfMmsi(mmsi) !== null || finite(navStatus) === AIS_NAV_STATUS_DISTRESS_ACTIVE;
+}
+
+const DISTRESS_KIND_WORD = /\b(?:AIS[- ]?)?(SART|MOB|EPIRB)\b/;
+
+/**
+ * What a message 14 text says: active or test, and the beacon it names. From a
+ * beacon's MMSI any ACTIVE or TEST counts; from any other MMSI only text that
+ * names the beacon does (stations broadcast 'RANGE ACTIVE' too). A text saying
+ * both is a test: a test never alarms.
+ */
+export function distressTextSignal(
+    text: unknown,
+    mmsi: unknown,
+): { state: 'active' | 'test'; kind: DistressKind | null } | null {
+    if (typeof text !== 'string') return null;
+    const upper = text.toUpperCase();
+    const test = /\bTEST\b/.test(upper);
+    if (!test && !/\bACTIVE\b/.test(upper)) return null;
+    const word = DISTRESS_KIND_WORD.exec(upper)?.[1];
+    const kind: DistressKind | null =
+        word === 'SART' ? 'sart' : word === 'MOB' ? 'mob' : word === 'EPIRB' ? 'epirb' : null;
+    if (!kind && distressKindOfMmsi(mmsi) === null) return null;
+    return { state: test ? 'test' : 'active', kind };
+}
+
+/** What is known of one target, for the classifier. */
+export interface DistressEvidence {
+    mmsi: number;
+    /** Nav status from a position report; null when none has been heard. */
+    navStatus?: number | null;
+    /** When that position report was heard (epoch ms). */
+    navStatusAt?: number | null;
+    /** Its latest message 14 text, and when that was heard. */
+    safetyText?: string | null;
+    safetyTextAt?: number | null;
+    /** 'local' (the boat's own receiver) or 'cloud' (internet AIS). Anything else is not a beacon. */
+    source?: string | null;
+    hasPosition: boolean;
+}
+
+export interface DistressClass {
+    kind: DistressKind;
+    state: DistressState;
+    /** Active and heard by the boat's own receiver: this sounds, at any range. */
+    sounds: boolean;
+    /** Seen only over the internet: red and silent, never an alarm (a far or spoofed beacon). */
+    relayed: boolean;
+    /** False: alarms as 'position not yet received', with nothing to go to. */
+    positionKnown: boolean;
+}
+
+/**
+ * Classify one target, or null when it is not a beacon. Status 14 or an ACTIVE
+ * text is active; status 15 on a beacon's MMSI or a TEST text is a test; when
+ * both were heard, whichever was heard last decides (a test beacon switched to
+ * active alarms on its first active report; at the same moment, active wins).
+ * A beacon's MMSI with neither is a caution. Only 'local' active sounds.
+ */
+export function classifyDistress(e: DistressEvidence): DistressClass | null {
+    if (e.source !== 'local' && e.source !== 'cloud') return null;
+    const mmsiKind = distressKindOfMmsi(e.mmsi);
+    const text = distressTextSignal(e.safetyText, e.mmsi);
+    const status = finite(e.navStatus);
+    const fromStatus = status === AIS_NAV_STATUS_DISTRESS_ACTIVE ? 'active' : status === 15 && mmsiKind ? 'test' : null;
+    let state: DistressState | null;
+    if (fromStatus && text) {
+        const statusAt = finite(e.navStatusAt) ?? 0;
+        const textAt = finite(e.safetyTextAt) ?? 0;
+        if (statusAt === textAt) state = fromStatus === 'active' || text.state === 'active' ? 'active' : 'test';
+        else state = textAt > statusAt ? text.state : fromStatus;
+    } else {
+        state = fromStatus ?? text?.state ?? (mmsiKind ? 'caution' : null);
+    }
+    if (!state) return null;
+    const local = e.source === 'local';
+    return {
+        // Status 14 is 'AIS-SART (active)' in ITU's table: an unexpected MMSI still reads as one.
+        kind: mmsiKind ?? text?.kind ?? 'sart',
+        state,
+        sounds: state === 'active' && local,
+        relayed: !local,
+        positionKnown: e.hasPosition,
+    };
+}

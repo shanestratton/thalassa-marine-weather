@@ -7,6 +7,8 @@
  * Supported message types:
  *   1, 2, 3  — Class A position report (MMSI, lat, lon, SOG, COG, heading, nav status)
  *   5        — Class A static/voyage data (name, ship type, call sign, destination)
+ *   14       — Safety-related broadcast: an AIS-SART's 'SART ACTIVE' / 'SART TEST'
+ *              (MOB / EPIRB too). Text only, never a position (build 125, 125-02).
  *   18       — Class B position report
  *   19       — Class B extended position report (includes name)
  *   24       — Class B static data (parts A & B)
@@ -15,6 +17,14 @@
  */
 import type { AisTarget } from '../types/navigation';
 import { validateNmeaSentence } from './nmea/nmeaSentence';
+import { AIS_NAV_STATUS_DISTRESS_ACTIVE, distressKindOfMmsi } from '../utils/collisionRule';
+
+/**
+ * One decoded message. A message 14 carries only `mmsi`, `safetyText` and
+ * `lastUpdated`: AisStore keeps the text against the MMSI and never makes a
+ * positioned target of it (no 0,0 position reaches the chart or the guard).
+ */
+export type AisDecoded = Partial<AisTarget> & { safetyText?: string };
 
 // ── Fragment buffer for multi-part messages ──
 interface Fragment {
@@ -82,7 +92,7 @@ function getString(bits: Uint8Array, start: number, len: number): string {
 // ── Message decoders ──
 
 /** Decode message types 1, 2, 3 — Class A Position Report */
-function decodePositionReport(bits: Uint8Array): Partial<AisTarget> | null {
+function decodePositionReport(bits: Uint8Array): AisDecoded | null {
     const mmsi = getUint(bits, 8, 30);
     const navStatus = getUint(bits, 38, 4);
     const sog = getUint(bits, 50, 10) / 10; // 1/10 knot
@@ -92,8 +102,15 @@ function decodePositionReport(bits: Uint8Array): Partial<AisTarget> | null {
     const heading = getUint(bits, 128, 9); // degrees, 511 = unavailable
 
     // Validate position (181° = unavailable longitude, 91° = unavailable latitude)
-    if (Math.abs(lon) > 180 || Math.abs(lat) > 90) return null;
-    if (lon === 0 && lat === 0) return null; // Null Island = likely invalid
+    if (Math.abs(lon) > 180 || Math.abs(lat) > 90 || (lon === 0 && lat === 0)) {
+        // A distress beacon before its GNSS fix (125-02): an AIS-SART, MOB or
+        // EPIRB-AIS sends its status-14 bursts with 'not available' (91, 181)
+        // until it has one. Keep its status with no position, so the alarm
+        // sounds as 'position not yet received' rather than waiting minutes
+        // for its next message 14. Anything else without a position is dropped.
+        if (navStatus !== AIS_NAV_STATUS_DISTRESS_ACTIVE && distressKindOfMmsi(mmsi) === null) return null;
+        return { mmsi, navStatus, lastUpdated: Date.now() };
+    }
 
     return { mmsi, navStatus, sog, lon, lat, cog, heading, lastUpdated: Date.now() };
 }
@@ -107,6 +124,14 @@ function decodeStaticVoyage(bits: Uint8Array): Partial<AisTarget> | null {
     const destination = getString(bits, 302, 120);
 
     return { mmsi, callSign, name, shipType, destination, lastUpdated: Date.now() };
+}
+
+/** Decode message type 14 — Safety-related broadcast: up to 161 six-bit characters from bit 40. */
+function decodeSafetyBroadcast(bits: Uint8Array): AisDecoded | null {
+    const mmsi = getUint(bits, 8, 30);
+    const chars = Math.min(161, Math.floor((bits.length - 40) / 6));
+    if (!mmsi || chars <= 0) return null;
+    return { mmsi, safetyText: getString(bits, 40, chars * 6), lastUpdated: Date.now() };
 }
 
 /** Decode message type 18 — Class B Position Report */
@@ -175,7 +200,7 @@ export function isOwnShipAisSentence(sentence: string): boolean {
  *
  * Handles multi-fragment message assembly internally.
  */
-export function processAisSentence(sentence: string): Partial<AisTarget> | null {
+export function processAisSentence(sentence: string): AisDecoded | null {
     // AIS target data is accepted only with a structurally valid, verified
     // checksum. NmeaListenerService enforces the same ingress boundary, but
     // this decoder is also called directly by other pipelines.
@@ -232,7 +257,7 @@ export function processAisSentence(sentence: string): Partial<AisTarget> | null 
 }
 
 /** Decode a complete (possibly reassembled) AIS payload */
-function decodePayload(payload: string): Partial<AisTarget> | null {
+function decodePayload(payload: string): AisDecoded | null {
     if (!payload || payload.length < 1) return null;
 
     const bits = payloadToBits(payload);
@@ -245,6 +270,8 @@ function decodePayload(payload: string): Partial<AisTarget> | null {
             return decodePositionReport(bits);
         case 5:
             return decodeStaticVoyage(bits);
+        case 14:
+            return decodeSafetyBroadcast(bits);
         case 18:
             return decodeClassBPosition(bits);
         case 19:

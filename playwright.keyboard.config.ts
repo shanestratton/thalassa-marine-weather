@@ -84,6 +84,10 @@ export default defineConfig({
         // 320 × 568 in wide fonts, clear of the tab bar (e2e/fixtures/collision-alarm.tsx),
         // and Preferences → Collision alarm fits under the real header.
         'collision-alarm-layout.spec.ts',
+        // Distress beacons (build 125, 125-02): their cards and Go to it fit 320 × 568
+        // in wide fonts, clear of the tab bar, and the IEC 62288 circle-and-cross is
+        // drawn and placed by the real engines (e2e/fixtures/distress-beacon.tsx).
+        'distress-beacon-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,
