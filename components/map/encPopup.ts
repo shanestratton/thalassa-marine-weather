@@ -9,6 +9,7 @@
  */
 
 import { LITCHR_LABELS, readS57 } from '../../services/enc/types';
+import { restrnCodes, restrnMeaning, S57_RESTRN_MEANINGS } from '../../services/enc/s57Restrn';
 import { ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { isChartStale, chartAgeLabel } from '../../services/enc/chartCurrency';
 import { ENC_VEC_LAYERS, encBaseLayerId } from './encLayerIds';
@@ -183,31 +184,17 @@ const CAUTION_NOTES: Record<string, string> = {
     TSSBND: 'Edge of the traffic scheme',
 };
 
-/** S-57 RESTRN (restriction) codes — the values a skipper actually meets. */
-const RESTRN_LABELS: Record<string, string> = {
-    '1': 'Anchoring prohibited',
-    '2': 'Anchoring restricted',
-    '3': 'Fishing prohibited',
-    '4': 'Fishing restricted',
-    '5': 'Trawling prohibited',
-    '6': 'Trawling restricted',
-    '7': 'Entry prohibited',
-    '8': 'Entry restricted',
-    '14': 'No wake',
-    '27': 'No anchoring / no fishing (cable/pipeline)',
-};
-
+/** S-57 RESTRN (restriction) codes, in sentence case, from the one shared
+ *  IHO table (services/enc/s57Restrn.ts; the route advisories read it too).
+ *  An unmapped code surfaces as its raw S-57 code instead of silently
+ *  vanishing: still look-up-able on a paper chart (burn-down). */
 function restrnNames(restrn: unknown): string {
-    return (
-        String(restrn ?? '')
-            .split(',')
-            .map((r) => r.trim())
-            .filter(Boolean)
-            // Unmapped codes surface as their raw S-57 code instead of silently
-            // vanishing — still look-up-able on a paper chart (burn-down).
-            .map((r) => RESTRN_LABELS[r] ?? `restriction code ${r}`)
-            .join(' · ')
-    );
+    return restrnCodes(restrn)
+        .map((code) => {
+            const meaning = S57_RESTRN_MEANINGS[code];
+            return meaning ? meaning.charAt(0).toUpperCase() + meaning.slice(1) : restrnMeaning(code);
+        })
+        .join(' · ');
 }
 
 /**
@@ -357,6 +344,9 @@ export function buildFeaturePopupHtml(
     let title = 'Feature';
     let body = '';
     let accent = '#0ea5e9'; // sky-500 default
+    // Wrecks, rocks and obstructions are ONE layer (125-04, so the shallowest
+    // wins across classes); the merge's _kind tag says which one was tapped.
+    const hazardKind = layerId === ENC_VEC_LAYERS.HAZARDS ? String(props._kind ?? '') : null;
 
     if (layerId === ENC_VEC_LAYERS.DEPARE) {
         // Tap-the-water (2026-07-11 #1): the punter taps any patch of
@@ -449,7 +439,7 @@ export function buildFeaturePopupHtml(
         title = 'Coastline';
         accent = '#ffffff';
         body += `<div class="enc-popup-row"><span>Type</span><b>Charted coastline</b></div>`;
-    } else if (layerId === ENC_VEC_LAYERS.OBSTRN) {
+    } else if (hazardKind === 'OBSTRN') {
         title = 'Obstruction';
         accent = ENC_HAZARD_MAGENTA;
         const name = readS57(props, 'OBJNAM');
@@ -464,7 +454,7 @@ export function buildFeaturePopupHtml(
         if (watlev && WATLEV_LABELS[watlev]) {
             body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
         }
-    } else if (layerId === ENC_VEC_LAYERS.WRECKS) {
+    } else if (hazardKind === 'WRECKS') {
         title = 'Wreck';
         accent = ENC_HAZARD_MAGENTA;
         const name = readS57(props, 'OBJNAM');
@@ -475,7 +465,7 @@ export function buildFeaturePopupHtml(
             body += `<div class="enc-popup-row"><span>Category</span><b>${esc(CATWRK_LABELS[cat])}</b></div>`;
         }
         body += valsouRow(readS57(props, 'VALSOU'));
-    } else if (layerId === ENC_VEC_LAYERS.UWTROC) {
+    } else if (hazardKind === 'UWTROC') {
         title = 'Underwater rock';
         accent = ENC_HAZARD_MAGENTA;
         body += valsouRow(readS57(props, 'VALSOU'));
@@ -483,6 +473,11 @@ export function buildFeaturePopupHtml(
         if (watlev && WATLEV_LABELS[watlev]) {
             body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
         }
+    } else if (hazardKind !== null) {
+        // A hazard-layer hit whose class tag went missing still reads as a danger.
+        title = 'Charted danger';
+        accent = ENC_HAZARD_MAGENTA;
+        body += valsouRow(readS57(props, 'VALSOU'));
     } else if (layerId === ENC_VEC_LAYERS.LIGHTS) {
         title = 'Light';
         accent = '#fde047';

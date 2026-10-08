@@ -19,9 +19,9 @@
  *   DEPCNT  → thin gray contours + the bold dark safety contour
  *             (smallest charted VALDCO ≥ S)
  *   COALNE  → chart-brown line
- *   OBSTRN  → magenta circle (5 px) with cross
- *   WRECKS  → magenta circle (5 px) with cross + bold ring
- *   UWTROC  → magenta circle (4 px) with star centre
+ *   OBSTRN, WRECKS, UWTROC → ONE magenta INT1 K-glyph layer, the
+ *             shallowest danger winning a collision (depth sort key,
+ *             encHazardSortKey.ts)
  *   BOY/BCN → IALA symbol icons from seamarkIcons.ts (`_icon`
  *             pre-baked at merge time)
  *   LIGHTS  → coloured star glyph + 'Fl(2)G 5s 12m 8M' labels
@@ -48,6 +48,7 @@ import { createLogger } from '../../utils/createLogger';
 import { crumb } from '../../utils/flightRecorder';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { registerSeamarkIcons, UWTROC_ROCK_GLYPH, UWTROC_ROCK_GLYPH_DEFAULT } from './seamarkIcons';
+import { ENC_HAZARD_SORT_PROP, encHazardSortKey } from './encHazardSortKey';
 import {
     ALL_LAYER_IDS,
     CLICKABLE_LAYER_IDS,
@@ -59,6 +60,7 @@ import {
     ENC_WATER_FILL_LAYERS,
     RETIRED_ENC_LAYER_IDS,
     encBaseLayerId,
+    encMarkLayerId,
     S57_BUOY_BEACON_CLASSES,
     S57_HAZARD_POINT_CLASSES,
     S57_NAVAID_CLASSES,
@@ -184,10 +186,12 @@ function findInsertionAnchor(map: mapboxgl.Map): string | undefined {
 }
 
 /**
- * Tag the merged points data with a 'kind' property so the three
- * point layers can filter their own features out of one shared
- * source — saves an extra source per point type, which speeds up
- * Mapbox's worker-side tile generation.
+ * Tag the merged points data with a '_kind' property: the one hazard
+ * layer picks each class's glyph by it and the popup answers by it, out
+ * of one shared source — saves an extra source per point type, which
+ * speeds up Mapbox's worker-side tile generation. Each mark also carries
+ * its placement key (ENC_HAZARD_SORT_PROP, encHazardSortKey.ts): read
+ * case-defensively here, once, so the layer's sort is one plain ['get'].
  */
 function buildMergedPoints(data: EncMergedVectorData): FeatureCollection {
     // Derived from the canonical hazard-point registry (#2a full bind): a new
@@ -195,7 +199,13 @@ function buildMergedPoints(data: EncMergedVectorData): FeatureCollection {
     return {
         type: 'FeatureCollection',
         features: S57_HAZARD_POINT_CLASSES.flatMap((cls) =>
-            data[cls].features.map((f) => ({ ...f, properties: { ...(f.properties ?? {}), _kind: cls } })),
+            data[cls].features.map((f) => {
+                const props = f.properties ?? {};
+                return {
+                    ...f,
+                    properties: { ...props, _kind: cls, [ENC_HAZARD_SORT_PROP]: encHazardSortKey(cls, props) },
+                };
+            }),
         ),
     };
 }
@@ -373,12 +383,10 @@ function mountPointMarkLayers(
     opacity: number,
     beforeIdFor: (layerId: string) => string | undefined,
 ): void {
-    // ── Hazard points (filtered by `_kind` from one merged source) ─
+    // ── Hazard points (ONE layer over the merged, _kind-tagged source) ─
     // OBSTRN, WRECKS, UWTROC draw as INT1 K-section glyphs (burn-down:
     // they were generic circles — a mariner reads +/*/hull symbols off a
     // paper chart, and a dangerous wreck must not look like a swept one).
-    // Layer ids keep their legacy '-circle' suffix — they're load-bearing
-    // (click handlers, hide lists), same precedent as the lateral marks.
     // Hazards lacking SCAMIN/_minZoom are NEVER zoom-hidden (the
     // `scaminAware` no-_minZoom arm) — they're the things the router
     // routes around.
@@ -408,36 +416,90 @@ function mountPointMarkLayers(
     // survives a collision is chosen by hazardSortKey below, so the mark left
     // standing is the shallowest one present, not an arbitrary one.
     //
-    // Within ONE class only (build 123 HM review, measured): symbol-sort-key
-    // orders a single layer, and Mapbox places these three layers whole, rocks
-    // then wrecks then obstructions, so a deep rock still beats a shallow
-    // obstruction touching it. Known gap; the fix is one layer for all three.
+    // ACROSS CLASSES (build 125, 125-04): symbol-sort-key orders one layer
+    // only, and wrecks, rocks and obstructions used to be three layers that
+    // Mapbox placed whole, top-down: every rock, then every wreck, then every
+    // obstruction. A 15 m rock took a 0.5 m dangerous wreck off the chart, and
+    // a 9 m wreck a 2 m obstruction (measured in both engines at z7-z19,
+    // browser-tests/enc-hazard-labels.spec.ts). They are now ONE layer, so the
+    // single sort key below decides across all three.
     const hazardAllowOverlap = false;
 
-    // Shallowest first, so the mark that survives a collision at low zoom is
-    // the WORST hazard in the cluster rather than whichever one the source
-    // happened to list first. A missing VALSOU sorts as 0 — an unknown-depth
-    // rock is treated as the most dangerous thing present, matching the
-    // fail-safe stance encHazardParse takes on absent WATLEV.
-    const hazardSortKey = ['to-number', ['get', 'VALSOU'], 0] as unknown as mapboxgl.ExpressionSpecification;
+    // Shallowest first, so the mark that survives a collision is the WORST
+    // hazard in the cluster, whatever its class, rather than whichever one the
+    // source happened to list first. The key is stamped per mark by
+    // buildMergedPoints (encHazardSortKey.ts, read case-defensively): the
+    // charted depth; without one, a mark that dries below 0, any danger of
+    // unknown depth at 0 (fail-safe, as encHazardParse treats absent WATLEV),
+    // and foul ground or a non-dangerous wreck at 20.1 m, so a depthless
+    // non-danger never takes the space from a sounded danger; equal depths
+    // keep the old rock, wreck, obstruction order. A mark without the stamp
+    // reads as 0.
+    const hazardSortKey = [
+        'to-number',
+        ['get', ENC_HAZARD_SORT_PROP],
+        0,
+    ] as unknown as mapboxgl.ExpressionSpecification;
 
-    if (!map.getLayer(ENC_VEC_LAYERS.OBSTRN)) {
+    // Each class keeps its own INT1 K-section glyph, chosen by _kind (the
+    // merge's class tag, buildMergedPoints).
+    //
+    // OBSTRN: CATOBS 7 = foul ground (K31 hash: anchoring/gear risk, not
+    // surface danger); everything else, incl. unknown, keeps the
+    // dangerous-obstruction circle (audit).
+    const obstrnGlyph = [
+        'match',
+        ['to-string', ['coalesce', ['get', 'CATOBS'], ['get', 'catobs'], '']],
+        '7',
+        'sm-hazard-foul',
+        'sm-hazard-obstruction',
+    ];
+    // WRECKS: CATWRK 1 = non-dangerous → outline hull; everything else
+    // INCLUDING unknown → filled dangerous hull (safety bias: an uncategorised
+    // wreck reads dangerous).
+    const wrecksGlyph = [
+        'match',
+        ['to-string', ['coalesce', ['get', 'CATWRK'], ['get', 'catwrk'], '']],
+        '1',
+        'sm-hazard-wreck', // non-dangerous
+        '4',
+        'sm-hazard-wreck-mast', // INT1 K25 — wreck showing mast(s)
+        '5',
+        'sm-hazard-wreck-hull', // INT1 K26 — showing hull / superstructure
+        // 2/3/unknown → dangerous hull. Retires the previously-dead mast/hull
+        // glyphs (re-audit rendering).
+        'sm-hazard-wreck-dangerous',
+    ];
+    // UWTROC (audit: 4 and 5 shared a glyph): WATLEV 4 covers+uncovers → K11
+    // asterisk; WATLEV 5 awash at CD → K12 dotted cross; submerged/unknown →
+    // K13 plain cross. Built from the tested UWTROC_ROCK_GLYPH source of truth
+    // so the WATLEV→glyph mapping can't drift (audit #7).
+    const uwtrocGlyph = [
+        'match',
+        ['to-string', ['coalesce', ['get', 'WATLEV'], ['get', 'watlev'], '']],
+        ...UWTROC_ROCK_GLYPH.flatMap(([w, id]) => [w, id]),
+        UWTROC_ROCK_GLYPH_DEFAULT,
+    ];
+
+    if (!map.getLayer(ENC_VEC_LAYERS.HAZARDS)) {
         map.addLayer(
             {
-                id: ENC_VEC_LAYERS.OBSTRN,
+                id: ENC_VEC_LAYERS.HAZARDS,
                 type: 'symbol',
                 source: ENC_VEC_SRC.POINTS,
                 minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'OBSTRN']),
+                filter: scaminAware(['match', ['get', '_kind'], [...S57_HAZARD_POINT_CLASSES], true, false]),
                 layout: {
-                    // CATOBS 7 = foul ground (K31 hash: anchoring/gear risk,
-                    // not surface danger) — everything else, incl. unknown,
-                    // keeps the dangerous-obstruction circle (audit).
                     'icon-image': mapExpr([
                         'match',
-                        ['to-string', ['coalesce', ['get', 'CATOBS'], ['get', 'catobs'], '']],
-                        '7',
-                        'sm-hazard-foul',
+                        ['get', '_kind'],
+                        'OBSTRN',
+                        obstrnGlyph,
+                        'WRECKS',
+                        wrecksGlyph,
+                        'UWTROC',
+                        uwtrocGlyph,
+                        // The filter admits only the three; a danger glyph regardless.
                         'sm-hazard-obstruction',
                     ]),
                     'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
@@ -446,72 +508,7 @@ function mountPointMarkLayers(
                 },
                 paint: { 'icon-opacity': opacity },
             },
-            beforeIdFor(ENC_VEC_LAYERS.OBSTRN),
-        );
-    }
-    if (!map.getLayer(ENC_VEC_LAYERS.WRECKS)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.WRECKS,
-                type: 'symbol',
-                source: ENC_VEC_SRC.POINTS,
-                minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'WRECKS']),
-                layout: {
-                    // CATWRK 1 = non-dangerous → outline hull; everything
-                    // else INCLUDING unknown → filled dangerous hull (safety
-                    // bias: an uncategorised wreck reads dangerous).
-                    'icon-image': mapExpr([
-                        'match',
-                        ['to-string', ['coalesce', ['get', 'CATWRK'], ['get', 'catwrk'], '']],
-                        '1',
-                        'sm-hazard-wreck', // non-dangerous
-                        '4',
-                        'sm-hazard-wreck-mast', // INT1 K25 — wreck showing mast(s)
-                        '5',
-                        'sm-hazard-wreck-hull', // INT1 K26 — showing hull / superstructure
-                        // 2/3/unknown → dangerous hull (safety bias: an
-                        // uncategorised wreck reads dangerous). Retires the
-                        // previously-dead mast/hull glyphs (re-audit rendering).
-                        'sm-hazard-wreck-dangerous',
-                    ]),
-                    'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
-                    'icon-allow-overlap': hazardAllowOverlap,
-                    'symbol-sort-key': hazardSortKey,
-                },
-                paint: { 'icon-opacity': opacity },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.WRECKS),
-        );
-    }
-    if (!map.getLayer(ENC_VEC_LAYERS.UWTROC)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.UWTROC,
-                type: 'symbol',
-                source: ENC_VEC_SRC.POINTS,
-                minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'UWTROC']),
-                layout: {
-                    // INT1 K-section (audit: 4 and 5 shared a glyph):
-                    // WATLEV 4 covers+uncovers → K11 asterisk; WATLEV 5
-                    // awash at CD → K12 dotted cross; submerged/unknown →
-                    // K13 plain cross.
-                    'icon-image': mapExpr([
-                        'match',
-                        ['to-string', ['coalesce', ['get', 'WATLEV'], ['get', 'watlev'], '']],
-                        // Built from the tested UWTROC_ROCK_GLYPH source of truth
-                        // so the WATLEV→glyph mapping can't drift (audit #7).
-                        ...UWTROC_ROCK_GLYPH.flatMap(([w, id]) => [w, id]),
-                        UWTROC_ROCK_GLYPH_DEFAULT,
-                    ]),
-                    'icon-size': hazardIconSize as mapboxgl.ExpressionSpecification,
-                    'icon-allow-overlap': hazardAllowOverlap,
-                    'symbol-sort-key': hazardSortKey,
-                },
-                paint: { 'icon-opacity': opacity },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.UWTROC),
+            beforeIdFor(ENC_VEC_LAYERS.HAZARDS),
         );
     }
 
@@ -1795,15 +1792,11 @@ export interface EncVisibilityState {
 // hands the bands to the glaze; on the paper chart the reverse.
 const PLOTTING_KEEL_SAT: readonly string[] = [ENC_VEC_LAYERS.DEPARE_GLAZE];
 const PLOTTING_KEEL_CHART: readonly string[] = ENC_WATER_FILL_LAYERS;
-// Keel-limit line + the three that will actually sink you. MARK_LAYERS covers
-// buoys and beacons but NOT these, so a plotter could be grading legs against
-// wrecks and rocks it was never shown.
-const PLOTTING_KEEL_ALWAYS: readonly string[] = [
-    ENC_VEC_LAYERS.DEPCNT_SAFETY,
-    ENC_VEC_LAYERS.WRECKS,
-    ENC_VEC_LAYERS.UWTROC,
-    ENC_VEC_LAYERS.OBSTRN,
-];
+// Keel-limit line + the wrecks, rocks and obstructions that will actually sink
+// you (one layer since 125-04). MARK_LAYERS covers buoys and beacons but NOT
+// these, so a plotter could be grading legs against wrecks and rocks it was
+// never shown.
+const PLOTTING_KEEL_ALWAYS: readonly string[] = [ENC_VEC_LAYERS.DEPCNT_SAFETY, ENC_VEC_LAYERS.HAZARDS];
 
 function isPlottingKeelLayer(id: string, satOn: boolean): boolean {
     if (PLOTTING_KEEL_ALWAYS.includes(id)) return true;
@@ -1910,8 +1903,8 @@ const ENC_LABEL_HIDE_LAYERS = [ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_LAYERS.POIN
  * The ENC layers we drop when a route is on the map. Polygon fills
  * (DEPARE, LNDARE) and lines (COALNE) clutter the route polyline; the
  * lateral/cardinal markers + lights + obstruction symbols help the user
- * verify the route is sensible so we keep those visible. Hazard points
- * (WRECKS/UWTROC/OBSTRN as circles) also stay — they're the things the
+ * verify the route is sensible so we keep those visible. The hazard layer
+ * (wrecks, rocks, obstructions) also stays — they're the things the
  * router already routed around but the user wants to see.
  */
 const ROUTE_FOCUS_HIDE_LAYERS = [
@@ -2071,8 +2064,9 @@ function fillDepareTideWindow(popup: mapboxgl.Popup, props: Record<string, unkno
 /** Point-feature layers — small tap targets that get the padded
  *  fat-finger search box (vs. area fills, which keep exact-point).
  *  DERIVED from the canonical S57_POINT_MARK_CLASSES registry so this
- *  can't drift from the layer/popup machinery (mission-audit #2a). */
-const POINT_LAYER_IDS = new Set<string>(S57_POINT_MARK_CLASSES.map((c) => ENC_VEC_LAYERS[c]));
+ *  can't drift from the layer/popup machinery (mission-audit #2a); the
+ *  three hazard classes share the one hazard layer (125-04). */
+const POINT_LAYER_IDS = new Set<string>(S57_POINT_MARK_CLASSES.map(encMarkLayerId));
 const CLICKABLE_POINT_LAYER_IDS = CLICKABLE_LAYER_IDS.filter((id) => POINT_LAYER_IDS.has(id));
 
 /** Fat-finger tap tolerance in screen px. Wreck dots render ~13-18 px

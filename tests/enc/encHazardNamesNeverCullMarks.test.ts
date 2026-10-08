@@ -12,13 +12,13 @@
  * symbol to its own name, and an unnamed rock beside a named wreck vanished
  * under the wreck's name: the skipper saw a name and no rock.
  *
- * The names now sit BELOW the three hazard layers, so every mark is placed
- * first and a name prints only where it has room; and they sit 2 em under
- * their point, clear of the mark's own collision box, so a lone mark keeps its
- * name. Unchanged (Shane 2026-08-07): danger symbols declutter among
- * themselves, the shallowest of each class surviving (the sort key orders one
- * layer; across the three classes it is a known gap), and names give way to
- * each other.
+ * The names now sit BELOW the hazard layer, so every mark is placed first and
+ * a name prints only where it has room; and they sit 2 em under their point,
+ * clear of the mark's own collision box, so a lone mark keeps its name.
+ * Unchanged (Shane 2026-08-07): danger symbols declutter among themselves and
+ * names give way to each other. Since build 125 (125-04) the three classes
+ * are ONE layer with one depth sort key, so the shallowest survives across
+ * classes too (tests/enc/encOneHazardLayer.test.ts).
  *
  * The real mount runs on a recording stub map and every layer spec is read
  * back. Nothing here is a real chart.
@@ -34,6 +34,7 @@ vi.mock('../../components/map/seamarkIcons', async (original) => ({
 }));
 
 import { ENC_SOURCE_TABLE, mountEncVectorLayer } from '../../components/map/EncVectorLayer';
+import { ENC_HAZARD_SORT_PROP } from '../../components/map/encHazardSortKey';
 import { ALL_LAYER_IDS, ENC_VEC_LAYERS, ENC_VEC_SRC } from '../../components/map/encLayerIds';
 import { getSeamarkIconDefs } from '../../components/map/seamarkIcons';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
@@ -114,7 +115,8 @@ const spec = (id: string): Spec => {
     return found;
 };
 
-const HAZARD_LAYERS = [ENC_VEC_LAYERS.OBSTRN, ENC_VEC_LAYERS.WRECKS, ENC_VEC_LAYERS.UWTROC] as const;
+/** The one layer that draws every wreck, rock and obstruction (build 125, 125-04). */
+const HAZARD_LAYERS = [ENC_VEC_LAYERS.HAZARDS] as const;
 const NAMES = ENC_VEC_LAYERS.POINTS_LABEL;
 
 describe('every hazard mark is placed before any hazard name', () => {
@@ -128,7 +130,7 @@ describe('every hazard mark is placed before any hazard name', () => {
         expect(Object.values(ENC_VEC_SRC).filter((id) => id.includes('points'))).toEqual([ENC_VEC_SRC.POINTS]);
     });
 
-    it('the canonical stack puts the names below all three hazard layers', () => {
+    it('the canonical stack puts the names below the hazard layer', () => {
         const at = (id: string) => ALL_LAYER_IDS.indexOf(id);
         for (const id of HAZARD_LAYERS) {
             expect(at(NAMES), `${NAMES} must sit below ${id}`).toBeLessThan(at(id));
@@ -212,7 +214,8 @@ describe('a name clears its own mark', () => {
 
 describe('what stays as it was', () => {
     it('danger symbols still declutter among themselves, shallowest first (Shane 2026-08-07)', () => {
-        const sortKey = ['to-number', ['get', 'VALSOU'], 0];
+        // The depth key the merge stamps on every mark (encHazardSortKey.ts).
+        const sortKey = ['to-number', ['get', ENC_HAZARD_SORT_PROP], 0];
         for (const id of HAZARD_LAYERS) {
             expect(spec(id).type).toBe('symbol');
             expect(spec(id).layout?.['icon-allow-overlap'], id).toBe(false);

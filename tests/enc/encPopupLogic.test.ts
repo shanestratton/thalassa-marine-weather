@@ -81,7 +81,7 @@ describe('pickAreaTap — area-tap precedence', () => {
             expect(encBaseLayerId(g.land)).toBe(ENC_VEC_LAYERS.LNDARE);
             expect(encBaseLayerId(g.coast)).toBe(ENC_VEC_LAYERS.COALNE);
         }
-        expect(encBaseLayerId(ENC_VEC_LAYERS.WRECKS)).toBe(ENC_VEC_LAYERS.WRECKS);
+        expect(encBaseLayerId(ENC_VEC_LAYERS.HAZARDS)).toBe(ENC_VEC_LAYERS.HAZARDS);
     });
 
     it('caution wash with NO water beneath answers as the caution itself', () => {

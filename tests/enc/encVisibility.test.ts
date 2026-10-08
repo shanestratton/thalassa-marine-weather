@@ -129,7 +129,7 @@ describe('ENC visibility state machine', () => {
         expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('none');
         expect(vis.get(ENC_VEC_LAYERS.LNDARE)).toBe('none');
         expect(vis.get(ENC_VEC_LAYERS.BCNLAT)).toBe('visible'); // marks survive
-        expect(vis.get(ENC_VEC_LAYERS.WRECKS)).toBe('visible'); // hazards survive
+        expect(vis.get(ENC_VEC_LAYERS.HAZARDS)).toBe('visible'); // hazards survive
     });
 
     it('ORDER-INDEPENDENT: master toggle no longer stomps an active focus mode', () => {
@@ -188,7 +188,7 @@ describe('glaze over imagery: clean while browsing, present while plotting', () 
         imageryOn();
         applyEncVisibility(map);
         expect(vis.get(ENC_VEC_LAYERS.DEPCNT_SAFETY)).toBe('visible');
-        expect(vis.get(ENC_VEC_LAYERS.WRECKS)).toBe('visible');
+        expect(vis.get(ENC_VEC_LAYERS.HAZARDS)).toBe('visible');
     });
 
     it('hands the glaze BACK the moment plotting starts', () => {
@@ -238,10 +238,9 @@ describe('plotting keel floor', () => {
         setEncPlottingMode(map, true);
         // On the paper chart the bands live on DEPARE; the floor forces it back.
         expect(vis.get(ENC_VEC_LAYERS.DEPARE)).toBe('visible');
-        // ...along with the three that actually sink you.
-        expect(vis.get(ENC_VEC_LAYERS.WRECKS)).toBe('visible');
-        expect(vis.get(ENC_VEC_LAYERS.UWTROC)).toBe('visible');
-        expect(vis.get(ENC_VEC_LAYERS.OBSTRN)).toBe('visible');
+        // ...along with the wrecks, rocks and obstructions that actually sink
+        // you: one layer since build 125 (125-04).
+        expect(vis.get(ENC_VEC_LAYERS.HAZARDS)).toBe('visible');
     });
 
     it('lowers again on exit, handing the chart back to the user toggles', () => {
