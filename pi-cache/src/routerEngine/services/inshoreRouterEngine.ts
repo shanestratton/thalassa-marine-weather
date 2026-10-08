@@ -73,6 +73,7 @@ import {
 } from './engine/constants.js';
 import type {
     DepthBend,
+    DryPinTail,
     InshoreLayers,
     NavGrid,
     RouteRequest,
@@ -116,6 +117,7 @@ import {
     collectSurveyRuns,
 } from './engine/shallowRuns.js';
 import { directTails } from './engine/directTail.js';
+import { dryTailChart, dryTailWay, splitAtDryEdges, type DryTailChart } from './engine/dryPinTail.js';
 import {
     smoothPath,
     deStaggerCentred,
@@ -151,6 +153,7 @@ import { clearanceBarAt, clearanceRefusalMessage, polylineCrossesClearanceBar } 
 import {
     classifyNoTideRuns,
     collectDryRuns,
+    pinTailDryRun,
     NO_TIDE_CLIP_TOLERANCE_M,
     noTideBarriersAt,
     noTideClearsAt,
@@ -241,17 +244,49 @@ const DRY_TAIL_FAULTS = ['a charted drying band', 'water no tide clears'] as con
 const FAR_SNAP_M = 500;
 
 /**
+ * classifyNoTideRuns over a FINISHED route without its pins' dry tails
+ * (package 125-05b review fix-up, 2026-10-09; RouteDebug.dryPinTail): a tail
+ * is the red the route runs on to its pin with, named — never a crossing of
+ * water no tide clears to refuse a relaxed rescue for, to go round, or to
+ * name as "the only way through". The line stops where the destination's
+ * tail starts, and is read from where the origin's ends (`fromM`, the later
+ * of the caller's and that). routeInshoreOnceEnds' own classifier leaves the
+ * tails out the same way.
+ */
+function classifyRouteNoTide(
+    layers: InshoreLayers,
+    r: RouteResult,
+    ceilings: CeilingLookup,
+    needM: number,
+    opts: { toleranceM?: number; fromM?: number } = {},
+): ReturnType<typeof classifyNoTideRuns> {
+    const tails = r.debug?.dryPinTail;
+    const poly = r.polyline;
+    const destSegs = Math.min(tails?.destination?.segs ?? 0, Math.max(0, poly.length - 2));
+    const line = destSegs > 0 ? poly.slice(0, poly.length - destSegs) : poly;
+    let headM = 0;
+    for (let i = 0; i < (tails?.origin?.segs ?? 0) && i + 1 < line.length; i++)
+        headM += tupleDistM(line[i], line[i + 1]);
+    return classifyNoTideRuns(layers, line, ceilings, needM, {
+        ...opts,
+        ...(headM > 0 || opts.fromM !== undefined ? { fromM: Math.max(opts.fromM ?? 0, headM) } : {}),
+    });
+}
+
+/**
  * Why a localized-relaxed route may not replace a strict refusal for water no
  * tide clears (2026-10-01), or null: it crosses charted land away from a
  * pin's own edge (debug.hardLandAwayM, the final audit's figure), or water no
- * tide clears beyond a clip (the engine's own rule, classifyNoTideRuns).
+ * tide clears beyond a clip (the engine's own rule, classifyNoTideRuns) — a
+ * pin's own dry tail is never such water (classifyRouteNoTide). Exported for
+ * its tests.
  */
-function relaxedRescueFault(layers: InshoreLayers, req: RouteRequest, relaxed: RouteResult): string | null {
+export function relaxedRescueFault(layers: InshoreLayers, req: RouteRequest, relaxed: RouteResult): string | null {
     const landM = relaxed.debug?.hardLandAwayM ?? 0;
     if (landM > 0) return `crosses ${Math.round(landM)} m of charted land`;
     const ceilings = tideCeilingLookup(req.tideCeilings);
     if (ceilings.size === 0) return null;
-    const sorted = classifyNoTideRuns(layers, relaxed.polyline, ceilings, req.draftM + (req.safetyM ?? 1.0), {
+    const sorted = classifyRouteNoTide(layers, relaxed, ceilings, req.draftM + (req.safetyM ?? 1.0), {
         toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
     });
     const across = [...sorted.crossings, ...sorted.splices];
@@ -525,7 +560,21 @@ function finishRoute(
         const { through: _through, throughToday: _today, ...failure } = out;
         return failure;
     }
-    const dryRuns = collectDryRuns(layers, out.polyline, ceilings, req.draftM, req.draftM + (req.safetyM ?? 1.0));
+    // Every dry stretch, and a pin's own dry tail (package 125-05b) named as
+    // that pin's, whatever the tide — in route order.
+    const needM = req.draftM + (req.safetyM ?? 1.0);
+    const tails = out.debug?.dryPinTail;
+    const spans = [tails?.origin, tails?.destination];
+    const inTail = (seg: number): boolean => spans.some((t) => !!t && seg >= t.startSeg && seg <= t.endSeg);
+    const pinRuns = (['origin', 'destination'] as const).flatMap((end) => {
+        const span = tails?.[end];
+        const run = span ? pinTailDryRun(layers, out.polyline, span, end, ceilings, req.draftM, needM) : null;
+        return run ? [run] : [];
+    });
+    const dryRuns = [
+        ...collectDryRuns(layers, out.polyline, ceilings, req.draftM, needM, 10, tails ? inTail : undefined),
+        ...pinRuns,
+    ].sort((a, b) => a.startSeg + a.startT - (b.startSeg + b.startT));
     return dryRuns.length > 0 ? { ...out, dryRuns } : out;
 }
 
@@ -555,7 +604,7 @@ function routeThroughOnlyUnavoidable(
     const needM = req.draftM + (req.safetyM ?? 1.0);
     /** The bands of each crossing of water no tide clears on a route. */
     const crossedBands = (r: RouteResult): TideBarrier[][] =>
-        classifyNoTideRuns(layers, r.polyline, ceilings, needM, { toleranceM: NO_TIDE_CLIP_TOLERANCE_M })
+        classifyRouteNoTide(layers, r, ceilings, needM, { toleranceM: NO_TIDE_CLIP_TOLERANCE_M })
             .crossings.sort((a, b) => b.run.lengthM - a.run.lengthM)
             .map((c) => noTideBarriersAt(layers, ceilings, needM, c.spots))
             .filter((g) => g.length > 0);
@@ -670,7 +719,7 @@ function routeAvoidingNoTide(
     // through; over clips at most, it is the route.
     const without = routeWithout();
     if ('error' in without) return without;
-    const sorted = classifyNoTideRuns(layers, without.polyline, ceilings, needM, {
+    const sorted = classifyRouteNoTide(layers, without, ceilings, needM, {
         toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
     });
     if (sorted.crossings.length > 0) {
@@ -779,10 +828,18 @@ function noTideClearsVerdict(
     // only way through" when the ceiling-aware attempt failed for another
     // reason).
     if (!reachesPins(without)) return routed;
-    const crossings = classifyNoTideRuns(layers, without.polyline, ceilings, needM, {
+    const crossings = classifyRouteNoTide(layers, without, ceilings, needM, {
         toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
     }).crossings;
-    if (crossings.length === 0) return routed;
+    // Today's route reaches the pins, nearer, through no water no tide clears
+    // but its pins' own dry tails (package 125-05b), red and named: it is the
+    // route (review fix-up, 2026-10-09). Read as a crossing, such a tail used
+    // to refuse it as "the only way through", naming the pin's own beach, and
+    // the route through came back by that refusal; without it, the
+    // ceiling-aware attempt's failure stood — a harbour pin on flats no tide
+    // clears, the attempt snapped into the basin beyond them and refused for
+    // the land round it, though today's route ran on across the flats to it.
+    if (crossings.length === 0) return without.debug?.dryPinTail ? without : routed;
     const worst = crossings.reduce((a, b) => (b.run.lengthM > a.run.lengthM ? b : a));
     return noTideRefusalFor(layers, req, needM, worst.run, routed.debug, without, true);
 }
@@ -844,12 +901,24 @@ function routeInshoreCore(layers: InshoreLayers, req: RouteRequest): RouteResult
     return main;
 }
 
+/** A route's caution segments, its pins' dry tails (RouteDebug.dryPinTail,
+ *  each tail's whole `segs`) left out. */
+function cautionOutsideDryTails(r: RouteResult): number {
+    const mask = r.cautionMask ?? [];
+    const head = r.debug?.dryPinTail?.origin?.segs ?? 0;
+    const tailFrom = mask.length - (r.debug?.dryPinTail?.destination?.segs ?? 0);
+    let n = 0;
+    for (let i = head; i < tailFrom; i++) if (mask[i]) n++;
+    return n;
+}
+
 /** Accept the fine marina route only if it's at least as safe as the main
  *  route AND doesn't dead-end short of where the user tapped. Because both
  *  routes splice the input coords as their visible endpoints, truncation
  *  shows up as a larger SNAP distance (the real water ends far from the tap
- *  with a bridge segment), not in the polyline ends — so we gate on that. */
-function fineRefinementIsBetter(fine: RouteResult, main: RouteResult, _req: RouteRequest): boolean {
+ *  with a bridge segment), not in the polyline ends — so we gate on that.
+ *  Exported for its tests. */
+export function fineRefinementIsBetter(fine: RouteResult, main: RouteResult, _req: RouteRequest): boolean {
     const SNAP_TOL_M = 200;
     const worseSnap = (f?: number, m?: number): boolean => (f ?? 0) > (m ?? 0) + SNAP_TOL_M;
     // 1. No endpoint snapped meaningfully FURTHER than main — the fine grid
@@ -858,9 +927,11 @@ function fineRefinementIsBetter(fine: RouteResult, main: RouteResult, _req: Rout
     if (worseSnap(fine.debug?.originSnap?.snapDistanceM, main.debug?.originSnap?.snapDistanceM)) return false;
     if (worseSnap(fine.debug?.destinationSnap?.snapDistanceM, main.debug?.destinationSnap?.snapDistanceM)) return false;
     // 2. No NEW caution — never trade an all-clean route for a red-flagged one.
-    const fineCaution = (fine.cautionMask ?? []).filter(Boolean).length;
-    const mainCaution = (main.cautionMask ?? []).filter(Boolean).length;
-    if (fineCaution > mainCaution) return false;
+    //    A pin's dry tail is red by design on both (package 125-05b), and the
+    //    10 m pass cuts it into more segments than the 50 m one: left out of
+    //    both counts (review fix-up, 2026-10-09: the tail alone cost a short
+    //    marina-to-beach route its fine refinement).
+    if (cautionOutsideDryTails(fine) > cautionOutsideDryTails(main)) return false;
     // 3. Not a wild detour — much longer than main means it wandered.
     if (fine.distanceNM > main.distanceNM * 1.5 + 0.1) return false;
     return true;
@@ -2946,18 +3017,52 @@ function routeInshoreOnceEnds(
         }
     }
 
-    // ── A pin off the water: the route stops at its edge (decision 7) ───
+    // ── A pin off the water: on to the pin across dry ground, else its edge ─
     // Decision 7's limit is never drying (round 3, 2026-09-30). A pin on a
     // drying bank used to keep "today's ending": the nearest cell the route
     // could snap to, which is ON the bank — the route crossed hundreds of
     // metres of charted drying ground to end metres from the pin (~970 m to
-    // ~30 m on a real bank). Now, for a pin on a drying bank or on charted
-    // land, the route stops at the last water the chart paints neither
+    // ~30 m on a real bank), unnamed. For a pin on a drying bank or on charted
+    // land the route then stopped at the last water the chart paints neither
     // drying nor land, nearest the pin — the edge, cut to within a metre by
-    // the chart itself (hard land by the audit's own point rule; drying by
-    // the finest survey's charted depth) — and pinOffWater says so. The
-    // origin is symmetric: the route starts at the edge.
-    if ((pinOffWater.origin || pinOffWater.destination) && finalPolyline.length >= 2) {
+    // the chart itself (hard land by the audit's own point rule; drying by the
+    // finest survey's charted depth) — and pinOffWater says so. The origin is
+    // symmetric: the route starts at the edge.
+    //   Package 125-05b (Shane, 2026-10-08: "tried to do a route from the
+    // newport canals to tangalooma, i got some message about it being dry at
+    // both ends???? … better we just have red at the "dry" zones, rather than
+    // just shit caning the whole route"): a pin on DRY ground — a drying bank,
+    // or water no tide clears — gets the route run on from the route's water
+    // to the pin (engine/dryPinTail: never charted land, water no chart
+    // covers, a structure the mast cannot clear or a charted hazard's
+    // keep-out), the tail red whatever the tide and named (finishRoute's
+    // dryRuns, with `pin`). So does a WATER pin the route ends more than
+    // FAR_SNAP_M short of across a drying band — the deep-water snap ends the
+    // route in the channel outside a harbour behind drying flats, which Auto
+    // refused as "no route by water". A pin on charted land keeps the stop at
+    // the edge, and so does a dry pin no tail reaches without crossing land:
+    // the honest words for both.
+    /** Each end's tail: its red stretch — from the origin as segments, from
+     *  the destination counted back from the last segment, both unmoved by
+     *  any splice between them — and the segments the whole tail takes. */
+    const dryTail: {
+        origin?: {
+            startSeg: number;
+            endSeg: number;
+            at: 'on' | 'beyond';
+            lengthM: number;
+            snapM: number;
+            segs: number;
+        };
+        destination?: {
+            fromEnd: [number, number];
+            at: 'on' | 'beyond';
+            lengthM: number;
+            snapM: number;
+            segs: number;
+        };
+    } = {};
+    if (finalPolyline.length >= 2) {
         const onHardLand = hardLandAtPoint(layers);
         const depthBands = chartAreaIndexFor(layers).depth;
         const offWater = (p: readonly [number, number]): boolean => {
@@ -3003,10 +3108,11 @@ function routeInshoreOnceEnds(
             return null;
         };
         const trims: { origin?: number; destination?: number } = {};
-        if (pinOffWater.destination) {
-            const edge = edgeFrom(true);
-            if (edge) {
-                let cutM = tupleDistM(edge.point, finalPolyline[edge.seg + 1]);
+        /** Today's ending: the route cut back to the edge; its metres. */
+        const cutToEdge = (which: 'origin' | 'destination', edge: { seg: number; point: [number, number] }): number => {
+            let cutM: number;
+            if (which === 'destination') {
+                cutM = tupleDistM(edge.point, finalPolyline[edge.seg + 1]);
                 for (let i = edge.seg + 1; i < finalPolyline.length - 1; i++)
                     cutM += tupleDistM(finalPolyline[i], finalPolyline[i + 1]);
                 const keep = edge.seg + 1; // segments 0..edge.seg
@@ -3016,13 +3122,8 @@ function routeInshoreOnceEnds(
                 finalChannelMask = finalChannelMask.slice(0, keep);
                 finalOffshoreMask = finalOffshoreMask.slice(0, keep);
                 if (destinationTailStartSeg >= keep) destinationTailStartSeg = -1;
-                trims.destination = Math.round(cutM);
-            }
-        }
-        if (pinOffWater.origin) {
-            const edge = edgeFrom(false);
-            if (edge) {
-                let cutM = tupleDistM(finalPolyline[edge.seg], edge.point);
+            } else {
+                cutM = tupleDistM(finalPolyline[edge.seg], edge.point);
                 for (let i = 0; i < edge.seg; i++) cutM += tupleDistM(finalPolyline[i], finalPolyline[i + 1]);
                 finalPolyline = [edge.point, ...finalPolyline.slice(edge.seg + 1)];
                 finalCaution = finalCaution.slice(edge.seg);
@@ -3031,8 +3132,194 @@ function routeInshoreOnceEnds(
                 finalOffshoreMask = finalOffshoreMask.slice(edge.seg);
                 if (destinationTailStartSeg >= 0) destinationTailStartSeg -= edge.seg;
                 if (originTailEndSeg >= 0) originTailEndSeg = Math.max(-1, originTailEndSeg - edge.seg);
-                trims.origin = Math.round(cutM);
             }
+            return Math.round(cutM);
+        };
+        let chart: DryTailChart | null = null;
+        const tailChart = (): DryTailChart =>
+            (chart ??= dryTailChart(layers, { needM: deepFloorM, obstructionBufferM, noTideAt }));
+        /** A cell a tail's way may take: water, or water no tide clears —
+         *  never land, a structure bar, a berth, a mark's or a hazard's keep-out. */
+        const passable = (idx: number): boolean =>
+            (!Number.isNaN(grid.cells[idx]) || isNoTideCell(idx)) &&
+            grid.landBlocked?.[idx] !== 1 &&
+            grid.clearanceBarred?.[idx] !== 1 &&
+            grid.berthBlocked?.[idx] !== 1 &&
+            grid.markDiscBlocked?.[idx] !== 1 &&
+            !isChartedHazardCell(idx);
+        /** Water preferred, and the shallower drying (decision 7's tail weight). */
+        const weight = (idx: number): number => {
+            const sd = grid.shallowDepthM?.[idx];
+            const d = sd !== undefined && !Number.isNaN(sd) ? sd : grid.cells[idx] >= 0 ? grid.cells[idx] : 0;
+            return 1 + Math.max(0, deepFloorM - d);
+        };
+        const pad = (mask: boolean[], count: number, atStart: boolean): boolean[] =>
+            mask.length === 0
+                ? mask
+                : atStart
+                  ? [...new Array(count).fill(false), ...mask]
+                  : [...mask, ...new Array(count).fill(false)];
+        for (const which of ['destination', 'origin'] as const) {
+            if (finalPolyline.length < 2) break;
+            const off = pinOffWater[which];
+            const atEnd = which === 'destination';
+            const pin: [number, number] = atEnd ? [req.toLon, req.toLat] : [req.fromLon, req.fromLat];
+            const endPt = finalPolyline[atEnd ? finalPolyline.length - 1 : 0];
+            const at: 'on' | 'beyond' | null =
+                off === 'drying' || off === 'no-tide'
+                    ? 'on'
+                    : !off && atEnd && !debug.destinationChartedPin && tupleDistM(endPt, pin) > FAR_SNAP_M
+                      ? 'beyond'
+                      : null;
+            const edge = off ? edgeFrom(atEnd) : null;
+            if (at === null || (!edge && offWater(endPt))) {
+                if (off && edge) trims[which] = cutToEdge(which, edge);
+                continue;
+            }
+            // Where the tail may leave the route: its own water nearest the pin
+            // end — from the edge, or its end, back along it as far as the gap
+            // and 500 m more, every half cell (the tail's search takes the
+            // cheapest, so it is never an out-and-back).
+            const joins: { seg: number; point: [number, number] }[] = [];
+            {
+                const n = finalPolyline.length;
+                const first = edge ?? (atEnd ? { seg: n - 2, point: endPt } : { seg: 0, point: endPt });
+                const reachM = tupleDistM(first.point, pin) + 500;
+                const stepM = resolutionM / 2;
+                joins.push(first);
+                let walked = 0;
+                let seg = first.seg;
+                let p = first.point;
+                while (walked < reachM && seg >= 0 && seg < n - 1) {
+                    // Towards the far end of this segment from the pin.
+                    const q = finalPolyline[atEnd ? seg : seg + 1];
+                    const legM = tupleDistM(p, q);
+                    const steps = Math.max(1, Math.ceil(legM / stepM));
+                    for (let k = 1; k <= steps && walked + (legM * k) / steps <= reachM; k++) {
+                        const t = k / steps;
+                        // A vertex belongs to the segment beyond it, so no cut
+                        // leaves a segment of no length.
+                        if (k === steps) {
+                            const next = atEnd ? seg - 1 : seg + 1;
+                            if (next >= 0 && next < n - 1) joins.push({ seg: next, point: [q[0], q[1]] });
+                        } else joins.push({ seg, point: lerp(p, q, t) });
+                    }
+                    walked += legM;
+                    p = q;
+                    seg = atEnd ? seg - 1 : seg + 1;
+                }
+            }
+            const way = dryTailWay(
+                grid,
+                tailChart(),
+                joins.map((j) => j.point),
+                pin,
+                { resolutionM, tolDeg, passable, weight },
+            );
+            const split =
+                typeof way === 'string'
+                    ? null
+                    : splitAtDryEdges(atEnd ? way.points : [...way.points].reverse(), tailChart().isDry);
+            // A pin beyond a drying band is reached ACROSS it: the band must
+            // lie within FAR_SNAP_M of the pin. Further off, the gap is the
+            // router's to explain (decision 11's way round, or the route
+            // through: routeInshore), never a long line drawn past it.
+            let pastDryM = 0;
+            if (split && at === 'beyond')
+                for (let k = split.dry.lastIndexOf(true) + 1; k + 1 < split.points.length; k++)
+                    pastDryM += tupleDistM(split.points[k], split.points[k + 1]);
+            const fault =
+                typeof way === 'string'
+                    ? `it would cross ${way}`
+                    : !split || !split.dry.some(Boolean)
+                      ? 'no dry ground between'
+                      : pastDryM > FAR_SNAP_M
+                        ? `the pin lies ${Math.round(pastDryM)} m past the dry ground`
+                        : null;
+            if (fault || typeof way === 'string' || !split) {
+                engineLog.warn(
+                    `[dryTail] no tail to the ${which} pin (${fault}) — ${off ? "the route stops at the water's edge" : 'the route stops short of it'}`,
+                );
+                if (off && edge) trims[which] = cutToEdge(which, edge);
+                continue;
+            }
+            cutToEdge(which, joins[way.join]);
+            const pts = split.points;
+            const added = pts.length - 1;
+            let lengthM = 0;
+            for (let k = 0; k < added; k++) lengthM += tupleDistM(pts[k], pts[k + 1]);
+            // Red over its dry ground; over water, caution where the chart has
+            // it shallower than the keel needs (read inside the segment: its
+            // ends are the dry ground's edges).
+            const caution = split.dry.map((dry, k) => {
+                if (dry) return true;
+                const [a, b] = [pts[k], pts[k + 1]];
+                const steps = Math.max(2, Math.ceil(tupleDistM(a, b) / 5));
+                const inside = Array.from({ length: steps - 1 }, (_, i) => lerp(a, b, (i + 1) / steps));
+                return leastChartedDepthAlong(inside.map((q) => [q[0], q[1]] as [number, number])) < deepFloorM;
+            });
+            // Its red stretch: from the pin's end while it is dry (a pin on
+            // the dry ground), or every dry segment of it (a pin beyond).
+            let first = split.dry.indexOf(true);
+            let last = split.dry.lastIndexOf(true);
+            if (at === 'on' && atEnd) for (first = last = added - 1; first > 0 && split.dry[first - 1]; first--);
+            if (at === 'on' && !atEnd) for (first = last = 0; last + 1 < added && split.dry[last + 1]; last++);
+            const snap = atEnd ? debug.destinationSnap : debug.originSnap;
+            const snapM = Math.round(snap?.snapDistanceM ?? tupleDistM(endPt, pin));
+            if (atEnd) {
+                const base = finalPolyline.length - 1; // the tail's first segment
+                finalPolyline = [...finalPolyline, ...pts.slice(1)];
+                finalCaution = [...finalCaution, ...caution];
+                finalCanalMask = pad(finalCanalMask, added, false);
+                finalChannelMask = pad(finalChannelMask, added, false);
+                finalOffshoreMask = pad(finalOffshoreMask, added, false);
+                // The tail is its own run, from where it dries (collectShallowRuns).
+                destinationTailStartSeg = base + first;
+                dryTail.destination = {
+                    fromEnd: [added - 1 - first, added - 1 - last],
+                    at,
+                    lengthM: Math.round(lengthM),
+                    snapM,
+                    segs: added,
+                };
+                // It reaches the pin: no snap to water off it, no land trim.
+                if (debug.destinationSnap)
+                    debug.destinationSnap = {
+                        ...debug.destinationSnap,
+                        snappedLat: req.toLat,
+                        snappedLon: req.toLon,
+                        snapDistanceM: 0,
+                    };
+                delete debug.destinationWaterSnap;
+                delete debug.destinationInlandTrimM;
+                delete debug.destinationLandTailTrimM;
+            } else {
+                finalPolyline = [...pts.slice(0, -1), ...finalPolyline];
+                finalCaution = [...caution, ...finalCaution];
+                finalCanalMask = pad(finalCanalMask, added, true);
+                finalChannelMask = pad(finalChannelMask, added, true);
+                finalOffshoreMask = pad(finalOffshoreMask, added, true);
+                if (destinationTailStartSeg >= 0) destinationTailStartSeg += added;
+                originTailEndSeg = last;
+                dryTail.origin = {
+                    startSeg: first,
+                    endSeg: last,
+                    at,
+                    lengthM: Math.round(lengthM),
+                    snapM,
+                    segs: added,
+                };
+                if (debug.originSnap)
+                    debug.originSnap = {
+                        ...debug.originSnap,
+                        snappedLat: req.fromLat,
+                        snappedLon: req.fromLon,
+                        snapDistanceM: 0,
+                    };
+            }
+            engineLog.warn(
+                `[dryTail] ${which} pin ${at === 'on' ? 'on dry ground' : 'beyond a drying band'} — the route runs on to it, ${Math.round(lengthM)} m of tail, red (the grid's snap was ${snapM} m)`,
+            );
         }
         if (trims.origin !== undefined || trims.destination !== undefined) {
             debug.pinEdgeTrimM = trims;
@@ -3159,11 +3446,19 @@ function routeInshoreOnceEnds(
                 along += segM;
             }
         }
-        const classify = () =>
-            classifyNoTideRuns(layers, finalPolyline, tideLookup, deepFloorM, {
-                fromM: skipM,
+        // A pin's dry tail (package 125-05b) is not read: it is the red the
+        // route runs on to its pin with, named, never a crossing to go round.
+        const classify = () => {
+            const tailSegs = dryTail.destination?.segs ?? 0;
+            const line = tailSegs > 0 ? finalPolyline.slice(0, finalPolyline.length - tailSegs) : finalPolyline;
+            let headM = 0;
+            for (let i = 0; i < (dryTail.origin?.segs ?? 0); i++)
+                headM += tupleDistM(finalPolyline[i], finalPolyline[i + 1]);
+            return classifyNoTideRuns(layers, line, tideLookup, deepFloorM, {
+                fromM: Math.max(skipM, headM),
                 toleranceM: NO_TIDE_CLIP_TOLERANCE_M,
             });
+        };
         const sorted = classify();
         noTideCrossings = [...sorted.crossings];
         const cum = [0];
@@ -3475,6 +3770,54 @@ function routeInshoreOnceEnds(
         // A near stretch no tide clears is red (round-3 fix-up, 2026-10-03).
         ...(req.tideCeilings?.length ? { tideCeilings: req.tideCeilings } : {}),
     });
+    // A pin's dry tail is red whatever the tide (package 125-05b): no tide
+    // depth for the planner to draw it amber by (owner decision 10's amber is
+    // for water that needs a tide, not ground that dries under a pin), and
+    // its run says what it is (its chip names the ground). finishRoute names
+    // the stretch (dryRuns, `pin`).
+    const dryPinTail: { origin?: DryPinTail; destination?: DryPinTail } = {};
+    {
+        const segCount = finalPolyline.length - 1;
+        const o = dryTail.origin;
+        const d = dryTail.destination;
+        if (o)
+            dryPinTail.origin = {
+                startSeg: o.startSeg,
+                endSeg: o.endSeg,
+                at: o.at,
+                lengthM: o.lengthM,
+                snapM: o.snapM,
+                segs: o.segs,
+            };
+        if (d)
+            dryPinTail.destination = {
+                startSeg: segCount - 1 - d.fromEnd[0],
+                endSeg: segCount - 1 - d.fromEnd[1],
+                at: d.at,
+                lengthM: d.lengthM,
+                snapM: d.snapM,
+                segs: d.segs,
+            };
+        for (const span of [dryPinTail.origin, dryPinTail.destination]) {
+            if (!span) continue;
+            for (let i = span.startSeg; i <= span.endSeg; i++) tideDepthM[i] = null;
+            for (const run of shallowRuns)
+                if (run.startSeg <= span.endSeg && run.endSeg >= span.startSeg) run.dryTail = true;
+        }
+        if (dryPinTail.origin || dryPinTail.destination) debug.dryPinTail = dryPinTail;
+        // The tail's own water up to the dry ground is not "too close to" it:
+        // the route goes onto it there, red from its edge, and says so.
+        const inTailWay = (seg: number): boolean => (!!o && seg < o.segs) || (!!d && seg >= segCount - d.segs);
+        if (o || d) {
+            for (let i = chartedShallowSpans.length - 1; i >= 0; i--) {
+                const span = chartedShallowSpans[i];
+                if (span.near && inTailWay(span.startSeg) && inTailWay(span.endSeg)) chartedShallowSpans.splice(i, 1);
+            }
+            cautionNearShallow.forEach((near, i) => {
+                if (near && inTailWay(i)) cautionNearShallow[i] = null;
+            });
+        }
+    }
     // Survey quality on the route (owner decision 9, 2026-09-30): amber
     // stretches and the 'not checked' cells, from the finished geometry —
     // disclosure only, never a cost or a refusal (engine/shallowRuns).

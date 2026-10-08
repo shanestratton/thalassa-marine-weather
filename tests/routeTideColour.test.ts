@@ -702,3 +702,27 @@ describe('decision 11 fix-up (2026-10-01) — a band some tide clears is not "no
         expect(out[0].text).toMatch(/^no tide in \d+ days? clears it — needs \+3\.4 m, highest 2\.5 m$/);
     });
 });
+
+/**
+ * Package 125-05b (Shane, 2026-10-08: "better we just have red at the "dry"
+ * zones"): a pin's dry tail is red whatever the tide — no tide depth for the
+ * line to go amber by (the engine nulls it) — and its chip says what the
+ * ground does, never a window over a red line. The route notes say when the
+ * boat floats over it.
+ */
+describe('125-05b — a pin’s dry tail is red, its chip naming the ground', () => {
+    it('red with a tide that floats the boat over it, and red with none', () => {
+        const r = channelWithShallow(-0.4, { channelMask: all(3, false), tideDepthM: [null, null, null] });
+        // A 4 m range floats a 2.4 m keel over −0.4 m sand at high water…
+        expect(draw(r, 4)).toEqual(['green', 'danger', 'green']);
+        expect(draw(r, null)).toEqual(['green', 'danger', 'green']);
+        const tail = shallowRun(-0.4, { lengthM: 180, endpointTail: 'destination', dryTail: true });
+        for (const curve of [tide(4), tide(2.5), null]) {
+            expect(chips([tail], curve)).toEqual([
+                { lat: -27.3, lon: 153.015, text: 'dries 0.4 m to the pin', tone: 'red' },
+            ]);
+        }
+        // Water no tide clears under a pin: its charted depth.
+        expect(chips([{ ...tail, minDepthM: 0 }], null)[0].text).toBe('0 m charted · no tide clears it');
+    });
+});

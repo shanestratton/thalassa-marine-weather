@@ -193,25 +193,31 @@ const offWaterM = (layers: InshoreLayers, poly: readonly [number, number][]): nu
 };
 
 describe('decision 7 — the hard limits', () => {
-    // Round 3 (2026-09-30): decision 7's limit is never drying. A pin on a
-    // drying bank used to keep "today's ending" — the nearest cell it snapped
-    // to, ON the bank: the route crossed charted drying ground to end metres
-    // from the pin. It now stops at the bank's edge (the last water the chart
-    // does not paint drying or land, nearest the pin), and says so.
-    it('a pin on a drying bank: the route stops at the edge of the bank, and the result says it dries', () => {
+    // Round 3 (2026-09-30): decision 7's limit is never drying — a pin on a
+    // drying bank got a route that stopped at the bank's edge. Package 125-05b
+    // (Shane, 2026-10-08: "better we just have red at the "dry" zones, rather
+    // than just shit caning the whole route"): the route runs on across the
+    // bank to the pin, a dry tail drawn red and named (RouteResult.dryRuns,
+    // `pin`) — still no decision-7 'needs tide' tail, and still never land.
+    it('a pin on a drying bank: the route runs on across the bank to the pin, red and named (125-05b)', () => {
         const q = req(153.41, 153.485);
         const layers = bay();
         const r = routeInshore(layers, q);
         expect(isResult(r)).toBe(true);
         if (!isResult(r)) return;
         expect(r.pinOffWater).toEqual({ destination: 'drying' });
-        expect(r.shallowRuns?.some((s) => s.endpointTail)).toBe(false);
+        // Its own red tail, not a decision-7 charted one.
+        expect(r.shallowRuns?.some((s) => s.endpointTail && !s.dryTail)).toBe(false);
+        expect(r.shallowRuns?.find((s) => s.dryTail)?.endpointTail).toBe('destination');
         expect(r.debug?.destinationChartedPin).toBeUndefined();
-        // Was: ~490 m of the bank crossed, ending ~30 m from the pin.
-        expect(offWaterM(layers, r.polyline)).toBeLessThan(1);
-        const [endLon] = r.polyline[r.polyline.length - 1];
-        expect(Math.abs(hav(-27.5, endLon, -27.5, SHALLOW_E))).toBeLessThan(5);
-        expect(r.debug?.pinEdgeTrimM?.destination).toBeGreaterThan(400);
+        expect(endGap(r, q)).toBeLessThan(1);
+        expect(r.debug?.pinEdgeTrimM).toBeUndefined();
+        // The bank from its edge to the pin (~494 m) — no more of it.
+        expect(Math.abs(offWaterM(layers, r.polyline) - hav(-27.5, SHALLOW_E, -27.5, 153.485))).toBeLessThan(20);
+        const tail = r.dryRuns?.find((d) => d.pin?.end === 'destination');
+        expect(tail?.pin).toEqual({ end: 'destination', at: 'on' });
+        expect(tail?.shallowestM).toBe(-1);
+        expect(Math.abs((tail?.lengthM ?? 0) - hav(-27.5, SHALLOW_E, -27.5, 153.485))).toBeLessThan(20);
     });
 
     // Round-3 review (2026-09-30): the pin was classed by its 50 m CELL. A
@@ -267,7 +273,8 @@ describe('decision 7 — the hard limits', () => {
         expect(Math.abs(hav(lat, r.polyline[0][0], lat, SHALLOW_E))).toBeLessThan(5);
     });
 
-    it('symmetrically, a departure from a drying bank starts at its edge', () => {
+    // 125-05b: it starts AT the pin now, the bank to its edge a red tail.
+    it('symmetrically, a departure from a drying bank starts at the pin, the bank red and named', () => {
         const lat = -26.6;
         const layers: InshoreLayers = {
             DEPARE: fc(
@@ -281,9 +288,11 @@ describe('decision 7 — the hard limits', () => {
         expect(isResult(r), 'error' in r ? r.error : '').toBe(true);
         if (!isResult(r)) return;
         expect(r.pinOffWater).toEqual({ origin: 'drying' });
-        expect(offWaterM(layers, r.polyline)).toBeLessThan(1);
-        expect(Math.abs(hav(lat, r.polyline[0][0], lat, SHALLOW_E))).toBeLessThan(5);
-        // Every per-segment mask still fits the trimmed line.
+        // Was: started at the bank's edge (SHALLOW_E), ~490 m off the pin.
+        expect(hav(lat, r.polyline[0][0], lat, 153.485)).toBeLessThan(1);
+        expect(Math.abs(offWaterM(layers, r.polyline) - hav(lat, SHALLOW_E, lat, 153.485))).toBeLessThan(20);
+        expect(r.dryRuns?.find((d) => d.pin?.end === 'origin')?.pin).toEqual({ end: 'origin', at: 'on' });
+        // Every per-segment mask still fits the line.
         expect(r.cautionMask).toHaveLength(r.polyline.length - 1);
         expect(r.canalMask).toHaveLength(r.polyline.length - 1);
     });
