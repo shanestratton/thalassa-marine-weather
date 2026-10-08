@@ -284,6 +284,32 @@ describe('the Pi can actually be handed the shore watch', () => {
         expect(sheetUse).not.toMatch(/AnchorPiWatchKeeper|stopWatch|leaveSession/);
     });
 
+    it('moving the anchor from the ALARM never touches the Pi’s watch either', () => {
+        // Build 125 (125-03): the alarm screen's Move anchor. It is offered only
+        // while THIS phone keeps the watch, read from the keeper and never
+        // acted on, and the move itself is the phone's own transaction.
+        const service = read('services/AnchorWatchService.ts');
+        const fromAlarm = service.slice(
+            service.indexOf('private async relocateAnchorFromAlarmLocked'),
+            service.indexOf('/** Stop watching and return to idle */'),
+        );
+        expect(fromAlarm.length).toBeGreaterThan(0);
+        expect(fromAlarm).not.toMatch(/stopWatch|stopGpsMonitoring|rollbackFailedSetup|AnchorPiWatchKeeper/);
+
+        const gate = read('components/anchor-watch/GlobalAnchorAlarmGate.tsx');
+        expect(gate).toMatch(/!AnchorPiWatchKeeper\.isKeeping\(\)/);
+        expect(gate).not.toMatch(/AnchorPiWatchKeeper\.(end|begin)\(/);
+        expect(gate).toMatch(/<MoveAnchorSheet[\s\S]{0,80}mode="alarm"/);
+
+        const sheet = read('components/anchor-watch/MoveAnchorSheet.tsx');
+        expect(sheet).toMatch(/AnchorWatchService\.relocateAnchorFromAlarm\(/);
+        expect(sheet).not.toMatch(/AnchorPiWatchKeeper|anchorPiWatchKeeper|anchorPiHandoff/);
+
+        // And still exactly two end() calls on the page, both weigh-anchor handlers.
+        const page = read('components/AnchorWatchPage.tsx');
+        expect(page.match(/AnchorPiWatchKeeper\.end\(\)/g) ?? []).toHaveLength(2);
+    });
+
     it('UNMOUNTING the page must not end the Pi’s watch', () => {
         // The point of handing the watch to the Pi is that the skipper can
         // pocket the phone and leave the boat — so the anchor page going away

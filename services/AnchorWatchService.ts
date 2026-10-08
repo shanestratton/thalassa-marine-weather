@@ -51,6 +51,14 @@ import {
     writeAnchorWatchRecovery,
 } from './anchorWatchRecoveryStorage';
 import { piFix } from './boatPositionChain';
+import {
+    AFTER_MOVE_WATCH_MS,
+    FURTHER_AFTER_MOVE,
+    SwingTrack,
+    judgeLateSet,
+    stillMovingAfterMove,
+    type LateSetVerdict,
+} from './anchorLateSet';
 
 export { ANCHOR_WATCH_DEVICE_RECOVERY_KEY } from './anchorWatchRecoveryStorage';
 
@@ -158,6 +166,9 @@ export interface AnchorWatchSnapshot {
     /** Which receiver the watch is actually believing right now. 'nmea' means
      *  it is watching the BOAT; 'native' means it is watching THIS PHONE. */
     gpsSource?: 'native' | 'nmea' | null;
+    /** Why the alarm sounds, beyond its cause: set when the drift watch after a
+     *  move from the alarm raised it (FURTHER_AFTER_MOVE). */
+    alarmDetail?: string | null;
 }
 
 export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
@@ -408,9 +419,24 @@ class AnchorWatchServiceClass {
     private maxDistanceRecorded = 0;
     private bearingToAnchor = 0;
     private positionHistory: VesselPosition[] = [];
+    /** Her track since the watch was set, or since the app restarted: one
+     *  mean fix per half-minute for 24 hours (anchorLateSet.ts). Kept across
+     *  a move of the mark; a move from the alarm is judged on it. */
+    private swingTrack = new SwingTrack();
     private alarmTriggeredAt: number | null = null;
     private alarmCause: 'drag' | 'gps-lost' | null = null;
     private watchStartedAt: number | null = null;
+    /** Where the watch was set: its first centre, kept through every move of
+     *  the mark (a move from the alarm is checked against it). Not saved:
+     *  after a restore it is the saved centre, and her track starts again. */
+    private watchCentreAtSet: { latitude: number; longitude: number } | null = null;
+    private alarmDetail: string | null = null;
+    /** The drift watch after a move from the alarm: the new mark, her mean
+     *  distance from it just before the move, and when. One-shot. */
+    private moveWatch: { anchor: { latitude: number; longitude: number }; baselineM: number; at: number } | null = null;
+    /** Moves from the alarm so far: a fence EXIT stamped with an older count
+     *  arrived before the fence round the new mark was in place. */
+    private alarmMoves = 0;
     /**
      * The identity that armed/restored this physical watch. It deliberately
      * stays fixed while the watch is running: an auth switch must not disarm a
@@ -522,6 +548,7 @@ class AnchorWatchServiceClass {
             alarmNotificationError: this.alarmNotificationError,
             blindGpsReason: this.alarmCause === 'gps-lost' ? this.describeBlindGps() : null,
             gpsSource: this.primaryGpsSource,
+            alarmDetail: this.alarmDetail,
         };
     }
 
@@ -713,12 +740,14 @@ class AnchorWatchServiceClass {
 
             this.swingRadius = calculateSwingRadius(this.config);
             this.positionHistory = [];
+            this.swingTrack.clear();
             this.maxDistanceRecorded = 0;
             this.outsideCircleCount = 0;
             this.jitterBuffer = [];
             this.alarmTriggeredAt = null;
             this.alarmCause = null;
             this.alarmNotificationError = null;
+            this.resetMoveState({ latitude: anchorLat, longitude: anchorLon });
 
             // Keep screen awake during anchor watch. Bounded: a nicety must
             // never be the thing that stalls arming a safety watch.
@@ -788,12 +817,14 @@ class AnchorWatchServiceClass {
             this.anchorPosition = { latitude: lat, longitude: lon, timestamp: Date.now() };
             this.swingRadius = calculateSwingRadius(this.config);
             this.positionHistory = [];
+            this.swingTrack.clear();
             this.maxDistanceRecorded = 0;
             this.outsideCircleCount = 0;
             this.jitterBuffer = [];
             this.alarmTriggeredAt = null;
             this.alarmCause = null;
             this.alarmNotificationError = null;
+            this.resetMoveState({ latitude: lat, longitude: lon });
 
             try {
                 await KeepAwake.keepAwake();
@@ -895,7 +926,8 @@ class AnchorWatchServiceClass {
      *
      *  - Watching or paused only. Never idle or arming, and never while the
      *    alarm sounds: silence it first, so moving the anchor can never be how
-     *    an alarm is made to go away.
+     *    an alarm is made to go away. (The alarm screen's own move,
+     *    relocateAnchorFromAlarm, is the one exception, and only on her swing track.)
      *  - Never to a point that would put the boat's latest fix outside the
      *    swing circle. That would alarm at once, and it is what stops a typo
      *    (500 for 50) sending the anchor across the bay.
@@ -955,6 +987,9 @@ class AnchorWatchServiceClass {
             await this.boundedEditStep('Saving the move', () => this.persistWatchStateRequired());
             // A paused watch keeps the reason it is blocked on screen.
             if (this.state === 'watching') this.setupError = null;
+            // A drift watch from an earlier move from the alarm measured from
+            // the mark this replaces, so it ends here; the circle carries on.
+            this.moveWatch = null;
             this.notify();
             return { ok: true };
         } catch (error) {
@@ -992,6 +1027,154 @@ class AnchorWatchServiceClass {
             this.notify();
             return refuse(message);
         }
+    }
+
+    /**
+     * Move the anchor from the ALARM, on THIS phone's watch (build 125, 125-03).
+     *
+     * relocateAnchor refuses while the alarm sounds, so moving the mark is
+     * never how an alarm is made to go away, and that left the case it exists
+     * for stuck: armed late at the boat, a wind shift swings her round the real
+     * anchor and out of the misplaced circle, and every silence re-alarms within
+     * three fixes. This path moves the mark AND stops the alarm, as one
+     * transaction, but only when her own swing track backs it up (judgeLateSet: a
+     * fresh fix, the boat inside the new circle, the new point within the
+     * rode's reach of where the watch was set, at least the ten minutes before
+     * the alarm seen without a break, and her whole track since the watch was
+     * set, or the app restarted, fitting a swing round it):
+     *
+     *  - A drag alarm only. A GPS-lost alarm cannot be judged, and one raised
+     *    by the fence with no fresh fix fails the fix check. The Pi's watch is
+     *    the Pi's (the alarm screen offers no move while it keeps one).
+     *  - The alarm sounds on through the fence step; only a verified fence round
+     *    the new mark stops it. Then the audio lease is released and the
+     *    notifications cancelled (stopAlarmOutputs, as Silence does), drag
+     *    counting starts afresh, and the watch is saved as watching.
+     *  - Any failed step puts it all back: the old mark, its fence, the alarm
+     *    state and its outputs. If the old fence cannot be put back either, the
+     *    alarm keeps sounding and says monitoring is blocked.
+     *  - Afterwards, for an hour, a drift watch (stillMovingAfterMove) sounds
+     *    the alarm again if she keeps moving away from the new mark, even
+     *    inside the circle.
+     *
+     * It cannot always tell a late set from a drag, and the screen says so.
+     */
+    async relocateAnchorFromAlarm(lat: number, lon: number): Promise<AnchorRelocateResult> {
+        return this.runExclusive(() => this.relocateAnchorFromAlarmLocked(lat, lon));
+    }
+
+    private async relocateAnchorFromAlarmLocked(lat: number, lon: number): Promise<AnchorRelocateResult> {
+        const refuse = (error: string): AnchorRelocateResult => ({ ok: false, error });
+        const previous = this.anchorPosition;
+        if (this.state !== 'alarm' || !previous) {
+            return refuse(
+                this.state === 'watching' || this.state === 'paused'
+                    ? 'The alarm is not sounding now. To move the anchor, use Move anchor on the anchor watch.'
+                    : 'There is no anchor watch on this phone to move.',
+            );
+        }
+        if (this.alarmCause !== 'drag') {
+            return refuse('GPS is lost, so a move cannot be checked. Silence the alarm and check her position.');
+        }
+        if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+            return refuse('That is not a real position. Check the distance and bearing.');
+        }
+        if (!Number.isFinite(this.swingRadius) || this.swingRadius < MIN_ANCHOR_SWING_RADIUS_M) {
+            return refuse('This watch has no valid swing circle to move. Weigh anchor and set it again.');
+        }
+        const verdict = this.checkMoveFromAlarm(lat, lon);
+        if (!verdict.ok) return refuse(verdict.error);
+
+        const alarm = { cause: this.alarmCause, at: this.alarmTriggeredAt, detail: this.alarmDetail };
+        const priorSetupError = this.setupError;
+        const previousWorst = this.maxDistanceRecorded;
+        this.anchorPosition = { latitude: lat, longitude: lon, timestamp: previous.timestamp };
+        this.outsideCircleCount = 0;
+        this.jitterBuffer = [];
+        this.measureFromAnchor(true);
+        const failures: Error[] = [];
+        let silenced = false;
+
+        try {
+            await this.refenceBounded('Moving the swing circle');
+            this.alarmMoves++;
+            silenced = true;
+            await this.stopAlarmOutputs();
+            this.state = 'watching';
+            this.alarmCause = null;
+            this.alarmTriggeredAt = null;
+            this.alarmDetail = null;
+            this.outsideCircleCount = 0;
+            await this.boundedEditStep('Saving the move', () => this.persistWatchStateRequired());
+        } catch (error) {
+            failures.push(this.asError(error));
+            this.state = 'alarm';
+            this.alarmCause = alarm.cause;
+            this.alarmTriggeredAt = alarm.at;
+            this.alarmDetail = alarm.detail;
+            this.anchorPosition = { ...previous };
+            this.outsideCircleCount = 0;
+            this.jitterBuffer = [];
+            this.maxDistanceRecorded = previousWorst;
+            this.measureFromAnchor(false);
+            await this.captureFailure(() => this.refenceBounded('Putting the swing circle back'), failures);
+            let outputs = priorSetupError;
+            if (silenced) {
+                await this.restoreAlarmOutputs(false);
+                outputs = this.setupError;
+            }
+            const blocked = failures.length > 1;
+            const message = this.failureMessage(
+                blocked
+                    ? 'Moving the anchor failed and its previous swing circle could not be restored. Verified monitoring is blocked.'
+                    : 'The anchor was not moved, and the alarm is still sounding.',
+                failures,
+            );
+            this.setupError = blocked ? (outputs ? `${message} ${outputs}` : message) : outputs;
+            await this.persistWatchStateBounded();
+            this.notify();
+            return refuse(message);
+        }
+
+        this.setupError = null;
+        this.alarmNotificationError = null;
+        this.moveWatch = { anchor: { latitude: lat, longitude: lon }, baselineM: verdict.lateM, at: Date.now() };
+        // A fresh grace window, as Silence gives.
+        this.startGpsWatchdog();
+        // The anchor log. warn, not info: info is silent in a release build.
+        const movedDeg = Math.round(bearing(previous.latitude, previous.longitude, lat, lon)) % 360;
+        log.warn(
+            `Anchor moved from the alarm: ${Math.round(haversineDistance(previous.latitude, previous.longitude, lat, lon))} m at ${String(movedDeg).padStart(3, '0')}°T; alarm stopped`,
+        );
+        this.notify();
+        return { ok: true };
+    }
+
+    /**
+     * Would her track back moving the mark to (lat, lon) from the alarm? The
+     * same judgement relocateAnchorFromAlarm makes, asked live by the Move
+     * anchor sheet before the tap. Reads only; the move judges again.
+     */
+    checkMoveFromAlarm(lat: number, lon: number): LateSetVerdict {
+        return judgeLateSet({
+            now: Date.now(),
+            fix: this.vesselPosition,
+            target: { latitude: lat, longitude: lon },
+            setAt: this.watchCentreAtSet,
+            watchStartedAt: this.watchStartedAt,
+            alarmAt: this.alarmTriggeredAt,
+            rodeLength: this.config.rodeLength,
+            waterDepth: this.config.waterDepth,
+            swingRadiusM: this.swingRadius,
+            trail: this.swingTrack.points(),
+        });
+    }
+
+    /** A new watch: its first centre, and no move from the alarm yet. */
+    private resetMoveState(centre: { latitude: number; longitude: number } | null): void {
+        this.watchCentreAtSet = centre;
+        this.moveWatch = null;
+        this.alarmDetail = null;
     }
 
     /**
@@ -1137,6 +1320,7 @@ class AnchorWatchServiceClass {
         this.alarmNotificationError = null;
         this.anchorPosition = null;
         this.positionHistory = [];
+        this.swingTrack.clear();
         this.alarmTriggeredAt = null;
         this.alarmCause = null;
         this.lastUsableFixAt = null;
@@ -1148,6 +1332,7 @@ class AnchorWatchServiceClass {
         this.resetPrimaryGpsSource();
         this.lastNmeaFix = null;
         this.watchPersistenceScope = null;
+        this.resetMoveState(null);
 
         // Auto-disarm Guardian when anchor watch stops
         this.autoDisarmGuardian();
@@ -1182,6 +1367,8 @@ class AnchorWatchServiceClass {
         this.outsideCircleCount = 0;
         this.alarmCause = null;
         this.alarmTriggeredAt = null;
+        const previousDetail = this.alarmDetail;
+        this.alarmDetail = null;
         this.state = 'watching';
         this.setupError = null;
         this.alarmNotificationError = null;
@@ -1195,6 +1382,7 @@ class AnchorWatchServiceClass {
             this.state = 'alarm';
             this.alarmCause = previousCause;
             this.alarmTriggeredAt = previousTriggeredAt;
+            this.alarmDetail = previousDetail;
             const persistenceError = this.failureMessage(
                 'The alarm was silenced, but acknowledgement could not be saved. The alarm has been restarted; retry Silence Alarm.',
                 [this.asError(error)],
@@ -1355,12 +1543,17 @@ class AnchorWatchServiceClass {
             // preflight. Once active, later auth switches intentionally leave
             // this physical safety watch running in memory.
             this.anchorPosition = persisted.anchorPosition;
+            this.resetMoveState({
+                latitude: persisted.anchorPosition.latitude,
+                longitude: persisted.anchorPosition.longitude,
+            });
             this.config = persisted.config;
             this.swingRadius = calculateSwingRadius(this.config);
             this.watchStartedAt = persisted.watchStartedAt;
             this.state = 'setting';
             this.watchPersistenceScope = persistenceScope;
             this.positionHistory = [];
+            this.swingTrack.clear();
             this.maxDistanceRecorded = 0;
             this.outsideCircleCount = 0;
             this.jitterBuffer = [];
@@ -1577,6 +1770,7 @@ class AnchorWatchServiceClass {
         this.maxDistanceRecorded = 0;
         this.bearingToAnchor = 0;
         this.positionHistory = [];
+        this.swingTrack.clear();
         this.alarmTriggeredAt = null;
         this.alarmCause = null;
         this.watchStartedAt = watchStartedAt ?? null;
@@ -1587,6 +1781,7 @@ class AnchorWatchServiceClass {
         this.resetPrimaryGpsSource();
         this.lastNmeaFix = null;
         this.watchPersistenceScope = scope;
+        this.resetMoveState(null);
         this.setupError = `Saved Anchor Watch is blocked and was not armed. ${error} Use Weigh Anchor to clear it, then set the anchor again.`;
         this.notify();
     }
@@ -1609,11 +1804,16 @@ class AnchorWatchServiceClass {
         const failures = [this.asError(cause), ...cleanupFailures];
 
         this.anchorPosition = { ...persisted.anchorPosition };
+        this.resetMoveState({
+            latitude: persisted.anchorPosition.latitude,
+            longitude: persisted.anchorPosition.longitude,
+        });
         this.config = { ...persisted.config };
         this.swingRadius = calculateSwingRadius(this.config);
         this.watchStartedAt = persisted.watchStartedAt;
         this.watchPersistenceScope = scope;
         this.positionHistory = [];
+        this.swingTrack.clear();
         this.vesselPosition = null;
         this.maxDistanceRecorded = 0;
         this.distanceFromAnchor = 0;
@@ -1686,6 +1886,7 @@ class AnchorWatchServiceClass {
         this.config = { ...DEFAULT_ANCHOR_CONFIG };
         this.swingRadius = 0;
         this.positionHistory = [];
+        this.swingTrack.clear();
         this.alarmTriggeredAt = null;
         this.alarmCause = null;
         this.watchStartedAt = null;
@@ -1699,6 +1900,7 @@ class AnchorWatchServiceClass {
         this.resetPrimaryGpsSource();
         this.lastNmeaFix = null;
         this.watchPersistenceScope = null;
+        this.resetMoveState(null);
         this.setupError = 'Account changed while restoring Anchor Watch. The saved watch was not discarded.';
         this.notify();
         return false;
@@ -1764,7 +1966,9 @@ class AnchorWatchServiceClass {
             // Subscribe to geofence events via shared manager
             const unsubGeo = BgGeoManager.subscribeGeofence((event) => {
                 if (event.identifier === GEOFENCE_ID && event.action === 'EXIT') {
-                    void this.triggerAlarm();
+                    // Stamped with the moves from the alarm so far: one that
+                    // arrives during such a move may be the old fence's.
+                    void this.triggerAlarm('drag', null, this.alarmMoves);
                 }
             });
             this.bgUnsubscribers.push(unsubGeo);
@@ -1944,6 +2148,7 @@ class AnchorWatchServiceClass {
         this.anchorPosition = null;
         this.vesselPosition = null;
         this.positionHistory = [];
+        this.swingTrack.clear();
         this.alarmTriggeredAt = null;
         this.alarmCause = null;
         this.alarmNotificationError = null;
@@ -1957,6 +2162,7 @@ class AnchorWatchServiceClass {
         this.lastNmeaFix = null;
         this.setupError = this.asError(error).message;
         this.watchPersistenceScope = null;
+        this.resetMoveState(null);
         this.notify();
     }
 
@@ -2063,6 +2269,7 @@ class AnchorWatchServiceClass {
         };
 
         this.vesselPosition = filteredPosition;
+        this.swingTrack.add(filteredPosition);
 
         // Add to history (throttled — every 3rd reading or if moved > 2m)
         const lastHistoryPoint = this.positionHistory[this.positionHistory.length - 1];
@@ -2096,6 +2303,7 @@ class AnchorWatchServiceClass {
 
             // Software-level drag detection (double-check alongside hardware geofence)
             this.checkForDrag();
+            this.checkDriftAfterMove();
         }
 
         this.notify();
@@ -2143,15 +2351,20 @@ class AnchorWatchServiceClass {
         if (this.jitterBuffer.length === 0) return { lat: 0, lon: 0 };
         if (this.jitterBuffer.length === 1) return this.jitterBuffer[0];
 
-        // Moving average
-        const sum = this.jitterBuffer.reduce((acc, p) => ({ lat: acc.lat + p.lat, lon: acc.lon + p.lon }), {
-            lat: 0,
-            lon: 0,
-        });
-        return {
-            lat: sum.lat / this.jitterBuffer.length,
-            lon: sum.lon / this.jitterBuffer.length,
-        };
+        // Moving average. Longitudes are averaged as offsets from the first,
+        // each taken the short way round: a boat astride 180° (Taveuni, Fiji)
+        // used to average 179.9999 and -179.9999 to 0° and drag-alarm at once.
+        const ref = this.jitterBuffer[0].lon;
+        let lat = 0;
+        let dLon = 0;
+        for (const p of this.jitterBuffer) {
+            lat += p.lat;
+            dLon += ((p.lon - ref + 540) % 360) - 180;
+        }
+        let lon = ref + dLon / this.jitterBuffer.length;
+        if (lon > 180) lon -= 360;
+        else if (lon < -180) lon += 360;
+        return { lat: lat / this.jitterBuffer.length, lon };
     }
 
     /**
@@ -2198,16 +2411,66 @@ class AnchorWatchServiceClass {
         if (fire) void this.triggerAlarm('drag');
     }
 
-    private async triggerAlarm(cause: 'drag' | 'gps-lost' = 'drag'): Promise<void> {
-        return this.runExclusive(() => this.triggerAlarmLocked(cause));
+    /**
+     * The drift watch after a move from the alarm: if she keeps moving away
+     * from the new mark, sound the alarm again, inside the circle if need be.
+     * One-shot; any alarm ends it, and it ends by itself after
+     * AFTER_MOVE_WATCH_MS (hours later a stronger wind lengthening her lie is
+     * not a drag), leaving the circle to carry on.
+     */
+    private checkDriftAfterMove(): void {
+        const watch = this.moveWatch;
+        if (!watch || this.state !== 'watching') return;
+        const now = Date.now();
+        if (now - watch.at > AFTER_MOVE_WATCH_MS) {
+            this.moveWatch = null;
+            return;
+        }
+        if (stillMovingAfterMove(this.positionHistory, watch.anchor, watch.at, watch.baselineM, now)) {
+            this.moveWatch = null;
+            void this.triggerAlarm('drag', FURTHER_AFTER_MOVE);
+        }
     }
 
-    private async triggerAlarmLocked(cause: 'drag' | 'gps-lost'): Promise<void> {
+    /**
+     * `exitMoves`: for a fence EXIT, the count of moves from the alarm when it
+     * arrived. One that arrived while such a move was putting the fence round
+     * the new mark may describe the old fence; it is set aside only when a
+     * fresh fix has her inside the new circle, and sounds otherwise.
+     */
+    private async triggerAlarm(
+        cause: 'drag' | 'gps-lost' = 'drag',
+        detail: string | null = null,
+        exitMoves?: number,
+    ): Promise<void> {
+        return this.runExclusive(() => this.triggerAlarmLocked(cause, detail, exitMoves));
+    }
+
+    private async triggerAlarmLocked(
+        cause: 'drag' | 'gps-lost',
+        detail: string | null,
+        exitMoves?: number,
+    ): Promise<void> {
         if (this.state !== 'watching') return;
+        const fix = this.vesselPosition;
+        const anchor = this.anchorPosition;
+        if (
+            exitMoves !== undefined &&
+            exitMoves !== this.alarmMoves &&
+            fix &&
+            anchor &&
+            Date.now() - fix.timestamp <= PRIMARY_SOURCE_FRESH_MS &&
+            haversineDistance(fix.latitude, fix.longitude, anchor.latitude, anchor.longitude) <= this.swingRadius
+        ) {
+            log.warn('A fence exit from before the anchor was moved was set aside: a fresh fix has her inside.');
+            return;
+        }
 
         this.state = 'alarm';
         this.alarmCause = cause;
         this.alarmTriggeredAt = Date.now();
+        this.alarmDetail = detail;
+        this.moveWatch = null;
 
         // Persist alarm state — crash during alarm should restore to alarm, not watching
         await this.persistWatchState();
