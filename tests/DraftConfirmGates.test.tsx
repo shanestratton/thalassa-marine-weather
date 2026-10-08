@@ -1,5 +1,5 @@
 /**
- * The five draft-dependent entry points (Shane 2026-09-29): each waits for the
+ * The four draft-dependent entry points (Shane 2026-09-29): each waits for the
  * draft confirmation — nothing runs while "Your draft is set at 2.40 m. Please
  * confirm." is up, nothing runs when it is closed — and each runs straight
  * away once the draft is confirmed. One shared modal (DraftConfirmModal) does
@@ -12,7 +12,6 @@ import type { VesselProfile, VoyagePlan } from '../types';
 
 const mocks = vi.hoisted(() => ({
     route: vi.fn(),
-    sheet: vi.fn(),
     workspace: vi.fn(),
     status: vi.fn(),
     sweep: vi.fn(),
@@ -22,12 +21,6 @@ vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
 vi.mock('../services/InshoreRouter', () => ({ tryInshoreRoute: mocks.route }));
-vi.mock('../components/dayPlanner/DayPlannerSheet', () => ({
-    default: (props: { vessel: VesselProfile | null; onClose: () => void }) => {
-        mocks.sheet(props);
-        return <div role="dialog" aria-label="Plan Your Day" />;
-    },
-}));
 vi.mock('../services/autoroutingThalassa', () => ({
     getThalassaAutorouteStatus: mocks.status,
     calculateThalassaProposal: vi.fn(),
@@ -44,7 +37,6 @@ vi.mock('../services/routing/env/CmemsCurrentField', () => ({ getCurrentField: v
 
 import { DraftConfirmModal } from '../components/vessel/DraftConfirmModal';
 import { useAutoRouteLeg, type AutoRouteLegDeps } from '../components/map/useAutoRouteLeg';
-import { DayPlannerEntry } from '../components/dayPlanner/DayPlannerEntry';
 import { RoutingModeDialog } from '../components/autorouting/RoutingModeDialog';
 import { DepartureSweepSheet } from '../components/passage/DepartureSweepSheet';
 import { awaitSettingsLoaded, useSettingsStore } from '../stores/settingsStore';
@@ -171,74 +163,10 @@ describe('⚡ Auto route', () => {
     });
 });
 
-// ── 2. Plan Your Day (components/dayPlanner) ─────────────────────────────
-describe('Plan Your Day', () => {
-    // The skipper has switched Auto route (trial) on in Preferences: Plan
-    // Your Day is closed without it since 2026-10-01
-    // (tests/AutorouteTrialSwitch.test.tsx). seed() keeps it.
-    beforeEach(() => {
-        useSettingsStore.setState({
-            settings: { ...useSettingsStore.getState().settings, autorouteTrialEnabled: true },
-        });
-    });
-    afterEach(() => {
-        useSettingsStore.setState({
-            settings: { ...useSettingsStore.getState().settings, autorouteTrialEnabled: undefined },
-        });
-    });
+// Plan Your Day was the fifth until build 124 ("Today on the water"): the
+// planner reads no depth now, so it no longer asks (tests/DayPlanTodaySheet.test.tsx).
 
-    // RoutePlanner hands the entry the store's profile.
-    function Entry() {
-        const vessel = useSettingsStore((state) => state.settings.vessel ?? null);
-        return <DayPlannerEntry vessel={vessel} mapboxToken="" onOpenSaved={vi.fn()} isPro onUpgrade={vi.fn()} />;
-    }
-
-    it('does not open the planner until the draft is confirmed, then opens it on the confirmed draft', async () => {
-        render(
-            <>
-                <Entry />
-                <DraftConfirmModal />
-            </>,
-        );
-        fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
-        await screen.findByRole('dialog', { name: 'Check your draft' });
-        await settle();
-        expect(mocks.sheet).not.toHaveBeenCalled();
-        await confirmInModal();
-        await screen.findByRole('dialog', { name: 'Plan Your Day' });
-        expect(mocks.sheet.mock.calls.at(-1)![0].vessel.draftConfirmedFt).toBe(DRAFT_FT);
-    });
-
-    it('closing the modal leaves the planner shut', async () => {
-        render(
-            <>
-                <Entry />
-                <DraftConfirmModal />
-            </>,
-        );
-        fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
-        await closeModal();
-        await settle();
-        expect(mocks.sheet).not.toHaveBeenCalled();
-        expect(screen.getByRole('button', { name: /Plan Your Day/ })).toHaveAttribute('aria-expanded', 'false');
-    });
-
-    it('opens straight away when the draft is already confirmed', async () => {
-        seed(CONFIRMED);
-        render(
-            <>
-                <Entry />
-                <DraftConfirmModal />
-            </>,
-        );
-        fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
-        expect(screen.getByRole('button', { name: /Plan Your Day/ })).toHaveAttribute('aria-expanded', 'true');
-        expect(screen.queryByRole('dialog', { name: 'Check your draft' })).toBeNull();
-        await screen.findByRole('dialog', { name: 'Plan Your Day' });
-    });
-});
-
-// ── 3. Auto routing trial (components/autorouting) ───────────────────────
+// ── 2. Auto routing trial (components/autorouting) ───────────────────────
 describe('Auto routing trial', () => {
     async function openChoice() {
         setAuthIdentityScope('trial-skipper');
@@ -293,7 +221,7 @@ describe('Auto routing trial', () => {
     });
 });
 
-// ── 4. Departure / tide window sweep (components/passage) ───────────────
+// ── 3. Departure / tide window sweep (components/passage) ───────────────
 describe('Inshore departure sweep', () => {
     const plan = {
         origin: 'Newport',
@@ -411,7 +339,7 @@ describe('Inshore departure sweep', () => {
     });
 });
 
-// ── 5. Settings → Preferences → Chart → "Show charted leads" ────────────
+// ── 4. Settings → Preferences → Chart → "Show charted leads" ────────────
 describe('Show charted leads', () => {
     async function preferences(onSave: (patch: object) => void) {
         vi.stubGlobal('__BUILD_STAMP__', '2026-09-29 00:00Z');

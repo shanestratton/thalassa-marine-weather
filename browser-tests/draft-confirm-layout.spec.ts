@@ -27,7 +27,7 @@ async function open(page: Page, size: { width: number; height: number }, query: 
     });
     await page.setViewportSize({ width: size.width, height: size.height });
     await page.goto(`/e2e/fixtures/draft-confirm.html${query ? `?${query}` : ''}`);
-    await expect(page.getByRole('button', { name: 'Plan Your Day' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Auto routing' })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     return errors;
 }
@@ -128,7 +128,7 @@ async function screenshot(page: Page, info: TestInfo, name: string) {
 for (const size of sizes) {
     test(`draft confirmation fits ${size.name}, with Change focused above the keyboard`, async ({ page }, info) => {
         const errors = await open(page, size, size.query);
-        await page.getByRole('button', { name: 'Plan Your Day' }).click();
+        await page.getByRole('button', { name: 'Auto routing' }).click();
         const dialog = page.getByRole('dialog', { name: 'Check your draft' });
         await expect(dialog).toBeVisible();
         await expect(dialog).toContainText('Your draft is set at 2.40 m. Please confirm.');
@@ -167,7 +167,7 @@ for (const size of sizes) {
 for (const size of [sizes[0], sizes[2]]) {
     test(`no draft set shows the field straight away at ${size.name}`, async ({ page }) => {
         const errors = await open(page, size, 'draft=unset');
-        await page.getByRole('button', { name: 'Plan Your Day' }).click();
+        await page.getByRole('button', { name: 'Auto routing' }).click();
         const dialog = page.getByRole('dialog', { name: 'Set your draft' });
         await expect(dialog).toContainText('No draft is set for your boat.');
         const field = page.getByRole('textbox', { name: 'Draft in metres' });
@@ -184,7 +184,7 @@ for (const size of [sizes[0], sizes[2]]) {
 
 test('imperial skippers see feet too; Escape closes and nothing runs', async ({ page }) => {
     await open(page, sizes[1], 'units=ft&draft=estimated');
-    await page.getByRole('button', { name: 'Plan Your Day' }).click();
+    await page.getByRole('button', { name: 'Auto routing' }).click();
     const dialog = page.getByRole('dialog', { name: 'Check your draft' });
     await expect(dialog).toContainText('Your draft is set at 7.87 ft (2.40 m). Please confirm.');
     await expect(dialog).toContainText('This is an estimate, not a measurement.');

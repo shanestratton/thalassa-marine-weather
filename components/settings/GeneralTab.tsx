@@ -383,11 +383,12 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 </Row>
             </Section>
 
-            {/* Auto routing and Plan Your Day run Thalassa's own router only
-                with this on. Off by default (2026-10-01): Pro is every account
-                while the public beta is on, and the router must not reach
-                every tester before Shane has proved it in the Whitsundays.
-                The manual planner's ⚡ Auto route does not read it. */}
+            {/* The Auto workspace runs Thalassa's own router only with this
+                on. Off by default (2026-10-01): Pro is every account while the
+                public beta is on, and the router must not reach every tester
+                before Shane has proved it in the Whitsundays. The manual
+                planner's ⚡ Auto route does not read it, and Plan Your Day no
+                longer routes (build 124), so it does not either. */}
             <Section title="Routing">
                 <Row>
                     <div className="flex-1 min-w-0">
