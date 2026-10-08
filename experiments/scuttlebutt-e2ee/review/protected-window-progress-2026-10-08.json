@@ -1,0 +1,184 @@
+{
+    "version": 1,
+    "date": "2026-10-08",
+    "baseCommit": "5b2341e0823b6f8aeebc3c69714ba1bfaf689377",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "status": "protected-ui-candidate-in-progress-not-accepted",
+    "sourceHashes": {
+        "experiments/scuttlebutt-e2ee/app-pilot/localUiFixture.js": "e8f4d935ed2b1b66bfc502bd90fab01eb0314414dd29ba8f5606fc30c555cba1",
+        "experiments/scuttlebutt-e2ee/app-pilot/protectedUiFixture.js": "2c09b308f634c2fd853d23268ca6fe26557d3638abb38d25adffe9619111cc9b",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "b1675a008f91fb396c70cfd2d21f9e1c42a6ab9292b278e49e798a1fdb89e9d0",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "baae36d6caff22f5bf1363edce5766c866777f5e24f3ab72d6b34eb8e8cc9301",
+        "experiments/scuttlebutt-e2ee/bridge-native/build.mjs": "5ae4aed7003ceab7320aa161030d588bd0a28ca2548943c240ec951e8479dd17",
+        "experiments/scuttlebutt-e2ee/bridge-native/localUiProof.mjs": "b0b21596a55140fc44cb1dc8bc1e342aebd5a8f3d0e8d73d9f8d36e90ab5f4ee",
+        "experiments/scuttlebutt-e2ee/relay/vitest.config.mjs": "122f43a90b8833a6b5ea362d350252d66c1e04942346d51646b9dc908b5f37c6",
+        "tests/E2eeProtectedUiFixture.test.ts": "997ccd5753b4dca4663df9742114f991bd6f46b3b8945276de9fd73d40fbe7be",
+        "tests/E2eeResearchLocalUiFixture.test.ts": "2eacf287ef2b34b6ce61d2ecddcb223613c10aba08dca9f4c2b18461c8bfddba"
+    },
+    "compiledNativeSourceHashes": {
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchApp.swift": "e49e1b4838da52c092a9acfdb30019d30050048d3c6e64e3cc738a23c49b2e3d",
+        "experiments/scuttlebutt-e2ee/bridge-native/ScuttlebuttResearchAuthPlugin.swift": "baae36d6caff22f5bf1363edce5766c866777f5e24f3ab72d6b34eb8e8cc9301",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchAuthHost.swift": "3a56713041ba5fd77aa488ee105bcaaacf2803cc5f243b52682cb3b31bc83bf2",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchMessagingAdapter.swift": "cb3bd8fb92e8f922462007e12f228ee9fc7f10875bb32cd134d3646dd93ae4d1",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchPrivateMessageAdapter.swift": "ec0597684d323ed061e40cf81d3f8238adb78afdd100ef663133be0753d88c36",
+        "experiments/scuttlebutt-e2ee/VodozemacSealedStore.swift": "08a8c821035eca23e5730006c6c8989221eeb292e8637c14960d5444945e352f",
+        "experiments/scuttlebutt-e2ee/VodozemacDmFrame.swift": "f584998cd8e0cdc0ae6e22557b6d01e20a3081596f7198996a2a12c6699d7887",
+        "experiments/scuttlebutt-e2ee/VodozemacDmCoordinator.swift": "690d8ee170f9aed212317eb76d8d51cd930c3e18832012c11a7164062464b489",
+        "experiments/scuttlebutt-e2ee/VodozemacMessageOperations.swift": "bb6101fcc468ccee3c52c5d23c70e9ebf51785e9771610a9d7ba07c1caab56d9",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayCodec.swift": "b1ff7f6df1988bcde00dbd21ba571f1060d683d60624778c9e55bf7b19f340ec",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayTransport.swift": "32522d35d2b009a6ab4ffa63b1ee8a099f6cd8253efb46aa2f11eff7e13c02fe",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayResult.swift": "5603d96eee328194c8bd73990027cacc5f68d474a9b49ae0d90501d21e287e26",
+        "experiments/scuttlebutt-e2ee/VodozemacRelayPolicy.swift": "1ff34288ffe3f92733effd1540858e50048d313ee36248ab1f4c7abe4cd1db5e",
+        "experiments/scuttlebutt-e2ee/VodozemacScopedRelayClient.swift": "28408a37cb00f98a194c27b2fcebc18b0528f5c8dc6d30c667d9331c09b340e8",
+        "experiments/scuttlebutt-e2ee/VodozemacSupabaseAuth.swift": "103cfe325fcd57342e8c5b0fe9601acfa6441977f860a8d499af193f195adc10",
+        "experiments/scuttlebutt-e2ee/VodozemacAuthSession.swift": "1db48cad76d4d4b1bc6c958fab675a8b9cafcc8ea771a2d2aaccadf2ecb243fe",
+        "experiments/scuttlebutt-e2ee/VodozemacAccountDirectory.swift": "8d229dd4e68b61e72c071440b2f70eb3a0c60cb25465e4e2daa30a4bbd49181b",
+        "experiments/scuttlebutt-e2ee/VodozemacSessionFacade.swift": "d53cbd065d4b3ba5cae11ded3284d5f3703fc8c9aa1522e7c0c2772d5dbc2dcc",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchLocalUiFixture.swift": "b1675a008f91fb396c70cfd2d21f9e1c42a6ab9292b278e49e798a1fdb89e9d0",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiRelay.swift": "479663fb9b843c7f563c024f2e32c52ef51facb4ddde7288782090ea2c1312ec",
+        "experiments/scuttlebutt-e2ee/bridge-native/ResearchProtectedUiFixture.swift": "da48c8d6951685581d6c8cf25e126a7f9b32e76cef827a9aca2d4fb92dfc8651"
+    },
+    "compiledNativeSourceCount": 21,
+    "compiledNativeSourcesStillMatch": true,
+    "artifacts": {
+        "runs": [
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-SfPpr9/ui-run.json",
+                "sha256": "564f7910cdcce72f35a747a9792b24ef48f3d51fbbe1e71db02688e91a15acb3",
+                "status": "failed",
+                "phase": "native-build",
+                "nativePhase": null,
+                "ownedSimulatorRemoved": null,
+                "nativeReport": null,
+                "buildReceipt": {
+                    "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-a4KCRq/build-receipt.json",
+                    "sha256": "59dfe88c019ebb77ffa41f22ddb6b78dccfdf2fd3bcb94961c1816d8ccc1d41a"
+                }
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-TSiu5N/ui-run.json",
+                "sha256": "fb7ba7f281f87f7f752267ada1e58877bb59fed129ee3f542022456e035ca5b2",
+                "status": "failed",
+                "phase": "actual-wk-plugin-sdk-dom",
+                "nativePhase": "protected-control-failed",
+                "ownedSimulatorRemoved": true,
+                "nativeReport": {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-TSiu5N/native-ui-receipt.json",
+                    "sha256": "04da39006b6d1f8aa8bd4c6b09b11d21f0f7ad193c917ff6b53d1ae6926ecfc8"
+                },
+                "buildReceipt": {
+                    "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-tovM8H/build-receipt.json",
+                    "sha256": "ca2d3f03fa04a4dbfc9b543ac131bd02c9e846d8c72c0ae89efa8eed42dd2603"
+                }
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-jFF7wi/ui-run.json",
+                "sha256": "fdd3e97c3bfd3dced8e17557b2a0ecee5783ead8f38c794f7326b466c33f93b1",
+                "status": "failed",
+                "phase": "actual-wk-plugin-sdk-dom",
+                "nativePhase": "pm-opened",
+                "ownedSimulatorRemoved": true,
+                "nativeReport": {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-jFF7wi/native-ui-receipt.json",
+                    "sha256": "02c0056ee4f004257cba506b73b99d257c61e406be594c98679a4cccfdc9e588"
+                },
+                "buildReceipt": {
+                    "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-GJHTzQ/build-receipt.json",
+                    "sha256": "b524376e6c965b9ec4ee2ee52632934e36c8fe1ed7e98ce7960ba253a8551ef9"
+                }
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-mAukHY/ui-run.json",
+                "sha256": "019bdb90836e742c5c8cee0d24a972e67aa9f241785c3df0455a61a8699447e0",
+                "status": "failed",
+                "phase": "owned-simulator-boot",
+                "nativePhase": null,
+                "ownedSimulatorRemoved": true,
+                "nativeReport": null,
+                "buildReceipt": {
+                    "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-2Mqm7h/build-receipt.json",
+                    "sha256": "d9d1b47c4f12dfb0b63d5132114a0d58c049cc131834ce5a9837e0be91dd708c"
+                }
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-pXTe1I/ui-run.json",
+                "sha256": "223c869338e2fb64274f3e0e621b664eb52c8197cddbff74249af11e65fc392e",
+                "status": "failed",
+                "phase": "actual-wk-plugin-sdk-dom",
+                "nativePhase": "pm-opened",
+                "ownedSimulatorRemoved": true,
+                "nativeReport": {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-pXTe1I/native-ui-receipt.json",
+                    "sha256": "01102dc8f68e060dd9445a56a1b0b2f93c48eaddf2f241808cebdd9c34104064"
+                },
+                "buildReceipt": {
+                    "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-oBKhyd/build-receipt.json",
+                    "sha256": "ce4989e975339c8ad9aa5004b56ee430bd0b8fa3e3acbb2cba601cb66135c6f7"
+                }
+            },
+            {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-local-wk-ui-KlBpVX/ui-run.json",
+                "sha256": "38184250832aba9521c640dde5b77a52f707583f698a5f92ec2fe2e43e84b676",
+                "status": "failed",
+                "phase": "web-build",
+                "nativePhase": null,
+                "ownedSimulatorRemoved": null,
+                "nativeReport": null,
+                "buildReceipt": null
+            }
+        ],
+        "compiledNative": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-messaging-build-oBKhyd/build-receipt.json",
+            "sha256": "ce4989e975339c8ad9aa5004b56ee430bd0b8fa3e3acbb2cba601cb66135c6f7"
+        },
+        "syntheticChecks": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-protected-ui-checks-75pKWf/checks.json",
+            "sha256": "c6228f85b70f55e9bfec0766d81fde0edecaebff8d40fa09cd6de63a78bd1dd6"
+        }
+    },
+    "evidence": {
+        "protectedSimulatorCompilePassed": true,
+        "actualWkSdkCapacitor": true,
+        "explicitProtectedSetupObserved": true,
+        "peerOpenerDecryptedAndRendered": true,
+        "uiOutgoingEncryptedAcceptedCommittedAndRendered": true,
+        "protectedUiBidirectionalExchangePassed": false,
+        "syntheticTestCount": 36,
+        "syntheticSuites": 2,
+        "newProtectedTestsAtThatRun": 20,
+        "additionalDelayedDraftCases": 2,
+        "additionalDelayedDraftCasesExecuted": false,
+        "namedLintPassed": true,
+        "currentDraftWaitCorrectionRuntimePassed": false,
+        "liveAuthOrRelay": false,
+        "physicalDeviceExecution": false,
+        "independentSecurityReview": false
+    },
+    "retainedFailures": [
+        "Initial Swift callback overload required explicit completionHandler: nil; URLProtocol unavailable Sendable conformance removed.",
+        "First protected setup refusal had no phase-level diagnostic; fixed counters added without error/body logging.",
+        "The accepted outgoing row was rendered before the asynchronous draft-clear; immediate assertion failed with composeEmpty:false while nativeSendText:ok1 and outgoingAccepted:true.",
+        "One freshly owned simulator boot attempt refused; its simulator was removed.",
+        "Latest corrected driver was refused by a ten-minute shared-heavy-slot deadline; no simulator created, no runtime acceptance."
+    ],
+    "counterLimits": [
+        "nativeCounters are permission check counts; four prevalidated method paths can check twice. pmResultCounters and native helper/relay counters count actual outcomes/operations.",
+        "Cold source and latest protected correction need coherent regression and a fresh runtime run before source commit/push.",
+        "Fixture signatures verify using the native canonical codec, not an independent canonical signing implementation.",
+        "An accepted native outgoing row is not recipient delivery; peer catchup and UI refresh are unrun for the corrected candidate."
+    ],
+    "next": [
+        "Wait for shared Vitest job to finish, then execute corrected protected DOM driver.",
+        "Check the current compose element after waiting; do not mistake asynchronous subscription rendering for synchronous draft clearance.",
+        "Verify peer decryption + exact hashes, UI reply receipt, truthful null time/read status, no pending, zero unexpected requests.",
+        "Rerun cold control and focused regression/types/default compile, record all failures, then named commit/push own branch."
+    ],
+    "isolation": {
+        "masterPushedOrMerged": false,
+        "primaryEditedOrSynced": false,
+        "hostedOrHumanStateChanged": false,
+        "productionChanged": false
+    }
+}

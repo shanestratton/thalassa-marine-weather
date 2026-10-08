@@ -225,6 +225,26 @@ to this new candidate.
 
 ## User problem and intended pilot
 
+The [8 October protected window evidence](../experiments/scuttlebutt-e2ee/review/protected-window-2026-10-08.json)
+adds an actual ordinary-UI/provider exchange in one owned simulator using local
+Auth and relay responses. The native peer initiates, the real UI inbox decrypts
+the opening, compose/Send encrypts a reply, the peer decrypts it and sends a
+follow-up, and UI Refresh decrypts and renders it. Three exact envelope hashes,
+original bindings, full pins, no unresolved/pending rows and truthful unknown
+incoming time/read status are checked. Sixteen DOM assertions and 55 measured
+native checks pass; the nine publication guard groups are separate conditions.
+
+This is one actual responder-role UI run, not both native roles, hosted HTTPS/SQL,
+physical acceptance, restart/retry or full-app cutover. Native permission-check
+counters may check four methods twice; result and helper/relay counters record
+actual outcomes/operations. The relay uses the native canonical signing codec,
+not an independent implementation. Keep the previous failed assertions and
+timeout receipts, including draft-clear/remount timing, separate from the final
+pass. Research tests pass 1,856 cases and overlapping pilot tests 689; types/lint,
+cold denial and unflagged unsigned Research compile pass. All gates for
+production, dependency/provenance, lifecycle/recovery, physical testing and
+external assessment remain open.
+
 The [8 October native window evidence](../experiments/scuttlebutt-e2ee/review/native-window-2026-10-08.json)
 executes the dedicated Research page in an actual WKWebView and Capacitor bridge
 with the real Supabase JS SDK and native provider/Keychain/sealed storage. Ten

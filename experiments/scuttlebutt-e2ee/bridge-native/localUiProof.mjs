@@ -21,8 +21,10 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 const here = dirname(fileURLToPath(import.meta.url)),
     root = resolve(here, '../../..');
-const [cache, frameworkReceipt, prior, ...extra] = process.argv.slice(2);
+const [cache, frameworkReceipt, prior, scenario = 'cold-startup', ...extra] = process.argv.slice(2);
 assert(!extra.length && [cache, frameworkReceipt, prior].every((p) => p && isAbsolute(p)));
+assert(['cold-startup', 'protected-exchange'].includes(scenario));
+const protectedUi = scenario === 'protected-exchange';
 assert(root.includes('/.codex/worktrees/scuttlebutt-e2ee/'));
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'thalassa-local-wk-ui-')));
 chmodSync(scratch, 0o700);
@@ -35,12 +37,20 @@ assert(frameworks.status === 'passed');
 const receipt = {
     version: 1,
     runID,
+    scenario,
     status: 'preparing',
     scratch,
     phase: 'web-build',
     sourceHashes: Object.fromEntries(
         [
             'app-pilot/localUiFixture.js',
+            ...(protectedUi
+                ? [
+                      'app-pilot/protectedUiFixture.js',
+                      'bridge-native/ResearchProtectedUiRelay.swift',
+                      'bridge-native/ResearchProtectedUiFixture.swift',
+                  ]
+                : []),
             'bridge-native/ResearchLocalUiFixture.swift',
             'bridge-native/localUiProof.mjs',
             'bridge-native/build.mjs',
@@ -53,7 +63,8 @@ const receipt = {
     ),
     realWkWebViewCapacitorSdk: false,
     syntheticSdkAndNativeAuth: true,
-    actualEncryptionOrLiveAuthProved: false,
+    actualEncryptionProved: false,
+    liveAuthProved: false,
     physicalDeviceExecution: false,
     productionTouched: false,
     humanDevicesChanged: false,
@@ -158,12 +169,20 @@ try {
         ),
         { mode: 0o600 },
     );
-    const script = readFileSync(join(here, '../app-pilot/localUiFixture.js'), 'utf8');
+    const script = readFileSync(
+        join(here, protectedUi ? '../app-pilot/protectedUiFixture.js' : '../app-pilot/localUiFixture.js'),
+        'utf8',
+    );
     assert(script.split('__RESEARCH_LOCAL_UI_RUN_ID__').length === 2);
     const fixture = join(scratch, 'local-ui-fixture.json');
     writeFileSync(
         fixture,
-        JSON.stringify({ version: 1, runID, script: script.replace('__RESEARCH_LOCAL_UI_RUN_ID__', runID) }),
+        JSON.stringify({
+            version: protectedUi ? 2 : 1,
+            runID,
+            ...(protectedUi ? { scenario } : {}),
+            script: script.replace('__RESEARCH_LOCAL_UI_RUN_ID__', runID),
+        }),
         { mode: 0o600, flag: 'wx' },
     );
     receipt.phase = 'native-build';
@@ -277,6 +296,15 @@ try {
                     'cold-ready',
                     'signed-in',
                     'admission-returned',
+                    'protected-setup',
+                    'prepared',
+                    'protected-peer-reply',
+                    'peer-replied',
+                    'pm-opened',
+                    'pm-sent',
+                'pm-received',
+                'pm-refresh-started',
+                    'protected-control-failed',
                 ].includes(stage.phase),
         );
         receipt.nativeLaunchPhase = stage.phase;
@@ -294,6 +322,7 @@ try {
     );
     receipt.status = 'passed';
     receipt.realWkWebViewCapacitorSdk = true;
+    receipt.actualEncryptionProved = protectedUi;
     receipt.phase = 'complete';
     receipt.domAssertions = native.assertions;
     receipt.nativeAssertionGroups = native.nativeAssertions;
@@ -320,5 +349,7 @@ try {
 }
 if (receipt.status === 'passed')
     console.info(
-        'PASS actual local WKWebView, Capacitor and SDK with synthetic Auth; not live login or encrypted delivery.',
+        protectedUi
+            ? 'PASS actual isolated UI/native encrypted exchange with synthetic Auth/relay; not live, physical or release acceptance.'
+            : 'PASS actual local WKWebView, Capacitor and SDK with synthetic Auth; not live login or encrypted delivery.',
     );

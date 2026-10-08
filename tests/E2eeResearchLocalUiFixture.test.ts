@@ -287,10 +287,29 @@ describe('executed local UI shim — jsdom and SDK fake only', () => {
 });
 
 function ordinarySwift(source: string): string {
-    return source.replace(/#if E2EE_LOCAL_UI_FIXTURE\n([\s\S]*?)#endif/g, (_block, contents: string) => {
-        const branches = contents.split('#else\n');
-        return branches.length === 2 ? branches[1] : '';
-    });
+    const stack: Array<{ parent: boolean; selected: boolean }> = [];
+    const output: string[] = [];
+    let active = true;
+    for (const line of source.split('\n')) {
+        const directive = line.trim();
+        if (directive.startsWith('#if ')) {
+            const flag = directive.slice(4);
+            if (!['E2EE_LOCAL_UI_FIXTURE', 'E2EE_PROTECTED_UI_FIXTURE'].includes(flag))
+                throw new Error('Unknown fixture flag');
+            stack.push({ parent: active, selected: false });
+            active = false;
+        } else if (directive === '#else') {
+            const frame = stack.at(-1);
+            if (!frame) throw new Error('Unbalanced fixture branch');
+            active = frame.parent && !frame.selected;
+        } else if (directive === '#endif') {
+            const frame = stack.pop();
+            if (!frame) throw new Error('Unbalanced fixture branch');
+            active = frame.parent;
+        } else if (active) output.push(line);
+    }
+    if (stack.length) throw new Error('Unclosed fixture branch');
+    return output.join('\n');
 }
 
 describe('local UI isolation source contracts — no Swift compilation', () => {
@@ -306,9 +325,8 @@ describe('local UI isolation source contracts — no Swift compilation', () => {
         expect(build).toMatch(
             /if\s*\(localUiFile\)\s*sourcePaths\.push\(join\(HERE,\s*'ResearchLocalUiFixture.swift'\)\)/,
         );
-        expect(build).toMatch(
-            /localUiFile\s*\?\s*\['SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE'\]\s*:\s*\[\]/,
-        );
+        expect(build).toContain("'SWIFT_ACTIVE_COMPILATION_CONDITIONS=E2EE_LOCAL_UI_FIXTURE'");
+        expect(build).toContain("protectedUi ? ' E2EE_PROTECTED_UI_FIXTURE' : ''");
     });
 
     it('refuses a mistakenly flagged physical runtime and intercepts all native requests', () => {
