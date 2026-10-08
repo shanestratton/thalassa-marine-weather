@@ -18,6 +18,14 @@
  * the route notes now say why, where, and what it costs, in one plain line
  * (engine/stringPull depthBendOf; 20–46 ms over a whole app route).
  *
+ * Overruled for most such turns by package 125-06 (Shane, 2026-10-08, the
+ * same channel out to Nara Inlet: "no reason to go to port here??? why not go
+ * straight??? the depth is the same"): on the same tide a turn whose straight
+ * line crosses at most twice as much of the same water, all within 2 km, is
+ * straightened (engine/stringPull sameTideNoWorse; tests/engine/
+ * sameTideChord.test.ts). These scenes keep their turn: straight on crosses
+ * 2.4 times as much of the 2 m band as the turn does, a real saving.
+ *
  * Synthetic charts in a local metric frame round (LON0, LAT0): a deep basin
  * at the departure inside a 2–5 m band, a 3.6–5 m pocket NW of it, a 5–10 m
  * band to the north. Need 2.9 m (2.4 m draft + 0.5 m UKC).

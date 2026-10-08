@@ -2,6 +2,7 @@ import type { VesselProfile } from '../types/vessel';
 import type { AutoroutingDimension, AutoroutingVesselProfile } from '../types/autorouting';
 import { AUTOROUTING_VESSEL_LIMITS_M } from '../supabase/functions/_shared/autorouting-vessel';
 import { FEET_PER_METRE, vesselAirDraftMetres, vesselDraftIsAssumed } from './units';
+import { ROUTER_BEAM_LENGTH_UNUSED } from './autoroutingNotes';
 
 /** Opening snapshot of stored feet values, without defaults or inferred dimensions. */
 export function snapshotAutoroutingVesselProfile(
@@ -51,6 +52,6 @@ export function thalassaVesselWarnings(profile?: AutoroutingVesselProfile): stri
     if (!profile || profile.airDraft.status === 'missing')
         warnings.push('Air draft not set: every bridge and power line blocks the route.');
     else if (profile.airDraft.status === 'estimated') warnings.push('Air draft is estimated.');
-    warnings.push('Beam and length are not used by the router yet.');
+    warnings.push(ROUTER_BEAM_LENGTH_UNUSED);
     return warnings;
 }
