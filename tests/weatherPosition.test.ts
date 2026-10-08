@@ -840,6 +840,8 @@ describe('Obs: the boat as known now, and whose instruments these are', () => {
             twdDeg: owner === 'own' ? 200 : 90,
             twaDeg: -40,
             windSampleAt: timestamp - 1_000,
+            // Pi update 1 (125): the TWD reading's own time (extra.wind_twd_at_ms).
+            twdSampleAt: timestamp - 1_500,
         });
         const rows = () =>
             chain.cloudFix.mockImplementation(async (_now?: number, owner?: string) =>
@@ -871,6 +873,7 @@ describe('Obs: the boat as known now, and whose instruments these are', () => {
                 twdDeg: 200,
                 twaDeg: -40,
                 windSampleAt: T0 - 6_000,
+                twdSampleAt: T0 - 6_500,
             });
         });
 
@@ -913,12 +916,14 @@ describe('Obs: the boat as known now, and whose instruments these are', () => {
                 twdDeg: 360,
                 twaDeg: -181,
                 windSampleAt: Number.NaN,
+                twdSampleAt: 0,
             }));
             setWeatherFollowTarget('boat');
             await lookUpFollowedBoatCloudRow(T0);
             const row = followedBoatCloudRowNow(T0)!;
             expect(row).not.toBeNull();
-            for (const key of ['twsKts', 'twdDeg', 'twaDeg', 'windSampleAt'] as const) expect(row[key]).toBeUndefined();
+            for (const key of ['twsKts', 'twdDeg', 'twaDeg', 'windSampleAt', 'twdSampleAt'] as const)
+                expect(row[key]).toBeUndefined();
         });
     });
 });

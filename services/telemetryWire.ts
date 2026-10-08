@@ -118,6 +118,8 @@ export function snapshotFromWire(wire: TelemetryWire, via: RemoteVia): WireReadi
             // Never substitute reported_at (often the GPS clock) for the wind
             // sensor's own timestamp: cached wind would become new history.
             ...(wireNumber(extra.wind_tws_at_ms) !== null ? { windSampleAt: wireNumber(extra.wind_tws_at_ms)! } : {}),
+            // The TWD reading's own time (Pi update 1); an older Pi sends none.
+            ...(wireNumber(extra.wind_twd_at_ms) !== null ? { twdSampleAt: wireNumber(extra.wind_twd_at_ms)! } : {}),
             ...(windIdentity ? { windHistoryIdentity: windIdentity } : {}),
             ...(windSampleSource ? { windSampleSource } : {}),
         },

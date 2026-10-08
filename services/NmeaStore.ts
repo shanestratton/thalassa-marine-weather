@@ -118,6 +118,11 @@ export interface NmeaStoreState {
 /** How a remote feed reached this phone: the Pi over the boat LAN, or the Pi's cloud row. */
 export type RemoteVia = 'lan' | 'cloud';
 
+/** A remote wind leaf is hers now for this long after the Pi sampled it, by lane. */
+function remoteWindMaxAgeMs(via: RemoteVia): number {
+    return via === 'lan' ? 20_000 : 60_000;
+}
+
 /**
  * While a LAN snapshot has arrived this recently, the cloud may not overwrite
  * it: same numbers, seconds fresher, and no internet in the loop.
@@ -177,6 +182,12 @@ export interface RemoteInstrumentSnapshot {
     gnss?: GnssDiagnostics;
     /** Original wind-leaf sample time, never a row/GPS/receipt timestamp. */
     windSampleAt?: number;
+    /**
+     * The TWD leaf's own sample time (extra.wind_twd_at_ms), however old; absent
+     * from an older Pi. The store and the close-in wind's cloud lane hold the
+     * TWD to the lane's wind gate on it.
+     */
+    twdSampleAt?: number;
     /** Physical source of that exact wind leaf, independent of the summary's sampling cycle. */
     windSampleSource?: string;
     /** Stable Pi/boat identity shared by its LAN and cloud lanes. */
@@ -369,7 +380,8 @@ class NmeaStoreClass {
      * connected — the boat's own bus always wins — and never touches the
      * socket's own status machine otherwise. Every metric is stamped with the
      * time this phone read it, except GNSS diagnostics and true heading which
-     * retain their sensor times so polling cached data cannot make it current.
+     * retain their sensor times so polling cached data cannot make it current,
+     * and a TWD the Pi dated, which counts only inside the lane's wind gate.
      */
     ingestRemote(snapshot: RemoteInstrumentSnapshot): boolean {
         if (NmeaListenerService.getStatus() === 'connected' || this.state.connectionStatus === 'connected')
@@ -394,7 +406,7 @@ class NmeaStoreClass {
         put(this.state.twaSigned, snapshot.twaDeg);
         put(this.state.heel, snapshot.heelDeg);
         put(this.state.pitch, snapshot.pitchDeg);
-        put(this.state.twd, snapshot.twdDeg);
+        this.ingestRemoteTwd(snapshot.twdDeg, snapshot.twdSampleAt, via, now);
         put(this.state.aws, snapshot.awsKts);
         put(this.state.awa, snapshot.awaDeg);
         put(this.state.stw, snapshot.stwKts);
@@ -633,6 +645,27 @@ class NmeaStoreClass {
         this.windHistorySource = source;
     }
 
+    /**
+     * The TWD with its own reading time (Pi update 1). A heading dropout can
+     * freeze the gateway's MDA TWD beside a fresh VWT TWS, so a dated TWD
+     * outside the lane's wind gate, or more than 1 s in the future, is not hers
+     * now: the one the store holds is retired, never re-stamped. An older Pi
+     * dates no TWD, and its TWD is stamped on receipt, as before.
+     */
+    private ingestRemoteTwd(value: number | null, at: number | undefined, via: RemoteVia, now: number): void {
+        if (value === null || !Number.isFinite(value)) return;
+        if (typeof at === 'number' && Number.isFinite(at)) {
+            const age = now - at;
+            if (at <= 0 || age < -1_000 || age > remoteWindMaxAgeMs(via)) {
+                this.state.twd.value = null;
+                this.state.twd.lastUpdated = 0;
+                this.state.twd.freshness = 'dead';
+                return;
+            }
+        }
+        this.updateMetric(this.state.twd, value, now);
+    }
+
     private ingestRemoteWind(snapshot: RemoteInstrumentSnapshot, now: number): void {
         // Each snapshot is a complete report: undated wind must not keep an older time.
         this.remoteWindSample = null;
@@ -656,7 +689,7 @@ class NmeaStoreClass {
         if (sampleSource && summary && sampleSource !== summary.source) summary = null;
         const sensor = sampleSource || summary?.source;
         const at = snapshot.windSampleAt;
-        const sourceMaxAge = snapshot.via === 'lan' ? 20_000 : 60_000;
+        const sourceMaxAge = remoteWindMaxAgeMs(snapshot.via ?? 'cloud');
         const validSampleAt =
             sampleSource &&
             typeof at === 'number' &&

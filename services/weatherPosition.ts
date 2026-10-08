@@ -96,6 +96,8 @@ export interface WeatherFix {
     twdDeg?: number;
     twaDeg?: number;
     windSampleAt?: number;
+    /** The Pi's own TWD sample time; absent from an older Pi (closeInWind pickCloudTrueWind). */
+    twdSampleAt?: number;
 }
 
 /** What the caller's phone provider returns. */
@@ -291,6 +293,7 @@ function toWeatherFix(fix: BoatFix, kind: 'bus' | 'pi' | 'cloud'): WeatherFix {
     if (finite(fix.twdDeg) && fix.twdDeg >= 0 && fix.twdDeg < 360) out.twdDeg = fix.twdDeg;
     if (finite(fix.twaDeg) && fix.twaDeg >= -180 && fix.twaDeg <= 180) out.twaDeg = fix.twaDeg;
     if (finite(fix.windSampleAt) && fix.windSampleAt > 0) out.windSampleAt = fix.windSampleAt;
+    if (finite(fix.twdSampleAt) && fix.twdSampleAt > 0) out.twdSampleAt = fix.twdSampleAt;
     return out;
 }
 
