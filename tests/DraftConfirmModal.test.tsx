@@ -43,7 +43,7 @@ function seed(vessel: VesselProfile | undefined, length: 'm' | 'ft' = 'm') {
 const storedVessel = () => useSettingsStore.getState().settings.vessel;
 
 /** Starts an ask and exposes its outcome without awaiting it. */
-function ask(reason: Parameters<typeof requireConfirmedDraft>[0] = 'day-plan') {
+function ask(reason: Parameters<typeof requireConfirmedDraft>[0] = 'auto-route') {
     const outcome: { value: boolean | undefined } = { value: undefined };
     act(() => {
         void requireConfirmedDraft(reason).then((value) => (outcome.value = value));

@@ -19,7 +19,9 @@ export function validPlannerVesselFix(fix: BoatFix | null, maxAgeMs: number, now
     );
 }
 
-/** Display only: never writes a weather selection, route endpoint or GPS fix.
+/** Never writes a weather selection, route endpoint or GPS fix itself. Plan
+ * Your Day (build 124) plans from it and, on "Plot on chart", seeds pin 1 of
+ * the plot with it: a pin the skipper sees and can drag, never a fix.
  * In a browser ashore the computer's position is NOT the yacht's position. */
 export async function readPlannerVesselPosition(): Promise<BoatFix | null> {
     const scope = getAuthIdentityScope();
@@ -39,6 +41,14 @@ export async function readPlannerVesselPosition(): Promise<BoatFix | null> {
         source: report.source === 'pi' ? 'pi-cloud' : 'skipper-device-cloud',
     };
     return validPlannerVesselFix(fix, LAST_KNOWN_LIMIT_MS) ? fix : null;
+}
+
+/** How old her report is: "just now", "12 min ago", "2 h ago" (whole hours). */
+export function plannerFixAge(fix: BoatFix, now = Date.now()): string {
+    const age = Math.max(0, now - fix.timestamp);
+    if (age <= PLANNER_LIVE_FIX_MS) return 'just now';
+    const minutes = Math.floor(age / 60_000);
+    return minutes < 60 ? `${minutes} min ago` : `${Math.floor(minutes / 60)} h ago`;
 }
 
 export function plannerVesselLabel(fix: BoatFix, now = Date.now()): string {

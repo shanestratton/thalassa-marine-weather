@@ -10,16 +10,12 @@
  * (Verdana on a Mac, DejaVu Sans on the Linux runner) so a Mac run wraps text
  * the way CI does. Three states: nothing saved and leaving now; a passage
  * being planned (a saved two-leg trip, a route and tomorrow's 06:30
- * departure); and that plus no vessel profile and the Plan Your Day notice.
+ * departure); and that plus no vessel profile (the default boat).
  * "+insets" sizes take the iPhone's status bar and home indicator off the
  * viewport, as in menu-pages-fit.spec.ts.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { ONBOARDED_STORAGE } from '../e2e/helpers/storageState';
-
-/** services/autorouteTrialSwitch's notice, verbatim (that module needs the app). */
-const PLAN_YOUR_DAY_TRIAL_OFF =
-    'Plan Your Day routes with Auto route (trial), which is off. Turn it on in Settings → Preferences.';
 
 test.use({
     serviceWorkers: 'block',
@@ -99,10 +95,6 @@ async function open(
             useSettingsStore.setState({ settings: { ...settings, vessel: undefined } });
         });
         await expect(page.getByRole('button', { name: 'Personalise vessel profile in Settings' })).toBeVisible();
-        // Auto route (trial) is off by default: a tap says where the switch is.
-        await page.getByRole('button', { name: 'Plan Your Day', exact: true }).click();
-        await expect(page.getByRole('status').filter({ hasText: PLAN_YOUR_DAY_TRIAL_OFF })).toBeVisible();
-        await page.mouse.move(0, 0);
     }
     await settle(page);
 }
@@ -299,15 +291,12 @@ test.describe('Plan front door on a tall iPad and in phone landscape', () => {
                 // Two columns, top-aligned, as the Vessel page in landscape.
                 expect(m.grid.left).toBeGreaterThan(m.card.right);
                 expect(Math.abs(m.grid.top - m.card.top)).toBeLessThanOrEqual(1);
-                // One screen: an SE with the trial notice up is the one case
-                // still scrolling, by the notice's third line (DECIDED, Stage 4).
-                const roomy = !(size.width === 667 && state === 'full');
-                expect(m.viewScroll, `the view scrolls by ${m.viewScroll}px`).toBeLessThanOrEqual(roomy ? 1 : 40);
+                // One screen, every state (the Plan Your Day trial notice that
+                // used to scroll an SE by its third line went in build 124).
+                expect(m.viewScroll, `the view scrolls by ${m.viewScroll}px`).toBeLessThanOrEqual(1);
                 expect(m.cta.bottom).toBeLessThanOrEqual(size.height);
-                if (roomy) {
-                    expect(m.card.bottom).toBeLessThanOrEqual(m.cta.top);
-                    expect(m.grid.bottom).toBeLessThanOrEqual(m.cta.top);
-                }
+                expect(m.card.bottom).toBeLessThanOrEqual(m.cta.top);
+                expect(m.grid.bottom).toBeLessThanOrEqual(m.cta.top);
                 expect(m.tiles.length).toBe(state === 'empty' ? 3 : 4);
                 for (const tile of m.tiles) {
                     expect(tile.height, `${tile.name} is a 44 pt target`).toBeGreaterThanOrEqual(44 - 0.5);
@@ -362,7 +351,7 @@ test.describe('Plan front door keeps every item', () => {
                 'Turn a logged voyage into a route',
             );
             const day = doors.getByRole('button', { name: 'Plan Your Day', exact: true });
-            await expect(day).toHaveAccessibleDescription('Find a stop. Make a day of it.');
+            await expect(day).toHaveAccessibleDescription('Go or stay, when, and where to.');
             await expect(day).toHaveAttribute('aria-haspopup', 'dialog');
             await expect(day).toHaveAttribute('aria-expanded', 'false');
             const trip = doors.getByRole('combobox', {
@@ -381,9 +370,13 @@ test.describe('Plan front door keeps every item', () => {
                 ]);
                 await expect(doors.getByText('Trip · Legs', { exact: true })).toBeVisible();
             }
-            await expect(page.getByRole('status').filter({ hasText: PLAN_YOUR_DAY_TRIAL_OFF })).toHaveCount(
-                state === 'full' ? 1 : 0,
-            );
+            // Plan Your Day opens at once: no Auto route (trial) switch, no draft check (build 124).
+            await day.click();
+            const today = page.getByRole('dialog', { name: 'Plan Your Day', exact: true });
+            await expect(today).toBeVisible();
+            await today.getByRole('button', { name: 'Close', exact: true }).click();
+            await expect(today).toHaveCount(0);
+            await expect(day).toHaveAttribute('aria-expanded', 'false');
 
             // The CTA.
             await expect(page.getByRole('button', { name: 'Start plotting', exact: true })).toBeVisible();
