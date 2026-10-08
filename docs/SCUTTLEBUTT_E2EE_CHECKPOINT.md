@@ -1,6 +1,6 @@
 # Scuttlebutt private-message E2EE — isolated checkpoint
 
-Updated: 8 October 2026. Active branch:
+Updated: 9 October 2026. Active branch:
 `codex/scuttlebutt-e2ee-integration-2026-10-06`.
 The published foundation branch remains at `3c30f47c`; it was not rewritten.
 The integration branch was rebased onto master `7e0b27a4`, retaining the newer
@@ -86,7 +86,10 @@ account, with positive disposable-actor hosted checks. A bounded native private-
 adapter exchange now passes actual Auth verification and hosted HTTPS with two fresh
 fixture principals in one disposable simulator. A dedicated Research entry now
 installs private legacy denial before loading the real Thalassa message page;
-an optional App/registry native-selection seam is now prepared, but the ordinary
+an optional App/registry native-selection seam is now prepared. A separate
+full-App Research composition now has closed startup/authority leaves and an
+actual unsupported jsdom App/remount check; its repaired isolated build remains
+queued and it has not run in an actual Window/native host. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -121,6 +124,63 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 9 October isolated full App composition
+
+The separate `full-app-pilot` entry composes the actual App, registry, providers
+and bootstrap behind closed Research boundaries. The existing Research runtime
+remains the sole Auth driver. Native account metadata is presentation only:
+App's Supabase User stays null, and settled browse mode grants no messaging
+permission. The root supplies closed native selection on every render/remount;
+the entry denies private legacy access before loading its UI graph.
+
+Bounded volatile Preferences/cache operations settle without persistence.
+Instrument/GPS, background location, anchor/Pi/ShipLog, vessel DB/sync, push and
+native transport leaves deny control. `BgGeoManager` itself is substituted:
+cached fixes are absent, health stays unknown/unusable, subscriptions retain no
+callback, and strict readiness/lease/geofence controls reject. Its native runtime
+enum package remains blocked. The early I/O fence retains a private pinned Auth
+fetch and replaces known browser APIs; it is not a runtime security sandbox or
+proof of real Window/native isolation.
+
+The broad Node 24.19.0 baseline passed **847 tests in 37 suites** before the final
+background-manager closure. Its affected boundary/graph rerun passed **63 in
+two suites**, including 26 boundary cases; the final worker-config/graph run then
+passed **38 graph cases**. These overlap and must not be added. The actual App,
+providers, bootstrap and registry passed **one unsupported jsdom mount/remount
+case** on the closed runtime. Only supplied rejecting spies were measured:
+fetch, browser constructors, native proxy and SDK construction each had zero
+attempts, with two runtime factory calls. That fixture directly imports the root
+and does not install the entry's I/O fence into a real Window.
+
+Focused strict types passed for the runtime before the final worker-config/test
+addition; its checked runtime sources remain unchanged. Named lint and format
+pass on the final slice. Missing sortable declarations resolve from an owned,
+lock-verified archive with exact existing peer/React paths; shared dependencies
+remain read-only. Explicit Vitest children use Node 24.19.0 and
+`--no-experimental-webstorage`, keeping Node's storage globals out of fresh jsdom.
+The earlier Node 26 mount/storage failure remains a harness failure, not app or
+native acceptance evidence.
+
+Retained build failures exposed the exact ChatService SDK classifier import,
+the background manager's runtime enum import, and default IIFE worker format.
+The classifier now returns non-retryable `false` without selecting the SDK; the
+background manager stays closed; isolated module workers now get a fresh graph
+gate. The final repaired build was **queued without dispatch** when its bounded
+shared-Mac slot window expired behind healthy competing jobs. No successful
+full-App bundle or execution is claimed. A separate wrapper receipt-name
+collision is retained alongside its failed child build, not relabelled as an
+application failure.
+
+The [full App manifest](../experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json)
+records exact sources, check/queued receipts, retained failures and compiler
+inputs. Next is one repaired isolated build when the slot is free, then actual
+Window entry/I/O fence/CSP and native full-root admission/lifecycle checks. Full
+device/prekey/recovery/retention, independent concurrency, provenance/licence,
+current physical acceptance and independent security assessment remain gates.
+No master merge/push, primary edit/sync, hosted/human Research change, deployment,
+reviewer contact or purchase occurred. These fixtures are not ship/master
+readiness or a new SDK/native/provider/ciphertext exchange.
 
 ### 8 October App private message routing preparation
 

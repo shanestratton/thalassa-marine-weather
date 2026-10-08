@@ -1,6 +1,6 @@
 # Scuttlebutt private message E2EE review brief
 
-Updated 8 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
+Updated 9 October 2026 for an independent security assessor and Thalassa's owner. This brief requests review of a proposed native, text-only private-message pilot using unchanged vodozemac 0.11.0 Olm v1. It supports engagement scoping now; the implementation selected for assessment must be frozen and identified before code review. Production activation, distribution and security claims are not authorized by this research work.
 
 The installed isolated Research candidate is `0cde17c21c68e0bba9dff6fe07eef41b5dfad00c` on `codex/scuttlebutt-e2ee-foundation`. It passed 1,069 tests across 15 isolated suites, focused strict TypeScript, named lint, formatting and separate web/unsigned physical-iOS builds before local signing and in-place installation on both devices. Research entitlements match the previous candidate, and identical 11-file metadata inventories were retained across each update. Normal Thalassa's compared bundle/version/build metadata is unchanged. Launch requests succeeded; the owner subsequently reported signing into both. These are fixture/build/update checks and an owner report; the later bounded new-candidate message observations below are separate, not a full acceptance pass or an audit.
 
@@ -241,6 +241,34 @@ Runtime shape is not provenance or native permission. Review the full-app Auth,
 storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gates
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
+
+The [9 October full App evidence](../experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json)
+adds a separate actual-App/provider/bootstrap composition behind closed Auth,
+storage, telemetry, GPS/background manager, anchor/Pi/ShipLog, vessel, push and
+native transport leaves. One existing Research controller supplies native public
+metadata; App's Supabase User remains null. Closed selection is supplied on every
+mount. The exact background manager is substituted without admitting its runtime
+enum package, and module-worker builds now create independent closed graphs.
+
+The broad baseline passed 847 overlapping tests in 37 suites before the final
+background-manager closure. Its affected run passed 63 in two suites; the final
+graph/config run passed 38 graph cases. One actual unsupported jsdom App/remount
+case, runtime strict types and named lint/format pass. These counts overlap.
+The jsdom root import bypasses the entry and real Window I/O-fence installation;
+its fixed spies do not measure every browser/native operation. Strict types
+precede only the last worker-config/test addition, with checked runtime sources
+unchanged. The repaired isolated build is queued-unrun after its bounded shared
+slot window, so no current full-App bundle, actual Window/native Root, supported
+SDK admission, encryption exchange or visual acceptance is established.
+
+Retain the earlier SDK-import, background-enum and worker-format build failures
+and separate wrapper receipt collision. Review the trusted build graph, private
+Auth-fetch capability and actual Window/native backstop as separate boundaries.
+First complete the queued compile, then the actual full-root startup/lifecycle
+checks. Device/prekey/recovery/retention, provenance/licence, independent
+concurrency, current physical acceptance and independent security assessment
+remain open. No ordinary activation, human/hosted state, primary sync, master,
+reviewer contact or purchase changed.
 
 ## User problem and intended pilot
 

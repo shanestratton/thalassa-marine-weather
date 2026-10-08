@@ -497,3 +497,52 @@ describe('isolated PM page lifecycle — synthetic SDK/native integration', () =
         expect(f.sdk.getSession).not.toHaveBeenCalled();
     });
 });
+
+describe('trusted composition observation and page slot', () => {
+    it('observes the one effect-owned runtime and cleans only its observer on unmount', async () => {
+        const f = fixture(),
+            stop = vi.fn(),
+            observer = vi.fn((_owned: ReturnType<typeof createPrivateMessageResearchRuntime>) => stop);
+        const view = render(<PrivateMessageResearchApp createRuntime={f.factory} onRuntime={observer} />);
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in and verify' })).not.toBeDisabled());
+        expect(f.factory).toHaveBeenCalledTimes(1);
+        expect(observer).toHaveBeenCalledTimes(1);
+        expect(observer.mock.calls[0]?.[0]).toBe(f.factory.mock.results[0]?.value);
+        expect(f.sdk.onAuthStateChange).toHaveBeenCalledTimes(1);
+        view.unmount();
+        expect(stop).toHaveBeenCalledTimes(1);
+        expect(f.sdk.stopAutoRefresh).toHaveBeenCalledTimes(1);
+    });
+    it('always supplies an unavailable/native selection to the trusted page slot through hide and restore', async () => {
+        const f = fixture();
+        const slot = vi.fn((props: { selection?: { kind: string } }) => <p>Slot {props.selection?.kind}</p>);
+        render(<PrivateMessageResearchApp createRuntime={f.factory} renderPrivatePage={slot} />);
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in and verify' })).not.toBeDisabled());
+        expect(screen.getByText('Slot native-unavailable')).toBeInTheDocument();
+        await signIn(f);
+        fireEvent.click(screen.getByRole('button', { name: 'Check native setup and open messages' }));
+        await screen.findByText('Slot native-pilot');
+        hide();
+        expect(screen.getByText('Slot native-unavailable')).toBeInTheDocument();
+        show();
+        await act(async () => {});
+        expect(screen.getByText('Slot native-unavailable')).toBeInTheDocument();
+        for (const call of slot.mock.calls) expect(call[0].selection?.kind).not.toBe('legacy');
+    });
+    it('an observer failure stops initialization instead of starting another unobserved Auth loop', async () => {
+        const f = fixture();
+        render(
+            <PrivateMessageResearchApp
+                createRuntime={f.factory}
+                onRuntime={() => {
+                    throw new Error('Synthetic observer refusal');
+                }}
+            />,
+        );
+        await screen.findByText(/Research window stopped/);
+        expect(f.native.configuration).not.toHaveBeenCalled();
+        expect(f.sdk.onAuthStateChange).not.toHaveBeenCalled();
+        expect(f.native.authenticate).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: 'Sign in and verify' })).toBeDisabled();
+    });
+});
