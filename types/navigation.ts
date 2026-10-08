@@ -311,7 +311,7 @@ export interface AisTarget {
     cog: number; // Course over ground (°)
     sog: number; // Speed over ground (kts)
     heading: number; // True heading (°), 511 = unavailable
-    navStatus: number; // Navigational status (0-15)
+    navStatus: number | null; // Navigational status (0-15); null when none was heard (a static message, or a Pi with no navigation.state)
     shipType: number; // Ship/cargo type code
     callSign: string; // Radio call sign
     destination: string; // Reported destination
