@@ -391,10 +391,13 @@ describe('phase 3: spread, speed and rain', () => {
         expect(paneCode).toContain("assumed: 'NO WX'");
     });
 
-    it('never the learned "smart" polar: it loads async and its empty cells are zeros', () => {
+    it("sails the routers' polar (125-08): the learned one only through the resolver, never its raw zeros", () => {
+        // The learned grid's empty cells are zeros; only services/routingPolar
+        // (through hooks/useRoutingPolar) may read it, blended and banded.
         expect(paneCode).not.toMatch(/SmartPolarStore/);
         expect(plan).not.toMatch(/SmartPolarStore/);
-        expect(flat(paneCode)).toContain('polar: polarData ?? DEFAULT_CRUISING_POLAR,');
+        expect(paneCode).not.toContain('polarData ?? DEFAULT_CRUISING_POLAR');
+        expect(flat(paneCode)).toContain('const routing = useRoutingPolar(vessel);');
     });
 
     it('everything on screen reads ONE plan table — no second copy of the arithmetic', () => {

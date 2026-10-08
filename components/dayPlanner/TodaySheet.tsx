@@ -10,7 +10,8 @@
  *     they agree (a glyph and a word, never colour alone);
  *   - one headline, the light, and the next high and low water;
  *   - the best two or three stops within a day's sail, each with leave,
- *     there and home times from her polar in the forecast wind;
+ *     there and home times from her polar in the forecast wind (the routers'
+ *     own polar since build 125: services/routingPolar);
  *   - All places, every one with a plain reason when it is not today.
  *
  * A stop's detail says how each time was worked out; "Plot on chart" sets
@@ -33,7 +34,8 @@ import {
 } from '../../services/authIdentityScope';
 import { plannerFixAge, readPlannerVesselPosition } from '../../services/plannerVesselPosition';
 import { setPlanDeparture } from '../../services/planDeparture';
-import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
+import { routingSpeedModel } from '../../services/routingPolar';
+import { useRoutingPolar } from '../../hooks/useRoutingPolar';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import { vesselCruisingSpeedKts } from '../../services/units';
 import type { PassageSpeedModel } from '../../services/passagePlan';
@@ -147,17 +149,20 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
         [settings.comfortParams, boatProfile, usingDefaultVessel],
     );
     const speedPref = usePassageSpeedPref();
+    // The routers' own polar (build 125, 125-08), as the passage HUD sails it:
+    // her imported, typed-in or learned figures as given, a database or
+    // generic shape scaled to her cruising speed. The learned grid is read
+    // after the first paint, through the resolver.
+    const routing = useRoutingPolar(boatProfile);
     const speed = useMemo<PassageSpeedModel>(
-        () => ({
-            mode: speedPref,
-            cruiseKts: vesselCruisingSpeedKts(boatProfile, 6),
-            isSail: boatProfile.type === 'sail',
-            // The skipper's own table when she has chosen one; never the
-            // learned polar (async, and its unfilled cells are zeros).
-            polar: settings.polarData ?? DEFAULT_CRUISING_POLAR,
-            closeHauledDeg: closeHauledDegFor(boatProfile),
-        }),
-        [speedPref, boatProfile, settings.polarData],
+        () =>
+            routingSpeedModel(routing, {
+                mode: speedPref,
+                cruiseKts: vesselCruisingSpeedKts(boatProfile, 6),
+                isSail: boatProfile.type === 'sail',
+                closeHauledDeg: closeHauledDegFor(boatProfile),
+            }),
+        [routing, speedPref, boatProfile],
     );
     const cruiseRef = useRef(speed.cruiseKts);
     cruiseRef.current = speed.cruiseKts;
@@ -555,7 +560,8 @@ export default function TodaySheet({ vessel, usingDefaultVessel, onClose, onPlot
                     view={view}
                     stay={stay}
                     speed={speed}
-                    polarIsOwn={!!settings.polarData}
+                    polarIsOwn={routing.source !== 'default'}
+                    polar={routing}
                     leavingMarina={!!base.marina}
                     loadLanding={detailRow.candidate.reviewed?.landingTide ? loadLanding : null}
                     onPlot={(departureMs) => plot(detailRow, departureMs)}

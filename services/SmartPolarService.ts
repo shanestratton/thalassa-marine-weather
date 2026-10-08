@@ -57,10 +57,17 @@ class SmartPolarServiceClass {
 
     // ── Public API ──
 
+    /**
+     * Start learning. The grid is loaded with ensureLoaded, never
+     * initialize(): a second start (switch off and on, or the launch resume in
+     * services/smartPolarResume) must not reload the disk copy over samples
+     * recorded and not yet saved. A stop() while it loads leaves nothing listening.
+     */
     async start(): Promise<void> {
         if (this.enabled) return;
         this.enabled = true;
-        await SmartPolarStore.initialize();
+        await SmartPolarStore.ensureLoaded();
+        if (!this.enabled || this.unsubscribe) return;
         this.unsubscribe = NmeaListenerService.onSample((sample) => this.processSample(sample));
     }
 

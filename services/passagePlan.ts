@@ -22,6 +22,18 @@
  * downwind); it is scaled so that a fair reaching breeze gives exactly her
  * cruising speed. Flat cruising speed stays one tap away.
  *
+ * …UNLESS THE POLAR IS HER OWN (build 125, 125-08). Since build 123 the
+ * routers sail one resolved polar (services/routingPolar): an imported or
+ * typed-in table, or the learned one, is HER figures and is sailed as given.
+ * The HUD and Plan Your Day now take that same polar (routingSpeedModel), and
+ * a model marked `polarKind: 'figures'` is sailed exactly as the routers sail
+ * it: not scaled, not capped at 1.3× cruising, and its first and last columns
+ * HELD beyond the table (createPolarSpeedLookup, the edge's padding) — so the
+ * HUD's ETA and the routed ETA agree in a drift and in the trades alike. A
+ * SHAPE (a yacht-database table, the generic polar) arrives already scaled to
+ * her cruising speed by the resolver, so scaling it again is identity; it
+ * keeps a shape's guards at the table's ends (below), which the routers lack.
+ *
  *   - inside her close-hauled angle she TACKS: the polar's close-hauled speed,
  *     made good along the course (v·cos θc / cos α). createPolarSpeedLookup on
  *     its own clamps and HOLDS — dead on the nose it hands back close-hauled
@@ -71,6 +83,13 @@ export interface PassageSpeedModel {
     /** False for a power vessel: `mode` is then treated as 'cruise'. */
     isSail: boolean;
     polar: PolarData;
+    /**
+     * 'shape' (the default): scaled so a fair reaching breeze gives her
+     * cruising speed, never more than MAX_OVER_CRUISE of it, run down under its
+     * first column. 'figures': her own speeds (imported, typed in, learned),
+     * sailed as given with both end columns held, as the routers do.
+     */
+    polarKind?: 'shape' | 'figures';
     /** Closest she sails to the true wind, degrees. */
     closeHauledDeg: number;
 }
@@ -94,9 +113,13 @@ export interface LegSpeed {
  * kept to something a boat can do, and NEVER higher than the polar's first row
  * — createPolarSpeedLookup clamps below it, so a 40° setting on a table that
  * starts at 45° was being credited the 45° speed at 40°, 8–28% too good upwind.
+ * "First row" is the first row that PRICES a speed: a routing polar starts
+ * with zero rows at 0° and just inside its first angle (its no-go zone), and
+ * pointing into those would price her at nothing and send her to the engine.
  */
 export function pointingDeg(model: Pick<PassageSpeedModel, 'closeHauledDeg' | 'polar'>): number {
-    const firstPriced = model.polar.angles?.[0];
+    const priced = model.polar.matrix?.findIndex((row) => Array.isArray(row) && row.some((v) => v > 0)) ?? -1;
+    const firstPriced = model.polar.angles?.[Math.max(0, priced)];
     const floor = typeof firstPriced === 'number' && Number.isFinite(firstPriced) ? firstPriced : 0;
     return Math.max(20, Math.min(80, Math.max(model.closeHauledDeg, floor)));
 }
@@ -136,7 +159,9 @@ export function passageSpeed(
     const flat = (how: SpeedHow): LegSpeed => ({ kts: cruise, how, boatKts: cruise });
     if (model.mode === 'cruise' || !model.isSail) return flat('cruise');
     if (twsKts === null || twdDeg === null || !Number.isFinite(courseDeg)) return flat('assumed');
-    const scale = polarScale(model.polar, cruise);
+    // Her own figures are sailed as given (the routers' rule); a shape is scaled.
+    const own = model.polarKind === 'figures';
+    const scale = own ? 1 : polarScale(model.polar, cruise);
     if (scale === null) return flat('cruise');
     const motor = (offBowDeg: number): LegSpeed => {
         const kts = motoringKts(cruise, twsKts, offBowDeg);
@@ -148,18 +173,24 @@ export function passageSpeed(
     if (twsKts < MOTOR_UNDER_TWS_KTS) return motor(offBow);
 
     const at = createPolarSpeedLookup(model.polar, twsKts);
-    // BOTH ENDS OF THE TABLE ARE HELD by the lookup, and a held number is an
-    // invented one (review, 2026-09-19). Below the first column — the yacht
-    // database's tables start at 6 kn — it handed back the 6-kn speed in 4 kn of
-    // wind: "6.1KN SAIL" in a drift. So boat speed runs down to nothing at no
-    // wind, and the 60% rule then sends her to the engine. Above the last
-    // column there is no reefing model (phase 4): she is at least never credited
-    // MORE than her cruising speed on a column that does not exist.
+    // BOTH ENDS OF THE TABLE ARE HELD by the lookup, and for a SHAPE a held
+    // number is an invented one (review, 2026-09-19). Below the first column —
+    // the yacht database's tables start at 6 kn — it handed back the 6-kn speed
+    // in 4 kn of wind: "6.1KN SAIL" in a drift. So a shape's boat speed runs
+    // down to nothing at no wind, and the 60% rule then sends her to the
+    // engine. Above the last column there is no reefing model (phase 4): a
+    // shape is at least never credited MORE than her cruising speed on a column
+    // that does not exist, nor over 1.3× it anywhere.
+    //
+    // HER OWN FIGURES are sailed as every router sails them (review,
+    // 2026-10-09): both ends held, no cap — an ORC-style table that stops at
+    // 20 kn holds its 20-kn speed in a 25-kn trade, where capping her at
+    // cruising made the HUD's ETA ~28% later than the routed one.
     const columns = model.polar.windSpeeds;
     const firstTws = columns[0];
     const lastTws = columns[columns.length - 1];
-    const lightAir = firstTws > 0 && twsKts < firstTws ? twsKts / firstTws : 1;
-    const ceiling = twsKts > lastTws ? cruise : cruise * MAX_OVER_CRUISE;
+    const lightAir = !own && firstTws > 0 && twsKts < firstTws ? twsKts / firstTws : 1;
+    const ceiling = own ? Number.POSITIVE_INFINITY : twsKts > lastTws ? cruise : cruise * MAX_OVER_CRUISE;
 
     const pointing = pointingDeg(model);
     let kts: number;

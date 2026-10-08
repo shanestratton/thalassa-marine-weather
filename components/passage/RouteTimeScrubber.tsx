@@ -32,7 +32,7 @@
  *
  * Presentational. The strip owns the numbers; this only moves the offset.
  */
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { publishPassageHudInfo } from '../../stores/passageHudInfoStore';
 
@@ -377,8 +377,27 @@ export const RouteTimeScrubber: React.FC<RouteTimeScrubberProps> = ({
         [],
     );
 
+    // Its height, for the closed HUD tab beside it (index.css): the tab stands
+    // clear of the scrubber however tall it is, rather than lying over Play at
+    // 320 × 568 (build 125, 125-08). Before paint, so it never flashes over it.
+    const rootRef = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        const root = rootRef.current;
+        const host = root?.parentElement;
+        if (!root || !host) return;
+        const write = () => host.style.setProperty('--route-scrubber-h', `${root.offsetHeight}px`);
+        write();
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(write);
+        observer?.observe(root);
+        return () => {
+            observer?.disconnect();
+            host.style.removeProperty('--route-scrubber-h');
+        };
+    }, []);
+
     return (
         <div
+            ref={rootRef}
             data-testid="route-time-scrubber"
             aria-label="Look ahead along the route"
             role="group"

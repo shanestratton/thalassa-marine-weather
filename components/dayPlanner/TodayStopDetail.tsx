@@ -13,6 +13,7 @@ import {
     type DayWindow,
     type DepartureEval,
     type StayOption,
+    type StopDetailArgs,
     type StopRow,
 } from '../../services/dayPlanner/today';
 import { TodayModal } from './TodayModal';
@@ -47,6 +48,7 @@ export function TodayStopDetail({
     stay,
     speed,
     polarIsOwn,
+    polar = null,
     leavingMarina,
     loadLanding,
     onPlot,
@@ -57,6 +59,8 @@ export function TodayStopDetail({
     stay: StayOption;
     speed: PassageSpeedModel;
     polarIsOwn: boolean;
+    /** The routers' polar the times were sailed on; it decides the footnote's words. */
+    polar?: StopDetailArgs['polar'];
     leavingMarina: boolean;
     /** Set only for a reviewed stop whose Parks note names a landing tide. */
     loadLanding: LandingLoader | null;
@@ -107,6 +111,7 @@ export function TodayStopDetail({
               window,
               speed,
               polarIsOwn,
+              polar,
               leavingMarina,
               landing: loadLanding ? (landing ?? undefined) : undefined,
           })

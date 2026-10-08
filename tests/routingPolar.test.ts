@@ -38,6 +38,7 @@ vi.mock('../services/nativeStorage', () => ({
 
 import {
     LEARNED_MIN_FILLED_CELLS,
+    genericPolarFor,
     normaliseRoutingPolar,
     resolveRoutingPolarFrom,
     toEdgePolar,
@@ -141,6 +142,10 @@ const resolve = (
     learned: LearnedPolarSnapshot | null = null,
 ): ResolvedRoutingPolar => resolveRoutingPolarFrom({ settings: patch, vessel, learned });
 const COVERED: LearnedPolarSnapshot = { polar: learnedGrid(TEN_LEARNED_CELLS), filledCells: 10 };
+/** "Routing uses: Smart" with the learner switched on (Settings → Preferences). */
+const SMART_ON = { polarSource: 'smart', smartPolarsEnabled: true } as const;
+/** The generic polar as Fair Wind (6.5 kn cruising) sails it: its shape scaled to her (build 125). */
+const GENERIC_FOR_SLOOP = genericPolarFor(SLOOP).polar;
 
 /** First angle of the polar where any speed is priced. */
 const firstPricedAngle = (p: PolarData) => p.angles[p.matrix.findIndex((row) => row.some((v) => v > 0))];
@@ -173,16 +178,35 @@ function bestUpwindTwa(p: PolarData, tws: number): number {
 // ── The resolver ─────────────────────────────────────────────────
 
 describe('resolveRoutingPolarFrom — which polar a route sails by', () => {
-    it('no polar chosen: the generic cruising polar, said plainly, with a no-go zone', () => {
+    it('no polar chosen: the generic cruising polar, said plainly, scaled to her cruising speed, with a no-go zone', () => {
         const r = resolve({});
         expect(r.source).toBe('default');
         expect(r.label).toBe('Generic cruising polar');
         expect(r.polar.angles).toEqual([0, 25, ...DEFAULT_CRUISING_POLAR.angles]);
         expect(r.polar.matrix[0].every((v) => v === 0)).toBe(true);
         expect(r.polar.matrix[1].every((v) => v === 0)).toBe(true);
-        expect(r.polar.matrix.slice(2)).toEqual(DEFAULT_CRUISING_POLAR.matrix);
+        expect(r.polar.matrix.slice(2)).toEqual(GENERIC_FOR_SLOOP.matrix);
         expect(r.polar.windSpeeds).toEqual(DEFAULT_CRUISING_POLAR.windSpeeds);
         expect(r.signature).toMatch(/^[0-9a-f]{8}$/);
+        // Build 125 (125-08): the SHAPE, scaled so a fair reaching breeze gives her 6.5 kn —
+        // the HUD's rule and the edge's own fallback — not the table's ~5.9 kn raw.
+        expect(polarReferenceKts(DEFAULT_CRUISING_POLAR)).toBeCloseTo(5.93, 2);
+        expect(polarReferenceKts(r.polar)).toBeCloseTo(6.5, 6);
+        expect(r.reason).toMatch(/scaled so a fair reaching breeze gives her 6\.5 kn/);
+        expect(toEdgePolar(r)).toBeNull();
+    });
+
+    it('the generic polar is raw only when no cruising speed can be matched to it', () => {
+        // No cruising speed and no length: nothing to scale to.
+        const unknown = { ...SLOOP, cruisingSpeed: 0, length: 0 };
+        const r = resolve({}, unknown);
+        expect(r.polar.matrix.slice(2)).toEqual(DEFAULT_CRUISING_POLAR.matrix);
+        expect(r.reason).toMatch(/unscaled/);
+        // A 40-footer on "auto": sqrt(40) × 1.2 = 7.6 kn.
+        expect(polarReferenceKts(resolve({}, { ...SLOOP, length: 40, cruisingSpeed: 0 }).polar)).toBeCloseTo(
+            Math.sqrt(40) * 1.2,
+            6,
+        );
     });
 
     it("an imported polar is the skipper's own numbers: used raw, named after its file", () => {
@@ -268,11 +292,12 @@ describe('resolveRoutingPolarFrom — which polar a route sails by', () => {
 
     it('a covered learned polar keeps every learned cell and fills ONLY its empty cells from the factory polar', () => {
         const learned = COVERED.polar!;
-        const r = resolve({ polarSource: 'smart' }, SLOOP, COVERED);
+        const r = resolve(SMART_ON, SLOOP, COVERED);
         expect(r.source).toBe('learned');
-        expect(r.label).toBe('Learned (blended)');
+        // Build 125 (125-08): it says how much it has learned, and where the rest comes from.
+        expect(r.label).toBe('Learned (10 of 42 cells), the rest from Generic cruising polar');
         expect(r.reason).toMatch(/10 of 42/);
-        const factory = normaliseRoutingPolar(DEFAULT_CRUISING_POLAR);
+        const factory = normaliseRoutingPolar(GENERIC_FOR_SLOOP);
         const firstReal = r.polar.angles.indexOf(45);
         expect(r.polar.angles.slice(firstReal)).toEqual(learned.angles);
         // The learned columns, plus the factory's own light- and heavy-air
@@ -289,8 +314,8 @@ describe('resolveRoutingPolarFrom — which polar a route sails by', () => {
     });
 
     it("outside the learned 6–25 kn range the blend is the factory polar's own figure, not the edge column held flat", () => {
-        const r = resolve({ polarSource: 'smart' }, SLOOP, COVERED);
-        const factory = normaliseRoutingPolar(DEFAULT_CRUISING_POLAR);
+        const r = resolve(SMART_ON, SLOOP, COVERED);
+        const factory = normaliseRoutingPolar(GENERIC_FOR_SLOOP);
         for (const tws of [4, 30]) {
             for (const twa of [45, 60, 90, 120, 150, 180]) {
                 expect(createPolarSpeedLookup(r.polar, tws)(twa), `${tws} kn / ${twa}°`).toBeCloseTo(
@@ -299,8 +324,10 @@ describe('resolveRoutingPolarFrom — which polar a route sails by', () => {
                 );
             }
         }
-        // The generic polar's 4 kn beam reach is 2.2 kn — not the 6 kn column's 3.8.
-        expect(createPolarSpeedLookup(r.polar, 4)(90)).toBeCloseTo(2.2, 2);
+        // The generic polar's 4 kn beam reach (2.2 kn, scaled to her 6.5 kn cruise) — not the 6 kn column's 3.8.
+        const scale = 6.5 / polarReferenceKts(DEFAULT_CRUISING_POLAR);
+        expect(createPolarSpeedLookup(r.polar, 4)(90)).toBeCloseTo(2.2 * scale, 2);
+        expect(createPolarSpeedLookup(r.polar, 4)(90)).toBeLessThan(3.8 * scale);
     });
 
     it('a learned cell far outside the factory figure is held to 0.5–1.5× it (a surf or a paddlewheel spike)', () => {
@@ -309,13 +336,13 @@ describe('resolveRoutingPolarFrom — which polar a route sails by', () => {
             polar: learnedGrid([...TEN_LEARNED_CELLS, [5, 4, 11.0], [0, 4, 0.5]]),
             filledCells: 12,
         };
-        const r = resolve({ polarSource: 'smart' }, SLOOP, spiky);
+        const r = resolve(SMART_ON, SLOOP, spiky);
         expect(r.source).toBe('learned');
-        const factory = normaliseRoutingPolar(DEFAULT_CRUISING_POLAR);
+        const factory = normaliseRoutingPolar(GENERIC_FOR_SLOOP);
         const at = (tws: number, twa: number) =>
             r.polar.matrix[r.polar.angles.indexOf(twa)][r.polar.windSpeeds.indexOf(tws)];
-        expect(at(20, 150)).toBeCloseTo(1.5 * createPolarSpeedLookup(factory, 20)(150), 2); // 8.25, not 11
-        expect(at(6, 150)).toBeCloseTo(0.5 * createPolarSpeedLookup(factory, 6)(150), 2); // 1.25, not 0.5
+        expect(at(20, 150)).toBeCloseTo(1.5 * createPolarSpeedLookup(factory, 20)(150), 2); // 9.05, not 11
+        expect(at(6, 150)).toBeCloseTo(0.5 * createPolarSpeedLookup(factory, 6)(150), 2); // 1.37, not 0.5
         // Cells inside the band are untouched.
         expect(at(15, 90)).toBe(7.0);
     });
@@ -436,6 +463,77 @@ describe('the no-go zone lives in the resolved polar (the engine clamp is unchan
             }
         });
     }
+});
+
+// ── A learned polar says how much it has learned (build 125, 125-08) ──
+
+describe('a learned polar says how much it has learned', () => {
+    const SEVEN: LearnedPolarSnapshot = { polar: learnedGrid(TEN_LEARNED_CELLS.slice(0, 7)), filledCells: 7 };
+
+    it('at 7 of 42 cells it is learning, and names the polar she sails on meanwhile', () => {
+        expect(LEARNED_MIN_FILLED_CELLS).toBe(8);
+        const onGeneric = resolve(SMART_ON, SLOOP, SEVEN);
+        expect(onGeneric.source).toBe('default');
+        expect(onGeneric.label).toBe('Learning (7 of 42 cells), sailing on Generic cruising polar');
+        expect(onGeneric.learnedCells).toBe(7);
+        const onImported = resolve(
+            {
+                ...SMART_ON,
+                polarData: IMPORTED,
+                polarBoatModel: 'Fair Wind 2025.pol',
+                polarSource_type: 'file_import',
+            },
+            SLOOP,
+            SEVEN,
+        );
+        expect(onImported.source).toBe('imported');
+        expect(onImported.label).toBe('Learning (7 of 42 cells), sailing on Fair Wind 2025.pol (imported)');
+        // The banner prints the label as it stands (components/map/PassageBanner).
+    });
+
+    it('with nothing learned yet (or the store not read) it says 0 of 42, never just the factory name', () => {
+        expect(resolve(SMART_ON, SLOOP, null).label).toBe(
+            'Learning (0 of 42 cells), sailing on Generic cruising polar',
+        );
+    });
+
+    it('once it routes, it says how many cells are learned and where the rest come from', () => {
+        const r = resolve(SMART_ON, SLOOP, COVERED);
+        expect(r.label).toBe('Learned (10 of 42 cells), the rest from Generic cruising polar');
+        expect(r.learnedCells).toBe(10);
+        const full: LearnedPolarSnapshot = {
+            polar: {
+                windSpeeds: [6, 8, 10, 12, 15, 20, 25],
+                angles: [45, 60, 90, 120, 150, 180],
+                matrix: [45, 60, 90, 120, 150, 180].map(() => [4, 4.8, 5.4, 5.9, 6.3, 6.6, 6.7]),
+            },
+            filledCells: 42,
+        };
+        expect(resolve(SMART_ON, SLOOP, full).label).toBe('Learned (42 of 42 cells)');
+        expect(resolve({ ...SMART_ON, smartPolarsEnabled: false }, SLOOP, full).label).toBe(
+            'Learned (42 of 42 cells, learning off)',
+        );
+    });
+
+    it('with the learner switched off (or never on), the label says so instead of "Learning"', () => {
+        const off = resolve({ polarSource: 'smart', smartPolarsEnabled: false }, SLOOP, SEVEN);
+        expect(off.label).toBe('Smart polar (7 of 42 cells, learning off), sailing on Generic cruising polar');
+        expect(off.learning).toBe(false);
+        expect(off.reason).toMatch(/learning off/);
+        expect(resolve({ polarSource: 'smart' }, SLOOP, SEVEN).label).toBe(off.label);
+        expect(resolve({ polarSource: 'smart', smartPolarsEnabled: false }, SLOOP, COVERED).label).toBe(
+            'Learned (10 of 42 cells, learning off), the rest from Generic cruising polar',
+        );
+        // The figures do not change with the switch: only the words.
+        expect(resolve({ polarSource: 'smart' }, SLOOP, COVERED).signature).toBe(
+            resolve(SMART_ON, SLOOP, COVERED).signature,
+        );
+    });
+
+    it('a factory choice carries no learning count at all', () => {
+        expect(resolve({ polarSource: 'factory' }, SLOOP, COVERED).learnedCells).toBeUndefined();
+        expect(resolve({}).learnedCells).toBeUndefined();
+    });
 });
 
 // ── The edge payload ─────────────────────────────────────────────
@@ -674,7 +772,8 @@ describe('worldwide routes: upwind now tacks; off the wind nothing changes', () 
     it('Caribbean, St Martin → Antigua in an 18 kn ESE trade (rhumb line 18° off the wind): she tacks', async () => {
         const wind = { speed: 18, direction: 112.5 };
         const generic = resolve({});
-        const before = (await sail(DEFAULT_CRUISING_POLAR, ST_MARTIN, ANTIGUA, wind))!;
+        // Before: the same (scaled) generic figures with no no-go zone.
+        const before = (await sail(GENERIC_FOR_SLOOP, ST_MARTIN, ANTIGUA, wind))!;
         const after = (await sail(generic.polar, ST_MARTIN, ANTIGUA, wind))!;
         expect(before).not.toBeNull();
         expect(after).not.toBeNull();
@@ -739,7 +838,7 @@ describe('worldwide routes: upwind now tacks; off the wind nothing changes', () 
     ];
     for (const [name, from, to, wind] of offWind) {
         it(`${name}: the same route and ETA as before (the no-go zone only touches upwind)`, async () => {
-            const before = (await sail(DEFAULT_CRUISING_POLAR, from, to, wind))!;
+            const before = (await sail(GENERIC_FOR_SLOOP, from, to, wind))!;
             const after = (await sail(resolve({}).polar, from, to, wind))!;
             expect(after).not.toBeNull();
             expect(after.totalDurationHours).toBe(before.totalDurationHours);
@@ -748,11 +847,15 @@ describe('worldwide routes: upwind now tacks; off the wind nothing changes', () 
         });
     }
 
-    it('the North Sea beam reach sails at the polar beam speed: ETA ≈ distance ÷ 6.5 kn', async () => {
+    it("the North Sea beam reach sails at the polar's beam speed, scaled to her: ETA ≈ distance ÷ 7.1 kn", async () => {
         const from = { lat: 52.46, lon: 4.55 };
         const to = { lat: 51.95, lon: 1.29 };
-        const r = (await sail(resolve({}).polar, from, to, { speed: 15, direction: 345 }))!;
-        const expected = haversineNm(from.lat, from.lon, to.lat, to.lon) / 6.5;
+        const generic = resolve({});
+        const r = (await sail(generic.polar, from, to, { speed: 15, direction: 345 }))!;
+        // The generic table's 6.5 kn beam reach in 15 kn, × 6.5 / 5.93 for a 6.5-kn cruiser.
+        const beamKts = createPolarSpeedLookup(generic.polar, 15)(90);
+        expect(beamKts).toBeCloseTo((6.5 * 6.5) / polarReferenceKts(DEFAULT_CRUISING_POLAR), 6);
+        const expected = haversineNm(from.lat, from.lon, to.lat, to.lon) / beamKts;
         expect(Math.abs(r.totalDurationHours - expected)).toBeLessThanOrEqual(1.5);
     });
 });

@@ -4551,9 +4551,38 @@ body.animation-diet [class*='slide-in'] {
         )
     );
 }
-/* The closed tab stays beside the chart's middle row. */
+/* The closed tab stays beside the chart's middle row — and clear of what
+   stands on the left of the chart below it (build 125, 125-08). At 320 × 568
+   the middle row put the tab's bottom 4 px over the look-ahead scrubber's Play
+   button; lifted clear of that, it lay further under the layer controls pill,
+   which steps up above the scrubber while looking ahead (and at 375 × 667 it
+   always had). So the tab's top is at most its own height (h-20 = 5rem) + 8px
+   above the highest of them, each held as a height up from the bottom:
+     - the scrubber: its bottom (below) + its measured height, which
+       RouteTimeScrubber writes to --route-scrubber-h on their shared parent;
+     - the layer pill: --thalassa-chart-controls-bottom + 48px (its tallest);
+     - the Anchorages chip that rides on the pill: + 8px + 48px more.
+   Never up among MOB and the layers button (160px + the inset clears both, as
+   for the layer panel); otherwise where it was. An OPEN layer panel can stand
+   taller than the room above it, so the tab only keeps to its left edge
+   (passage-hud-preview-layout.spec.ts measures that its rows still answer). */
 .thalassa-passage-hud-tab {
-    top: calc(50% + 40px);
+    top: max(
+        calc(env(safe-area-inset-top) + 160px),
+        min(
+            calc(50% + 40px),
+            calc(100% - max(var(--passage-hud-tab-scrubber, 0px), var(--passage-hud-tab-controls, 0px)) - 5rem - 8px)
+        )
+    );
+}
+body:has(.thalassa-route-scrubber) .thalassa-passage-hud-tab {
+    --passage-hud-tab-scrubber: calc(4rem + 38px + env(safe-area-inset-bottom) + var(--route-scrubber-h, 0px));
+}
+main:has(.thalassa-chart-controls-pill) .thalassa-passage-hud-tab {
+    --passage-hud-tab-controls: calc(var(--thalassa-chart-controls-bottom) + 48px);
+}
+main:has(.thalassa-anchorage-chip) .thalassa-passage-hud-tab {
+    --passage-hud-tab-controls: calc(var(--thalassa-chart-controls-bottom) + 48px + 8px + 48px);
 }
 /* LOOK AHEAD (phase 2). The scrubber takes the bottom row while the chart's own
    time controls stand down (MapWeatherControls), so there is never a second

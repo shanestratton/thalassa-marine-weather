@@ -137,7 +137,8 @@ import {
     type RouteSea,
 } from '../../services/routeSeaSampler';
 import { convertMetersTo } from '../../utils/units';
-import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
+import { routingSpeedModel } from '../../services/routingPolar';
+import { useRoutingPolar } from '../../hooks/useRoutingPolar';
 import { closeHauledDegFor } from '../../services/sailing/pointOfSail';
 import {
     FORECAST_TTL_MS,
@@ -927,23 +928,17 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
     // The way BACK TO THE LINE is sailed first (`toGoNm` counts it), so LIVE and
     // FCST agree at NOW and a boat abeam of the far end gets an axis, not 0.0.
     const speedPref = usePassageSpeedPref();
-    const polarData = useSettingsStore((st) => st.settings.polarData);
-    const polarBoatModel = useSettingsStore((st) => st.settings.polarBoatModel);
     const isSail = vessel?.type === 'sail';
     const closeHauledDeg = closeHauledDegFor(vessel);
+    // The routers' own polar (build 125, 125-08): her imported, typed-in or
+    // learned figures as given, a database or generic shape scaled to her
+    // cruising speed — so this ETA and the routed one agree. The learned grid
+    // is read after the first paint and only through the resolver, which
+    // blends its empty cells (zeros in the store) from her factory polar.
+    const routing = useRoutingPolar(vessel);
     const speedModel = useMemo<PassageSpeedModel>(
-        () => ({
-            mode: speedPref,
-            cruiseKts,
-            isSail,
-            // The skipper's own table when she has chosen one; else the generic
-            // cruising polar. NEVER the learned "smart" polar: it loads async,
-            // only after the Polars page is opened, and its unfilled cells are
-            // literal zeros that interpolate to half speed.
-            polar: polarData ?? DEFAULT_CRUISING_POLAR,
-            closeHauledDeg,
-        }),
-        [speedPref, cruiseKts, isSail, polarData, closeHauledDeg],
+        () => routingSpeedModel(routing, { mode: speedPref, cruiseKts, isSail, closeHauledDeg }),
+        [routing, speedPref, cruiseKts, isSail, closeHauledDeg],
     );
     const routeIndex = useMemo(() => (following ? buildRouteIndex(routeCoords) : null), [following, routeCoords]);
     const canLookAhead = following && !!start && cruiseKts > 0;
@@ -2018,7 +2013,7 @@ const OpenPane: React.FC<{ open: boolean; onToggle: () => void; recording: Track
                 onClose={() => setModelOpen(false)}
                 cruiseKts={cruiseKts}
                 isSail={isSail}
-                polarName={polarData ? (polarBoatModel ?? 'Your') : null}
+                polar={routing}
             />
         </>
     );

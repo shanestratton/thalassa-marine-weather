@@ -267,6 +267,16 @@ export function useAppBootstrap() {
             .catch((err) => console.error('[Boot] instrument source boot failed:', err?.message || err));
     }, []);
 
+    // ── Smart Polars keep learning after a restart (build 125, 125-08) ──
+    // The Preferences switch started the learner and nothing started it again,
+    // so every launch stopped the learning. This resumes it when the switch is
+    // on (read after this device's settings load); the feed stays the policy's.
+    useEffect(() => {
+        import('../services/smartPolarResume')
+            .then(({ resumeSmartPolarsAtLaunch }) => resumeSmartPolarsAtLaunch())
+            .catch((err) => console.warn('[Boot] Smart Polars did not resume:', err?.message || err));
+    }, []);
+
     // ── Seabed mapping (opt-in, off by default) ─────────────────────
     // The capture module is loaded only when this account switched it on;
     // otherwise boot pays one localStorage read and nothing else.
