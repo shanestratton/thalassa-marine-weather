@@ -135,7 +135,7 @@ export interface UserSettings {
      *  an unclaimed boat publishes from any device, so shipping this cannot
      *  silently take an existing skipper off their own page.
      *  See services/skipperDevice.ts. */
-    skipperDevice?: { deviceId: string; deviceName: string; claimedAt: string } | null;
+    skipperDevice?: { deviceId: string; deviceName: string; claimedAt: string; lastSeenAt?: string } | null;
     /** Who may replace the followed route another device set (services/shiplog/routeAuthority.ts).
      *  DARK — no UI. 'confirm' (default): any device, after a confirm naming the other device.
      *  'skipper': only the device holding the skipper claim, without asking. */

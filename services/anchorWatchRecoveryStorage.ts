@@ -10,6 +10,10 @@ interface AnchorWatchStoragePlugin {
     set(options: { slot: 'device' | 'scoped'; identityKey?: string; value: string }): Promise<void>;
     remove(options: { slot: 'device' | 'scoped'; identityKey?: string }): Promise<void>;
     clearScoped(): Promise<void>;
+    /** The install's device id (services/skipperDevice.ts). Outside the install
+     *  boundary on purpose: it must survive a reinstall. */
+    getDeviceIdentity(): Promise<{ value: string | null }>;
+    setDeviceIdentity(options: { value: string }): Promise<void>;
 }
 
 export interface AnchorWatchRecoveryRead {
@@ -18,6 +22,22 @@ export interface AnchorWatchRecoveryRead {
 }
 
 const NativeAnchorWatchStorage = registerPlugin<AnchorWatchStoragePlugin>('AnchorWatchStorage');
+
+/**
+ * This device's id, kept in the iOS Keychain (this device only, never
+ * synchronised) so a reinstall is still the same device in the boat's
+ * single-publisher claim. It shares this plugin's bridge, NOT its install
+ * fence: the Anchor Watch records are wiped on a fresh install, this is not.
+ * iOS only; callers fall back to localStorage when it fails.
+ */
+export async function readNativeDeviceIdentity(): Promise<string | null> {
+    const { value } = await NativeAnchorWatchStorage.getDeviceIdentity();
+    return typeof value === 'string' ? value : null;
+}
+
+export async function writeNativeDeviceIdentity(value: string): Promise<void> {
+    await NativeAnchorWatchStorage.setDeviceIdentity({ value });
+}
 const SCOPED_LEGACY_PREFIX = `${ANCHOR_WATCH_LEGACY_STATE_KEY}::`;
 const MAX_IDENTITY_BYTES = 256;
 let operationTail: Promise<void> = Promise.resolve();

@@ -16,32 +16,48 @@
  * link in the chain was healthy, which is exactly what made it unfindable.
  *
  * So: while tracking, with live share ON and the claim held elsewhere, the Log
- * page says so and points at the fix.
- *
- * Deliberately NOT a takeover button. Takeover is a considered act with a
- * confirm that names the holder and when it was last seen (VesselHub's skipper
- * card), and the claim already has a documented history of gaining writers it
- * didn't need. This is a signpost, not a fifth door.
+ * page says so — and since build 125 it fixes it in place. Shane 2026-10-09:
+ * "tapping 'Publish from this device' on the Vessel page will fix it - - i
+ * cannot find that message??" The button used to be a signpost to a Vessel
+ * card that said something else (and, with the Pi primary, offered nothing).
+ * It now opens the same deliberate confirm the card uses, naming the holder
+ * and what we know about it (components/vessel/SkipperTakeover.tsx). A holder
+ * forgotten for 6 h is taken over automatically by the trickle; this is for
+ * the one seen recently, where a second device is a real conflict.
  */
-import React from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { claimAgeLabel, holdsClaim } from '../../services/skipperDevice';
+import { useAuthStore } from '../../stores/authStore';
+import { claimSeenPhrase, holdsClaim, type SkipperClaim } from '../../services/skipperDevice';
+import { SKIPPER_TAKEOVER_LABEL, useSkipperTakeover } from '../../components/vessel/SkipperTakeover';
 
 interface SkipperClaimNoticeProps {
     /** Only meaningful while a voyage is recording. */
     isTracking: boolean;
-    /** Take the skipper to the Vessel page, where the takeover card lives. */
-    onOpenVessel: () => void;
 }
 
-export const SkipperClaimNotice: React.FC<SkipperClaimNoticeProps> = ({ isTracking, onOpenVessel }) => {
+export const SkipperClaimNotice: React.FC<SkipperClaimNoticeProps> = ({ isTracking }) => {
     const liveShare = useSettingsStore((s) => s.settings.liveTrackShare);
     const claim = useSettingsStore((s) => s.settings.skipperDevice) ?? null;
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
+    const authenticatedUserId = useAuthStore((s) => s.user?.id ?? null);
+    const apply = useCallback(
+        (next: SkipperClaim) => {
+            void updateSettings({ skipperDevice: next });
+        },
+        [updateSettings],
+    );
+    const takeover = useSkipperTakeover({ claim, authenticatedUserId, apply });
 
     // Nothing to say when the skipper isn't publishing anyway, isn't recording,
     // or already holds the claim. `holdsClaim` mirrors the trickle's own gate —
     // no claim at all means publishing is allowed, so that is silence too.
-    if (!isTracking || !liveShare || !claim?.deviceId || holdsClaim(claim)) return null;
+    const visible = isTracking && !!liveShare && !!claim?.deviceId && !holdsClaim(claim);
+    const { cancel } = takeover;
+    useEffect(() => {
+        if (!visible) cancel();
+    }, [cancel, visible]);
+    if (!visible || !claim) return null;
 
     const holder = claim.deviceName?.trim() || 'Another device';
 
@@ -56,23 +72,26 @@ export const SkipperClaimNotice: React.FC<SkipperClaimNoticeProps> = ({ isTracki
                         <div className="text-[11px] font-black uppercase tracking-widest text-amber-300">
                             Recording, not publishing
                         </div>
-                        <p className="mt-1 text-[12px] leading-snug text-gray-300">
-                            Live share is on, but <span className="font-bold text-white">{holder}</span> holds the
-                            skipper claim
-                            {claim.claimedAt ? ` (active ${claimAgeLabel(claim)})` : ''}. This passage is being logged
-                            safely — it just isn&apos;t reaching your public page.
+                        <p
+                            data-testid="skipper-claim-notice-text"
+                            className="mt-1 text-[12px] leading-snug text-gray-300"
+                        >
+                            Live share is on, but <span className="font-bold text-white">{holder}</span> holds your
+                            public page ({claimSeenPhrase(claim)}). This passage is being logged safely — it just
+                            isn&apos;t being published from here.
                         </p>
                     </div>
                 </div>
                 <button
                     type="button"
-                    onClick={onOpenVessel}
-                    aria-label="Open the Vessel page to take over skipper publishing"
-                    className="mt-2.5 h-11 w-full rounded-xl bg-amber-500/20 px-3 text-xs font-black uppercase tracking-[0.06em] text-amber-200 transition-colors active:brightness-110"
+                    onClick={() => takeover.ask()}
+                    disabled={!takeover.canTakeOver}
+                    className="mt-2.5 h-11 w-full rounded-xl bg-amber-500/20 px-3 text-xs font-black uppercase tracking-[0.06em] text-amber-200 transition-colors active:brightness-110 disabled:opacity-50"
                 >
-                    Publish from this device
+                    {SKIPPER_TAKEOVER_LABEL}
                 </button>
             </div>
+            {takeover.dialog}
         </div>
     );
 };
