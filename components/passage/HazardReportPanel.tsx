@@ -38,7 +38,9 @@ const KIND_HEADLINES: Record<string, string> = {
     'draft-clamp': 'Draft exceeds depth model',
     'draft-assumed': 'Using a default draft',
     'draft-implausible': 'Draft looks mis-scaled',
-    'caution-crossing': 'Route crosses a prohibited area',
+    // A caution only for entry prohibited/restricted or an area to be avoided
+    // (RESTRN 7, 8, 14): not all of them prohibit, all of them restrict.
+    'caution-crossing': 'Route crosses a restricted area',
     'tide-constrained': 'Tide-constrained leg',
     // Only ever the HEADLINE when the gebco-share advisory is CAUTION-grade
     // (chart cells FAILED to load, or ≥30% of checks fell to the ~1.8 km
