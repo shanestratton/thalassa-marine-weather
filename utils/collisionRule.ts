@@ -230,7 +230,7 @@ export function gradeCollisionRisk(
     tcpaMin: number,
     ownSogKn: number,
     targetSogKn: number,
-    targetNavStatus?: number,
+    targetNavStatus?: number | null,
     prefs: CollisionPrefs = DEFAULT_COLLISION_PREFS,
     pair?: CollisionPairName | null,
 ): CollisionGrade {
@@ -277,7 +277,8 @@ export interface CollisionVessel {
 
 /** A target, as reported. Raw AIS values are fine: 102.3 / 360 are read as unknown here. */
 export interface CollisionTarget extends CollisionVessel {
-    navStatus?: number;
+    /** ITU nav status; null or absent when none was reported. */
+    navStatus?: number | null;
     /** Seconds since the report this position came from. */
     reportAgeSec?: number | null;
     /** Where the target came from: 'local' (her own receiver), 'cloud' (network AIS), … */

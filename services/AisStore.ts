@@ -44,7 +44,7 @@ interface AisGeoJSONFeature {
         sog: number;
         cog: number;
         heading: number;
-        navStatus: number;
+        navStatus: number | null;
         shipType: number;
         callSign: string;
         destination: string;
@@ -153,7 +153,8 @@ class AisStoreClass {
             // New target — apply defaults. Course and speed a static message
             // did not carry are 'not available' (ITU 360 / 102.3), never 0: a
             // 0 is a stopped boat pointing north, and the collision rule would
-            // read it as one (build 125, 125-01).
+            // read it as one (build 125, 125-01). A status nobody reported is
+            // null, never 15: on a 97x MMSI, 15 is a beacon's TEST (125-10b).
             if (this.targets.size >= MAX_TARGETS) {
                 this.evictOldest();
             }
@@ -165,7 +166,7 @@ class AisStoreClass {
                 cog: partial.cog ?? AIS_COG_NOT_AVAILABLE,
                 sog: partial.sog ?? AIS_SOG_NOT_AVAILABLE,
                 heading: partial.heading ?? AIS_HEADING_NOT_AVAILABLE,
-                navStatus: partial.navStatus ?? 15,
+                navStatus: partial.navStatus ?? null,
                 shipType: partial.shipType ?? 0,
                 callSign: partial.callSign ?? '',
                 destination: partial.destination ?? '',
@@ -239,7 +240,7 @@ class AisStoreClass {
     }
 
     /** A beacon (a 97x MMSI, status 14, or a beacon's own text) is never swept or evicted (125-02). */
-    private isBeacon(mmsi: number, navStatus?: number): boolean {
+    private isBeacon(mmsi: number, navStatus?: number | null): boolean {
         if (aisTargetIsDistressBeacon(mmsi, navStatus)) return true;
         return distressTextSignal(this.safety.get(mmsi)?.text, mmsi) !== null;
     }
@@ -321,9 +322,9 @@ class AisStoreClass {
  *   7 = Engaged in fishing → cyan
  *   8 = Under way sailing → green
  *   14 = AIS-SART / MOB / EPIRB active → distress red (125-02)
- *   15 = Not defined / Class B → sky blue
+ *   15 = Not defined / Class B → sky blue (and null: no status reported)
  */
-function navStatusColor(status: number): string {
+function navStatusColor(status: number | null): string {
     switch (status) {
         case 0:
             return '#22c55e'; // Under way (engine) — green
@@ -346,7 +347,8 @@ function navStatusColor(status: number): string {
         case 14:
             return '#ff1a1a'; // AIS-SART / MOB / EPIRB active — distress red
         case 15:
-            return '#38bdf8'; // Not defined / Class B — sky blue
+        case null:
+            return '#38bdf8'; // Not defined / Class B / none reported — sky blue
         default:
             return '#94a3b8'; // Unknown — grey
     }
