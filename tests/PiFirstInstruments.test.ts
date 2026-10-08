@@ -208,8 +208,9 @@ describe('PiTelemetryService: the boat off the Pi, over the LAN', () => {
         expect(ais.update).toHaveBeenCalledWith(
             expect.objectContaining({ mmsi: 503000111, navStatus: 8, callSign: 'VJN1234' }),
         );
+        // A status the Pi did not send stays unknown (125-10b): 15 on a 97x is a beacon's TEST.
         expect(ais.update).toHaveBeenCalledWith(
-            expect.objectContaining({ mmsi: 503000222, heading: 511, navStatus: 15, shipType: 0 }),
+            expect.objectContaining({ mmsi: 503000222, heading: 511, navStatus: null, shipType: 0 }),
         );
         expect(PiTelemetryService.isPresent()).toBe(true);
         expect(PiTelemetryService.isLive()).toBe(true);
