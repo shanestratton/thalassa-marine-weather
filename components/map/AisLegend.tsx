@@ -8,7 +8,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AisGuardZone, type GuardZoneState } from '../../services/AisGuardZone';
 import { triggerHaptic } from '../../utils/system';
+import { lazyRetry } from '../../utils/lazyRetry';
 import { AIS_LEGEND_ITEMS } from './aisPresentationPalette';
+
+/** The anchor's real sound check, in its collision wording (loaded only when arming). */
+const SoundCheckModal = lazyRetry(
+    () => import('../anchor-watch/SoundCheckModal').then((m) => ({ default: m.SoundCheckModal })),
+    'SoundCheckModal',
+);
 
 const RADIUS_OPTIONS = [0.5, 1, 2, 5, 10];
 
@@ -21,12 +28,17 @@ interface AisLegendProps {
 export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false }) => {
     const [guardState, setGuardState] = useState<GuardZoneState>(AisGuardZone.getState());
     const [showRadiusPicker, setShowRadiusPicker] = useState(false);
+    const [soundCheck, setSoundCheck] = useState(false);
 
     useEffect(() => AisGuardZone.subscribe(setGuardState), []);
 
+    // The shield arms the collision watch too (build 125, 125-01), so arming
+    // runs the real sound check first: the alarm it arms must be heard.
+    // Disarming stays one tap.
     const toggleGuard = useCallback(() => {
         triggerHaptic('medium');
-        AisGuardZone.setEnabled(!guardState.enabled);
+        if (guardState.enabled) AisGuardZone.setEnabled(false);
+        else setSoundCheck(true);
     }, [guardState.enabled]);
 
     const selectRadius = useCallback((r: number) => {
@@ -169,6 +181,19 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible, embedded = false 
                     Boat: moving with known direction · Dot: stationary or direction unknown
                 </span>
             </div>
+
+            {soundCheck && (
+                <React.Suspense fallback={null}>
+                    <SoundCheckModal
+                        purpose="collision"
+                        onConfirm={() => {
+                            setSoundCheck(false);
+                            AisGuardZone.armAfterSoundCheck();
+                        }}
+                        onCancel={() => setSoundCheck(false)}
+                    />
+                </React.Suspense>
+            )}
 
             {/* Radius picker popover */}
             {showRadiusPicker && (

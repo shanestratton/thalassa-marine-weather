@@ -235,6 +235,20 @@ export interface UserSettings {
      */
     obsEncOnOpen?: boolean;
     /**
+     * Settings → Preferences → Collision alarm (build 125, 125-01): the CPA /
+     * TCPA pair the collision alarm and the chart's CPA chip use, offshore and
+     * inshore (inshore applies under 3 kn of our own speed). Unset or
+     * unreadable parts fall back to the recommended 0.5 NM / 15 min offshore
+     * and 0.2 NM / 6 min inshore; values are clamped on read
+     * (utils/collisionRule.ts sanitiseCollisionPrefs). Close quarters
+     * (0.1 NM / 3 min) is fixed and always sounds. The watch itself is armed
+     * with the shield in the chart's AIS key.
+     */
+    collisionAlarm?: {
+        offshore?: { cpaNm?: number; tcpaMin?: number };
+        inshore?: { cpaNm?: number; tcpaMin?: number };
+    };
+    /**
      * Settings → Preferences → Routing: "Auto route (trial)" (2026-10-01).
      * Auto routing and Plan Your Day run Thalassa's own router only while
      * this is on (services/autorouteTrialSwitch.ts). Off by default: Pro is

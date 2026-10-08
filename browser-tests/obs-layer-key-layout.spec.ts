@@ -58,6 +58,15 @@ for (const width of [320, 390]) {
             const guard = page.getByRole('button', { name: 'Enable AIS guard zone' });
             await touchTarget(guard);
             await guard.click();
+            // Build 125 (125-01): the shield arms the collision alarm too, so it
+            // arms only through the real sound check (play, stop, confirm heard).
+            const check = page.getByRole('dialog', { name: 'Sound check' });
+            await expect(check).toBeVisible();
+            await check.getByRole('button', { name: 'Play test alarm' }).click();
+            await check.getByRole('button', { name: 'Stop test alarm' }).click();
+            await check.getByRole('button', { name: 'Confirm alarm was audible' }).click();
+            await check.getByRole('button', { name: 'Confirm selection' }).click();
+            await expect(check).toHaveCount(0);
             await expect(page.getByRole('button', { name: 'Disable AIS guard zone' })).toHaveAttribute(
                 'aria-pressed',
                 'true',

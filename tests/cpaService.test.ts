@@ -148,8 +148,19 @@ describe('computeCpa', () => {
     });
 
     describe('harbour manoeuvring (slow speed)', () => {
-        it('returns SAFE at very low combined speed', () => {
+        // Changed deliberately in build 125 (125-01, Shane's recommended
+        // defaults): under 3 kn the INSHORE pair applies, 0.2 NM / 6 min. Two
+        // boats at 1 kn each meeting head-on from 0.18 NM (TCPA 5.4 min, CPA
+        // 0) used to grade SAFE on the old 'low combined speed' rule, which
+        // could never reach DANGER at all. It is DANGER now.
+        it('grades a head-on meeting inside the inshore pair DANGER, even at 1 kn each', () => {
             const result = computeCpa(OWN.lat, OWN.lon, 0, 1, OWN.lat + 0.003, OWN.lon, 180, 1);
+            expect(result).not.toBeNull();
+            expect(result!.risk).toBe('DANGER');
+        });
+
+        it('still grades the same meeting from 0.5 NM out (TCPA ~15 min) below DANGER', () => {
+            const result = computeCpa(OWN.lat, OWN.lon, 0, 1, OWN.lat + 0.0083, OWN.lon, 180, 1);
             expect(result).not.toBeNull();
             expect(['SAFE', 'CAUTION']).toContain(result!.risk);
         });

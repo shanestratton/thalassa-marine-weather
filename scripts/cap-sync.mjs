@@ -74,4 +74,16 @@ if (sync.error) {
     process.exit(1);
 }
 
+// The debug AIS injector (125-01) must never reach an archive: an Xcode
+// archive ships whatever web build was synced last, without rebuilding it.
+if (sync.status === 0) {
+    const { filesCarryingDebugAisInjector } = await import('./debug-ais-injector-fence.mjs');
+    if ((await filesCarryingDebugAisInjector('ios/App/App/public')).length > 0) {
+        console.warn(
+            '\n*** The debug AIS injector smoke build is now in ios/App/App/public. Do NOT archive or upload it: ' +
+                'rebuild without THALASSA_DEBUG_AIS_INJECTOR and sync again first. ***\n',
+        );
+    }
+}
+
 process.exit(sync.status ?? 1);

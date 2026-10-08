@@ -162,6 +162,14 @@ function decodeClassBStatic(bits: Uint8Array): Partial<AisTarget> | null {
 // ── Public API ──
 
 /**
+ * True for !xxVDO: the boat's OWN transponder reporting her own position or
+ * details (any talker). Never a target (build 125, 125-01).
+ */
+export function isOwnShipAisSentence(sentence: string): boolean {
+    return /^!(?:[A-Z]{2})VDO,/.test(sentence);
+}
+
+/**
  * Process a single AIS NMEA sentence (!AIVDM or !AIVDO).
  * Returns a partial AisTarget on successful decode, or null.
  *

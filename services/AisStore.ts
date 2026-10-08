@@ -8,6 +8,7 @@
  */
 import type { AisTarget } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
+import { AIS_COG_NOT_AVAILABLE, AIS_HEADING_NOT_AVAILABLE, AIS_SOG_NOT_AVAILABLE } from '../utils/collisionRule';
 
 const log = createLogger('AIS');
 
@@ -47,6 +48,10 @@ class AisStoreClass {
     private listeners = new Set<AisStoreListener>();
     private sweepTimer: ReturnType<typeof setInterval> | null = null;
     private running = false;
+    /** When AIS was last heard: the newest report of ANY message, own ship and static ones included (125-01). */
+    private lastHeardAt = 0;
+    /** Our own MMSI, learned from the boat's own transponder (!AIVDO). */
+    private ownMmsi: number | null = null;
 
     // ── Public API ──
 
@@ -64,20 +69,49 @@ class AisStoreClass {
             this.sweepTimer = null;
         }
         this.targets.clear();
+        this.lastHeardAt = 0;
         this.notify();
         log.info('AIS store stopped');
+    }
+
+    /**
+     * One decoded message off the boat's data feed (build 125, 125-01).
+     * `ownShip` means it came as !AIVDO: our own transponder reporting us.
+     * That teaches the store our MMSI, so the guard ring and the collision
+     * alarm never grade our own echo as a vessel at our own position, even
+     * when no MMSI was typed into Settings → Vessel. It still updates the
+     * store as before.
+     */
+    ingest(partial: Partial<AisTarget>, ownShip: boolean): void {
+        if (ownShip && partial.mmsi) this.ownMmsi = partial.mmsi;
+        this.update(partial);
+    }
+
+    /** Our own MMSI as our transponder reports it, or null (no !AIVDO heard). */
+    getOwnMmsi(): number | null {
+        return this.ownMmsi;
+    }
+
+    /** Epoch ms of the newest AIS report heard by any lane, swept targets included (0 = none). */
+    getLastHeardAt(): number {
+        return this.lastHeardAt;
     }
 
     /** Merge-upsert a partial AIS target (from decoder) */
     update(partial: Partial<AisTarget>): void {
         if (!partial.mmsi) return;
+        const heardAt = Math.min(Date.now(), partial.lastUpdated ?? Date.now());
+        if (Number.isFinite(heardAt) && heardAt > this.lastHeardAt) this.lastHeardAt = heardAt;
 
         const existing = this.targets.get(partial.mmsi);
         if (existing) {
             // Merge: position reports update kinematics, static reports update metadata
             Object.assign(existing, partial);
         } else {
-            // New target — apply defaults
+            // New target — apply defaults. Course and speed a static message
+            // did not carry are 'not available' (ITU 360 / 102.3), never 0: a
+            // 0 is a stopped boat pointing north, and the collision rule would
+            // read it as one (build 125, 125-01).
             if (this.targets.size >= MAX_TARGETS) {
                 this.evictOldest();
             }
@@ -86,9 +120,9 @@ class AisStoreClass {
                 name: partial.name ?? '',
                 lat: partial.lat ?? 0,
                 lon: partial.lon ?? 0,
-                cog: partial.cog ?? 0,
-                sog: partial.sog ?? 0,
-                heading: partial.heading ?? 511,
+                cog: partial.cog ?? AIS_COG_NOT_AVAILABLE,
+                sog: partial.sog ?? AIS_SOG_NOT_AVAILABLE,
+                heading: partial.heading ?? AIS_HEADING_NOT_AVAILABLE,
                 navStatus: partial.navStatus ?? 15,
                 shipType: partial.shipType ?? 0,
                 callSign: partial.callSign ?? '',
