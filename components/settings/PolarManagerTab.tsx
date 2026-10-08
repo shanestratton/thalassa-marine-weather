@@ -131,7 +131,9 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({
     const loadSmartPolarData = useCallback(async () => {
         const requestId = ++smartLoadRequestRef.current;
         try {
-            await SmartPolarStore.initialize();
+            // The live grid, never initialize(): this refreshes every 15 s, and a
+            // reload from disk would drop the learner's samples not yet saved.
+            await SmartPolarStore.ensureLoaded();
             if (!mountedRef.current || requestId !== smartLoadRequestRef.current) return;
             setSmartPolarData(SmartPolarStore.exportToPolarData());
             setSmartStats(SmartPolarStore.getStats());

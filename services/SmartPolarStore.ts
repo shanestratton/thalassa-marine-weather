@@ -30,6 +30,30 @@ class SmartPolarStoreClass {
     private dirty = false;
     private saveTimer: ReturnType<typeof setTimeout> | null = null;
     private loading: Promise<void> | null = null;
+    private listeners = new Set<() => void>();
+
+    /**
+     * Told when the grid is loaded, saved (at most every 5 s while she learns)
+     * or reset — the moments a screen sailing on the learned polar (the HUD,
+     * Plan Your Day, via hooks/useRoutingPolar) should take a fresh snapshot.
+     * Not per sample: a sample is a few seconds of sailing.
+     */
+    subscribe(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+
+    private notify(): void {
+        for (const listener of [...this.listeners]) {
+            try {
+                listener();
+            } catch {
+                /* a listener's failure is its own */
+            }
+        }
+    }
 
     /** Initialize — load existing data from disk */
     async initialize(): Promise<void> {
@@ -39,6 +63,7 @@ class SmartPolarStoreClass {
         } else {
             this.grid = this.createEmptyGrid();
         }
+        this.notify();
     }
 
     /**
@@ -162,6 +187,9 @@ class SmartPolarStoreClass {
 
     /** Reset all smart polar data */
     async reset(): Promise<void> {
+        // A save still waiting would only write the reset grid again.
+        if (this.saveTimer) clearTimeout(this.saveTimer);
+        this.saveTimer = null;
         this.grid = this.createEmptyGrid();
         this.dirty = true;
         await this.save();
@@ -231,6 +259,8 @@ class SmartPolarStoreClass {
     private async save(): Promise<void> {
         if (!this.grid) return;
         this.dirty = false;
+        // The grid in memory is what changed; tell listeners whether or not the disk write lands.
+        this.notify();
         await saveLargeData(STORAGE_KEY, this.grid);
     }
 }

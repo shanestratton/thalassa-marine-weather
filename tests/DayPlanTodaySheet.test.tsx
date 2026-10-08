@@ -350,6 +350,43 @@ describe('Screen 2: a stop, and Plot on chart', () => {
         expect(heard).toHaveLength(1);
     });
 
+    it('her imported polar is sailed as the routers sail it, and the detail says the times are from its own figures (125-08)', async () => {
+        // A fictional Expedition-style export (first row 38°), chosen as her polar.
+        useSettingsStore.setState({
+            settings: {
+                ...useSettingsStore.getState().settings,
+                polarSource: 'factory',
+                polarSource_type: 'file_import',
+                polarBoatModel: 'Fair Wind 2025.pol',
+                polarData: {
+                    windSpeeds: [6, 8, 10, 12, 16, 20, 25],
+                    angles: [38, 45, 52, 60, 75, 90, 110, 120, 135, 150, 165, 180],
+                    matrix: [
+                        [3.6, 4.4, 5.0, 5.4, 5.8, 6.0, 6.0],
+                        [4.2, 5.0, 5.6, 6.0, 6.4, 6.6, 6.6],
+                        [4.6, 5.4, 6.0, 6.4, 6.8, 7.0, 7.0],
+                        [4.9, 5.8, 6.4, 6.8, 7.2, 7.4, 7.4],
+                        [5.2, 6.1, 6.8, 7.2, 7.6, 7.9, 8.0],
+                        [5.3, 6.3, 7.0, 7.4, 7.9, 8.3, 8.5],
+                        [5.2, 6.3, 7.0, 7.5, 8.0, 8.6, 9.0],
+                        [5.0, 6.1, 6.9, 7.4, 8.0, 8.7, 9.3],
+                        [4.5, 5.6, 6.5, 7.1, 7.8, 8.6, 9.4],
+                        [3.8, 4.9, 5.8, 6.5, 7.3, 8.1, 9.0],
+                        [3.3, 4.3, 5.2, 5.9, 6.8, 7.6, 8.4],
+                        [3.0, 4.0, 4.8, 5.5, 6.4, 7.2, 8.0],
+                    ],
+                },
+            },
+        });
+        const { dialog } = open();
+        const [first] = await stopRows(dialog);
+        fireEvent.click(first);
+        const detail = await screen.findByRole('dialog', {
+            name: new RegExp(`^${first.querySelector('.today-stop-name')!.textContent}`),
+        });
+        expect(within(detail).getByText(/^Times from your polar's own figures in .+ wind\. No current\./)).toBeTruthy();
+    });
+
     it("a reviewed stop keeps its own Parks notes, one per line under the stay: Cid Harbour's sharks", async () => {
         const { dialog } = open();
         const rows = await stopRows(dialog);

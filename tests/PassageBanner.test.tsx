@@ -243,11 +243,32 @@ describe('PassageBanner', () => {
             rerender(
                 <PassageBanner
                     {...baseProps}
-                    passage={{ ...baseProps.passage, routingPolarLabel: 'Learned (blended)' }}
+                    passage={{
+                        ...baseProps.passage,
+                        routingPolarLabel: 'Learned (10 of 42 cells), the rest from Generic cruising polar',
+                    }}
                     isoProgress={null}
                 />,
             );
-            expect(screen.getByTestId('passage-routing-polar')).toHaveTextContent('Polar: Learned (blended)');
+            expect(screen.getByTestId('passage-routing-polar')).toHaveTextContent(
+                'Polar: Learned (10 of 42 cells), the rest from Generic cruising polar',
+            );
+        });
+
+        it('a Smart polar still filling says it is learning, and what she sails on meanwhile (125-08)', () => {
+            render(
+                <PassageBanner
+                    {...baseProps}
+                    passage={{
+                        ...baseProps.passage,
+                        routingPolarLabel: 'Learning (7 of 42 cells), sailing on Generic cruising polar',
+                    }}
+                    isoProgress={null}
+                />,
+            );
+            expect(screen.getByTestId('passage-routing-polar')).toHaveTextContent(
+                'Polar: Learning (7 of 42 cells), sailing on Generic cruising polar',
+            );
         });
 
         it('a long file name with no spaces wraps inside the card instead of being clipped', () => {
