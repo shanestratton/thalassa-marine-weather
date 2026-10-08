@@ -13,6 +13,7 @@ import {
     type TraceFollowStatus,
 } from './traceVerification';
 import { getTraceCheckOutcome } from './traceCheckOutcomes';
+import { plannedRouteDryFinding } from './routing/dryRunWords';
 import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
 
@@ -59,12 +60,19 @@ export function tracedRouteFollowGeometry<T extends Pick<RouteOrTrack, 'savedRou
  * `acceptFinding` (the deliberate second tap, or the act of casting off).
  */
 export function tracedRouteDirectUseStatus(
-    route: Pick<RouteOrTrack, 'savedRouteId' | 'points'>,
+    route: Pick<RouteOrTrack, 'savedRouteId' | 'points' | 'caveats'>,
     opts: { acceptFinding?: boolean; nowMs?: number } = {},
 ): TraceDirectUseStatus {
     const routeId = route.savedRouteId?.trim();
-    // An ordinary planner route: no trace, no check to have.
-    if (!routeId) return { tone: 'checked', code: 'ok', reason: null, blocked: false };
+    // An ordinary planner route: no trace, no check to have — unless the
+    // router drew it red where no tide clears it (package 125-05): then that
+    // is its finding, and following it takes the second tap.
+    if (!routeId) {
+        const dry = plannedRouteDryFinding(route.caveats);
+        return dry
+            ? { ...dry, blocked: opts.acceptFinding !== true }
+            : { tone: 'checked', code: 'ok', reason: null, blocked: false };
+    }
 
     const saved = loadSavedTraces().find((trace) => trace.id === routeId);
     if (!saved) {

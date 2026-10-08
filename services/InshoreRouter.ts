@@ -48,6 +48,7 @@ import type {
     CautionNearShallow,
     ChartedShallowSpan,
     DepthBend,
+    DryRun,
     NavGrid,
     PinOffWater,
     PinTail,
@@ -58,6 +59,7 @@ import type {
 } from './engine/types';
 import {
     classifyNoTideRuns,
+    collectDryRuns,
     NO_TIDE_CLIP_TOLERANCE_M,
     routeCrossesUncheckedShallow,
     tideCeilingLookup,
@@ -192,6 +194,7 @@ export function seawayPromotionBlockReason(result: {
     debug?: { threeTier?: string };
     shallowRuns?: readonly ShallowRunInfo[];
     pinOffWater?: { origin?: string; destination?: string };
+    dryRuns?: readonly DryRun[];
 }): string | null {
     const provenance = result.debug?.threeTier ?? '';
     if (result.canalMask?.some(Boolean)) return 'tier-1 canal/marina mask present';
@@ -205,6 +208,10 @@ export function seawayPromotionBlockReason(result: {
     if (result.shallowRuns?.some((r) => r.endpointTail)) return 'engine route ends in a charted needs-tide tail';
     if (result.pinOffWater?.origin || result.pinOffWater?.destination)
         return 'engine route reports a pin off the water';
+    // Package 125-05: the engine route crosses dry water — red, each stretch
+    // named — where there is no deeper way round; a graph route drawn by its
+    // own connectors would carry none of that.
+    if (result.dryRuns?.length) return 'engine route crosses dry water (red, named)';
     return null;
 }
 
@@ -419,6 +426,16 @@ export function seawayGraphSafetyFault(
         const across = [...sorted.crossings, ...sorted.splices];
         if (across.length > 0)
             return `crosses ${Math.round(across.reduce((m, c) => m + c.run.lengthM, 0))} m of water no tide clears`;
+        // Nor across DRY water (package 125-05 review fix-up, 2026-10-09):
+        // drying ground no known tide lifts to the need — with no tide data,
+        // any drying ground — which the engine names, red (collectDryRuns).
+        // An engine route that names any is never replaced
+        // (seawayPromotionBlockReason), so it crosses none: a graph route
+        // that does would ship it unnamed and follow on one tap. The draft is
+        // only words on a stretch, not read here.
+        const dry = collectDryRuns(layers, polyline, lookup, noTide.needM, noTide.needM);
+        if (dry.length > 0)
+            return `crosses dry water (${dry.map((d) => d.place).join('; ')}) the engine route goes round`;
     }
     const graph = auditUnvouchedHardLand(layers, polyline);
     const engineTotalM = engine.debug?.hardLandTotalM ?? auditUnvouchedHardLand(layers, engine.polyline).totalM;
@@ -548,6 +565,10 @@ export interface InshoreRouteResult {
     /** The route's turn off the straight line for deeper water (engine
      *  RouteResult.depthBend; Port of Airlie, 2026-10-04): the route notes say why. */
     depthBend?: DepthBend;
+    /** The stretches over water no tide clears the route crosses, red, where
+     *  there is no deeper way round (engine RouteResult.dryRuns; package
+     *  125-05): the route notes name each one. */
+    dryRuns?: DryRun[];
     /**
      * Owner decision 11 (2026-10-01): 'not-loaded' when the route crosses
      * water a tide must clear (a band charted no deeper than draft + UKC) in
@@ -2280,6 +2301,7 @@ async function tryInshoreRouteInner(
                         debug: (result as { debug?: { threeTier?: string } }).debug,
                         shallowRuns: (result as { shallowRuns?: ShallowRunInfo[] }).shallowRuns,
                         pinOffWater: (result as { pinOffWater?: InshoreRouteResult['pinOffWater'] }).pinOffWater,
+                        dryRuns: (result as { dryRuns?: DryRun[] }).dryRuns,
                     });
                     const promotable =
                         promotionBlockReason === null &&
@@ -2418,6 +2440,9 @@ async function tryInshoreRouteInner(
         ...((result as { depthBend?: DepthBend }).depthBend
             ? { depthBend: (result as { depthBend?: DepthBend }).depthBend }
             : {}),
+        ...((result as { dryRuns?: DryRun[] }).dryRuns?.length
+            ? { dryRuns: (result as { dryRuns?: DryRun[] }).dryRuns }
+            : {}),
         ...(structuresUnknownOn(result.polyline).length > 0
             ? { structuresUnknownCells: structuresUnknownOn(result.polyline) }
             : {}),
@@ -2478,6 +2503,8 @@ export function inshoreRouteToGeoJSON(
             ...(result.pinOffWater ? { pinOffWater: result.pinOffWater } : {}),
             // …and a shallow pin whose tail is not direct (Shane, 2026-10-03).
             ...(result.pinTail ? { pinTail: result.pinTail } : {}),
+            // …and the dry stretches it crosses, red (125-05).
+            ...(result.dryRuns?.length ? { dryRuns: result.dryRuns } : {}),
             // …and its survey stretches (owner decision 9, 2026-09-30).
             ...(result.surveyRuns?.length ? { surveyRuns: result.surveyRuns } : {}),
             ...(result.surveyUncheckedCells?.length ? { surveyUncheckedCells: result.surveyUncheckedCells } : {}),
