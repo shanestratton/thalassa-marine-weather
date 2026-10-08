@@ -19,6 +19,7 @@ import {
     tripIdentityByTraceId,
     type TraceTripIdentity,
 } from '../../services/traceDirectUseGate';
+import { plannedRouteDryFinding } from '../../services/routing/dryRunWords';
 import type { TraceFollowStatus } from '../../services/traceVerification';
 import {
     groupTracesByTrip,
@@ -126,18 +127,39 @@ export function derivePlannedRouteLinkIds(entries: readonly ShipLogEntry[]): Map
 }
 
 /**
+ * voyageId → the follow row's reason, for every resident planned route whose
+ * saved notes say the router drew it red where no tide clears it (package
+ * 125-05; services/routing/dryRunWords plannedRouteDryFinding). Read off the
+ * plan's own entries — the notes carry the route's caveats — so the row is red
+ * before it is tapped; a plan not resident yet is refused at the pick instead,
+ * and its row turns red then.
+ */
+export function plannedRouteDryReasons(entries: readonly ShipLogEntry[]): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const entry of entries) {
+        if (!entry.voyageId || entry.source !== 'planned_route' || out.has(entry.voyageId)) continue;
+        const finding = plannedRouteDryFinding(entry.notes);
+        if (finding?.reason) out.set(entry.voyageId, finding.reason);
+    }
+    return out;
+}
+
+/**
  * EVERY planned route reaches the sheet, each carrying its follow status
  * (build 124: green / amber followable / red two-tap).
  *
  * Two link sources, because entries may not be resident on a fresh boot:
  * the entry rows when loaded, else the local trace store's own
- * plannedRouteId mirror. An ordinary plan (no trace link) has no gate to
- * fail and is always pickable.
+ * plannedRouteId mirror. An ordinary plan (no trace link) has no check to
+ * fail and is pickable on the first tap — unless the router drew it red where
+ * no tide clears it (`dryReasons`, package 125-05): then it is a red finding,
+ * two taps, like any other.
  */
 export function buildFollowSheetChoices(
     plannedChoices: readonly CollapsedRoute<VoyageSummary>[],
     plannedRouteLinkIds: ReadonlyMap<string, string>,
     deps: FollowSheetDeps = liveDeps,
+    dryReasons: ReadonlyMap<string, string> = new Map(),
 ): FollowSheetChoice[] {
     const traceLinks = deps.traceLinkByVoyageId();
     /* The sheet's rows are VoyageSummary, which carries no trip or leg
@@ -150,10 +172,15 @@ export function buildFollowSheetChoices(
         const vid = choice.summary.voyageId;
         const sid = plannedRouteLinkIds.get(vid) ?? traceLinks.get(vid);
         const trip = sid ? trips.get(sid) : undefined;
+        const dry = dryReasons.get(vid);
         return {
             ...choice,
             savedRouteId: sid ?? null,
-            followStatus: sid ? deps.followStatus(sid) : null,
+            followStatus: sid
+                ? deps.followStatus(sid)
+                : dry
+                  ? { tone: 'finding' as const, code: 'finding' as const, reason: dry }
+                  : null,
             ...(trip ?? {}),
         };
     });

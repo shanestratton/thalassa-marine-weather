@@ -9,7 +9,10 @@
  * goes round Fisherman Islands in the shipping channel, not through the Boat
  * Passage that dries 2.2 m — and where there is no way round it draws no
  * route and says plainly why, naming the spot, its charted depth, the highest
- * tide and what the boat needs.
+ * tide and what the boat needs. SUPERSEDED in that last part by package
+ * 125-05 (Shane, 2026-10-08: "better we just have red at the "dry" zones,
+ * rather than just shit caning the whole route"): with no way round the
+ * route goes through, red, and names each such stretch (collectDryRuns).
  *
  * PROOF, NOT SUSPICION. Water is unclearable only when even the DEEPEST value
  * the chart gives it — the owning depth band's DRVAL2 (the same owners as
@@ -50,7 +53,7 @@
  * PURE: no I/O.
  */
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
-import type { InshoreLayers, TideBarrier, TideCeiling } from './types.js';
+import type { DryRun, InshoreLayers, TideBarrier, TideCeiling } from './types.js';
 import { M_PER_DEG_LAT } from './constants.js';
 import { douglasPeucker, geometryBbox, haversineM, mPerDegLon, pointInGeometry } from './geometry.js';
 import { MinHeap } from './aStar.js';
@@ -602,6 +605,123 @@ export function classifyNoTideRuns(
         else out.splices.push({ run: asOne, spots, fromM: entryM, toM: exitM, points: way });
     }
     return out;
+}
+
+/**
+ * The DRY stretches of a finished route (package 125-05; RouteResult.dryRuns,
+ * see DryRun): sampled every `stepM` against the chart itself — the finest
+ * survey's owning bands (chartedDepthRangeAt) — never on hard land, never
+ * inside a current Notice-to-Mariners survey zone (its depth is a fresh least
+ * depth, not a band's). A sample is dry when the chart has it DRYING
+ * (DRVAL1 < 0) and no tide known there lifts even that to `needM` — with no
+ * tide known, any drying ground: red 'no tide data' — or when decision 11's
+ * own proof holds there (its DEEPEST charted value plus the highest tide is
+ * short of the need: noTideClearsAt). Never-drying water a tide may clear (a
+ * 0–2 m canal band at a 2.5 m top) is not dry: decision 10 already draws it
+ * by its shallowest end, and naming every such stretch would cry wolf on
+ * every canal exit. Samples closer than STRETCH_JOIN_M are one stretch. In
+ * route order.
+ */
+export function collectDryRuns(
+    layers: InshoreLayers,
+    polyline: readonly (readonly [number, number])[],
+    ceilings: CeilingLookup,
+    draftM: number,
+    needM: number,
+    stepM = 10,
+): DryRun[] {
+    if (polyline.length < 2 || !Number.isFinite(needM)) return [];
+    const bands = chartAreaIndexFor(layers).depth;
+    if (bands.length === 0) return [];
+    const ntm = (layers.NTMZONE?.features ?? [])
+        .map((f) => f.geometry)
+        .filter((g): g is Polygon | MultiPolygon => !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'))
+        .map((g) => ({ g, bbox: geometryBbox(g) }));
+    const inNtm = (lon: number, lat: number): boolean =>
+        ntm.some(
+            (z) =>
+                lon >= z.bbox[0] &&
+                lon <= z.bbox[2] &&
+                lat >= z.bbox[1] &&
+                lat <= z.bbox[3] &&
+                pointInGeometry(lon, lat, z.g),
+        );
+    let onLand: ((lon: number, lat: number) => boolean) | null = null;
+    interface Sample {
+        seg: number;
+        t: number;
+        p: [number, number];
+        m: number;
+        shallowestM: number | null;
+        deepestM: number;
+        tide: CeilingAt | null;
+    }
+    const dryAt = (seg: number, t: number, p: [number, number], m: number): Sample | null => {
+        const range = chartedDepthRangeAt(bands, p[0], p[1]);
+        if (!range) return null;
+        const tide = ceilings.at(p[1], p[0]);
+        const s = range.shallowestM;
+        const drying = s !== null && s < 0 && (!tide || s + tide.highestM < needM - 1e-6);
+        const proved = !!tide && range.deepestM !== null && range.deepestM + tide.highestM < needM - 1e-6;
+        if ((!drying && !proved) || inNtm(p[0], p[1])) return null;
+        onLand ??= hardLandAtPoint(layers);
+        if (onLand(p[0], p[1])) return null;
+        return { seg, t, p, m, shallowestM: s, deepestM: range.deepestM ?? s ?? 0, tide };
+    };
+    // Every dry sample, in order, then cut into stretches.
+    const samples: Sample[] = [];
+    let alongM = 0;
+    for (let i = 0; i + 1 < polyline.length; i++) {
+        const [lonA, latA] = polyline[i];
+        const [lonB, latB] = polyline[i + 1];
+        const segM = haversineM(latA, lonA, latB, lonB);
+        const steps = Math.max(1, Math.ceil(segM / stepM));
+        for (let k = i === 0 ? 0 : 1; k <= steps; k++) {
+            const t = k / steps;
+            const hit = dryAt(i, t, [lonA + (lonB - lonA) * t, latA + (latB - latA) * t], alongM + segM * t);
+            if (hit) samples.push(hit);
+        }
+        alongM += segM;
+    }
+    const runs: DryRun[] = [];
+    let first = 0;
+    for (let j = 1; j <= samples.length; j++) {
+        if (j < samples.length && samples[j].m - samples[j - 1].m <= STRETCH_JOIN_M) continue;
+        const s = samples.slice(first, j);
+        first = j;
+        const a = s[0];
+        const b = s[s.length - 1];
+        const half = (a.m + b.m) / 2;
+        const mid = (s.find((x) => x.m >= half) ?? b).p;
+        let shallowestM: number | null = a.shallowestM;
+        let deepestM = a.deepestM;
+        let tide: CeilingAt | null = null;
+        for (const x of s) {
+            shallowestM = shallowestM === null || x.shallowestM === null ? null : Math.min(shallowestM, x.shallowestM);
+            deepestM = Math.max(deepestM, x.deepestM);
+            if (x.tide && (!tide || x.tide.topM > tide.topM)) tide = x.tide;
+        }
+        // A sample at the very end of a segment is the next one's start.
+        const at = (x: Sample): [number, number] =>
+            x.t >= 1 && x.seg + 1 < polyline.length - 1 ? [x.seg + 1, 0] : [x.seg, x.t];
+        const [startSeg, startT] = at(a);
+        const [endSeg, endT] = [b.seg, b.t];
+        runs.push({
+            startSeg,
+            startT,
+            endSeg,
+            endT,
+            lengthM: b.m - a.m,
+            mid,
+            place: noTideRunPlace(layers, { start: a.p, mid, end: b.p }),
+            shallowestM,
+            deepestM,
+            draftM,
+            needM,
+            tide: tide ? { topM: tide.topM, days: tide.days } : null,
+        });
+    }
+    return runs;
 }
 
 /**

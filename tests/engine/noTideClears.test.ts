@@ -18,6 +18,13 @@
  * cheaper way today (a drying cell costs 120×, the 16.6 km detour 5.6× a
  * metre), so without the tide the route crosses it, red. Serene Summer: 2.4 m draft,
  * 0.5 m UKC — she needs 2.9 m.
+ *
+ * RE-PIN (package 125-05, Shane 2026-10-08: "better we just have red at the
+ * "dry" zones, rather than just shit caning the whole route"): where there is
+ * no way round, the route now goes THROUGH, red, each stretch named
+ * (RouteResult.dryRuns) — never 'no-tide-clears'. The refusal's own words are
+ * kept on debug.noTideRefusal and pinned below as they were. The deep way
+ * round is still taken wherever there is one (unchanged).
  */
 import type { Feature, FeatureCollection, Polygon } from 'geojson';
 import { describe, expect, it } from 'vitest';
@@ -240,16 +247,17 @@ describe('decision 11 — water no tide can clear is avoided', () => {
         expect(r.debug?.noTideClearsCells ?? 0).toBeGreaterThan(0);
     });
 
-    it('with no way round there is no route, and the refusal names the spot, its depth, the highest tide and the need', () => {
+    it('with no way round the route goes through, red and named — the refusal’s words kept for the log (125-05)', () => {
         const layers = chart({ d1: -2.2, d2: 0 }, { noWayRound: true });
         // Premise: today it routes through.
         const today = routeInshore(layers, REQ);
         expect(isResult(today) && throughPassage(today)).toBe(true);
         const r = routeInshore(layers, { ...REQ, tideCeilings: ceilings(2.5) });
-        expect('error' in r, isResult(r) ? `routed ${r.distanceNM.toFixed(2)} NM` : '').toBe(true);
-        if (!('error' in r)) return;
-        expect(r.code).toBe('no-tide-clears');
-        expect(r.error).toBe(
+        expect(isResult(r), 'error' in r ? `${r.code}: ${r.error}` : '').toBe(true);
+        if (!isResult(r)) return;
+        expect(throughPassage(r)).toBe(true);
+        expect(r.dryRuns?.[0]?.place).toBe('the Boat Passage');
+        expect(r.debug?.noTideRefusal).toBe(
             'No route for 2.4 m draft: the only way through crosses the Boat Passage, charted to dry 2.2 m; ' +
                 'the highest tide in the next 14 days is 2.5 m and you need 2.9 m.',
         );
@@ -338,13 +346,14 @@ describe('decision 11 — a proved bar too thin for the grid to close (the retry
         expect(worst?.lengthM ?? 0).toBeLessThanOrEqual(50);
     });
 
-    it('with no way round the bar is the only way through: no route, and the refusal names it', () => {
+    it('with no way round the bar is the only way through: the route crosses it, red and named (125-05)', () => {
         const layers = chart({ d1: -2.2, d2: 0 }, { thinBar: true, noWayRound: true, variant: 8 });
         const r = routeInshore(layers, { ...REQ, tideCeilings: ceilings(2.5) });
-        expect('error' in r, isResult(r) ? `routed ${r.distanceNM.toFixed(2)} NM` : '').toBe(true);
-        if (!('error' in r)) return;
-        expect(r.code).toBe('no-tide-clears');
-        expect(r.error).toBe(
+        expect(isResult(r), 'error' in r ? `${r.code}: ${r.error}` : '').toBe(true);
+        if (!isResult(r)) return;
+        expect(throughPassage(r)).toBe(true);
+        expect(r.dryRuns?.length).toBe(1);
+        expect(r.debug?.noTideRefusal).toBe(
             'No route for 2.4 m draft: the only way through crosses the Boat Passage, charted to dry 2.2 m; ' +
                 'the highest tide in the next 14 days is 2.5 m and you need 2.9 m.',
         );
@@ -374,16 +383,17 @@ describe('decision 11 — a bar however thin is a crossing (fix-up, 2026-10-01)'
         [0, 30],
         [1, 50],
     ] as const) {
-        it(`no way round: a ${barM} m bar is the only way through — no route, and the refusal names it`, () => {
+        it(`no way round: a ${barM} m bar is the only way through — the route crosses it, red and named (125-05)`, () => {
             const layers = chart({ d1: -2.2, d2: 0 }, { barM, noWayRound: true, variant: 20 + i });
             // Premise: without the tide it routes across the bar.
             const today = routeInshore(layers, REQ);
             expect(isResult(today) && throughPassage(today)).toBe(true);
             const r = routeInshore(layers, { ...REQ, tideCeilings: ceilings(2.5) });
-            expect('error' in r, isResult(r) ? `routed ${r.distanceNM.toFixed(2)} NM` : '').toBe(true);
-            if (!('error' in r)) return;
-            expect(r.code).toBe('no-tide-clears');
-            expect(r.error).toBe(refusal);
+            expect(isResult(r), 'error' in r ? `${r.code}: ${r.error}` : '').toBe(true);
+            if (!isResult(r)) return;
+            expect(throughPassage(r)).toBe(true);
+            expect(r.dryRuns?.[0]?.place).toBe('the Boat Passage');
+            expect(r.debug?.noTideRefusal).toBe(refusal);
         });
     }
 
@@ -398,15 +408,20 @@ describe('decision 11 — a bar however thin is a crossing (fix-up, 2026-10-01)'
         expect(noTideClearsRuns(layers, r.polyline, tideCeilingLookup(q.tideCeilings), 2.9)).toEqual([]);
     });
 
-    it('two 45 m bars 150 m apart: round them when there is a way, no route when there is none', () => {
+    it('two 45 m bars 150 m apart: round them when there is a way, across them, red, when there is none', () => {
         const q = { ...REQ, tideCeilings: ceilings(2.5) };
         const round = routeInshore(chart({ d1: -2.2, d2: 0 }, { twoBarsM: 45, variant: 23 }), q);
         expect(isResult(round), 'error' in round ? round.error : '').toBe(true);
-        if (isResult(round)) expect(throughPassage(round)).toBe(false);
+        if (isResult(round)) {
+            expect(throughPassage(round)).toBe(false);
+            expect(round.dryRuns).toBeUndefined();
+        }
         const none = routeInshore(chart({ d1: -2.2, d2: 0 }, { twoBarsM: 45, noWayRound: true, variant: 24 }), q);
-        expect('error' in none && none.code, isResult(none) ? `routed ${none.distanceNM.toFixed(2)} NM` : '').toBe(
-            'no-tide-clears',
-        );
+        expect(isResult(none), 'error' in none ? `${none.code}: ${none.error}` : '').toBe(true);
+        if (!isResult(none)) return;
+        expect(throughPassage(none)).toBe(true);
+        expect(none.dryRuns?.length).toBeGreaterThan(0);
+        expect(none.debug?.noTideRefusal).toMatch(/^No route for 2\.4 m draft/);
     });
 
     it('a long route’s coarser grid (120 m cells) does not widen what it may cross: a 100 m bar with no way round', () => {
@@ -414,9 +429,11 @@ describe('decision 11 — a bar however thin is a crossing (fix-up, 2026-10-01)'
         // old tolerance was the cell, so a 100 m bar passed at 120 m.
         const layers = chart({ d1: -2.2, d2: 0 }, { thinBar: true, noWayRound: true, variant: 25 });
         const r = routeInshore(layers, { ...REQ, resolutionM: 120, tideCeilings: ceilings(2.5) });
-        expect('error' in r && r.code, isResult(r) ? `routed ${r.distanceNM.toFixed(2)} NM` : '').toBe(
-            'no-tide-clears',
-        );
+        // Since 125-05 the crossing is routed, red — and still found: named.
+        expect(isResult(r), 'error' in r ? `${r.code}: ${r.error}` : '').toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.noTideRefusal).toMatch(/^No route for 2\.4 m draft/);
+        expect(r.dryRuns?.length).toBe(1);
     });
 });
 
@@ -627,10 +644,13 @@ describe('decision 11 — the tide ceilings key the grid cache', () => {
             ...REQ,
             tideCeilings: ceilings(2.5).map((c) => ({ ...c, highestM: 2.41 })),
         });
-        expect('error' in r ? r.error : 'routed').toBe(
+        // Since 125-05 the route goes through; the words are kept, and the
+        // dry stretch carries the curve's own top too.
+        expect(isResult(r) ? r.debug?.noTideRefusal : `refused: ${r.error}`).toBe(
             'No route for 2.4 m draft: the only way through crosses the Boat Passage, charted to dry 2.2 m; ' +
                 'the highest tide in the next 14 days is 2.4 m and you need 2.9 m.',
         );
+        expect(isResult(r) ? r.dryRuns?.[0]?.tide?.topM : null).toBe(2.41);
     });
 
     it("the engine's bucket is the tide cache's bucket", () => {

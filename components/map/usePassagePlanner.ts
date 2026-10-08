@@ -897,6 +897,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         waterPack: inshoreRes.waterPack,
                         // Too close to a shallow band (fix-up review, 2026-10-03).
                         nearShallow: nearShallowSummary(inshoreRes.chartedShallowSpans),
+                        // Red where no tide clears it, each stretch named — the
+                        // route instead of the hard stop (package 125-05).
+                        dryRuns: inshoreRes.dryRuns,
                         // What this map actually draws as survey dashes (round-3 review,
                         // 2026-09-30): the caveat's colour words follow it.
                         surveyAmber: surveyAmberMetres(
@@ -1023,21 +1026,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     setRouteAnalysis(null);
                     return;
                 }
-                // Owner decision 11 (Shane 2026-10-01: "ok avoid water no tide
-                // can clear"): the only way through crosses water no tide
-                // clears for this boat. As final as a bridge — no offshore
-                // fallback, no line; the message names the spot, its charted
-                // depth, the highest tide and what the boat needs.
-                if (inshoreRes.code === 'no-tide-clears') {
-                    log.warn(`[Passage][BAYLEG] REFUSED (no-tide-clears) — no fallback drawn`);
-                    dispatchPassageNotice({
-                        severity: 'warn',
-                        title: 'Route not possible — no tide clears it',
-                        message: inshoreRes.error,
-                    });
-                    setRouteAnalysis(null);
-                    return;
-                }
+                // Water no tide clears is no longer a refusal (package 125-05;
+                // Shane 2026-10-08: "better we just have red at the "dry"
+                // zones, rather than just shit caning the whole route"): the
+                // engine routes through it where there is no deeper way round,
+                // red, and the route notes name each stretch (dryRuns, above).
                 log.warn(
                     `[Passage][BAYLEG] FELL THROUGH (engine ${inshoreRes.code ?? 'no-code'}) → unverified offshore preview will draw — ` +
                         `${inshoreRes.error}`,

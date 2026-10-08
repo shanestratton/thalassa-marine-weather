@@ -2735,6 +2735,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         waterPack: res.waterPack,
                         // Too close to a shallow band (fix-up review, 2026-10-03).
                         nearShallow: nearShallowSummary(res.chartedShallowSpans),
+                        // Red where no tide clears it (package 125-05).
+                        dryRuns: res.dryRuns,
                     });
                     flashTraceFeedback('Auto-routed — check the arrival end, drag pins to adjust.');
                     // On the tracer panel's persistent line, not only in the
