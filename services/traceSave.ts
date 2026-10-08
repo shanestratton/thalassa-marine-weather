@@ -12,7 +12,7 @@
  */
 import {
     destNameFromRouteName,
-    healTripChain,
+    healTripChainDetailed,
     retroBadgeFirstLeg,
     saveTrace,
     withLegBadge,
@@ -22,6 +22,7 @@ import {
 } from './routeTracer';
 import type { TraceVerification } from './traceVerification';
 import { legInSlot, overwriteBlockReason } from './tripReverse';
+import { enqueueTraceChecks } from './traceBackgroundCheck';
 
 export type TraceSaveDecision =
     /** Refused outright — say why and put the cursor in the name box. */
@@ -109,7 +110,8 @@ export function decideTraceSave(input: {
 /**
  * Persist a 'save' decision: the row itself, then — only once it stuck — the
  * trip becomes real at leg 2 (leg 1 retro-earns its badge) and an arrival edit
- * ripples into the next leg's locked start.
+ * ripples into the next leg's locked start. That moved pin voids the next
+ * leg's check, so the leg is queued for a background re-check (build 124).
  */
 export function commitTraceSave(
     decision: Extract<TraceSaveDecision, { kind: 'save' }>,
@@ -121,6 +123,7 @@ export function commitTraceSave(
     cloud: ReturnType<typeof saveTrace>['cloud'];
     retro: SavedTrace | null;
     healed: string | null;
+    healedId: string | null;
 } {
     const { trace, persisted, cloud } = saveTrace(decision.finalName, points, {
         ...(decision.existing ? { overwriteId: decision.existing.id } : {}),
@@ -128,6 +131,7 @@ export function commitTraceSave(
         ...(verification ? { verification } : {}),
     });
     const retro = persisted && decision.chain ? retroBadgeFirstLeg(decision.chain.tripId) : null;
-    const healed = persisted ? healTripChain(trace) : null;
-    return { trace, persisted, cloud, retro, healed };
+    const heal = persisted ? healTripChainDetailed(trace) : null;
+    if (heal) enqueueTraceChecks([heal.healedId], 'heal');
+    return { trace, persisted, cloud, retro, healed: heal?.message ?? null, healedId: heal?.healedId ?? null };
 }

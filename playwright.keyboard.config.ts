@@ -73,6 +73,10 @@ export default defineConfig({
         // Her GPS silent at Start: the stand-in question and the phone notice fit
         // at 320 × 568 with large text, centred above the tab bar (e2e/fixtures/stand-in-question.tsx).
         'stand-in-question-layout.spec.ts',
+        // "Following a route?": green, amber "Check now" and red "Tap again"
+        // rows fit one screen at 320 × 568 and 375 × 667, centred in the modal
+        // band above the tab bar (e2e/fixtures/follow-route-sheet.tsx, build 124).
+        'follow-route-sheet-layout.spec.ts',
     ],
     outputDir: process.env.CI ? 'test-results/layout' : join(tmpdir(), 'thalassa-keyboard-e2e'),
     workers: 2,

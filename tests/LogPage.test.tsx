@@ -45,7 +45,14 @@ const followRouteMock = vi.hoisted(() => {
 const fetchVoyageAsTrackMock = vi.hoisted(() => vi.fn());
 const publishFollowedRouteMock = vi.hoisted(() => vi.fn());
 const clearFollowedRouteMock = vi.hoisted(() => vi.fn(async () => true));
-const traceDirectUseBlockReasonMock = vi.hoisted(() => vi.fn(() => null as string | null));
+const traceDirectUseBlockReasonMock = vi.hoisted(() => vi.fn((_route?: unknown) => null as string | null));
+/** Build 124: the non-red verdict a linked trace gets (green by default). */
+/** A row's Check now on a route only the account holds (build 124 review). */
+const fetchSavedRoutePointsMock = vi.hoisted(() => vi.fn());
+const enqueueTraceChecksSpy = vi.hoisted(() => vi.fn());
+const traceDirectUseAmberMock = vi.hoisted(() => ({
+    value: { tone: 'checked', code: 'ok', reason: null } as { tone: string; code: string; reason: string | null },
+}));
 const gpsHealthMock = vi.hoisted(() => ({
     value: null as null | { usable: boolean; reason: string; actionable: boolean },
 }));
@@ -139,6 +146,21 @@ vi.mock('../services/routeTracer', async (importOriginal) => ({
     ],
 }));
 
+vi.mock('../services/savedRoutePoints', () => ({
+    fetchSavedRoutePoints: (...args: unknown[]) => fetchSavedRoutePointsMock(...args),
+}));
+
+vi.mock('../services/traceBackgroundCheck', async (importOriginal) => {
+    const real = await importOriginal<typeof import('../services/traceBackgroundCheck')>();
+    return {
+        ...real,
+        enqueueTraceChecks: (...args: Parameters<typeof real.enqueueTraceChecks>) => {
+            enqueueTraceChecksSpy(...args);
+            return real.enqueueTraceChecks(...args);
+        },
+    };
+});
+
 vi.mock('../services/shiplog/publishFollowedRoute', () => ({
     publishFollowedRoute: publishFollowedRouteMock,
     // The page publishes through the detailed form (authorship 2026-09-08);
@@ -153,6 +175,13 @@ vi.mock('../services/shiplog/publishFollowedRoute', () => ({
 
 vi.mock('../services/traceDirectUseGate', () => ({
     tracedRouteDirectUseBlockReason: traceDirectUseBlockReasonMock,
+    // A red finding (the block-reason mock) refuses until accepted; anything
+    // else is the amber/green value — amber never blocks (build 124).
+    tracedRouteDirectUseStatus: (route: unknown, opts?: { acceptFinding?: boolean }) => {
+        const red = traceDirectUseBlockReasonMock(route);
+        if (red) return { tone: 'finding', code: 'finding', reason: red, blocked: opts?.acceptFinding !== true };
+        return { ...traceDirectUseAmberMock.value, blocked: false };
+    },
     // Identity: these tests exercise the gate's VERDICT, not the geometry
     // substitution (that has its own suite). Returning the route unchanged
     // keeps them asserting what they were written to assert.
@@ -160,7 +189,7 @@ vi.mock('../services/traceDirectUseGate', () => ({
     // The picker filter's link sources — empty/permissive here so every
     // seeded plan stays offered; the filter has its own suite.
     localTraceLinkByVoyageId: () => new Map<string, string>(),
-    savedTraceFollowBlockReason: () => null,
+    savedTraceFollowStatus: () => ({ tone: 'checked', code: 'ok', reason: null }),
     // No trip grouping in these fixtures, so every offered route is a day sail
     // and the sheet renders the flat shape these tests were written against.
     // The grouping has its own suite.
@@ -281,8 +310,20 @@ vi.mock('../pages/log/LogSubComponents', () => ({
             {label}
         </button>
     ),
-    FollowRouteChoice: ({ summary, onPick }: { summary: { voyageId: string }; onPick: () => void }) => (
-        <button onClick={onPick}>Follow route {summary.voyageId}</button>
+    FollowRouteChoice: ({
+        summary,
+        onPick,
+        onCheckNow,
+    }: {
+        summary: { voyageId: string };
+        onPick: (accept?: boolean) => void;
+        onCheckNow?: () => void;
+    }) => (
+        <>
+            <button onClick={() => onPick()}>Follow route {summary.voyageId}</button>
+            <button onClick={() => onPick(true)}>Follow anyway {summary.voyageId}</button>
+            {onCheckNow && <button onClick={onCheckNow}>Check now {summary.voyageId}</button>}
+        </>
     ),
 }));
 vi.mock('../pages/log/VoyageDialogs', () => ({ VoyageChoiceDialog: () => null, StopVoyageDialog: () => null }));
@@ -568,6 +609,7 @@ describe('LogPage', () => {
         fetchVoyageAsTrackMock.mockResolvedValue(null);
         publishFollowedRouteMock.mockResolvedValue('linked');
         traceDirectUseBlockReasonMock.mockReturnValue(null);
+        traceDirectUseAmberMock.value = { tone: 'checked', code: 'ok', reason: null };
         gpsHealthMock.value = null;
         sourcePlanMock.resolve.mockImplementation(async () => ({ ...sourcePlanMock.phonePlan }));
         liveVoyageMock.standInPending = false;
@@ -1913,24 +1955,21 @@ describe('LogPage', () => {
         });
     });
 
-    it('blocks both local follow and public publication for an unverified linked trace', async () => {
-        traceDirectUseBlockReasonMock.mockReturnValue(
-            'This traced route is not verified on this device. Open it in Route Tracer and check every leg.',
-        );
+    const linkedTraceVoyage = () => {
         fetchVoyageAsTrackMock.mockResolvedValue({
             id: 'planned-trace',
-            label: 'Unsafe legacy trace',
+            label: 'Cowes → Lymington',
             sublabel: 'Planned',
             points: [
-                { lat: -27.5, lon: 153 },
-                { lat: -27.4, lon: 153.1 },
+                { lat: 50.766, lon: -1.297 },
+                { lat: 50.754, lon: -1.533 },
             ],
-            bbox: [153, -27.5, 153.1, -27.4],
+            bbox: [-1.533, 50.754, -1.297, 50.766],
             timestamp: Date.now(),
             distanceNm: 8,
             isLocal: false,
             kind: 'sea',
-            savedRouteId: 'trace-legacy',
+            savedRouteId: 'trace-solent',
         });
         Object.assign(logPageStateOverrides.state, {
             isTracking: true,
@@ -1941,13 +1980,21 @@ describe('LogPage', () => {
                     isPlannedRoute: true,
                     totalDistanceNM: 8,
                     entryCount: 2,
-                    firstLat: -27.5,
-                    firstLon: 153,
-                    lastLat: -27.4,
-                    lastLon: 153.1,
+                    firstLat: 50.766,
+                    firstLon: -1.297,
+                    lastLat: 50.754,
+                    lastLon: -1.533,
                 },
             ],
         });
+    };
+
+    // Build 124 (Shane 2026-10-08: "maybe just a warning rather than having to
+    // almost start again"): only a real check's red finding refuses, and only
+    // until the skipper's second tap accepts it.
+    it('blocks both local follow and public publication for a red finding until it is accepted', async () => {
+        traceDirectUseBlockReasonMock.mockReturnValue('Pins 2→3: charted wreck');
+        linkedTraceVoyage();
 
         render(<LogPage />);
         fireEvent.click(await screen.findByRole('button', { name: 'Follow route planned-trace' }));
@@ -1956,6 +2003,102 @@ describe('LogPage', () => {
         expect(followRouteMock.state.startFollowing).not.toHaveBeenCalled();
         expect(publishFollowedRouteMock).not.toHaveBeenCalled();
         expect(screen.getByRole('dialog', { name: 'Following a route?' })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Follow anyway planned-trace' }));
+        await waitFor(() => expect(followRouteMock.state.startFollowing).toHaveBeenCalledTimes(1));
+        expect(publishFollowedRouteMock).toHaveBeenCalledWith('planned-trace');
+    });
+
+    it('follows an amber (unchecked) route on the first tap and says so once, quietly', async () => {
+        traceDirectUseAmberMock.value = { tone: 'unchecked', code: 'none', reason: 'Not checked yet' };
+        linkedTraceVoyage();
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Follow route planned-trace' }));
+
+        await waitFor(() => expect(followRouteMock.state.startFollowing).toHaveBeenCalledTimes(1));
+        expect(publishFollowedRouteMock).toHaveBeenCalledWith('planned-trace');
+        await waitFor(() =>
+            expect(screen.queryByRole('dialog', { name: 'Following a route?' })).not.toBeInTheDocument(),
+        );
+        expect(await screen.findByText('Following, not checked yet. Keep a good lookout.')).toBeInTheDocument();
+    });
+
+    it('says WHY a followed amber route is amber: a route checked last month is not "not checked yet"', async () => {
+        traceDirectUseAmberMock.value = { tone: 'unchecked', code: 'aged', reason: 'Last checked 4 Sep' };
+        linkedTraceVoyage();
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Follow route planned-trace' }));
+
+        await waitFor(() => expect(followRouteMock.state.startFollowing).toHaveBeenCalledTimes(1));
+        expect(
+            await screen.findByText('Following, but its check is out of date. Keep a good lookout.'),
+        ).toBeInTheDocument();
+        expect(screen.queryByText('Following, not checked yet. Keep a good lookout.')).not.toBeInTheDocument();
+    });
+
+    it('Check now on a route only the account holds adopts it onto this phone first, then queues the check', async () => {
+        linkedTraceVoyage();
+        // The plan's link lives on its entries; the trace is NOT on this phone
+        // (the routeTracer mock's library holds only route-x).
+        Object.assign(logPageStateOverrides.state, {
+            entries: [
+                {
+                    id: 'planned-trace-entry',
+                    voyageId: 'planned-trace',
+                    savedRouteId: 'trace-solent',
+                    source: 'planned_route',
+                    latitude: 50.766,
+                    longitude: -1.297,
+                    timestamp: new Date().toISOString(),
+                },
+            ],
+        });
+        fetchSavedRoutePointsMock.mockResolvedValue({
+            ok: true,
+            id: 'trace-solent',
+            name: 'Cowes → Lymington',
+            points: [
+                { lat: 50.766, lon: -1.297 },
+                { lat: 50.754, lon: -1.533 },
+            ],
+        });
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Check now planned-trace' }));
+
+        await waitFor(() => expect(enqueueTraceChecksSpy).toHaveBeenCalledWith(['trace-solent'], 'manual'));
+        expect(fetchSavedRoutePointsMock).toHaveBeenCalledWith('trace-solent');
+        expect(fetchSavedRoutePointsMock.mock.invocationCallOrder[0]).toBeLessThan(
+            enqueueTraceChecksSpy.mock.invocationCallOrder[
+                enqueueTraceChecksSpy.mock.calls.findIndex((call) => call[1] === 'manual')
+            ],
+        );
+    });
+
+    it('Check now says why when the account copy cannot be fetched, and queues nothing', async () => {
+        linkedTraceVoyage();
+        Object.assign(logPageStateOverrides.state, {
+            entries: [
+                {
+                    id: 'planned-trace-entry',
+                    voyageId: 'planned-trace',
+                    savedRouteId: 'trace-solent',
+                    source: 'planned_route',
+                    latitude: 50.766,
+                    longitude: -1.297,
+                    timestamp: new Date().toISOString(),
+                },
+            ],
+        });
+        fetchSavedRoutePointsMock.mockResolvedValue({ ok: false, reason: 'You’re offline. Try again when connected.' });
+
+        render(<LogPage />);
+        fireEvent.click(await screen.findByRole('button', { name: 'Check now planned-trace' }));
+
+        expect(await screen.findByText('You’re offline. Try again when connected.')).toBeInTheDocument();
+        expect(enqueueTraceChecksSpy).not.toHaveBeenCalledWith(['trace-solent'], 'manual');
     });
 });
 

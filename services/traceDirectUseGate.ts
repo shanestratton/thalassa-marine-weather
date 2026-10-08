@@ -1,12 +1,30 @@
 /** Final gate for using a canonical traced route outside MapHub (for example
- * Log's "Following a route?" flow). Legacy/unverified mirrors must not gain a
- * second route into follow/publication after MapHub itself was hardened. */
+ * Log's "Following a route?" flow). Since build 124 it WARNS rather than
+ * walls (Shane 2026-10-08): an unchecked line follows with its reason said,
+ * and only a real check's unacknowledged finding needs a deliberate second
+ * tap. The geometry rule is unchanged — steer exactly what was checked. */
 
 import type { RouteOrTrack } from './shiplog/RoutesAndTracks';
 import { buildTripPassageRollups, legBadgeOrdinal, loadSavedTraces, stripLegBadge } from './routeTracer';
-import { normaliseTraceVerification, traceFollowBlockReason } from './traceVerification';
+import {
+    normaliseTraceVerification,
+    traceFollowStatus,
+    type TraceFollowContext,
+    type TraceFollowStatus,
+} from './traceVerification';
+import { getTraceCheckOutcome } from './traceCheckOutcomes';
 import { useSettingsStore } from '../stores/settingsStore';
 import { vesselDraftIsAssumed, vesselDraftMetres } from './units';
+
+function followContext(nowMs: number): TraceFollowContext {
+    const vessel = useSettingsStore.getState().settings.vessel;
+    return { draftM: vesselDraftMetres(vessel), draftAssumed: vesselDraftIsAssumed(vessel), nowMs };
+}
+
+export type TraceDirectUseStatus = TraceFollowStatus & {
+    /** Only a red finding the skipper has not accepted (the second tap). */
+    blocked: boolean;
+};
 
 /**
  * The geometry that should actually be STEERED for a route.
@@ -35,55 +53,54 @@ export function tracedRouteFollowGeometry<T extends Pick<RouteOrTrack, 'savedRou
     return { ...route, points: saved.points };
 }
 
+/**
+ * The follow verdict for a route the Log or Cast Off is about to steer —
+ * a warning, not a wall (build 124). Amber never blocks; red blocks until
+ * `acceptFinding` (the deliberate second tap, or the act of casting off).
+ */
+export function tracedRouteDirectUseStatus(
+    route: Pick<RouteOrTrack, 'savedRouteId' | 'points'>,
+    opts: { acceptFinding?: boolean; nowMs?: number } = {},
+): TraceDirectUseStatus {
+    const routeId = route.savedRouteId?.trim();
+    // An ordinary planner route: no trace, no check to have.
+    if (!routeId) return { tone: 'checked', code: 'ok', reason: null, blocked: false };
+
+    const saved = loadSavedTraces().find((trace) => trace.id === routeId);
+    if (!saved) {
+        return { tone: 'unchecked', code: 'none', reason: 'Not checked on this device yet', blocked: false };
+    }
+    // Name the RIGHT cause when the trace is checked and the steered geometry
+    // is not the checked line: re-checking cannot change a voyage's recorded
+    // track (Shane 2026-08-07: "i just checked the route through tracer, and
+    // the message is still there ????"). Amber now, like every missing check.
+    if (
+        !normaliseTraceVerification(saved.verification, route.points) &&
+        normaliseTraceVerification(saved.verification, saved.points)
+    ) {
+        return {
+            tone: 'unchecked',
+            code: 'none',
+            reason: 'This voyage’s recorded track is not the line Route Tracer checked. Keep a good lookout.',
+            blocked: false,
+        };
+    }
+    const status = traceFollowStatus(
+        saved.verification,
+        route.points,
+        followContext(opts.nowMs ?? Date.now()),
+        getTraceCheckOutcome(routeId),
+    );
+    return { ...status, blocked: status.tone === 'finding' && opts.acceptFinding !== true };
+}
+
+/** Kept for older callers: a reason only when following is refused (red). */
 export function tracedRouteDirectUseBlockReason(
     route: Pick<RouteOrTrack, 'savedRouteId' | 'points'>,
     nowMs: number = Date.now(),
 ): string | null {
-    const routeId = route.savedRouteId?.trim();
-    if (!routeId) return null; // ordinary planner route
-
-    const saved = loadSavedTraces().find((trace) => trace.id === routeId);
-    if (!saved) {
-        return 'This traced route is not verified on this device. Open it in Route Tracer, check every leg and save it again.';
-    }
-    const verification = normaliseTraceVerification(saved.verification, route.points);
-
-    // Name the RIGHT cause when the trace is fine and the geometry is not.
-    //
-    // Log follow always steers `route.points`, which LogPage builds from the
-    // voyage's ship-log ENTRIES (fetchVoyageAsTrack / groupByVoyage) — not
-    // from the tracer's waypoints. `savedRouteId` is only a link those entries
-    // carry. So for a voyage whose recorded track differs from the checked
-    // line, the geometry binding fails and the generic reason told the skipper
-    // "no valid check for its current waypoints — open Route Tracer and check
-    // it again", which is both wrong and impossible to satisfy: the trace IS
-    // checked, and re-checking it cannot change the voyage's logged track.
-    // (Shane 2026-08-07: "i just checked the route through tracer, and the
-    // message is still there ????")
-    //
-    // Still blocked — following an unchecked line is the thing the gate exists
-    // to prevent — but now with a cause that is true and an action that works.
-    if (!verification && normaliseTraceVerification(saved.verification, saved.points)) {
-        // Name the CONTROL, not just the screen. "Open Route Tracer" left the
-        // skipper hunting; Sail is the button that actually starts following,
-        // and it steers capturedCoords — the checked line — through its own
-        // release gate, which is why it is the supported path rather than a
-        // workaround. (Shane 2026-08-07: "how do i get past that message.")
-        return 'This voyage’s recorded track is not the line Route Tracer checked. Open the route in Route Tracer and tap Sail to follow the checked line — or choose “Just recording” to log this passage without a route.';
-    }
-
-    // The FOLLOW gate, not the Cast Off gate (Shane 2026-08-10: "once a
-    // punter accepts certain issues with routes then they are good to go").
-    // Cast Off's tide-window/departure/ENC-drift blocks belong to the
-    // publication event; re-sailing an accepted saved line from the Log only
-    // needs the acceptance itself to still hold — same waypoints, same keel,
-    // checked within a month. See traceFollowBlockReason for the reasoning.
-    const vessel = useSettingsStore.getState().settings.vessel;
-    return traceFollowBlockReason(verification, route.points, {
-        draftM: vesselDraftMetres(vessel),
-        draftAssumed: vesselDraftIsAssumed(vessel),
-        nowMs,
-    });
+    const status = tracedRouteDirectUseStatus(route, { nowMs });
+    return status.blocked ? status.reason : null;
 }
 
 /**
@@ -106,8 +123,8 @@ export function tracedRouteDirectUseBlockReason(
  * asking it costs nothing and needs no network.
  *
  * A plan whose trace lives only on ANOTHER device still resolves to nothing
- * here and is offered optimistically — if picked, the gate refuses with the
- * "not verified on this device" reason, which is true and actionable.
+ * here and is offered optimistically — if picked, the Log adopts the trace
+ * from the account and follows it amber ("not checked on this device yet").
  */
 export function localTraceLinkByVoyageId(): Map<string, string> {
     const links = new Map<string, string>();
@@ -169,15 +186,11 @@ export function tripIdentityByTraceId(): Map<string, TraceTripIdentity> {
     return out;
 }
 
-export function savedTraceFollowBlockReason(savedRouteId: string, nowMs: number = Date.now()): string | null {
+/** The row status of a SAVED TRACE by id, on its own pins — the Log sheet's
+ *  per-row verdict (build 124: three states, see traceFollowStatus). */
+export function savedTraceFollowStatus(savedRouteId: string, nowMs: number = Date.now()): TraceFollowStatus {
     const routeId = savedRouteId.trim();
-    if (!routeId) return 'This route has no saved trace on this device.';
-    const saved = loadSavedTraces().find((trace) => trace.id === routeId);
-    if (!saved) return 'This route has no saved trace on this device.';
-    const vessel = useSettingsStore.getState().settings.vessel;
-    return traceFollowBlockReason(saved.verification, saved.points, {
-        draftM: vesselDraftMetres(vessel),
-        draftAssumed: vesselDraftIsAssumed(vessel),
-        nowMs,
-    });
+    const saved = routeId ? loadSavedTraces().find((trace) => trace.id === routeId) : undefined;
+    if (!saved) return { tone: 'unchecked', code: 'none', reason: 'Not checked on this device yet' };
+    return traceFollowStatus(saved.verification, saved.points, followContext(nowMs), getTraceCheckOutcome(routeId));
 }

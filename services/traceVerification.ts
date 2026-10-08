@@ -9,6 +9,7 @@
 
 import type { TraceGrade, TraceLegVerdict, TracePoint } from './routeTracer';
 import { TRACE_LAND_CROSSING_MESSAGE } from './routeTracer';
+import type { TraceCheckOutcomeRecord } from './traceCheckOutcomes';
 
 export type TraceCheckStatus = 'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart';
 
@@ -393,46 +394,171 @@ export interface TraceFollowContext {
     nowMs: number;
 }
 
+export type TraceFollowTone = 'checked' | 'unchecked' | 'finding';
+export type TraceFollowCode =
+    | 'ok'
+    | 'none'
+    | 'draft'
+    | 'aged'
+    | 'unavailable'
+    | 'nochart'
+    | 'tide'
+    | 'nodraft'
+    | 'finding';
+
+export interface TraceFollowStatus {
+    tone: TraceFollowTone;
+    /** The row's one line; null when green. */
+    reason: string | null;
+    checkedAt?: string;
+    code: TraceFollowCode;
+}
+
+const FOLLOW_MAX_AGE_MS = 30 * 24 * 3_600_000;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "3 Oct" — fixed English months: ICU now prints "Sept" in some locales. */
+export function traceCheckDayLabel(iso: string): string {
+    const date = new Date(iso);
+    return `${date.getDate()} ${MONTHS[date.getMonth()]}`;
+}
+
+function sameDraft(a: { draftM: number; draftAssumed: boolean }, b: { draftM: number; draftAssumed: boolean }) {
+    return a.draftAssumed === b.draftAssumed && Math.abs(a.draftM - b.draftM) <= 0.01;
+}
+
+function checkAged(checkedAt: string, nowMs: number): boolean {
+    const checkedMs = Date.parse(checkedAt);
+    return !Number.isFinite(checkedMs) || nowMs - checkedMs > FOLLOW_MAX_AGE_MS || checkedMs - nowMs > 5 * 60_000;
+}
+
+const OUTCOME_COPY: Record<'unavailable' | 'nochart' | 'tide', string> = {
+    unavailable: 'Couldn’t check: no connection. Will try again.',
+    nochart: 'Couldn’t check: no ENC chart for part of it',
+    tide: 'Couldn’t check: tide data unavailable. Check the tide before you go.',
+};
+
 /**
- * FOLLOW-mode gate — deliberately gentler than Cast Off (Shane 2026-08-10:
- * "once a punter accepts certain issues with routes then they are good to
- * go"). Cast Off is a publication event with tide-window and departure
- * commitments; following a saved line from the Log is re-sailing a track the
- * skipper already checked and accepted. So this keeps only the blocks that
- * make the acceptance itself void:
+ * FOLLOW status — a warning, not a wall (build 124; Shane 2026-10-08: "maybe
+ * just a warning rather than having to almost start again"). Following a
+ * saved line is re-sailing it, so this never hard-stops on a MISSING check —
+ * which is what every lost check (reinstall, second phone, the 50-route cap,
+ * a sync race) used to turn into.
  *
- *  - no valid check for the exact waypoints being steered — the acceptance
- *    was for a different line;
- *  - the vessel draft changed since the check — a deeper keel voids every
- *    depth verdict the acceptance rested on;
- *  - the check is older than 30 days — charts and accepted risk both age.
+ *  - checked (green): a valid envelope for these exact pins, the same keel
+ *    (0.01 m), at most 30 days old. danger-acknowledged counts: the skipper
+ *    already accepted those legs.
+ *  - unchecked (amber, followable): no envelope or other pins, a changed or
+ *    assumed draft, an old check, or a check that could not run.
+ *  - finding (red): ONLY a stored record of a real check of the SAME pins at
+ *    the SAME draft that found danger legs nobody acknowledged, newer than
+ *    any envelope. Callers make following it a deliberate second tap.
  *
- * Dropped relative to Cast Off, on purpose: ENC-library-changed, the 48 h
- * tide-tightened staleness, the ±6 h tide-departure window, and the
- * assumed-draft hard stop (an assumed draft was visible at save time; the
- * skipper accepted it). Land can never reach here at all —
- * evaluateTraceRelease refuses to save a land-crossing route outright.
+ * Cast Off keeps its own, stricter advisory (traceCastOffBlockReason).
  */
+export function traceFollowStatus(
+    value: unknown,
+    points: readonly TracePoint[] | undefined,
+    context: TraceFollowContext,
+    outcome?: TraceCheckOutcomeRecord | null,
+): TraceFollowStatus {
+    const verification = normaliseTraceVerification(value, points);
+    const key = points ? traceGeometryKey(points) : '';
+    const record = outcome && key && outcome.geometryKey === key && sameDraft(outcome, context) ? outcome : null;
+    const newerThanCheck = (at: string) => !verification || Date.parse(at) > Date.parse(verification.checkedAt);
+
+    if (record?.kind === 'finding' && record.legs?.length && newerThanCheck(record.at)) {
+        const [first, ...rest] = record.legs;
+        return {
+            tone: 'finding',
+            code: 'finding',
+            reason: `Pins ${first.from}→${first.to}: ${first.message}${rest.length ? ` and ${rest.length} more` : ''}`,
+        };
+    }
+    const checkedAt = verification ? { checkedAt: verification.checkedAt } : {};
+    if (
+        verification &&
+        !context.draftAssumed &&
+        sameDraft(verification, context) &&
+        !checkAged(verification.checkedAt, context.nowMs)
+    ) {
+        return { tone: 'checked', code: 'ok', reason: null, ...checkedAt };
+    }
+    if (context.draftAssumed) {
+        return { tone: 'unchecked', code: 'nodraft', reason: 'Set your draft so this can be checked', ...checkedAt };
+    }
+    if (record && record.kind !== 'finding' && newerThanCheck(record.at)) {
+        return { tone: 'unchecked', code: record.kind, reason: OUTCOME_COPY[record.kind], ...checkedAt };
+    }
+    if (verification && !sameDraft(verification, context)) {
+        return {
+            tone: 'unchecked',
+            code: 'draft',
+            reason: verification.draftAssumed
+                ? 'Checked before your draft was set'
+                : `Checked at ${verification.draftM.toFixed(2)} m draft, now ${context.draftM.toFixed(2)} m`,
+            ...checkedAt,
+        };
+    }
+    if (verification) {
+        return {
+            tone: 'unchecked',
+            code: 'aged',
+            reason: `Last checked ${traceCheckDayLabel(verification.checkedAt)}`,
+            ...checkedAt,
+        };
+    }
+    return { tone: 'unchecked', code: 'none', reason: 'Not checked yet' };
+}
+
+/** Kept so older callers compile: a reason ONLY for a red finding. */
 export function traceFollowBlockReason(
     value: unknown,
     points: readonly TracePoint[] | undefined,
     context: TraceFollowContext,
+    outcome?: TraceCheckOutcomeRecord | null,
 ): string | null {
-    const verification = normaliseTraceVerification(value, points);
-    if (!verification)
-        return 'This traced route has no valid check for its current waypoints. Open Route Tracer and check it again.';
-    if (verification.draftAssumed !== context.draftAssumed || Math.abs(verification.draftM - context.draftM) > 0.01) {
-        return 'Your vessel draft has changed since this route was checked. Recheck it in Route Tracer.';
+    const status = traceFollowStatus(value, points, context, outcome);
+    return status.tone === 'finding' ? status.reason : null;
+}
+
+/**
+ * The tracer's auto-bank (build 124, B5): with the release gate allowing and
+ * the line on screen exactly a stored route, bank the check without Save —
+ * when the stored check is missing or at another draft, or the skipper has
+ * just acknowledged legs. Returns the write's signature (id | geometry |
+ * draft | acks) or null when nothing may be banked.
+ *
+ * NEVER for a merely aged (>30 d) envelope: the tracer's verdicts can be
+ * hydrated from the leg cache, which has no time in its key, so re-stamping
+ * from them would launder a stale clearance into a fresh one. Aged checks are
+ * refreshed only by the cold background re-check (traceBackgroundCheck).
+ *
+ * NEVER for verdicts graded for other pins or another keel. MapHub's release
+ * gate is memoised on the pins and the vessel but reads legVerdicts, which the
+ * grading pass replaces a render LATER — so the first render after a route
+ * load or a draft edit pairs the new line (or keel) with the old verdicts and
+ * can say "allowed". `graded` is the identity of the pass that produced the
+ * verdicts in hand (useTracerGrading's tracerGradingMatches); without it,
+ * nothing banks.
+ */
+export function traceAutoBankSignature(
+    stored: { id: string; verification?: TraceVerification } | undefined,
+    release: TraceReleaseGate,
+    context: TraceFollowContext,
+    ackedLegs: ReadonlySet<number>,
+    graded: { geometryKey: string; draftM: number; draftAssumed: boolean } | null,
+): string | null {
+    if (!stored || !release.allowed || !release.verification || !graded) return null;
+    if (graded.geometryKey !== release.verification.geometryKey) return null;
+    if (!sameDraft(graded, context) || !sameDraft(release.verification, context)) return null;
+    const prior = stored.verification;
+    if (prior) {
+        if (checkAged(prior.checkedAt, context.nowMs)) return null;
+        if (sameDraft(prior, context) && ackedLegs.size === 0) return null;
     }
-    const checkedMs = Date.parse(verification.checkedAt);
-    if (
-        !Number.isFinite(checkedMs) ||
-        context.nowMs - checkedMs > 30 * 24 * 3_600_000 ||
-        checkedMs - context.nowMs > 5 * 60_000
-    ) {
-        return 'This route check is over a month old. Recheck it in Route Tracer before following it.';
-    }
-    return null;
+    const acks = [...ackedLegs].sort((a, b) => a - b).join(',');
+    return `${stored.id}|${release.verification.geometryKey}|${context.draftM}|${context.draftAssumed}|${acks}`;
 }
 
 export function traceVerificationSummary(verification: TraceVerification): string {

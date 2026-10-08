@@ -29,6 +29,7 @@
  */
 
 import { getAuthIdentityScope, isAuthIdentityScopeCurrent } from './authIdentityScope';
+import type { TraceFollowCode } from './traceVerification';
 
 export type CastOffGpsState = 'starting' | 'failed' | 'confirmed';
 
@@ -46,6 +47,9 @@ export interface CastOffHandoff {
     retryCount: number;
     /** Why the route line is NOT armed (null = armed or not yet known). */
     followNote: string | null;
+    /** The line IS armed, but its check is missing (amber) or found something
+     *  (red) — Cast Off is advisory, so it follows and says so (build 124). */
+    followCaution?: { tone: 'unchecked' | 'finding'; text: string; code?: TraceFollowCode } | null;
     /** What happened to the public-page publish. */
     publishState: 'pending' | 'private' | 'linked' | 'queued' | 'skipped' | 'failed';
     /** Show the passage's route on the public page once GPS confirms —
@@ -486,8 +490,13 @@ async function runEnsureActiveVoyageLogging(voyage: {
             ]);
             const follow = useFollowRouteStore.getState();
             if (!follow.isFollowing || follow.voyageId !== voyage.id) {
-                const reason = await followCastOffRoute(voyage.id, savedRouteId, publishRoute, voyage.voyage_name);
-                updateCastOffHandoff({ followNote: reason });
+                const { note, caution } = await followCastOffRoute(
+                    voyage.id,
+                    savedRouteId,
+                    publishRoute,
+                    voyage.voyage_name,
+                );
+                updateCastOffHandoff({ followNote: note, followCaution: caution });
             }
         } catch {
             /* the follow surface reports through the handoff card */

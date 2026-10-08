@@ -469,7 +469,13 @@ const App: React.FC = () => {
         const run = () => {
             if (synced) return;
             synced = true;
-            void import('./services/savedRoutesSync').then(({ syncSavedRoutes }) => syncSavedRoutes()).catch(() => {});
+            // Then recover any passage leg's check from its server mirror —
+            // one query, no grading (build 124: lost checks went amber).
+            void import('./services/savedRoutesSync')
+                .then(({ syncSavedRoutes }) => syncSavedRoutes())
+                .then(() => import('./services/traceCheckRecovery'))
+                .then(({ recoverTraceChecks }) => recoverTraceChecks())
+                .catch(() => {});
         };
         if (useAuthStore.getState().user) run();
         const unsub = useAuthStore.subscribe((s) => {

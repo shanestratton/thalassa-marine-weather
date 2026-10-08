@@ -210,7 +210,6 @@ export async function pushSavedRouteDelete(
 export async function syncSavedRoutes(): Promise<SavedTrace[]> {
     const scope = getAuthIdentityScope();
     const local = loadSavedTraces(scope);
-    const localTombstones = getSavedTraceTombstones(scope);
     if (!scope.userId) return local;
     if (!(await signedIn(scope))) {
         return isAuthIdentityScopeCurrent(scope) ? local : loadSavedTraces();
@@ -233,9 +232,16 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         if (!isAuthIdentityScopeCurrent(scope)) return loadSavedTraces();
         if (error) throw new Error(error.message);
         const rows = data ?? [];
-        const localById = new Map(local.map((trace) => [trace.id, trace]));
+        // Re-read AFTER the fetch (build 124). The pre-fetch snapshot is stale
+        // by now: a route check banked while the request was in flight (the
+        // Log's acknowledgement, the background re-check) would otherwise be
+        // overwritten by writeLocal below. Everything from here to that write
+        // is synchronous, so nothing can land in between.
+        const fresh = loadSavedTraces(scope);
+        const freshTombstones = getSavedTraceTombstones(scope);
+        const localById = new Map(fresh.map((trace) => [trace.id, trace]));
         const deletedIds = new Set(rows.filter((r) => r.deleted).map((r) => r.id as string));
-        const allDeletedIds = new Set([...deletedIds, ...Object.keys(localTombstones)]);
+        const allDeletedIds = new Set([...deletedIds, ...Object.keys(freshTombstones)]);
         const remote: SavedTrace[] = rows
             .filter((r) => !r.deleted && !allDeletedIds.has(r.id as string) && Array.isArray(r.points))
             .map((r) => {
@@ -290,11 +296,11 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
             .filter((t): t is SavedTrace => t !== null);
         const remoteById = new Map(remote.map((t) => [t.id, t]));
         const stamp = (t: SavedTrace): number => new Date(t.updatedAt ?? t.createdAt).getTime();
-        const localOnly = local.filter((t) => !remoteById.has(t.id) && !allDeletedIds.has(t.id));
+        const localOnly = fresh.filter((t) => !remoteById.has(t.id) && !allDeletedIds.has(t.id));
         // Local overwrites that haven't reached the account yet (offline
         // save): same id, newer stamp — keep the local copy and push it up,
         // or this merge would silently revert the punter's edit.
-        const localNewer = local.filter((t) => {
+        const localNewer = fresh.filter((t) => {
             const r = remoteById.get(t.id);
             return !!r && !allDeletedIds.has(t.id) && stamp(t) > stamp(r);
         });
@@ -302,7 +308,7 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         for (const t of [...localOnly, ...localNewer]) void pushSavedRoute(t, scope);
         // A local deletion must win over an in-flight older cloud save. Keep
         // retrying its tombstone until a later pull actually observes it.
-        for (const [id, tombstone] of Object.entries(localTombstones)) {
+        for (const [id, tombstone] of Object.entries(freshTombstones)) {
             if (!deletedIds.has(id)) void pushSavedRouteDelete(id, scope, tombstone.deletedAt);
             // An offline delete may have been able to tombstone the canonical
             // trace before its Log/Passage mirrors were reachable. Retry the
@@ -337,7 +343,7 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
         // as soon as Supabase has acknowledged their tombstone.
         clearSyncedSavedTraceTombstones(
             [...deletedIds].filter((id) => {
-                const tombstone = localTombstones[id];
+                const tombstone = freshTombstones[id];
                 return !tombstone?.plannedRouteId && !tombstone?.passageVoyageId;
             }),
             scope,
@@ -370,7 +376,7 @@ export async function syncSavedRoutes(): Promise<SavedTrace[]> {
                 )
                 .sort()
                 .join('|');
-        if (isAuthIdentityScopeCurrent(scope) && signature(local) !== signature(repaired.traces)) {
+        if (isAuthIdentityScopeCurrent(scope) && signature(fresh) !== signature(repaired.traces)) {
             notifySavedRoutesChanged(scope);
         }
         return isAuthIdentityScopeCurrent(scope) ? repaired.traces : loadSavedTraces();
