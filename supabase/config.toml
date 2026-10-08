@@ -96,12 +96,6 @@ verify_jwt = false
 # error. Do not restore service-role route lookup for the public beta.
 verify_jwt = false
 
-[functions.proxy-himawari-ir]
-# Satellite tile proxy. Tile URLs are consumed by the map's raster source,
-# which cannot attach an Authorization header, so verification is impossible
-# rather than merely undesirable.
-verify_jwt = false
-
 [functions.proxy-rainbow]
 # Rainbow.ai proxy (Glass radar card + RainForecastCard). Matches deployed
 # reality as of 2026-08-04: credentialless requests reach the function (the
@@ -208,11 +202,6 @@ verify_jwt = false
 # the function. OFF per platform guidance.
 verify_jwt = false
 
-[functions.autorouting-trial]
-# requireAuthenticatedQuota verifies a real session; a server-only UUID grant,
-# explicit kill switch and hard expiry gate every evaluation provider request.
-verify_jwt = false
-
 [functions.founding-skipper-application]
 # Public application form. The function enforces exact-origin CORS, a bounded
 # body, strict validation, an HMAC-per-IP quota, and a service-role-only RPC.
@@ -254,11 +243,6 @@ verify_jwt = false
 [functions.fetch-gfs-tracker]
 # CycloneTrackingService calls this with a bare fetch(url) and the function
 # enforces a per-client public quota. Public cyclone positions, not sensitive.
-verify_jwt = false
-
-[functions.satellite-tile]
-# Mapbox raster source URL: the map engine fetches tiles itself and cannot
-# attach Authorization. Per-client public quota inside the function.
 verify_jwt = false
 
 [functions.send-anchor-alarm]
