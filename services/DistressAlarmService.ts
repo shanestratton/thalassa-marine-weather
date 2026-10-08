@@ -96,9 +96,9 @@ export function collectDistressBeacons({ own, ownMmsis, internet, nowMs }: Distr
         const positioned = !!target && validPosition(target.lat, target.lon);
         const text = texts.get(mmsi);
         // A beacon heard before its GNSS fix reports its status with no
-        // position (the decoder keeps it): that status counts. Without a
-        // position, 15 does not: it is also what the store gives a target it
-        // only knows from a static message, which is no status at all.
+        // position (the decoder and the Pi lane keep it): 14 counts. Without
+        // a position, 15 does not: an unfixed beacon in test stays a caution
+        // until its fix arrives. A status nobody reported is null (125-10b).
         const status = target && (positioned || target.navStatus !== 15) ? target.navStatus : null;
         const c = classifyDistress({
             mmsi,

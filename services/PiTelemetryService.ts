@@ -34,7 +34,7 @@ import { piCache } from './PiCacheService';
 import { snapshotFromWire, wireNumber } from './telemetryWire';
 import type { AisTarget } from '../types/navigation';
 import { createLogger } from '../utils/createLogger';
-import { AIS_COG_NOT_AVAILABLE, AIS_SOG_NOT_AVAILABLE } from '../utils/collisionRule';
+import { AIS_COG_NOT_AVAILABLE, AIS_SOG_NOT_AVAILABLE, aisTargetIsDistressBeacon } from '../utils/collisionRule';
 
 const log = createLogger('PiTelemetry');
 
@@ -98,34 +98,62 @@ export function seenAtWire(raw: unknown): string | null {
     return ipv4Field(raw, 'seen_at');
 }
 
-/** One AIS target off the wire (pi-cache/src/lanTelemetry.ts AisTargetWire), or null when it is not one. */
-export function aisTargetFromWire(raw: unknown): AisTarget | null {
+/**
+ * One AIS target off the Pi's wire (pi-cache/src/lanTelemetry.ts
+ * AisTargetWire). Position fields are absent for a distress beacon heard
+ * before its GNSS fix, so the store keeps whatever position it last heard.
+ */
+export type PiAisTarget = Omit<AisTarget, 'lat' | 'lon'> & Partial<Pick<AisTarget, 'lat' | 'lon'>>;
+
+/** An ITU nav status (0-15), or null for none or anything else. */
+function wireNavStatus(value: unknown): number | null {
+    const n = wireNumber(value);
+    return n !== null && Number.isInteger(n) && n >= 0 && n <= 15 ? n : null;
+}
+
+/**
+ * One AIS target off the wire, or null when it is not one. What the Pi does
+ * not know stays unknown (build 125, 125-01 and 125-10b): a missing course or
+ * speed is ITU 'not available' (360 / 102.3), never 0, and a missing nav
+ * status is null, never 15 (on a 97x MMSI, 15 is a beacon's TEST). A target
+ * with no usable position is kept only when it is a distress beacon (a 97x
+ * MMSI or status 14): it alarms as 'Position not yet received'.
+ */
+export function aisTargetFromWire(raw: unknown): PiAisTarget | null {
     if (typeof raw !== 'object' || raw === null) return null;
     const r = raw as Record<string, unknown>;
     const mmsi = wireNumber(r.mmsi);
     const lat = wireNumber(r.lat);
     const lon = wireNumber(r.lon);
     const lastUpdated = wireNumber(r.lastUpdated);
-    if (mmsi === null || !Number.isInteger(mmsi) || lat === null || lon === null || lastUpdated === null) return null;
-    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    if (mmsi === null || !Number.isInteger(mmsi) || lastUpdated === null) return null;
+    const navStatus = wireNavStatus(r.navStatus);
+    const positioned = lat !== null && lon !== null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+    if (!positioned && !aisTargetIsDistressBeacon(mmsi, navStatus)) return null;
     return {
         mmsi,
-        lat,
-        lon,
+        ...(positioned ? { lat, lon } : {}),
         lastUpdated,
         name: typeof r.name === 'string' ? r.name : '',
-        // Missing is 'not available' (ITU 360 / 102.3), never 0 (build 125, 125-01).
-        // The Pi's serialiser (pi-cache/src/lanTelemetry.ts) still sends a missing
-        // Signal K course or speed as 0 until its 126-04 update, so on that lane
-        // this guard does not yet catch them.
         cog: wireNumber(r.cog) ?? AIS_COG_NOT_AVAILABLE,
         sog: wireNumber(r.sog) ?? AIS_SOG_NOT_AVAILABLE,
         heading: wireNumber(r.heading) ?? 511,
-        navStatus: wireNumber(r.navStatus) ?? 15,
+        navStatus,
         shipType: wireNumber(r.shipType) ?? 0,
         callSign: typeof r.callSign === 'string' ? r.callSign : '',
         destination: typeof r.destination === 'string' ? r.destination : '',
     };
+}
+
+/** A message 14 text riding on a wire target (newer Pis, N2K-fed Signal K), or null. */
+export function aisSafetyTextFromWire(raw: unknown): { mmsi: number; text: string; at: number } | null {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const r = raw as Record<string, unknown>;
+    const mmsi = wireNumber(r.mmsi);
+    const at = wireNumber(r.safetyTextAt);
+    const text = typeof r.safetyText === 'string' ? r.safetyText.trim() : '';
+    if (mmsi === null || !Number.isInteger(mmsi) || at === null || !text) return null;
+    return { mmsi, text, at };
 }
 
 class PiTelemetryServiceClass {
@@ -332,8 +360,17 @@ class PiTelemetryServiceClass {
         let accepted = 0;
         for (const item of raw) {
             const target = aisTargetFromWire(item);
-            if (!target) continue;
-            AisStore.update(target);
+            const safety = aisSafetyTextFromWire(item);
+            if (!target && !safety) continue;
+            if (target) AisStore.update(target);
+            // A message 14 text, as the store keeps one heard off the radio:
+            // against the MMSI, apart from the target. Only a new one is news.
+            if (safety) {
+                const held = AisStore.getSafetyText(safety.mmsi);
+                if (!held || held.text !== safety.text || held.at !== Math.min(Date.now(), safety.at)) {
+                    AisStore.update({ mmsi: safety.mmsi, safetyText: safety.text, lastUpdated: safety.at });
+                }
+            }
             accepted += 1;
             if (accepted >= PI_TELEMETRY_AIS_CAP) break;
         }

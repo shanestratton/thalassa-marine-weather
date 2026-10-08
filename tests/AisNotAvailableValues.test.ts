@@ -9,10 +9,9 @@
  * side of every path the guard reads: the receiver decoder, the store's
  * defaults, the Pi relay's parser and the internet feed.
  *
- * NOT YET THE PI LANE END TO END: the Pi's own serialiser
- * (pi-cache/src/lanTelemetry.ts) still sends a missing Signal K course or
- * speed as 0, which this parser cannot tell from a real 0. That is a Pi
- * change, queued with the Pi copy of the rule (126-04).
+ * The Pi lane end to end (the Pi's own serialiser, pi-cache/src/lanTelemetry.ts,
+ * sends a missing Signal K course or speed as null since 125-10b) is pinned in
+ * tests/PiLaneAisTruth.test.ts.
  *
  * Fictional MMSIs only (MID 123 is unallocated): this repository is public.
  */
@@ -88,7 +87,7 @@ describe('AisStore never invents a zero speed or course', () => {
     });
 });
 
-describe("the Pi relay (the phone's parser only; see the note at the top)", () => {
+describe("the Pi relay (the phone's parser; the whole lane is in PiLaneAisTruth.test.ts)", () => {
     it('keeps a missing course and speed unknown rather than 0', () => {
         const target = aisTargetFromWire({ mmsi: 123450002, lat: 37, lon: -76.1, lastUpdated: 1 })!;
         expect(aisSogKn(target.sog)).toBeNull();
