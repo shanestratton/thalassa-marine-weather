@@ -10,6 +10,9 @@
  * Sync: single source of truth is an account-scoped sessionStorage departure
  * (the tracer reads it on mount) + an identity-tagged window event so an
  * already-mounted MapHub re-anchors its tide windows / weather ETAs live.
+ * Both live in services/planDeparture.ts since build 124, and this card
+ * listens for the event too: Plan Your Day's "Plot on chart" sets the time
+ * from somewhere else, and the card must show it.
  */
 import React from 'react';
 import { triggerHaptic } from '../../utils/system';
@@ -17,29 +20,22 @@ import { ClockIcon } from '../Icons';
 import { daylightUiColor } from '../../utils/daylightUiColor';
 import { TimePicker24, localDateStr } from './TimePicker24';
 import {
-    authScopedStorageKey,
     getAuthIdentityScope,
     isAuthIdentityScopeCurrent,
     subscribeAuthIdentityScope,
     type AuthIdentityScope,
 } from '../../services/authIdentityScope';
+import {
+    PLAN_DEPARTURE_EVENT,
+    planDepartureFromEvent,
+    readPlanDeparture,
+    setPlanDeparture,
+} from '../../services/planDeparture';
 
-const STORAGE_KEY = 'thalassa_trace_departure_ms';
 const subscribeIdentity = (notify: () => void): (() => void) => subscribeAuthIdentityScope(() => notify());
 
 function sameScope(left: AuthIdentityScope, right: AuthIdentityScope): boolean {
     return left.key === right.key && left.generation === right.generation;
-}
-
-function readDeparture(scope: AuthIdentityScope): number | null {
-    try {
-        const scoped = sessionStorage.getItem(authScopedStorageKey(STORAGE_KEY, scope));
-        const raw = scoped ?? (scope.userId ? null : sessionStorage.getItem(STORAGE_KEY));
-        const value = raw ? Number(raw) : Number.NaN;
-        return Number.isFinite(value) && value > Date.now() - 3_600_000 ? value : null;
-    } catch {
-        return null;
-    }
 }
 
 const msToLocal = (ms: number): string => {
@@ -50,7 +46,7 @@ const msToLocal = (ms: number): string => {
 
 export const DepartControl: React.FC = () => {
     const identityScope = React.useSyncExternalStore(subscribeIdentity, getAuthIdentityScope, getAuthIdentityScope);
-    const hydratedDeparture = React.useMemo(() => readDeparture(identityScope), [identityScope]);
+    const hydratedDeparture = React.useMemo(() => readPlanDeparture(identityScope), [identityScope]);
     const [storedDeparture, setStoredDeparture] = React.useState(() => ({
         scope: identityScope,
         value: hydratedDeparture,
@@ -63,26 +59,24 @@ export const DepartControl: React.FC = () => {
         );
     }, [hydratedDeparture, identityScope]);
 
+    // A departure set elsewhere (Plan Your Day's "Plot on chart") arrives as
+    // the same identity-tagged event this card sends; another account's is
+    // ignored.
+    React.useEffect(() => {
+        const onDeparture = (event: Event) => {
+            const scope = getAuthIdentityScope();
+            const next = planDepartureFromEvent(event, scope);
+            if (next) setStoredDeparture({ scope, value: next.ms });
+        };
+        window.addEventListener(PLAN_DEPARTURE_EVENT, onDeparture);
+        return () => window.removeEventListener(PLAN_DEPARTURE_EVENT, onDeparture);
+    }, []);
+
     const setDeparture = (ms: number | null): void => {
         const scope = identityScope;
         if (!isAuthIdentityScopeCurrent(scope)) return;
         setStoredDeparture({ scope, value: ms });
-        try {
-            const key = authScopedStorageKey(STORAGE_KEY, scope);
-            if (ms === null) sessionStorage.removeItem(key);
-            else sessionStorage.setItem(key, String(ms));
-        } catch {
-            /* private mode — MapHub still hears the event below */
-        }
-        try {
-            window.dispatchEvent(
-                new CustomEvent('thalassa:departure-changed', {
-                    detail: { ms, scopeKey: scope.key, scopeGeneration: scope.generation },
-                }),
-            );
-        } catch {
-            /* sessionStorage alone covers the next mount */
-        }
+        setPlanDeparture(ms, scope);
     };
 
     const dateStr = departureMs !== null ? msToLocal(departureMs).slice(0, 10) : '';
