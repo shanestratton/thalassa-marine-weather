@@ -12,6 +12,14 @@ export const AIS_TYPE_PALETTE = {
 
 /** Outside every type bucket: an unsafe navigation status overrides type. */
 export const AIS_DANGER_COLOR = '#f5009b';
+/**
+ * Distress beacons (build 125, 125-02), drawn as the IEC 62288 AIS-SART
+ * circle-and-cross: red when active, green when a test, amber when a beacon's
+ * MMSI reports neither.
+ */
+export const AIS_DISTRESS_COLOR = '#ff1a1a';
+export const AIS_DISTRESS_TEST_COLOR = '#22c55e';
+export const AIS_DISTRESS_CAUTION_COLOR = '#f59e0b';
 export const AIS_LEGEND_ITEMS = [
     ...Object.values(AIS_TYPE_PALETTE),
     { color: AIS_DANGER_COLOR, label: 'NUC / restricted / draught / aground' },

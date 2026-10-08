@@ -39,6 +39,16 @@
  * inputs are read, so the chip and Calypso grade with exactly what the alarm
  * does. A shield armed before build 125 keeps its ring but waits for the
  * collision sound check before it sounds.
+ *
+ * DISTRESS BEACONS (build 125, 125-02) are watched on the same loop but not
+ * behind the shield: runDistressCheck runs whether or not the guard is armed,
+ * once per burst of AIS reports (a microtask after the first; the Pi lane
+ * sends up to 300 at once) and on every tick. A beacon's MMSI (970/972/974)
+ * is graded by the distress rule, never the collision rule or the ring, so
+ * steering to a SART never sounds close quarters on it. A ship with an
+ * ordinary MMSI reporting status 14 is carded as distress AND still graded
+ * for collision: it may be a ship with her status misset, and her CPA still
+ * matters.
  */
 import { AisGuardZone } from './AisGuardZone';
 import { AisStore } from './AisStore';
@@ -55,11 +65,13 @@ import {
     assessCollision,
     collisionOpening,
     collisionSourceCanAlarm,
+    distressKindOfMmsi,
     ownMotionState,
     sanitiseCollisionPrefs,
     type CollisionPrefs,
 } from '../utils/collisionRule';
 import { CollisionAlarmService, type CollisionAlarmCandidate } from './CollisionAlarmService';
+import { DistressAlarmService, collectDistressBeacons } from './DistressAlarmService';
 
 const log = createLogger('AisGuardWatch');
 
@@ -144,6 +156,8 @@ export function gradeCollisionTargets(
         const mmsi = Number(p.mmsi);
         const coords = (f.geometry as GeoJSON.Point | undefined)?.coordinates;
         if (!Number.isFinite(mmsi) || mmsi <= 0 || isOwn(mmsi) || !coords) continue;
+        // A beacon's MMSI is the distress alarm's (125-02), never a collision target.
+        if (distressKindOfMmsi(mmsi) !== null) continue;
         const source = typeof p.source === 'string' ? p.source : null;
         if (!collisionSourceCanAlarm(source)) continue;
         const age = reportAgeSec(p, nowMs);
@@ -257,11 +271,12 @@ export function runGuardCheck(nowMs: number = Date.now()): number {
         CollisionAlarmService.unchecked(nowMs);
     }
 
-    // The ring never alarms on our own transponder either, typed or heard.
-    const ringFeatures =
-        inputs.ownMmsis.size === 0
-            ? features
-            : features.filter((f) => !inputs.ownMmsis.has(Number(f.properties?.mmsi)));
+    // The ring never alarms on our own transponder either, typed or heard, nor
+    // on a beacon's MMSI: that is the distress alarm's card (125-02).
+    const ringFeatures = features.filter((f) => {
+        const mmsi = Number(f.properties?.mmsi);
+        return !inputs.ownMmsis.has(mmsi) && distressKindOfMmsi(mmsi) === null;
+    });
     const alerts = AisGuardZone.checkFeatures(own.lat, own.lon, ringFeatures, ownVesselMmsi());
     if (alerts.length > 0) {
         triggerHaptic('heavy');
@@ -272,6 +287,55 @@ export function runGuardCheck(nowMs: number = Date.now()): number {
         }
     }
     return alerts.length;
+}
+
+/**
+ * One pass of the distress watch (125-02): every beacon her own radio heard,
+ * and the internet's, classified and handed to the distress alarm. Runs
+ * whether or not the guard shield is armed. Exported for tests.
+ */
+export function runDistressCheck(nowMs: number = Date.now()): void {
+    const own = resolveOwnshipPosition(NmeaStore.getState(), LocationStore.getState(), nowMs);
+    DistressAlarmService.update(
+        collectDistressBeacons({
+            own: own ? { lat: own.lat, lon: own.lon } : null,
+            ownMmsis: ownMmsis(),
+            internet: nowMs - internetFeaturesAt <= INTERNET_FEED_TTL_MS ? internetFeatures : [],
+            nowMs,
+        }),
+        nowMs,
+    );
+}
+
+function distressPass(why: string): void {
+    try {
+        runDistressCheck();
+    } catch (error) {
+        log.warn(`distress check failed on ${why}:`, error);
+    }
+}
+
+function guardPass(why: string): void {
+    try {
+        runGuardCheck();
+    } catch (error) {
+        log.warn(`guard check failed on ${why}:`, error);
+    }
+}
+
+/**
+ * The distress pass scans every target and internet feature, armed or not,
+ * so a burst of reports (the Pi lane's poll calls AisStore.update once per
+ * target) gets one pass, a microtask after its first report, not one each.
+ */
+let distressQueued = false;
+function queueDistressPass(): void {
+    if (distressQueued) return;
+    distressQueued = true;
+    queueMicrotask(() => {
+        distressQueued = false;
+        if (unsubscribeStore) distressPass('AIS update');
+    });
 }
 
 /**
@@ -291,19 +355,13 @@ export function startAisGuardWatch(): () => void {
     // Receiver updates drive it, so a target entering the ring is caught on
     // arrival rather than up to TICK_MS later.
     unsubscribeStore = AisStore.subscribe(() => {
-        try {
-            runGuardCheck();
-        } catch (error) {
-            log.warn('guard check failed on AIS update:', error);
-        }
+        queueDistressPass();
+        guardPass('AIS update');
     });
 
     timer = setInterval(() => {
-        try {
-            runGuardCheck();
-        } catch (error) {
-            log.warn('guard check failed on tick:', error);
-        }
+        distressPass('tick');
+        guardPass('tick');
     }, TICK_MS);
 
     log.info('collision guard watch started — independent of chart layer visibility');

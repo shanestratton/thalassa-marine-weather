@@ -25,11 +25,26 @@ import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { canAccess } from '../../services/SubscriptionService';
 import { resolveOwnshipPosition } from '../../services/ownshipPosition';
-import { aisCogDeg, aisHeadingDeg, aisSogKn } from '../../utils/collisionRule';
+import {
+    aisCogDeg,
+    aisHeadingDeg,
+    aisSogKn,
+    aisTargetIsDistressBeacon,
+    classifyDistress,
+    distressTextSignal,
+    type DistressKind,
+    type DistressState,
+} from '../../utils/collisionRule';
 import { satelliteModeBlocks } from '../../services/networkPolicy';
 import { publishInternetAisFeatures, readCollisionInputs } from '../../services/AisGuardWatch';
 import { calculateDistance, destinationPoint } from '../../utils/navigationCalculations';
-import { AIS_DANGER_COLOR, typeBucketColor } from './aisPresentationPalette';
+import {
+    AIS_DANGER_COLOR,
+    AIS_DISTRESS_CAUTION_COLOR,
+    AIS_DISTRESS_COLOR,
+    AIS_DISTRESS_TEST_COLOR,
+    typeBucketColor,
+} from './aisPresentationPalette';
 
 // Preserve the public helper exports used by callers and regression tests.
 export { AIS_DANGER_COLOR, typeBucketColor } from './aisPresentationPalette';
@@ -605,6 +620,7 @@ function clipFeaturesToView(map: mapboxgl.Map, features: GeoJSON.Feature[]): Geo
         const c = (f.geometry as GeoJSON.Point | undefined)?.coordinates;
         const coordinates = normaliseAisCoordinates(c);
         if (!coordinates) return false;
+        if (distressFeatureNeverHidden(f.properties ?? {})) return true;
         const [lon, lat] = coordinates;
         return longitudeWithinPaddedBounds(lon, w, e) && lat >= minLat && lat <= maxLat;
     });
@@ -614,8 +630,68 @@ function clipFeaturesToView(map: mapboxgl.Map, features: GeoJSON.Feature[]): Geo
 /** Nav statuses that make a vessel a HAZARD regardless of what it is:
  *  2 not-under-command, 3 restricted manoeuvrability, 4 constrained by
  *  draught, 6 AGROUND (dropped from the first cut — the very state a
- *  skipper most needs to see). Moored/anchored are not hazards. */
-const DANGER_NAV_STATUS = new Set([2, 3, 4, 6]);
+ *  skipper most needs to see), 14 AIS-SART / MOB / EPIRB ACTIVE (build 125,
+ *  125-02: drawn as the beacon symbol, see targetPresentation).
+ *  Moored/anchored are not hazards. */
+export const DANGER_NAV_STATUS: ReadonlySet<number> = new Set([2, 3, 4, 6, 14]);
+
+/**
+ * THE RULE FOR EVERY DISPLAY FILTER (build 125, 125-02; 128-02's filters
+ * included): a distress beacon is never hidden. A 970/972/974 MMSI, status 14
+ * or a beacon's own message 14 text passes any filter, the viewport clip too.
+ */
+export function distressFeatureNeverHidden(p: Record<string, unknown>): boolean {
+    return (
+        aisTargetIsDistressBeacon(p.mmsi, p.navStatus ?? p.nav_status) ||
+        distressTextSignal(p.safetyText, p.mmsi) !== null
+    );
+}
+
+const DISTRESS_SHORT: Record<DistressKind, string> = { sart: 'SART', mob: 'MOB', epirb: 'EPIRB' };
+const DISTRESS_STATE_WORD: Record<DistressState, string> = { active: ' ACTIVE', test: ' TEST', caution: ': UNCLEAR' };
+const DISTRESS_SYMBOL_COLOR: Record<DistressState, string> = {
+    active: AIS_DISTRESS_COLOR,
+    test: AIS_DISTRESS_TEST_COLOR,
+    caution: AIS_DISTRESS_CAUTION_COLOR,
+};
+
+/** '· 12 min', '· 1 h 15 min'; nothing under a minute. */
+function distressAgeSuffix(staleMinutes: number | null): string {
+    if (staleMinutes === null || staleMinutes < 1) return '';
+    const min = Math.round(staleMinutes);
+    return min < 60 ? ` · ${min} min` : ` · ${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+/** A beacon on the chart: the circle-and-cross in its state's colour, upright, labelled with its age. */
+function distressPresentation(
+    p: Record<string, unknown>,
+): { typeColor: string; iconKind: 'sart'; orientation: number; distressLabel: string } | null {
+    if (!distressFeatureNeverHidden(p)) return null;
+    const reportedAt =
+        typeof p.lastUpdated === 'number'
+            ? p.lastUpdated
+            : typeof p.updatedAt === 'string'
+              ? Date.parse(p.updatedAt)
+              : null;
+    const status = finiteAisDisplayNumber(p.navStatus ?? p.nav_status);
+    const c = classifyDistress({
+        mmsi: Number(p.mmsi),
+        navStatus: status,
+        navStatusAt: reportedAt,
+        safetyText: typeof p.safetyText === 'string' ? p.safetyText : null,
+        safetyTextAt: finiteAisDisplayNumber(p.safetyTextAt),
+        // Both lanes draw the same red symbol; the card says which one heard it.
+        source: p.source === 'cloud' ? 'cloud' : 'local',
+        hasPosition: true,
+    });
+    if (!c) return null;
+    return {
+        typeColor: DISTRESS_SYMBOL_COLOR[c.state],
+        iconKind: 'sart',
+        orientation: 0,
+        distressLabel: `${DISTRESS_SHORT[c.kind]}${DISTRESS_STATE_WORD[c.state]}${distressAgeSuffix(finiteAisDisplayNumber(p.staleMinutes))}`,
+    };
+}
 
 /**
  * Presentation properties for one target. The rules, in priority order:
@@ -632,9 +708,14 @@ const DANGER_NAV_STATUS = new Set([2, 3, 4, 6]);
  */
 export function targetPresentation(p: Record<string, unknown>): {
     typeColor: string;
-    iconKind: 'boat' | 'dot';
+    iconKind: 'boat' | 'dot' | 'sart';
     orientation: number;
+    /** A distress beacon's chart label, with its age ('SART ACTIVE · 12 min'). */
+    distressLabel?: string;
 } {
+    // A DISTRESS BEACON OVERRIDES EVERYTHING (125-02): the IEC 62288 symbol.
+    const distress = distressPresentation(p);
+    if (distress) return distress;
     const navStatus = typeof p.navStatus === 'number' ? p.navStatus : 15;
     const shipType = typeof p.shipType === 'number' ? p.shipType : 0;
     // AIS 'not available' (SOG 102.3, COG 360, heading 511) is unknown: a
@@ -677,6 +758,8 @@ function navStatusColor(status: number): string {
             return '#06b6d4';
         case 8:
             return '#22c55e';
+        case 14:
+            return AIS_DISTRESS_COLOR;
         case 15:
             return '#38bdf8';
         default:
@@ -840,6 +923,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             feat.properties.typeColor = pres.typeColor;
             feat.properties.iconKind = pres.iconKind;
             feat.properties.orientation = pres.orientation;
+            if (pres.distressLabel) feat.properties.distressLabel = pres.distressLabel;
         }
 
         const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
