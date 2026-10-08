@@ -1,16 +1,16 @@
 {
     "newport-rivergate.corridor.json.gz": {
-        "distanceRatio": 1.7909,
-        "turnCount": 16,
-        "cautionRuns": 4,
-        "cautionTotalM": 26520,
-        "lengthM": 43040
+        "distanceRatio": 1.7807,
+        "turnCount": 10,
+        "cautionRuns": 3,
+        "cautionTotalM": 18556,
+        "lengthM": 42794
     },
     "newport-tangalooma.corridor.json.gz": {
-        "distanceRatio": 1.3303,
-        "turnCount": 23,
-        "cautionRuns": 3,
-        "cautionTotalM": 15253,
-        "lengthM": 37710
+        "distanceRatio": 1.2761,
+        "turnCount": 11,
+        "cautionRuns": 2,
+        "cautionTotalM": 7542,
+        "lengthM": 36173
     }
 }

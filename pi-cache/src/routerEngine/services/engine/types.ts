@@ -406,6 +406,12 @@ export interface RouteDebug {
     /** Lateral gates the route crossed close by a mark and now threads
      *  through the centre (engine/stringPull threadGateCentres). */
     gatesThreaded?: number;
+    /** Of those, the vertices of turns that bought no tide (package 125-06;
+     *  engine/stringPull sameTideNoWorse). */
+    sameTidePulled?: number;
+    /** Turns such a pull left that slid to the corner they must clear
+     *  (engine/stringPull slideSameTideTurns). */
+    sameTideSlid?: number;
     /** True when the marina-centerline pipeline refined a clean-water route
      *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
     marinaCenterline?: boolean;

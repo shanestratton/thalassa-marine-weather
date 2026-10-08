@@ -11,6 +11,7 @@ import type { AutoroutingTrialRoute } from '../types/autorouting';
 import { BackstopLandRefusal } from '../services/routing/landBackstopWords';
 import { buildTrialWaypointPlan } from '../services/autoroutingDisplayWaypoints';
 import { TRIAL_GRADE_COLORS, type TrialRouteReview } from '../services/autoroutingReview';
+import { clearAllCellMetadata, putCell } from '../services/enc/EncCellMetadata';
 
 type Handler = (event?: unknown) => void;
 const mocks = vi.hoisted(() => ({
@@ -549,6 +550,106 @@ describe('isolated autorouting trial workspace', () => {
         expect(screen.getByText('2 route notes · review required')).toBeInTheDocument();
         expect(screen.getByText('Not for navigation. Unsaved proposal only.')).toBeInTheDocument();
         await waitFor(() => expect(screen.getByText('Chart checks complete · review required')).toBeInTheDocument());
+    });
+
+    // Package 125-06 (Shane's fresh Auto route, 2026-10-08: "Chart checks
+    // stale" on a route just made). The review was bound to the whole chart
+    // library: a chart landing anywhere after the check began — the map
+    // loading detail round the new route, a sync, a cell elsewhere in the
+    // world — left it stale until Recheck. Now a chart away from the route
+    // leaves it alone, and one under it is checked against by itself.
+    it('a fresh route keeps fresh chart checks as charts land round it — never "stale"', async () => {
+        clearAllCellMetadata();
+        const cell = (id: string, bbox: [number, number, number, number]) =>
+            ({
+                id,
+                sourceHO: id.slice(0, 2),
+                edition: 1,
+                issued: '2026-10-01',
+                importedAt: '2026-10-09T00:00:00.000Z',
+                bbox,
+                geojsonPath: `enc/${id}.json`,
+                hazardCount: 12,
+                usage: 'navigation',
+            }) as const;
+        try {
+            await openWorkspace();
+            fillRequest();
+            fireEvent.click(calculateButton());
+            await waitFor(() =>
+                expect(screen.getByText('Chart checks complete · review required')).toBeInTheDocument(),
+            );
+            expect(mocks.review).toHaveBeenCalledTimes(1);
+            // A chart a hemisphere away (fictional, off Norway): not this route's.
+            act(() => putCell(cell('NO5SYN01', [5, 60, 6, 61])));
+            expect(screen.getByText('Chart checks complete · review required')).toBeInTheDocument();
+            // One under the route lands, as the map loads detail round it.
+            act(() => putCell(cell('AU5SYN99', [153.1, -27.3, 153.5, -26.9])));
+            expect(screen.queryByText(/Chart checks stale/)).not.toBeInTheDocument();
+            await waitFor(() => expect(mocks.review).toHaveBeenCalledTimes(2), { timeout: 5_000 });
+            await waitFor(() =>
+                expect(screen.getByText('Chart checks complete · review required')).toBeInTheDocument(),
+            );
+            expect(screen.queryByText(/stale/)).not.toBeInTheDocument();
+        } finally {
+            clearAllCellMetadata();
+        }
+    });
+
+    // Package 125-06 (Shane's fresh Auto route, 2026-10-08: "8 route notes ·
+    // review required"): three lines are on every Auto route whatever it
+    // finds. They are still listed on Review, under their own heading, but
+    // the count — folded and on Review — is of what this route found.
+    it('counts what the route found, not the lines every Auto route carries', async () => {
+        mocks.calculate.mockResolvedValue({
+            ...route,
+            warnings: [
+                'Proposal only: not cleared for navigation. Review every leg against the chart before you save or use it.',
+                'Routed on this phone by Thalassa from your installed charts: draft 2.40 m + 0.5 m under the keel at chart datum (LAT). Tide is shown, never assumed.',
+                'Survey may be out by up to 1.1 m on 3.3 km of this route — more than your keel margin there.',
+                'Beam and length are not used by the router yet.',
+            ],
+        });
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        expect(screen.getByText('1 route note · review required')).toBeInTheDocument();
+        const notes = screen.getByRole('region', { name: 'Route notes' });
+        expect(within(notes).getByRole('heading', { level: 3 })).toHaveTextContent(
+            '1 route note · what this route must say',
+        );
+        const found = within(notes).getByRole('list', { name: 'What this route found' });
+        expect(
+            within(found)
+                .getAllByRole('listitem')
+                .map((item) => item.textContent),
+        ).toEqual([
+            'Whole route · Survey may be out by up to 1.1 m on 3.3 km of this route — more than your keel margin there.',
+        ]);
+        const always = within(notes).getByRole('list', { name: 'On every Auto route' });
+        expect(within(always).getAllByRole('listitem')).toHaveLength(3);
+    });
+
+    it('a route that found nothing says no notes to review, and still lists the three', async () => {
+        mocks.calculate.mockResolvedValue({
+            ...route,
+            warnings: [
+                'Proposal only: not cleared for navigation. Review every leg against the chart before you save or use it.',
+                'Routed on this phone by Thalassa from your installed charts: draft 2.40 m + 0.5 m under the keel at chart datum (LAT). Tide is shown, never assumed.',
+                'Beam and length are not used by the router yet.',
+            ],
+        });
+        await openWorkspace();
+        fillRequest();
+        fireEvent.click(calculateButton());
+        await openReview();
+        expect(screen.queryByText(/route notes? · review required/)).not.toBeInTheDocument();
+        const notes = screen.getByRole('region', { name: 'Route notes' });
+        expect(within(notes).getByRole('heading', { level: 3 })).toHaveTextContent('No route notes to review');
+        expect(
+            within(within(notes).getByRole('list', { name: 'On every Auto route' })).getAllByRole('listitem'),
+        ).toHaveLength(3);
     });
 
     // Shane's phone, 2026-10-02, online: "The satellite land check has not

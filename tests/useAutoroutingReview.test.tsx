@@ -1,19 +1,46 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutoroutingTrialRoute } from '../types/autorouting';
 import type { TrialRouteReview } from '../services/autoroutingReview';
 import { autoroutingProposalGeometryKey } from '../services/autoroutingProposalEvidence';
 import { snapshotAutoroutingVesselProfile } from '../services/autoroutingVesselProfile';
-const mocks = vi.hoisted(() => ({ run: vi.fn(), fingerprint: 'one', listeners: new Set<() => void>() }));
+const mocks = vi.hoisted(() => ({
+    run: vi.fn(),
+    /** The charts round the route (a scoped fingerprint). */
+    fingerprint: 'one',
+    /** The whole library, where it differs (charts far from the route). */
+    whole: null as string | null,
+    scopes: [] as unknown[],
+    listeners: new Set<() => void>(),
+    /** A download walk's cells still to land (0: none running). */
+    walkRemaining: 0,
+    walkListeners: new Set<(p: { remaining: number; total: number }) => void>(),
+}));
 vi.mock('../services/autoroutingReview', () => ({ reviewAutoroutingProposal: mocks.run }));
 vi.mock('../services/enc/EncCellMetadata', () => ({
-    getRegistryFingerprint: () => mocks.fingerprint,
+    getRegistryFingerprint: (scope?: unknown) => {
+        mocks.scopes.push(scope);
+        return scope ? mocks.fingerprint : (mocks.whole ?? mocks.fingerprint);
+    },
     subscribe: (fn: () => void) => {
         mocks.listeners.add(fn);
         return () => mocks.listeners.delete(fn);
     },
 }));
-import { useAutoroutingReview } from '../components/autorouting/useAutoroutingReview';
+vi.mock('../services/enc/encHydrationProgress', () => ({
+    getHydrationProgress: () => ({ remaining: mocks.walkRemaining, total: 40 }),
+    subscribeHydration: (fn: (p: { remaining: number; total: number }) => void) => {
+        mocks.walkListeners.add(fn);
+        return () => mocks.walkListeners.delete(fn);
+    },
+}));
+import {
+    AUTO_RECHECK_MAX,
+    AUTO_RECHECK_QUIET_MS,
+    AUTO_RECHECK_WALKS_MAX,
+    useAutoroutingReview,
+} from '../components/autorouting/useAutoroutingReview';
+import { traceRegistryScope } from '../services/traceRegistryScope';
 const proposal: AutoroutingTrialRoute = {
     id: 'a',
     provider: 'Thalassa',
@@ -44,7 +71,11 @@ const complete: TrialRouteReview = {
 beforeEach(() => {
     vi.clearAllMocks();
     mocks.fingerprint = 'one';
+    mocks.whole = null;
+    mocks.scopes = [];
     mocks.listeners.clear();
+    mocks.walkRemaining = 0;
+    mocks.walkListeners.clear();
     mocks.run.mockResolvedValue(complete);
 });
 describe('disposable auto-review lifecycle', () => {
@@ -304,21 +335,190 @@ describe('disposable auto-review lifecycle', () => {
         },
     );
 
-    it('clears colours on chart changes and rechecks only when requested', async () => {
+    // Package 125-06 (Shane's Auto route, Port of Airlie → Nara Inlet,
+    // 2026-10-08: a freshly made route said "Chart checks stale"). The review
+    // was bound to the WHOLE chart library, and any chart landing anywhere —
+    // the map loading detail round the new route, a Pi or cloud sync, a cell
+    // the check itself fetched — parked it at 'stale' until Recheck. It is now
+    // bound to the charts round the route (the route check's and Cast Off's
+    // own scope, traceRegistryScope), and when those change it checks again by
+    // itself, once they settle.
+    it('binds the review to the charts round this route only (the route check and Cast Off scope)', async () => {
         const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
         await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
-        expect(result.current.review?.basis?.registryFingerprint).toBe('one');
+        const scope = traceRegistryScope(proposal.coordinates.map(([lon, lat]) => ({ lat, lon })));
+        expect(scope).toBeDefined();
+        expect(mocks.scopes.length).toBeGreaterThan(0);
+        for (const s of mocks.scopes) expect(s).toEqual(scope);
+    });
+
+    it('charts changing away from the route leave its check alone', async () => {
+        const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+        await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
         act(() => {
-            mocks.fingerprint = 'two';
+            mocks.whole = 'a cell synced on the far side of the world';
             mocks.listeners.forEach((fn) => fn());
         });
-        expect(result.current.review).toMatchObject({ phase: 'stale', legs: [null] });
-        expect(result.current.review?.basis?.registryFingerprint).toBe('one');
+        expect(result.current.review?.phase).toBe('complete');
         expect(mocks.run).toHaveBeenCalledTimes(1);
-        act(() => result.current.recheck());
-        await waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(2));
-        await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
-        expect(result.current.review?.basis?.registryFingerprint).toBe('two');
+    });
+
+    describe('a chart under the route changes', () => {
+        beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+        afterEach(() => vi.useRealTimers());
+        const change = (fingerprint: string) =>
+            act(() => {
+                mocks.fingerprint = fingerprint;
+                mocks.listeners.forEach((fn) => fn());
+            });
+        const settle = () =>
+            act(async () => {
+                vi.advanceTimersByTime(AUTO_RECHECK_QUIET_MS);
+            });
+
+        it('after the check: the old colours go, and it checks again by itself — complete, never stale', async () => {
+            const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            expect(result.current.review?.basis?.registryFingerprint).toBe('one');
+            change('two');
+            expect(result.current.review).toMatchObject({ phase: 'checking', legs: [null] });
+            expect(mocks.run).toHaveBeenCalledTimes(1);
+            await settle();
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            expect(mocks.run).toHaveBeenCalledTimes(2);
+            expect(result.current.review?.basis?.registryFingerprint).toBe('two');
+        });
+
+        it('while it checks: that check is dropped, and one more runs once the charts settle', async () => {
+            mocks.run.mockImplementationOnce(() => new Promise(() => {}));
+            const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+            await waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(1));
+            const first = mocks.run.mock.calls[0][2] as AbortSignal;
+            // The map loading detail round the route lands cells in waves.
+            change('two');
+            expect(first.aborted).toBe(true);
+            await act(async () => {
+                vi.advanceTimersByTime(AUTO_RECHECK_QUIET_MS / 2);
+            });
+            change('three');
+            await act(async () => {
+                vi.advanceTimersByTime(AUTO_RECHECK_QUIET_MS / 2);
+            });
+            expect(mocks.run).toHaveBeenCalledTimes(1);
+            expect(result.current.review).toMatchObject({ phase: 'checking', legs: [null] });
+            await settle();
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            expect(mocks.run).toHaveBeenCalledTimes(2);
+            expect(result.current.review?.basis?.registryFingerprint).toBe('three');
+        });
+
+        it('stops checking by itself after AUTO_RECHECK_MAX changes: stale until Recheck', async () => {
+            const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            for (let k = 0; k < AUTO_RECHECK_MAX; k++) {
+                change(`churn-${k}`);
+                await settle();
+                await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            }
+            expect(mocks.run).toHaveBeenCalledTimes(1 + AUTO_RECHECK_MAX);
+            change('churn-again');
+            expect(result.current.review).toMatchObject({ phase: 'stale', legs: [null] });
+            await settle();
+            expect(mocks.run).toHaveBeenCalledTimes(1 + AUTO_RECHECK_MAX);
+            act(() => result.current.recheck());
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            expect(result.current.review?.basis?.registryFingerprint).toBe('churn-again');
+        });
+
+        // Review, 2026-10-09: a download walk round a fresh route (the map's
+        // "ENC: loading chart…") lands its cells in waves — at its first cell,
+        // then every 8 cells or 10 s — and each wave more than the quiet
+        // period after the last spent one of AUTO_RECHECK_MAX checks: a walk
+        // of four waves parked the fresh route at 'stale' after all.
+        const walk = (remaining: number) =>
+            act(() => {
+                mocks.walkRemaining = remaining;
+                mocks.walkListeners.forEach((fn) => fn({ remaining, total: 40 }));
+            });
+
+        it.each([4, 6, 12])(
+            'a download walk of %i waves round a fresh route: one check when it ends, complete — never stale',
+            async (waves) => {
+                const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+                await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+                walk(40);
+                for (let k = 0; k < waves; k++) {
+                    change(`wave-${k}`);
+                    walk(40 - (k + 1) * 3);
+                    await act(async () => {
+                        vi.advanceTimersByTime(AUTO_RECHECK_QUIET_MS + 1_000);
+                    });
+                    expect(result.current.review).toMatchObject({ phase: 'checking', legs: [null] });
+                }
+                expect(mocks.run).toHaveBeenCalledTimes(1);
+                // The walk ends; its tail lands just after.
+                walk(0);
+                change('tail');
+                await settle();
+                await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+                expect(mocks.run).toHaveBeenCalledTimes(2);
+                expect(result.current.review?.basis?.registryFingerprint).toBe('tail');
+                // A walk spends none of the checks other changes may run.
+                for (let k = 0; k < AUTO_RECHECK_MAX; k++) {
+                    change(`sync-${k}`);
+                    await settle();
+                    await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+                }
+                expect(mocks.run).toHaveBeenCalledTimes(2 + AUTO_RECHECK_MAX);
+            },
+        );
+
+        it('a fresh route shown while a walk is landing charts under it: checked once the walk ends', async () => {
+            mocks.walkRemaining = 25;
+            mocks.run.mockImplementationOnce(() => new Promise(() => {}));
+            const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+            await waitFor(() => expect(mocks.run).toHaveBeenCalledTimes(1));
+            for (let k = 0; k < 5; k++) {
+                change(`wave-${k}`);
+                await act(async () => {
+                    vi.advanceTimersByTime(2_500);
+                });
+            }
+            expect(mocks.run).toHaveBeenCalledTimes(1);
+            walk(0);
+            await settle();
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            expect(mocks.run).toHaveBeenCalledTimes(2);
+        });
+
+        it(`walks that never end are said too: stale after ${AUTO_RECHECK_WALKS_MAX} walks, until Recheck`, async () => {
+            const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            for (let k = 0; k < AUTO_RECHECK_WALKS_MAX; k++) {
+                walk(10);
+                change(`walk-${k}`);
+                walk(0);
+                await settle();
+                await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+            }
+            expect(mocks.run).toHaveBeenCalledTimes(1 + AUTO_RECHECK_WALKS_MAX);
+            walk(10);
+            change('walk-again');
+            expect(result.current.review).toMatchObject({ phase: 'stale', legs: [null] });
+            act(() => result.current.recheck());
+            await waitFor(() => expect(result.current.review?.phase).toBe('complete'));
+        });
+
+        it('a stopped check stays stopped', async () => {
+            mocks.run.mockImplementationOnce(() => new Promise(() => {}));
+            const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));
+            await waitFor(() => expect(result.current.review?.phase).toBe('checking'));
+            act(() => result.current.stop());
+            change('two');
+            await settle();
+            expect(result.current.review?.phase).toBe('stopped');
+            expect(mocks.run).toHaveBeenCalledTimes(1);
+        });
     });
     it('ignores irrelevant registry notifications', async () => {
         const { result } = renderHook(() => useAutoroutingReview(proposal, 2.4));

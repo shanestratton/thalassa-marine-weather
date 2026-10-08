@@ -11,11 +11,21 @@ import { getAuthIdentityScope, setAuthIdentityScope } from '../services/authIden
 import { groupTracesByTrip, loadSavedTraces, saveTrace } from '../services/routeTracer';
 import { moveAutoroutingDisplayWaypoint } from '../services/autoroutingWaypointEdit';
 import { buildTrialWaypointPlan } from '../services/autoroutingDisplayWaypoints';
+import { traceRegistryScope } from '../services/traceRegistryScope';
 
-const mock = vi.hoisted(() => ({ registry: 'cell@1@2026-09-13@42', push: vi.fn() }));
+const mock = vi.hoisted(() => ({
+    registry: 'cell@1@2026-09-13@42',
+    /** The whole library, where it differs from the charts round the route. */
+    whole: null as string | null,
+    scopes: [] as unknown[],
+    push: vi.fn(),
+}));
 vi.mock('../services/enc/EncCellMetadata', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../services/enc/EncCellMetadata')>()),
-    getRegistryFingerprint: () => mock.registry,
+    getRegistryFingerprint: (scope?: unknown) => {
+        mock.scopes.push(scope);
+        return scope ? mock.registry : (mock.whole ?? mock.registry);
+    },
 }));
 vi.mock('../services/savedRoutesSync', () => ({ pushSavedRoute: (...args: unknown[]) => mock.push(...args) }));
 
@@ -123,11 +133,33 @@ beforeEach(() => {
     localStorage.clear();
     setAuthIdentityScope('account-a');
     mock.registry = 'cell@1@2026-09-13@42';
+    mock.whole = null;
+    mock.scopes = [];
     mock.push.mockReset().mockResolvedValue('schema-pending');
 });
 afterEach(() => setAuthIdentityScope(null));
 
 describe('explicit planned proposal save', () => {
+    // Package 125-06: the review is bound to the charts round the route
+    // (traceRegistryScope, as the route check and Cast Off are), so Save
+    // compares the same charts — a chart synced far away is not "Charts
+    // changed" for this route; one under it still is.
+    it('compares the charts round the route, as its review was bound', () => {
+        const input = fixture();
+        mock.whole = 'a cell synced on the far side of the world';
+        expect(
+            evaluateAutoroutingProposalSave(input.route, input.review, input.currentDraftM, input.currentDraftAssumed)
+                .eligible,
+        ).toBe(true);
+        expect(mock.scopes.at(-1)).toEqual(
+            traceRegistryScope(input.route.coordinates.map(([lon, lat]) => ({ lat, lon }))),
+        );
+        mock.registry = 'a new edition under the route';
+        expect(
+            evaluateAutoroutingProposalSave(input.route, input.review, input.currentDraftM, input.currentDraftAssumed),
+        ).toEqual({ eligible: false, reason: 'Charts changed. Recheck before saving.' });
+    });
+
     it('refuses a locally edited route even after fresh complete local checks match its exact geometry', () => {
         const input = fixture(5);
         input.route.coordinates[2] = [153.01, -27.01];
