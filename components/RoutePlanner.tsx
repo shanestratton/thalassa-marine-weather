@@ -678,6 +678,18 @@ export const RoutePlanner: React.FC<{
             short: pastVoyagesShort,
         },
     ];
+    // Deep-link to the Vessel Profile tab inside Settings, same pattern as
+    // VesselHub's "Set up your vessel" CTA: Personalise, and Plan Your Day's
+    // default-boat notice. SettingsModal's activeTab initialiser reads this
+    // key and clears it.
+    const openVesselSettings = () => {
+        try {
+            localStorage.setItem(authScopedStorageKey('thalassa_settings_initial_tab'), 'vessel');
+        } catch {
+            /* private-mode / quota — fall through */
+        }
+        setPage('settings');
+    };
     // The ways in, one tile language (Shane 2026-10-05: "make it pop.
     // cleaner"): Trip · Legs when something is saved, Saved routes, Past
     // voyages, then Plan Your Day, which spans the row when there is no Trip.
@@ -719,15 +731,19 @@ export const RoutePlanner: React.FC<{
                         />
                     </button>
                 ))}
+                {/* Today on the water (build 124): the default boat works and
+                    says so; "Plot on chart" loads straight pins into the
+                    Manual plotter. */}
                 <DayPlannerEntry
-                    vessel={usingDefaultVessel ? null : vessel}
-                    mapboxToken={mapboxToken ?? ''}
+                    vessel={vessel}
+                    usingDefaultVessel={usingDefaultVessel}
                     isPro={isPro === true}
                     onUpgrade={onTriggerUpgrade}
-                    onOpenSaved={(id) => {
-                        requestTracerOpen({ kind: 'load-saved', id });
+                    onPlot={(action) => {
+                        requestTracerOpen(action);
                         setPage('map');
                     }}
+                    onOpenVessel={openVesselSettings}
                 />
             </div>
         </>
@@ -768,21 +784,7 @@ export const RoutePlanner: React.FC<{
                     {usingDefaultVessel && (
                         <button
                             type="button"
-                            onClick={() => {
-                                // Deep-link to the Vessel Profile tab inside
-                                // Settings, same pattern as VesselHub's "Set up
-                                // your vessel" CTA. SettingsModal's activeTab
-                                // initialiser reads this key and clears it.
-                                try {
-                                    localStorage.setItem(
-                                        authScopedStorageKey('thalassa_settings_initial_tab'),
-                                        'vessel',
-                                    );
-                                } catch {
-                                    /* private-mode / quota — fall through */
-                                }
-                                setPage('settings');
-                            }}
+                            onClick={openVesselSettings}
                             className="inline-flex min-h-[44px] shrink-0 items-center text-xs font-semibold text-sky-400 underline underline-offset-2 transition-colors hover:text-sky-300"
                             aria-label="Personalise vessel profile in Settings"
                         >

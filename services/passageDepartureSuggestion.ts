@@ -67,7 +67,8 @@ interface RouteSample {
     elapsedMs: number;
     bearings: number[];
 }
-interface Candidate {
+/** One evaluated departure, as the HUD and Plan Your Day both rank them. */
+export interface ScoredDeparture {
     departureMs: number;
     maxWindKts: number;
     maxGustKts: number;
@@ -75,6 +76,61 @@ interface Candidate {
     maxHeadwindKts: number;
     gustComplete: boolean;
     waveComplete: boolean;
+}
+type Candidate = ScoredDeparture;
+
+/** Which of the gust and wave terms may count: only those every candidate has
+ *  in full. Never reward a departure merely because gusts/waves disappear from
+ *  its forecast. */
+export interface DepartureScoreTerms {
+    gusts: boolean;
+    waves: boolean;
+}
+
+export function departureScoreTerms(candidates: readonly ScoredDeparture[]): DepartureScoreTerms {
+    return { gusts: candidates.every((c) => c.gustComplete), waves: candidates.every((c) => c.waveComplete) };
+}
+
+/** Lower is calmer: wind, plus a share of headwind, gust and wave. */
+export function departureScore(c: ScoredDeparture, terms: DepartureScoreTerms): number {
+    return (
+        c.maxWindKts +
+        0.35 * c.maxHeadwindKts +
+        (terms.gusts ? 0.25 * c.maxGustKts : 0) +
+        (terms.waves ? 5 * c.maxWaveM : 0)
+    );
+}
+
+/**
+ * The departures either side of the best that score within 10 % of it:
+ * hourly, contiguous, and at most three hours from first to last. Gaps and
+ * rejected candidates (absent from the list) break it. Returns the window,
+ * in time order.
+ */
+export function compactWindow<T extends { departureMs: number }>(
+    candidates: readonly T[],
+    bestIndex: number,
+    score: (candidate: T) => number,
+): T[] {
+    const best = candidates[bestIndex];
+    let first = bestIndex;
+    let last = bestIndex;
+    const closeScore = (candidate: T) => score(candidate) <= score(best) * 1.1 + 1e-6;
+    while (
+        last + 1 < candidates.length &&
+        candidates[last + 1].departureMs - candidates[first].departureMs <= 3 * HOUR &&
+        candidates[last + 1].departureMs - candidates[last].departureMs === HOUR &&
+        closeScore(candidates[last + 1])
+    )
+        last += 1;
+    while (
+        first > 0 &&
+        candidates[last].departureMs - candidates[first - 1].departureMs <= 3 * HOUR &&
+        candidates[first].departureMs - candidates[first - 1].departureMs === HOUR &&
+        closeScore(candidates[first - 1])
+    )
+        first -= 1;
+    return candidates.slice(first, last + 1);
 }
 
 const nonnegative = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
@@ -295,34 +351,13 @@ export function suggestPassageDeparture(input: PassageDepartureSuggestionInput):
                   'Insufficient forecast coverage for the whole remaining passage and configured limits.',
               );
     // Never reward a departure merely because gusts/waves disappear from its forecast.
-    const rankWaves = candidates.every((c) => c.waveComplete);
-    const rankGusts = candidates.every((c) => c.gustComplete);
-    const score = (c: Candidate) =>
-        c.maxWindKts +
-        0.35 * c.maxHeadwindKts +
-        (rankGusts ? 0.25 * c.maxGustKts : 0) +
-        (rankWaves ? 5 * c.maxWaveM : 0);
+    const terms = departureScoreTerms(candidates);
+    const rankWaves = terms.waves;
+    const rankGusts = terms.gusts;
+    const score = (c: Candidate) => departureScore(c, terms);
     const best = candidates.reduce((a, b) => (score(b) < score(a) - 1e-6 ? b : a));
-    const bestIndex = candidates.indexOf(best);
-    let first = bestIndex;
-    let last = bestIndex;
-    const closeScore = (candidate: Candidate) => score(candidate) <= score(best) * 1.1 + 1e-6;
     // A compact window of at most three hours. Gaps and rejected candidates break it.
-    while (
-        last + 1 < candidates.length &&
-        candidates[last + 1].departureMs - candidates[first].departureMs <= 3 * HOUR &&
-        candidates[last + 1].departureMs - candidates[last].departureMs === HOUR &&
-        closeScore(candidates[last + 1])
-    )
-        last += 1;
-    while (
-        first > 0 &&
-        candidates[last].departureMs - candidates[first - 1].departureMs <= 3 * HOUR &&
-        candidates[first].departureMs - candidates[first - 1].departureMs === HOUR &&
-        closeScore(candidates[first - 1])
-    )
-        first -= 1;
-    const window = candidates.slice(first, last + 1);
+    const window = compactWindow(candidates, candidates.indexOf(best), score);
     const gustComplete = window.every((candidate) => candidate.gustComplete);
     const waveComplete = window.every((candidate) => candidate.waveComplete);
     let spreadLevel: SpreadLevel = 'none';

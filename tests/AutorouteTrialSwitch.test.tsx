@@ -5,12 +5,16 @@
  *
  * Phase 3 (3b606808) made Auto's gate local: Pro, signed in, installed charts.
  * While the public beta is on, every account is Pro (PUBLIC_BETA_ACCESS), so
- * Auto and Plan Your Day would have opened for every signed-in tester with
- * charts as soon as master shipped — before Shane has proved the router in the
- * Whitsundays. They stay closed until the skipper switches on Settings →
- * Preferences → "Auto route (trial)", which is off by default, and when closed
- * they say where the switch is. Pro, signed in and charts still apply on top.
- * The manual planner's own ⚡ Auto route does not read the switch.
+ * Auto would have opened for every signed-in tester with charts as soon as
+ * master shipped — before Shane has proved the router in the Whitsundays. It
+ * stays closed until the skipper switches on Settings → Preferences → "Auto
+ * route (trial)", which is off by default, and when closed it says where the
+ * switch is. Pro, signed in and charts still apply on top. The manual
+ * planner's own ⚡ Auto route does not read the switch.
+ *
+ * Plan Your Day no longer reads it (build 124, "Today on the water"): the
+ * planner does not route any more, so the switch gates the Auto workspace
+ * only. Pro still applies.
  *
  * Real settings store, real switch, real Auto status; one synthetic installed
  * chart (no real chart data); the engine, the workspace and the planner sheet
@@ -42,7 +46,7 @@ vi.mock('../services/InshoreRouter', () => ({
     hasEncCoverageForRoute: () => true,
     MAX_INSHORE_NM: 50,
 }));
-vi.mock('../components/dayPlanner/DayPlannerSheet', () => ({
+vi.mock('../components/dayPlanner/TodaySheet', () => ({
     default: () => {
         mocks.sheet();
         return <div role="dialog" aria-label="Plan Your Day" />;
@@ -64,9 +68,8 @@ import { PUBLIC_BETA_ACCESS } from '../services/SubscriptionService';
 import { awaitSettingsLoaded, DEFAULT_SETTINGS, useSettingsStore } from '../stores/settingsStore';
 
 const AUTO_OFF = 'Auto route (trial) is off. Turn it on in Settings → Preferences. Manual is ready.';
-const PLAN_OFF = 'Plan Your Day routes with Auto route (trial), which is off. Turn it on in Settings → Preferences.';
 
-// Confirmed, so a gate that let Auto or Plan Your Day through would open it at once.
+// Confirmed, so a gate that let Auto through would open it at once.
 const VESSEL: VesselProfile = {
     name: 'Serene Summer',
     type: 'sail',
@@ -162,47 +165,45 @@ describe('Auto route (trial): off by default, even for a beta Pro account', () =
     });
 });
 
-describe('Plan Your Day follows the same switch', () => {
-    const entry = (isPro = true) => (
-        <DayPlannerEntry vessel={VESSEL} mapboxToken="" onOpenSaved={vi.fn()} isPro={isPro} onUpgrade={vi.fn()} />
+describe('Plan Your Day no longer reads the switch', () => {
+    const entry = (isPro = true, onUpgrade = vi.fn()) => (
+        <DayPlannerEntry
+            vessel={VESSEL}
+            usingDefaultVessel={false}
+            isPro={isPro}
+            onUpgrade={onUpgrade}
+            onPlot={vi.fn()}
+        />
     );
 
-    it('stays shut for a beta Pro account until the switch is on, and says how to turn it on', async () => {
-        const view = render(entry());
-        fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
-        await act(async () => {});
-        expect(screen.getByRole('status')).toHaveTextContent(PLAN_OFF);
-        expect(screen.getByRole('button', { name: /Plan Your Day/ })).toHaveAttribute('aria-expanded', 'false');
-        expect(screen.queryByRole('dialog', { name: 'Plan Your Day' })).toBeNull();
-        expect(mocks.sheet).not.toHaveBeenCalled();
-
-        setSwitch(true);
-        expect(screen.queryByText(PLAN_OFF)).toBeNull();
+    it('opens for a beta Pro account with the switch off, and says nothing about the switch', async () => {
+        expect(useSettingsStore.getState().settings.autorouteTrialEnabled).not.toBe(true);
+        render(entry());
         fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
         await screen.findByRole('dialog', { name: 'Plan Your Day' });
         expect(mocks.sheet).toHaveBeenCalled();
+        expect(screen.queryByText(/Auto route \(trial\)/)).toBeNull();
+        expect(screen.getByRole('button', { name: /Plan Your Day/ })).toHaveAttribute('aria-expanded', 'true');
 
-        // Switched off again (from Preferences in another pane), the planner shuts.
+        // Switching it on or off while the planner is open changes nothing.
+        setSwitch(true);
         setSwitch(false);
-        expect(screen.queryByRole('dialog', { name: 'Plan Your Day' })).toBeNull();
-        view.unmount();
+        expect(screen.getByRole('dialog', { name: 'Plan Your Day' })).toBeTruthy();
     });
 
-    it('a free account is still offered the upgrade first, switch or not', () => {
+    it('a free account is still offered the upgrade', () => {
         const onUpgrade = vi.fn();
-        render(
-            <DayPlannerEntry
-                vessel={VESSEL}
-                mapboxToken=""
-                onOpenSaved={vi.fn()}
-                isPro={false}
-                onUpgrade={onUpgrade}
-            />,
-        );
+        render(entry(false, onUpgrade));
         fireEvent.click(screen.getByRole('button', { name: /Plan Your Day/ }));
         expect(onUpgrade).toHaveBeenCalledOnce();
-        expect(screen.queryByText(PLAN_OFF)).toBeNull();
         expect(mocks.sheet).not.toHaveBeenCalled();
+    });
+
+    it('the entry imports neither the switch nor the planner services; the sheet stays lazy', () => {
+        const source = readFileSync('components/dayPlanner/DayPlannerEntry.tsx', 'utf8');
+        expect(source).not.toMatch(/autorouteTrialSwitch|draftConfirmStore|services\/dayPlanner/);
+        expect(source).toMatch(/lazyRetry\(\(\) => import\('\.\/TodaySheet'\)\)/);
+        expect(readFileSync('services/autorouteTrialSwitch.ts', 'utf8')).not.toMatch(/PLAN_YOUR_DAY_TRIAL_OFF/);
     });
 });
 

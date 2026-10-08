@@ -137,6 +137,26 @@ export interface VerdictInput {
     /** Optional per-model winds for the same hours, for the split check:
      *  perModelWinds[m][h] pairs with hours[h]. */
     perModelWinds?: readonly (readonly { windDirDeg: number; windKts: number }[])[];
+    /** The anchorage's IANA zone, for the "Worst of it around" hour. Omitted:
+     *  the phone's clock, which is wrong for a place in another zone. */
+    timeZone?: string;
+}
+
+/** HH:MM of an instant in `timeZone`; the phone's hour (as ever) without one. */
+function worstHourLabel(ms: number, timeZone: string | undefined): string {
+    if (timeZone) {
+        try {
+            return new Intl.DateTimeFormat('en-GB', {
+                timeZone,
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            }).format(ms);
+        } catch {
+            // An unknown zone falls through to the phone's clock.
+        }
+    }
+    return `${String(new Date(ms).getHours()).padStart(2, '0')}:00`;
 }
 
 export function scoreAnchorage(input: VerdictInput): AnchorageVerdict {
@@ -251,8 +271,7 @@ export function scoreAnchorage(input: VerdictInput): AnchorageVerdict {
     if (swellUnknown) reasons.push('Swell unknown (no marine data) — roll unassessed');
     if (modelsSplit) reasons.push('Models split on the wind — treat this ranking as soft');
     if (worstAtMs != null && worst >= 0.35) {
-        const when = new Date(worstAtMs);
-        reasons.push(`Worst of it around ${String(when.getHours()).padStart(2, '0')}:00`);
+        reasons.push(`Worst of it around ${worstHourLabel(worstAtMs, input.timeZone)}`);
     }
 
     const grade: AnchorageGrade = worst < 0.12 ? 'bombproof' : worst < 0.3 ? 'good' : worst < 0.55 ? 'tenable' : 'poor';
