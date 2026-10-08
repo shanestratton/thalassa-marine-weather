@@ -2262,7 +2262,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     {/* The trickle's single-publisher veto, said out loud. It
                         used to be console-only, which is how a healthy-looking
                         chain published nothing for a whole day, twice. */}
-                    <SkipperClaimNotice isTracking={state.isTracking} onOpenVessel={() => _setPage('vessel')} />
+                    <SkipperClaimNotice isTracking={state.isTracking} />
 
                     {/* The account's passage, under way on ANOTHER device
                         (2026-09-08). Who records, which route is published and

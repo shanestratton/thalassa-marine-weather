@@ -20,12 +20,16 @@ public final class AnchorWatchStoragePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "get", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "set", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "clearScoped", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "clearScoped", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getDeviceIdentity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setDeviceIdentity", returnType: CAPPluginReturnPromise)
     ]
 
     private let maximumValueBytes = 64 * 1024
     private let installMarkerKey = "thalassa.anchor-watch-keychain-install-v1"
     private var installBoundaryChecked = false
+    private let deviceIdentityName = "thalassa_device_id"
+    private let maximumDeviceIdentityBytes = 128
 
     @objc func get(_ call: CAPPluginCall) {
         guard prepareInstallBoundary(call), let account = validatedAccount(call) else { return }
@@ -109,6 +113,63 @@ public final class AnchorWatchStoragePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /**
+     * This install's device id (services/skipperDevice.ts), which names the
+     * phone in the boat's single-publisher claim. Unlike the recovery records
+     * above it is deliberately OUTSIDE the install boundary: a reinstall must
+     * keep the id, or the claim goes on naming a device that no longer exists.
+     * This device only, never synchronised.
+     */
+    @objc func getDeviceIdentity(_ call: CAPPluginCall) {
+        var query = deviceIdentityQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            call.resolve(["value": NSNull()])
+            return
+        }
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8),
+              isValidDeviceIdentity(value) else {
+            call.reject("Could not read the device identity")
+            return
+        }
+        call.resolve(["value": value])
+    }
+
+    @objc func setDeviceIdentity(_ call: CAPPluginCall) {
+        guard let value = call.getString("value"), isValidDeviceIdentity(value) else {
+            call.reject("The device identity is invalid")
+            return
+        }
+        let data = Data(value.utf8)
+        let updateStatus = SecItemUpdate(
+            deviceIdentityQuery() as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess {
+            call.resolve()
+            return
+        }
+        guard updateStatus == errSecItemNotFound else {
+            call.reject("Could not update the device identity")
+            return
+        }
+
+        var add = deviceIdentityQuery()
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else {
+            call.reject("Could not store the device identity")
+            return
+        }
+        call.resolve()
+    }
+
+    /**
      * Keychain records can survive uninstall while the app sandbox cannot.
      * A sandbox marker therefore fences a fresh install from adopting a prior
      * install's physical-watch state. On an ordinary upgrade the marker stays.
@@ -173,6 +234,28 @@ public final class AnchorWatchStoragePlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var scopedService: String {
         serviceBase + ".scoped"
+    }
+
+    /** ASCII letters, digits and - _ . : only, as the app mints them. */
+    private func isValidDeviceIdentity(_ value: String) -> Bool {
+        guard value.utf8.count >= 4, value.utf8.count <= maximumDeviceIdentityBytes else { return false }
+        return value.unicodeScalars.allSatisfy { scalar in
+            scalar.isASCII && (CharacterSet.alphanumerics.contains(scalar) || "-_.:".unicodeScalars.contains(scalar))
+        }
+    }
+
+    private var deviceIdentityService: String {
+        "\(Bundle.main.bundleIdentifier ?? "com.thalassa.weather").device-identity"
+    }
+
+    private func deviceIdentityQuery() -> [String: Any] {
+        let digest = SHA256.hash(data: Data(deviceIdentityName.utf8))
+        return [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: deviceIdentityService,
+            kSecAttrAccount as String: "identity:" + digest.map { String(format: "%02x", $0) }.joined(),
+            kSecAttrSynchronizable as String: false
+        ]
     }
 
     private func baseQuery(_ account: String) -> [String: Any] {
