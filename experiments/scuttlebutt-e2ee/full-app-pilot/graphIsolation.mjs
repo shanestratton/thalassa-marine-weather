@@ -56,7 +56,7 @@ const serviceModules = {
         'bindAppleCredentialUser clearBoundAppleCredential startAppleCredentialRevocationMonitoring',
     ),
     'services/AnchorWatchService.ts': names(
-        'AnchorWatchService MIN_ANCHOR_SWING_RADIUS_M ANCHOR_WATCH_CONFIG_LIMITS validateAndNormalizeAnchorWatchConfig',
+        'AnchorWatchService MIN_ANCHOR_SWING_RADIUS_M ANCHOR_WATCH_CONFIG_LIMITS validateAndNormalizeAnchorWatchConfig haversineDistance',
     ),
     'services/AnchorWatchSyncService.ts': names('AnchorWatchSyncService'),
     'services/anchorPiPush.ts': names(

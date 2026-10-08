@@ -189,6 +189,17 @@ describe('exact full-App graph isolation', () => {
     });
 });
 describe('explicit unavailable backend and native proxies', () => {
+    it('projects only the unavailable anchor distance helper without evaluating its production service', () => {
+        const plugin = createFullAppGraphIsolation();
+        const id = plugin.resolveId(
+            '../../services/AnchorWatchService',
+            repo + '/components/anchor-watch/swingRadiusSuggest.ts',
+        );
+        const code = plugin.load(id!);
+        expect(code).toContain('haversineDistance');
+        expect(code).toContain('boundaries.ts');
+        expect(() => plugin.load(repo + '/services/AnchorWatchService.ts')).toThrow(/Production entry or authority/);
+    });
     it('creates a separately closed graph for every module-worker build', () => {
         const config = readFileSync(
             new NodeURL('../experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs', import.meta.url),

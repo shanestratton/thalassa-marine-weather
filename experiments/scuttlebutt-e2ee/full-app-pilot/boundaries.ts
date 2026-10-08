@@ -387,6 +387,9 @@ export function createFullAppStartupBoundaries() {
         mapAnchorState: observe(null),
         buildAnchorPayload: observe(null),
         payloadsEqual: observe(false),
+        // Geometry imported through the denied service remains unavailable;
+        // returning zero would invent a usable distance observation.
+        haversineDistance: denied('anchorRequests'),
         validateAndNormalizeAnchorWatchConfig: refusal(
             'anchorRequests',
             Object.freeze({ ok: false as const, error: FULL_APP_BOUNDARY_UNAVAILABLE }),
@@ -486,6 +489,7 @@ export const {
     mapAnchorState,
     buildAnchorPayload,
     payloadsEqual,
+    haversineDistance,
     validateAndNormalizeAnchorWatchConfig,
     getPendingCount,
     getFailedCount,

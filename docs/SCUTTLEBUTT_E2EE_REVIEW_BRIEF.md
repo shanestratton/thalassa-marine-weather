@@ -242,7 +242,29 @@ storage, telemetry, native transport, vessel/anchor/GPS and push sideeffect gate
 before treating this routing seam as startup integration. No ordinary activation,
 shared dependency write, primary sync, master or production change is included.
 
-The [9 October full App evidence](../experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json)
+The [9 October full App build evidence](../experiments/scuttlebutt-e2ee/review/full-app-build-2026-10-09.json)
+adds successful isolated compilation on `37aa3dec` plus the exact unavailable
+anchor-distance helper repair. The original AnchorWatch service remains closed;
+the helper always throws without inspecting caller arguments. The affected
+boundary/graph run passed 66 cases with focused strict types and named lint/format.
+No broad suite or App mount was repeated. The missing-export failure is retained.
+
+The bundle transformed 2,090 main modules, compiled three ES worker graphs and
+emitted 255 files. Its loaded/transformed inventory has 2,127 main/worker entries
+and 1,988 readable physical source inputs with zero omissions. Each graph has one
+closed authority plugin; worker factories do not duplicate the config's gate.
+All three injected synthetic environment canaries are absent from outputs.
+Framer Motion directive and large-chunk warnings remain. Inputs and Git state
+were unchanged during compilation; hashes identify this run, not independent
+dependency or binary provenance.
+
+The earlier queued build gate is now completed only for compilation. Actual
+Window/entry/I/O-fence behavior, SDK/native Root admission, protected navigation,
+provider exchange, physical acceptance and independent assessment remain open.
+Current release, lifecycle/recovery/prekey, concurrency and dependency obligations
+are unchanged. No human/hosted state, primary sync, master or production changed.
+
+The [9 October full App preparation evidence](../experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json)
 adds a separate actual-App/provider/bootstrap composition behind closed Auth,
 storage, telemetry, GPS/background manager, anchor/Pi/ShipLog, vessel, push and
 native transport leaves. One existing Research controller supplies native public
@@ -257,15 +279,16 @@ case, runtime strict types and named lint/format pass. These counts overlap.
 The jsdom root import bypasses the entry and real Window I/O-fence installation;
 its fixed spies do not measure every browser/native operation. Strict types
 precede only the last worker-config/test addition, with checked runtime sources
-unchanged. The repaired isolated build is queued-unrun after its bounded shared
-slot window, so no current full-App bundle, actual Window/native Root, supported
-SDK admission, encryption exchange or visual acceptance is established.
+unchanged. At that preparation checkpoint the repaired build was queued-unrun
+after its bounded shared slot window. The later build above adds compilation;
+actual Window/native Root, supported SDK admission, encryption exchange and
+visual acceptance remain unestablished.
 
 Retain the earlier SDK-import, background-enum and worker-format build failures
 and separate wrapper receipt collision. Review the trusted build graph, private
 Auth-fetch capability and actual Window/native backstop as separate boundaries.
-First complete the queued compile, then the actual full-root startup/lifecycle
-checks. Device/prekey/recovery/retention, provenance/licence, independent
+The queued compile is now recorded above; actual full-root startup/lifecycle
+checks remain next. Device/prekey/recovery/retention, provenance/licence, independent
 concurrency, current physical acceptance and independent security assessment
 remain open. No ordinary activation, human/hosted state, primary sync, master,
 reviewer contact or purchase changed.

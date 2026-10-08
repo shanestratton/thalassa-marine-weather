@@ -264,6 +264,20 @@ describe('fixed denied full-App startup/native leaves', () => {
         expect(leaves.readCounters().cleanups).toBe(1);
     });
 
+    it('refuses the anchor distance helper without returning geometry or inspecting argument getters', () => {
+        const leaves = createFullAppStartupBoundaries();
+        const getter = vi.fn(() => {
+            throw new Error('Distance arguments must not be inspected');
+        });
+        const argument = new Proxy({}, { get: getter });
+        expect(() => leaves.haversineDistance(argument, argument, argument, argument)).toThrowError(
+            FullAppBoundaryUnavailableError,
+        );
+        expect(() => leaves.haversineDistance(0, 0, 0, 0)).toThrowError(FullAppBoundaryUnavailableError);
+        expect(getter).not.toHaveBeenCalled();
+        expect(leaves.readCounters().anchorRequests).toBe(2);
+    });
+
     it('settles background GPS presentation with absent fixes and unknown unusable health', async () => {
         const manager = createFullAppStartupBoundaries().BgGeoManager;
         const getter = vi.fn(() => {

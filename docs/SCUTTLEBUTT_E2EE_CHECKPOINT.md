@@ -88,8 +88,8 @@ fixture principals in one disposable simulator. A dedicated Research entry now
 installs private legacy denial before loading the real Thalassa message page;
 an optional App/registry native-selection seam is now prepared. A separate
 full-App Research composition now has closed startup/authority leaves and an
-actual unsupported jsdom App/remount check; its repaired isolated build remains
-queued and it has not run in an actual Window/native host. The ordinary
+actual unsupported jsdom App/remount check. Its separate web bundle now compiles,
+but it has not run in an actual Window/native host. The ordinary
 app/router still has no experimental startup admission. Production
 cutover is not integrated. These are not a shipping
 private-message port. No shipping app dependency,
@@ -124,6 +124,50 @@ ciphertext. Authenticated terminal refusals cancel only the exact stored record.
 Server acceptance does not mean recipient delivery or reading.
 
 ## Reproducible research evidence
+
+### 9 October isolated full App bundle
+
+The separate `full-app-pilot` Vite build passed on preparation commit `37aa3dec`
+plus one exact unavailable helper repair. The first build from that clean
+snapshot refused `swingRadiusSuggest.ts` importing `haversineDistance` through
+the closed AnchorWatch namespace. The Research projection now exports a fixed
+throwing helper, including for numeric zero coordinates; it neither fabricates
+distance nor loads the production service. The original service and its other
+pure helpers remain unchanged. **66 affected boundary/graph cases in two suites**,
+focused strict types and named lint/format passed. No broad regression or App
+mount was repeated.
+
+The successful bundle transformed **2,090 main modules** and compiled three
+module-worker graphs: navGrid, ENC parsing and ENC geometry. Its receipt records
+**2,127 main/worker module inventory entries**, **1,988 unique readable physical
+source inputs**, zero source-hash omissions and **255 emitted files**. Each main
+and worker config had exactly one closed graph. All three explicitly injected
+synthetic environment canaries were absent from every emitted file; no public
+directory or ordinary Vite configuration was copied. The owned sortable module
+still matches its lock-verified archive, with shared dependencies read-only.
+
+One fresh owned runner corrected Vite's worker-plugin factory concatenation:
+the config supplies each graph gate, while the inline factory adds only receipt
+observers. Build warnings for ignored Framer Motion directives and large chunks
+remain; this is not a warning-free or size-optimized bundle. Source hashes and
+Git state stayed unchanged during compilation. The earlier missing-export,
+worker-format and other failures remain retained separately.
+
+After compilation, the shared `master` ref was observed advancing externally
+from `76911385` to `b9c66a3d`. The build's before/after snapshots retain
+`76911385`; its source base remains `37aa3dec` plus the named helper repair.
+No rebase, reset, merge or master write accompanied this observation. Reconcile
+the newer master before any proposed integration merge.
+
+The [full App build manifest](../experiments/scuttlebutt-e2ee/review/full-app-build-2026-10-09.json)
+links exact sources, main/worker/output hashes and receipts. This is compilation,
+not execution of the entry, I/O fence in an actual Window, SDK login, native
+bridge/provider/Keychain, protected navigation or a ciphertext exchange. Next
+is actual fresh Window/root startup and native admission/lifecycle acceptance.
+Physical testing, device/prekey/recovery/retention, independent concurrency,
+dependency/provenance obligations and independent security assessment remain
+gates. No master merge/push, primary edit/sync, hosted/human state, deployment,
+reviewer contact or purchase occurred.
 
 ### 9 October isolated full App composition
 
@@ -167,15 +211,16 @@ the background manager's runtime enum import, and default IIFE worker format.
 The classifier now returns non-retryable `false` without selecting the SDK; the
 background manager stays closed; isolated module workers now get a fresh graph
 gate. The final repaired build was **queued without dispatch** when its bounded
-shared-Mac slot window expired behind healthy competing jobs. No successful
-full-App bundle or execution is claimed. A separate wrapper receipt-name
+shared-Mac slot window expired behind healthy competing jobs. That preparation
+slice claimed no successful full-App bundle or execution; the later build above
+adds compilation only. A separate wrapper receipt-name
 collision is retained alongside its failed child build, not relabelled as an
 application failure.
 
 The [full App manifest](../experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json)
 records exact sources, check/queued receipts, retained failures and compiler
-inputs. Next is one repaired isolated build when the slot is free, then actual
-Window entry/I/O fence/CSP and native full-root admission/lifecycle checks. Full
+inputs. Its next gate was the repaired isolated build now recorded above; actual
+Window entry/I/O fence/CSP and native full-root admission/lifecycle remain open. Full
 device/prekey/recovery/retention, independent concurrency, provenance/licence,
 current physical acceptance and independent security assessment remain gates.
 No master merge/push, primary edit/sync, hosted/human Research change, deployment,

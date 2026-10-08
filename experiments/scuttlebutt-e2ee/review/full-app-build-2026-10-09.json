@@ -1,0 +1,612 @@
+{
+    "schemaVersion": 1,
+    "createdAt": "2026-10-08T20:06:08.790Z",
+    "checkpointDate": "2026-10-09",
+    "timezone": "Australia/Brisbane",
+    "stage": "isolated-full-app-bundle-compiled",
+    "researchOnly": true,
+    "sourceBase": "37aa3deca7c70030710c5993813202b9ca4e54c9",
+    "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+    "masterReference": "7691138504845023bd1e5fe76338a2d2d4653c5a",
+    "foundationReference": "3c30f47c8c50b7bc36307f827f152586f4b1f8aa",
+    "observedAfterBuild": {
+        "master": "b9c66a3db8e4a7a86ad8fefd69ae0a7fa2211cc4",
+        "kind": "external-shared-ref-advancement",
+        "buildBeforeMaster": "7691138504845023bd1e5fe76338a2d2d4653c5a",
+        "buildAfterMaster": "7691138504845023bd1e5fe76338a2d2d4653c5a",
+        "sourceBaseStill": "37aa3deca7c70030710c5993813202b9ca4e54c9",
+        "integrationRebased": false,
+        "note": "The shared master reference advanced after compilation outside this slice. Recorded build snapshots are preserved; no rebase/reset/merge/master write or source/build rerun accompanied the observation."
+    },
+    "sourceState": "Named helper repair uncommitted at build; source/Git snapshots unchanged throughout compilation. Root review precedes any stage/commit/push.",
+    "sourceStateAtBuild": {
+        "head": "37aa3deca7c70030710c5993813202b9ca4e54c9",
+        "branch": "codex/scuttlebutt-e2ee-integration-2026-10-06",
+        "master": "7691138504845023bd1e5fe76338a2d2d4653c5a",
+        "foundation": "3c30f47c8c50b7bc36307f827f152586f4b1f8aa",
+        "dirtyNames": "M experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts\n M experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs\n M tests/E2eeFullAppBoundaries.test.ts\n M tests/E2eeFullAppGraphIsolation.test.ts"
+    },
+    "sourceHashesAtBuild": {
+        ".gitignore": "8fc6505fbab3653745fac4906f6685b71f22b763097d51b12e7de1da7fa129c9",
+        "App.tsx": "a1ba182bded8592093c4a6002183ee91064877d54e971c1e1a3f8962d58512ae",
+        "components/ChatPage.tsx": "53226bf670af117510e7eb32d11a17f1fbf7d8c2382cc151abe24499b226d45e",
+        "components/LegacyChatPage.tsx": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+        "context/ThalassaContext.tsx": "d4a9cf8c8712507ae3a0e16a1a707a3ed6ee75f4c4fb02ccf46649fd3efbd42e",
+        "contexts/CrewCountContext.tsx": "a71ea12599c9c16ad6ec880141499fd938b5a50a922edcea463658e630014076",
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md": "23baa6fce9e2d265d970a0ea7c094cbd8c377de9b1636de1540c12fad15b8393",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md": "68a4566cc78ac11a41ec496d46debefd44bed433af462983384777bda40f7c7d",
+        "env.d.ts": "c6ae6dd4d5d750d9c517ae8905e381d6218ed5b82f3cd933150398f11aaf9c18",
+        "experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx": "2614a3a2e76a330766bb52e66859da8d9373b6f35c3f6705ba43406bd3faf574",
+        "experiments/scuttlebutt-e2ee/app-pilot/runtime.ts": "31ba62ac837237d325ac795b5e57d49e3157a5689bc2bb2c0d72f3cea726e64b",
+        "experiments/scuttlebutt-e2ee/bridge-web/auth.ts": "6bf86f1e00a8c76cf15550aa70b430b16bf8ab8fa19854f529a61e48c5e07d6c",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateAdmissionSource.ts": "42528c2cccf75484a3a51f548c4e603fd4ec31ce7c7a3360dd12683d140d3f58",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateMessagePort.ts": "718e4d7ee54f6f41681d7d7285624dbf5bf9480b58481a2f5a5815a04ffc2a2c",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/FullAppResearchRoot.tsx": "801c5f0a0fe0497b62020a966d60cb7a3b92a0f5f75a87e83ad520ef00bf2153",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authProjection.ts": "c0f69d1fd52cf305b8a99ac2a9f4c4c93d392a48e1d4d9769426deca4ca303b5",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authStore.ts": "50ee4c3b6064de2d61684466fded0881b709abefd271b46209d5be88fe2d6ec3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts": "9c9cd705f7561f99957d739ba2d4e26dce8cd9f665705ac0b65db6789a44e44d",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaryMemory.ts": "966e807664188b2b36a53b2b638df9372946d06fb0476c4aa7c63ebd89c7cfab",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/closedBackend.ts": "8ca77fb51f56874ec80749e94ad6ddabad7e95aeab1615d577b5cfc4d7eb8d93",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/core.ts": "7b45729a77bb06e68c71948eb67d27a2ddac80180a9ed511e4eca94b2dfebcd1",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/entry.ts": "f8332490f06e39e8d9253f96dca46c56e50bb5243e640ce37eb4819e9ab7fd03",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/fixtureSetup.ts": "6c600cba180f0a392530d926234b3463fed973467415856182a821f8e2442827",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs": "c1e744d5bdafa99bc914d1f7e6256209612eeca1060c296a652df404370f8fb3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/index.html": "5efeb3f7227567a5f6bf41ff76ed62235eba4585c3e781be154ae1ac1445b6cc",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/ioFence.ts": "1f8520a564d59d97c459712788f94f38f0281fe096a71632168464bafc0a7f65",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/main.tsx": "578d2870ca6c683d13a9be35b1aeb8b1420f8354984cc602bc0d03f6e840e9a6",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeLeaves.ts": "9fea29db4fbb0549dec40867393583266950e9ae9ab5624e94b8af4b727aa82b",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/sdk.ts": "8abec7b25adddc8927748cb3d5a3ad4152fd3b48219c9793ef2fa3cd64f0aac2",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs": "6614205bc0e085a9c17e690c46d11a22999101b50f71d725b9e5a2fbb3dc11f6",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vitest.config.mjs": "0d102632dffa6152c0a4915458ba275dfbe0a55728e9bbede170b648e494a15f",
+        "experiments/scuttlebutt-e2ee/pilot/tsconfig.json": "53e93e3230d3db27e604c85a74e85eb7d419e84c61a6c0dc3ffc39a944c2d07f",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs": "39856748d477144a279f29f44680b55ccc05ed7e21826a4b656e97a9e7529b4d",
+        "experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json": "49a3dee4a5937699d1d35f319125c36040739860d43bd75c68e6a5bdba16e1b4",
+        "hooks/useAppBootstrap.ts": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+        "index.tsx": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+        "package-lock.json": "230cf218a5a6f7c6eb368a2ca8b6019e1d9b16338fa4017d821af8665cf32932",
+        "package.json": "14bed644ea682828e92c3922370879a1e05531bbadb3ffcbc3161c7f6711ec07",
+        "services/BgGeoManager.ts": "1eee1203f77e637b2f9dbe9b2467bec0df54a5acb4be7dd668648c48ed4b165c",
+        "services/ChatService.ts": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+        "services/GuardianService.ts": "c4f119b838e850a1848c5904785606d9e540d497d347f3f616e80cc619ba4619",
+        "services/chat/e2ee/appPrivateMessageSelection.ts": "69db118f4c0ae1a27049787879fb8b2fcbb707d4cacc03f777157eaf78f9d738",
+        "services/chat/e2ee/nativePrivateMessagePilot.ts": "49ab02fa11a03f2059e940e09667b24ef3a01c305b81c0e1819a0f08a169ef2f",
+        "services/chat/e2ee/privateMessageCutover.ts": "2216a6459be8afe06856271839073deb44171d48d66ca1f907bc73c622a1ca85",
+        "services/supabase.ts": "11af672ceff105c7db68c9024542da70ce0555a8f9b4a431c265c2187bca47d4",
+        "src/components/leaflet-velocity-ts.d.ts": "55d1bec7c291903a672f4ecf577cc6844db9198d33731c7ac7283e890c559a4c",
+        "stores/authStore.ts": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+        "stores/uiStore.ts": "76321029cdd340bf1105e06b41a59a89aed37355ec8965273b7321df486ba6c9",
+        "tests/E2eeFullAppAuthProjection.test.ts": "4e0d40caf91b26cbbadef5b4b73f700c6c5de94feb53f24d2cce647bea33a995",
+        "tests/E2eeFullAppBoundaries.test.ts": "3cef457db146423cfcb4233d60ae8d616ba739930a8c5beb749d90f7f08c4b5a",
+        "tests/E2eeFullAppGraphIsolation.test.ts": "2f602ffc2e9c5ad69bba252e82fcba1ffcc8bd915d0d2ea966be827547afbcb8",
+        "tests/E2eeFullAppIoFence.test.ts": "5eb9980f2b07992ae199f63a2ba613028111ca3518f0013d21e00dda89f1361b",
+        "tests/E2eeFullAppMount.test.tsx": "bcf9d87262bdb01f6577ed662a9ff307d1c24617106fa59ec0bee637df4e211b",
+        "tests/PrivateMessageResearchApp.test.tsx": "672ab85a373850b6290d639d0cdcfa0adad881db44ccff006efceea093c1fd35",
+        "tests/setup.ts": "7074c31a369ddd3bc9d2049c062846bad130bd27ffa0e663f6741a648e966b35",
+        "tsconfig.json": "1c73098595b885739b2b55d535084f53a2ef1a8b423c1ad180b5dde6182c4ac3",
+        "viewRegistry.tsx": "103a55c49edb5646809979db8b146d89a8f23f08e832f5328010230b5db48898"
+    },
+    "currentSourceHashes": {
+        ".gitignore": "8fc6505fbab3653745fac4906f6685b71f22b763097d51b12e7de1da7fa129c9",
+        "App.tsx": "a1ba182bded8592093c4a6002183ee91064877d54e971c1e1a3f8962d58512ae",
+        "components/ChatPage.tsx": "53226bf670af117510e7eb32d11a17f1fbf7d8c2382cc151abe24499b226d45e",
+        "components/LegacyChatPage.tsx": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+        "context/ThalassaContext.tsx": "d4a9cf8c8712507ae3a0e16a1a707a3ed6ee75f4c4fb02ccf46649fd3efbd42e",
+        "contexts/CrewCountContext.tsx": "a71ea12599c9c16ad6ec880141499fd938b5a50a922edcea463658e630014076",
+        "docs/SCUTTLEBUTT_E2EE_CHECKPOINT.md": "667f39f5626a9e96b0b1bfb9602d4f1277e2e35e1a5310d16d368075811dfc69",
+        "docs/SCUTTLEBUTT_E2EE_REVIEW_BRIEF.md": "9f72bbf247506c8575ee1fdbc966f92640e3ed9f51be9f6e982bd8f27992a9ae",
+        "env.d.ts": "c6ae6dd4d5d750d9c517ae8905e381d6218ed5b82f3cd933150398f11aaf9c18",
+        "experiments/scuttlebutt-e2ee/app-pilot/PrivateMessageResearchApp.tsx": "2614a3a2e76a330766bb52e66859da8d9373b6f35c3f6705ba43406bd3faf574",
+        "experiments/scuttlebutt-e2ee/app-pilot/runtime.ts": "31ba62ac837237d325ac795b5e57d49e3157a5689bc2bb2c0d72f3cea726e64b",
+        "experiments/scuttlebutt-e2ee/bridge-web/auth.ts": "6bf86f1e00a8c76cf15550aa70b430b16bf8ab8fa19854f529a61e48c5e07d6c",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateAdmissionSource.ts": "42528c2cccf75484a3a51f548c4e603fd4ec31ce7c7a3360dd12683d140d3f58",
+        "experiments/scuttlebutt-e2ee/bridge-web/privateMessagePort.ts": "718e4d7ee54f6f41681d7d7285624dbf5bf9480b58481a2f5a5815a04ffc2a2c",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/FullAppResearchRoot.tsx": "801c5f0a0fe0497b62020a966d60cb7a3b92a0f5f75a87e83ad520ef00bf2153",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authProjection.ts": "c0f69d1fd52cf305b8a99ac2a9f4c4c93d392a48e1d4d9769426deca4ca303b5",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/authStore.ts": "50ee4c3b6064de2d61684466fded0881b709abefd271b46209d5be88fe2d6ec3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaries.ts": "9c9cd705f7561f99957d739ba2d4e26dce8cd9f665705ac0b65db6789a44e44d",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/boundaryMemory.ts": "966e807664188b2b36a53b2b638df9372946d06fb0476c4aa7c63ebd89c7cfab",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/closedBackend.ts": "8ca77fb51f56874ec80749e94ad6ddabad7e95aeab1615d577b5cfc4d7eb8d93",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/core.ts": "7b45729a77bb06e68c71948eb67d27a2ddac80180a9ed511e4eca94b2dfebcd1",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/entry.ts": "f8332490f06e39e8d9253f96dca46c56e50bb5243e640ce37eb4819e9ab7fd03",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/fixtureSetup.ts": "6c600cba180f0a392530d926234b3463fed973467415856182a821f8e2442827",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/graphIsolation.mjs": "c1e744d5bdafa99bc914d1f7e6256209612eeca1060c296a652df404370f8fb3",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/index.html": "5efeb3f7227567a5f6bf41ff76ed62235eba4585c3e781be154ae1ac1445b6cc",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/ioFence.ts": "1f8520a564d59d97c459712788f94f38f0281fe096a71632168464bafc0a7f65",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/main.tsx": "578d2870ca6c683d13a9be35b1aeb8b1420f8354984cc602bc0d03f6e840e9a6",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/nativeLeaves.ts": "9fea29db4fbb0549dec40867393583266950e9ae9ab5624e94b8af4b727aa82b",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/sdk.ts": "8abec7b25adddc8927748cb3d5a3ad4152fd3b48219c9793ef2fa3cd64f0aac2",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vite.config.mjs": "6614205bc0e085a9c17e690c46d11a22999101b50f71d725b9e5a2fbb3dc11f6",
+        "experiments/scuttlebutt-e2ee/full-app-pilot/vitest.config.mjs": "0d102632dffa6152c0a4915458ba275dfbe0a55728e9bbede170b648e494a15f",
+        "experiments/scuttlebutt-e2ee/pilot/tsconfig.json": "53e93e3230d3db27e604c85a74e85eb7d419e84c61a6c0dc3ffc39a944c2d07f",
+        "experiments/scuttlebutt-e2ee/pilot/vitest.config.mjs": "39856748d477144a279f29f44680b55ccc05ed7e21826a4b656e97a9e7529b4d",
+        "experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json": "49a3dee4a5937699d1d35f319125c36040739860d43bd75c68e6a5bdba16e1b4",
+        "hooks/useAppBootstrap.ts": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+        "index.tsx": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+        "package-lock.json": "230cf218a5a6f7c6eb368a2ca8b6019e1d9b16338fa4017d821af8665cf32932",
+        "package.json": "14bed644ea682828e92c3922370879a1e05531bbadb3ffcbc3161c7f6711ec07",
+        "services/BgGeoManager.ts": "1eee1203f77e637b2f9dbe9b2467bec0df54a5acb4be7dd668648c48ed4b165c",
+        "services/ChatService.ts": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+        "services/GuardianService.ts": "c4f119b838e850a1848c5904785606d9e540d497d347f3f616e80cc619ba4619",
+        "services/chat/e2ee/appPrivateMessageSelection.ts": "69db118f4c0ae1a27049787879fb8b2fcbb707d4cacc03f777157eaf78f9d738",
+        "services/chat/e2ee/nativePrivateMessagePilot.ts": "49ab02fa11a03f2059e940e09667b24ef3a01c305b81c0e1819a0f08a169ef2f",
+        "services/chat/e2ee/privateMessageCutover.ts": "2216a6459be8afe06856271839073deb44171d48d66ca1f907bc73c622a1ca85",
+        "services/supabase.ts": "11af672ceff105c7db68c9024542da70ce0555a8f9b4a431c265c2187bca47d4",
+        "src/components/leaflet-velocity-ts.d.ts": "55d1bec7c291903a672f4ecf577cc6844db9198d33731c7ac7283e890c559a4c",
+        "stores/authStore.ts": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+        "stores/uiStore.ts": "76321029cdd340bf1105e06b41a59a89aed37355ec8965273b7321df486ba6c9",
+        "tests/E2eeFullAppAuthProjection.test.ts": "4e0d40caf91b26cbbadef5b4b73f700c6c5de94feb53f24d2cce647bea33a995",
+        "tests/E2eeFullAppBoundaries.test.ts": "3cef457db146423cfcb4233d60ae8d616ba739930a8c5beb749d90f7f08c4b5a",
+        "tests/E2eeFullAppGraphIsolation.test.ts": "2f602ffc2e9c5ad69bba252e82fcba1ffcc8bd915d0d2ea966be827547afbcb8",
+        "tests/E2eeFullAppIoFence.test.ts": "5eb9980f2b07992ae199f63a2ba613028111ca3518f0013d21e00dda89f1361b",
+        "tests/E2eeFullAppMount.test.tsx": "bcf9d87262bdb01f6577ed662a9ff307d1c24617106fa59ec0bee637df4e211b",
+        "tests/PrivateMessageResearchApp.test.tsx": "672ab85a373850b6290d639d0cdcfa0adad881db44ccff006efceea093c1fd35",
+        "tests/setup.ts": "7074c31a369ddd3bc9d2049c062846bad130bd27ffa0e663f6741a648e966b35",
+        "tsconfig.json": "1c73098595b885739b2b55d535084f53a2ef1a8b423c1ad180b5dde6182c4ac3",
+        "viewRegistry.tsx": "103a55c49edb5646809979db8b146d89a8f23f08e832f5328010230b5db48898"
+    },
+    "preservedProductionSources": [
+        {
+            "path": "App.tsx",
+            "sha256": "a1ba182bded8592093c4a6002183ee91064877d54e971c1e1a3f8962d58512ae",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "viewRegistry.tsx",
+            "sha256": "103a55c49edb5646809979db8b146d89a8f23f08e832f5328010230b5db48898",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "index.tsx",
+            "sha256": "9561dc89d77b04ea209b4ed842cb8f42f3776d266e335f213793e2ece219bf5a",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "stores/authStore.ts",
+            "sha256": "6b46b9de630789b164fdb341bb22efa50a4c700247fb68e4147e6d3c2d8e5b32",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "hooks/useAppBootstrap.ts",
+            "sha256": "413ce91c640e0f9b847e064691ccb7f7a272abffd2a77ad3646a746a78f58e2b",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/ChatService.ts",
+            "sha256": "812c863bf98f1cd4908ca0812652c1e428ec800c354c8abc99c8f450fe44a7bb",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/AnchorWatchService.ts",
+            "sha256": "1b0cbc37a1fb03b61c597669558475da87e6349e431befbae2b5211dde27c015",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/BgGeoManager.ts",
+            "sha256": "1eee1203f77e637b2f9dbe9b2467bec0df54a5acb4be7dd668648c48ed4b165c",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "services/supabase.ts",
+            "sha256": "11af672ceff105c7db68c9024542da70ce0555a8f9b4a431c265c2187bca47d4",
+            "unchangedFromHead": true
+        },
+        {
+            "path": "components/LegacyChatPage.tsx",
+            "sha256": "13cac8a0063a10c08b0375ffb23f8f3df8f77344ccf44145751c457f0754f04e",
+            "unchangedFromHead": true
+        }
+    ],
+    "toolchain": {
+        "nodeVersion": "v24.19.0",
+        "nodeExecPath": "/opt/homebrew/Cellar/node@24/24.19.0/bin/node",
+        "nodeBinary": {
+            "path": "/opt/homebrew/Cellar/node@24/24.19.0/bin/node",
+            "sha256": "c8eedc7651a438fb7d2ceb36fd70032676c855586a36c950ba5a662f0b7853bd"
+        },
+        "childNodeFlags": ["--max-old-space-size=3072"],
+        "installedVitePackage": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/node_modules/vite/package.json",
+            "sha256": "e5ed0f85215f871fe22a48987dcd77fcfbe14064a53c0c9f7f48186a6b7e2cf0"
+        },
+        "ownedSortableArchive": {
+            "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/sortable-8.0.0.tgz",
+            "sha256": "a6b456b38c0acbbdced158f8690ff1ca4df7e703ea469b897a73a17c1ba47850",
+            "lockIntegrity": "sha512-U3jk5ebVXe1Lr7c2wU7SBZjcWdQP+j7peHJfCspnA81enlu88Mgd7CC8Q+pub9ubP7eKVETzJW+IBAhsqbSu/g==",
+            "moduleMatchesArchive": true
+        },
+        "ownedSortableModule": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-owned-route-dependency-XTzaw8/package/dist/sortable.esm.js",
+            "sha256": "f066edb9e8380d7a8e7b4e0bd7bc3c646aa790d5cadb8e7fee4f19ba04007fc6"
+        },
+        "sharedDependenciesWritten": false,
+        "packageInstalled": false,
+        "note": "Module transformed from owned archive only; compilation is not runtime dependency execution, fresh native provenance or licence clearance."
+    },
+    "executed": {
+        "affectedHelperRepair": {
+            "passed": true,
+            "tests": 66,
+            "outcomes": {
+                "total": 66,
+                "passed": 66,
+                "failed": 0,
+                "pending": 0,
+                "files": 2,
+                "failedFiles": 0
+            },
+            "suites": 2,
+            "suiteCounts": [
+                {
+                    "suite": "E2eeFullAppBoundaries.test.ts",
+                    "tests": 27,
+                    "passed": 27
+                },
+                {
+                    "suite": "E2eeFullAppGraphIsolation.test.ts",
+                    "tests": 39,
+                    "passed": 39
+                }
+            ],
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/focused-receipt.json",
+                "sha256": "e5ec8e01325bb0e73fe8e28f22d194bea4a2f8666aeca43a4bc7c732ba4c33e4"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/focused.stdout.log",
+                "sha256": "6f04ee9255283e355323d79aedb5cc439d5d6c193f4849e3aac55200d6c02779"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/focused.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "typeConfig": null,
+            "note": "Only affected Boundary/Graph suites ran. Broad regression and actual App mount were not repeated."
+        },
+        "focusedStrictTypes": {
+            "passed": true,
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/types-receipt.json",
+                "sha256": "3534d18ad2133f3606bd5257e3ed7aba778f1f3b86b4481e479886d6115bfc5f"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/types.stdout.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/types.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "tests": null,
+            "typeConfig": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/tsconfig.json",
+                "sha256": "dd00d68465dde8d77803c526897fdde95fee4a977714d5d6cc06d411d9d49f17"
+            }
+        },
+        "namedLint": {
+            "passed": true,
+            "errors": 0,
+            "warnings": 0,
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/lint-receipt.json",
+                "sha256": "4c439d7ee27b0a9bf6bb6b117b7e42314877a8872769548b3154a044b239aa18"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/lint.stdout.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/lint.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "tests": null,
+            "typeConfig": null
+        },
+        "namedFormatting": {
+            "passed": true,
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/format-receipt.json",
+                "sha256": "c24107a9bc4af055aea45847ad05854aa52236ac7db9965ae1c863ad6c14cd44"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/format.stdout.log",
+                "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/format.stderr.log",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            },
+            "tests": null,
+            "typeConfig": null
+        },
+        "isolatedBuild": {
+            "passed": true,
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/build-receipt.json",
+                "sha256": "47fbd75f2f1d7b5cfa1570cd371199bd457b71984ae6b52f09373c016f6e3c20"
+            },
+            "guardReceipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/build-guard-receipt.json",
+                "sha256": "303a5a1e15c2a00962d67b0b462f713e419f8e53f3fb3213aaeba03312d88fca"
+            },
+            "driver": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/build-proof.mjs",
+                "sha256": "20ec490321e2875855dbde5a064e04d9468ebde52e938d95cb4fbfcf36a7ac8e"
+            },
+            "guardDriver": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/build-guard.mjs",
+                "sha256": "53df83c6abafa111943d78617bbc891144d37cf22bda724f82678a91234cf15f"
+            },
+            "stdout": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/build.stdout.log",
+                "sha256": "23a9bee8ffa050114b473b2831ff0b7269efac6a89ab0ee76fee7cb63e58964c"
+            },
+            "stderr": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/build.stderr.log",
+                "sha256": "f2b308549b179cf04ae2557d8131c95165fd5859239eb5dc9a495f52b3491459"
+            },
+            "sourceHashesUnchanged": true,
+            "gitStateUnchanged": true,
+            "reportedMainTransformedModules": 2090,
+            "moduleInventoryEntries": 2127,
+            "physicalSourceInputs": 1988,
+            "physicalSourceHashOmissions": 0,
+            "graphModuleCounts": {
+                "worker-2": 1,
+                "worker-3": 19,
+                "worker-1": 17,
+                "main": 2090
+            },
+            "workerGraphCount": 3,
+            "workerEntries": [
+                {
+                    "graph": "worker-2",
+                    "path": "services/enc/encParseWorker.ts",
+                    "transformedCodeSha256": "87bca6500fd10f8cd490904580114999e3b3a2c349b21bcc186588f5b9b8d8cb"
+                },
+                {
+                    "graph": "worker-3",
+                    "path": "services/enc/encGeometryWorker.ts",
+                    "transformedCodeSha256": "f4f99b44cbde9c254c0d109f9771e94f36b6e34ebf69b68c40511d2f6696278b"
+                },
+                {
+                    "graph": "worker-1",
+                    "path": "services/engine/navGridWorker.ts",
+                    "transformedCodeSha256": "960e620688216ef4cd5670113dda004360f036c086a6e3ec8efa87ac0a3a5ad8"
+                }
+            ],
+            "workerOutputs": [
+                {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/dist/assets/encGeometryWorker-BpLovMnC.js",
+                    "sha256": "f1b2ce0267d973b58bbfe717f2dbcd72613a347e2aa668cef6e72ff9c7ff8fe6"
+                },
+                {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/dist/assets/encParseWorker-BJWbOlDS.js",
+                    "sha256": "e6016a65c0dc3c7a462afacdc3bfd4b00ec489f5199ead4bbf9e62f39e0840d9"
+                },
+                {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/dist/assets/navGridWorker-DDiXtsxI.js",
+                    "sha256": "1ad302f93db8b74a5897fd1ba409caff45e3f998db6b5022aed0d12d626aa647"
+                }
+            ],
+            "graphPolicyObservations": [
+                {
+                    "isWorker": false,
+                    "closedGraphInstances": 1,
+                    "workerFormat": "es"
+                },
+                {
+                    "isWorker": true,
+                    "closedGraphInstances": 1,
+                    "workerFormat": "es"
+                },
+                {
+                    "isWorker": true,
+                    "closedGraphInstances": 1,
+                    "workerFormat": "es"
+                },
+                {
+                    "isWorker": true,
+                    "closedGraphInstances": 1,
+                    "workerFormat": "es"
+                }
+            ],
+            "outputCount": 255,
+            "outputBytes": 10172134,
+            "outputInventoryReceipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/build-receipt.json",
+                "sha256": "47fbd75f2f1d7b5cfa1570cd371199bd457b71984ae6b52f09373c016f6e3c20"
+            },
+            "entryHtmlOutputs": [
+                {
+                    "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-helper-repair-EorgtJ/dist/index.html",
+                    "sha256": "634ccba0ea33ff56566ddbb70b6cc2201a6587a11f1faecab89698a450848d35"
+                }
+            ],
+            "inheritedSyntheticCanariesInjected": true,
+            "inheritedSyntheticCanariesAbsent": true,
+            "publicAssetsCopied": false,
+            "productionConfigurationImported": false,
+            "warnings": {
+                "framerMotionDirectivesIgnored": true,
+                "largeChunkWarning": true
+            },
+            "note": "Full main/worker module-ID and transformed-code-hash inventories plus readable physical-source hashes are retained in the hashed build receipt. These are loaded/transformed modules, not emitted-only code, runtime execution or independently attested provenance."
+        }
+    },
+    "retainedFailures": [
+        {
+            "receipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-bundle-IHeHW4/build-receipt.json",
+                "sha256": "5e62c9ad4886923b936116edab73791429a78ce67619842497ebc28936722b94"
+            },
+            "guardReceipt": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-bundle-IHeHW4/build-guard-receipt.json",
+                "sha256": "1a2d6d98b62823cba8086a62e3d8d3563aee49a726420dbda9de6a2ebbc218f0"
+            },
+            "failureLog": {
+                "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-bundle-IHeHW4/failure.log",
+                "sha256": "4dcd1cbe63430a61a44adf59a73d43a749b9a334871fc9718ea5c951c46564dd"
+            },
+            "failure": "Clean preparation build failed MISSING_EXPORT: components/anchor-watch/swingRadiusSuggest.ts:35 imported haversineDistance from the closed AnchorWatchService namespace. Exact unavailable export/throwing helper repair followed; original service stayed unchanged."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/documentation-receipt.json",
+                "sha256": "4686cfca36fbc3a11857e4540b3770eddf80960adcf3fc2bcf384dfee07c058e"
+            },
+            "failure": "Initial documentation-format check required only machine-generated manifest JSON formatting. Markdown source and application/test behavior were unchanged."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-focused-34gWO2/checks.json",
+                "sha256": "2d234a7cb468f4cb1549707b7b05e65710bedc1ab9fc92ff0e2bf7e67473d65a"
+            },
+            "failure": "Malformed null Auth publication collided with the missing blocked-snapshot sentinel; a dedicated sentinel and four reentrancy cases corrected denial."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-mount-QPq2KE/checks.json",
+                "sha256": "75d76b4870ddd4b96e25676424f2e37eb7ee010e89e5d7f137a77487783d281c"
+            },
+            "failure": "Initial nominal mount pass emitted a jsdom lazyRetry reload warning; it is not a clean actual App mount."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-mount-strict-p4WsZg/checks.json",
+                "sha256": "b6faf723f2c3ea3704282810405bfd784a3e389834913c9686c70f27a3f011b8"
+            },
+            "failure": "Strict settled-mount observation exposed a missing ShipLogService.getCurrentVoyageId closed-leaf getter."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-types-LfgJq3/checks.json",
+                "sha256": "c79a22a83e41eaa71016c0094b4d84a6cfbf02054fc26c8913ccfc92bfb3d72e"
+            },
+            "failure": "TypeScript inferred a nullable captured host in ioFence; an explicitly checked alias corrected narrowing."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-lint-TUBtHE/checks.json",
+                "sha256": "89ed6d12f761aa534d0e2753ad0443ebb0bb0f5b844f8a27d12dd6d6bb1dc976"
+            },
+            "failure": "Named lint rejected a control-character regex; a bounded char-code predicate replaced it."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-build-3z936Q/build-receipt.json",
+                "sha256": "ee8a2b577617ea2de2286041fed821c511875eaaa412c79eec86c1e9aa9bc2db"
+            },
+            "failure": "Initial isolated Vite build refused ChatService runtime SDK classifier import after 340 transformed modules; the exact classifier projection and package path gates were corrected."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-final-UdCTcx/mount-receipt.json",
+                "sha256": "c3754bd0646ceb72ef6d9a4434b81dda9625588d36ab02bc137c5424d22531bd"
+            },
+            "failure": "Fresh allowlisted Node26.5.0 jsdom mount failed because the Node global localStorage was undefined. Final jsdom checks use explicit Node24.19.0 with --no-experimental-webstorage, no inherited NODE_OPTIONS or persisted browser storage."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-node24-final-chwsrS/format-receipt.json",
+                "sha256": "d420e0f3e0169a4d98a225498004d83649ae7325377fa2a501720ca44c5d9f03"
+            },
+            "failure": "Named formatting found one fixture requiring Prettier: E2eeFullAppBoundaries.test.ts. Only that file was mechanically formatted; application behavior and assertions were unchanged."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/build-receipt.json",
+                "sha256": "de9e697038f1bb4c0b7bfa547f03407a9b155cce028269f962989a8cb7f440a5"
+            },
+            "failure": "Isolated Vite build refused an unmapped native runtime dependency. Read-only source/hook inspection identified the runtime enum import from BgGeoManager; final graph closes that complete service instead of admitting its enums package."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-frozen-final-9CNOng/build-guard-failure.json",
+                "sha256": "962a11ee97651a5e7fc3286e9572933333d510e4f9491f4cb6717ff80b02a8f3"
+            },
+            "failure": "Owned wrapper refused EEXIST when publishing to the child build receipt filename. Fresh wrapper publishes build-guard-receipt.json separately; original failed child receipt and logs are unchanged."
+        },
+        {
+            "receipt": {
+                "path": "/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-closed-geo-final-FvA7Gl/build-receipt.json",
+                "sha256": "1112e509e43cadc8e613c859d9cbadfc7842e2a68de55f8e0f45e51765f185ea"
+            },
+            "failure": "Default IIFE worker format refused navGrid module-worker code splitting. Final isolated config independently chooses ES workers and creates one fresh closed graph for every worker build; no ordinary Vite config is imported."
+        }
+    ],
+    "retainedPreparation": {
+        "manifest": {
+            "path": "/Users/shanestratton/.codex/worktrees/scuttlebutt-e2ee/thalassa-marine-weather/experiments/scuttlebutt-e2ee/review/full-app-2026-10-09.json",
+            "sha256": "49a3dee4a5937699d1d35f319125c36040739860d43bd75c68e6a5bdba16e1b4"
+        },
+        "buildQueuedReceipt": {
+            "path": "/private/var/folders/gp/n1tg7r0s1tdgw69h13q60wdr0000gn/T/thalassa-full-app-worker-final-PEFS25/build-guard-receipt.json",
+            "sha256": "a739da8e53b66f329d633a81cd6c29af981c0cebb8fd7858b1611af6c33be2f9"
+        },
+        "note": "Earlier preparation checkpoints and queued/unrun build receipt remain historical; this build does not retroactively change their outcomes."
+    },
+    "runnerCorrections": [
+        {
+            "change": "Removed repeated config worker graph factory from the owned inline factory because Vite concatenates worker.plugins. Asserted one gate per main/worker config.",
+            "scope": "Private runner only; repository worker config/authority policy unchanged."
+        },
+        {
+            "change": "Explicitly hashed committed full-app source names at clean sourceBase and recorded any unreadable physical module inputs.",
+            "scope": "Private runner only; no omission in successful receipt."
+        }
+    ],
+    "evidenceLimits": [
+        "Successful Vite compilation only. No entry, actual Window/I/O-fence/CSP installation, native bridge/provider/Keychain, SDK login, protected navigation, device lifecycle or ciphertext exchange ran.",
+        "Existing unsupported App jsdom mount, fake-host I/O and earlier dedicated Research native/hosted evidence are separate source candidates/categories; they were not rerun or transferred to this build.",
+        "Private Auth fetch and build substitutions are trusted graph contracts, not a sandbox against malicious same-origin JavaScript, captured transports or arbitrary native bridge access.",
+        "Canary absence covers exactly three injected synthetic VITE values across emitted files, not a general no-secret/no-production-string security audit.",
+        "Partial failed-build inventories and successful whole-build inventories are distinct. Three compiled worker assets prove no actual Worker execution.",
+        "Shared node_modules was read-only. Owned sortable archive identity and installed-file hashes do not independently attest runtime/native binary provenance or licence clearance.",
+        "No ship/master-ready, physical acceptance or independent security assessment claim."
+    ],
+    "remainingGates": [
+        {
+            "gate": "Actual fresh full Root Window entry/I/O-fence/CSP and remount behavior",
+            "state": "next-unrun"
+        },
+        {
+            "gate": "Actual full Root native supported admission, protected navigation and lifecycle races",
+            "state": "unrun"
+        },
+        {
+            "gate": "Current physical iPhone/iPad acceptance",
+            "state": "requires-human"
+        },
+        {
+            "gate": "Device/prekey renewal/replacement, retention and recovery policy",
+            "state": "incomplete"
+        },
+        {
+            "gate": "Independent PostgreSQL concurrency",
+            "state": "incomplete"
+        },
+        {
+            "gate": "Dependency/licence obligations and fresh native binary provenance",
+            "state": "open"
+        },
+        {
+            "gate": "Production legacy SQL/notification enforcement and cutover",
+            "state": "not-activated"
+        },
+        {
+            "gate": "Independent security assessment",
+            "state": "uncommissioned-new-authority-required"
+        }
+    ],
+    "isolation": {
+        "masterMergedOrPushed": false,
+        "primaryEditedOrSynced": false,
+        "sharedDependenciesWritten": false,
+        "hostedChanges": false,
+        "humanDeviceAccountCredentialChanges": false,
+        "productionActivation": false,
+        "externalSourceShared": false,
+        "reviewerContact": false,
+        "purchases": false
+    }
+}
